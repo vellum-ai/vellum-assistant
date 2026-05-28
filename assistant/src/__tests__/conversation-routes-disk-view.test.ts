@@ -241,7 +241,7 @@ function createFakeConversation(conversationId: string): Conversation {
       requestId?: string,
       metadata?: Record<string, unknown>,
       displayContent?: string,
-    ): Promise<string> {
+    ): Promise<{ id: string; deduplicated: boolean }> {
       return persistUserMessage(
         this as Parameters<typeof persistUserMessage>[0],
         content,

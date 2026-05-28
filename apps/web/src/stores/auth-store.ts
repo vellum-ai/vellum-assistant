@@ -19,8 +19,19 @@ import {
   getSession,
   logout as allauthLogout,
 } from "@/lib/auth/allauth-client";
-import { probeGatewayAuthState } from "@/lib/auth/gateway-session";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import {
+  isGatewayAuthEnabled,
+  isGatewayAuthMode,
+  ensureGatewayToken,
+  clearGatewayToken,
+  getLocalTokenUrl,
+} from "@/lib/auth/gateway-session";
+import {
+  isLocalMode,
+  getPlatformAssistants,
+  clearSelectedAssistant,
+  primeLocalGatewayConnection,
+} from "@/lib/local-mode";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { syncOnboardingUser, clearOnboardingFlags } from "@/lib/onboarding-cleanup";
 import { clearOrganization } from "@/stores/organization-store";
@@ -67,6 +78,7 @@ interface AuthState {
   isLoggedIn: boolean;
   isLoading: boolean;
   user: AuthUser | null;
+  hasPlatformSession: boolean;
 }
 
 interface AuthActions {
@@ -79,6 +91,15 @@ type AuthStore = AuthState & AuthActions;
 
 let previousUserId: string | null = null;
 let broadcastChannel: BroadcastChannel | null = null;
+
+const GATEWAY_LOCAL_USER: AuthUser = {
+  id: "gateway-local",
+  username: "local",
+  email: null,
+  isStaff: false,
+  firstName: "Local",
+  lastName: "User",
+};
 
 function syncOrganizationState(nextUserId: string | null): void {
   if (!nextUserId || (previousUserId && previousUserId !== nextUserId)) {
@@ -100,14 +121,47 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
   isLoggedIn: false,
   isLoading: true,
   user: null,
+  hasPlatformSession: false,
 
   initSession: async () => {
+    if (isGatewayAuthEnabled()) {
+      try {
+        await primeLocalGatewayConnection();
+        set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+      } catch {
+        set({ isLoggedIn: false, isLoading: false, user: null });
+      }
+      if (!isLocalMode() || getPlatformAssistants().length > 0) {
+        getSession()
+          .then((result) => {
+            if (result.ok && result.data.user) {
+              set({ hasPlatformSession: true });
+            }
+          })
+          .catch(() => {});
+      }
+      return;
+    }
+
+    if (isLocalMode() && !isGatewayAuthEnabled()) {
+      set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+      getSession()
+        .then((result) => {
+          if (result.ok && result.data.user) {
+            const user = toAuthUser(result.data.user);
+            set({ hasPlatformSession: true, user });
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+
     try {
       const result = await getSession();
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, isLoading: false, user });
+        set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
         return;
       }
     } catch (err) {
@@ -126,7 +180,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
           if (retryResult.ok && retryResult.data.user) {
             const user = toAuthUser(retryResult.data.user);
             syncUserScopedState(user?.id ?? null);
-            set({ isLoggedIn: true, isLoading: false, user });
+            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
             return;
           }
         }
@@ -137,34 +191,55 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
 
     syncUserScopedState(null);
     set({ isLoggedIn: false, isLoading: false, user: null });
-
-    if (useClientFeatureFlagStore.getState().gatewayWebAuth) {
-      probeGatewayAuthState()
-        .then((s) => console.debug("[gateway-auth] state:", s))
-        .catch((e: unknown) =>
-          console.debug("[gateway-auth] probe failed:", e),
-        );
-    }
   },
 
   refreshSession: async () => {
+    if (isGatewayAuthMode()) {
+      try {
+        await ensureGatewayToken(getLocalTokenUrl());
+        set({ isLoggedIn: true });
+      } catch {
+        set({ isLoggedIn: false, user: null, hasPlatformSession: false });
+        return false;
+      }
+      if (!isLocalMode() || getPlatformAssistants().length > 0) {
+        getSession()
+          .then((result) => {
+            set({ hasPlatformSession: !!(result.ok && result.data.user) });
+          })
+          .catch(() => set({ hasPlatformSession: false }));
+      }
+      return true;
+    }
+
     try {
       const result = await getSession();
       if (result.ok && result.data.user) {
         const user = toAuthUser(result.data.user);
         syncUserScopedState(user?.id ?? null);
-        set({ isLoggedIn: true, user });
+        set({ isLoggedIn: true, user, hasPlatformSession: true });
         return true;
       }
     } catch (err) {
       console.warn("auth.refreshSession failed", err);
     }
     syncUserScopedState(null);
-    set({ isLoggedIn: false, user: null });
+    set({ isLoggedIn: false, user: null, hasPlatformSession: false });
     return false;
   },
 
   logout: async () => {
+    if (isGatewayAuthMode()) {
+      clearSelectedAssistant();
+      clearGatewayToken();
+      clearOnboardingFlags();
+      clearOrganization();
+      clearUserScopedStorage();
+      set({ isLoggedIn: false, user: null, hasPlatformSession: false });
+      broadcastAuthChange();
+      return;
+    }
+
     try {
       await allauthLogout();
     } finally {
@@ -172,7 +247,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOnboardingFlags();
       clearOrganization();
       clearUserScopedStorage();
-      set({ isLoggedIn: false, user: null });
+      set({ isLoggedIn: false, user: null, hasPlatformSession: false });
       broadcastAuthChange();
     }
   },

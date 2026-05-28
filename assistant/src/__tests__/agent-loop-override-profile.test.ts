@@ -223,7 +223,7 @@ class FakeConversation {
     return Promise.resolve();
   }
   persistUserMessage() {
-    return Promise.resolve("msg-id");
+    return Promise.resolve({ id: "msg-id", deduplicated: false });
   }
   runAgentLoop(
     _content: string,

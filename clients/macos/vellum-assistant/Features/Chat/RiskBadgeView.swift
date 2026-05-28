@@ -13,18 +13,26 @@ struct RiskBadgeView: View {
     let riskLevel: String
     var hasExistingRule: Bool = false
     var provenanceText: String? = nil
+    /// Optional override for the tooltip text. When nil, the default
+    /// "Risk level: …" help text is used.
+    var helpText: String? = nil
     var onTap: (() -> Void)? = nil
 
     var body: some View {
         if let onTap {
+            let tooltip = helpText ?? "Risk level: \(displayLabel). \(hasExistingRule ? "Click to edit the matching rule." : "Click to create a rule.")"
             Button(action: onTap) {
                 badgeContent
             }
             .buttonStyle(.plain)
-            .help("Risk level: \(displayLabel). \(hasExistingRule ? "Click to edit the matching rule." : "Click to create a rule.")")
+            .help(tooltip)
         } else {
             badgeContent
         }
+    }
+
+    private var isWorkspaceChip: Bool {
+        riskLevel.lowercased() == "workspace"
     }
 
     private var badgeContent: some View {
@@ -34,11 +42,19 @@ struct RiskBadgeView: View {
             .padding(EdgeInsets(top: 2, leading: 6, bottom: 2, trailing: 6))
             .background(backgroundColor)
             .clipShape(Capsule())
+            .overlay {
+                if isWorkspaceChip {
+                    Capsule().stroke(VColor.borderElement, lineWidth: 1)
+                }
+            }
     }
 
     // MARK: - Display
 
     private var displayLabel: String {
+        if isWorkspaceChip {
+            return "Workspace"
+        }
         let base = riskLevel.isEmpty ? "Unknown" : riskLevel.prefix(1).uppercased() + riskLevel.dropFirst()
         if let provenance = provenanceText {
             return "\(base) \(provenance)"
@@ -56,6 +72,8 @@ struct RiskBadgeView: View {
             VColor.systemMidWeak
         case "high":
             VColor.systemNegativeWeak
+        case "workspace":
+            VColor.surfaceLift
         default:
             VColor.surfaceBase
         }
@@ -69,6 +87,8 @@ struct RiskBadgeView: View {
             VColor.systemMidStrong
         case "high":
             VColor.systemNegativeStrong
+        case "workspace":
+            VColor.contentSecondary
         default:
             VColor.contentSecondary
         }

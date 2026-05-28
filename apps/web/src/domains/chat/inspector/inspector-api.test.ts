@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type {
   LlmContextResponse,
   LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types";
+} from "@vellumai/assistant-api";
 
 interface FakeRequest {
   url: string;

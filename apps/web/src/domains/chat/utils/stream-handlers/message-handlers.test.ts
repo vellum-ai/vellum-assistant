@@ -8,6 +8,7 @@ import {
   handleGenerationHandoff,
   handleGenerationCancelled,
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
+import { useSubagentStore } from "@/domains/subagents/subagent-store";
 
 describe("handleAssistantTextDelta", () => {
   it("cancels reconciliation and dispatches ASSISTANT_TEXT_DELTA", () => {
@@ -142,7 +143,7 @@ describe("handleMessageComplete", () => {
   it("finalizes message and completes turn without starting reconcile", () => {
     const ctx = makeCtx();
     handleMessageComplete(
-      { type: "message_complete", messageId: "msg-1", content: "Done" },
+      { type: "message_complete", messageId: "msg-1" },
       ctx,
     );
     expect(ctx.setMessages).toHaveBeenCalled();
@@ -150,13 +151,90 @@ describe("handleMessageComplete", () => {
     expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
+
+  it("re-anchors a spawned subagent from the streaming id to the server messageId", () => {
+    useSubagentStore.getState().reset();
+    // Spawn stamped with the optimistic streaming bubble id.
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Researcher",
+      objective: "Investigate",
+      timestamp: 1,
+      parentMessageStableId: "stream-bubble-1",
+    });
+    expect(
+      useSubagentStore.getState().byParent.get("stream-bubble-1"),
+    ).toHaveLength(1);
+
+    const ctx = makeCtx({
+      currentAssistantMessageIdRef: { current: "stream-bubble-1" },
+    });
+    handleMessageComplete(
+      { type: "message_complete", messageId: "server-msg-1" },
+      ctx,
+    );
+
+    // Entry is now reachable via the durable server messageId.
+    const byServer = useSubagentStore.getState().byParent.get("server-msg-1");
+    expect(byServer).toHaveLength(1);
+    expect(byServer?.[0]?.subagentId).toBe("sa-1");
+    expect(useSubagentStore.getState().byId["sa-1"]?.parentMessageId).toBe(
+      "server-msg-1",
+    );
+  });
+
+  it("does not re-anchor when the event has no messageId", () => {
+    useSubagentStore.getState().reset();
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Researcher",
+      objective: "Investigate",
+      timestamp: 1,
+      parentMessageStableId: "stream-bubble-1",
+    });
+
+    const ctx = makeCtx({
+      currentAssistantMessageIdRef: { current: "stream-bubble-1" },
+    });
+    handleMessageComplete({ type: "message_complete" }, ctx);
+
+    expect(useSubagentStore.getState().byId["sa-1"]?.parentMessageId).toBe(
+      undefined,
+    );
+  });
+
+  it("does not re-anchor when there is no current assistant message id", () => {
+    useSubagentStore.getState().reset();
+    useSubagentStore.getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Researcher",
+      objective: "Investigate",
+      timestamp: 1,
+      parentMessageStableId: "stream-bubble-1",
+    });
+
+    const ctx = makeCtx({
+      currentAssistantMessageIdRef: { current: undefined },
+    });
+    handleMessageComplete(
+      { type: "message_complete", messageId: "server-msg-1" },
+      ctx,
+    );
+
+    expect(
+      useSubagentStore.getState().byParent.get("server-msg-1"),
+    ).toBeUndefined();
+    expect(useSubagentStore.getState().byId["sa-1"]?.parentMessageId).toBe(
+      undefined,
+    );
+  });
 });
 
 describe("handleGenerationHandoff", () => {
   it("cancels reconciliation and finalizes streaming tail", () => {
     const ctx = makeCtx();
     handleGenerationHandoff(
-      { type: "generation_handoff", messageId: "msg-1" },
+      { type: "generation_handoff", messageId: "msg-1", queuedCount: 0 },
       ctx,
     );
     expect(ctx.cancelReconciliation).toHaveBeenCalled();

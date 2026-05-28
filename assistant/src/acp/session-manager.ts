@@ -467,7 +467,7 @@ export class AcpSessionManager {
             if (!enqueueResult.queued && !enqueueResult.rejected) {
               parentConversation
                 .persistUserMessage(notifyMessage, [])
-                .then((messageId) =>
+                .then(({ id: messageId }) =>
                   parentConversation.runAgentLoop(notifyMessage, messageId),
                 )
                 .catch((err) => {

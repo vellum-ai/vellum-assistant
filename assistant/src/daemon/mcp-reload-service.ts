@@ -82,7 +82,7 @@ async function doReload(): Promise<McpReloadResult> {
           serverConfig,
           manager,
         );
-        const accepted = registerMcpTools(mcpTools);
+        const accepted = registerMcpTools(serverId, mcpTools);
         const acceptedNames = accepted.map((t) => t.name);
         toolCount += accepted.length;
         servers.push({

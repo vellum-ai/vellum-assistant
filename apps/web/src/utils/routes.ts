@@ -40,11 +40,14 @@ export const routes = {
     providerCallback: r("/account/provider/callback"),
     oauth: {
       popupComplete: r("/account/oauth/popup-complete"),
+      complete: r("/account/oauth/complete"),
       desktopComplete: r("/account/oauth/desktop-complete"),
     },
   },
 
   onboarding: {
+    welcome: r("/assistant/onboarding/welcome"),
+    hosting: r("/assistant/onboarding/hosting"),
     privacy: r("/assistant/onboarding/privacy"),
     prechat: r("/assistant/onboarding/prechat"),
     hatching: r("/assistant/onboarding/hatching"),

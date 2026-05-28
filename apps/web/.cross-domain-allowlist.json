@@ -31,6 +31,9 @@
   "src/domains/chat/components/mobile-subagent-detail-overlay.tsx": [
     "subagents"
   ],
+  "src/domains/chat/components/subagent-detail-panel.test.tsx": [
+    "subagents"
+  ],
   "src/domains/chat/components/subagent-detail-panel.tsx": [
     "subagents"
   ],
@@ -73,10 +76,18 @@
     "messaging"
   ],
   "src/domains/chat/hooks/use-message-reconciliation.test.tsx": [
+    "conversations",
     "messaging"
   ],
   "src/domains/chat/hooks/use-message-reconciliation.ts": [
+    "conversations",
     "messaging"
+  ],
+  "src/domains/chat/hooks/use-refresh-latest-messages.test.ts": [
+    "conversations"
+  ],
+  "src/domains/chat/hooks/use-refresh-latest-messages.ts": [
+    "conversations"
   ],
   "src/domains/chat/hooks/use-send-message.ts": [
     "conversations",
@@ -108,9 +119,11 @@
     "subagents"
   ],
   "src/domains/chat/utils/debug-api.test.ts": [
+    "conversations",
     "messaging"
   ],
   "src/domains/chat/utils/debug-api.ts": [
+    "conversations",
     "messaging"
   ],
   "src/domains/chat/utils/stream-handlers/interaction-handlers.test.ts": [
@@ -118,6 +131,12 @@
   ],
   "src/domains/chat/utils/stream-handlers/interaction-handlers.ts": [
     "interactions"
+  ],
+  "src/domains/chat/utils/stream-handlers/message-handlers.test.ts": [
+    "subagents"
+  ],
+  "src/domains/chat/utils/stream-handlers/message-handlers.ts": [
+    "subagents"
   ],
   "src/domains/chat/utils/stream-handlers/metadata-handlers.test.ts": [
     "conversations"
@@ -128,6 +147,9 @@
   "src/domains/chat/utils/stream-handlers/navigation-handlers.ts": [
     "settings"
   ],
+  "src/domains/chat/utils/stream-handlers/queue-handlers.ts": [
+    "conversations"
+  ],
   "src/domains/chat/utils/stream-handlers/subagent-handlers.ts": [
     "subagents"
   ],
@@ -136,12 +158,6 @@
   ],
   "src/domains/chat/utils/stream-handlers/types.ts": [
     "messaging"
-  ],
-  "src/domains/conversations/conversation-queries.test.ts": [
-    "chat"
-  ],
-  "src/domains/conversations/conversation-queries.ts": [
-    "chat"
   ],
   "src/domains/conversations/use-attention-tracking.ts": [
     "chat"

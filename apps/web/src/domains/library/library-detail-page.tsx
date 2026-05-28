@@ -5,8 +5,10 @@ import { useNavigate, useParams } from "react-router";
 import { toast } from "@vellum/design-library";
 
 import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
-import { openApp, primeAppHtmlCache, shareApp } from "@/lib/apps-api";
+import { appsByIdOpenPost } from "@/generated/daemon/sdk.gen";
 import { AppViewerContainer } from "@/components/apps/app-viewer-container";
+import { primeAppHtmlCache } from "@/utils/app-html-cache";
+import { shareApp } from "@/utils/share-app";
 import { routes } from "@/utils/routes";
 
 interface LoadedApp {
@@ -32,8 +34,11 @@ export function LibraryDetailPage() {
     setApp(null);
     setError(null);
 
-    openApp(assistantId, appId)
-      .then((result) => {
+    appsByIdOpenPost({
+      path: { assistant_id: assistantId, id: appId },
+      throwOnError: true,
+    })
+      .then(({ data: result }) => {
         if (requestRef.current !== appId) return;
         primeAppHtmlCache(assistantId, result.appId, result.html);
         setApp({

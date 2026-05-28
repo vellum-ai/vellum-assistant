@@ -13,6 +13,18 @@
  * `window.vellum`, `isNativePlatform()` calls Capacitor, and the web branch
  * uses `localStorage` — so consumers stay platform-agnostic.
  */
+/**
+ * Renderer-side mirror of the discriminated union in
+ * `apps/macos/src/main/commands.ts`. Inline (rather than cross-package
+ * imported) because main, preload, and renderer each have their own TS
+ * project; the type is tiny enough that maintaining identical literal
+ * unions is cheaper than wiring cross-package imports.
+ */
+export type VellumCommand =
+  | { kind: "newConversation" }
+  | { kind: "currentConversation" }
+  | { kind: "markCurrentUnread" };
+
 declare global {
   interface Window {
     vellum?: {
@@ -20,6 +32,9 @@ declare global {
       settings: {
         get<T = unknown>(key: string): Promise<T | null>;
         set<T = unknown>(key: string, value: T): Promise<void>;
+      };
+      commands: {
+        on(callback: (command: VellumCommand) => void): () => void;
       };
     };
   }

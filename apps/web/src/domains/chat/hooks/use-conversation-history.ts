@@ -77,7 +77,6 @@ interface UseConversationHistoryParams {
   requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  lastSuggestionMsgIdRef: MutableRefObject<string | null>;
   autoGreetRef: MutableRefObject<boolean>;
 
   // State setters
@@ -87,7 +86,6 @@ interface UseConversationHistoryParams {
   setError: Dispatch<SetStateAction<ChatError | null>>;
   setAutoGreetPending: Dispatch<SetStateAction<boolean>>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
-  setSuggestion: Dispatch<SetStateAction<string | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
   // Callbacks
@@ -118,7 +116,6 @@ export function useConversationHistory({
   requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  lastSuggestionMsgIdRef,
   autoGreetRef,
   setMessages,
   setTranscriptPagination,
@@ -126,7 +123,6 @@ export function useConversationHistory({
   setError,
   setAutoGreetPending,
   setContextWindowUsage,
-  setSuggestion,
   setCompactionCircuitOpenUntil,
   resetChatAttachments,
   shouldSuppressGenericChatErrorNotice,
@@ -157,7 +153,6 @@ export function useConversationHistory({
     requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    lastSuggestionMsgIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     setMessages,
@@ -166,7 +161,6 @@ export function useConversationHistory({
     setError,
     setAutoGreetPending,
     setContextWindowUsage,
-    setSuggestion,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,
     shouldSuppressGenericChatErrorNotice,

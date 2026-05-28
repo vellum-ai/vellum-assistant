@@ -1037,9 +1037,10 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
       "anthropic-managed",
     );
     expect("status" in raw.llm.profiles.balanced).toBe(false);
-    expect(getConnection(db, "anthropic-managed")?.status).toBe("active");
-    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
-    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
+    // Connections exist (status is no longer a connection-level concept).
+    expect(getConnection(db, "anthropic-managed")).not.toBeNull();
+    expect(getConnection(db, "openai-managed")).not.toBeNull();
+    expect(getConnection(db, "gemini-managed")).not.toBeNull();
   });
 
   test("off-platform managed-inference hatch respects explicit non-managed active connection", () => {
@@ -1075,26 +1076,10 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(raw.llm.profiles.balanced.provider_connection).toBe(
       "anthropic-personal",
     );
-    expect(getConnection(db, "anthropic-managed")?.status).toBe("disabled");
-    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
-    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
-  });
-
-  test("off-platform BYOK hatch still disables managed connections", () => {
-    const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
-    writeFileSync(
-      overlayPath,
-      JSON.stringify({ llm: { default: { provider: "anthropic" } } }, null, 2) +
-        "\n",
-    );
-    process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
-    const db = createProviderConnectionsDb();
-
-    mergeDefaultConfigAndSeedInferenceProfiles(db);
-
-    expect(getConnection(db, "anthropic-managed")?.status).toBe("disabled");
-    expect(getConnection(db, "openai-managed")?.status).toBe("disabled");
-    expect(getConnection(db, "gemini-managed")?.status).toBe("disabled");
+    // Connections exist (status is no longer a connection-level concept).
+    expect(getConnection(db, "anthropic-managed")).not.toBeNull();
+    expect(getConnection(db, "openai-managed")).not.toBeNull();
+    expect(getConnection(db, "gemini-managed")).not.toBeNull();
   });
 
   test("non-hatch off-platform boot does NOT auto-disable freshly-materialized managed profiles", () => {

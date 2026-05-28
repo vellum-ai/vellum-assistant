@@ -6,12 +6,14 @@
  * (16px default) avatar inline — e.g. as the leading icon slot of a
  * subagent tool-call card, per Figma node `4922-103839`.
  *
- * Does not introduce a new bundle; reuses `BUNDLED_COMPONENTS` already
- * consumed by `SubagentInlineProgressCard`.
+ * The 48 kB bundled-components payload is loaded lazily via
+ * `useBundledAvatarComponents` to keep it off the chat-critical bundle;
+ * the chip renders a transparent placeholder of the same size until the
+ * data chunk resolves so layout doesn't reflow when the avatar pops in.
  */
 
 import { AvatarRenderer } from "@/components/avatar-renderer";
-import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
+import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { subagentTraits } from "@/utils/avatar-subagent";
 
 export interface SubagentAvatarChipProps {
@@ -27,6 +29,7 @@ export function SubagentAvatarChip({
   className,
 }: SubagentAvatarChipProps) {
   const traits = subagentTraits(subagentId);
+  const components = useBundledAvatarComponents();
 
   // `AvatarRenderer` renders a `<div>` — wrapping it in a `<span>` produces
   // invalid HTML (block element inside an inline element) which browsers
@@ -38,13 +41,17 @@ export function SubagentAvatarChip({
       aria-label={`Subagent ${subagentId}`}
       className={`inline-flex ${className ?? ""}`.trim()}
     >
-      <AvatarRenderer
-        components={BUNDLED_COMPONENTS}
-        bodyShapeId={traits.bodyShape}
-        eyeStyleId={traits.eyeStyle}
-        colorId={traits.color}
-        size={size}
-      />
+      {components ? (
+        <AvatarRenderer
+          components={components}
+          bodyShapeId={traits.bodyShape}
+          eyeStyleId={traits.eyeStyle}
+          colorId={traits.color}
+          size={size}
+        />
+      ) : (
+        <div style={{ width: size, height: size, flexShrink: 0 }} aria-hidden />
+      )}
     </div>
   );
 }

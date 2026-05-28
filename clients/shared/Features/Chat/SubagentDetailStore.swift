@@ -129,6 +129,11 @@ public final class SubagentDetailStore {
     /// (usageUpdate uses additive estimatedCost while recordStatusChanged writes cumulative).
     @ObservationIgnored
     private var terminalUsageReceivedIds: Set<String> = []
+    /// Subagent IDs that have received at least one `.usageProgress` event.
+    /// When set, `.usageUpdate` is skipped to avoid double-counting (progress
+    /// events already provide the same data more granularly).
+    @ObservationIgnored
+    private var progressReceivedIds: Set<String> = []
     /// The coalescing flush task; non-nil while a flush is scheduled.
     @ObservationIgnored
     private var flushTask: Task<Void, Never>?
@@ -368,11 +373,29 @@ public final class SubagentDetailStore {
             // Skip late deltas after recordStatusChanged has written cumulative stats
             // to avoid double-counting estimatedCost (which uses additive accumulation).
             guard !terminalUsageReceivedIds.contains(subagentId) else { break }
+            // Skip when usage_progress events already provided granular updates —
+            // applying both would double-count cost. The terminal subagent_status_changed
+            // will write the final authoritative numbers.
+            guard !progressReceivedIds.contains(subagentId) else { break }
             let current = stagedUsage[subagentId] ?? subagentStates[subagentId]?.usageStats ?? SubagentUsageStats()
             stagedUsage[subagentId] = SubagentUsageStats(
                 inputTokens: update.totalInputTokens,
                 outputTokens: update.totalOutputTokens,
                 estimatedCost: current.estimatedCost + update.estimatedCost
+            )
+            scheduleFlush()
+            #if DEBUG
+            trackMutation()
+            #endif
+
+        case .usageProgress(let progress):
+            guard !terminalUsageReceivedIds.contains(subagentId) else { break }
+            progressReceivedIds.insert(subagentId)
+            let current = stagedUsage[subagentId] ?? subagentStates[subagentId]?.usageStats ?? SubagentUsageStats()
+            stagedUsage[subagentId] = SubagentUsageStats(
+                inputTokens: current.inputTokens + progress.inputTokens,
+                outputTokens: current.outputTokens + progress.outputTokens,
+                estimatedCost: current.estimatedCost + progress.estimatedCost
             )
             scheduleFlush()
             #if DEBUG

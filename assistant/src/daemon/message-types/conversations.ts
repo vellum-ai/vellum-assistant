@@ -1,5 +1,7 @@
 // Conversation lifecycle, auth, model config, and history types.
 
+import type { GenerationCancelledEvent } from "../../api/events/generation-cancelled.js";
+import type { GenerationHandoffEvent } from "../../api/events/generation-handoff.js";
 import type {
   ChannelId,
   HostProxyInterfaceId,
@@ -309,26 +311,6 @@ export interface AssistantStatusMessage {
   keyFingerprint?: string;
 }
 
-export interface GenerationCancelled {
-  type: "generation_cancelled";
-  conversationId?: string;
-}
-
-export interface GenerationHandoff {
-  type: "generation_handoff";
-  conversationId: string;
-  requestId?: string;
-  queuedCount: number;
-  attachments?: UserMessageAttachment[];
-  attachmentWarnings?: string[];
-  /**
-   * Database ID of the completed assistant turn — the id that survives
-   * query-time merging when a turn persists multiple assistant rows. Matches
-   * the row the messages route returns.
-   */
-  messageId?: string;
-}
-
 export interface ModelInfo {
   type: "model_info";
   conversationId?: string;
@@ -456,6 +438,20 @@ export interface UsageUpdate {
   contextWindowMaxTokens?: number;
 }
 
+/**
+ * Emitted after each LLM call with per-call token deltas and estimated cost.
+ * Clients accumulate these additively for live-updating usage metrics.
+ * This is a UI-only hint — it does not persist to DB or affect billing.
+ */
+export interface UsageProgress {
+  type: "usage_progress";
+  conversationId: string;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+  model: string;
+}
+
 export interface UsageResponse {
   type: "usage_response";
   totalInputTokens: number;
@@ -553,6 +549,7 @@ export type ConversationErrorCode =
   | "MANAGED_KEY_INVALID"
   | "CONTEXT_TOO_LARGE"
   | "BUDGET_YIELD_UNRECOVERED"
+  | "MAX_TOKENS_REACHED"
   | "CONVERSATION_ABORTED"
   | "CONVERSATION_PROCESSING_FAILED"
   | "DISK_SPACE_CRITICAL"
@@ -645,12 +642,13 @@ export type _ConversationsServerMessages =
   | AuthResult
   | PongMessage
   | AssistantStatusMessage
-  | GenerationCancelled
-  | GenerationHandoff
+  | GenerationCancelledEvent
+  | GenerationHandoffEvent
   | ModelInfo
   | HistoryResponse
   | UndoComplete
   | UsageUpdate
+  | UsageProgress
   | UsageResponse
   | ContextCompacted
   | CompactionCircuitOpen

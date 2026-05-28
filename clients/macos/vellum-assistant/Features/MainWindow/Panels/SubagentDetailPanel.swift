@@ -436,6 +436,8 @@ struct SubagentDetailPanel: View {
                     .foregroundStyle(VColor.contentDefault)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .contentTransition(.numericText())
+                    .animation(.easeInOut(duration: 0.3), value: value)
                 Text(label)
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)

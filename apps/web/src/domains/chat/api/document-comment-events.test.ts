@@ -1,13 +1,15 @@
 import { describe, expect, mock, test } from "bun:test";
 
+import type {
+  DocumentCommentCreatedEvent,
+  DocumentCommentDeletedEvent,
+  DocumentCommentReopenedEvent,
+  DocumentCommentResolvedEvent,
+} from "@vellumai/assistant-api";
 import type { DocumentComment } from "@/domains/chat/api/document-comments";
 import {
   type CommentStateMap,
-  type DocumentCommentCreatedEvent,
-  type DocumentCommentDeletedEvent,
   type DocumentCommentEventCallbacks,
-  type DocumentCommentReopenedEvent,
-  type DocumentCommentResolvedEvent,
   handleDocumentCommentCreated,
   handleDocumentCommentDeleted,
   handleDocumentCommentReopened,
@@ -18,9 +20,7 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeState(
-  entries?: [string, DocumentComment[]][],
-): CommentStateMap {
+function makeState(entries?: [string, DocumentComment[]][]): CommentStateMap {
   return new Map(entries ?? []);
 }
 

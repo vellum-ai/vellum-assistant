@@ -8,11 +8,33 @@ The included `vellum-oauth-integrations` skill handles the generic parts of the 
 - **Default credential type:** Internal integration (API token)
 - **No OAuth flow required** for the default path - just copy the integration secret and grant page access
 
+## Check Managed Mode First
+
+**Before guiding the user through any of the steps below, check whether they should be using Vellum-managed Notion OAuth instead.**
+
+Notion supports managed mode (see `assistant oauth providers get notion`). The flows in this file are for users who have explicitly chosen `your-own` mode. If the user has not made an explicit choice yet, default to managed mode — it requires no Notion developer console setup at all.
+
+To check:
+
+```bash
+assistant oauth mode notion --json | jq -r '.mode'
+```
+
+- If the result is `managed`, **stop reading this file** and follow [CONNECTING_ACCOUNTS.md](../CONNECTING_ACCOUNTS.md) instead. The user logs in with Notion and is done.
+- If the result is `your-own`, ask the user whether they'd prefer the simpler managed flow before continuing:
+  > "Notion can connect through Vellum's managed integration — no developer console setup needed, just a login. Want to use that, or do you want to create your own integration?"
+  > If they prefer managed, run `assistant oauth mode notion --set managed` and switch to the managed flow.
+- If the user already has an active Notion connection (`assistant oauth status notion` returns a live connection), do not switch modes — respect their existing setup.
+
+Only proceed with the steps below if the user has explicitly chosen `your-own` mode.
+
 ## Prerequisites
 
 No OAuth, redirect URIs, or public ingress needed for Internal integrations. The user just needs a Notion account and workspace.
 
 ## Choosing the Flow
+
+> This section applies only if the user has opted into your-own mode (see "Check Managed Mode First" above).
 
 - **Internal integration (default):** Single-workspace, simple setup. Follow the steps below.
 - **Public integration (OAuth):** Multi-workspace distribution. Only guide to this path if the user explicitly needs OAuth for multi-workspace access. See [notion-path-b-public.md](notion-path-b-public.md) for that flow.

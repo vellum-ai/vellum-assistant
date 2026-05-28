@@ -1,227 +1,44 @@
 import {
-  ArrowUp,
-  Ellipsis,
-  FileText,
-  Globe,
   LayoutGrid,
-  Pin,
-  PinOff,
   Search,
-  Trash2,
   Upload,
 } from "lucide-react";
-import { type ChangeEvent, type MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, useCallback, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { AppSummary } from "@/lib/apps-api";
-import type { DocumentSummary } from "@/lib/documents-api";
-import { ApiError } from "@/lib/api-errors";
 import {
-  deleteApp,
-  getCachedAppHtml,
-  importBundle,
-  listApps,
-  openApp,
-  primeAppHtmlCache,
-  shareApp,
-} from "@/lib/apps-api";
-import { listDocuments } from "@/lib/documents-api";
-import { getVercelConfig, isCredentialError, publishApp } from "@/lib/publish-api";
+  appsByIdDeletePost,
+  appsByIdOpenPost,
+} from "@/generated/daemon/sdk.gen";
+import {
+  appsGetOptions,
+  appsGetQueryKey,
+  documentsGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { AppSummary } from "@/types/app-types";
+import { clearAppHtmlCache, getCachedAppHtml, primeAppHtmlCache } from "@/utils/app-html-cache";
+import { importBundle } from "@/utils/import-bundle";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
+import { useDeployStore } from "@/stores/deploy-store";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
-import { AppPreviewThumbnail } from "@/components/app-card";
 import {
-  BottomSheet,
   Button,
   ConfirmDialog,
   Input,
-  Menu,
-  PanelItem,
   toast,
 } from "@vellum/design-library";
 import { AppViewerContainer } from "@/components/apps/app-viewer-container";
-import { VercelTokenDialog } from "@/components/vercel-token-dialog";
-import { useIsMobile } from "@/hooks/use-is-mobile";
-import { cn } from "@/utils/misc";
-
-function formatDate(epochMs: number): string {
-  const date = new Date(epochMs);
-  return date.toLocaleDateString(undefined, {
-    day: "numeric",
-    month: "short",
-    year: date.getFullYear() !== new Date().getFullYear() ? "numeric" : undefined,
-  });
-}
-
-interface LibraryAppCardProps {
-  app: AppSummary;
-  assistantId: string;
-  isPinned: boolean;
-  onOpen: (appId: string) => void;
-  onPin: (app: AppSummary) => void;
-  onDelete?: (app: AppSummary) => void;
-  onDeploy?: () => void;
-  isOpening?: boolean;
-  justImported?: boolean;
-  onAnimationEnd?: () => void;
-}
-
-function LibraryAppCard({
-  app,
-  assistantId,
-  isPinned,
-  onOpen,
-  onPin,
-  onDelete,
-  onDeploy,
-  isOpening,
-  justImported,
-  onAnimationEnd,
-}: LibraryAppCardProps) {
-  const [isSharing, setIsSharing] = useState(false);
-  const loadHtml = useCallback(
-    () => getCachedAppHtml(assistantId, app.id),
-    [assistantId, app.id],
-  );
-  const handleShare = useCallback(async () => {
-    if (isSharing) return;
-    setIsSharing(true);
-    try {
-      await shareApp(assistantId, app.id, app.name);
-      toast.success("App exported", { description: `${app.name}.vellum` });
-    } catch (err) {
-      toast.error("Failed to share app", {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setIsSharing(false);
-    }
-  }, [assistantId, app.id, app.name, isSharing]);
-
-  const [menuOpen, setMenuOpen] = useState(false);
-  const isMobile = useIsMobile();
-
-  return (
-    <div
-      className={cn(
-        "group relative flex flex-col gap-2",
-        justImported && "animate-[card-entrance_400ms_ease-out]",
-      )}
-      onAnimationEnd={justImported ? onAnimationEnd : undefined}
-    >
-      <button
-        type="button"
-        onClick={() => onOpen(app.id)}
-        className={cn(
-          "relative w-full cursor-pointer overflow-hidden rounded-xl",
-          "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
-        )}
-      >
-        <AppPreviewThumbnail
-          name={app.name}
-          icon={app.icon}
-          loadHtml={loadHtml}
-          isLoading={isOpening}
-        />
-      </button>
-
-      <div
-        className={cn(
-          "absolute right-2 top-2 z-20 transition-opacity",
-          "max-md:opacity-100",
-          "md:group-hover:opacity-100 md:group-focus-within:opacity-100",
-          menuOpen ? "opacity-100" : "md:opacity-0",
-        )}
-      >
-        <LibraryAppCardActionsMenu
-          appName={app.name}
-          isPinned={isPinned}
-          open={menuOpen}
-          onOpenChange={setMenuOpen}
-          onPin={() => onPin(app)}
-          onDelete={onDelete ? () => onDelete(app) : undefined}
-          onShare={handleShare}
-          onDeploy={onDeploy}
-          isMobile={isMobile}
-        />
-      </div>
-
-      <button
-        type="button"
-        onClick={() => onOpen(app.id)}
-        className="flex cursor-pointer flex-col gap-0.5 px-0.5 text-left outline-none"
-      >
-        <span className="truncate text-body-large-default text-[color:var(--content-emphasised)]">
-          {app.name}
-        </span>
-        <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-          {formatDate(app.createdAt)}
-        </span>
-      </button>
-    </div>
-  );
-}
-
-interface LibraryDocumentCardProps {
-  document: DocumentSummary;
-  onOpen: (documentSurfaceId: string) => void;
-}
-
-function formatWordCount(count: number): string {
-  return count === 1 ? "1 word" : `${count} words`;
-}
-
-function LibraryDocumentCard({ document, onOpen }: LibraryDocumentCardProps) {
-  return (
-    <div className="group relative flex flex-col gap-2">
-      <button
-        type="button"
-        onClick={() => onOpen(document.surfaceId)}
-        className={cn(
-          "relative flex w-full cursor-pointer flex-col items-center justify-center gap-2 overflow-hidden rounded-xl border border-[var(--border-base)] bg-[var(--surface-base)]",
-          "aspect-[16/10]",
-          "outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]",
-        )}
-      >
-        <FileText size={34} className="text-[var(--content-tertiary)]" />
-        <span className="text-body-small-default text-[var(--content-tertiary)]">
-          {formatWordCount(document.wordCount)}
-        </span>
-      </button>
-
-      <button
-        type="button"
-        onClick={() => onOpen(document.surfaceId)}
-        className="flex cursor-pointer flex-col gap-0.5 px-0.5 text-left outline-none"
-      >
-        <span className="truncate text-body-large-default text-[color:var(--content-emphasised)]">
-          {document.title}
-        </span>
-        <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-          {formatDate(document.updatedAt)}
-        </span>
-      </button>
-    </div>
-  );
-}
+import { DeployDialogs } from "@/components/deploy-dialogs";
+import { LibraryAppCard } from "@/components/apps/library-app-card";
+import { LibraryDocumentCard } from "@/components/apps/library-document-card";
 
 export interface LibraryViewProps {
   assistantId: string;
   assistantName?: string;
-  /**
-   * Optional page title rendered to the left of the Import action.
-   * Used when LibraryView is the page's primary content (e.g. the
-   * standalone /library route) so the title shares a row with Import.
-   */
   title?: string;
   onNewConversation?: (initialMessage?: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
   onEditApp?: (app: { appId: string; dirName?: string; name: string; html: string }) => void;
-  /**
-   * If provided, clicking an app navigates instead of opening it inline.
-   * The library's `/library/:appId` route renders {@link LibraryDetailPage}
-   * for the dedicated detail view; this callback wires the list click to
-   * that route. When omitted, the click falls back to the inline overlay.
-   */
   onOpenApp?: (appId: string) => void;
 }
 
@@ -237,10 +54,24 @@ export function LibraryView({
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
   const togglePin = usePinnedAppsStore.use.togglePin();
-  const [apps, setApps] = useState<AppSummary[]>([]);
-  const [documents, setDocuments] = useState<DocumentSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  // Deploy store — shared with chat-page for consistent deploy UX
+  const isDeploying = useDeployStore.use.isDeploying();
+  const isSharing = useDeployStore.use.isSharing();
+
+  const { data: apps = [], isLoading: appsLoading, error: appsError } = useQuery({
+    ...appsGetOptions({ path: { assistant_id: assistantId } }),
+    select: (data) => data.apps,
+  });
+  const { data: documents = [], isLoading: docsLoading, error: docsError } = useQuery({
+    ...documentsGetOptions({ path: { assistant_id: assistantId } }),
+    select: (data) => data.documents,
+  });
+  const loading = appsLoading || docsLoading;
+  const error = appsError && docsError
+    ? (appsError instanceof Error ? appsError.message : "Failed to load library")
+    : null;
   const [searchText, setSearchText] = useState("");
 
   const [openedApp, setOpenedApp] = useState<{
@@ -250,67 +81,11 @@ export function LibraryView({
     html: string;
   } | null>(null);
   const [openingAppId, setOpeningAppId] = useState<string | null>(null);
-  const [appPendingDelete, setAppPendingDelete] = useState<AppSummary | null>(
-    null,
-  );
+  const [appPendingDelete, setAppPendingDelete] = useState<AppSummary | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const [isSharing, setIsSharing] = useState(false);
   const [lastImportedAppId, setLastImportedAppId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isDeploying, setIsDeploying] = useState(false);
-  const [showTokenDialog, setShowTokenDialog] = useState(false);
-  const [pendingDeployAppId, setPendingDeployAppId] = useState<string | null>(null);
-  const [complexDeployApp, setComplexDeployApp] = useState<{ appId: string; name: string } | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchLibrary() {
-      try {
-        setLoading(true);
-        setError(null);
-        const [appsResult, docsResult] = await Promise.allSettled([
-          listApps(assistantId),
-          listDocuments(assistantId),
-        ]);
-        if (!cancelled) {
-          if (appsResult.status === "fulfilled") {
-            setApps(appsResult.value);
-          }
-          if (docsResult.status === "fulfilled") {
-            setDocuments(docsResult.value);
-          }
-          if (
-            appsResult.status === "rejected" &&
-            docsResult.status === "rejected"
-          ) {
-            const isNotFound = (r: PromiseRejectedResult) =>
-              r.reason instanceof ApiError && r.reason.status === 404;
-            if (isNotFound(appsResult) && isNotFound(docsResult)) {
-              setApps([]);
-              setDocuments([]);
-            } else {
-              throw appsResult.reason;
-            }
-          }
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "Failed to load library",
-          );
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    void fetchLibrary();
-    return () => {
-      cancelled = true;
-    };
-  }, [assistantId]);
 
   const filteredApps = useMemo(() => {
     if (!searchText.trim()) return apps;
@@ -340,10 +115,6 @@ export function LibraryView({
 
   const handleOpenApp = useCallback(
     async (appId: string) => {
-      // When wired with a route-based open handler, navigate to the dedicated
-      // detail page instead of opening inline. LibraryDetailPage handles the
-      // openApp call + dedicated load/error UI, and the URL becomes the
-      // shareable deep-link.
       if (onOpenApp) {
         onOpenApp(appId);
         return;
@@ -351,7 +122,10 @@ export function LibraryView({
       if (openingAppId) return;
       setOpeningAppId(appId);
       try {
-        const result = await openApp(assistantId, appId);
+        const { data: result } = await appsByIdOpenPost({
+          path: { assistant_id: assistantId, id: appId },
+          throwOnError: true,
+        });
         primeAppHtmlCache(assistantId, result.appId, result.html);
         setOpenedApp({ appId: result.appId, dirName: result.dirName, name: result.name, html: result.html });
       } catch (err) {
@@ -367,96 +141,24 @@ export function LibraryView({
     setOpenedApp(null);
   }, []);
 
-  const handleShareOpenedApp = useCallback(async () => {
-    if (!openedApp || isSharing) return;
-    setIsSharing(true);
-    try {
-      await shareApp(assistantId, openedApp.appId, openedApp.name);
-      toast.success("App exported", { description: `${openedApp.name}.vellum` });
-    } catch (err) {
-      toast.error("Failed to share app", {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setIsSharing(false);
-    }
-  }, [assistantId, openedApp, isSharing]);
+  const handleShareOpenedApp = useCallback(() => {
+    if (!openedApp) return;
+    void useDeployStore.getState().shareApp(assistantId, openedApp.appId, openedApp.name);
+  }, [assistantId, openedApp]);
 
   const handleDeploy = useCallback(async (appId: string) => {
     if (isDeploying) return;
+    const app = apps.find((a) => a.id === appId);
+    const appName = app?.name ?? "this app";
     try {
       const html = await getCachedAppHtml(assistantId, appId);
-      if (html.includes("vellum.fetch") || html.includes("vellum.sendAction") || html.includes("/v1/x/") || html.includes("/v1/apps/")) {
-        const app = apps.find((a) => a.id === appId);
-        setComplexDeployApp({ appId, name: app?.name ?? "this app" });
-        return;
-      }
+      void useDeployStore.getState().deployApp(assistantId, appId, appName, html);
     } catch {
-      // If we can't check the HTML, proceed with the deploy anyway
-    }
-    setIsDeploying(true);
-    try {
-      const config = await getVercelConfig(assistantId);
-      if (!config.hasToken) {
-        setPendingDeployAppId(appId);
-        setShowTokenDialog(true);
-        setIsDeploying(false);
-        return;
-      }
-      const result = await publishApp(assistantId, appId);
-      if (!result.success) {
-        if (isCredentialError(result)) {
-          setPendingDeployAppId(appId);
-          setShowTokenDialog(true);
-        } else {
-          toast.error("Failed to deploy", { description: result.error });
-        }
-      } else if (result.publicUrl) {
-        toast.success("Deployed to Vercel", {
-          description: result.publicUrl,
-          action: {
-            label: "Open",
-            onClick: () => window.open(result.publicUrl, "_blank"),
-          },
-        });
-      } else {
-        toast.success("Deployed to Vercel");
-      }
-    } catch (err) {
-      toast.error("Failed to deploy", {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setIsDeploying(false);
+      // If we can't fetch the HTML, try deploying anyway with empty HTML
+      // (the store's complexity check will pass, and the server will handle it)
+      void useDeployStore.getState().deployApp(assistantId, appId, appName, "");
     }
   }, [assistantId, isDeploying, apps]);
-
-  const handleTokenSaved = useCallback(async () => {
-    setShowTokenDialog(false);
-    const appId = pendingDeployAppId;
-    setPendingDeployAppId(null);
-    if (!appId) return;
-    setIsDeploying(true);
-    try {
-      const result = await publishApp(assistantId, appId);
-      if (!result.success) {
-        toast.error("Failed to deploy", { description: result.error });
-      } else if (result.publicUrl) {
-        toast.success("Deployed to Vercel", {
-          description: result.publicUrl,
-          action: { label: "Open", onClick: () => window.open(result.publicUrl, "_blank") },
-        });
-      } else {
-        toast.success("Deployed to Vercel");
-      }
-    } catch (err) {
-      toast.error("Failed to deploy", {
-        description: err instanceof Error ? err.message : undefined,
-      });
-    } finally {
-      setIsDeploying(false);
-    }
-  }, [assistantId, pendingDeployAppId]);
 
   const handlePinToggle = useCallback(
     (app: AppSummary) => togglePin(app),
@@ -468,8 +170,12 @@ export function LibraryView({
     if (!target || isDeleting) return;
     setIsDeleting(true);
     try {
-      await deleteApp(assistantId, target.id);
-      setApps((prev) => prev.filter((a) => a.id !== target.id));
+      await appsByIdDeletePost({
+        path: { assistant_id: assistantId, id: target.id },
+        throwOnError: true,
+      });
+      clearAppHtmlCache(assistantId, target.id);
+      void queryClient.invalidateQueries({ queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }) });
       if (pinnedAppIds.has(target.id)) {
         togglePin(target);
       }
@@ -489,11 +195,13 @@ export function LibraryView({
     setIsImporting(true);
     try {
       const result = await importBundle(assistantId, file);
-      const updatedApps = await listApps(assistantId);
-      setApps(updatedApps);
+      await queryClient.invalidateQueries({ queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }) });
       setLastImportedAppId(result.appId);
       try {
-        const appResult = await openApp(assistantId, result.appId);
+        const { data: appResult } = await appsByIdOpenPost({
+          path: { assistant_id: assistantId, id: result.appId },
+          throwOnError: true,
+        });
         primeAppHtmlCache(assistantId, appResult.appId, appResult.html);
         setOpenedApp({ appId: appResult.appId, dirName: appResult.dirName, name: appResult.name, html: appResult.html });
         setLastImportedAppId(null);
@@ -524,25 +232,10 @@ export function LibraryView({
           onDeploy={deployToVercel ? () => handleDeploy(openedApp.appId) : undefined}
           isDeploying={isDeploying}
         />
-        <VercelTokenDialog
-          open={showTokenDialog}
-          onOpenChange={setShowTokenDialog}
+        <DeployDialogs
           assistantId={assistantId}
-          onTokenSaved={handleTokenSaved}
-        />
-        <ConfirmDialog
-          open={complexDeployApp !== null}
-          title="This app needs a full deploy"
-          message={`"${complexDeployApp?.name ?? ""}" uses backend services that won't work on a static Vercel page. ${assistantName ?? "Your assistant"} can deploy it properly with serverless functions.`}
-          confirmLabel={`Let ${assistantName ?? "your assistant"} handle it`}
-          onConfirm={() => {
-            const appName = complexDeployApp?.name ?? "this app";
-            setComplexDeployApp(null);
-            onNewConversation?.(
-              `Deploy my app "${appName}" to Vercel. It uses backend services that need serverless functions — please use the deploy-fullstack-vercel skill to handle it properly.`,
-            );
-          }}
-          onCancel={() => setComplexDeployApp(null)}
+          assistantName={assistantName}
+          onStartConversation={onNewConversation}
         />
       </>
     );
@@ -744,26 +437,10 @@ export function LibraryView({
         )}
       </div>
 
-      <VercelTokenDialog
-        open={showTokenDialog}
-        onOpenChange={setShowTokenDialog}
+      <DeployDialogs
         assistantId={assistantId}
-        onTokenSaved={handleTokenSaved}
-      />
-
-      <ConfirmDialog
-        open={complexDeployApp !== null}
-        title="This app needs a full deploy"
-        message={`"${complexDeployApp?.name ?? ""}" uses backend services that won't work on a static Vercel page. ${assistantName ?? "Your assistant"} can deploy it properly with serverless functions.`}
-        confirmLabel={`Let ${assistantName ?? "your assistant"} handle it`}
-        onConfirm={() => {
-          const appName = complexDeployApp?.name ?? "this app";
-          setComplexDeployApp(null);
-          onNewConversation?.(
-            `Deploy my app "${appName}" to Vercel. It uses backend services that need serverless functions — please use the deploy-fullstack-vercel skill to handle it properly.`,
-          );
-        }}
-        onCancel={() => setComplexDeployApp(null)}
+        assistantName={assistantName}
+        onStartConversation={onNewConversation}
       />
 
       <ConfirmDialog
@@ -782,153 +459,5 @@ export function LibraryView({
         }}
       />
     </div>
-  );
-}
-
-export interface LibraryAppCardActionsMenuProps {
-  appName: string;
-  isPinned: boolean;
-  open: boolean;
-  onOpenChange: (next: boolean) => void;
-  onPin: () => void;
-  onDelete?: () => void;
-  onShare?: () => void;
-  onDeploy?: () => void;
-  isMobile: boolean;
-}
-
-export function LibraryAppCardActionsMenu({
-  appName,
-  isPinned,
-  open,
-  onOpenChange,
-  onPin,
-  onDelete,
-  onShare,
-  onDeploy,
-  isMobile,
-}: LibraryAppCardActionsMenuProps) {
-  if (isMobile) {
-    return (
-      <BottomSheet.Root open={open} onOpenChange={onOpenChange}>
-        <BottomSheet.Trigger asChild>
-          <Button
-            variant="primary"
-            size="compact"
-            iconOnly={<Ellipsis />}
-            aria-label="App actions"
-            onClick={(e: MouseEvent) => e.stopPropagation()}
-          />
-        </BottomSheet.Trigger>
-        <BottomSheet.Content>
-          <BottomSheet.Header className="sr-only">
-            <BottomSheet.Title>{appName}</BottomSheet.Title>
-          </BottomSheet.Header>
-          <BottomSheet.Body className="pt-0">
-            <PanelItem
-              icon={isPinned ? PinOff : Pin}
-              label={isPinned ? "Unpin" : "Pin"}
-              onSelect={() => {
-                onOpenChange(false);
-                onPin();
-              }}
-            />
-            {onShare ? (
-              <PanelItem
-                icon={ArrowUp}
-                label={
-                  <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                    <span>Share</span>
-                    <span className="text-body-small-default text-[var(--content-tertiary)]">
-                      Export as .vellum file
-                    </span>
-                  </span>
-                }
-                onSelect={() => {
-                  onOpenChange(false);
-                  onShare();
-                }}
-              />
-            ) : null}
-            {onDeploy ? (
-              <PanelItem
-                icon={Globe}
-                label={
-                  <span className="flex flex-col gap-0.5 overflow-visible whitespace-normal">
-                    <span>Deploy to Vercel</span>
-                    <span className="text-body-small-default text-[var(--content-tertiary)]">
-                      Publish as a static page
-                    </span>
-                  </span>
-                }
-                onSelect={() => {
-                  onOpenChange(false);
-                  onDeploy();
-                }}
-              />
-            ) : null}
-            {onDelete ? (
-              <PanelItem
-                icon={Trash2}
-                label="Delete"
-                onSelect={() => {
-                  onOpenChange(false);
-                  onDelete();
-                }}
-              />
-            ) : null}
-          </BottomSheet.Body>
-        </BottomSheet.Content>
-      </BottomSheet.Root>
-    );
-  }
-  return (
-    <Menu.Root open={open} onOpenChange={onOpenChange}>
-      <Menu.Trigger asChild>
-        <Button
-          variant="primary"
-          size="compact"
-          iconOnly={<Ellipsis />}
-          aria-label="App actions"
-          onClick={(e: MouseEvent) => e.stopPropagation()}
-        />
-      </Menu.Trigger>
-      <Menu.Content align="end" sideOffset={4}>
-        <Menu.Item
-          leftIcon={isPinned ? <PinOff size={14} /> : <Pin size={14} />}
-          onSelect={() => onPin()}
-          className="whitespace-nowrap"
-        >
-          {isPinned ? "Unpin" : "Pin"}
-        </Menu.Item>
-        {onShare ? (
-          <Menu.Item
-            leftIcon={<ArrowUp size={14} />}
-            onSelect={() => onShare()}
-            className="whitespace-nowrap"
-          >
-            Share
-          </Menu.Item>
-        ) : null}
-        {onDeploy ? (
-          <Menu.Item
-            leftIcon={<Globe size={14} />}
-            onSelect={() => onDeploy()}
-            className="whitespace-nowrap"
-          >
-            Deploy to Vercel
-          </Menu.Item>
-        ) : null}
-        {onDelete ? (
-          <Menu.Item
-            leftIcon={<Trash2 size={14} className="text-red-600" />}
-            onSelect={() => onDelete()}
-            className="whitespace-nowrap text-red-600 data-[highlighted]:text-red-700"
-          >
-            Delete
-          </Menu.Item>
-        ) : null}
-      </Menu.Content>
-    </Menu.Root>
   );
 }

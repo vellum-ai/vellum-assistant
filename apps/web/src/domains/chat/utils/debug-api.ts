@@ -43,11 +43,11 @@ import type {
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
-import { setTranscriptScrollControllerEnabled } from "@/domains/chat/transcript/transcript-scroll-flag";
+import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
 import {
   classifyScrollPosition,
   type TranscriptHandle,
-} from "@/domains/chat/transcript/use-deprecated-transcript-scroll";
+} from "@/domains/chat/transcript/use-transcript-scroll";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   type TerminalReason,
@@ -60,6 +60,7 @@ import {
   type UIContext,
   shouldShowThinkingIndicator,
 } from "@/domains/messaging/turn-selectors";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -347,7 +348,6 @@ export interface ChatDebugRefs {
   } | null>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  activeConversationIdRef: MutableRefObject<string | null>;
   /**
    * Reads the latest transcript pagination state (`hasMore`,
    * `isLoadingOlder`) for {@link ChatDebugApi.getScrollState}. Held as a
@@ -539,12 +539,12 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 
   async function forceReconcile(): Promise<ReconcileActiveConversationResult> {
     recordChatDiagnostic("debug_force_reconcile_start", {
-      activeConversationId: refs.activeConversationIdRef.current,
+      activeConversationId: useConversationStore.getState().activeConversationId,
       assistantId: refs.getAssistantId(),
     });
     const result = await refs.reconcileActiveConversation();
     recordChatDiagnostic("debug_force_reconcile_result", {
-      activeConversationId: refs.activeConversationIdRef.current,
+      activeConversationId: useConversationStore.getState().activeConversationId,
       changed: result.changed,
       messagesAdded: result.messagesAdded,
       assistantProgress: result.assistantProgress,
@@ -562,7 +562,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       streamContext?.assistantId ?? refs.getAssistantId() ?? null;
     const conversationId =
       streamContext?.conversationId ??
-      refs.activeConversationIdRef.current ??
+      useConversationStore.getState().activeConversationId ??
       null;
     if (!assistantId || !conversationId) {
       throw new Error(
@@ -695,15 +695,22 @@ const API_NS = "api";
 /**
  * Dev-only toggle surface. Each function is a single-purpose imperative
  * flip — call from the console to flip a localStorage-persisted flag.
- * Toggles that change React hook ordering (e.g. swapping which scroll
- * coordinator runs) reload the page so the new value takes effect
- * cleanly. See `transcript-scroll-flag.ts` for the storage layer.
+ * Toggles that change React hook ordering or module-load constants
+ * reload the page so the new value takes effect cleanly.
  */
 export interface VellumDebugFlagsApi {
-  /** Flip the parallel `useTranscriptScrollController` path on or off.
-   *  Persists to localStorage and reloads the page. Pass `true`/`false`
-   *  to force a specific value; omit to flip the current value. */
-  toggleTranscriptScrollController(value?: boolean): boolean;
+  /** Override the assistant's reported version for every version-gated
+   *  code path in the web client (the wire-field cutover, the
+   *  server-mint gate, `useAssistantSupports`, …). Persists to
+   *  localStorage and reloads.
+   *
+   *  - `impersonateVersion("0.8.6")` — set to that version + reload.
+   *  - `impersonateVersion(null)`    — clear override + reload.
+   *  - `impersonateVersion()`        — log + return current value
+   *    (no reload, no mutation).
+   *
+   *  Returns the value in effect after the call. */
+  impersonateVersion(value?: string | null): string | null;
 }
 
 interface VellumDebugRoot extends Record<string, unknown> {
@@ -730,9 +737,9 @@ declare global {
  *   - `api` — the full `@vellumai/assistant-api` namespace, so a developer
  *     can pull canonical SSE schemas (`RelationshipStateUpdatedEventSchema`, …)
  *     out of the shipped bundle from the console.
- *   - `flags` — dev-toggleable feature flags (currently:
- *     `toggleTranscriptScrollController`). Stable singleton; pure
- *     module exports backed by localStorage.
+ *   - `flags` — dev-toggleable feature flags
+ *     (`toggleTranscriptScrollController`, `impersonateVersion`).
+ *     Stable singleton; pure module exports backed by localStorage.
  *
  * Consolidating these into one installer guarantees they're set at the
  * same time and torn down together, so DevTools never sees one namespace
@@ -806,7 +813,6 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
       streamContextRef: refs.streamContextRef,
       streamRef: refs.streamRef,
       streamEpochRef: refs.streamEpochRef,
-      activeConversationIdRef: refs.activeConversationIdRef,
       getAssistantId: () => latestRefs.current.getAssistantId(),
       getTurnState: () => latestRefs.current.getTurnState(),
       getUIContext: () => latestRefs.current.getUIContext(),
@@ -819,7 +825,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     };
     const api = createChatDebugApi(stableRefs);
     const flagsApi: VellumDebugFlagsApi = {
-      toggleTranscriptScrollController: setTranscriptScrollControllerEnabled,
+      impersonateVersion: setImpersonatedAssistantVersion,
     };
     const uninstall = installVellumDebugApi(api, flagsApi);
     return uninstall;

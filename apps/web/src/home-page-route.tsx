@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router";
 
 import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationListQuery } from "@/domains/conversations/conversation-queries";
 import { useConversationStore } from "@/domains/conversations/conversation-store";
@@ -17,11 +18,18 @@ export function HomePageRoute() {
     () => new Set(conversations.map((c) => c.conversationId)),
     [conversations],
   );
+
   return (
     <HomePage
       assistantId={assistantId}
       validConversationIds={validConversationIds}
-      onStartNewChat={() => navigate(routes.assistant)}
+      onStartNewChat={() => {
+        useViewerStore.getState().setMainView("chat");
+        const draftConversationId = createDraftConversationId();
+        useConversationStore.getState().setActiveConversationId(draftConversationId);
+        navigate(routes.conversation(draftConversationId));
+        requestComposerFocus();
+      }}
       onOpenConversation={(conversationId) =>
         navigate(routes.conversation(conversationId))
       }

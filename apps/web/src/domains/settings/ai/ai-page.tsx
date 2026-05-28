@@ -2000,9 +2000,19 @@ export function AiPage() {
               placeholder="Select a default profile…"
               options={defaultProfilePickerEntries.map((p) => ({
                 value: p.name,
-                label: profilePickerLabel(p),
+                label:
+                  p.name === "auto"
+                    ? "Automatically switch between profiles"
+                    : profilePickerLabel(p),
               }))}
             />
+            {activeProfile === "auto" && (
+              <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-warning-subtle)] px-3 py-2">
+                <span className="text-body-small-default text-[var(--content-warning)]">
+                  Auto may use more powerful models when needed, which can increase costs.
+                </span>
+              </div>
+            )}
             {defaultProfilePickerEntries.length === 0 ? (
               <Typography
                 variant="body-small-default"

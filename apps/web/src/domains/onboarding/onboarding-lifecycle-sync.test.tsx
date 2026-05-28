@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 
+import { STORAGE_KEY } from "@/domains/onboarding/prechat";
 import { routes } from "@/utils/routes";
 
 let searchParams = new URLSearchParams();
@@ -38,10 +39,21 @@ const setOnboardingCompletedMock = mock(() => {});
 const writeSelectedVersionMock = mock(() => {});
 const markPrivacyConsentMock = mock(() => {});
 const clearPrivacyConsentMock = mock(() => {});
-const persistContentAutomationPreChatHandoffMock = mock(() => {});
+
+type TestOnboardingRecipe = {
+  cohort: string;
+  tasks: string[];
+  tone: string;
+  bootstrapTemplate: string;
+  initialMessage: string;
+  skills: string[];
+  skipPrechat: boolean;
+};
 
 let onboardingCompleted = false;
-let resolvedCohort: string | null = null;
+let fetchOnboardingRecipeImpl: () => Promise<TestOnboardingRecipe | null> =
+  async () => null;
+const fetchOnboardingRecipeMock = mock(() => fetchOnboardingRecipeImpl());
 
 mock.module("react-router", () => ({
   useNavigate: () => navigateMock,
@@ -118,6 +130,7 @@ mock.module("@/domains/onboarding/prefs", () => ({
   readOnboardingCompleted: () => onboardingCompleted,
   readSelectedVersion: () => null,
   readTosAccepted: () => true,
+  clearOnboardingCompleted: mock(() => {}),
   useOnboardingCompleted: () =>
     [onboardingCompleted, setOnboardingCompletedMock] as const,
   writeSelectedVersion: writeSelectedVersionMock,
@@ -129,9 +142,23 @@ mock.module("@/domains/onboarding/signals", () => ({
   markPrivacyConsent: markPrivacyConsentMock,
 }));
 
+mock.module("@/domains/onboarding/recipe-client.js", () => ({
+  fetchOnboardingRecipe: fetchOnboardingRecipeMock,
+}));
+
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => false,
   useIsNativePlatform: () => false,
+}));
+
+mock.module("@/lib/local-mode", () => ({
+  isLocalMode: () => false,
+  hasAssistants: () => false,
+  hatchLocalAssistant: async () => ({ ok: true, assistantId: "local-1" }),
+  loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
+  setSelectedAssistantId: () => {},
+  saveLockfileAssistant: async () => {},
+  primeLocalGatewayConnection: async () => {},
 }));
 
 mock.module("@/stores/auth-store", () => ({
@@ -144,6 +171,7 @@ mock.module("@/stores/auth-store", () => ({
       }),
       isLoggedIn: () => true,
       isLoading: () => false,
+      hasPlatformSession: () => false,
     },
   },
 }));
@@ -167,7 +195,7 @@ mock.module("@/hooks/use-prefilled-input", () => ({
   }),
 }));
 
-mock.module("@/utils/platform-detection", () => ({
+mock.module("@/runtime/platform-detection", () => ({
   useIsIOSWeb: () => false,
   useIsMacOSWeb: () => false,
 }));
@@ -178,15 +206,6 @@ mock.module("@/hooks/use-ios-app-nudge", () => ({
 
 mock.module("@/hooks/use-macos-app-nudge", () => ({
   readMacOsAppDownloaded: () => true,
-}));
-
-mock.module("@/domains/onboarding/content-automation", () => ({
-  persistContentAutomationPreChatHandoff:
-    persistContentAutomationPreChatHandoffMock,
-}));
-
-mock.module("@/domains/onboarding/utm-cohort", () => ({
-  resolveUserCohort: async () => resolvedCohort,
 }));
 
 mock.module("@/domains/onboarding/screens/name-exchange-screen", () => ({
@@ -248,7 +267,7 @@ beforeEach(() => {
   searchParams = new URLSearchParams();
   checkAssistantImpl = async () => {};
   onboardingCompleted = false;
-  resolvedCohort = null;
+  fetchOnboardingRecipeImpl = async () => null;
   sessionStorage.clear();
   localStorage.clear();
 
@@ -262,7 +281,7 @@ beforeEach(() => {
   writeSelectedVersionMock.mockClear();
   markPrivacyConsentMock.mockClear();
   clearPrivacyConsentMock.mockClear();
-  persistContentAutomationPreChatHandoffMock.mockClear();
+  fetchOnboardingRecipeMock.mockClear();
 });
 
 afterEach(() => {
@@ -303,7 +322,7 @@ describe("onboarding lifecycle sync", () => {
 
     render(<PreChatFlow />);
 
-    fireEvent.click(screen.getByTestId("name-continue"));
+    fireEvent.click(await screen.findByTestId("name-continue"));
     fireEvent.click(await screen.findByTestId("task-continue"));
     fireEvent.click(await screen.findByTestId("tool-continue"));
     fireEvent.click(await screen.findByTestId("prior-continue"));
@@ -319,5 +338,59 @@ describe("onboarding lifecycle sync", () => {
         { replace: true },
       ),
     );
+  });
+
+  test("pre-chat waits for the web recipe decision before showing standard screens", async () => {
+    let resolveRecipe!: (recipe: TestOnboardingRecipe | null) => void;
+    fetchOnboardingRecipeImpl = () =>
+      new Promise<TestOnboardingRecipe | null>((resolve) => {
+        resolveRecipe = resolve;
+      });
+
+    render(<PreChatFlow />);
+
+    await waitFor(() => expect(fetchOnboardingRecipeMock).toHaveBeenCalled());
+    expect(screen.queryByTestId("name-continue")).toBeNull();
+
+    resolveRecipe(null);
+
+    expect(await screen.findByTestId("name-continue")).toBeTruthy();
+  });
+
+  test("recipe skip stores the pre-chat handoff and enters chat without showing pre-chat screens", async () => {
+    const recipe: TestOnboardingRecipe = {
+      cohort: "content-automation",
+      tasks: ["writing", "research"],
+      tone: "grounded",
+      bootstrapTemplate: "BOOTSTRAP-CONTENT-AUTOMATION.md",
+      initialMessage: "I want to write articles that rank better in GEO",
+      skills: ["content-automation"],
+      skipPrechat: true,
+    };
+    fetchOnboardingRecipeImpl = async () => recipe;
+
+    render(<PreChatFlow />);
+
+    expect(screen.queryByTestId("name-continue")).toBeNull();
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith(
+        `${routes.assistant}?onboarding=1`,
+        { replace: true },
+      ),
+    );
+
+    expect(setOnboardingCompletedMock).toHaveBeenCalledWith(true);
+    expect(clearPrivacyConsentMock).toHaveBeenCalled();
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
+      tools: [],
+      tasks: recipe.tasks,
+      tone: recipe.tone,
+      googleConnected: false,
+      cohort: recipe.cohort,
+      initialMessage: recipe.initialMessage,
+      bootstrapTemplate: recipe.bootstrapTemplate,
+      skills: recipe.skills,
+    });
   });
 });

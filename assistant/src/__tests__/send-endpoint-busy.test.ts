@@ -142,7 +142,7 @@ function makeCompletingConversation(): Conversation {
       requestId?: string,
     ) => {
       processing = true;
-      return requestId ?? "msg-1";
+      return { id: requestId ?? "msg-1", deduplicated: false };
     },
     memoryPolicy: {
       scopeId: "default",
@@ -199,7 +199,7 @@ function makeHangingConversation(): Conversation {
       requestId?: string,
     ) => {
       processing = true;
-      return requestId ?? "msg-1";
+      return { id: requestId ?? "msg-1", deduplicated: false };
     },
     memoryPolicy: {
       scopeId: "default",
@@ -282,7 +282,7 @@ function makePendingApprovalConversation(
       _content: string,
       _attachments: unknown[],
       reqId?: string,
-    ) => reqId ?? "msg-1",
+    ) => ({ id: reqId ?? "msg-1", deduplicated: false }),
     memoryPolicy: {
       scopeId: "default",
       includeDefaultFallback: false,
@@ -895,7 +895,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     await stopServer();
   });
 
-  test("accepts message when conversationKey is omitted (defaults to stable channel key)", async () => {
+  test("accepts message when conversationKey is omitted (vellum channel mints fresh)", async () => {
     await startServer(() => makeCompletingConversation());
 
     const res = await fetch(messagesUrl(), {
@@ -908,14 +908,24 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       }),
     });
     expect(res.status).toBe(202);
+    const body = (await res.json()) as {
+      accepted: boolean;
+      conversationId: string;
+    };
+    expect(body.accepted).toBe(true);
+    expect(body.conversationId).toBeTruthy();
+
+    // The vellum channel never falls through to the shared
+    // `default:vellum:<interface>` thread: each empty-handed send mints
+    // a fresh conversation so the first-message id surfaces to the client.
+    expect(getConversationByKey("default:vellum:macos")).toBeNull();
 
     await stopServer();
   });
 
-  test("two calls without conversationKey use the same conversation", async () => {
+  test("two empty-handed vellum sends each mint distinct conversations", async () => {
     await startServer(() => makeCompletingConversation());
 
-    // First message — no conversationKey
     const res1 = await fetch(messagesUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
@@ -926,8 +936,8 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       }),
     });
     expect(res1.status).toBe(202);
+    const body1 = (await res1.json()) as { conversationId: string };
 
-    // Second message — same channel/interface, still no conversationKey
     const res2 = await fetch(messagesUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
@@ -938,12 +948,49 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
       }),
     });
     expect(res2.status).toBe(202);
+    const body2 = (await res2.json()) as { conversationId: string };
 
-    // Both should have resolved to the same default conversation key
-    // ("default:vellum:macos"), which maps to the same conversationId.
-    const mapping = getConversationByKey("default:vellum:macos");
+    expect(body1.conversationId).toBeTruthy();
+    expect(body2.conversationId).toBeTruthy();
+    expect(body1.conversationId).not.toBe(body2.conversationId);
+
+    await stopServer();
+  });
+
+  test("two empty-handed phone sends share the default channel thread", async () => {
+    await startServer(() => makeCompletingConversation());
+
+    const res1 = await fetch(messagesUrl(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({
+        content: "First",
+        sourceChannel: "phone",
+        interface: "phone",
+      }),
+    });
+    expect(res1.status).toBe(202);
+    const body1 = (await res1.json()) as { conversationId: string };
+
+    const res2 = await fetch(messagesUrl(), {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...AUTH_HEADERS },
+      body: JSON.stringify({
+        content: "Second",
+        sourceChannel: "phone",
+        interface: "phone",
+      }),
+    });
+    expect(res2.status).toBe(202);
+    const body2 = (await res2.json()) as { conversationId: string };
+
+    // Non-vellum channels keep the legacy `default:<channel>:<interface>`
+    // co-location so repeated inbound messages from the same external
+    // channel/interface land on a single thread.
+    expect(body1.conversationId).toBe(body2.conversationId);
+    const mapping = getConversationByKey("default:phone:phone");
     expect(mapping).not.toBeNull();
-    expect(mapping!.conversationId).toBeTruthy();
+    expect(mapping!.conversationId).toBe(body1.conversationId);
 
     await stopServer();
   });

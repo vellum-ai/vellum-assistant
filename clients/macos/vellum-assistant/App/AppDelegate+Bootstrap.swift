@@ -351,11 +351,15 @@ extension AppDelegate {
         // to recover — whereas refresh succeeds whenever the server still
         // recognizes the refresh token, covering the common
         // "access-expired-but-refresh-still-valid" case.
+        //
+        // NOTE: We do NOT gate on `connectionManager.isConnected` here.
+        // After the loopback auth-bypass removal, `isConnected` requires a
+        // successful health check (which itself requires valid auth), creating
+        // a circular dependency. The `/v1/guardian/refresh` endpoint is a
+        // dedicated gateway route reachable as long as the gateway process is
+        // listening — if it isn't up yet, the HTTP call fails gracefully and
+        // we fall through to the guardian/init retry loop.
         if ActorTokenManager.getRefreshToken() != nil {
-            if !connectionManager.isConnected {
-                await awaitConnectionEstablished()
-                guard !Task.isCancelled else { return }
-            }
             let refreshResult = await ActorCredentialRefresher.refresh(
                 platform: "macos",
                 deviceId: deviceId
@@ -394,16 +398,6 @@ extension AppDelegate {
 
             let jitter = UInt64.random(in: 0...(retryDelay / 4))
             try? await Task.sleep(nanoseconds: retryDelay + jitter)
-        }
-    }
-
-    /// Suspends until `connectionManager.isConnected` becomes `true`,
-    /// or the task is cancelled.
-    @MainActor
-    private func awaitConnectionEstablished() async {
-        guard !connectionManager.isConnected else { return }
-        for await isConnected in connectionManager.isConnectedStream where isConnected {
-            return
         }
     }
 }

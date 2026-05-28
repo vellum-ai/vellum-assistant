@@ -13,7 +13,7 @@ import {
   formattedCreatedAt,
   MISSING_VALUE,
 } from "@/domains/chat/inspector/inspector-formatters";
-import type { LLMRequestLogEntry } from "@/domains/chat/types/inspector-types";
+import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
 
 /**
  * Compaction tab — the compaction events that led up to the **selected

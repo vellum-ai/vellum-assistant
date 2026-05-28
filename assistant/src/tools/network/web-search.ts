@@ -17,14 +17,17 @@ import {
 import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 import { extractDomain } from "./domain-normalize.js";
+import type { ManagedSearchProxyResult } from "./managed-search-proxy.js";
 
 const log = getLogger("web-search");
 
-const BRAVE_API_URL = "https://api.search.brave.com/res/v1/web/search";
+const BRAVE_SEARCH_PATH = "/res/v1/web/search";
+const BRAVE_API_URL = `https://api.search.brave.com${BRAVE_SEARCH_PATH}`;
 const PERPLEXITY_API_URL = "https://api.perplexity.ai/chat/completions";
 const TAVILY_API_URL = "https://api.tavily.com/search";
 
 type WebSearchProvider = "perplexity" | "brave" | "tavily";
+type WebSearchMode = "managed" | "your-own";
 
 /**
  * Arguments passed to every {@link WebSearchAdapter}. The full superset is
@@ -49,7 +52,7 @@ interface WebSearchAdapter {
   /** Stable provider identifier (matches config + secret-catalog values). */
   readonly id: WebSearchProvider;
   /** Secret-catalog key used to look up the API key via `getProviderKeyAsync`. */
-  readonly secretKey: string;
+  readonly providerKeyName: string;
   /**
    * Position in the fallback chain (lower = earlier). Used when the
    * configured provider has no key and we try other BYOK providers.
@@ -104,11 +107,18 @@ function getWebSearchProvider(): WebSearchProvider {
   return configured as WebSearchProvider;
 }
 
+function getWebSearchMode(): WebSearchMode {
+  const config = getConfig();
+  return config.services["web-search"].mode === "managed"
+    ? "managed"
+    : "your-own";
+}
+
 async function getApiKey(
   provider: WebSearchProvider,
 ): Promise<string | undefined> {
   const adapter = WEB_SEARCH_ADAPTERS[provider];
-  return (await getProviderKeyAsync(adapter.secretKey)) ?? undefined;
+  return (await getProviderKeyAsync(adapter.providerKeyName)) ?? undefined;
 }
 
 function fallbackProvidersFor(
@@ -232,6 +242,46 @@ function buildBraveMetadata(
   };
 }
 
+function braveQueryParams(
+  query: string,
+  count: number,
+  offset: number,
+  freshness: string | undefined,
+): Record<string, string> {
+  const params: Record<string, string> = {
+    q: query,
+    count: String(count),
+    offset: String(offset),
+  };
+
+  const validFreshness = ["pd", "pw", "pm", "py"];
+  if (freshness && validFreshness.includes(freshness)) {
+    params.freshness = freshness;
+  }
+
+  return params;
+}
+
+function successfulBraveResult(
+  data: BraveSearchResponse,
+  query: string,
+  startedAt: number,
+): ToolExecutionResult {
+  const results = data.web?.results ?? [];
+  const durationMs = Date.now() - startedAt;
+  return {
+    content:
+      wrapUntrustedContent(formatBraveResults(results, query), {
+        source: "search",
+        sourceDetail: "brave",
+      }) + CITATION_INSTRUCTION,
+    isError: false,
+    activityMetadata: {
+      webSearch: buildBraveMetadata(results, query, durationMs),
+    },
+  };
+}
+
 function buildPerplexityMetadata(
   data: PerplexityResponse,
   query: string,
@@ -332,17 +382,9 @@ async function executeBraveSearch(
   apiKey: string,
   signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
-  const params = new URLSearchParams({
-    q: query,
-    count: String(count),
-    offset: String(offset),
-  });
-
-  const validFreshness = ["pd", "pw", "pm", "py"];
-  if (freshness && validFreshness.includes(freshness)) {
-    params.set("freshness", freshness);
-  }
-
+  const params = new URLSearchParams(
+    braveQueryParams(query, count, offset, freshness),
+  );
   const url = `${BRAVE_API_URL}?${params.toString()}`;
   const startedAt = Date.now();
 
@@ -358,19 +400,7 @@ async function executeBraveSearch(
 
     if (response.ok) {
       const data = (await response.json()) as BraveSearchResponse;
-      const results = data.web?.results ?? [];
-      const durationMs = Date.now() - startedAt;
-      return {
-        content:
-          wrapUntrustedContent(formatBraveResults(results, query), {
-            source: "search",
-            sourceDetail: "brave",
-          }) + CITATION_INSTRUCTION,
-        isError: false,
-        activityMetadata: {
-          webSearch: buildBraveMetadata(results, query, durationMs),
-        },
-      };
+      return successfulBraveResult(data, query, startedAt);
     }
 
     await response.text();
@@ -415,6 +445,90 @@ async function executeBraveSearch(
     startedAt,
     "Brave Search rate limit exceeded after retries. Try again shortly.",
   );
+}
+
+async function executeManagedBraveSearch(
+  query: string,
+  count: number,
+  offset: number,
+  freshness: string | undefined,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  const { callManagedSearchProxy } = await import("./managed-search-proxy.js");
+  const startedAt = Date.now();
+  const proxyResult = await callManagedSearchProxy(
+    "brave",
+    {
+      method: "GET",
+      path: BRAVE_SEARCH_PATH,
+      query: braveQueryParams(query, count, offset, freshness),
+      headers: {
+        Accept: "application/json",
+      },
+      body: null,
+    },
+    signal,
+  );
+
+  if (!proxyResult.ok) {
+    return errorResult(
+      query,
+      "brave",
+      startedAt,
+      managedSearchProxyErrorMessage(proxyResult),
+    );
+  }
+
+  if (proxyResult.status >= 200 && proxyResult.status < 300) {
+    return successfulBraveResult(
+      proxyResult.body as BraveSearchResponse,
+      query,
+      startedAt,
+    );
+  }
+
+  if (proxyResult.status === 401 || proxyResult.status === 403) {
+    return errorResult(
+      query,
+      "brave",
+      startedAt,
+      "Managed Brave Search is not authenticated correctly. This is a Vellum platform configuration issue.",
+    );
+  }
+
+  if (proxyResult.status === 429) {
+    return errorResult(
+      query,
+      "brave",
+      startedAt,
+      "Managed Brave Search rate limit exceeded. Try again shortly.",
+    );
+  }
+
+  return errorResult(
+    query,
+    "brave",
+    startedAt,
+    `Managed Brave Search provider returned status ${proxyResult.status}`,
+  );
+}
+
+function managedSearchProxyErrorMessage(
+  result: Exclude<ManagedSearchProxyResult, { ok: true }>,
+): string {
+  if (result.kind === "unavailable") {
+    return `${result.message} Log in to Vellum or switch web search to Your Own mode.`;
+  }
+
+  if (result.kind === "platform-error" && result.status === 402) {
+    return "Managed web search is unavailable because your Vellum account balance is too low. Add funds or switch web search to Your Own mode.";
+  }
+
+  if (result.kind === "platform-error") {
+    return `Managed web search platform request failed: ${result.message}`;
+  }
+
+  return result.message;
 }
 
 async function executePerplexitySearch(
@@ -599,7 +713,7 @@ async function executeTavilySearch(
 
 const perplexitySearchAdapter: WebSearchAdapter = {
   id: "perplexity",
-  secretKey: "perplexity",
+  providerKeyName: "perplexity",
   fallbackOrder: 1,
   execute: ({ query, apiKey, signal }) =>
     executePerplexitySearch(query, apiKey, signal),
@@ -607,15 +721,23 @@ const perplexitySearchAdapter: WebSearchAdapter = {
 
 const braveSearchAdapter: WebSearchAdapter = {
   id: "brave",
-  secretKey: "brave",
+  providerKeyName: "brave",
   fallbackOrder: 2,
   execute: ({ query, count, offset, freshness, apiKey, signal }) =>
     executeBraveSearch(query, count, offset, freshness, apiKey, signal),
 };
 
+const managedBraveSearchAdapter: WebSearchAdapter = {
+  id: "brave",
+  providerKeyName: "brave",
+  fallbackOrder: 2,
+  execute: ({ query, count, offset, freshness, signal }) =>
+    executeManagedBraveSearch(query, count, offset, freshness, signal),
+};
+
 const tavilySearchAdapter: WebSearchAdapter = {
   id: "tavily",
-  secretKey: "tavily",
+  providerKeyName: "tavily",
   fallbackOrder: 3,
   execute: ({ query, count, freshness, apiKey, signal }) =>
     executeTavilySearch(query, count, freshness, apiKey, signal),
@@ -690,6 +812,42 @@ class WebSearchTool implements Tool {
     }
 
     const startedAt = Date.now();
+    const mode = getWebSearchMode();
+
+    const count =
+      typeof input.count === "number"
+        ? Math.min(20, Math.max(1, Math.round(input.count)))
+        : 10;
+    const offset =
+      typeof input.offset === "number"
+        ? Math.min(9, Math.max(0, Math.round(input.offset)))
+        : 0;
+    const freshness =
+      typeof input.freshness === "string" ? input.freshness : undefined;
+
+    if (mode === "managed") {
+      try {
+        log.debug({ query, provider: "brave" }, "Executing managed web search");
+        return await managedBraveSearchAdapter.execute({
+          query,
+          count,
+          offset,
+          freshness,
+          apiKey: "",
+          signal: context.signal,
+        });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.error({ err }, "Managed web search failed");
+        return errorResult(
+          query,
+          "brave",
+          startedAt,
+          `Managed web search failed: ${msg}`,
+        );
+      }
+    }
+
     let provider = getWebSearchProvider();
     let apiKey = await getApiKey(provider);
 
@@ -723,17 +881,6 @@ class WebSearchTool implements Tool {
     try {
       log.debug({ query, provider }, "Executing web search");
 
-      const count =
-        typeof input.count === "number"
-          ? Math.min(20, Math.max(1, Math.round(input.count)))
-          : 10;
-      const offset =
-        typeof input.offset === "number"
-          ? Math.min(9, Math.max(0, Math.round(input.offset)))
-          : 0;
-      const freshness =
-        typeof input.freshness === "string" ? input.freshness : undefined;
-
       return await WEB_SEARCH_ADAPTERS[provider].execute({
         query,
         count,
@@ -745,7 +892,12 @@ class WebSearchTool implements Tool {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       log.error({ err }, "Web search failed");
-      return errorResult(query, provider, startedAt, `Web search failed: ${msg}`);
+      return errorResult(
+        query,
+        provider,
+        startedAt,
+        `Web search failed: ${msg}`,
+      );
     }
   }
 }

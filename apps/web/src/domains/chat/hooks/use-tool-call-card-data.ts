@@ -66,6 +66,14 @@ export type ToolCallCardStep =
       durationLabel: string;
       title: string;
       info: string;
+      /**
+       * Rich, human-readable activity sentence (from `StepLabel.activity`).
+       * Preferred display text for the pill/drawer; `info` is the terse
+       * fallback used when no activity sentence is present.
+       */
+      activity: string;
+      /** Daemon-assigned risk level for the call (e.g. `"low"`), when present. */
+      riskLevel?: string;
       iconName: IconName;
       toolCallId: string;
       status: "running" | "completed" | "error" | "denied";
@@ -291,12 +299,14 @@ function computeToolDurationLabel(tc: ChatMessageToolCall): string {
 }
 
 function buildToolStep(tc: ChatMessageToolCall): ToolCallCardStep {
-  const { title, info, iconName } = deriveStepLabel(tc);
+  const { title, info, activity, iconName } = deriveStepLabel(tc);
   return {
     kind: "tool",
     durationLabel: computeToolDurationLabel(tc),
     title,
     info,
+    activity,
+    riskLevel: tc.riskLevel,
     iconName,
     toolCallId: tc.id,
     status: deriveToolStepStatus(tc),
@@ -354,7 +364,8 @@ function deriveCurrentStepInfo(
   for (let i = toolCalls.length - 1; i >= 0; i--) {
     const tc = toolCalls[i]!;
     if (!isWebTool(tc)) {
-      return deriveStepLabel(tc).info;
+      const { info, activity } = deriveStepLabel(tc);
+      return activity || info;
     }
     const metadata = resolveMetadata(tc, liveWebActivity);
     const terminal = isTerminalStatus(tc);

@@ -70,6 +70,7 @@ const {
   computeGreeting,
   formatRelativeTime,
   handleGetHomeFeed: _handleGetHomeFeed,
+  handleListHomeFeed,
   handlePatchFeedItem: _handlePatchFeedItem,
   handlePostFeedAction: _handlePostFeedAction,
   ROUTES,
@@ -154,9 +155,14 @@ type FeedItemFixture = {
   title: string;
   summary: string;
   timestamp: string;
-  status: "new" | "seen" | "acted_on";
+  status: "new" | "seen" | "acted_on" | "dismissed";
   expiresAt?: string;
   actions?: Array<{ id: string; label: string; prompt: string }>;
+  urgency?: "low" | "medium" | "high" | "critical";
+  category?: "security" | "scheduling" | "background" | "email" | "system";
+  conversationId?: string;
+  fromAssistant?: boolean;
+  noteworthy?: boolean;
   createdAt: string;
 };
 
@@ -563,5 +569,205 @@ describe("handlePostFeedAction", () => {
       "reply",
     );
     expect(res.status).toBe(500);
+  });
+});
+
+// ─── handleListHomeFeed ────────────────────────────────────────────────────
+
+describe("handleListHomeFeed", () => {
+  type ListResult = {
+    items: Array<{ id: string; status: string }>;
+    total: number;
+    returned: number;
+    hasMore: boolean;
+  };
+
+  test("excludes dismissed items by default", () => {
+    writeFeedFile([
+      makeItem({ id: "a", status: "new" }),
+      makeItem({ id: "b", status: "seen" }),
+      makeItem({ id: "c", status: "acted_on" }),
+      makeItem({ id: "d", status: "dismissed" }),
+    ]);
+
+    const result = handleListHomeFeed({ body: {} }) as ListResult;
+    expect(result.items.map((i) => i.id).sort()).toEqual(["a", "b", "c"]);
+    expect(result.total).toBe(3);
+    expect(result.hasMore).toBe(false);
+  });
+
+  test("includeDismissed: true returns dismissed items too", () => {
+    writeFeedFile([
+      makeItem({ id: "a", status: "new" }),
+      makeItem({ id: "d", status: "dismissed" }),
+    ]);
+
+    const result = handleListHomeFeed({
+      body: { includeDismissed: true },
+    }) as ListResult;
+    expect(result.items.map((i) => i.id).sort()).toEqual(["a", "d"]);
+  });
+
+  test("statuses filter overrides the dismissed-default exclusion", () => {
+    writeFeedFile([
+      makeItem({ id: "a", status: "new" }),
+      makeItem({ id: "b", status: "seen" }),
+      makeItem({ id: "d", status: "dismissed" }),
+    ]);
+
+    const result = handleListHomeFeed({
+      body: { statuses: ["dismissed"] },
+    }) as ListResult;
+    expect(result.items.map((i) => i.id)).toEqual(["d"]);
+  });
+
+  test("urgencies filter narrows by urgency and excludes items missing urgency", () => {
+    writeFeedFile([
+      makeItem({ id: "a", urgency: "high" }),
+      makeItem({ id: "b", urgency: "low" }),
+      makeItem({ id: "c" }),
+    ]);
+
+    const result = handleListHomeFeed({
+      body: { urgencies: ["high"] },
+    }) as ListResult;
+    expect(result.items.map((i) => i.id)).toEqual(["a"]);
+  });
+
+  test("categories filter narrows by category", () => {
+    writeFeedFile([
+      makeItem({ id: "a", category: "email" }),
+      makeItem({ id: "b", category: "background" }),
+    ]);
+
+    const result = handleListHomeFeed({
+      body: { categories: ["email"] },
+    }) as ListResult;
+    expect(result.items.map((i) => i.id)).toEqual(["a"]);
+  });
+
+  test("conversationId filter narrows by conversation", () => {
+    writeFeedFile([
+      makeItem({ id: "a", conversationId: "conv-1" }),
+      makeItem({ id: "b", conversationId: "conv-2" }),
+      makeItem({ id: "c" }),
+    ]);
+
+    const result = handleListHomeFeed({
+      body: { conversationId: "conv-1" },
+    }) as ListResult;
+    expect(result.items.map((i) => i.id)).toEqual(["a"]);
+  });
+
+  test("fromAssistant: true returns only assistant-emitted items", () => {
+    writeFeedFile([
+      makeItem({ id: "a", fromAssistant: true }),
+      makeItem({ id: "b", fromAssistant: false }),
+      makeItem({ id: "c" }),
+    ]);
+
+    const result = handleListHomeFeed({
+      body: { fromAssistant: true },
+    }) as ListResult;
+    expect(result.items.map((i) => i.id)).toEqual(["a"]);
+  });
+
+  test("noteworthy: true returns only noteworthy items", () => {
+    writeFeedFile([
+      makeItem({ id: "a", noteworthy: true }),
+      makeItem({ id: "b" }),
+    ]);
+
+    const result = handleListHomeFeed({
+      body: { noteworthy: true },
+    }) as ListResult;
+    expect(result.items.map((i) => i.id)).toEqual(["a"]);
+  });
+
+  test("before filter is strict (createdAt < before)", () => {
+    writeFeedFile([
+      makeItem({ id: "old", createdAt: "2026-05-01T00:00:00.000Z" }),
+      makeItem({ id: "edge", createdAt: "2026-05-15T00:00:00.000Z" }),
+      makeItem({ id: "new", createdAt: "2026-05-20T00:00:00.000Z" }),
+    ]);
+
+    const result = handleListHomeFeed({
+      body: { before: "2026-05-15T00:00:00.000Z" },
+    }) as ListResult;
+    expect(result.items.map((i) => i.id)).toEqual(["old"]);
+  });
+
+  test("after filter is strict (createdAt > after)", () => {
+    writeFeedFile([
+      makeItem({ id: "old", createdAt: "2026-05-01T00:00:00.000Z" }),
+      makeItem({ id: "edge", createdAt: "2026-05-15T00:00:00.000Z" }),
+      makeItem({ id: "new", createdAt: "2026-05-20T00:00:00.000Z" }),
+    ]);
+
+    const result = handleListHomeFeed({
+      body: { after: "2026-05-15T00:00:00.000Z" },
+    }) as ListResult;
+    expect(result.items.map((i) => i.id)).toEqual(["new"]);
+  });
+
+  test("limit and offset paginate; hasMore reflects remaining items", () => {
+    writeFeedFile(
+      Array.from({ length: 25 }, (_, i) =>
+        makeItem({
+          id: `i${String(i).padStart(2, "0")}`,
+          // distinct priorities so the file's sort is stable + deterministic
+          priority: 100 - i,
+        }),
+      ),
+    );
+
+    const page1 = handleListHomeFeed({
+      body: { limit: 10, offset: 0 },
+    }) as ListResult;
+    expect(page1.items).toHaveLength(10);
+    expect(page1.total).toBe(25);
+    expect(page1.returned).toBe(10);
+    expect(page1.hasMore).toBe(true);
+
+    const page3 = handleListHomeFeed({
+      body: { limit: 10, offset: 20 },
+    }) as ListResult;
+    expect(page3.items).toHaveLength(5);
+    expect(page3.hasMore).toBe(false);
+  });
+
+  test("invalid before timestamp throws 400", () => {
+    writeFeedFile([]);
+    let caught: unknown;
+    try {
+      handleListHomeFeed({ body: { before: "not-a-date" } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RouteError);
+    expect((caught as { statusCode: number }).statusCode).toBe(400);
+  });
+
+  test("invalid filter shape throws 400", () => {
+    writeFeedFile([]);
+    let caught: unknown;
+    try {
+      handleListHomeFeed({ body: { urgencies: ["extreme"] } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RouteError);
+    expect((caught as { statusCode: number }).statusCode).toBe(400);
+  });
+
+  test("expired items are excluded (matches readHomeFeed TTL behavior)", () => {
+    const past = new Date(Date.now() - 60_000).toISOString();
+    writeFeedFile([
+      makeItem({ id: "alive" }),
+      makeItem({ id: "dead", expiresAt: past }),
+    ]);
+
+    const result = handleListHomeFeed({ body: {} }) as ListResult;
+    expect(result.items.map((i) => i.id)).toEqual(["alive"]);
   });
 });

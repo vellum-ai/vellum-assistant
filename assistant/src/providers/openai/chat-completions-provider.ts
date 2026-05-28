@@ -54,6 +54,81 @@ export function detectOpenAICompatibleContextOverflow(
   return extractOverflowTokensFromMessage(message);
 }
 
+/**
+ * Build the human-readable error string surfaced from an
+ * `OpenAI.APIError`. The SDK's `error.message` is typically a one-line
+ * summary like `"400 Provider returned error"` — useless when the
+ * upstream is OpenRouter (which wraps the real downstream error on
+ * `error.error.metadata.raw`) or any provider that returns nested
+ * structured details.
+ *
+ * Returns `{ detail, requestId }` where `detail` includes the JSON body
+ * (truncated) and `requestId` is the upstream correlation header when
+ * present. Callers fold these into the thrown `ProviderError` so log
+ * lines actually identify the failure without re-running the request.
+ *
+ * Exported for tests.
+ */
+export function extractApiErrorDetail(
+  error: InstanceType<typeof OpenAI.APIError>,
+): { detail: string; requestId: string | undefined } {
+  const body = (error as { error?: unknown }).error;
+  let detail = "";
+  if (body !== undefined && body !== null) {
+    try {
+      const serialized = typeof body === "string" ? body : JSON.stringify(body);
+      if (serialized && serialized !== "{}") {
+        detail =
+          serialized.length > MAX_API_ERROR_DETAIL_CHARS
+            ? `${serialized.slice(0, MAX_API_ERROR_DETAIL_CHARS)}…`
+            : serialized;
+      }
+    } catch {
+      // Body had a cycle or threw on toJSON — fall through with empty detail.
+    }
+  }
+  const requestId = readHeader(error.headers, [
+    "x-request-id",
+    "x-openrouter-request-id",
+    "openai-request-id",
+    "x-amzn-requestid",
+  ]);
+  return { detail, requestId };
+}
+
+/** Cap on the inline-rendered body to keep log lines readable while still
+ *  surfacing the meaningful upstream payload. Tuned to comfortably hold
+ *  OpenRouter's `error.metadata.raw` strings, which are typically <1KB. */
+const MAX_API_ERROR_DETAIL_CHARS = 2000;
+
+/**
+ * Read the first matching header from an SDK error's headers object,
+ * tolerating both Map-like (`Headers.get()`) and plain-object shapes.
+ * Mirrors the shape-tolerance already in `extractRetryAfterMs`.
+ */
+function readHeader(
+  headers: unknown,
+  names: readonly string[],
+): string | undefined {
+  if (!headers) return undefined;
+  const getter =
+    typeof (headers as { get?: unknown }).get === "function"
+      ? (headers as { get(name: string): string | null }).get.bind(headers)
+      : undefined;
+  for (const name of names) {
+    let value: string | null | undefined;
+    if (getter) {
+      value = getter(name);
+    } else if (typeof headers === "object") {
+      const record = headers as Record<string, unknown>;
+      const raw = record[name] ?? record[name.toLowerCase()];
+      value = typeof raw === "string" ? raw : undefined;
+    }
+    if (typeof value === "string" && value.length > 0) return value;
+  }
+  return undefined;
+}
+
 export interface OpenAIChatCompletionsProviderOptions {
   baseURL?: string;
   providerName?: string;
@@ -75,6 +150,10 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  blocks. MiniMax and similar providers embed reasoning inside XML-style
    *  tags in the regular content field rather than using `reasoning_content`. */
   parseThinkTags?: boolean;
+  /** Wire field used to replay prior assistant thinking on multi-turn requests.
+   *  DeepSeek/Fireworks use `"reasoning_content"`; OpenRouter uses `"reasoning"`.
+   *  When unset, thinking blocks are dropped from outbound assistant messages. */
+  assistantReasoningField?: "reasoning" | "reasoning_content";
 }
 
 /** Wire-level reasoning_effort values. The OpenAI SDK type doesn't include
@@ -146,6 +225,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private maxReasoningEffort: "high" | "xhigh" | "max";
   private requestHeaders: Record<string, string>;
   private parseThinkTags: boolean;
+  private assistantReasoningField:
+    | "reasoning"
+    | "reasoning_content"
+    | undefined;
 
   constructor(
     apiKey: string,
@@ -168,6 +251,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     this.maxReasoningEffort = options.maxReasoningEffort ?? "xhigh";
     this.requestHeaders = options.requestHeaders ?? {};
     this.parseThinkTags = options.parseThinkTags ?? false;
+    this.assistantReasoningField = options.assistantReasoningField;
   }
 
   async sendMessage(
@@ -524,18 +608,18 @@ export class OpenAIChatCompletionsProvider implements Provider {
           ? signal.reason
           : undefined;
       if (error instanceof OpenAI.APIError) {
+        const { detail, requestId } = extractApiErrorDetail(error);
+        const detailSuffix = detail ? ` ${detail}` : "";
+        const requestIdSuffix = requestId ? ` [request_id=${requestId}]` : "";
+        const formattedMessage = `${this.providerLabel} API error (${error.status}): ${error.message}${detailSuffix}${requestIdSuffix}`;
         const overflow = detectOpenAICompatibleContextOverflow(error);
         if (overflow) {
-          throw new ContextOverflowError(
-            `${this.providerLabel} API error (${error.status}): ${error.message}`,
-            this.name,
-            {
-              actualTokens: overflow.actualTokens,
-              maxTokens: overflow.maxTokens,
-              statusCode: error.status,
-              cause: error,
-            },
-          );
+          throw new ContextOverflowError(formattedMessage, this.name, {
+            actualTokens: overflow.actualTokens,
+            maxTokens: overflow.maxTokens,
+            statusCode: error.status,
+            cause: error,
+          });
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);
         const errorOptions: {
@@ -546,7 +630,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
           errorOptions.retryAfterMs = retryAfterMs;
         if (abortReason) errorOptions.abortReason = abortReason;
         throw new ProviderError(
-          `${this.providerLabel} API error (${error.status}): ${error.message}`,
+          formattedMessage,
           this.name,
           error.status,
           Object.keys(errorOptions).length > 0 ? errorOptions : undefined,
@@ -661,6 +745,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     msg: Message,
   ): OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam {
     const textParts: string[] = [];
+    const reasoningParts: string[] = [];
     const toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] =
       [];
 
@@ -668,6 +753,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
       switch (block.type) {
         case "text":
           textParts.push(block.text);
+          break;
+        case "thinking":
+          // Anthropic thinking blocks carry signatures — skip those.
+          if (!block.signature) reasoningParts.push(block.thinking);
           break;
         case "tool_use":
           toolCalls.push({
@@ -685,7 +774,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         case "web_search_tool_result":
           textParts.push("[Web search results]");
           break;
-        // thinking, redacted_thinking, image — not applicable for OpenAI assistant messages
+        // redacted_thinking, image — not applicable for OpenAI assistant messages
       }
     }
 
@@ -694,6 +783,15 @@ export class OpenAIChatCompletionsProvider implements Provider {
         role: "assistant",
         content: textParts.length > 0 ? textParts.join("") : null,
       };
+
+    if (reasoningParts.length > 0 && this.assistantReasoningField) {
+      (
+        result as OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam & {
+          reasoning?: string;
+          reasoning_content?: string;
+        }
+      )[this.assistantReasoningField] = reasoningParts.join("");
+    }
 
     if (toolCalls.length > 0) {
       result.tool_calls = toolCalls;

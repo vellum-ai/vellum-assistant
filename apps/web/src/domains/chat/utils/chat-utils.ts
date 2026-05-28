@@ -1,6 +1,6 @@
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { AssistantIdentity } from "@/assistant/identity";
-import type { Conversation } from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
 import type { AllowlistOption, AssistantEvent, DirectoryScopeOption, PendingToolConfirmation, ScopeOption } from "@/domains/chat/api/event-types";
 
 export const ERROR_MESSAGES: Record<string, string> = {
@@ -20,6 +20,17 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "disk_pressure_status_changed",
   "home_feed_updated",
   "relationship_state_updated",
+  // Subagent lifecycle events route by `subagentId` into the global subagent
+  // store, not by the parent stream's `conversationId`. They carry
+  // `parentConversationId` (spawn) or nothing (`subagent_status_changed`) at the
+  // top level, so the conversation-id gate would otherwise drop them as
+  // "missing conversationId" — which silently breaks the live inline subagent
+  // card (it only reappeared after a history reload). Treat them as global so
+  // they always reach `handleSubagentSpawned` / `handleSubagentStatusChanged` /
+  // `handleSubagentEvent`.
+  "subagent_spawned",
+  "subagent_status_changed",
+  "subagent_event",
 ] as const;
 
 const GLOBAL_STREAM_EVENT_TYPES: ReadonlySet<string> = new Set(
@@ -232,8 +243,8 @@ const MINUTES_PER_HOUR = 60;
 const HOURS_PER_DAY = 24;
 const MS_PER_MINUTE = 60_000;
 
-export function formatRelativeTime(timestamp: string): string {
-  const diffMin = Math.floor((Date.now() - new Date(timestamp).getTime()) / MS_PER_MINUTE);
+export function formatRelativeTime(timestamp: number): string {
+  const diffMin = Math.floor((Date.now() - timestamp) / MS_PER_MINUTE);
   if (diffMin < 1) return "just now";
   if (diffMin < MINUTES_PER_HOUR) return `${diffMin}m ago`;
   const diffHr = Math.floor(diffMin / MINUTES_PER_HOUR);

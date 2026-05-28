@@ -62,6 +62,14 @@ const TEST_REGISTRY = {
       description: "Email channel integration",
       defaultEnabled: false,
     },
+    {
+      id: "platform-features-in-local-mode",
+      scope: "assistant",
+      key: "platform-features-in-local-mode",
+      label: "Platform Features in Local Mode",
+      description: "Gate platform API calls in local mode",
+      defaultEnabled: true,
+    },
   ],
 };
 

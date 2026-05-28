@@ -1,5 +1,6 @@
 import type { ExecutionContext } from "../permissions/approval-policy.js";
 import type { PolicyContext } from "../permissions/types.js";
+import { getToolOwner } from "./registry.js";
 import type { Tool, ToolContext } from "./types.js";
 
 /**
@@ -31,7 +32,8 @@ export function buildPolicyContext(
 
   const conversationId = context?.conversationId;
 
-  if (tool.origin === "skill" || tool.origin === "plugin") {
+  const ownerKind = getToolOwner(tool.name)?.kind;
+  if (ownerKind === "skill" || ownerKind === "plugin") {
     return {
       executionTarget: tool.executionTarget,
       executionContext,

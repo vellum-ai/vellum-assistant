@@ -6,7 +6,14 @@ import {
   stopStreaming,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { AssistantActivityStateEvent, AssistantTextDeltaEvent, GenerationCancelledEvent, GenerationHandoffEvent, MessageCompleteEvent } from "@/domains/chat/api/event-types";
+import type { AssistantActivityStateEvent } from "@/domains/chat/api/event-types";
+import type {
+  AssistantTextDeltaEvent,
+  GenerationCancelledEvent,
+  GenerationHandoffEvent,
+  MessageCompleteEvent,
+} from "@vellumai/assistant-api";
+import { useSubagentStore } from "@/domains/subagents/subagent-store";
 
 export function handleAssistantTextDelta(
   event: AssistantTextDeltaEvent,
@@ -88,6 +95,20 @@ export function handleMessageComplete(
   ctx: StreamHandlerContext,
 ): void {
   ctx.setMessages((prev) => finalizeMessageComplete(prev, event));
+
+  // Re-anchor subagents spawned in this turn from the optimistic streaming
+  // bubble id (`currentAssistantMessageIdRef`, the same id used as
+  // `parentMessageStableId` at spawn time) onto the durable server
+  // `messageId`, which survives reconcile. Multi-LLM-call turns collapse onto
+  // the first row's id daemon-side; the common single-call spawn turn is
+  // unaffected because entries are indexed under both ids in `byParent`.
+  const stableId = ctx.currentAssistantMessageIdRef.current;
+  if (event.messageId && stableId) {
+    useSubagentStore
+      .getState()
+      .reanchorToMessage({ stableId, messageId: event.messageId });
+  }
+
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.turnActions.completeTurn();
   const convId = ctx.streamContextRef.current?.conversationId;
@@ -98,8 +119,8 @@ export function handleMessageComplete(
     convId,
     turnPhaseBefore,
     messageId: event.messageId,
-    hasContent: !!event.content,
     hasAttachments: !!event.attachments?.length,
+    reanchored: !!(event.messageId && stableId),
   });
 }
 

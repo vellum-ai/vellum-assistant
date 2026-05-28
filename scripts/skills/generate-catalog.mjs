@@ -31,7 +31,10 @@ function getGitUpdatedAt(dirPath) {
       `git log -1 --format=%aI -- "${dirPath}"`,
       { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] },
     ).trim();
-    return date || null;
+    if (!date) return null;
+    // Normalize to canonical ISO 8601 via Date to avoid +00:00 vs Z
+    // discrepancies between git versions / environments.
+    return new Date(date).toISOString();
   } catch {
     return null;
   }

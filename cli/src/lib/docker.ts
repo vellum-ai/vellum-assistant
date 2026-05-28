@@ -1,5 +1,11 @@
 import { randomBytes } from "crypto";
-import { chmodSync, existsSync, mkdirSync, watch as fsWatch } from "fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  watch as fsWatch,
+} from "fs";
 import { arch, platform } from "os";
 import { dirname, join, resolve } from "path";
 
@@ -12,6 +18,7 @@ import {
   setActiveAssistant,
 } from "./assistant-config";
 import type { AssistantEntry } from "./assistant-config";
+import { buildHatchConfigValues, writeInitialConfig } from "./config-utils";
 import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
 import { getDefaultPorts } from "./environments/paths.js";
@@ -35,7 +42,7 @@ import {
   resolveHatchProvider,
 } from "./provider-secrets.js";
 import { findOpenPort } from "./port-allocator.js";
-import { exec, execOutput } from "./step-runner";
+import { exec, execOutput, execWithStdin } from "./step-runner";
 import {
   closeLogFile,
   openLogFile,
@@ -1164,11 +1171,53 @@ export async function hatchDocker(
       "chown 1001:1001 /workspace /run/assistant-ipc /run/gateway-ipc",
     ]);
 
-    // BYOK setup (API key, custom profiles, active-profile selection) is
-    // driven post-boot by the CLI calling the Assistant's public APIs
-    // (`POST /v1/secrets`, etc.) via `configureHatchProviderApiKey` below.
-    // The Assistant container comes up clean — no overlay file, no
-    // client-side workspace-config injection.
+    // Stage the BYOK default-workspace-config overlay *inside* the workspace
+    // volume so the daemon's startup loader can consume it. The loader
+    // (`mergeDefaultWorkspaceConfig` in assistant/src/config/loader.ts) does:
+    //   1. JSON.parse + deep-merge into the workspace's config.json.
+    //   2. `renameSync(defaultConfigPath, <workspace>/default-config.json)`
+    //      to mark the overlay consumed so subsequent restarts skip it.
+    //
+    // The rename must be same-filesystem. Bind-mounting the host file into
+    // `/tmp/...` (the pre-#32025 design) crossed filesystems and silently
+    // failed with EXDEV, so every `docker start` re-applied the overlay.
+    // Staging into the workspace volume keeps the rename in-place.
+    //
+    // Streaming the JSON via stdin (instead of bind-mounting the host file
+    // into the staging container) sidesteps macOS Colima's virtiofs share,
+    // which doesn't expose `/var/folders/...` (where `os.tmpdir()` resolves
+    // on macOS) and would otherwise materialize an empty directory at the
+    // bind-mount target.
+    //
+    // @deprecated stopgap. Replacement direction is one of:
+    //   1. Post-hatch API calls (POST /v1/secrets + a small endpoint that
+    //      returns canonical inference-profile templates).
+    //   2. Move inference-profile seeds out of workspace config and into
+    //      Assistant code, eliminating the overlay entirely.
+    // See `cli/src/lib/config-utils.ts` JSDoc for context.
+    const hatchConfigValues = buildHatchConfigValues(configValues, provider);
+    const hostOverlayPath = writeInitialConfig(hatchConfigValues);
+    const stagedOverlayInContainer = "/workspace/.default-config-overlay.json";
+    const extraAssistantEnv: Record<string, string> = {};
+    if (hostOverlayPath) {
+      await execWithStdin(
+        "docker",
+        [
+          "run",
+          "--rm",
+          "-i",
+          "-v",
+          `${res.workspaceVolume}:/workspace`,
+          "busybox",
+          "sh",
+          "-c",
+          `cat > ${stagedOverlayInContainer} && chown 1001:1001 ${stagedOverlayInContainer}`,
+        ],
+        readFileSync(hostOverlayPath, "utf-8"),
+      );
+      extraAssistantEnv.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
+        stagedOverlayInContainer;
+    }
 
     const cesServiceToken = randomBytes(32).toString("hex");
     const signingKey = randomBytes(32).toString("hex");
@@ -1190,6 +1239,7 @@ export async function hatchDocker(
         signingKey,
         bootstrapSecret,
         cesServiceToken,
+        extraAssistantEnv,
         gatewayPort,
         imageTags,
         instanceName,

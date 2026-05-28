@@ -371,16 +371,22 @@ export type PostMessageResult =
       ok: true;
       queued?: false;
       assistantId: string;
+      /** The authoritative conversation id from the assistant. Always
+       *  populated regardless of whether the caller supplied an id on
+       *  input — on the server-minted flow this is the freshly minted
+       *  id, on the legacy flow it's the resolved/echoed id. */
       conversationId: string;
       messageId: string;
-      resolvedConversationId?: string;
     }
   | {
       ok: true;
       queued: true;
       assistantId: string;
+      /** The authoritative conversation id from the assistant. Always
+       *  populated regardless of whether the caller supplied an id on
+       *  input — on the server-minted flow this is the freshly minted
+       *  id, on the legacy flow it's the resolved/echoed id. */
       conversationId: string;
-      resolvedConversationId?: string;
       requestId?: string;
     }
   | { ok: false; status: number; error: { code?: string; detail?: string } };
@@ -480,21 +486,35 @@ export async function uploadChatAttachment(
  */
 export async function postChatMessage(
   assistantId: string,
-  conversationId: string,
+  conversationId: string | null,
   content: string,
   attachmentIds: string[] = [],
   onboarding?: PreChatOnboardingContext,
 ): Promise<PostMessageResult> {
-  // The wire-field gate prefers `conversationId` on daemons that mint
-  // ids before the first client send, falling back to `conversationKey`
-  // (create-or-lookup) so locally-minted draft ids still resolve. See
-  // `lib/backwards-compat/conversation-id-wire-field.ts`.
+  // Wire-field selection picks exactly one of `conversationId` (0.8.6+
+  // strict internal-id lookup) or `conversationKey` (legacy
+  // create-or-lookup). See `lib/backwards-compat/conversation-id-wire-field.ts`.
+  //
+  // The single skip case is the server-minted flow: `conversationId ===
+  // null` on a 0.8.6+ assistant. Caller is asking the assistant to mint
+  // a conversation row and echo its id back in the response — both
+  // fields must be omitted so the assistant takes the mint branch (see
+  // `assistant/src/runtime/routes/conversation-routes.ts`
+  // `handleSendMessage`). Callers gate `null` on
+  // `supportsServerMintedConversation()`.
+  //
+  // Pre-0.8.6 assistants always receive `conversationKey` — including
+  // `conversationKey: null` for safety, since they have no mint branch
+  // and need the legacy create-or-lookup path either way.
   const body: Record<string, unknown> = {
-    [pickConversationIdWireField()]: conversationId,
     content,
     sourceChannel: "vellum",
     interface: "vellum",
   };
+  const conversationField = pickConversationIdWireField();
+  if (conversationId !== null || conversationField !== "conversationId") {
+    body[conversationField] = conversationId;
+  }
   if (attachmentIds.length > 0) {
     body.attachmentIds = attachmentIds;
   }
@@ -519,6 +539,16 @@ export async function postChatMessage(
       onboardingDict.priorAssistants = normalizedOnboarding.priorAssistants;
     if (normalizedOnboarding.cohort !== undefined)
       onboardingDict.cohort = normalizedOnboarding.cohort;
+    if (normalizedOnboarding.bootstrapTemplate !== undefined)
+      onboardingDict.bootstrapTemplate = normalizedOnboarding.bootstrapTemplate;
+    if (
+      normalizedOnboarding.initialMessage !== undefined &&
+      normalizedOnboarding.initialMessage.trim().toLowerCase().replace(/[.!?]+$/, "") !==
+        "wake up, my friend"
+    )
+      onboardingDict.initialMessage = normalizedOnboarding.initialMessage;
+    if (normalizedOnboarding.skills !== undefined)
+      onboardingDict.skills = normalizedOnboarding.skills;
     body.onboarding = onboardingDict;
   }
   if (normalizedOnboarding) {
@@ -595,18 +625,38 @@ export async function postChatMessage(
     };
   }
 
+  // The assistant is the source of truth for the conversation id —
+  // `handleSendMessage` returns it on every success path (echoed when
+  // the caller supplied one, minted when both wire fields were
+  // omitted). Treat a missing id as a contract violation so the caller
+  // never threads `undefined` through downstream code (chat history,
+  // URL navigation, draft resolution).
+  //
+  // Followup: once `PostMessageResult` lives in the assistant API
+  // schema, swap this for a zod parse — at that point `conversationId`
+  // will be guaranteed-present by the schema and this branch becomes
+  // unreachable.
   const resolvedConversationId =
     typeof sendData.conversationId === "string"
       ? sendData.conversationId
       : undefined;
+  if (resolvedConversationId === undefined) {
+    return {
+      ok: false,
+      status: 422,
+      error: {
+        detail:
+          "Assistant accepted the message but did not return a conversation id.",
+      },
+    };
+  }
 
   if (sendData.queued) {
     return {
       ok: true,
       queued: true,
       assistantId,
-      conversationId,
-      resolvedConversationId,
+      conversationId: resolvedConversationId,
       requestId:
         typeof sendData.requestId === "string" ? sendData.requestId : undefined,
     };
@@ -623,9 +673,8 @@ export async function postChatMessage(
   return {
     ok: true,
     assistantId,
-    conversationId,
+    conversationId: resolvedConversationId,
     messageId: sendData.messageId,
-    resolvedConversationId,
   };
 }
 

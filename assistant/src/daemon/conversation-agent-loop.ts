@@ -80,7 +80,10 @@ import {
 } from "../memory/conversation-title-service.js";
 import { isBackgroundConversationType } from "../memory/conversation-types.js";
 import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { backfillMessageIdOnLogs } from "../memory/llm-request-log-store.js";
+import {
+  backfillMessageIdOnLogs,
+  recordSyntheticAgentErrorMessageLog,
+} from "../memory/llm-request-log-store.js";
 import { recordMemoryRecallLog } from "../memory/memory-recall-log-store.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import { PKB_WORKSPACE_SCOPE } from "../memory/pkb/types.js";
@@ -538,7 +541,12 @@ export interface AgentLoopConversationContext {
     surfaceType: SurfaceType;
     title?: string;
     data: SurfaceData;
-    actions?: Array<{ id: string; label: string; style?: string }>;
+    actions?: Array<{
+      id: string;
+      label: string;
+      style?: string;
+      data?: Record<string, unknown>;
+    }>;
     display?: string;
     persistent?: boolean;
   }>;
@@ -3127,8 +3135,12 @@ export async function runAgentLoopImpl(
         assistantMessageInterface:
           capturedTurnInterfaceContext.assistantMessageInterface,
       };
+      let yieldNoticePersistedId: string | null = null;
       try {
-        await runPipeline<PersistArgs, PersistResult>(
+        const yieldPersistResult = (await runPipeline<
+          PersistArgs,
+          PersistResult
+        >(
           "persistence",
           getMiddlewaresFor("persistence"),
           defaultPersistenceTerminal,
@@ -3141,7 +3153,8 @@ export async function runAgentLoopImpl(
           },
           buildPluginTurnContext(ctx, reqId),
           DEFAULT_TIMEOUTS.persistence,
-        );
+        )) as PersistAddResult;
+        yieldNoticePersistedId = yieldPersistResult.message.id;
       } catch (err) {
         // Non-fatal — a DB hiccup must not escalate a budget-yield exit into
         // a turn-level throw. The live SSE event was already emitted, so the
@@ -3150,6 +3163,48 @@ export async function runAgentLoopImpl(
           { err },
           "Failed to persist budget_yield_unrecovered notice (non-fatal)",
         );
+      }
+      // Record a synthetic `llm_request_logs` row for the yield so the
+      // inspector's call rail surfaces a clickable, distinctly-rendered
+      // entry for the failure itself. Without this row, the loop yields
+      // silently — the user sees the notice in chat but the inspector
+      // call list ends at the last actual LLM call with no way to scope
+      // the "what compactions led to this failure?" question to the
+      // yield event.
+      //
+      // Recorded *before* emitTerminalExit so the synthetic row exists
+      // by the time the dispatcher's post-loop hook runs. The row
+      // already carries `agent_loop_exit_reason` at insert time, so
+      // `setAgentLoopExitReasonOnLatestLog`'s IS NULL guard skips it
+      // and stamps the prior real mainAgent call instead — preserving
+      // the existing "latest LLM call carries the exit reason"
+      // invariant other consumers depend on.
+      //
+      // `preparedRequest` snapshots the best-known LLM request state
+      // at yield time — `updatedHistory` (the conversation state the
+      // next call would have been built from) plus the input-token
+      // budget that just failed. Mirrors the role of `request_payload`
+      // on real LLM-call rows; the notice text lives on
+      // `response_payload`.
+      if (yieldNoticePersistedId !== null && budgetYieldClassification) {
+        try {
+          recordSyntheticAgentErrorMessageLog({
+            conversationId: ctx.conversationId,
+            messageId: yieldNoticePersistedId,
+            exitReason: "budget_yield_unrecovered",
+            noticeText: budgetYieldClassification.userMessage,
+            preparedRequest: {
+              messages: updatedHistory,
+              maxInputTokensBudget: resolveCurrentMaxInputTokens() ?? null,
+            },
+            createdAt: Date.now(),
+          });
+        } catch (err) {
+          rlog.warn(
+            { err },
+            "Failed to record budget_yield_unrecovered synthetic call log (non-fatal)",
+          );
+        }
       }
       await emitTerminalExit?.("budget_yield_unrecovered");
     }

@@ -1,6 +1,7 @@
 import { join } from "path";
 
 import {
+  extractHostFromUrl,
   findAssistantByName,
   formatAssistantLookupError,
   formatAssistantReference,
@@ -9,6 +10,7 @@ import {
   getDaemonPidPath,
   loadAllAssistants,
   lookupAssistantByIdentifier,
+  resolveCloud,
   type AssistantEntry,
 } from "../lib/assistant-config";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
@@ -26,7 +28,7 @@ import { existsSync } from "fs";
 import {
   classifyProcess,
   detectOrphanedProcesses,
-  isProcessAlive,
+  isPidAlive,
   parseRemotePs,
   readPidFile,
 } from "../lib/orphan-detection";
@@ -149,35 +151,25 @@ const REMOTE_PS_CMD = [
   "| grep -v grep",
 ].join(" ");
 
-function extractHostFromUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname;
-  } catch {
-    return url.replace(/^https?:\/\//, "").split(":")[0];
-  }
-}
-
-function resolveCloud(entry: AssistantEntry): string {
-  if (entry.cloud) return entry.cloud;
-  if (entry.project) return "gcp";
-  if (entry.sshUser) return "custom";
-  return "local";
-}
+const REMOTE_SSH_TIMEOUT_MS = 30_000;
 
 async function getRemoteProcessesGcp(entry: AssistantEntry): Promise<string> {
-  return execOutput("gcloud", [
-    "compute",
-    "ssh",
-    `${entry.sshUser ?? entry.assistantId}@${entry.assistantId}`,
-    `--zone=${entry.zone}`,
-    `--project=${entry.project}`,
-    `--command=${REMOTE_PS_CMD}`,
-    "--ssh-flag=-o StrictHostKeyChecking=no",
-    "--ssh-flag=-o UserKnownHostsFile=/dev/null",
-    "--ssh-flag=-o ConnectTimeout=10",
-    "--ssh-flag=-o LogLevel=ERROR",
-  ]);
+  return execOutput(
+    "gcloud",
+    [
+      "compute",
+      "ssh",
+      `${entry.sshUser ?? entry.assistantId}@${entry.assistantId}`,
+      `--zone=${entry.zone}`,
+      `--project=${entry.project}`,
+      `--command=${REMOTE_PS_CMD}`,
+      "--ssh-flag=-o StrictHostKeyChecking=no",
+      "--ssh-flag=-o UserKnownHostsFile=/dev/null",
+      "--ssh-flag=-o ConnectTimeout=10",
+      "--ssh-flag=-o LogLevel=ERROR",
+    ],
+    { timeoutMs: REMOTE_SSH_TIMEOUT_MS },
+  );
 }
 
 async function getRemoteProcessesCustom(
@@ -185,7 +177,9 @@ async function getRemoteProcessesCustom(
 ): Promise<string> {
   const host = extractHostFromUrl(entry.runtimeUrl);
   const sshUser = entry.sshUser ?? "root";
-  return execOutput("ssh", [...SSH_OPTS, `${sshUser}@${host}`, REMOTE_PS_CMD]);
+  return execOutput("ssh", [...SSH_OPTS, `${sshUser}@${host}`, REMOTE_PS_CMD], {
+    timeoutMs: REMOTE_SSH_TIMEOUT_MS,
+  });
 }
 
 interface ProcessSpec {
@@ -203,9 +197,13 @@ interface DetectedProcess {
   watch: boolean;
 }
 
+const LOCAL_CMD_TIMEOUT_MS = 5_000;
+
 async function isWatchMode(pid: string): Promise<boolean> {
   try {
-    const args = await execOutput("ps", ["-p", pid, "-o", "args="]);
+    const args = await execOutput("ps", ["-p", pid, "-o", "args="], {
+      timeoutMs: LOCAL_CMD_TIMEOUT_MS,
+    });
     return args.includes("--watch");
   } catch {
     return false;
@@ -242,7 +240,7 @@ async function detectProcess(spec: ProcessSpec): Promise<DetectedProcess> {
 
   // Tier 3: PID file fallback
   const filePid = readPidFile(spec.pidFile);
-  if (filePid && isProcessAlive(filePid)) {
+  if (filePid && isPidAlive(filePid)) {
     const watch = await isWatchMode(filePid);
     return {
       name: spec.name,
@@ -320,12 +318,11 @@ async function getDockerContainerState(
   containerName: string,
 ): Promise<string | null> {
   try {
-    const output = await execOutput("docker", [
-      "inspect",
-      "--format",
-      "{{.State.Status}}",
-      containerName,
-    ]);
+    const output = await execOutput(
+      "docker",
+      ["inspect", "--format", "{{.State.Status}}", containerName],
+      { timeoutMs: LOCAL_CMD_TIMEOUT_MS },
+    );
     return output.trim() || "unknown";
   } catch {
     return null;
@@ -458,9 +455,12 @@ async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
       process.exit(1);
     }
   } catch (error) {
-    console.error(
-      `Failed to list processes: ${error instanceof Error ? error.message : error}`,
-    );
+    const msg = error instanceof Error ? error.message : String(error);
+    if (msg.includes("timed out")) {
+      console.warn(`Warning: remote process listing timed out — ${msg}`);
+      return;
+    }
+    console.error(`Failed to list processes: ${msg}`);
     process.exit(1);
   }
 
@@ -496,7 +496,7 @@ async function getAssistantListHealth(
     // TODO(ATL-306): Remove readPidFile/getDaemonPidPath in favor of
     // fetching daemon PIDs via the health API (Gateway Security Migration).
     const pid = readPidFile(getDaemonPidPath(resources));
-    const alive = pid !== null && isProcessAlive(pid);
+    const alive = pid !== null && isPidAlive(pid);
     if (!alive) {
       return { status: "sleeping", detail: null };
     }

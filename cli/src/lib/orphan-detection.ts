@@ -58,7 +58,7 @@ export function readPidFile(pidFile: string): string | null {
   return pid || null;
 }
 
-export function isProcessAlive(pid: string): boolean {
+export function isPidAlive(pid: string): boolean {
   try {
     process.kill(parseInt(pid, 10), 0);
     return true;
@@ -138,10 +138,14 @@ export async function detectOrphanedProcesses(
   // Process table scan — discover orphaned processes by scanning the OS
   // process table rather than reading PID files from the workspace.
   try {
-    const output = await execOutput("sh", [
-      "-c",
-      "ps ax -o pid=,ppid=,args= | grep -E 'vellum|qdrant|openclaw' | grep -v grep",
-    ]);
+    const output = await execOutput(
+      "sh",
+      [
+        "-c",
+        "ps ax -o pid=,ppid=,args= | grep -E 'vellum|qdrant|openclaw' | grep -v grep",
+      ],
+      { timeoutMs: 5_000 },
+    );
     const procs = parseRemotePs(output);
     const ownPid = String(process.pid);
 

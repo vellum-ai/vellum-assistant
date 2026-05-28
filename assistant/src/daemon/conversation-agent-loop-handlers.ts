@@ -7,6 +7,7 @@
  */
 
 import type pino from "pino";
+import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
 import type {
@@ -54,6 +55,10 @@ import { isContextOverflowError } from "../providers/types.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
+import {
+  buildPricingUsage,
+  resolveStructuredPricing,
+} from "../usage/pricing.js";
 import { ProviderError } from "../util/errors.js";
 import { faviconUrlForDomain } from "../util/favicon.js";
 import { getLogger } from "../util/logger.js";
@@ -67,10 +72,16 @@ import {
   buildConversationErrorMessage,
   classifyConversationError,
   isContextTooLarge,
+  maxTokensReachedClassification,
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
-import type { ServerMessage } from "./message-protocol.js";
+import type {
+  CardSurfaceData,
+  ServerMessage,
+  SurfaceAction,
+  UiSurfaceShow,
+} from "./message-protocol.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import type {
   WebSearchMetadata,
@@ -329,6 +340,9 @@ function emitLlmCallStartedIfNeeded(
 // tools the client discards it (extractCodePreview only handles app tools),
 // so we skip forwarding entirely to avoid transport/decode overhead.
 const APP_TOOL_NAMES = new Set(["app_create"]);
+const MAX_TOKENS_CONTINUE_PROMPT =
+  "Continue from where you stopped. Do not repeat content you've already sent.";
+const MAX_TOKENS_SURFACE_COMPLETION_SUMMARY = "Continue";
 
 // ── Friendly Tool Names ──────────────────────────────────────────────
 
@@ -1060,6 +1074,69 @@ function handleError(
   }
 }
 
+export function handleMaxTokensReached(
+  _state: EventHandlerState,
+  deps: EventHandlerDeps,
+  event: Extract<AgentEvent, { type: "max_tokens_reached" }>,
+): void {
+  const classified = maxTokensReachedClassification();
+  const surfaceId = `max_tokens_${uuid()}`;
+  const data: CardSurfaceData = {
+    title: "Response limit reached",
+    subtitle: "The partial response above was saved.",
+    body: classified.userMessage,
+  };
+  const actions: SurfaceAction[] = [
+    {
+      id: "relay_prompt",
+      label: "Continue",
+      style: "primary",
+      data: {
+        prompt: MAX_TOKENS_CONTINUE_PROMPT,
+        _completeSurface: true,
+        _completionSummary: MAX_TOKENS_SURFACE_COMPLETION_SUMMARY,
+      },
+    },
+  ];
+
+  deps.ctx.surfaceState.set(surfaceId, {
+    surfaceType: "card",
+    title: data.title,
+    data,
+    actions,
+  });
+  deps.ctx.currentTurnSurfaces.push({
+    surfaceId,
+    surfaceType: "card",
+    title: data.title,
+    data,
+    actions,
+    display: "inline",
+    persistent: true,
+  });
+
+  deps.rlog.warn(
+    {
+      conversationId: deps.ctx.conversationId,
+      stopReason: event.stopReason,
+      surfaceId,
+    },
+    "Surfacing max-tokens continuation card",
+  );
+
+  deps.onEvent({
+    type: "ui_surface_show",
+    conversationId: deps.ctx.conversationId,
+    surfaceId,
+    surfaceType: "card",
+    title: data.title,
+    data,
+    actions,
+    display: "inline",
+    persistent: true,
+  } as UiSurfaceShow);
+}
+
 export async function handleMessageComplete(
   state: EventHandlerState,
   deps: EventHandlerDeps,
@@ -1442,6 +1519,36 @@ function handleUsage(
     },
   );
   state.llmCallStartedEmitted = false;
+
+  // Emit a lightweight per-call usage progress event so clients can show
+  // live-updating token/cost metrics. This is a UI hint only — no DB writes.
+  const pricingUsage = buildPricingUsage({
+    providerName,
+    model: event.model,
+    inputTokens: event.inputTokens,
+    outputTokens: event.outputTokens,
+    cacheCreationInputTokens: event.cacheCreationInputTokens,
+    cacheReadInputTokens: event.cacheReadInputTokens,
+    rawResponse: event.rawResponse,
+  });
+  const pricing = resolveStructuredPricing(
+    providerName,
+    event.model,
+    pricingUsage,
+  );
+  const estimatedCost =
+    pricing.pricingStatus === "priced" && pricing.estimatedCostUsd != null
+      ? pricing.estimatedCostUsd
+      : 0;
+
+  deps.onEvent({
+    type: "usage_progress",
+    conversationId: deps.ctx.conversationId,
+    inputTokens: event.inputTokens,
+    outputTokens: event.outputTokens,
+    estimatedCost,
+    model: event.model,
+  });
 }
 
 /**
@@ -1631,6 +1738,9 @@ export async function dispatchAgentEvent(
       }
       case "error":
         handleError(state, deps, event);
+        break;
+      case "max_tokens_reached":
+        handleMaxTokensReached(state, deps, event);
         break;
       case "provider_error":
         handleProviderError(deps, event);

@@ -23,6 +23,7 @@ import {
   resolveOAuthConnection,
   type ResolveOAuthConnectionOptions,
 } from "../../oauth/connection-resolver.js";
+import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
 import {
   disconnectOAuthProvider,
   getActiveConnection,
@@ -516,6 +517,10 @@ async function handleStatus({ queryParams = {} }: RouteHandlerArgs) {
   }
 
   // BYO path
+  if (providerRow.authorizeUrl === "urn:manual-token") {
+    await syncManualTokenConnection(provider);
+  }
+
   const allConnections = listConnections(provider);
   const activeRows = allConnections.filter((r) => r.status === "active");
 
@@ -914,7 +919,7 @@ async function handleManagedConnect({ body = {} }: RouteHandlerArgs) {
     reqBody.requested_scopes = b.scopes;
   }
   reqBody.redirect_after_connect =
-    b.redirect_after_connect ?? "/account/oauth/desktop-complete";
+    b.redirect_after_connect ?? "/account/oauth/complete";
 
   const response = await client.fetch(startPath, {
     method: "POST",

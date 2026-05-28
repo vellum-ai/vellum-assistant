@@ -7,6 +7,7 @@ import { migrateCreateProviderConnections } from "../../../memory/migrations/243
 import { migrateProviderConnectionStatusLabel } from "../../../memory/migrations/244-provider-connection-status-label.js";
 import { migrateProviderConnectionBaseUrlAndModels } from "../../../memory/migrations/250-provider-connection-base-url-and-models.js";
 import { migrateStripBaseUrlNonOpenaiCompatible } from "../../../memory/migrations/257-strip-base-url-non-openai-compatible.js";
+import { migrateDropProviderConnectionStatus } from "../../../memory/migrations/265-drop-provider-connection-status.js";
 import * as schema from "../../../memory/schema.js";
 import { providerConnections } from "../../../memory/schema/inference.js";
 import { getConnection } from "../connections.js";
@@ -22,6 +23,7 @@ function bootDb() {
   const db = createTestDb();
   migrateCreateProviderConnections(db);
   migrateProviderConnectionStatusLabel(db);
+  migrateDropProviderConnectionStatus(db);
   migrateProviderConnectionBaseUrlAndModels(db);
   return db;
 }
@@ -42,7 +44,6 @@ describe("migration 257: strip base_url from non-openai-compatible connections",
         name: "bad-anthropic",
         provider: "anthropic",
         auth: JSON.stringify({ type: "api_key", credential: "cred-abc" }),
-        status: "active",
         baseUrl: "https://evil.example.com/v1",
         createdAt: now,
         updatedAt: now,
@@ -65,7 +66,6 @@ describe("migration 257: strip base_url from non-openai-compatible connections",
         name: "good-vllm",
         provider: "openai-compatible",
         auth: JSON.stringify({ type: "api_key", credential: "cred-vllm" }),
-        status: "active",
         baseUrl: "https://my-vllm.example.com/v1",
         models: JSON.stringify([{ id: "my-model" }]),
         createdAt: now,
@@ -89,7 +89,6 @@ describe("migration 257: strip base_url from non-openai-compatible connections",
         name: "bad-openai",
         provider: "openai",
         auth: JSON.stringify({ type: "api_key", credential: "cred-abc" }),
-        status: "active",
         baseUrl: "https://evil.example.com/v1",
         createdAt: now,
         updatedAt: now,

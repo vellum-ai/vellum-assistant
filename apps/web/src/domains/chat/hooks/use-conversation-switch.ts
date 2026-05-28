@@ -45,7 +45,6 @@ export interface UseConversationSwitchParams {
   requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  lastSuggestionMsgIdRef: MutableRefObject<string | null>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
 
@@ -56,7 +55,6 @@ export interface UseConversationSwitchParams {
   setError: Dispatch<SetStateAction<ChatError | null>>;
   setAutoGreetPending: Dispatch<SetStateAction<boolean>>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
-  setSuggestion: Dispatch<SetStateAction<string | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
   resetChatAttachments: () => void;
@@ -91,7 +89,6 @@ export function useConversationSwitch({
   requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  lastSuggestionMsgIdRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   setMessages,
@@ -100,7 +97,6 @@ export function useConversationSwitch({
   setError,
   setAutoGreetPending,
   setContextWindowUsage,
-  setSuggestion,
   setCompactionCircuitOpenUntil,
   resetChatAttachments,
   shouldSuppressGenericChatErrorNotice,
@@ -156,9 +152,7 @@ export function useConversationSwitch({
     confirmationToolCallMapRef.current.clear();
     setAutoGreetPending(false);
     resetChatAttachments();
-    setSuggestion(null);
     setCompactionCircuitOpenUntil(null);
-    lastSuggestionMsgIdRef.current = null;
     setContextWindowUsage(
       contextWindowUsageByConversationRef.current.get(activeConversationId) ?? null,
     );
@@ -189,7 +183,6 @@ export function useConversationSwitch({
     requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    lastSuggestionMsgIdRef,
     // Setters (stable references):
     setMessages,
     setTranscriptPagination,
@@ -197,7 +190,6 @@ export function useConversationSwitch({
     setError,
     setAutoGreetPending,
     setContextWindowUsage,
-    setSuggestion,
     setCompactionCircuitOpenUntil,
     shouldSuppressGenericChatErrorNotice,
   ]);

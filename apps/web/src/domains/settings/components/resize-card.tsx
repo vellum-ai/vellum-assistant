@@ -263,7 +263,7 @@ export function ResizeCard({
           />
         }
       >
-        <div className="grid grid-cols-[1fr_2fr] gap-2">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_2fr]">
           {/* Disk tile */}
           <div className="flex flex-col rounded-lg bg-[var(--surface-base)] p-3">
             <div className="flex items-center justify-between">
@@ -407,7 +407,7 @@ export function ResizeCard({
             <div className="flex flex-col gap-3">
               {allowedSizes.length === 0 ? (
                 <Notice tone="warning">
-                  No machine tier configured. Contact support.
+                  No machine tier configured. Visit the community for help.
                 </Notice>
               ) : (
                 <div className="flex flex-col gap-1.5">

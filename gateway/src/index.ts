@@ -147,18 +147,11 @@ import {
   resolveExtensionOrigin,
   handleExtensionPreflight,
   withExtensionCorsHeaders,
-  resolveWebOrigin,
-  handleWebPreflight,
-  withWebCorsHeaders,
   resolveWebviewOrigin,
   handlePreflight,
   withCorsHeaders,
 } from "./http/middleware/cors.js";
-import { handleAuthState } from "./http/routes/auth-state.js";
-import {
-  handleCreateSession,
-  handleDeleteSession,
-} from "./http/routes/auth-session.js";
+import { handleCreateToken } from "./http/routes/auth-token.js";
 import {
   createRouter,
   type RouteDefinition,
@@ -167,6 +160,7 @@ import {
 import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { fetchImpl } from "./fetch.js";
+import { arePlatformFeaturesEnabled } from "./feature-flag-resolver.js";
 import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
@@ -1422,27 +1416,13 @@ async function main() {
     },
   ];
 
-  // ── Web session auth ──
-  routes.push(
-    {
-      path: "/auth/state",
-      method: "GET",
-      auth: "none",
-      handler: handleAuthState,
-    },
-    {
-      path: "/auth/session",
-      method: "POST",
-      auth: "custom",
-      handler: (req) => handleCreateSession(req, server),
-    },
-    {
-      path: "/auth/session",
-      method: "DELETE",
-      auth: "none",
-      handler: handleDeleteSession,
-    },
-  );
+  // ── Web token auth ──
+  routes.push({
+    path: "/auth/token",
+    method: "POST",
+    auth: "custom",
+    handler: (req) => handleCreateToken(req, server),
+  });
 
   // Runtime proxy catch-all — must be last so specific routes are checked first.
   routes.push({
@@ -1559,11 +1539,6 @@ async function main() {
       return handleExtensionPreflight(extensionOrigin);
     }
 
-    const webOrigin = resolveWebOrigin(req);
-    if (webOrigin && req.method === "OPTIONS") {
-      return handleWebPreflight(webOrigin);
-    }
-
     const webviewOrigin = resolveWebviewOrigin(req);
     if (webviewOrigin && req.method === "OPTIONS") {
       return handlePreflight(webviewOrigin);
@@ -1649,8 +1624,6 @@ async function main() {
     if (rateLimitResponse) {
       if (extensionOrigin)
         return withExtensionCorsHeaders(rateLimitResponse, extensionOrigin);
-      if (webOrigin)
-        return withWebCorsHeaders(rateLimitResponse, webOrigin);
       if (webviewOrigin)
         return withCorsHeaders(rateLimitResponse, webviewOrigin);
       return rateLimitResponse;
@@ -1699,9 +1672,6 @@ async function main() {
         if (extensionOrigin) {
           return withExtensionCorsHeaders(response, extensionOrigin);
         }
-        if (webOrigin) {
-          return withWebCorsHeaders(response, webOrigin);
-        }
         if (webviewOrigin) {
           return withCorsHeaders(response, webviewOrigin);
         }
@@ -1711,7 +1681,7 @@ async function main() {
       // Mirror the error() handler logic while retaining CORS context.
       // Bun's error() callback doesn't receive the request, so thrown
       // errors during webview/extension requests would otherwise lose CORS headers.
-      if (!webviewOrigin && !extensionOrigin && !webOrigin) throw err;
+      if (!webviewOrigin && !extensionOrigin) throw err;
       if (err instanceof CircuitBreakerOpenError) {
         const body = Response.json(
           {
@@ -1725,7 +1695,7 @@ async function main() {
         );
         if (extensionOrigin)
           return withExtensionCorsHeaders(body, extensionOrigin);
-        if (webOrigin) return withWebCorsHeaders(body, webOrigin);
+
         return withCorsHeaders(body, webviewOrigin!);
       }
       log.error({ err }, "Unhandled gateway error");
@@ -1735,7 +1705,6 @@ async function main() {
       );
       if (extensionOrigin)
         return withExtensionCorsHeaders(errBody, extensionOrigin);
-      if (webOrigin) return withWebCorsHeaders(errBody, webOrigin);
       return withCorsHeaders(errBody, webviewOrigin!);
     }
 
@@ -1745,7 +1714,6 @@ async function main() {
     );
     if (extensionOrigin)
       return withExtensionCorsHeaders(notFound, extensionOrigin);
-    if (webOrigin) return withWebCorsHeaders(notFound, webOrigin);
     if (webviewOrigin) return withCorsHeaders(notFound, webviewOrigin);
     return notFound;
   }
@@ -1786,6 +1754,13 @@ async function main() {
    *  Throttled to at most one outbound POST per 30 seconds. */
   let lastRecordActivityTs = 0;
   async function notifyRecordActivity(): Promise<void> {
+    if (!arePlatformFeaturesEnabled()) {
+      log.debug(
+        "platform-features-in-local-mode is disabled — skipping record-activity",
+      );
+      return;
+    }
+
     const now = Date.now();
     if (now - lastRecordActivityTs < 30_000) return;
     lastRecordActivityTs = now;

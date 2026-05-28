@@ -1,0 +1,5 @@
+# LongMemEval-V2 dataset payload is 7+ GB — kept out of the repo.
+# Pull via `bash download.sh` (or `huggingface-cli download xiaowu0162/longmemeval-v2`).
+*
+!.gitignore
+!download.sh

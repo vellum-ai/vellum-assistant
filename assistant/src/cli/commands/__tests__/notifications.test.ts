@@ -437,74 +437,218 @@ describe("notifications send — minimal-surface ergonomics", () => {
 // ---------------------------------------------------------------------------
 
 describe("notifications list", () => {
-  test("list returns empty array when no events", async () => {
-    ipcResponse = { ok: true, result: [] };
+  const emptyPayload = {
+    items: [],
+    total: 0,
+    returned: 0,
+    hasMore: false,
+    updatedAt: "2026-05-28T00:00:00.000Z",
+  };
+
+  function feedItem(
+    overrides: Record<string, unknown>,
+  ): Record<string, unknown> {
+    return {
+      id: "feed-1",
+      type: "notification",
+      priority: 50,
+      summary: "Background sync done",
+      timestamp: "2026-05-28T10:00:00.000Z",
+      status: "new",
+      createdAt: "2026-05-28T10:00:00.000Z",
+      ...overrides,
+    };
+  }
+
+  test("list calls list_home_feed and returns empty payload", async () => {
+    ipcResponse = { ok: true, result: emptyPayload };
 
     const { parsed, exitCode } = await runCommand(["list"]);
 
     expect(exitCode).toBe(0);
     expect(parsed.ok).toBe(true);
-    expect(parsed.events).toEqual([]);
+    expect(parsed.items).toEqual([]);
+    expect(parsed.total).toBe(0);
 
     expect(ipcCalls).toHaveLength(1);
-    expect(ipcCalls[0].method).toBe("list_notification_events");
+    expect(ipcCalls[0].method).toBe("list_home_feed");
   });
 
-  test("list returns events from IPC", async () => {
+  test("list returns items from IPC", async () => {
     ipcResponse = {
       ok: true,
-      result: [
-        {
-          id: "evt-1",
-          sourceEventName: "user.send_notification",
-          sourceChannel: "assistant_tool",
-          sourceContextId: "session-1",
-          urgency: "medium",
-          dedupeKey: null,
-          createdAt: "2026-01-01T00:00:00.000Z",
-        },
-      ],
+      result: {
+        ...emptyPayload,
+        items: [feedItem({ title: "Hello", urgency: "medium" })],
+        total: 1,
+        returned: 1,
+      },
     };
 
     const { parsed, exitCode } = await runCommand(["list"]);
 
     expect(exitCode).toBe(0);
     expect(parsed.ok).toBe(true);
-    const events = parsed.events as Array<Record<string, unknown>>;
-    expect(events).toHaveLength(1);
-    expect(events[0].sourceEventName).toBe("user.send_notification");
+    const items = parsed.items as Array<Record<string, unknown>>;
+    expect(items).toHaveLength(1);
+    expect(items[0].title).toBe("Hello");
   });
 
-  test("list passes --limit to IPC", async () => {
-    ipcResponse = { ok: true, result: [] };
+  test("list defaults to excluding dismissed (no includeDismissed flag in body)", async () => {
+    ipcResponse = { ok: true, result: emptyPayload };
 
-    const { parsed, exitCode } = await runCommand(["list", "--limit", "5"]);
+    await runCommand(["list"]);
 
-    expect(exitCode).toBe(0);
-    expect(parsed.ok).toBe(true);
-
-    expect(ipcCalls).toHaveLength(1);
-    expect((ipcCalls[0].params?.body as Record<string, unknown>)?.limit).toBe(
-      5,
-    );
+    const body = ipcCalls[0].params?.body as Record<string, unknown>;
+    expect(body.includeDismissed).toBeUndefined();
+    expect(body.statuses).toBeUndefined();
   });
 
-  test("list passes --source-event-name to IPC", async () => {
-    ipcResponse = { ok: true, result: [] };
+  test("--all sets includeDismissed=true", async () => {
+    ipcResponse = { ok: true, result: emptyPayload };
 
+    await runCommand(["list", "--all"]);
+
+    const body = ipcCalls[0].params?.body as Record<string, unknown>;
+    expect(body.includeDismissed).toBe(true);
+  });
+
+  test("--status is repeatable and passed as statuses array", async () => {
+    ipcResponse = { ok: true, result: emptyPayload };
+
+    await runCommand(["list", "--status", "new", "--status", "acted_on"]);
+
+    const body = ipcCalls[0].params?.body as Record<string, unknown>;
+    expect(body.statuses).toEqual(["new", "acted_on"]);
+  });
+
+  test("--status rejects invalid value before IPC call", async () => {
     const { parsed, exitCode } = await runCommand([
       "list",
-      "--source-event-name",
-      "schedule.notify",
+      "--status",
+      "bogus",
     ]);
 
-    expect(exitCode).toBe(0);
-    expect(parsed.ok).toBe(true);
+    expect(exitCode).toBe(1);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("status");
+    expect(ipcCalls).toHaveLength(0);
+  });
 
-    expect(ipcCalls).toHaveLength(1);
-    expect(
-      (ipcCalls[0].params?.body as Record<string, unknown>)?.sourceEventName,
-    ).toBe("schedule.notify");
+  test("--before and --after are forwarded as ISO strings", async () => {
+    ipcResponse = { ok: true, result: emptyPayload };
+
+    await runCommand([
+      "list",
+      "--after",
+      "2026-05-28T00:00:00Z",
+      "--before",
+      "2026-05-29T00:00:00Z",
+    ]);
+
+    const body = ipcCalls[0].params?.body as Record<string, unknown>;
+    expect(body.after).toBe("2026-05-28T00:00:00Z");
+    expect(body.before).toBe("2026-05-29T00:00:00Z");
+  });
+
+  test("--urgency is repeatable and passed as urgencies array", async () => {
+    ipcResponse = { ok: true, result: emptyPayload };
+
+    await runCommand(["list", "--urgency", "high", "--urgency", "critical"]);
+
+    const body = ipcCalls[0].params?.body as Record<string, unknown>;
+    expect(body.urgencies).toEqual(["high", "critical"]);
+  });
+
+  test("--urgency rejects invalid value", async () => {
+    const { exitCode, parsed } = await runCommand([
+      "list",
+      "--urgency",
+      "extreme",
+    ]);
+
+    expect(exitCode).toBe(1);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("urgency");
+    expect(ipcCalls).toHaveLength(0);
+  });
+
+  test("--category is repeatable and passed as categories array", async () => {
+    ipcResponse = { ok: true, result: emptyPayload };
+
+    await runCommand([
+      "list",
+      "--category",
+      "email",
+      "--category",
+      "scheduling",
+    ]);
+
+    const body = ipcCalls[0].params?.body as Record<string, unknown>;
+    expect(body.categories).toEqual(["email", "scheduling"]);
+  });
+
+  test("--conversation-id, --from-assistant, --noteworthy forwarded", async () => {
+    ipcResponse = { ok: true, result: emptyPayload };
+
+    await runCommand([
+      "list",
+      "--conversation-id",
+      "conv-abc",
+      "--from-assistant",
+      "--noteworthy",
+    ]);
+
+    const body = ipcCalls[0].params?.body as Record<string, unknown>;
+    expect(body.conversationId).toBe("conv-abc");
+    expect(body.fromAssistant).toBe(true);
+    expect(body.noteworthy).toBe(true);
+  });
+
+  test("--limit and --offset are forwarded as integers", async () => {
+    ipcResponse = { ok: true, result: emptyPayload };
+
+    await runCommand(["list", "--limit", "5", "--offset", "10"]);
+
+    const body = ipcCalls[0].params?.body as Record<string, unknown>;
+    expect(body.limit).toBe(5);
+    expect(body.offset).toBe(10);
+  });
+
+  test("--limit rejects non-positive integers", async () => {
+    const { exitCode, parsed } = await runCommand(["list", "--limit", "0"]);
+    expect(exitCode).toBe(1);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("limit");
+    expect(ipcCalls).toHaveLength(0);
+  });
+
+  test("--limit rejects values above 200", async () => {
+    const { exitCode, parsed } = await runCommand(["list", "--limit", "500"]);
+    expect(exitCode).toBe(1);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("200");
+    expect(ipcCalls).toHaveLength(0);
+  });
+
+  test("--offset rejects negative values", async () => {
+    const { exitCode, parsed } = await runCommand(["list", "--offset", "-1"]);
+    expect(exitCode).toBe(1);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("offset");
+    expect(ipcCalls).toHaveLength(0);
+  });
+
+  test("empty --conversation-id is rejected", async () => {
+    const { exitCode, parsed } = await runCommand([
+      "list",
+      "--conversation-id",
+      "   ",
+    ]);
+    expect(exitCode).toBe(1);
+    expect(parsed.ok).toBe(false);
+    expect(parsed.error).toContain("Conversation ID");
+    expect(ipcCalls).toHaveLength(0);
   });
 
   test("list surfaces IPC error response", async () => {
@@ -524,7 +668,7 @@ describe("notifications list", () => {
   test("list maps daemon 4xx to exit 2", async () => {
     ipcResponse = {
       ok: false,
-      error: "Invalid limit",
+      error: "Invalid filter",
       statusCode: 400,
     };
 
@@ -532,7 +676,7 @@ describe("notifications list", () => {
 
     expect(exitCode).toBe(2);
     expect(parsed.ok).toBe(false);
-    expect(parsed.error).toBe("Invalid limit");
+    expect(parsed.error).toBe("Invalid filter");
   });
 
   test("list maps daemon 5xx to exit 3", async () => {

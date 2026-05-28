@@ -2,7 +2,7 @@ import { Loader2 } from "lucide-react";
 import { useCallback, useState } from "react";
 
 import { Button, Input, Modal, toast, Typography } from "@vellum/design-library";
-import { setVercelToken } from "@/lib/publish-api";
+import { integrationsVercelConfigPost } from "@/generated/daemon/sdk.gen";
 
 export interface VercelTokenDialogProps {
   open: boolean;
@@ -28,7 +28,11 @@ export function VercelTokenDialog({
     setError(null);
 
     try {
-      await setVercelToken(assistantId, token.trim());
+      await integrationsVercelConfigPost({
+        path: { assistant_id: assistantId },
+        body: { action: "set", apiToken: token.trim() },
+        throwOnError: true,
+      });
       setToken("");
       onTokenSaved();
     } catch (err) {

@@ -267,7 +267,7 @@ export function AssistantStatusPanel({
       )}
 
       <Label>Created</Label>
-      <Value>{new Date(assistant.created).toLocaleDateString()}</Value>
+      <Value>{assistant.created ? new Date(assistant.created).toLocaleDateString() : "Unknown"}</Value>
 
       <Label>Version</Label>
       <DevModeVersionUnlock

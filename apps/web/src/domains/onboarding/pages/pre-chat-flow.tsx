@@ -3,21 +3,24 @@ import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
-import { useIsIOSWeb, useIsMacOSWeb } from "@/utils/platform-detection";
+import { useIsIOSWeb, useIsMacOSWeb } from "@/runtime/platform-detection";
 import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
 import { readMacOsAppDownloaded } from "@/hooks/use-macos-app-nudge";
-import { persistContentAutomationPreChatHandoff } from "@/domains/onboarding/content-automation";
-import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen";
-import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen";
-import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen";
-import { NameExchangeScreen } from "@/domains/onboarding/screens/name-exchange-screen";
-import { PriorAssistantSelectionScreen } from "@/domains/onboarding/screens/prior-assistant-selection-screen";
-import { NameStepScreen } from "@/domains/onboarding/screens/name-step-screen";
-import { TaskToneSelectionScreen } from "@/domains/onboarding/screens/task-tone-selection-screen";
-import { ToolSelectionScreen } from "@/domains/onboarding/screens/tool-selection-screen";
-import { VibeStepScreen } from "@/domains/onboarding/screens/vibe-step-screen";
-import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
-import { usePrefilledInput } from "@/hooks/use-prefilled-input";
+import {
+  fetchOnboardingRecipe,
+  type OnboardingRecipe,
+} from "@/domains/onboarding/recipe-client.js";
+import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen.js";
+import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen.js";
+import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen.js";
+import { NameExchangeScreen } from "@/domains/onboarding/screens/name-exchange-screen.js";
+import { PriorAssistantSelectionScreen } from "@/domains/onboarding/screens/prior-assistant-selection-screen.js";
+import { NameStepScreen } from "@/domains/onboarding/screens/name-step-screen.js";
+import { TaskToneSelectionScreen } from "@/domains/onboarding/screens/task-tone-selection-screen.js";
+import { ToolSelectionScreen } from "@/domains/onboarding/screens/tool-selection-screen.js";
+import { VibeStepScreen } from "@/domains/onboarding/screens/vibe-step-screen.js";
+import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
+import { usePrefilledInput } from "@/hooks/use-prefilled-input.js";
 import {
   setPendingAssistantName,
   setPendingPreChatContext,
@@ -39,12 +42,12 @@ import {
 import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
-} from "@/domains/onboarding/signals";
-import { resolveUserCohort } from "@/domains/onboarding/utm-cohort";
-import { useIsNativePlatform } from "@/runtime/native-auth";
-import { useAuthStore } from "@/stores/auth-store";
+} from "@/domains/onboarding/signals.js";
+import { isLocalMode } from "@/lib/local-mode";
+import { useIsNativePlatform } from "@/runtime/native-auth.js";
+import { useAuthStore } from "@/stores/auth-store.js";
 import { useRootOutletContext } from "@/root-layout";
-import { routes } from "@/utils/routes";
+import { routes } from "@/utils/routes.js";
 
 /**
  * Screen indices for the PreChat flow:
@@ -72,8 +75,12 @@ export function PreChatFlow() {
     lifecycle: { checkAssistant },
   } = useRootOutletContext();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
-  const [cohort, setCohort] = useState<string | null>(null);
+  const [recipe, setRecipe] = useState<OnboardingRecipe | null>(null);
+  const [recipeLoadState, setRecipeLoadState] = useState<"loading" | "ready">(
+    "loading",
+  );
 
+  const localMode = isLocalMode();
   const isMacOSWeb = useIsMacOSWeb();
   const isIOSWeb = useIsIOSWeb();
   const showAppStep =
@@ -110,8 +117,9 @@ export function PreChatFlow() {
   const [selectedPriorAssistants, setSelectedPriorAssistants] = useState<Set<string>>(
     () => new Set(),
   );
+  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
   const { value: userName, onChange: handleUserNameChange } =
-    usePrefilledInput(firstName || lastName);
+    usePrefilledInput(localMode && !hasPlatformSession ? "" : (firstName || lastName));
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [displayedAssistantNames] = useState<string[]>(
     () => sampleSuggestionNames(),
@@ -122,7 +130,7 @@ export function PreChatFlow() {
 
   const { data: activeAssistant } = useQuery({
     ...assistantsActiveRetrieveOptions(),
-    enabled: !isAuthLoading && isLoggedIn,
+    enabled: !isAuthLoading && isLoggedIn && !localMode,
   });
 
   const navigateToChatAfterLifecycleRefresh = useCallback(async () => {
@@ -156,13 +164,32 @@ export function PreChatFlow() {
   }, [consent, isAuthLoading, isLoggedIn, userId]);
 
   useEffect(() => {
-    if (isAuthLoading || !isLoggedIn) return;
+    if (isAuthLoading || !isLoggedIn) {
+      setRecipe(null);
+      setRecipeLoadState("loading");
+      return;
+    }
+    // In local mode, the gateway doesn't serve the recipe endpoint. (LUM-2000)
+    if (isNative || localMode) {
+      setRecipe(null);
+      setRecipeLoadState("ready");
+      return;
+    }
     let cancelled = false;
-    void resolveUserCohort().then((resolved) => {
-      if (!cancelled && resolved) setCohort(resolved);
-    });
+    setRecipe(null);
+    setRecipeLoadState("loading");
+    void fetchOnboardingRecipe()
+      .then((fetched) => {
+        if (!cancelled) setRecipe(fetched);
+      })
+      .catch(() => {
+        if (!cancelled) setRecipe(null);
+      })
+      .finally(() => {
+        if (!cancelled) setRecipeLoadState("ready");
+      });
     return () => { cancelled = true; };
-  }, [isAuthLoading, isLoggedIn]);
+  }, [isAuthLoading, isLoggedIn, isNative, localMode, userId]);
 
   useEffect(() => {
     if (isAuthLoading) return;
@@ -190,34 +217,36 @@ export function PreChatFlow() {
     userId,
   ]);
 
-  // ── Content-automation cohort: skip all pre-chat screens (web only) ──
+  // ── Recipe-driven auto-skip: skip all pre-chat screens (web only) ──
   const autoSkippedRef = useRef(false);
   useEffect(() => {
-    if (cohort !== "content-automation" || isNative) return;
+    if (!recipe?.skipPrechat || isNative) return;
     if (isAuthLoading || !isLoggedIn || consentDecision !== "ok") return;
     if (readOnboardingCompleted()) return;
     if (autoSkippedRef.current) return;
     autoSkippedRef.current = true;
 
-    persistContentAutomationPreChatHandoff();
+    const context: PreChatOnboardingContext = {
+      tools: [],
+      tasks: recipe.tasks,
+      tone: recipe.tone,
+      googleConnected: false,
+      cohort: recipe.cohort,
+      initialMessage: recipe.initialMessage,
+      bootstrapTemplate: recipe.bootstrapTemplate,
+      skills: recipe.skills,
+    };
+    setPendingPreChatContext(context);
     try {
       setOnboardingCompleted(true);
     } catch (err) {
       Sentry.captureException(err, {
-        tags: { context: "prechat_auto_skip_content_automation" },
+        tags: { context: "prechat_auto_skip_recipe" },
       });
     }
     clearPrivacyConsent();
     void navigateToChatAfterLifecycleRefresh();
-  }, [
-    cohort,
-    isNative,
-    isAuthLoading,
-    isLoggedIn,
-    consentDecision,
-    navigateToChatAfterLifecycleRefresh,
-    setOnboardingCompleted,
-  ]);
+  }, [recipe, isNative, isAuthLoading, isLoggedIn, consentDecision, navigateToChatAfterLifecycleRefresh, setOnboardingCompleted]);
 
   async function finish(connectedScopes?: string[]): Promise<void> {
     const context: PreChatOnboardingContext = {
@@ -257,16 +286,18 @@ export function PreChatFlow() {
   }
 
   const consentReady = isNative || consentDecision === "ok";
+  const recipeReady = isNative || recipeLoadState === "ready";
   if (
     isAuthLoading ||
     !isLoggedIn ||
     !consentReady ||
+    !recipeReady ||
     readOnboardingCompleted()
   ) {
     return null;
   }
 
-  if (cohort === "content-automation" && !isNative) {
+  if (recipe?.skipPrechat && !isNative) {
     return null;
   }
 
@@ -383,7 +414,14 @@ export function PreChatFlow() {
 
   const hasGoogleTool = [...selectedTools].some((id) => GOOGLE_TOOL_IDS.has(id));
 
+  // In local mode, platform-only screens (PriorAssistants, GoogleOAuth, GetApp) are
+  // skipped. The recipe fetch is also disabled since the gateway doesn't serve it.
+  // In Electron, the recipe could be fetched from the daemon directly if needed. (LUM-2000)
   const advancePastToolSelection = () => {
+    if (localMode) {
+      void finish();
+      return;
+    }
     setScreen(3);
   };
 

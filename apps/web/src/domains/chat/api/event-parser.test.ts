@@ -1,91 +1,92 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseAssistantEvent, toDisplayAttachments } from "@/domains/chat/api/event-parser";
+import {
+  parseAssistantEvent,
+  toDisplayAttachments,
+} from "@/domains/chat/api/event-parser";
 import { SYNC_TAGS } from "@/lib/sync/types";
 
 describe("parseAssistantEvent", () => {
-  test("parses assistant_text_delta", () => {
+  // ---------------------------------------------------------------------
+  // assistant_text_delta (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses assistant_text_delta with messageId and conversationId", () => {
     const event = parseAssistantEvent({
       type: "assistant_text_delta",
       text: "Hello",
       messageId: "msg-1",
+      conversationId: "conv-1",
     });
     expect(event).toEqual({
       type: "assistant_text_delta",
       text: "Hello",
       messageId: "msg-1",
+      conversationId: "conv-1",
     });
   });
 
-  test("defaults text to empty string when missing", () => {
-    const event = parseAssistantEvent({ type: "assistant_text_delta" });
+  test("parses assistant_text_delta with only required text field", () => {
+    const event = parseAssistantEvent({
+      type: "assistant_text_delta",
+      text: "",
+    });
     expect(event).toEqual({
       type: "assistant_text_delta",
       text: "",
-      messageId: undefined,
     });
   });
 
-  test("parses message_complete with content", () => {
-    const event = parseAssistantEvent({
-      type: "message_complete",
-      messageId: "msg-1",
-      content: "Full response",
-    });
+  test("returns unknown assistant_text_delta event when text field is missing", () => {
+    const data = { type: "assistant_text_delta", conversationId: "conv-1" };
+    const event = parseAssistantEvent(data);
     expect(event).toEqual({
-      type: "message_complete",
-      messageId: "msg-1",
-      content: "Full response",
-      attachments: undefined,
+      type: "unknown",
+      rawType: "assistant_text_delta",
+      data,
+      conversationId: "conv-1",
     });
   });
 
-  test("ignores legacy displayMessageId on message_complete", () => {
-    const event = parseAssistantEvent({
-      type: "message_complete",
-      messageId: "msg-1",
-      displayMessageId: "ignored",
-      content: "Full response",
-    });
+  test("returns unknown assistant_text_delta event when an unknown field is present", () => {
+    // Strict schema rejects forward-compat extras — the daemon and the
+    // canonical schema must move in lockstep.
+    const data = { type: "assistant_text_delta", text: "Hi", legacyField: "x" };
+    const event = parseAssistantEvent(data);
     expect(event).toEqual({
-      type: "message_complete",
-      messageId: "msg-1",
-      content: "Full response",
-      attachments: undefined,
+      type: "unknown",
+      rawType: "assistant_text_delta",
+      data,
+      conversationId: undefined,
     });
   });
 
-  test("preserves message_complete conversationId", () => {
+  // ---------------------------------------------------------------------
+  // message_complete (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses message_complete with messageId and conversationId", () => {
     const event = parseAssistantEvent({
       type: "message_complete",
       messageId: "msg-1",
-      content: "Full response",
       conversationId: "conversation-1",
     });
     expect(event).toEqual({
       type: "message_complete",
       messageId: "msg-1",
-      content: "Full response",
-      attachments: undefined,
       conversationId: "conversation-1",
     });
   });
 
-  test("parses message_complete without content", () => {
+  test("parses message_complete with no fields", () => {
     const event = parseAssistantEvent({ type: "message_complete" });
-    expect(event).toEqual({
-      type: "message_complete",
-      messageId: undefined,
-      content: undefined,
-      attachments: undefined,
-    });
+    expect(event).toEqual({ type: "message_complete" });
   });
 
   test("parses message_complete with attachments", () => {
     const event = parseAssistantEvent({
       type: "message_complete",
       messageId: "msg-1",
-      content: "Here is the screenshot",
       attachments: [
         {
           id: "att-1",
@@ -99,7 +100,6 @@ describe("parseAssistantEvent", () => {
     expect(event).toEqual({
       type: "message_complete",
       messageId: "msg-1",
-      content: "Here is the screenshot",
       attachments: [
         {
           id: "att-1",
@@ -107,61 +107,411 @@ describe("parseAssistantEvent", () => {
           mimeType: "image/png",
           data: "iVBORw0KGgo=",
           sourceType: "sandbox_file",
-          sizeBytes: undefined,
-          thumbnailData: undefined,
-          fileBacked: undefined,
         },
       ],
     });
   });
 
-  test("parses message_complete ignoring invalid attachments", () => {
+  test("parses message_complete with source aux", () => {
     const event = parseAssistantEvent({
       type: "message_complete",
-      content: "text",
-      attachments: [{ bad: true }, { filename: "ok.txt", mimeType: "text/plain" }],
+      conversationId: "conv-1",
+      messageId: "msg-aux",
+      source: "aux",
     });
     expect(event).toEqual({
       type: "message_complete",
-      messageId: undefined,
-      content: "text",
-      attachments: [
-        {
-          id: undefined,
-          filename: "ok.txt",
-          mimeType: "text/plain",
-          data: "",
-          sourceType: undefined,
-          sizeBytes: undefined,
-          thumbnailData: undefined,
-          fileBacked: undefined,
-        },
-      ],
+      conversationId: "conv-1",
+      messageId: "msg-aux",
+      source: "aux",
     });
   });
 
-  test("parses generation_handoff", () => {
+  test("parses message_complete with attachmentWarnings", () => {
     const event = parseAssistantEvent({
-      type: "generation_handoff",
+      type: "message_complete",
       messageId: "msg-1",
+      attachmentWarnings: ["truncated to 4MB"],
     });
     expect(event).toEqual({
-      type: "generation_handoff",
+      type: "message_complete",
       messageId: "msg-1",
-      attachments: undefined,
+      attachmentWarnings: ["truncated to 4MB"],
     });
   });
 
-  test("ignores legacy displayMessageId on generation_handoff", () => {
+  test("returns unknown message_complete event when an attachment is malformed", () => {
+    // Strict sub-schema: every attachment must have `filename`, `mimeType`,
+    // and `data`. A malformed entry rejects the whole event.
+    const data = {
+      type: "message_complete",
+      conversationId: "conv-1",
+      attachments: [{ filename: "missing-mime.txt" }],
+    };
+    const event = parseAssistantEvent(data);
+    expect(event).toEqual({
+      type: "unknown",
+      rawType: "message_complete",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown message_complete event when source has an invalid value", () => {
+    const data = {
+      type: "message_complete",
+      conversationId: "conv-1",
+      source: "unexpected",
+    };
+    const event = parseAssistantEvent(data);
+    expect(event).toEqual({
+      type: "unknown",
+      rawType: "message_complete",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // generation_handoff (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses generation_handoff with required queuedCount", () => {
     const event = parseAssistantEvent({
       type: "generation_handoff",
+      conversationId: "conv-1",
+      queuedCount: 2,
+      requestId: "req-99",
       messageId: "msg-1",
-      displayMessageId: "ignored",
     });
     expect(event).toEqual({
       type: "generation_handoff",
+      conversationId: "conv-1",
+      queuedCount: 2,
+      requestId: "req-99",
       messageId: "msg-1",
-      attachments: undefined,
+    });
+  });
+
+  test("returns unknown generation_handoff event when queuedCount is missing", () => {
+    const data = {
+      type: "generation_handoff",
+      conversationId: "conv-1",
+      messageId: "msg-1",
+    };
+    const event = parseAssistantEvent(data);
+    expect(event).toEqual({
+      type: "unknown",
+      rawType: "generation_handoff",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // generation_cancelled (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses generation_cancelled with conversationId", () => {
+    const event = parseAssistantEvent({
+      type: "generation_cancelled",
+      conversationId: "conv-1",
+    });
+    expect(event).toEqual({
+      type: "generation_cancelled",
+      conversationId: "conv-1",
+    });
+  });
+
+  test("parses generation_cancelled without conversationId", () => {
+    const event = parseAssistantEvent({ type: "generation_cancelled" });
+    expect(event).toEqual({ type: "generation_cancelled" });
+  });
+
+  // ---------------------------------------------------------------------
+  // document_comment_created (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses document_comment_created with full comment payload", () => {
+    const event = parseAssistantEvent({
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      comment: {
+        id: "c-1",
+        surfaceId: "surface-1",
+        author: "user",
+        content: "looks good",
+        anchorStart: 12,
+        anchorEnd: 24,
+        anchorText: "the section",
+        parentCommentId: "c-0",
+        status: "open",
+        createdAt: 1_700_000_000_000,
+        updatedAt: 1_700_000_000_500,
+      },
+    });
+    expect(event).toEqual({
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      comment: {
+        id: "c-1",
+        surfaceId: "surface-1",
+        author: "user",
+        content: "looks good",
+        anchorStart: 12,
+        anchorEnd: 24,
+        anchorText: "the section",
+        parentCommentId: "c-0",
+        status: "open",
+        createdAt: 1_700_000_000_000,
+        updatedAt: 1_700_000_000_500,
+      },
+    });
+  });
+
+  test("parses document_comment_created without optional anchor/thread fields", () => {
+    const event = parseAssistantEvent({
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      comment: {
+        id: "c-1",
+        surfaceId: "surface-1",
+        author: "assistant",
+        content: "",
+        status: "open",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    });
+    expect(event).toEqual({
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      comment: {
+        id: "c-1",
+        surfaceId: "surface-1",
+        author: "assistant",
+        content: "",
+        status: "open",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    });
+  });
+
+  test("returns unknown document_comment_created event when comment is missing", () => {
+    const data = {
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_created",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown document_comment_created event when surfaceId is missing", () => {
+    const data = {
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      comment: {
+        id: "c-1",
+        surfaceId: "surface-1",
+        author: "user",
+        content: "x",
+        status: "open",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_created",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown document_comment_created event when an unknown field is present", () => {
+    // Strict schema rejects forward-compat extras — the daemon and the
+    // canonical schema must move in lockstep.
+    const data = {
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      comment: {
+        id: "c-1",
+        surfaceId: "surface-1",
+        author: "user",
+        content: "x",
+        status: "open",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      legacyField: "x",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_created",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // document_comment_resolved (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses document_comment_resolved with all required fields", () => {
+    const event = parseAssistantEvent({
+      type: "document_comment_resolved",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+      resolvedBy: "user-alice",
+    });
+    expect(event).toEqual({
+      type: "document_comment_resolved",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+      resolvedBy: "user-alice",
+    });
+  });
+
+  test("returns unknown document_comment_resolved event when resolvedBy is missing", () => {
+    const data = {
+      type: "document_comment_resolved",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_resolved",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown document_comment_resolved event when an unknown field is present", () => {
+    const data = {
+      type: "document_comment_resolved",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+      resolvedBy: "user-alice",
+      legacyField: "x",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_resolved",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // document_comment_reopened (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses document_comment_reopened with all required fields", () => {
+    const event = parseAssistantEvent({
+      type: "document_comment_reopened",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+    });
+    expect(event).toEqual({
+      type: "document_comment_reopened",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+    });
+  });
+
+  test("returns unknown document_comment_reopened event when commentId is missing", () => {
+    const data = {
+      type: "document_comment_reopened",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_reopened",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown document_comment_reopened event when an unknown field is present", () => {
+    const data = {
+      type: "document_comment_reopened",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+      legacyField: "x",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_reopened",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // document_comment_deleted (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses document_comment_deleted with all required fields", () => {
+    const event = parseAssistantEvent({
+      type: "document_comment_deleted",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+    });
+    expect(event).toEqual({
+      type: "document_comment_deleted",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+    });
+  });
+
+  test("returns unknown document_comment_deleted event when surfaceId is missing", () => {
+    const data = {
+      type: "document_comment_deleted",
+      conversationId: "conv-1",
+      commentId: "c-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_deleted",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown document_comment_deleted event when an unknown field is present", () => {
+    const data = {
+      type: "document_comment_deleted",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+      legacyField: "x",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_deleted",
+      data,
+      conversationId: "conv-1",
     });
   });
 
@@ -279,7 +629,10 @@ describe("parseAssistantEvent", () => {
   });
 
   test("returns unknown for sync_changed with non-string tags", () => {
-    const data = { type: "sync_changed", tags: [SYNC_TAGS.assistantAvatar, 42] };
+    const data = {
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantAvatar, 42],
+    };
     const event = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
@@ -445,21 +798,39 @@ describe("parseAssistantEvent", () => {
       type: "open_url",
       url: "https://example.com/oauth",
       title: "Connect Google",
+      conversationId: "conv-1",
     });
     expect(event).toEqual({
       type: "open_url",
       url: "https://example.com/oauth",
       title: "Connect Google",
+      conversationId: "conv-1",
     });
   });
 
   test("returns unknown open_url event when url is missing", () => {
-    const data = { type: "open_url", title: "Connect Google" };
+    const data = {
+      type: "open_url",
+      title: "Connect Google",
+      conversationId: "conv-1",
+    };
     const event = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "open_url",
       data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown open_url event when url is empty string", () => {
+    const data = { type: "open_url", url: "", conversationId: "conv-1" };
+    const event = parseAssistantEvent(data);
+    expect(event).toEqual({
+      type: "unknown",
+      rawType: "open_url",
+      data,
+      conversationId: "conv-1",
     });
   });
 
@@ -615,19 +986,6 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("ignores non-string fields gracefully", () => {
-    const event = parseAssistantEvent({
-      type: "assistant_text_delta",
-      text: 42,
-      messageId: true,
-    });
-    expect(event).toEqual({
-      type: "assistant_text_delta",
-      text: "",
-      messageId: undefined,
-    });
-  });
-
   test("parses secret_request with all fields", () => {
     const event = parseAssistantEvent({
       type: "secret_request",
@@ -737,12 +1095,8 @@ describe("parseAssistantEvent", () => {
         allowlistOptions: [
           { pattern: "Bash(*)", label: "Allow all bash commands" },
         ],
-        scopeOptions: [
-          { scope: "workspace", label: "Current workspace" },
-        ],
-        directoryScopeOptions: [
-          { scope: "/src", label: "Source directory" },
-        ],
+        scopeOptions: [{ scope: "workspace", label: "Current workspace" }],
+        directoryScopeOptions: [{ scope: "/src", label: "Source directory" }],
         persistentDecisionsAllowed: true,
         input: { command: "ls -la /tmp" },
       });
@@ -800,8 +1154,16 @@ describe("parseAssistantEvent", () => {
         result: "ok",
         riskLevel: "medium",
         riskAllowlistOptions: [
-          { pattern: "ls -la", label: "Just this command", description: "Allow only `ls -la`" },
-          { pattern: "action:ls", label: "All ls commands", description: "Allow any `ls …` invocation" },
+          {
+            pattern: "ls -la",
+            label: "Just this command",
+            description: "Allow only `ls -la`",
+          },
+          {
+            pattern: "action:ls",
+            label: "All ls commands",
+            description: "Allow any `ls …` invocation",
+          },
         ],
         riskDirectoryScopeOptions: [
           { scope: "/home/user/project", label: "Project directory" },
@@ -810,8 +1172,16 @@ describe("parseAssistantEvent", () => {
       expect(event.type).toBe("tool_result");
       if (event.type === "tool_result") {
         expect(event.allowlistOptions).toEqual([
-          { pattern: "ls -la", label: "Just this command", description: "Allow only `ls -la`" },
-          { pattern: "action:ls", label: "All ls commands", description: "Allow any `ls …` invocation" },
+          {
+            pattern: "ls -la",
+            label: "Just this command",
+            description: "Allow only `ls -la`",
+          },
+          {
+            pattern: "action:ls",
+            label: "All ls commands",
+            description: "Allow any `ls …` invocation",
+          },
         ]);
         expect(event.directoryScopeOptions).toEqual([
           { scope: "/home/user/project", label: "Project directory" },
@@ -1104,7 +1474,6 @@ describe("parseAssistantEvent", () => {
       expect(event.type).toBe("identity_changed");
     });
   });
-
 });
 
 describe("envelope format parsing", () => {
@@ -1143,13 +1512,19 @@ describe("envelope format parsing", () => {
       type: "wrapper",
       message: {
         type: "sync_changed",
-        tags: [SYNC_TAGS.assistantIdentity, "conversation:conversation-1:messages"],
+        tags: [
+          SYNC_TAGS.assistantIdentity,
+          "conversation:conversation-1:messages",
+        ],
       },
     });
 
     expect(event).toEqual({
       type: "sync_changed",
-      tags: [SYNC_TAGS.assistantIdentity, "conversation:conversation-1:messages"],
+      tags: [
+        SYNC_TAGS.assistantIdentity,
+        "conversation:conversation-1:messages",
+      ],
     });
   });
 
@@ -1157,14 +1532,11 @@ describe("envelope format parsing", () => {
     const event = parseAssistantEvent({
       type: "message_complete",
       messageId: "msg-flat",
-      content: "flat content",
     });
 
     expect(event).toEqual({
       type: "message_complete",
       messageId: "msg-flat",
-      content: "flat content",
-      attachments: undefined,
     });
   });
 
@@ -1194,33 +1566,38 @@ describe("envelope format parsing", () => {
     });
   });
 
-  test("envelope-level conversationId is stamped onto conversation-scoped events", () => {
+  test("envelope-level conversationId is stamped onto legacy conversation-scoped events", () => {
+    // Legacy fallback path: events not yet migrated to AssistantEventSchema
+    // (here: `error`) read the envelope-level conversationId via
+    // `mergeEnvelopeConversationId`. This codepath disappears as each
+    // legacy case migrates to a strict schema.
     const event = parseAssistantEvent({
       conversationId: "conv-from-envelope",
       message: {
-        type: "assistant_text_delta",
-        text: "stamped",
+        type: "error",
+        message: "boom",
       },
     });
     expect(event).toEqual({
-      type: "assistant_text_delta",
-      text: "stamped",
-      messageId: undefined,
+      type: "error",
+      code: undefined,
+      message: "boom",
       conversationId: "conv-from-envelope",
     });
   });
 
   test("envelope-level conversationId does NOT override an event-supplied conversationId", () => {
+    // Same legacy fallback path — when the inner message carries its own
+    // conversationId, it wins over the envelope-level routing key.
     const event = parseAssistantEvent({
       conversationId: "envelope-conv",
       message: {
-        type: "message_complete",
-        messageId: "msg-1",
-        content: "content",
+        type: "error",
+        message: "boom",
         conversationId: "event-conv",
       },
     });
-    if (event.type !== "message_complete") throw new Error("expected message_complete");
+    if (event.type !== "error") throw new Error("expected error");
     expect(event.conversationId).toBe("event-conv");
   });
 
@@ -1240,6 +1617,47 @@ describe("envelope format parsing", () => {
       updatedAt: "2026-05-26T00:00:00Z",
     });
     expect("conversationId" in event).toBe(false);
+  });
+
+  test("schema-parsed events: envelope conversationId is NOT grafted onto the typed event", () => {
+    // open_url declares `conversationId` as an OPTIONAL field on the
+    // inner message. When the emit site omits it (CLI signal-file
+    // broadcasts, global flows), the schema still validates and the
+    // typed event simply has no conversationId — the parser never
+    // grafts the envelope-level routing key onto schema-parsed events.
+    // Drift between envelope and typed event is exactly what
+    // `@vellumai/assistant-api` exists to prevent. Downstream routing
+    // that needs conversation scope reads the envelope at the SSE
+    // pipe, not from the typed event.
+    const event = parseAssistantEvent({
+      conversationId: "conv-from-envelope",
+      message: {
+        type: "open_url",
+        url: "https://example.com/oauth",
+        title: "Connect Google",
+      },
+    });
+    if (event.type !== "open_url") throw new Error("expected open_url");
+    expect(event.url).toBe("https://example.com/oauth");
+    expect(event.title).toBe("Connect Google");
+    expect(event.conversationId).toBeUndefined();
+  });
+
+  test("schema-parsed events: inner-declared conversationId is preserved verbatim", () => {
+    // Happy path for conversation-scoped emit sites: the emit site
+    // sets conversationId on the inner message, the schema validates,
+    // and the typed event carries it through. The envelope value plays
+    // no role.
+    const event = parseAssistantEvent({
+      conversationId: "envelope-conv",
+      message: {
+        type: "open_url",
+        url: "https://example.com/oauth",
+        conversationId: "inner-conv",
+      },
+    });
+    if (event.type !== "open_url") throw new Error("expected open_url");
+    expect(event.conversationId).toBe("inner-conv");
   });
 });
 
@@ -1261,9 +1679,7 @@ describe("RuntimeMessage metadata types", () => {
           data: { title: "Test" },
         },
       ],
-      textSegments: [
-        { type: "text", content: "Hello" },
-      ],
+      textSegments: [{ type: "text", content: "Hello" }],
       contentOrder: [
         { type: "text", id: "seg-1" },
         { type: "surface", id: "s-1" },

@@ -217,95 +217,118 @@ export function ToolProgressCardShell({
     //     the divider + body section flow flush below.
     <div
       data-testid={dataTestId}
-      className="relative flex w-full flex-col rounded-[var(--radius-lg)] border-b border-[var(--border-base)] bg-[var(--surface-overlay)]"
+      className="flex w-full flex-col rounded-[var(--radius-lg)] border-b border-[var(--border-base)] bg-[var(--surface-overlay)]"
     >
-      {/* The entire row is the toggle — clicking the label cluster, dots,
-          subtext, or pill expands / collapses. The step-count pill is a
-          visual-only <span>; the surrounding Button already provides the
-          interactive semantics. The optional action slot is rendered as a
-          sibling AFTER the Button (not inside it — nested <button>s are
-          invalid HTML) and aligned into the header row via absolute
-          positioning so consumers don't have to compute pixel offsets. */}
-      <Button
-        variant="ghost"
-        size="compact"
-        aria-expanded={onHeaderClick ? undefined : expanded}
-        aria-label={
-          headerAriaLabel ?? (expanded ? "Collapse steps" : "Expand steps")
-        }
-        onClick={handleToggle}
+      {/* The label cluster (dots, leading icon, carousel) is the toggle —
+          clicking it expands / collapses (or fires `onHeaderClick`). The
+          shared title cluster and step-count pill below are rendered in one of
+          two header layouts depending on whether an action slot is present. */}
+      {(() => {
+        const titleCluster = (
+          <span className="flex min-w-0 flex-1 items-center gap-1">
+            <StatusIndicator state={state} testId={statusIndicatorTestId} />
+            {leadingIcon ? (
+              // `mx-1` adds 4px on each side on top of the parent's `gap-1`
+              // (also 4px) so the icon sits with ~8px of breathing room on
+              // both sides — symmetric with the spacing between it and the
+              // header text on its right.
+              <span className="mx-1 flex shrink-0 items-center">
+                {leadingIcon}
+              </span>
+            ) : null}
+            <HeaderStepCarousel
+              currentStepTitle={currentStepTitle}
+              currentStepInfo={currentStepInfo}
+              // Terminal states (complete / denied / error) flush the header
+              // throttle so the final `(title, info)` lands in sync with the
+              // status-icon swap. Without this, the 400ms min-dwell could
+              // leave stale loading-state header text on-screen for up to
+              // 400ms after the green check appears.
+              bypassDwell={state !== "loading"}
+            />
+          </span>
+        );
+
+        // Hide the pill when there is nothing useful to summarise — a literal
+        // "0 steps" reads as broken state, and a "1 step" pill is just noise
+        // next to the carousel title that already describes the single step.
+        // Show the pill only at 2+ steps.
+        const stepCountPill =
+          stepCount &&
+          !stepCount.startsWith("0 ") &&
+          !stepCount.startsWith("1 ") ? (
+            <span
+              data-testid="tool-progress-card-step-count-pill"
+              className="flex shrink-0 items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[6px] py-[4px]"
+            >
+              <Typography
+                variant="body-small-default"
+                className="text-[var(--content-emphasised)]"
+              >
+                {stepCount}
+              </Typography>
+            </span>
+          ) : null;
+
         // When `onHeaderClick` overrides the default toggle, the button is
         // always enabled — `disableExpand` only suppresses the expand path,
         // not external click handlers.
-        disabled={!onHeaderClick && disableExpand}
-        className={`h-auto w-full min-w-0 justify-between gap-2 p-3 ${
-          expanded
-            ? "rounded-t-[var(--radius-lg)] rounded-b-none"
-            : "rounded-[var(--radius-lg)]"
-        }`}
-      >
-        <span className="flex min-w-0 flex-1 items-center gap-1">
-          <StatusIndicator state={state} testId={statusIndicatorTestId} />
-          {leadingIcon ? (
-            // `mx-1` adds 4px on each side on top of the parent's `gap-1`
-            // (also 4px) so the icon sits with ~8px of breathing room on
-            // both sides — symmetric with the spacing between it and the
-            // header text on its right.
-            <span className="mx-1 flex shrink-0 items-center">
-              {leadingIcon}
-            </span>
-          ) : null}
-          <HeaderStepCarousel
-            currentStepTitle={currentStepTitle}
-            currentStepInfo={currentStepInfo}
-            // Terminal states (complete / denied / error) flush the header
-            // throttle so the final `(title, info)` lands in sync with the
-            // status-icon swap. Without this, the 400ms min-dwell could
-            // leave stale loading-state header text on-screen for up to
-            // 400ms after the green check appears.
-            bypassDwell={state !== "loading"}
-          />
-        </span>
-        {/* Hide the pill when there is nothing useful to summarise — a
-            literal "0 steps" reads as broken state, and a "1 step" pill is
-            just noise next to the carousel title that already describes
-            the single step. Show the pill only at 2+ steps. */}
-        {stepCount &&
-        !stepCount.startsWith("0 ") &&
-        !stepCount.startsWith("1 ") ? (
-          <span
-            data-testid="tool-progress-card-step-count-pill"
-            className="flex shrink-0 items-center rounded-[var(--radius-pill)] bg-[var(--surface-base)] px-[6px] py-[4px]"
+        const toggleProps = {
+          variant: "ghost" as const,
+          size: "compact" as const,
+          "aria-expanded": onHeaderClick ? undefined : expanded,
+          "aria-label":
+            headerAriaLabel ?? (expanded ? "Collapse steps" : "Expand steps"),
+          onClick: handleToggle,
+          disabled: !onHeaderClick && disableExpand,
+        };
+
+        // Action-slot layout: the toggle button holds only the title cluster
+        // (flex-1), and the action slot + step-count pill share a right-aligned
+        // flex container with an 8px (`gap-2`) gap. The slot lives OUTSIDE the
+        // toggle <Button> (nested <button>s are invalid HTML) as a real flex
+        // sibling rather than an absolutely-positioned overlay, so the stop
+        // button and pill align to the right end without fragile pixel offsets.
+        if (headerActionSlot) {
+          return (
+            <div className="flex w-full items-center">
+              <Button
+                {...toggleProps}
+                className={`h-auto min-w-0 flex-1 justify-start gap-2 p-3 ${
+                  expanded
+                    ? "rounded-tl-[var(--radius-lg)] rounded-b-none"
+                    : "rounded-l-[var(--radius-lg)]"
+                }`}
+              >
+                {titleCluster}
+              </Button>
+              <div
+                data-testid="tool-progress-card-action-slot"
+                className="flex shrink-0 items-center gap-2 pr-3"
+              >
+                {headerActionSlot}
+                {stepCountPill}
+              </div>
+            </div>
+          );
+        }
+
+        // Default layout (web search, skills): the whole row is the toggle,
+        // with the pill rendered inside it at the right end. Unchanged.
+        return (
+          <Button
+            {...toggleProps}
+            className={`h-auto w-full min-w-0 justify-between gap-2 p-3 ${
+              expanded
+                ? "rounded-t-[var(--radius-lg)] rounded-b-none"
+                : "rounded-[var(--radius-lg)]"
+            }`}
           >
-            <Typography
-              variant="body-small-default"
-              className="text-[var(--content-emphasised)]"
-            >
-              {stepCount}
-            </Typography>
-          </span>
-        ) : null}
-      </Button>
-      {/* Action slot — absolute-positioned over the right end of the header
-          row, immediately to the left of the step-count pill. Living
-          outside the Button avoids the nested-<button> HTML issue and lets
-          consumers retain their own click handlers without the surrounding
-          expand toggle eating events. Consumers should still
-          stopPropagation() inside their handlers to keep the click from
-          bubbling to the toggle. The fixed `right-[64px]` offset centralises
-          the positioning logic that previously lived in callers as a
-          fragile per-consumer pixel offset; updating the step-count pill
-          chrome later only requires a single edit here. */}
-      {headerActionSlot ? (
-        <div
-          data-testid="tool-progress-card-action-slot"
-          className="pointer-events-none absolute right-[64px] top-[14px] flex items-center gap-1"
-        >
-          <div className="pointer-events-auto flex items-center gap-1">
-            {headerActionSlot}
-          </div>
-        </div>
-      ) : null}
+            {titleCluster}
+            {stepCountPill}
+          </Button>
+        );
+      })()}
 
       {/* Expanded body — divider + children. Animated height-collapse honors
           prefers-reduced-motion (snap when reduced via 0-duration transition). */}

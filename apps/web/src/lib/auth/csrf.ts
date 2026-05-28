@@ -9,6 +9,7 @@
  * Reference: https://docs.djangoproject.com/en/5.1/howto/csrf/#acquiring-the-token-if-csrf-use-sessions-and-csrf-cookie-httponly-are-not-in-use
  */
 import { getAllauthByClientV1AuthSession } from "@/generated/auth/sdk.gen";
+import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 
 const CSRF_COOKIE_NAME = import.meta.env.PROD
   ? "__Secure-csrftoken"
@@ -40,6 +41,8 @@ function clearDuplicateCsrfCookies(): void {
 let csrfBootstrap: Promise<void> | null = null;
 
 export async function ensureCsrfCookie(): Promise<void> {
+  if (isGatewayAuthMode()) return;
+
   clearDuplicateCsrfCookies();
 
   if (getCsrfToken()) return;

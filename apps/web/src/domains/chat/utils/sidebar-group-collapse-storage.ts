@@ -1,21 +1,25 @@
 // Persist the sidebar conversation group expand/collapse state to localStorage
-// so that the user's last-known toggle state for each group (Pinned, Scheduled,
-// Background, Recents, and custom groups) survives page reloads.
+// so that the user's last-known toggle state for each collapsible group
+// (Scheduled, Background, Slack, and custom groups) survives page reloads.
 //
 // Shape on disk: string[] — the list of currently-open category keys, one entry
 // per expanded group. The format mirrors the Radix Accordion `value` prop for
-// `type="multiple"`. Defaults to ["recents"] when no stored state exists so the
-// common case needs zero clicks after a fresh install.
+// `type="multiple"`. Defaults to [] when no stored state exists.
 //
-// Built-in sections (pinned / scheduled / background / recents) and custom
-// groups are stored under SEPARATE keys so each CollapsibleNavSection.Root
-// manages only its own items — sharing a single array across two Radix roots
-// would cause one root's onValueChange to clobber the other.
+// Built-in sections (scheduled / background / slack) and custom groups
+// are stored under SEPARATE keys so each CollapsibleNavSection.Root manages only
+// its own items — sharing a single array across two Radix roots would cause one
+// root's onValueChange to clobber the other.
 
 const STORAGE_KEY_PREFIX = "vellum:sidebar-open-categories:";
 const STORAGE_KEY_PREFIX_CUSTOM = "vellum:sidebar-open-custom-groups:";
-const DEFAULT_OPEN_CATEGORIES: string[] = ["recents"];
+const DEFAULT_OPEN_CATEGORIES: string[] = [];
 const DEFAULT_OPEN_CUSTOM_GROUPS: string[] = [];
+const OPEN_CATEGORY_KEYS = new Set([
+  "scheduled",
+  "background",
+  "slack",
+]);
 
 function storageKey(assistantId: string): string {
   return `${STORAGE_KEY_PREFIX}${assistantId}`;
@@ -62,10 +66,12 @@ function writeToStorage(key: string, value: string[]): void {
 
 /**
  * Load the list of open built-in sidebar category keys for a given assistant.
- * Returns `["recents"]` when no stored state exists or on any parse error.
+ * Returns `[]` when no stored state exists or on any parse error.
  */
 export function loadOpenCategories(assistantId: string): string[] {
-  return readFromStorage(storageKey(assistantId), DEFAULT_OPEN_CATEGORIES);
+  return readFromStorage(storageKey(assistantId), DEFAULT_OPEN_CATEGORIES).filter(
+    (category) => OPEN_CATEGORY_KEYS.has(category),
+  );
 }
 
 /**

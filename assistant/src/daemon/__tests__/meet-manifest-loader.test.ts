@@ -163,14 +163,23 @@ describe("loadMeetManifestProxies", () => {
     const capturedRoutes: SkillRoute[] = [];
     const capturedHooks: string[] = [];
 
+    // Capture both the owner (first arg) and the provider (second arg) so
+    // we can assert the meet-join skill id flows through to the registry
+    // call. Ownership lives on the registry, not on the `Tool` object,
+    // so the only place to check it is on this argument.
+    const capturedOwners: Array<{ kind: string; id: string }> = [];
     await loadMeetManifestProxies(supervisor, {
       manifestPath,
-      registerTools: (p) => capturedProviders.push(p),
+      registerTools: (owner, p) => {
+        capturedOwners.push(owner);
+        capturedProviders.push(p);
+      },
       registerRoute: (r) => capturedRoutes.push(r),
       registerShutdown: (name) => capturedHooks.push(name),
     });
 
     expect(capturedProviders).toHaveLength(1);
+    expect(capturedOwners).toEqual([{ kind: "skill", id: "meet-join" }]);
     const tools = capturedProviders[0]!();
     expect(tools).toHaveLength(1);
     const t = tools[0]!;
@@ -178,12 +187,10 @@ describe("loadMeetManifestProxies", () => {
     expect(t.description).toBe("Fixture demo tool");
     expect(t.category).toBe("meet");
     expect(t.defaultRiskLevel).toBe(RiskLevel.Medium);
-    expect(t.executionMode).toBe("proxy");
-    expect(t.origin).toBe("skill");
-    expect(t.ownerSkillId).toBe("meet-join");
-    expect(t.input_schema).toEqual(
-      FIXTURE_MANIFEST.tools[0]!.input_schema,
-    );
+    // Ownership now lives on the assistant-side registry's ownersByName map
+    // (recorded by registerSkillTools at the IPC boundary), not on the Tool
+    // object — the daemon-side projection doesn't carry the kind.
+    expect(t.input_schema).toEqual(FIXTURE_MANIFEST.tools[0]!.input_schema);
   });
 
   test("proxy tool execute dispatches through supervisor.dispatchTool and returns the result", async () => {
@@ -194,7 +201,11 @@ describe("loadMeetManifestProxies", () => {
 
     await loadMeetManifestProxies(stub.supervisor, {
       manifestPath,
-      registerTools: (p) => captured.push(p),
+      // Mock signature mirrors `registerExternalTools(owner, provider)` —
+      // ownership is recorded by the registry-side argument, not by the
+      // `Tool` object. This test doesn't care which owner flows through;
+      // the round-trip dispatch behavior is what's under test.
+      registerTools: (_owner, p) => captured.push(p),
       registerRoute: () => undefined,
       registerShutdown: () => undefined,
     });
@@ -236,7 +247,11 @@ describe("loadMeetManifestProxies", () => {
 
     await loadMeetManifestProxies(stub.supervisor, {
       manifestPath,
-      registerTools: (p) => captured.push(p),
+      // Mock signature mirrors `registerExternalTools(owner, provider)` —
+      // ownership is recorded by the registry-side argument, not by the
+      // `Tool` object. This test doesn't care which owner flows through;
+      // the round-trip dispatch behavior is what's under test.
+      registerTools: (_owner, p) => captured.push(p),
       registerRoute: () => undefined,
       registerShutdown: () => undefined,
     });
@@ -413,7 +428,7 @@ describe("loadMeetManifestProxies", () => {
     await expect(
       loadMeetManifestProxies(stub.supervisor, {
         manifestPath,
-        registerTools: (p) => {
+        registerTools: (_owner, p) => {
           providerInvoked = true;
           p();
         },

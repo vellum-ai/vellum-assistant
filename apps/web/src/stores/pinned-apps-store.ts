@@ -12,13 +12,13 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import type { AppSummary } from "@/lib/apps-api";
+import type { AppSummary } from "@/types/app-types";
 import {
   loadPinnedApps,
   pinApp,
   unpinApp,
   type PinnedAppEntry,
-} from "@/utils/app-pin-storage";
+} from "@/lib/app-pin-storage";
 
 // ---------------------------------------------------------------------------
 // Unpin event listeners

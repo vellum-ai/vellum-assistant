@@ -434,11 +434,12 @@ export async function startVoiceTurn(
     );
     conversation.setVoiceCallControlPrompt(voiceCallControlPrompt);
 
-    messageId = await conversation.persistUserMessage(
+    const persistResult = await conversation.persistUserMessage(
       persistedContent,
       [],
       requestId,
     );
+    messageId = persistResult.id;
   } catch (err) {
     cleanup();
     throw err;

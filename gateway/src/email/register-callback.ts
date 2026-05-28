@@ -2,6 +2,7 @@ import type { ConfigFileCache } from "../config-file-cache.js";
 import type { CredentialCache } from "../credential-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { fetchImpl } from "../fetch.js";
+import { arePlatformFeaturesEnabled } from "../feature-flag-resolver.js";
 import { getLogger } from "../logger.js";
 
 const log = getLogger("email-callback");
@@ -37,6 +38,13 @@ export async function registerEmailCallbackRoute(caches?: {
   credentials?: CredentialCache;
   configFile?: ConfigFileCache;
 }): Promise<string | undefined> {
+  if (!arePlatformFeaturesEnabled()) {
+    log.debug(
+      "platform-features-in-local-mode is disabled — skipping email callback registration",
+    );
+    return undefined;
+  }
+
   const [platformBaseUrlRaw, assistantApiKeyRaw, assistantIdRaw] =
     caches?.credentials
       ? await Promise.all([

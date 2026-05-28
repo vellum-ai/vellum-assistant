@@ -68,6 +68,7 @@ import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../runtime/auth/types.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import { ToolExecutor } from "../tools/executor.js";
+import { getAllToolDefinitions } from "../tools/registry.js";
 import type { ToolLifecycleEvent } from "../tools/types.js";
 import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
@@ -116,7 +117,6 @@ import {
 } from "./conversation-surfaces.js";
 import type { ToolSetupContext } from "./conversation-tool-setup.js";
 import {
-  buildToolDefinitions,
   createResolveToolsCallback,
   createToolExecutor,
   resolveTrustClass,
@@ -326,7 +326,12 @@ export class Conversation {
     surfaceType: SurfaceType;
     title?: string;
     data: SurfaceData;
-    actions?: Array<{ id: string; label: string; style?: string }>;
+    actions?: Array<{
+      id: string;
+      label: string;
+      style?: string;
+      data?: Record<string, unknown>;
+    }>;
     display?: string;
     persistent?: boolean;
   }> = [];
@@ -451,7 +456,7 @@ export class Conversation {
       return publishToolDomainEvent(event);
     };
 
-    const toolDefs = buildToolDefinitions();
+    const toolDefs = getAllToolDefinitions();
     this.coreToolNames = new Set(toolDefs.map((d) => d.name));
     const toolExecutor = createToolExecutor(
       this.executor,
@@ -581,7 +586,7 @@ export class Conversation {
           channelCapabilities: this.currentTurnChannelCapabilities,
           onboardingContext: this.getOnboardingContext(),
         });
-    const tools = buildToolDefinitions();
+    const tools = getAllToolDefinitions();
     const provider = this.provider;
 
     const warmMessage: Message = {
@@ -1283,7 +1288,8 @@ export class Conversation {
     requestId?: string,
     metadata?: Record<string, unknown>,
     displayContent?: string,
-  ): Promise<string> {
+    clientMessageId?: string,
+  ): Promise<{ id: string; deduplicated: boolean }> {
     if (!this.processing) {
       await this.ensureActorScopedHistory();
     }
@@ -1294,6 +1300,7 @@ export class Conversation {
       requestId,
       metadata,
       displayContent,
+      clientMessageId,
     );
   }
 

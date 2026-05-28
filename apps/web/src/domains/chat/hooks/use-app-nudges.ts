@@ -1,7 +1,7 @@
 import { type MutableRefObject, useEffect, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import { useIsIOSWeb, useIsMacOSWeb } from "@/utils/platform-detection";
+import { useIsIOSWeb, useIsMacOSWeb } from "@/runtime/platform-detection";
 import {
   readIOSAssistantTurnsSeen,
   incrementIOSAssistantTurnsSeen,

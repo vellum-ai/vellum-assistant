@@ -2,14 +2,16 @@
  * Route handler for fetching surface content by ID.
  *
  * GET /v1/surfaces/:surfaceId — return the full surface payload from the
- * conversation's in-memory surface state. Used by clients to re-hydrate surfaces
- * whose data was stripped during memory compaction.
+ * conversation's in-memory surface state. Used by clients to re-hydrate
+ * surfaces whose data was stripped during memory compaction, or whose
+ * owning conversation has been evicted from the daemon's in-memory map
+ * (daemon restart, LRU eviction).
  */
 import { z } from "zod";
 
-import { findConversation } from "../../daemon/conversation-store.js";
 import { getLogger } from "../../util/logger.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
+import { resolveSurfaceConversation } from "./surface-conversation-resolver.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("surface-content-routes");
@@ -18,7 +20,7 @@ const log = getLogger("surface-content-routes");
 // GET /v1/surfaces/:surfaceId?conversationId=...
 // ---------------------------------------------------------------------------
 
-function handleGetSurfaceContent({
+async function handleGetSurfaceContent({
   pathParams = {},
   queryParams = {},
 }: RouteHandlerArgs) {
@@ -32,7 +34,12 @@ function handleGetSurfaceContent({
     throw new BadRequestError("surfaceId path parameter is required");
   }
 
-  const conversation = findConversation(conversationId);
+  // Resolve via the shared surface→conversation helper: in-memory first,
+  // falling back to a DB scan that rehydrates the conversation when the
+  // owning Conversation has been evicted or the daemon was restarted. The
+  // DB scan uses the surfaceId itself as the existence check so a stale
+  // or made-up conversationId can't materialize a phantom conversation.
+  const conversation = await resolveSurfaceConversation(conversationId, surfaceId);
   if (!conversation) {
     throw new NotFoundError(
       "No active conversation found for this conversationId",

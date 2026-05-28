@@ -3,6 +3,13 @@ import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
+import { localModePlugin } from "./vite-plugin-local-mode";
+
+// Keep in sync with PLATFORM_MODE_TRUTHY in src/lib/local-mode.ts
+const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
+function isPlatformMode(raw: string | undefined): boolean {
+  return !!raw && PLATFORM_MODE_TRUTHY.has(raw.toLowerCase());
+}
 
 // Reference: https://vite.dev/config/#using-environment-variables-in-config
 export default defineConfig(({ mode }) => {
@@ -44,7 +51,8 @@ export default defineConfig(({ mode }) => {
           filesToDeleteAfterUpload: ["./dist/**/*.map"],
         },
       }),
-    ],
+      isPlatformMode(env.VITE_PLATFORM_MODE) ? null : localModePlugin(env),
+    ].filter(Boolean),
     resolve: {
       alias: [
         {

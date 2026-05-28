@@ -4,14 +4,23 @@ import { useMemo, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { toast } from "@vellum/design-library/components/toast";
+import { useEnvironmentStore } from "@/lib/environment/environment-store";
 import {
   assistantsSleepPolicyDetailReadOptions,
   assistantsSleepPolicyDetailReadQueryKey,
   assistantsSleepPolicyDetailPartialUpdateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 
-const PRESET_OPTIONS: ReadonlyArray<{ label: string; seconds: number }> = [
+const PRESET_OPTIONS: ReadonlyArray<{
+  label: string;
+  seconds: number;
+  devOnly?: boolean;
+}> = [
   { label: "Never", seconds: 0 },
+  { label: "5 min", seconds: 300, devOnly: true },
+  { label: "10 min", seconds: 600, devOnly: true },
+  { label: "1 hour", seconds: 3600 },
+  { label: "3 hours", seconds: 10800 },
   { label: "1 day", seconds: 86400 },
   { label: "3 days", seconds: 259200 },
   { label: "7 days", seconds: 604800 },
@@ -39,6 +48,11 @@ export function AssistantSleepPolicy({
   assistantId,
 }: AssistantSleepPolicyProps) {
   const queryClient = useQueryClient();
+  const isNonProduction = useEnvironmentStore.use.isNonProduction();
+  const visibleOptions = useMemo(
+    () => PRESET_OPTIONS.filter((opt) => !opt.devOnly || isNonProduction),
+    [isNonProduction],
+  );
 
   const {
     data: policy,
@@ -100,7 +114,7 @@ export function AssistantSleepPolicy({
           &quot;Never&quot; disables idle sleep entirely.
         </p>
         <div className="mt-2 flex flex-wrap gap-2">
-          {PRESET_OPTIONS.map((opt) => (
+          {visibleOptions.map((opt) => (
             <Button
               key={opt.seconds}
               variant="outlined"

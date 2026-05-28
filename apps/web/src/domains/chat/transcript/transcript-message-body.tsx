@@ -161,20 +161,32 @@ function lookupSubagentEntriesForMessage(
 
 /**
  * Resolve the spawned `subagentId` for each `subagent_spawn` tool call in
- * `toolCalls`. Prefers the id encoded in `toolCall.result`; falls back to a
- * positional match against `linkedEntries` (subagent-store entries already
- * filtered to those spawned by the current message, sorted by `spawnedAt`)
- * when the result hasn't landed yet (running spawns, mid-stream reloads).
+ * `toolCalls`. Resolution priority per tool call:
+ *
+ *  1. `byToolUseId.get(tc.id)` — the deterministic, reconcile-proof anchor.
+ *     During streaming `tc.id === parentToolUseId` (see `tool-call-handlers.ts`
+ *     where the tool-call id is set to `event.toolUseId`), and `reconcile.ts`
+ *     preserves local tool-call ids (`keepLocalToolState`), so this match holds
+ *     the instant the spawn lands and survives message reconcile — no dependence
+ *     on `message.id` or the tool result.
+ *  2. The id encoded in `toolCall.result` — present once the spawn tool result
+ *     has landed.
+ *  3. A positional match against `linkedEntries` (subagent-store entries
+ *     already filtered to those spawned by the current message, sorted by
+ *     `spawnedAt`) — covers older daemons, history-synthesized tool ids, and
+ *     forks where no tool-use id is available.
  *
  * Positional fallback: the caller owns the `claimed` Set so it persists
  * across every invocation within a single message — that's what stops two
  * non-consecutive spawn tool-call groups (each producing a separate
  * `ToolCallProgressCard` mount) from both pulling the same first unclaimed
- * entry and rendering duplicate cards.
+ * entry and rendering duplicate cards. The by-id matches also feed `claimed`
+ * so a later positional match can't re-pick an already-anchored entry.
  */
 function resolveSpawnedSubagentIds(
   toolCalls: ChatMessageToolCall[],
   linkedEntries: readonly SubagentEntry[],
+  byToolUseId: Map<string, string>,
   claimed: Set<string>,
 ): string[] {
   const spawnToolCalls = toolCalls.filter(isSubagentSpawnCall);
@@ -183,6 +195,12 @@ function resolveSpawnedSubagentIds(
   const ids: string[] = [];
 
   for (const tc of spawnToolCalls) {
+    const byId = byToolUseId.get(tc.id);
+    if (byId && !claimed.has(byId)) {
+      ids.push(byId);
+      claimed.add(byId);
+      continue;
+    }
     const fromResult = extractSubagentIdFromResult(tc);
     if (fromResult) {
       ids.push(fromResult);
@@ -473,6 +491,14 @@ export function TranscriptMessageBody({
     useShallow((s) => lookupSubagentEntriesForMessage(s.byParent, message)),
   );
 
+  // Subscribe to the tool-use-id index alongside the per-message bucket above.
+  // Spawns are infrequent, so subscribing to the whole map is acceptable; PR 2
+  // keeps the map reference stable across non-spawn mutations, so this does not
+  // re-render message bodies on unrelated subagent activity. This anchors each
+  // `subagent_spawn` tool call to its subagent by `tc.id`, independent of the
+  // (optimistic→server) message id.
+  const byToolUseId = useSubagentStore(useShallow((s) => s.byToolUseId));
+
   // Message-scoped: two non-consecutive `subagent_spawn` tool-call groups
   // must not both positional-match the same linked entry. Accumulates across
   // every `renderInlineSubagentCards` invocation within a single render.
@@ -492,6 +518,7 @@ export function TranscriptMessageBody({
     const spawnedIds = resolveSpawnedSubagentIds(
       toolCalls,
       linkedSubagentEntries,
+      byToolUseId,
       claimedSpawnIds,
     );
     if (spawnedIds.length === 0) return null;

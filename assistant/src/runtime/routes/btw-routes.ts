@@ -19,9 +19,9 @@ import { z } from "zod";
 import { getConfig } from "../../config/loader.js";
 import { readNowScratchpad } from "../../daemon/conversation-runtime-assembly.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
-import { buildToolDefinitions } from "../../daemon/conversation-tool-setup.js";
 import { parseIdentityFields } from "../../daemon/handlers/identity.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
+import { getAllToolDefinitions } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
 import { runBtwSidechain } from "../btw-sidechain.js";
@@ -77,7 +77,7 @@ async function handleBtw({
         fastText = `Hi, I'm ${fields.name}!`;
       }
     }
-    fastText ??= getCachedIntro()?.text;
+    fastText ??= getCachedIntro()?.greetings[0];
     if (fastText) {
       log.debug("Returning identity intro fast-path");
       return new ReadableStream({
@@ -122,7 +122,7 @@ async function handleBtw({
           const result = await runBtwSidechain({
             content: effectiveContent,
             conversation,
-            tools: buildToolDefinitions(),
+            tools: getAllToolDefinitions(),
             signal: abortSignal,
             ...(isGreeting ? { callSite: "emptyStateGreeting" as const } : {}),
             onEvent: (event) => {
@@ -146,7 +146,7 @@ async function handleBtw({
 
           if (isIntroRequest && result.text) {
             try {
-              setCachedIntro(result.text);
+              setCachedIntro([result.text]);
               log.debug("Cached identity intro text");
             } catch {
               // Non-fatal — next request will regenerate.

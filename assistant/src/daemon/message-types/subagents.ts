@@ -12,6 +12,12 @@ export interface SubagentSpawned {
   label: string;
   objective: string;
   isFork?: boolean;
+  /**
+   * Tool-use id of the `skill_execute` call that spawned this subagent. Lets
+   * the client anchor the inline subagent card to the exact spawn tool call,
+   * independent of the (reconcile-volatile) parent message id.
+   */
+  parentToolUseId?: string;
 }
 
 export interface SubagentStatusChanged {

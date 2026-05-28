@@ -45,7 +45,11 @@ describe("postChatMessage onboarding payload", () => {
         });
       }
       return new Response(
-        JSON.stringify({ accepted: true, messageId: "msg-1" }),
+        JSON.stringify({
+          accepted: true,
+          messageId: "msg-1",
+          conversationId: "conv-resp-1",
+        }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }) as unknown as typeof fetch;
@@ -185,10 +189,14 @@ describe("postChatMessage onboarding payload", () => {
 });
 
 describe("postChatMessage wire-field bilingual cutover", () => {
-  // Verifies the daemon-version gate selects the right wire field on
-  // `POST /v1/messages`. See `apps/web/src/assistant/version-compat.ts`
-  // for the cutover policy (legacy `conversationKey` for daemons older
-  // than 0.8.6, canonical `conversationId` for 0.8.6+).
+  // Verifies the assistant-version gate picks exactly ONE wire field
+  // on `POST /v1/messages`:
+  //   - 0.8.6+ assistants: `conversationId` only (strict internal-id
+  //     lookup; the server-mint path takes the null branch).
+  //   - pre-0.8.6 assistants: `conversationKey` only (legacy
+  //     create-or-lookup), always sent — including `conversationKey:
+  //     null` — so the legacy path is always exercised.
+  // See `lib/backwards-compat/conversation-id-wire-field.ts`.
   let originalFetch: typeof fetch;
   let originalDocument: unknown;
   let capturedRequests: Array<{ url: string; body: string }> = [];
@@ -209,7 +217,11 @@ describe("postChatMessage wire-field bilingual cutover", () => {
       }
       capturedRequests.push({ url, body: bodyText ?? "" });
       return new Response(
-        JSON.stringify({ accepted: true, messageId: "msg-1" }),
+        JSON.stringify({
+          accepted: true,
+          messageId: "msg-1",
+          conversationId: "conv-resp-1",
+        }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }) as unknown as typeof fetch;
@@ -231,7 +243,7 @@ describe("postChatMessage wire-field bilingual cutover", () => {
     return JSON.parse(requests[0]!.body) as Record<string, unknown>;
   }
 
-  test("uses conversationId wire field when daemon version >= 0.8.6", async () => {
+  test("sends only conversationId on 0.8.6 assistants (no duplicate conversationKey)", async () => {
     useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.6");
 
     await postChatMessage("asst-1", "conv-internal-1", "hi");
@@ -241,7 +253,7 @@ describe("postChatMessage wire-field bilingual cutover", () => {
     expect(body).not.toHaveProperty("conversationKey");
   });
 
-  test("uses conversationId wire field for newer daemons (e.g. 0.9.0)", async () => {
+  test("sends only conversationId on newer assistants (e.g. 0.9.0)", async () => {
     useAssistantIdentityStore.getState().setIdentity("Vel", "0.9.0");
 
     await postChatMessage("asst-1", "conv-internal-2", "hi");
@@ -251,7 +263,7 @@ describe("postChatMessage wire-field bilingual cutover", () => {
     expect(body).not.toHaveProperty("conversationKey");
   });
 
-  test("uses conversationKey wire field for daemons older than 0.8.6", async () => {
+  test("sends only conversationKey on assistants older than 0.8.6", async () => {
     useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.5");
 
     await postChatMessage("asst-1", "conv-internal-3", "hi");
@@ -261,7 +273,7 @@ describe("postChatMessage wire-field bilingual cutover", () => {
     expect(body).not.toHaveProperty("conversationId");
   });
 
-  test("falls back to conversationKey when daemon version is unknown (identity not yet hydrated)", async () => {
+  test("falls back to conversationKey only when assistant version is unknown (identity not yet hydrated)", async () => {
     // Default store state: version === null. This is the window
     // between page load and the identity fetch resolving.
     expect(useAssistantIdentityStore.getState().version).toBeNull();
@@ -270,6 +282,168 @@ describe("postChatMessage wire-field bilingual cutover", () => {
 
     const body = getMessageBody();
     expect(body.conversationKey).toBe("conv-internal-4");
+    expect(body).not.toHaveProperty("conversationId");
+  });
+
+  test("still sends conversationKey: null on pre-0.8.6 assistants when caller passes null", async () => {
+    // Defense in depth: a caller that bypasses
+    // `supportsServerMintedConversation()` and passes null to an older
+    // assistant must still hit the legacy create-or-lookup path. The
+    // wire field is sent with a null value rather than omitted so
+    // pre-0.8.6 backends see a familiar shape.
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.5");
+
+    await postChatMessage("asst-1", null, "hi");
+
+    const body = getMessageBody();
+    expect(body).toHaveProperty("conversationKey");
+    expect(body.conversationKey).toBeNull();
+    expect(body).not.toHaveProperty("conversationId");
+  });
+});
+
+describe("postChatMessage server-minted conversation flow", () => {
+  // Verifies the `conversationId === null` contract: caller asks the
+  // assistant to mint a conversation row by omitting both wire fields,
+  // and the assistant returns the freshly minted id back on the
+  // response (which becomes `result.conversationId` so the caller can
+  // navigate). See `lib/backwards-compat/server-minted-conversation.ts`
+  // for the version gate that decides when callers may pass null.
+  let originalFetch: typeof fetch;
+  let originalDocument: unknown;
+  let capturedRequests: Array<{ url: string; body: string }> = [];
+  let nextResponseBody: Record<string, unknown> = {
+    accepted: true,
+    messageId: "msg-1",
+    conversationId: "conv-server-minted-1",
+  };
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    capturedRequests = [];
+    nextResponseBody = {
+      accepted: true,
+      messageId: "msg-1",
+      conversationId: "conv-server-minted-1",
+    };
+    useAssistantIdentityStore.getState().clearIdentity();
+    originalDocument = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
+    globalThis.fetch = mock(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = input instanceof Request ? input.url : String(input);
+      let bodyText: string | undefined;
+      if (input instanceof Request) {
+        bodyText = await input.clone().text();
+      } else if (typeof init?.body === "string") {
+        bodyText = init.body;
+      }
+      capturedRequests.push({ url, body: bodyText ?? "" });
+      return new Response(JSON.stringify(nextResponseBody), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }) as unknown as typeof fetch;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalDocument === undefined) {
+      delete (globalThis as { document?: unknown }).document;
+    } else {
+      (globalThis as { document?: unknown }).document = originalDocument;
+    }
+    useAssistantIdentityStore.getState().clearIdentity();
+  });
+
+  function getMessageBody(): Record<string, unknown> {
+    const requests = capturedRequests.filter((r) => r.url.includes("/messages/"));
+    expect(requests).toHaveLength(1);
+    return JSON.parse(requests[0]!.body) as Record<string, unknown>;
+  }
+
+  test("omits both wire fields when conversationId is null (server-mint flow)", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.6");
+
+    const result = await postChatMessage("asst-1", null, "hello");
+
+    const body = getMessageBody();
+    expect(body).not.toHaveProperty("conversationId");
+    expect(body).not.toHaveProperty("conversationKey");
+    expect(body.content).toBe("hello");
+    expect(body.sourceChannel).toBe("vellum");
+    expect(result.ok).toBe(true);
+  });
+
+  test("returns the assistant-minted id as the authoritative conversationId", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.6");
+    nextResponseBody = {
+      accepted: true,
+      messageId: "msg-2",
+      conversationId: "conv-from-assistant-xyz",
+    };
+
+    const result = await postChatMessage("asst-1", null, "hi");
+
+    if (!result.ok) {
+      throw new Error("expected success");
+    }
+    if (result.queued) {
+      throw new Error("expected synchronous (non-queued) result");
+    }
+    expect(result.conversationId).toBe("conv-from-assistant-xyz");
+    expect(result.messageId).toBe("msg-2");
+  });
+
+  test("returns the assistant's conversationId even when caller supplied one (server is authoritative)", async () => {
+    // Even on the non-null path, `result.conversationId` reflects what
+    // the assistant returned on the wire — not what the caller passed
+    // in. This makes the result shape uniform and lets downstream code
+    // trust the single field as the source of truth.
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.6");
+    nextResponseBody = {
+      accepted: true,
+      messageId: "msg-x",
+      conversationId: "conv-from-assistant-canonical",
+    };
+
+    const result = await postChatMessage("asst-1", "conv-caller-input", "hi");
+
+    if (!result.ok) {
+      throw new Error("expected success");
+    }
+    if (result.queued) {
+      throw new Error("expected synchronous (non-queued) result");
+    }
+    expect(result.conversationId).toBe("conv-from-assistant-canonical");
+  });
+
+  test("fails with 422 when caller asks for server-mint but assistant does not return a conversation id", async () => {
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.6");
+    // Assistant accepted the message but returned no conversationId —
+    // a broken contract for the server-mint path. The caller would
+    // have no id to navigate to, so this must surface as a failure
+    // rather than silently propagating an empty value downstream.
+    nextResponseBody = { accepted: true, messageId: "msg-3" };
+
+    const result = await postChatMessage("asst-1", null, "hi");
+
+    if (result.ok) {
+      throw new Error("expected failure");
+    }
+    expect(result.status).toBe(422);
+    expect(result.error.detail).toContain("did not return a conversation id");
+  });
+
+  test("still uses conversationKey wire field when conversationId is provided (legacy non-null path unchanged)", async () => {
+    // On assistants older than 0.8.6, the wire-field gate still picks
+    // `conversationKey` only — the `conversationId` field is not added
+    // because pre-0.8.6 assistants don't read it.
+    useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.5");
+
+    await postChatMessage("asst-1", "conv-existing", "hi");
+
+    const body = getMessageBody();
+    expect(body.conversationKey).toBe("conv-existing");
     expect(body).not.toHaveProperty("conversationId");
   });
 });

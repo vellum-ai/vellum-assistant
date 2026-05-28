@@ -1,3 +1,4 @@
+import type { OwnerKind } from "../tools/types.js";
 import type { TrustRule } from "./types.js";
 import { RiskLevel } from "./types.js";
 
@@ -13,8 +14,13 @@ export interface ApprovalContext {
   matchedRule?: TrustRule;
   isContainerized: boolean;
   isWorkspaceScoped: boolean;
-  /** Where the tool originates from — "skill" for skill-provided tools, "builtin" for core tools. */
-  toolOrigin?: "skill" | "builtin";
+  /**
+   * Owner kind of the tool, as recorded by the tool registry — "skill" /
+   * "plugin" / "mcp" for extension-owned tools, `undefined` for core tools
+   * (and for tools that aren't registered, e.g. unregistered skill tools
+   * matched only via `hasManifestOverride`).
+   */
+  toolOrigin?: OwnerKind;
   /** Whether the tool's owning skill is a first-party bundled skill. */
   isSkillBundled?: boolean;
   /** Whether the tool has a manifest override (unregistered skill tool). */
@@ -173,8 +179,13 @@ export class DefaultApprovalPolicy implements ApprovalPolicy {
 
     // ── 6. No rule + third-party skill tool → prompt (unless threshold covers it)
     if (!matchedRule) {
+      // Plugin- and skill-owned tools are both treated as extension-class
+      // for approval purposes: external by default, prompt unless bundled.
+      // MCP-owned tools fall through to the core risk-based path.
+      const isExtensionOwned =
+        toolOrigin === "skill" || toolOrigin === "plugin";
       const isThirdPartySkill =
-        (toolOrigin === "skill" && !isSkillBundled) ||
+        (isExtensionOwned && !isSkillBundled) ||
         (hasManifestOverride && !toolOrigin);
       if (isThirdPartySkill) {
         if (isRiskWithinThreshold(riskLevel, context.autoApproveUpTo)) {

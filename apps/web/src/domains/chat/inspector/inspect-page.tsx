@@ -20,14 +20,13 @@ import {
   llmLogPayloadQueryOptions,
   type LlmLogPayload,
 } from "@/domains/chat/inspector/inspector-payload-api";
-import type {
-  LlmContextResponse,
-  LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types";
+import type { LLMRequestLogEntry } from "@vellumai/assistant-api";
+import type { LlmContextResponse } from "@vellumai/assistant-api";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
 import { CallRail } from "./components/call-rail";
+import { MobileCallSelector } from "./components/mobile-call-selector";
 import { TabBar, type InspectorTab } from "./components/tab-bar";
 import { CompactionTab } from "./components/tabs/compaction-tab";
 import { MemoryTab } from "./components/tabs/memory-tab";
@@ -221,9 +220,16 @@ function Header({
     }
   }
 
+  // Mobile-responsive layout:
+  // - Desktop (≥md): Back · Title block · Export+count on one row.
+  // - Mobile (<md): Back · Export collapse to row 1; Title block wraps
+  //   to its own row via `order-3 w-full`. Avoids the title squeeze that
+  //   forced "LLM Context Inspector" to wrap inside ~120px on phones.
+  // The redundant call-count label is hidden on mobile — the
+  // `MobileCallSelector` pill in the content area already shows it.
   return (
     <div className="flex flex-col gap-2 px-4 py-3">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Button
           asChild
           variant="ghost"
@@ -237,9 +243,9 @@ function Header({
             Back
           </Link>
         </Button>
-        <div className="flex flex-1 flex-col">
+        <div className="order-3 flex w-full min-w-0 flex-col md:order-2 md:w-auto md:flex-1">
           <h1
-            className="text-title-medium"
+            className="truncate text-body-large-bold md:text-title-medium"
             style={{ color: "var(--content-default)" }}
           >
             LLM Context Inspector
@@ -249,7 +255,7 @@ function Header({
             messageId={messageId}
           />
         </div>
-        <div className="flex items-center gap-3">
+        <div className="order-2 ml-auto flex items-center gap-3 md:order-3 md:ml-0">
           <Button
             variant="outlined"
             size="compact"
@@ -260,7 +266,7 @@ function Header({
           >
             {isExporting ? "Exporting…" : "Export ZIP"}
           </Button>
-          <div className="flex flex-col items-end gap-0.5">
+          <div className="hidden flex-col items-end gap-0.5 md:flex">
             {callCount != null ? (
               <span
                 className="text-label-default"
@@ -280,6 +286,17 @@ function Header({
             ) : null}
           </div>
         </div>
+        {/* Mobile fallback for export errors — the desktop slot above is
+            hidden on narrow viewports so the error needs its own row. */}
+        {exportError ? (
+          <span
+            className="order-4 w-full text-body-small-default md:hidden"
+            role="alert"
+            style={{ color: "var(--system-negative-strong)" }}
+          >
+            {exportError}
+          </span>
+        ) : null}
       </div>
       <ScopeControls
         assistantId={assistantId}
@@ -480,6 +497,16 @@ function Loaded({
         />
       </aside>
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* Mobile counterpart to the desktop aside. The wrapper hides
+            both the trigger button and the BottomSheet portal mount on
+            ≥md viewports — the aside above takes over there. */}
+        <div className="md:hidden">
+          <MobileCallSelector
+            logs={logs}
+            selectedLogId={selectedLogId}
+            buildCallHref={buildCallHref}
+          />
+        </div>
         <TabBar selected={tab} onSelect={setTab} />
         <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
           {selectedLog ? (

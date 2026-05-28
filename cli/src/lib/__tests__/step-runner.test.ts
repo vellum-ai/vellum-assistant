@@ -1,6 +1,15 @@
+import { mkdtempSync, readFileSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
+
 import { describe, expect, it } from "bun:test";
 
-import { buildExecErrorMessage, exec, execOutput } from "../step-runner";
+import {
+  buildExecErrorMessage,
+  exec,
+  execOutput,
+  execWithStdin,
+} from "../step-runner";
 
 describe("buildExecErrorMessage", () => {
   it("omits the argv from the header so secrets in args can't leak", () => {
@@ -59,6 +68,45 @@ describe("exec — secret leak regression", () => {
       expect(message).not.toContain("ANTHROPIC_API_KEY");
       expect(message).toContain("sh exited with code 125");
       expect(message).toContain("port is already allocated");
+    }
+  });
+});
+
+describe("execWithStdin — pipes input + no secret leak in errors", () => {
+  it("writes the supplied input to the child's stdin", async () => {
+    // Use sh `cat > path` to capture stdin to a real file we can inspect.
+    // Mirrors the Docker-hatch overlay-staging call site shape.
+    const workDir = mkdtempSync(join(tmpdir(), "step-runner-stdin-"));
+    const dest = join(workDir, "captured.txt");
+    try {
+      const payload = '{"hello":"world"}\n';
+      await execWithStdin("sh", ["-c", `cat > ${dest}`], payload);
+      expect(readFileSync(dest, "utf-8")).toBe(payload);
+    } finally {
+      rmSync(workDir, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects with an Error whose message contains neither the args nor any -e KEY=VALUE pair", async () => {
+    const fakeSecret = "sk-anthropic-stdin-canary";
+    try {
+      await execWithStdin(
+        "sh",
+        [
+          "-c",
+          'echo "permission denied while trying to connect to docker daemon" 1>&2 && exit 1',
+          "-e",
+          `ANTHROPIC_API_KEY=${fakeSecret}`,
+        ],
+        "",
+      );
+      throw new Error("execWithStdin should have rejected");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      expect(message).not.toContain(fakeSecret);
+      expect(message).not.toContain("ANTHROPIC_API_KEY");
+      expect(message).toContain("sh exited with code 1");
+      expect(message).toContain("permission denied");
     }
   });
 });

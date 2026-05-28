@@ -16,7 +16,6 @@ import { PlanCard } from "@/domains/settings/components/plan-card";
 import { TierUpgradeResizeModal } from "@/domains/settings/components/tier-upgrade-resize-modal";
 import { ReferralPanel } from "@/domains/settings/components/referral-panel";
 import { organizationsBillingSummaryRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import { routes } from "@/utils/routes";
 
 /**
@@ -54,7 +53,6 @@ function BillingStatusHandler() {
 
 export function BillingPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const proPlanAdjust = useClientFeatureFlagStore.use.proPlanAdjust();
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const openPlanModal = useCallback(() => setPlanModalOpen(true), []);
   const closePlanModal = useCallback(() => setPlanModalOpen(false), []);
@@ -88,12 +86,8 @@ export function BillingPage() {
         <BillingPortalReturnHandler />
       </Suspense>
       <GracePeriodBanner />
-      {proPlanAdjust && (
-        <>
-          <PlanCard onManage={openPlanModal} />
-          <AdjustPlanModal open={planModalOpen} onClose={closePlanModal} onTierUpgraded={onTierUpgraded} />
-        </>
-      )}
+      <PlanCard onManage={openPlanModal} />
+      <AdjustPlanModal open={planModalOpen} onClose={closePlanModal} onTierUpgraded={onTierUpgraded} />
       <PaymentMethodsCard />
       <Suspense fallback={null}>
         <BillingPanel />

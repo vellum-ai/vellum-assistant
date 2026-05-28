@@ -153,18 +153,16 @@ export class CallSiteRoutingProvider implements Provider {
     let connectionName = resolved.provider_connection;
 
     // When no connection is set and the provider differs from the default,
-    // auto-resolve to an active connection for the provider (handles the
-    // "Any active X connection" case where the profile set provider but
-    // not provider_connection, and the merge didn't inherit one).
+    // auto-resolve a connection for the provider (handles the case where the
+    // profile set provider but not provider_connection, and the merge didn't
+    // inherit one).
     if (!connectionName && resolved.provider !== this.defaultProvider.name) {
       try {
         const candidates = listConnections(getDb(), {
           provider: resolved.provider,
         });
-        const active = candidates.find(
-          (c) =>
-            c.status === "active" &&
-            isConnectionCompatibleWithModel(c, resolved.model),
+        const active = candidates.find((c) =>
+          isConnectionCompatibleWithModel(c, resolved.model),
         );
         if (active) {
           connectionName = active.name;

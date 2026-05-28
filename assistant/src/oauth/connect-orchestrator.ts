@@ -64,6 +64,12 @@ export interface OAuthConnectOptions {
   openUrl?: (url: string) => void;
   /** Send a message to the client (e.g. open_url). */
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
+  /**
+   * Conversation this connect flow belongs to. When set and `sendToClient`
+   * is used, the emitted `open_url` event carries it on the inner message
+   * so downstream consumers can route per-conversation.
+   */
+  conversationId?: string;
 
   /**
    * Callback transport to use for the OAuth redirect.
@@ -331,6 +337,9 @@ export async function orchestrateOAuthConnect(
               type: "open_url",
               url,
               title: `Connect ${options.service}`,
+              ...(options.conversationId
+                ? { conversationId: options.conversationId }
+                : {}),
             });
           } else {
             log.warn(

@@ -241,48 +241,18 @@ export class ToolExecutor {
         permApprovalReason = "grant_scoped_consumed";
       }
 
-      // Execute the tool - proxy tools delegate to an external resolver.
-      // Use the shared per-tool timeout helper so the pipeline runner and
-      // the inner execute-with-timeout wrapper agree on the same budget.
-      let execResult: ToolExecutionResult;
+      // Execute the tool. Tools that forward to an external resolver
+      // (computer-use, ui-surface, apps, meet) handle that dispatch in
+      // their own `execute()` body — the executor no longer special-cases
+      // proxy mode here.
       const toolTimeoutMs = computePerToolTimeoutMs(name, input);
-
       const execContext = context;
 
-      if (tool.executionMode === "proxy") {
-        if (!context.proxyToolResolver) {
-          const msg = `No proxy resolver configured for proxy tool "${name}". This tool requires an external resolver (e.g. a connected macOS client for computer-use tools).`;
-          const durationMs = Date.now() - startTime;
-          emitLifecycleEvent(context, {
-            type: "error",
-            toolName: name,
-            executionTarget,
-            input,
-            workingDir: context.workingDir,
-            conversationId: context.conversationId,
-            requestId: context.requestId,
-            riskLevel,
-            matchedTrustRuleId: permMatchedTrustRuleId,
-            decision: "error",
-            durationMs,
-            errorMessage: msg,
-            isExpected: true,
-            errorCategory: "tool_failure",
-          });
-          return { content: msg, isError: true };
-        }
-        execResult = await executeWithTimeout(
-          context.proxyToolResolver(name, input),
-          toolTimeoutMs,
-          name,
-        );
-      } else {
-        execResult = await executeWithTimeout(
-          tool.execute(input, execContext),
-          toolTimeoutMs,
-          name,
-        );
-      }
+      let execResult: ToolExecutionResult = await executeWithTimeout(
+        tool.execute(input, execContext),
+        toolTimeoutMs,
+        name,
+      );
 
       // CES approval bridge: if the tool returned an approval_required
       // indicator, present the proposal to the guardian via the existing
@@ -336,19 +306,11 @@ export class ToolExecutor {
             "CES approval granted - retrying tool invocation with grantId",
           );
 
-          if (tool.executionMode === "proxy") {
-            execResult = await executeWithTimeout(
-              context.proxyToolResolver!(name, retryInput),
-              toolTimeoutMs,
-              name,
-            );
-          } else {
-            execResult = await executeWithTimeout(
-              tool.execute(retryInput, execContext),
-              toolTimeoutMs,
-              name,
-            );
-          }
+          execResult = await executeWithTimeout(
+            tool.execute(retryInput, execContext),
+            toolTimeoutMs,
+            name,
+          );
         } else if (
           bridgeResult.outcome === "denied" ||
           bridgeResult.outcome === "timeout"

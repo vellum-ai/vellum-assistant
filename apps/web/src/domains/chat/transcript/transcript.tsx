@@ -26,7 +26,7 @@ import type { ConfirmationDecision } from "@/domains/chat/api/event-types";
 /** Distance from the bottom (in px) at or below which the transcript is
  *  considered pinned to the latest message. Surfaced through
  *  `TranscriptHandle.getScrollState()` for the debug API. Kept in sync
- *  with the same threshold inside `useDeprecatedTranscriptScroll`. */
+ *  with the same threshold inside `useTranscriptScroll`. */
 const PINNED_THRESHOLD_PX = 64;
 
 /** Outcome of a pull-to-refresh, returned by the consumer's
@@ -39,6 +39,7 @@ export type RefreshOutcome =
 
 export interface TranscriptProps {
   items: TranscriptItem[];
+  conversationId: string | null;
   assistantDisplayName?: string | null;
   onSecretSubmit: (requestId: string, value: string) => void;
   onConfirmationDecision: (requestId: string, decision: string) => void;
@@ -150,7 +151,8 @@ export interface TranscriptHandle {
 
 export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
   function Transcript(props, ref) {
-    const { items, onPullRefresh, pullRefreshEnabled, ...rest } = props;
+    const { items, conversationId, onPullRefresh, pullRefreshEnabled, ...rest } =
+      props;
     const scrollRef = useRef<HTMLDivElement | null>(null);
     const contentRef = useRef<HTMLDivElement | null>(null);
     const viewportMinHeight = useViewportMinHeight(scrollRef);
@@ -249,6 +251,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
 
     return (
       <div
+        key={conversationId}
         ref={scrollRef}
         data-testid="transcript-scroll-container"
         className="flex h-full w-full flex-col overflow-y-auto overscroll-none [overflow-anchor:none]"

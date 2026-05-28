@@ -96,6 +96,7 @@ import {
   migrateDropMemoryItemsTables,
   migrateDropMemorySegmentFts,
   migrateDropOrphanedMediaTables,
+  migrateDropProviderConnectionStatus,
   migrateDropRemindersTable,
   migrateDropSetupSkillIdColumn,
   migrateDropSimplifiedMemory,
@@ -133,6 +134,7 @@ import {
   migrateMemoryV3AutoEdges,
   migrateMemoryV3Coactivation,
   migrateMessageBookmarks,
+  migrateMessagesClientMessageId,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -462,6 +464,8 @@ export function initializeDb(): void {
     migrateMemoryV3Coactivation,
     migrateMemoryV3AutoEdges,
     migrateLlmRequestLogCallSite,
+    migrateDropProviderConnectionStatus,
+    migrateMessagesClientMessageId,
   ];
 
   // Run each migration step, catching and logging individual failures so one

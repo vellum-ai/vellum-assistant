@@ -20,9 +20,11 @@ import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import type { AssistantContextValue } from "@/components/layout/assistant-context";
 
+import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { requestComposerFocus } from "./composer-focus";
 import {
-  chatContextQueryKey,
+  conversationsQueryKey,
   useConversationGroupsQuery,
   useConversationListQuery,
 } from "@/domains/conversations/conversation-queries";
@@ -36,7 +38,7 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/subagents/subagent-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
-import type { Conversation } from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
 
 import { OfflineBanner } from "@/components/offline-banner";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
@@ -274,6 +276,7 @@ export function ChatLayout() {
     const draftConversationId = createDraftConversationId();
     useConversationStore.getState().setActiveConversationId(draftConversationId);
     void navigate(routes.conversation(draftConversationId));
+    requestComposerFocus();
   }, [navigate]);
 
   const handleOpenHome = useCallback(() => {
@@ -465,7 +468,7 @@ export function ChatLayout() {
     if (!lifecycle.assistantId) return;
     try {
       await queryClient.invalidateQueries({
-        queryKey: chatContextQueryKey(lifecycle.assistantId),
+        queryKey: conversationsQueryKey(lifecycle.assistantId),
       });
     } catch (err) {
       Sentry.captureException(err, {
@@ -485,6 +488,7 @@ export function ChatLayout() {
       const draftConversationId = createDraftConversationId();
       useConversationStore.getState().setActiveConversationId(draftConversationId);
       void navigate(routes.conversation(draftConversationId));
+      requestComposerFocus();
     },
     [navigate],
   );
@@ -509,6 +513,34 @@ export function ChatLayout() {
     switchConversation: handleSelectConversation,
     startNewConversation,
     prePinGroupIdsRef,
+  });
+
+  // Electron host commands (File menu / future global hotkeys). The hook
+  // is a no-op on the web host. Handlers close over the latest state via
+  // an internal ref, so we don't need to memoize them. Composer focus is
+  // routed via `requestComposerFocus` (see `./composer-focus.ts`) so it
+  // works whether ChatPage is already mounted (event listener) or the
+  // command comes from another `/assistant/*` route (pending flag drained
+  // on the next ChatPage mount).
+  useVellumCommands({
+    newConversation: () => {
+      startNewConversation();
+    },
+    currentConversation: () => {
+      if (!activeConversationId) return;
+      const target = routes.conversation(activeConversationId);
+      if (location.pathname !== target) {
+        void navigate(target);
+      }
+      requestComposerFocus();
+    },
+    markCurrentUnread: () => {
+      if (!activeConversationId) return;
+      const conversation = conversations.find(
+        (c) => c.conversationId === activeConversationId,
+      );
+      if (conversation) handleMarkConversationUnread(conversation);
+    },
   });
 
   const handleOpenLibrary = useCallback(() => {

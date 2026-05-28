@@ -86,15 +86,16 @@ mock.module("../memory/tool-usage-store.js", () => ({
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => {
     if (name === "unknown_tool") return undefined;
-    // Skill tools carry origin and executionTarget from their manifest
+    // Skill tools carry executionTarget from their manifest. Ownership lives
+    // on the registry (mocked below via getToolOwner reading the override's
+    // owner field), so it doesn't appear on the Tool object itself.
     if (name === "skill_host_tool") {
       return {
         name,
         description: "skill host tool",
         category: "skill",
         defaultRiskLevel: "low",
-        origin: "skill" as const,
-        ownerSkillId: "test-skill",
+        owner: { kind: "skill", id: "test-skill" },
         executionTarget: "host" as const,
         input_schema: {},
         execute: async () => {
@@ -109,8 +110,7 @@ mock.module("../tools/registry.js", () => ({
         description: "skill sandbox tool",
         category: "skill",
         defaultRiskLevel: "low",
-        origin: "skill" as const,
-        ownerSkillId: "test-skill",
+        owner: { kind: "skill", id: "test-skill" },
         executionTarget: "sandbox" as const,
         input_schema: {},
         execute: async () => {
@@ -127,8 +127,7 @@ mock.module("../tools/registry.js", () => ({
         description: "skill tool with host_ prefix but sandbox target",
         category: "skill",
         defaultRiskLevel: "low",
-        origin: "skill" as const,
-        ownerSkillId: "test-skill",
+        owner: { kind: "skill", id: "test-skill" },
         executionTarget: "sandbox" as const,
         input_schema: {},
         execute: async () => {
@@ -158,6 +157,19 @@ mock.module("../tools/registry.js", () => ({
         return fakeToolResult;
       },
     };
+  },
+  // Ownership lives on the registry post-refactor. Mirror that by surfacing
+  // the optional `owner`-shaped field set inline on the override-produced
+  // tool (see the skill_* branches above).
+  getToolOwner: (name: string) => {
+    if (
+      name === "skill_host_tool" ||
+      name === "skill_sandbox_tool" ||
+      name === "host_skill_sandboxed"
+    ) {
+      return { kind: "skill" as const, id: "test-skill" };
+    }
+    return undefined;
   },
 }));
 

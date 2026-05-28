@@ -17,8 +17,10 @@ import {
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
+import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
+import { getSelectedAssistant, getLocalGatewayUrl, isLocalMode } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
-import { routes } from "@/utils/routes";
+
 
 const POLL_INTERVAL_MS = 3000;
 const MAX_HATCH_RETRIES = 3;
@@ -49,6 +51,7 @@ interface UseAssistantLifecycleOptions {
   isLoading: boolean;
   isRetired: boolean;
   isNonProduction: boolean;
+  hasPlatformSession: boolean;
   /** Framework-agnostic redirect — called instead of router.replace(). */
   onRedirect: (url: string) => void;
 }
@@ -84,6 +87,7 @@ export function useAssistantLifecycle({
   isLoading,
   isRetired,
   isNonProduction,
+  hasPlatformSession,
   onRedirect,
 }: UseAssistantLifecycleOptions): UseAssistantLifecycleReturn {
   const [assistantState, setAssistantState] = useState<AssistantState>({
@@ -186,6 +190,7 @@ export function useAssistantLifecycle({
   }, []);
 
   const checkAssistant = useCallback(async () => {
+    if (isGatewayAuthMode()) return;
     const generation = initializingGenerationRef.current;
     try {
       const result = await getAssistant();
@@ -205,7 +210,7 @@ export function useAssistantLifecycle({
         // New signups without completed onboarding should land on
         // `/onboarding/privacy` before we hatch an assistant for them.
         const onboardingRedirect = resolveOnboardingRedirect({
-          intendedDestination: routes.assistant,
+          intendedDestination: window.location.pathname,
         });
         if (onboardingRedirect) {
           onRedirectRef.current(onboardingRedirect);
@@ -235,7 +240,7 @@ export function useAssistantLifecycle({
         // The `init` effect below only fetches conversations once
         // `assistantState.kind === "active"`, and that fetch is what
         // the unreachable-bus interceptor is meant to notice. If we
-        // wait until after `getChatContext()` succeeds to set this,
+        // wait until after the conversation list query succeeds to set this,
         // the reachability hook's probe() has no target assistant
         // when the 503 arrives and the connecting overlay never
         // shows.
@@ -390,14 +395,50 @@ export function useAssistantLifecycle({
     }
   }, [hatchAndCheck]);
 
-  // Initial check when auth is ready
+  // Local-mode: gateway token and connection are primed during onboarding hatch.
   useEffect(() => {
     if (!isLoggedIn || isLoading) {
       return;
     }
-    // Async check — setState happens after await, not synchronously
+    // Gateway auth takes priority over the platform session path below.
+    // In local mode after hatch, this branch is the entry point.
+    if (isGatewayAuthMode()) {
+      let ingressUrl = window.location.origin;
+      let assistantId = "self";
+
+      const localGateway = getLocalGatewayUrl();
+      if (localGateway) {
+        const assistant = getSelectedAssistant();
+        ingressUrl = `${window.location.origin}${localGateway}`;
+        assistantId = assistant?.assistantId ?? assistantId;
+      }
+
+      setSelfHostedConnection({
+        url: ingressUrl,
+        token: getGatewayToken(),
+      });
+      setAssistantId(assistantId);
+      setAssistantState({ kind: "active", isLocal: true });
+      return;
+    }
+    // In local mode without a gateway token AND no platform session,
+    // the platform API isn't available — redirect to onboarding.
+    // If the user logged in and chose Vellum Cloud, hasPlatformSession
+    // is true and we fall through to checkAssistant() below.
+    if (isLocalMode() && !isGatewayAuthMode() && !hasPlatformSession) {
+      const redirect = resolveOnboardingRedirect({ intendedDestination: window.location.pathname });
+      if (redirect) {
+        onRedirectRef.current(redirect);
+      }
+      return;
+    }
+    if (hasPlatformSession) {
+      setSelfHostedConnection(null);
+      checkAssistant();
+      return;
+    }
     checkAssistant();
-  }, [isLoggedIn, isLoading, checkAssistant]);
+  }, [isLoggedIn, isLoading, hasPlatformSession, checkAssistant]);
 
   // Poll while initializing or cleaning up
   useEffect(() => {

@@ -68,7 +68,7 @@ export interface ConversationListState {
   activeConversationId: string | null;
   editingConversationId: string | null;
   processingConversationIds: Set<string>;
-  processingSnapshots: Map<string, string | undefined>;
+  processingSnapshots: Map<string, number | undefined>;
   attentionConversationIds: Set<string>;
 }
 
@@ -78,7 +78,7 @@ export interface ConversationListActions {
   setEditingConversationId: (conversationId: string | null) => void;
 
   // --- Processing conversation ids (and their snapshots, kept atomic) ---
-  addProcessingConversationId: (conversationId: string, snapshot?: string) => void;
+  addProcessingConversationId: (conversationId: string, snapshot?: number) => void;
   removeProcessingConversationId: (conversationId: string) => void;
   removeMultipleProcessingConversationIds: (conversationIds: string[]) => void;
   transferProcessingConversationId: (

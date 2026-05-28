@@ -6,8 +6,20 @@ import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog"
 import { toast } from "@vellum/design-library/components/toast";
 import { retireAssistantById } from "@/assistant/api";
 import { clearOnboardingFlags } from "@/lib/onboarding-cleanup";
+import {
+  isLocalMode,
+  getSelectedAssistant,
+  isLocalAssistant,
+  retireLocalAssistant,
+} from "@/lib/local-mode";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
+
+function getPostRetireRoute(): string {
+  if (isNativePlatform()) return routes.onboarding.prechat;
+  if (isLocalMode()) return routes.onboarding.welcome;
+  return routes.onboarding.privacy;
+}
 
 interface RetireAssistantProps {
   assistantId: string;
@@ -20,25 +32,32 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
   const handleRetire = async () => {
     setConfirmOpen(false);
     try {
-      const result = await retireAssistantById(assistantId);
-      if (result.ok || result.status === 404) {
-        clearOnboardingFlags();
-        toast.success("Assistant retired.");
-        // Native (iOS) re-onboarding skips the privacy/TOS step — those
-        // are re-shown only when the user explicitly resets prefs.
-        // Web users still see the privacy step to satisfy first-load
-        // consent requirements on a fresh assistant.
-        navigate(
-          isNativePlatform()
-            ? routes.onboarding.prechat
-            : routes.onboarding.privacy,
-        );
+      const selected = getSelectedAssistant();
+      const useLocal =
+        isLocalMode() && selected && isLocalAssistant(selected);
+
+      if (useLocal) {
+        const result = await retireLocalAssistant(assistantId);
+        if (result.ok) {
+          clearOnboardingFlags();
+          toast.success("Assistant retired.");
+          navigate(getPostRetireRoute());
+        } else {
+          toast.error(result.error || "Failed to retire assistant.");
+        }
       } else {
-        const detail =
-          typeof result.error?.detail === "string"
-            ? result.error.detail
-            : "Failed to retire assistant.";
-        toast.error(detail);
+        const result = await retireAssistantById(assistantId);
+        if (result.ok || result.status === 404) {
+          clearOnboardingFlags();
+          toast.success("Assistant retired.");
+          navigate(getPostRetireRoute());
+        } else {
+          const detail =
+            typeof result.error?.detail === "string"
+              ? result.error.detail
+              : "Failed to retire assistant.";
+          toast.error(detail);
+        }
       }
     } catch {
       toast.error("Failed to retire assistant.");

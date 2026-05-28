@@ -521,6 +521,8 @@ export async function hatchAssistant(
   );
 }
 
+const PLATFORM_FETCH_TIMEOUT_MS = 10_000;
+
 /**
  * Lightweight pre-check: returns the first active managed assistant for the
  * authenticated user, or `null` if none exists. Calls `GET /v1/assistants/`
@@ -536,20 +538,31 @@ export async function checkExistingPlatformAssistant(
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/v1/assistants/`;
 
-  const response = await fetch(url, {
-    headers: await authHeaders(token, platformUrl),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    PLATFORM_FETCH_TIMEOUT_MS,
+  );
 
-  if (!response.ok) {
-    // Non-fatal: if the list call fails, fall through and let hatch handle it.
-    return null;
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: await authHeaders(token, platformUrl),
+    });
+
+    if (!response.ok) {
+      // Non-fatal: if the list call fails, fall through and let hatch handle it.
+      return null;
+    }
+
+    const body = (await response.json()) as {
+      results?: HatchedAssistant[];
+    };
+    const active = body.results?.find((a) => a.status === "active");
+    return active ?? null;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  const body = (await response.json()) as {
-    results?: HatchedAssistant[];
-  };
-  const active = body.results?.find((a) => a.status === "active");
-  return active ?? null;
 }
 
 /**
@@ -563,17 +576,28 @@ export async function fetchPlatformAssistants(
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/v1/assistants/`;
 
-  const response = await fetch(url, {
-    headers: await authHeaders(token, platformUrl),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    PLATFORM_FETCH_TIMEOUT_MS,
+  );
 
-  if (!response.ok) return [];
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: await authHeaders(token, platformUrl),
+    });
 
-  const body = (await response.json()) as {
-    results?: HatchedAssistant[];
-  };
+    if (!response.ok) return [];
 
-  return (body.results ?? []).filter((a) => a.status === "active");
+    const body = (await response.json()) as {
+      results?: HatchedAssistant[];
+    };
+
+    return (body.results ?? []).filter((a) => a.status === "active");
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export interface PlatformUser {
@@ -592,22 +616,34 @@ export async function fetchOrganizationId(
 ): Promise<string> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/v1/organizations/`;
-  const response = await fetch(url, {
-    headers: { ...tokenAuthHeader(token) },
-  });
 
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch organizations from ${resolvedUrl} (${response.status}). Try logging in again.`,
-    );
-  }
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    PLATFORM_FETCH_TIMEOUT_MS,
+  );
 
-  const body = (await response.json()) as OrganizationListResponse;
-  const orgId = body.results?.[0]?.id;
-  if (!orgId) {
-    throw new Error("No organization found for this account.");
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { ...tokenAuthHeader(token) },
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to fetch organizations from ${resolvedUrl} (${response.status}). Try logging in again.`,
+      );
+    }
+
+    const body = (await response.json()) as OrganizationListResponse;
+    const orgId = body.results?.[0]?.id;
+    if (!orgId) {
+      throw new Error("No organization found for this account.");
+    }
+    return orgId;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return orgId;
 }
 
 interface AllauthSessionResponse {
@@ -627,25 +663,37 @@ export async function fetchCurrentUser(
 ): Promise<PlatformUser> {
   const resolvedUrl = platformUrl || getPlatformUrl();
   const url = `${resolvedUrl}/_allauth/app/v1/auth/session`;
-  const response = await fetch(url, {
-    headers: { "X-Session-Token": token },
-  });
 
-  if (!response.ok) {
-    if (
-      response.status === 401 ||
-      response.status === 403 ||
-      response.status === 410
-    ) {
-      throw new Error("Invalid or expired token. Please login again.");
+  const controller = new AbortController();
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    PLATFORM_FETCH_TIMEOUT_MS,
+  );
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { "X-Session-Token": token },
+    });
+
+    if (!response.ok) {
+      if (
+        response.status === 401 ||
+        response.status === 403 ||
+        response.status === 410
+      ) {
+        throw new Error("Invalid or expired token. Please login again.");
+      }
+      throw new Error(
+        `Platform API error: ${response.status} ${response.statusText}`,
+      );
     }
-    throw new Error(
-      `Platform API error: ${response.status} ${response.statusText}`,
-    );
-  }
 
-  const body = (await response.json()) as AllauthSessionResponse;
-  return body.data.user;
+    const body = (await response.json()) as AllauthSessionResponse;
+    return body.data.user;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // ---------------------------------------------------------------------------

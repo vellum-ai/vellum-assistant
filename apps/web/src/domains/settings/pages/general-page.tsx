@@ -23,6 +23,7 @@ import {
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { isLocalMode } from "@/lib/local-mode";
 import {
   applyThemePreference,
   readStoredThemePreference,
@@ -137,7 +138,7 @@ export function GeneralPage() {
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isLoggedIn = useAuthStore.use.isLoggedIn();
 
-  const platformAssistant = assistant?.is_local ? null : assistant;
+  const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
 
   useEffect(() => {
     if (!assistant || window.location.hash !== "#storage-resources") {

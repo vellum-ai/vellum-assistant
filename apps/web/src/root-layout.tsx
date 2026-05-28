@@ -10,7 +10,9 @@ import {
 } from "@/domains/chat/hooks/use-assistant-lifecycle";
 import { useAuthStore } from "@/stores/auth-store";
 import { useEnvironmentStore } from "@/lib/environment/environment-store";
-import { useAssistantSyncStream } from "@/hooks/use-assistant-sync-stream";
+import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
+import { useConversationSync } from "@/domains/conversations/use-conversation-sync";
+import { useFeatureFlagBusSync } from "@/lib/feature-flags/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/lib/feature-flags/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/lib/feature-flags/use-assistant-feature-flag-sync";
 
@@ -68,25 +70,27 @@ export function RootLayout() {
   const navigate = useNavigate();
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const authLoading = useAuthStore.use.isLoading();
+  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
-  useClientFeatureFlagSync(isLoggedIn && !authLoading);
+  useClientFeatureFlagSync(hasPlatformSession && !authLoading);
   const lifecycle = useAssistantLifecycle({
     isLoggedIn,
     isLoading: authLoading,
     isRetired: false,
     isNonProduction,
+    hasPlatformSession,
     onRedirect: navigate,
   });
 
-  useAssistantFeatureFlagSync(lifecycle.assistantId);
-  useAssistantSyncStream(
-    lifecycle.assistantId,
-    lifecycle.assistantState.kind === "active",
-  );
+  useAssistantFeatureFlagSync(hasPlatformSession ? lifecycle.assistantId : null);
+  const isAssistantActive = lifecycle.assistantState.kind === "active";
+  useAssistantResourceSync(lifecycle.assistantId, isAssistantActive);
+  useConversationSync(lifecycle.assistantId, isAssistantActive);
+  useFeatureFlagBusSync(lifecycle.assistantId, isAssistantActive);
 
   useEventBusInit({
     assistantId: lifecycle.assistantId,
-    isAssistantActive: lifecycle.assistantState.kind === "active",
+    isAssistantActive,
     checkAssistant: lifecycle.checkAssistant,
   });
 

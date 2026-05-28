@@ -1,6 +1,8 @@
 import { execFileSync } from "child_process";
 import { existsSync, readFileSync, unlinkSync } from "fs";
 
+import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
+
 /**
  * Verify that a PID belongs to a vellum-related process by inspecting its
  * command line via `ps`. Prevents killing unrelated processes when a PID file
@@ -21,13 +23,15 @@ export function isVellumProcess(pid: number): boolean {
   }
 }
 
+/** Discriminated union: when `alive` is true, `pid` is guaranteed non-null. */
+export type ProcessAliveResult =
+  | { alive: true; pid: number }
+  | { alive: false; pid: null };
+
 /**
  * Check if a PID file's process is alive.
  */
-export function isProcessAlive(pidFile: string): {
-  alive: boolean;
-  pid: number | null;
-} {
+export function isProcessAlive(pidFile: string): ProcessAliveResult {
   if (!existsSync(pidFile)) {
     return { alive: false, pid: null };
   }
@@ -44,6 +48,91 @@ export function isProcessAlive(pidFile: string): {
   } catch {
     return { alive: false, pid: null };
   }
+}
+
+/** Discriminated union: when `alive` is true, `pid` is guaranteed non-null. */
+export type ProcessHealthResult =
+  | { alive: true; healthy: boolean; pid: number }
+  | { alive: false; healthy: false; pid: null };
+
+/**
+ * Check if a PID file's process is alive AND responding to HTTP health checks.
+ *
+ * Combines PID existence check with an HTTP `/healthz` probe. A process that
+ * exists but does not respond (hung, deadlocked, at 100% CPU) returns
+ * `alive: true, healthy: false` — callers should kill and restart it.
+ */
+export async function isProcessHealthy(
+  pidFile: string,
+  healthPort: number,
+  timeoutMs: number = 3000,
+): Promise<ProcessHealthResult> {
+  const { alive, pid } = isProcessAlive(pidFile);
+  if (!alive || pid === null) {
+    return { alive: false, healthy: false, pid: null };
+  }
+
+  const healthy = await httpHealthCheck(healthPort, timeoutMs);
+  return { alive: true, healthy, pid };
+}
+
+/**
+ * Outcome of {@link resolveProcessState}. Callers switch on `status`:
+ * - `"healthy"` — process is alive and responding; `pid` is the live PID.
+ * - `"needs_start"` — process was dead, hung (and killed), or a stale PID
+ *   was cleaned up. Caller should start a fresh process.
+ */
+export type ProcessState =
+  | { status: "healthy"; pid: number }
+  | { status: "needs_start"; pid: number | null };
+
+/**
+ * Determine whether a PID-tracked process is alive and healthy. If the
+ * process exists but is unresponsive, waits up to `readinessWaitMs`
+ * (default 60s — matches the spawner's own `waitForDaemonReady` timeout
+ * so a concurrent caller never kills a daemon the spawner is still
+ * waiting on) for it to finish initializing. If it remains unresponsive,
+ * verifies it belongs to Vellum before killing it, then cleans up the
+ * PID file.
+ *
+ * Encapsulates the full health → readiness-wait → guard → kill → cleanup
+ * flow so callers don't need to reimplement it.
+ */
+export async function resolveProcessState(
+  pidFile: string,
+  healthPort: number,
+  label: string,
+  readinessWaitMs: number = 60_000,
+): Promise<ProcessState> {
+  const result = await isProcessHealthy(pidFile, healthPort);
+
+  if (!result.alive) {
+    return { status: "needs_start", pid: null };
+  }
+
+  if (result.healthy) {
+    return { status: "healthy", pid: result.pid };
+  }
+
+  // Alive but not healthy — may still be starting up.
+  const becameHealthy = await waitForDaemonReady(healthPort, readinessWaitMs);
+  if (becameHealthy) {
+    return { status: "healthy", pid: result.pid };
+  }
+
+  // Genuinely hung — kill if it belongs to Vellum, otherwise just clean up.
+  if (isVellumProcess(result.pid)) {
+    console.log(
+      `${label} process alive (pid ${result.pid}) but not responding — killing and restarting...`,
+    );
+    await stopProcess(result.pid, label);
+  } else {
+    console.log(
+      `Stale PID file (pid ${result.pid} is not a Vellum process) — cleaning up...`,
+    );
+  }
+  removeFiles(pidFile);
+  return { status: "needs_start", pid: result.pid };
 }
 
 /**
@@ -85,6 +174,18 @@ export async function stopProcess(
   return true;
 }
 
+/** Remove one or more files, ignoring missing-file errors. */
+function removeFiles(...files: (string | string[] | undefined)[]): void {
+  for (const entry of files) {
+    if (!entry) continue;
+    for (const f of Array.isArray(entry) ? entry : [entry]) {
+      try {
+        unlinkSync(f);
+      } catch {}
+    }
+  }
+}
+
 /**
  * Stop a process tracked by a PID file, then clean up the file.
  * Returns true if the process was stopped, false if it wasn't alive.
@@ -92,24 +193,13 @@ export async function stopProcess(
 export async function stopProcessByPidFile(
   pidFile: string,
   label: string,
-  cleanupFiles?: string[],
+  extraCleanupFiles?: string[],
   timeoutMs?: number,
 ): Promise<boolean> {
   const { alive, pid } = isProcessAlive(pidFile);
 
   if (!alive || pid === null) {
-    if (existsSync(pidFile)) {
-      try {
-        unlinkSync(pidFile);
-      } catch {}
-    }
-    if (cleanupFiles) {
-      for (const f of cleanupFiles) {
-        try {
-          unlinkSync(f);
-        } catch {}
-      }
-    }
+    removeFiles(pidFile, extraCleanupFiles);
     return false;
   }
 
@@ -120,32 +210,12 @@ export async function stopProcessByPidFile(
     console.log(
       `PID ${pid} is not a vellum process — cleaning up stale ${label} PID file.`,
     );
-    try {
-      unlinkSync(pidFile);
-    } catch {}
-    if (cleanupFiles) {
-      for (const f of cleanupFiles) {
-        try {
-          unlinkSync(f);
-        } catch {}
-      }
-    }
+    removeFiles(pidFile, extraCleanupFiles);
     return false;
   }
 
   const stopped = await stopProcess(pid, label, timeoutMs);
-
-  try {
-    unlinkSync(pidFile);
-  } catch {}
-  if (cleanupFiles) {
-    for (const f of cleanupFiles) {
-      try {
-        unlinkSync(f);
-      } catch {}
-    }
-  }
-
+  removeFiles(pidFile, extraCleanupFiles);
   return stopped;
 }
 

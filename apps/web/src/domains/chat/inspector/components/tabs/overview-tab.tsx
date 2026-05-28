@@ -14,7 +14,7 @@ import {
 import type {
   LLMCallSummary,
   LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types";
+} from "@vellumai/assistant-api";
 
 interface OverviewTabProps {
   entry: LLMRequestLogEntry;

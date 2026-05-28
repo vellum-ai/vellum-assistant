@@ -69,6 +69,12 @@ export interface SubagentConfig {
    * profile, every spawned subagent inherits it automatically.
    */
   overrideProfile?: string;
+  /**
+   * Tool-use id of the `skill_execute` call that spawned this subagent.
+   * Forwarded into the `subagent_spawned` event so the client can anchor the
+   * inline subagent card to the exact spawn tool call.
+   */
+  parentToolUseId?: string;
 }
 
 // ── State (runtime) ─────────────────────────────────────────────────────

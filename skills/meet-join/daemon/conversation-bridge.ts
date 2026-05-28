@@ -71,6 +71,9 @@ import { MeetSpeakerResolver } from "./speaker-resolver.js";
 // Types
 // ---------------------------------------------------------------------------
 
+/** Valid message roles — mirrors `MessageRole` from skill-host-contracts. */
+type MessageRole = "user" | "assistant" | "system";
+
 /**
  * Narrow shape of `addMessage` from the assistant's memory module — the
  * bridge only needs the subset of fields that the conversation message
@@ -79,7 +82,7 @@ import { MeetSpeakerResolver } from "./speaker-resolver.js";
  */
 export type InsertMessageFn = (
   conversationId: string,
-  role: string,
+  role: MessageRole,
   content: string,
   metadata?: Record<string, unknown>,
   opts?: { skipIndexing?: boolean },

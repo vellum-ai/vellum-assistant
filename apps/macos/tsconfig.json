@@ -15,6 +15,6 @@
     "isolatedModules": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "electron.vite.config.ts"],
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "electron.vite.config.ts"],
   "exclude": ["out/**", "dist/**", "node_modules/**"]
 }

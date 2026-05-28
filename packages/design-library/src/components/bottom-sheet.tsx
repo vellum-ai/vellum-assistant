@@ -1,9 +1,26 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { type LucideIcon } from "lucide-react";
-import { type ComponentProps, type ReactNode } from "react";
+import { createContext, useContext, type ComponentProps, type ReactNode } from "react";
 
 import { cn } from "../utils/cn";
 import { usePortalContainer } from "../utils/portal-container";
+
+/**
+ * Internal context that threads `onOpenChange` from `Root` to `Content` so
+ * the overlay can explicitly dismiss the sheet on click.
+ *
+ * iOS Safari/WKWebView only fires `click` events from elements it considers
+ * "clickable" (has a click handler, cursor: pointer, or is natively
+ * interactive). Radix's DismissableLayer defers touch-dismiss to a `click`
+ * listener on the document, which never fires from the plain overlay div on
+ * iOS. An explicit `onClick` on the overlay makes it "clickable" per iOS's
+ * rules and ensures the sheet dismisses on tap-outside.
+ *
+ * @see https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariWebContent/HandlingEvents/HandlingEvents.html
+ */
+const BottomSheetContext = createContext<{
+  onOpenChange?: (open: boolean) => void;
+}>({});
 
 /**
  * `BottomSheet` primitive built on `@radix-ui/react-dialog`.
@@ -23,7 +40,16 @@ import { usePortalContainer } from "../utils/portal-container";
  * @see https://www.radix-ui.com/primitives/docs/components/dialog
  */
 
-const Root = Dialog.Root;
+function Root({
+  onOpenChange,
+  ...props
+}: ComponentProps<typeof Dialog.Root>) {
+  return (
+    <BottomSheetContext value={{ onOpenChange }}>
+      <Dialog.Root onOpenChange={onOpenChange} {...props} />
+    </BottomSheetContext>
+  );
+}
 
 function Trigger(props: ComponentProps<typeof Dialog.Trigger>) {
   return <Dialog.Trigger data-slot="bottom-sheet-trigger" {...props} />;
@@ -42,11 +68,13 @@ function Content({
   ...props
 }: BottomSheetContentProps) {
   const container = usePortalContainer();
+  const { onOpenChange } = useContext(BottomSheetContext);
   return (
     <Dialog.Portal container={container ?? undefined}>
       <Dialog.Overlay
         data-slot="bottom-sheet-overlay"
         className={cn("fixed inset-0 z-50 bg-black/50", overlayClassName)}
+        onClick={() => onOpenChange?.(false)}
       />
       <Dialog.Content
         ref={ref}

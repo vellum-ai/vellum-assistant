@@ -22,6 +22,7 @@
  * modes. This whole file is deleted once that lands.
  */
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
+import { getSelfHostedActorToken } from "@/lib/self-hosted/connection";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
 /**
@@ -33,6 +34,11 @@ export function buildVellumHeaders(
   extra?: Record<string, string>,
 ): Record<string, string> {
   const headers: Record<string, string> = { ...(extra ?? {}) };
+  const selfHostedToken = getSelfHostedActorToken();
+  if (selfHostedToken) {
+    headers["Authorization"] = `Bearer ${selfHostedToken}`;
+    return headers;
+  }
   const organizationId = getActiveOrganizationIdForRequests();
   if (organizationId) {
     headers["Vellum-Organization-Id"] = organizationId;
@@ -49,6 +55,7 @@ export async function buildVellumMutatingHeaders(
   extra?: Record<string, string>,
 ): Promise<Record<string, string>> {
   const headers = buildVellumHeaders(extra);
+  if (headers["Authorization"]) return headers;
   await ensureCsrfCookie();
   const csrfToken = getCsrfToken();
   if (csrfToken) {

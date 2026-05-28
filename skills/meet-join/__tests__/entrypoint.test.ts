@@ -76,7 +76,6 @@ const fakeTool = (name: string) => ({
   defaultRiskLevel: "low",
   ownerSkillId: "meet-join",
   executionTarget: "host" as const,
-  executionMode: "proxy" as const,
   getDefinition: () => ({ name, description: "test fake", input_schema: {} }),
   execute: async () => ({ ok: true }),
 });

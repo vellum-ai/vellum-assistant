@@ -6,6 +6,8 @@ import {
   type AssistantsConnectionStatusResponse,
   type ConnectionStatus,
 } from "@/generated/api/index";
+import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
+import { getSelfHostedIngressUrl } from "@/lib/self-hosted/connection";
 import { subscribeAssistantUnreachable } from "@/assistant/unreachable-bus";
 
 /**
@@ -175,14 +177,29 @@ export function useAssistantReachability(
         return;
       }
       let response: AssistantsConnectionStatusResponse | null = null;
-      try {
-        const result = await assistantsConnectionStatus({
-          path: { id },
-          throwOnError: false,
-        });
-        response = result.data ?? null;
-      } catch {
-        response = null;
+
+      if (isGatewayAuthMode()) {
+        const ingressUrl = getSelfHostedIngressUrl();
+        if (ingressUrl) {
+          try {
+            const res = await fetch(`${ingressUrl}/healthz`);
+            response = res.ok
+              ? ({ state: "ready" } as AssistantsConnectionStatusResponse)
+              : null;
+          } catch {
+            response = null;
+          }
+        }
+      } else {
+        try {
+          const result = await assistantsConnectionStatus({
+            path: { id },
+            throwOnError: false,
+          });
+          response = result.data ?? null;
+        } catch {
+          response = null;
+        }
       }
 
       if (generation !== generationRef.current) {

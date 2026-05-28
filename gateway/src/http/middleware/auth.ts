@@ -2,7 +2,6 @@ import type { Server } from "bun";
 
 import { findVellumGuardian } from "../../auth/guardian-bootstrap.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
-import { validateSessionCookie } from "../../auth/session-cookie.js";
 import { parseSub } from "../../auth/subject.js";
 import { validateEdgeToken } from "../../auth/token-exchange.js";
 import type { Scope } from "../../auth/types.js";
@@ -286,47 +285,10 @@ export function createAuthMiddleware(
     return null;
   }
 
-  async function requireEdgeOrSessionAuth(
-    req: Request,
-    server?: Server<unknown>,
-  ): Promise<Response | null> {
-    if (server && isLoopbackPeer(server, req)) return null;
-    if (isPlatformAuthBypassActive()) {
-      return requirePlatformUserHeader(req);
-    }
-
-    const bearerToken = extractBearerToken(req);
-    if (bearerToken) {
-      const result = validateEdgeToken(bearerToken);
-      if (!result.ok) {
-        authRateLimiter.recordFailure(getClientIp());
-        log.warn(
-          { path: new URL(req.url).pathname, reason: result.reason },
-          "Edge-or-session auth rejected: bearer token validation failed",
-        );
-        return Response.json({ error: "Unauthorized" }, { status: 401 });
-      }
-      return null;
-    }
-
-    const cookieResult = validateSessionCookie(req);
-    if (cookieResult.ok) {
-      return null;
-    }
-
-    authRateLimiter.recordFailure(getClientIp());
-    log.warn(
-      { path: new URL(req.url).pathname },
-      "Edge-or-session auth rejected: no valid bearer token or session cookie",
-    );
-    return Response.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
   return {
     requireEdgeAuth,
     requireEdgeAuthWithScope,
     requireEdgeGuardianAuth,
-    requireEdgeOrSessionAuth,
   };
 }
 

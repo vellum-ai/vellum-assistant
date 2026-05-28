@@ -5,7 +5,7 @@ import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
 function resetStore() {
   useSidebarCollapseStore.setState({
     assistantId: null,
-    openCategories: ["recents"],
+    openCategories: [],
     openCustomGroups: [],
   });
 }
@@ -16,9 +16,9 @@ afterEach(() => {
 });
 
 describe("SidebarCollapseStore", () => {
-  test("defaults to recents open and no custom groups", () => {
+  test("defaults to no open categories or custom groups", () => {
     const state = useSidebarCollapseStore.getState();
-    expect(state.openCategories).toEqual(["recents"]);
+    expect(state.openCategories).toEqual([]);
     expect(state.openCustomGroups).toEqual([]);
     expect(state.assistantId).toBeNull();
   });
@@ -26,7 +26,7 @@ describe("SidebarCollapseStore", () => {
   test("setAssistantId hydrates from localStorage", () => {
     localStorage.setItem(
       "vellum:sidebar-open-categories:asst-1",
-      JSON.stringify(["pinned", "background"]),
+      JSON.stringify(["scheduled", "background"]),
     );
     localStorage.setItem(
       "vellum:sidebar-open-custom-groups:asst-1",
@@ -37,7 +37,7 @@ describe("SidebarCollapseStore", () => {
 
     const state = useSidebarCollapseStore.getState();
     expect(state.assistantId).toBe("asst-1");
-    expect(state.openCategories).toEqual(["pinned", "background"]);
+    expect(state.openCategories).toEqual(["scheduled", "background"]);
     expect(state.openCustomGroups).toEqual(["grp-abc"]);
   });
 
@@ -54,15 +54,17 @@ describe("SidebarCollapseStore", () => {
 
   test("setOpenCategories persists to localStorage", () => {
     useSidebarCollapseStore.getState().setAssistantId("asst-1");
-    useSidebarCollapseStore.getState().setOpenCategories(["pinned", "recents"]);
+    useSidebarCollapseStore
+      .getState()
+      .setOpenCategories(["scheduled", "background"]);
 
     const raw = localStorage.getItem(
       "vellum:sidebar-open-categories:asst-1",
     );
-    expect(JSON.parse(raw!)).toEqual(["pinned", "recents"]);
+    expect(JSON.parse(raw!)).toEqual(["scheduled", "background"]);
     expect(useSidebarCollapseStore.getState().openCategories).toEqual([
-      "pinned",
-      "recents",
+      "scheduled",
+      "background",
     ]);
   });
 
@@ -81,7 +83,7 @@ describe("SidebarCollapseStore", () => {
   test("switching assistant re-hydrates from new assistant's storage", () => {
     localStorage.setItem(
       "vellum:sidebar-open-categories:asst-1",
-      JSON.stringify(["pinned"]),
+      JSON.stringify(["scheduled"]),
     );
     localStorage.setItem(
       "vellum:sidebar-open-categories:asst-2",
@@ -90,7 +92,7 @@ describe("SidebarCollapseStore", () => {
 
     useSidebarCollapseStore.getState().setAssistantId("asst-1");
     expect(useSidebarCollapseStore.getState().openCategories).toEqual([
-      "pinned",
+      "scheduled",
     ]);
 
     useSidebarCollapseStore.getState().setAssistantId("asst-2");
@@ -108,16 +110,14 @@ describe("SidebarCollapseStore", () => {
 
     useSidebarCollapseStore.getState().setAssistantId("asst-1");
 
-    expect(useSidebarCollapseStore.getState().openCategories).toEqual([
-      "recents",
-    ]);
+    expect(useSidebarCollapseStore.getState().openCategories).toEqual([]);
   });
 
   test("setOpenCategories does not persist when no assistantId is set", () => {
-    useSidebarCollapseStore.getState().setOpenCategories(["pinned"]);
+    useSidebarCollapseStore.getState().setOpenCategories(["scheduled"]);
 
     expect(useSidebarCollapseStore.getState().openCategories).toEqual([
-      "pinned",
+      "scheduled",
     ]);
     expect(localStorage.length).toBe(0);
   });

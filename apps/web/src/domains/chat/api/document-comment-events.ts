@@ -6,52 +6,13 @@
  * wire these into the main SSE stream processor.
  */
 
+import type {
+  DocumentCommentCreatedEvent,
+  DocumentCommentDeletedEvent,
+  DocumentCommentReopenedEvent,
+  DocumentCommentResolvedEvent,
+} from "@vellumai/assistant-api";
 import type { DocumentComment } from "@/domains/chat/api/document-comments";
-
-// ---------------------------------------------------------------------------
-// SSE event shapes — mirrors daemon message-types/document-comments.ts
-// ---------------------------------------------------------------------------
-
-export interface DocumentCommentCreatedEvent {
-  type: "document_comment_created";
-  conversationId: string;
-  surfaceId: string;
-  comment: {
-    id: string;
-    surfaceId: string;
-    author: string;
-    content: string;
-    anchorStart?: number;
-    anchorEnd?: number;
-    anchorText?: string;
-    parentCommentId?: string;
-    status: string;
-    createdAt: number;
-    updatedAt: number;
-  };
-}
-
-export interface DocumentCommentResolvedEvent {
-  type: "document_comment_resolved";
-  conversationId: string;
-  surfaceId: string;
-  commentId: string;
-  resolvedBy: string;
-}
-
-export interface DocumentCommentReopenedEvent {
-  type: "document_comment_reopened";
-  conversationId: string;
-  surfaceId: string;
-  commentId: string;
-}
-
-export interface DocumentCommentDeletedEvent {
-  type: "document_comment_deleted";
-  conversationId: string;
-  surfaceId: string;
-  commentId: string;
-}
 
 export type DocumentCommentEvent =
   | DocumentCommentCreatedEvent

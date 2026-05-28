@@ -1,6 +1,21 @@
-import { and, asc, desc, eq, gt, gte, inArray, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gt,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
+import { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "../api/constants/call-sites.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { AssistantError, ProviderError } from "../util/errors.js";
 import {
@@ -100,6 +115,80 @@ export function recordRequestLog(
       // a caller hasn't been updated yet — preserves backward compat
       // while we plumb call sites through one site at a time.
       callSite: callSite ?? null,
+    })
+    .run();
+  return id;
+}
+
+/**
+ * Insert a synthetic `llm_request_logs` row for an agent-loop error
+ * message that has no LLM call backing it but should appear in the
+ * inspector rail. Today the only caller is the
+ * `budget_yield_unrecovered` persistence path
+ * (`conversation-agent-loop.ts`); the helper is named generically so
+ * the next out-of-funds / provider-error / etc. path can route through
+ * the same primitive.
+ *
+ * The caller persists the user-visible assistant message separately
+ * via the `persistence` pipeline; this helper only writes the synthetic
+ * call row. `messageId` should be the id of the just-persisted notice
+ * so `getRequestLogsByMessageId` surfaces both together.
+ *
+ * Payload semantics mirror real LLM-call rows:
+ *  - `requestPayload`: the best-known LLM request body the loop was
+ *    about to send when it yielded — typically the prepared messages
+ *    snapshot and any input-token budget context. Stored as JSON so
+ *    the Raw tab renders it consistently with real calls.
+ *  - `responsePayload`: the synthetic notice text the user saw plus
+ *    the exit reason. This is the "response" from the user's point of
+ *    view — what came back from a call that never actually happened.
+ *
+ * Stamps `agent_loop_exit_reason` directly so the row already carries
+ * the reason at insert time — the post-loop
+ * `setAgentLoopExitReasonOnLatestLog` query then skips it (its IS NULL
+ * guard) and stamps the prior real LLM call instead, preserving the
+ * existing "latest LLM call carries the exit reason" invariant that
+ * other consumers depend on.
+ */
+export function recordSyntheticAgentErrorMessageLog(args: {
+  conversationId: string;
+  messageId: string;
+  exitReason: string;
+  /** User-visible notice text — goes into `response_payload`. */
+  noticeText: string;
+  /**
+   * Best-known LLM request state at the moment the loop gave up.
+   * `null` when no prepared request was available (rare — generally
+   * we know at least the conversation history we were about to send).
+   */
+  preparedRequest: unknown | null;
+  createdAt: number;
+}): string {
+  const db = getDb();
+  const id = uuid();
+  const requestPayload = JSON.stringify({
+    syntheticAgentErrorMessage: {
+      exitReason: args.exitReason,
+      preparedRequest: args.preparedRequest,
+    },
+  });
+  const responsePayload = JSON.stringify({
+    syntheticAgentErrorMessage: {
+      exitReason: args.exitReason,
+      noticeText: args.noticeText,
+    },
+  });
+  db.insert(llmRequestLogs)
+    .values({
+      id,
+      conversationId: args.conversationId,
+      messageId: args.messageId,
+      provider: null,
+      requestPayload,
+      responsePayload,
+      createdAt: args.createdAt,
+      agentLoopExitReason: args.exitReason,
+      callSite: CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
     })
     .run();
   return id;
@@ -208,7 +297,9 @@ function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
  * not apply turn recovery: the `conversation_id` column already includes
  * linked, unlinked, and orphaned rows for the full conversation.
  */
-export function getRequestLogsByConversationId(conversationId: string): LogRow[] {
+export function getRequestLogsByConversationId(
+  conversationId: string,
+): LogRow[] {
   const db = getDb();
   return db
     .select({
@@ -417,7 +508,7 @@ export function getRequestLogById(logId: string): LogRow | null {
         responsePayload: llmRequestLogs.responsePayload,
         createdAt: llmRequestLogs.createdAt,
         agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
-      callSite: llmRequestLogs.callSite,
+        callSite: llmRequestLogs.callSite,
       })
       .from(llmRequestLogs)
       .where(eq(llmRequestLogs.id, logId))

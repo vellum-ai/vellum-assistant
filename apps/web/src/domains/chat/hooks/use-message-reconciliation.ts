@@ -12,6 +12,7 @@ import {
 import { type DisplayMessage, reconcileMessages } from "@/domains/chat/utils/reconcile";
 import { isSending, useTurnStore } from "@/domains/messaging/turn-store";
 import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 
 const RECONCILE_DELAY_MS = 5000;
 const RECONCILE_MAX_MS = 60_000;
@@ -21,7 +22,6 @@ interface UseMessageReconciliationArgs {
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
   streamEpochRef: RefObject<number>;
-  activeConversationIdRef: RefObject<string | null>;
   initialPageOldestTsRef: RefObject<number | null>;
 }
 
@@ -118,7 +118,6 @@ export function useMessageReconciliation({
   setMessages,
   streamContextRef,
   streamEpochRef,
-  activeConversationIdRef,
   initialPageOldestTsRef,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -421,7 +420,7 @@ export function useMessageReconciliation({
           ctx.assistantId,
           ctx.conversationId,
         );
-        if (activeConversationIdRef.current !== ctx.conversationId) return empty;
+        if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.
         if (streamEpochRef.current !== snapshotEpoch) return empty;
@@ -446,7 +445,6 @@ export function useMessageReconciliation({
     [
     streamContextRef,
     streamEpochRef,
-    activeConversationIdRef,
     reconcileFetchedMessages,
   ]);
 

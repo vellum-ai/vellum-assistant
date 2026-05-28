@@ -4,7 +4,7 @@ import {
   consumePendingInitialMessage,
   INITIAL_MESSAGE_SESSION_KEY,
   storePendingInitialMessage,
-} from "@/utils/initial-message-launch";
+} from "@/lib/initial-message-launch";
 
 class MemoryStorage implements Storage {
   private store = new Map<string, string>();

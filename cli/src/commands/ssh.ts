@@ -1,7 +1,10 @@
 import { spawn } from "child_process";
 
-import { resolveAssistant } from "../lib/assistant-config";
-import type { AssistantEntry } from "../lib/assistant-config";
+import {
+  extractHostFromUrl,
+  resolveAssistant,
+  resolveCloud,
+} from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
 import { getPlatformUrl, readPlatformToken } from "../lib/platform-client";
 import { sshAppleContainer } from "../lib/ssh-apple-container";
@@ -17,28 +20,6 @@ const SSH_OPTS = [
   "-o",
   "LogLevel=ERROR",
 ];
-
-function resolveCloud(entry: AssistantEntry): string {
-  if (entry.cloud) {
-    return entry.cloud;
-  }
-  if (entry.project) {
-    return "gcp";
-  }
-  if (entry.sshUser) {
-    return "custom";
-  }
-  return "local";
-}
-
-function extractHostFromUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname;
-  } catch {
-    return url.replace(/^https?:\/\//, "").split(":")[0];
-  }
-}
 
 export async function ssh(): Promise<void> {
   const args = process.argv.slice(3);

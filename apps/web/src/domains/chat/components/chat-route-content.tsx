@@ -36,7 +36,7 @@ import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
-import { useDeprecatedTranscriptScroll } from "@/domains/chat/transcript/use-deprecated-transcript-scroll";
+import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils";
 import type { ChatError } from "@/domains/chat/types";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
@@ -65,6 +65,13 @@ const SubagentDetailPanel = lazy(() =>
     default: m.SubagentDetailPanel,
   })),
 );
+// ToolDetailPanel is only rendered when the user opens a tool-call's detail
+// drawer; defer loading to keep its subtree out of the chat-critical bundle.
+const ToolDetailPanel = lazy(() =>
+  import("@/domains/chat/components/tool-detail-panel").then((m) => ({
+    default: m.ToolDetailPanel,
+  })),
+);
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -77,7 +84,7 @@ import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-gree
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
-import { useDeployStore } from "@/domains/chat/deploy-store";
+import { useDeployStore } from "@/stores/deploy-store";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";
 import type { SubagentState } from "@/domains/subagents/subagent-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
@@ -95,7 +102,7 @@ import {
 } from "@/domains/messaging/turn-selectors";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
 
-import type { MainView, OpenedAppState, OpenedDocumentState } from "@/stores/viewer-store";
+import { useViewerStore, type MainView, type OpenedAppState, type OpenedDocumentState } from "@/stores/viewer-store";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
 import { isPointerCoarse } from "@/utils/pointer";
 import { routes } from "@/utils/routes";
@@ -108,8 +115,7 @@ import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScop
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
-import type { AssistantIdentity } from "@/assistant/identity";
-import type { Conversation } from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
 
@@ -228,7 +234,6 @@ export interface ChatRouteRefs {
   messagesRef: MutableRefObject<DisplayMessage[]>;
   sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
   transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
-  activeConversationIdRef: MutableRefObject<string | null>;
   assistantIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
   expandedToolCallIdsRef: MutableRefObject<Set<string>>;
@@ -257,7 +262,8 @@ export interface ChatRouteContentProps {
   // Core
   assistantId: string | null;
   assistantState: AssistantState;
-  assistantIdentity: AssistantIdentity | null;
+  /** Active assistant's display name from `useAssistantIdentityStore` (read at chat-page via atomic selector). */
+  assistantName: string | null;
 
   // Feature flags
   chatPullToRefreshEnabled: boolean;
@@ -315,7 +321,6 @@ export interface ChatRouteContentProps {
 
   // Suggestion (ghost text)
   suggestion: string | null;
-  setSuggestion: Dispatch<SetStateAction<string | null>>;
 
   // Pagination
   transcriptPagination: Omit<TranscriptPaginationState, "items">;
@@ -394,7 +399,7 @@ export interface ChatRouteContentProps {
 export function ChatRouteContent({
   assistantId,
   assistantState,
-  assistantIdentity,
+  assistantName,
   chatPullToRefreshEnabled,
   deployToVercel,
   doctor: doctorEnabled,
@@ -424,7 +429,6 @@ export function ChatRouteContent({
   compactionCircuitOpenUntil,
   setCompactionCircuitOpenUntil,
   suggestion,
-  setSuggestion,
   transcriptPagination,
   setTranscriptPagination: _setTranscriptPagination,
   setShowAddCreditsModal,
@@ -513,7 +517,6 @@ export function ChatRouteContent({
     messagesRef,
     sanitizedMessagesRef,
     transcriptItemsRef,
-    activeConversationIdRef: _activeConversationIdRef,
     assistantIdRef: _assistantIdRef,
     streamContextRef,
     expandedToolCallIdsRef,
@@ -548,6 +551,13 @@ export function ChatRouteContent({
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
+
+  // -------------------------------------------------------------------------
+  // Tool-call detail drawer (from Zustand viewer store)
+  // -------------------------------------------------------------------------
+
+  const activeToolDetail = useViewerStore.use.activeToolDetail();
+  const closeToolDetail = useViewerStore.use.closeToolDetail();
 
   // -------------------------------------------------------------------------
   // Feature flags
@@ -843,7 +853,7 @@ export function ChatRouteContent({
   // Scroll coordination
   // -------------------------------------------------------------------------
 
-  const scrollCoordinator = useDeprecatedTranscriptScroll({
+  const scrollCoordinator = useTranscriptScroll({
     transcriptRef: refs.transcriptRef,
     items: transcriptItems,
     conversationId: activeConversationId,
@@ -910,7 +920,10 @@ export function ChatRouteContent({
         previewUrl: att.previewUrl ?? null,
       }));
     setInput("");
-    setSuggestion(null);
+    // (The ghost-text suggestion clears automatically — once the user
+    // message lands in `messages` the suggestion query key derives
+    // `lastCompleteAssistantMsgId = null` and the cached value is no
+    // longer matched. See `useGhostTextSuggestion`. — LUM-2009)
     if (activeConversationId) {
       clearDraft(activeConversationId);
     }
@@ -928,7 +941,7 @@ export function ChatRouteContent({
     // useViewportMinHeight) stays anchored at the latest message.
     scrollCoordinator.scrollToLatest({ behavior: "auto" });
     await sendMessage(trimmed, attachmentsToSend);
-  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationId, chatAttachments, resetChatAttachments, sendMessage, setInput, setSuggestion, clearDraft, inputRef, scrollCoordinator]);
+  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationId, chatAttachments, resetChatAttachments, sendMessage, setInput, clearDraft, inputRef, scrollCoordinator]);
 
   const handleSelectStarter = (starter: { prompt: string }) => {
     setInput(starter.prompt);
@@ -1124,7 +1137,8 @@ export function ChatRouteContent({
 
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
-    assistantDisplayName: assistantIdentity?.name?.trim() || undefined,
+    conversationId: activeConversationId,
+    assistantDisplayName: assistantName?.trim() || undefined,
     expandedToolCallIds: expandedToolCallIdsRef.current,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
     onOpenApp: handleOpenApp,
@@ -1367,7 +1381,7 @@ export function ChatRouteContent({
     return (
       <ResizablePanel
         storageKey="appEditPanelWidth"
-        defaultLeftWidth={400}
+        defaultRightWidth={400}
         minLeftWidth={300}
         minRightWidth={400}
         left={
@@ -1478,7 +1492,7 @@ export function ChatRouteContent({
       <>
         <ResizablePanel
           storageKey="documentPanelWidth"
-          defaultLeftWidth={400}
+          defaultRightWidth={400}
           minLeftWidth={300}
           minRightWidth={400}
           left={chatContent}
@@ -1511,7 +1525,7 @@ export function ChatRouteContent({
         <>
           <ResizablePanel
             storageKey="subagentDetailPanelWidth"
-            defaultLeftWidth={400}
+            defaultRightWidth={400}
             minLeftWidth={300}
             minRightWidth={400}
             left={chatContent}
@@ -1530,6 +1544,29 @@ export function ChatRouteContent({
         </>
       );
     }
+  }
+
+  if (mainView === "tool-detail" && activeToolDetail && !isMobile) {
+    return (
+      <>
+        <ResizablePanel
+          storageKey="toolDetailPanelWidth"
+          defaultRightWidth={400}
+          minLeftWidth={300}
+          minRightWidth={400}
+          left={chatContent}
+          right={
+            <LazyBoundary>
+              <ToolDetailPanel
+                detail={activeToolDetail}
+                onClose={closeToolDetail}
+              />
+            </LazyBoundary>
+          }
+        />
+        {sendErrorModalNode}
+      </>
+    );
   }
 
   return (

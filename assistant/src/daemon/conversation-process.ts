@@ -163,7 +163,8 @@ export interface ProcessConversationContext {
     requestId?: string,
     metadata?: Record<string, unknown>,
     displayContent?: string,
-  ): Promise<string>;
+    clientMessageId?: string,
+  ): Promise<{ id: string; deduplicated: boolean }>;
   runAgentLoop(
     content: string,
     userMessageId: string,
@@ -921,14 +922,15 @@ async function drainSingleMessage(
   // succeeds, runAgentLoop is called and its finally block will drain
   // the next message. If persistUserMessage fails, processMessage
   // resolves early (no runAgentLoop call), so we must continue draining.
-  let userMessageId: string;
+  let persistResult: { id: string; deduplicated: boolean };
   try {
-    userMessageId = await conversation.persistUserMessage(
+    persistResult = await conversation.persistUserMessage(
       resolvedContent,
       next.attachments,
       next.requestId,
       { ...next.metadata, sentAt: next.sentAt },
       next.displayContent,
+      next.clientMessageId,
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -957,6 +959,18 @@ async function drainSingleMessage(
     // runAgentLoop never ran, so its finally block won't clear this
     conversation.preactivatedSkillIds = undefined;
     // Continue draining — don't strand remaining messages
+    await drainQueue(conversation);
+    return;
+  }
+
+  const userMessageId = persistResult.id;
+
+  if (persistResult.deduplicated) {
+    log.info(
+      { conversationId: conversation.conversationId, userMessageId },
+      "Skipping agent loop for deduplicated queued message",
+    );
+    conversation.preactivatedSkillIds = undefined;
     await drainQueue(conversation);
     return;
   }
@@ -1217,24 +1231,46 @@ async function drainBatch(
     const qmContent = qmSlash.content;
 
     try {
+      let batchPersistResult: { id: string; deduplicated: boolean };
       if (i === 0) {
-        lastUserMessageId = await conversation.persistUserMessage(
+        batchPersistResult = await conversation.persistUserMessage(
           qmContent,
           qm.attachments,
           qm.requestId,
           { ...qm.metadata, sentAt: qm.sentAt },
           qm.displayContent,
+          qm.clientMessageId,
         );
       } else {
-        lastUserMessageId = await persistQueuedMessageBody(
+        batchPersistResult = await persistQueuedMessageBody(
           conversation,
           qmContent,
           qm.attachments,
           qm.requestId,
           { ...qm.metadata, sentAt: qm.sentAt },
           qm.displayContent,
+          qm.clientMessageId,
         );
       }
+      if (batchPersistResult.deduplicated) {
+        if (i === 0) {
+          // Head was deduplicated — persistUserMessage cleared the
+          // processing flag. Recursively drain remaining items so the
+          // first non-duplicate becomes the new batch head and sets
+          // processing via persistUserMessage.
+          const remaining = batch.slice(1);
+          if (remaining.length >= 2) {
+            await drainBatch(conversation, remaining, reason);
+          } else if (remaining.length === 1) {
+            await drainSingleMessage(conversation, remaining[0], reason);
+          } else {
+            await drainQueue(conversation);
+          }
+          return;
+        }
+        continue;
+      }
+      lastUserMessageId = batchPersistResult.id;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -1857,9 +1893,9 @@ export async function processMessage(
     }
   }
 
-  let userMessageId: string;
+  let pmResult: { id: string; deduplicated: boolean };
   try {
-    userMessageId = await conversation.persistUserMessage(
+    pmResult = await conversation.persistUserMessage(
       resolvedContent,
       attachments,
       requestId,
@@ -1878,6 +1914,8 @@ export async function processMessage(
     conversation.preactivatedSkillIds = undefined;
     return "";
   }
+
+  const userMessageId = pmResult.id;
 
   // Fire-and-forget: detect notification preferences in the user message
   // and persist any that are found. Runs in the background so it doesn't

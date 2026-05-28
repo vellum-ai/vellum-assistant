@@ -15,6 +15,7 @@ import {
 } from "react-router";
 
 import { useAuthStore, type AuthUser } from "@/stores/auth-store";
+import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 
 export const authUserContext = createRouterContext<AuthUser | null>(null);
 
@@ -27,6 +28,9 @@ export const authMiddleware: MiddlewareFunction = async ({ request, context }, n
   }
 
   if (!isLoggedIn || !user) {
+    if (isGatewayAuthMode()) {
+      return next();
+    }
     const url = new URL(request.url);
     const returnTo = encodeURIComponent(url.pathname + url.search);
     throw redirect(`/account/login?returnTo=${returnTo}`);

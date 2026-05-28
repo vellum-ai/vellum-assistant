@@ -1,6 +1,7 @@
 name: CI/CD Main Web
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -122,12 +123,14 @@ jobs:
   # Runs only after every CI check passes (a `needs` dependency on a failed job
   # skips this job automatically). One matrix leg per GitHub environment, all in
   # parallel (fail-fast: false). Each leg builds under its own `environment:` so
-  # the env-scoped secrets — the public VITE_* config baked into the bundle, the
-  # workload-identity creds, and the project id that names the bucket — resolve
-  # to that environment. `production` gates here if it has required reviewers.
+  # the env-scoped secrets and variables resolve to that environment.
+  # `production` gates here if it has required reviewers.
   deploy:
     name: Deploy SPA (${{ matrix.environment }})
     needs: [checks]
+    # workflow_dispatch has no branch filter, so guard `deploy` step explicitly to
+    # prevent accidental dispatch from feature branch.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -175,6 +178,7 @@ jobs:
       # same-origin paths, so each bucket's origin reaches its own backend.
       - name: Build
         env:
+          VITE_PLATFORM_MODE: "true"
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
           VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
@@ -186,12 +190,12 @@ jobs:
       - name: Authenticate to GCP
         uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
       - name: Publish SPA to GCS
         env:
-          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
           TARGET_ENV: ${{ matrix.environment }}
         run: |
           set -euo pipefail

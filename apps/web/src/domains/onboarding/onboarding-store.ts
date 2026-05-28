@@ -51,11 +51,15 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 import {
   getLocalBool,
-  removeLocalSetting,
   setLocalBool,
   watchSetting,
 } from "@/lib/local-settings";
 import { deviceKey } from "@/lib/device-settings";
+import {
+  KEY_TOS_ACCEPTED,
+  KEY_AI_DATA_CONSENT,
+  KEY_COMPLETED,
+} from "@/lib/onboarding-cleanup";
 
 // ---------------------------------------------------------------------------
 // Storage keys — shared with other surfaces
@@ -65,12 +69,6 @@ import { deviceKey } from "@/lib/device-settings";
 const KEY_SHARE_ANALYTICS = deviceKey("shareAnalytics");
 /** Shared with `/settings/privacy` and the Sentry consent gate. */
 const KEY_SHARE_DIAGNOSTICS = deviceKey("shareDiagnostics");
-/** Onboarding-only: Terms of Service accepted. */
-const KEY_TOS_ACCEPTED = "onboarding.tosAccepted";
-/** Onboarding-only: explicit AI-data-sharing consent (Apple Guideline 5.1.2(i)). */
-const KEY_AI_DATA_CONSENT = "onboarding.aiDataConsent";
-/** Onboarding-only: completed flag (gates pre-chat / chat routes). */
-const KEY_COMPLETED = "onboarding.completed";
 
 /**
  * Lookup table from localStorage key → which state field to refresh.
@@ -108,13 +106,6 @@ export interface OnboardingActions {
   setTosAccepted: (value: boolean) => void;
   setAiDataConsent: (value: boolean) => void;
   setOnboardingCompleted: (value: boolean) => void;
-  /**
-   * Reset the three per-user onboarding flags (tos, ai-consent, completed)
-   * to defaults and remove them from localStorage. Leaves the device-level
-   * `shareAnalytics` / `shareDiagnostics` flags alone — they're framed as
-   * device prefs and carry over between user accounts on a shared browser.
-   */
-  resetOnboardingFlags: () => void;
 }
 
 export type OnboardingStore = OnboardingState & OnboardingActions;
@@ -167,20 +158,6 @@ const useOnboardingStoreBase = create<OnboardingStore>()((set) => ({
   setOnboardingCompleted: (value) => {
     set({ completed: value });
     setLocalBool(KEY_COMPLETED, value);
-  },
-  resetOnboardingFlags: () => {
-    set({
-      tosAccepted: false,
-      aiDataConsent: false,
-      completed: false,
-    });
-    // Remove (not "set to false") to match the prior `clearOnboardingFlags`
-    // behavior — these keys default to false on read when absent, so
-    // removing them is equivalent to clearing them. Keeps localStorage
-    // tidy across logout cycles.
-    removeLocalSetting(KEY_TOS_ACCEPTED);
-    removeLocalSetting(KEY_AI_DATA_CONSENT);
-    removeLocalSetting(KEY_COMPLETED);
   },
 }));
 

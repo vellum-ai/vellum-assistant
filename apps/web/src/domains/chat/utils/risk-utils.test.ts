@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getProvenanceText, wasExpected } from "@/domains/chat/utils/risk-utils";
+import { getEffectiveRiskDisplay, getProvenanceText, getRiskBadgeStyle, wasExpected } from "@/domains/chat/utils/risk-utils";
 
 describe("wasExpected", () => {
   test("prompted mode is always expected", () => {
@@ -64,8 +64,11 @@ describe("wasExpected", () => {
 describe("getProvenanceText", () => {
   test("maps known reasons to display text", () => {
     expect(getProvenanceText("trust_rule_allowed")).toBe("· Auto-approved · Trust rule matched");
-    expect(getProvenanceText("sandbox_auto_approve")).toBe("· Auto-approved · Sandboxed workspace");
     expect(getProvenanceText("platform_auto_approve")).toBe("· Auto-approved · Platform session");
+  });
+
+  test("sandbox_auto_approve returns null (chip replaces provenance text)", () => {
+    expect(getProvenanceText("sandbox_auto_approve")).toBeNull();
   });
 
   test("returns null for expected-outcome reasons", () => {
@@ -79,5 +82,65 @@ describe("getProvenanceText", () => {
 
   test("returns null for undefined (backward compat)", () => {
     expect(getProvenanceText(undefined)).toBeNull();
+  });
+});
+
+describe("getRiskBadgeStyle", () => {
+  test("workspace returns slate/outlined styling", () => {
+    const style = getRiskBadgeStyle("workspace");
+    expect(style.bg).toBe("bg-[var(--surface-lift)]");
+    expect(style.text).toBe("text-[var(--content-secondary)]");
+    expect(style.border).toBe("border border-[var(--border-element)]");
+    expect(style.label).toBe("Workspace");
+  });
+
+  test("existing risk levels do not have a border field", () => {
+    expect(getRiskBadgeStyle("low").border).toBeUndefined();
+    expect(getRiskBadgeStyle("medium").border).toBeUndefined();
+    expect(getRiskBadgeStyle("high").border).toBeUndefined();
+  });
+});
+
+describe("getEffectiveRiskDisplay", () => {
+  test("sandbox_auto_approve maps to workspace with inherent risk preserved", () => {
+    expect(getEffectiveRiskDisplay("sandbox_auto_approve", "high")).toEqual({
+      displayLevel: "workspace",
+      inherentRisk: "high",
+    });
+    expect(getEffectiveRiskDisplay("sandbox_auto_approve", "medium")).toEqual({
+      displayLevel: "workspace",
+      inherentRisk: "medium",
+    });
+    expect(getEffectiveRiskDisplay("sandbox_auto_approve", "low")).toEqual({
+      displayLevel: "workspace",
+      inherentRisk: "low",
+    });
+  });
+
+  test("non-sandbox reasons pass through the risk level", () => {
+    expect(getEffectiveRiskDisplay("trust_rule_allowed", "high")).toEqual({
+      displayLevel: "high",
+    });
+    expect(getEffectiveRiskDisplay("trust_rule_allowed", "medium")).toEqual({
+      displayLevel: "medium",
+    });
+    expect(getEffectiveRiskDisplay("platform_auto_approve", "high")).toEqual({
+      displayLevel: "high",
+    });
+  });
+
+  test("undefined approvalReason passes through the risk level", () => {
+    expect(getEffectiveRiskDisplay(undefined, "low")).toEqual({
+      displayLevel: "low",
+    });
+    expect(getEffectiveRiskDisplay(undefined, "medium")).toEqual({
+      displayLevel: "medium",
+    });
+  });
+
+  test("undefined riskLevel defaults to unknown", () => {
+    expect(getEffectiveRiskDisplay(undefined, undefined)).toEqual({
+      displayLevel: "unknown",
+    });
   });
 });

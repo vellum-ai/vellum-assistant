@@ -12,6 +12,7 @@ import {
 } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { fetchLatestHistoryPage } from "@/domains/chat/api/history";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
   type DisplayMessage,
   reconcileDisplayMessagesWithLatestHistory,
@@ -25,7 +26,6 @@ export type RefreshLatestOutcome =
 
 interface UseRefreshLatestMessagesArgs {
   assistantId: string | null;
-  activeConversationIdRef: MutableRefObject<string | null>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
@@ -136,7 +136,6 @@ function refreshSurfacesForFetchedMessages({
  */
 export function useRefreshLatestMessages({
   assistantId,
-  activeConversationIdRef,
   messagesRef,
   setMessages,
   dismissedSurfaceIdsRef,
@@ -144,13 +143,13 @@ export function useRefreshLatestMessages({
   const refreshTokenRef = useRef(0);
   return useCallback(async (): Promise<RefreshLatestOutcome> => {
     if (!assistantId) return { kind: "no-change" };
-    const conversationId = activeConversationIdRef.current;
+    const conversationId = useConversationStore.getState().activeConversationId;
     if (!conversationId) return { kind: "no-change" };
 
     const myToken = ++refreshTokenRef.current;
     const isStale = (): boolean =>
       refreshTokenRef.current !== myToken ||
-      activeConversationIdRef.current !== conversationId;
+      useConversationStore.getState().activeConversationId !== conversationId;
 
     let fetched;
     try {
@@ -200,7 +199,6 @@ export function useRefreshLatestMessages({
     return outcome;
   }, [
     assistantId,
-    activeConversationIdRef,
     messagesRef,
     setMessages,
     dismissedSurfaceIdsRef,

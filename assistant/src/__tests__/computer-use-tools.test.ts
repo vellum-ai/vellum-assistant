@@ -40,12 +40,6 @@ describe("computer-use tool definitions", () => {
     expect(allComputerUseTools.length).toBe(11);
   });
 
-  test("all tools have proxy execution mode", () => {
-    for (const tool of allComputerUseTools) {
-      expect(tool.executionMode).toBe("proxy");
-    }
-  });
-
   test("all tools belong to computer-use category", () => {
     for (const tool of allComputerUseTools) {
       expect(tool.category).toBe("computer-use");
@@ -94,8 +88,10 @@ describe("computer_use_click (unified)", () => {
     expect(props.y.type).toBe("integer");
   });
 
-  test("execute throws proxy error", () => {
-    expect(() => computerUseClickTool.execute({}, ctx)).toThrow("Proxy tool");
+  test("execute returns isError when no proxy resolver is configured", async () => {
+    const result = await computerUseClickTool.execute({}, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/No proxy resolver/);
   });
 });
 
@@ -107,10 +103,10 @@ describe("computer_use_type_text", () => {
     expect(schema(computerUseTypeTextTool).required).toContain("reasoning");
   });
 
-  test("execute throws proxy error", () => {
-    expect(() => computerUseTypeTextTool.execute({}, ctx)).toThrow(
-      "Proxy tool",
-    );
+  test("execute returns isError when no proxy resolver is configured", async () => {
+    const result = await computerUseTypeTextTool.execute({}, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/No proxy resolver/);
   });
 });
 
@@ -122,8 +118,10 @@ describe("computer_use_key", () => {
     expect(schema(computerUseKeyTool).required).toContain("reasoning");
   });
 
-  test("execute throws proxy error", () => {
-    expect(() => computerUseKeyTool.execute({}, ctx)).toThrow("Proxy tool");
+  test("execute returns isError when no proxy resolver is configured", async () => {
+    const result = await computerUseKeyTool.execute({}, ctx);
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/No proxy resolver/);
   });
 });
 

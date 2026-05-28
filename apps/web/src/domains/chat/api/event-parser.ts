@@ -18,7 +18,6 @@ import type {
   AssistantActivityReason,
   AssistantActivityStateEvent,
   AssistantEvent,
-  AssistantOutboundAttachment,
   ConversationListInvalidatedReason,
   DirectoryScopeOption,
   InteractionKind,
@@ -29,6 +28,7 @@ import type {
   SubagentStatus,
   UISurfaceShowEvent,
 } from "@/domains/chat/api/event-types";
+import type { AssistantOutboundAttachment } from "@vellumai/assistant-api";
 import { AssistantEventSchema } from "@vellumai/assistant-api";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
@@ -45,9 +45,7 @@ import type { SyncInvalidationTag } from "@/lib/sync/types";
  * envelope conversationId get it via `mergeEnvelopeConversationId`
  * along the fallback path.
  */
-function unwrapEnvelope(
-  data: Record<string, unknown>,
-): {
+function unwrapEnvelope(data: Record<string, unknown>): {
   inner: Record<string, unknown>;
   envelopeConversationId: string | undefined;
 } {
@@ -79,10 +77,7 @@ function mergeEnvelopeConversationId(
   inner: Record<string, unknown>,
   envelopeConversationId: string | undefined,
 ): Record<string, unknown> {
-  if (
-    envelopeConversationId &&
-    typeof inner.conversationId !== "string"
-  ) {
+  if (envelopeConversationId && typeof inner.conversationId !== "string") {
     return { ...inner, conversationId: envelopeConversationId };
   }
   return inner;
@@ -107,24 +102,6 @@ function unknownEvent(
 }
 
 /**
- * Extract the common {conversationId, surfaceId, commentId} triple from a
- * document comment SSE payload, returning `null` when any required field is
- * missing so the caller can fall through to `UnknownEvent`.
- */
-function parseDocumentCommentBase(
-  data: Record<string, unknown>,
-): { conversationId: string; surfaceId: string; commentId: string } | null {
-  const conversationId =
-    typeof data.conversationId === "string" ? data.conversationId : "";
-  const surfaceId =
-    typeof data.surfaceId === "string" ? data.surfaceId : "";
-  const commentId =
-    typeof data.commentId === "string" ? data.commentId : "";
-  if (!conversationId || !surfaceId || !commentId) return null;
-  return { conversationId, surfaceId, commentId };
-}
-
-/**
  * Parse a raw SSE payload into a typed `AssistantEvent`. Owns envelope
  * unwrap, canonical-schema dispatch, legacy-event coercion, and
  * envelope-conversationId stamping. Tolerant of unknown event types —
@@ -140,9 +117,10 @@ export function parseAssistantEvent(
   // `@vellumai/assistant-api` is the source of truth for any event
   // type it covers — when a member matches the `type` discriminator
   // and the shape validates, the parser is done. The schema sees the
-  // pure inner message (no envelope merge) so strict shapes stay
-  // strict: the envelope-level conversationId is a routing key, not
-  // an event field, and never leaks onto strict-schema events.
+  // pure inner message (no envelope merge): every wire-contract
+  // schema declares the fields it requires (including
+  // `conversationId` for conversation-scoped events), so the
+  // envelope-level routing key never needs to be grafted on.
   const schemaResult = AssistantEventSchema.safeParse(inner);
   if (schemaResult.success) return schemaResult.data as AssistantEvent;
 
@@ -159,53 +137,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
   const rawType = typeof data.type === "string" ? data.type : "";
 
   switch (rawType) {
-    case "assistant_text_delta":
-      return {
-        type: "assistant_text_delta",
-        text: typeof data.text === "string" ? data.text : "",
-        messageId:
-          typeof data.messageId === "string" ? data.messageId : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "message_complete":
-      return {
-        type: "message_complete",
-        messageId:
-          typeof data.messageId === "string" ? data.messageId : undefined,
-        content:
-          typeof data.content === "string" ? data.content : undefined,
-        attachments: parseOutboundAttachments(data.attachments),
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "generation_handoff":
-      return {
-        type: "generation_handoff",
-        messageId:
-          typeof data.messageId === "string" ? data.messageId : undefined,
-        attachments: parseOutboundAttachments(data.attachments),
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "generation_cancelled":
-      return {
-        type: "generation_cancelled",
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
     case "sync_changed": {
       const tags = data.tags;
       if (
@@ -279,22 +210,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       };
     }
 
-    case "open_url": {
-      const url = typeof data.url === "string" ? data.url : "";
-      if (!url) {
-        return unknownEvent(rawType, data);
-      }
-      return {
-        type: "open_url",
-        url,
-        title: typeof data.title === "string" ? data.title : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-    }
-
     case "navigate_settings": {
       const tab = typeof data.tab === "string" ? data.tab : "";
       if (!tab) {
@@ -318,9 +233,7 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
           ? { errorCategory: data.errorCategory }
           : {}),
         message:
-          typeof data.message === "string"
-            ? data.message
-            : "Unknown error",
+          typeof data.message === "string" ? data.message : "Unknown error",
         conversationId:
           typeof data.conversationId === "string"
             ? data.conversationId
@@ -334,11 +247,20 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
         service: typeof data.service === "string" ? data.service : undefined,
         field: typeof data.field === "string" ? data.field : undefined,
         label: typeof data.label === "string" ? data.label : undefined,
-        description: typeof data.description === "string" ? data.description : undefined,
-        placeholder: typeof data.placeholder === "string" ? data.placeholder : undefined,
-        allowOneTimeSend: typeof data.allowOneTimeSend === "boolean" ? data.allowOneTimeSend : undefined,
-        allowedTools: Array.isArray(data.allowedTools) ? data.allowedTools as string[] : undefined,
-        allowedDomains: Array.isArray(data.allowedDomains) ? data.allowedDomains as string[] : undefined,
+        description:
+          typeof data.description === "string" ? data.description : undefined,
+        placeholder:
+          typeof data.placeholder === "string" ? data.placeholder : undefined,
+        allowOneTimeSend:
+          typeof data.allowOneTimeSend === "boolean"
+            ? data.allowOneTimeSend
+            : undefined,
+        allowedTools: Array.isArray(data.allowedTools)
+          ? (data.allowedTools as string[])
+          : undefined,
+        allowedDomains: Array.isArray(data.allowedDomains)
+          ? (data.allowedDomains as string[])
+          : undefined,
         purpose: typeof data.purpose === "string" ? data.purpose : undefined,
         conversationId:
           typeof data.conversationId === "string"
@@ -351,17 +273,25 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
         type: "confirmation_request",
         requestId: typeof data.requestId === "string" ? data.requestId : "",
         title: typeof data.title === "string" ? data.title : undefined,
-        description: typeof data.description === "string" ? data.description : undefined,
-        confirmLabel: typeof data.confirmLabel === "string" ? data.confirmLabel : undefined,
-        denyLabel: typeof data.denyLabel === "string" ? data.denyLabel : undefined,
+        description:
+          typeof data.description === "string" ? data.description : undefined,
+        confirmLabel:
+          typeof data.confirmLabel === "string" ? data.confirmLabel : undefined,
+        denyLabel:
+          typeof data.denyLabel === "string" ? data.denyLabel : undefined,
         conversationId:
           typeof data.conversationId === "string"
             ? data.conversationId
             : undefined,
         toolName: typeof data.toolName === "string" ? data.toolName : undefined,
-        executionTarget: typeof data.executionTarget === "string" ? data.executionTarget : undefined,
-        riskLevel: typeof data.riskLevel === "string" ? data.riskLevel : undefined,
-        riskReason: typeof data.riskReason === "string" ? data.riskReason : undefined,
+        executionTarget:
+          typeof data.executionTarget === "string"
+            ? data.executionTarget
+            : undefined,
+        riskLevel:
+          typeof data.riskLevel === "string" ? data.riskLevel : undefined,
+        riskReason:
+          typeof data.riskReason === "string" ? data.riskReason : undefined,
         allowlistOptions: Array.isArray(data.allowlistOptions)
           ? (data.allowlistOptions as AllowlistOption[])
           : undefined,
@@ -371,13 +301,18 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
         directoryScopeOptions: Array.isArray(data.directoryScopeOptions)
           ? (data.directoryScopeOptions as DirectoryScopeOption[])
           : undefined,
-        persistentDecisionsAllowed: typeof data.persistentDecisionsAllowed === "boolean"
-          ? data.persistentDecisionsAllowed
-          : undefined,
-        input: typeof data.input === "object" && data.input !== null && !Array.isArray(data.input)
-          ? (data.input as Record<string, unknown>)
-          : undefined,
-        toolUseId: typeof data.toolUseId === "string" ? data.toolUseId : undefined,
+        persistentDecisionsAllowed:
+          typeof data.persistentDecisionsAllowed === "boolean"
+            ? data.persistentDecisionsAllowed
+            : undefined,
+        input:
+          typeof data.input === "object" &&
+          data.input !== null &&
+          !Array.isArray(data.input)
+            ? (data.input as Record<string, unknown>)
+            : undefined,
+        toolUseId:
+          typeof data.toolUseId === "string" ? data.toolUseId : undefined,
       };
 
     case "contact_request":
@@ -385,9 +320,11 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
         type: "contact_request",
         requestId: typeof data.requestId === "string" ? data.requestId : "",
         channel: typeof data.channel === "string" ? data.channel : undefined,
-        placeholder: typeof data.placeholder === "string" ? data.placeholder : undefined,
+        placeholder:
+          typeof data.placeholder === "string" ? data.placeholder : undefined,
         label: typeof data.label === "string" ? data.label : undefined,
-        description: typeof data.description === "string" ? data.description : undefined,
+        description:
+          typeof data.description === "string" ? data.description : undefined,
         role: typeof data.role === "string" ? data.role : undefined,
         conversationId:
           typeof data.conversationId === "string"
@@ -414,8 +351,7 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
         type: "question_request",
         requestId,
         questions,
-        question:
-          typeof data.question === "string" ? data.question : undefined,
+        question: typeof data.question === "string" ? data.question : undefined,
         description:
           typeof data.description === "string" ? data.description : undefined,
         options,
@@ -436,18 +372,22 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       return {
         type: "ui_surface_show",
         surfaceId: typeof data.surfaceId === "string" ? data.surfaceId : "",
-        surfaceType: typeof data.surfaceType === "string" ? data.surfaceType : "card",
+        surfaceType:
+          typeof data.surfaceType === "string" ? data.surfaceType : "card",
         title: typeof data.title === "string" ? data.title : undefined,
-        data: typeof data.data === "object" && data.data !== null
-          ? (data.data as Record<string, unknown>)
-          : {},
+        data:
+          typeof data.data === "object" && data.data !== null
+            ? (data.data as Record<string, unknown>)
+            : {},
         actions: Array.isArray(data.actions)
           ? (data.actions as UISurfaceShowEvent["actions"])
           : undefined,
-        display: data.display === "inline" || data.display === "panel"
-          ? data.display
-          : undefined,
-        messageId: typeof data.messageId === "string" ? data.messageId : undefined,
+        display:
+          data.display === "inline" || data.display === "panel"
+            ? data.display
+            : undefined,
+        messageId:
+          typeof data.messageId === "string" ? data.messageId : undefined,
         conversationId:
           typeof data.conversationId === "string"
             ? data.conversationId
@@ -458,9 +398,10 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       return {
         type: "ui_surface_update",
         surfaceId: typeof data.surfaceId === "string" ? data.surfaceId : "",
-        data: typeof data.data === "object" && data.data !== null
-          ? (data.data as Record<string, unknown>)
-          : {},
+        data:
+          typeof data.data === "object" && data.data !== null
+            ? (data.data as Record<string, unknown>)
+            : {},
         conversationId:
           typeof data.conversationId === "string"
             ? data.conversationId
@@ -482,9 +423,10 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
         type: "ui_surface_complete",
         surfaceId: typeof data.surfaceId === "string" ? data.surfaceId : "",
         summary: typeof data.summary === "string" ? data.summary : "",
-        submittedData: typeof data.submittedData === "object" && data.submittedData !== null
-          ? (data.submittedData as Record<string, unknown>)
-          : undefined,
+        submittedData:
+          typeof data.submittedData === "object" && data.submittedData !== null
+            ? (data.submittedData as Record<string, unknown>)
+            : undefined,
         conversationId:
           typeof data.conversationId === "string"
             ? data.conversationId
@@ -495,10 +437,12 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       return {
         type: "tool_use_start",
         toolName: typeof data.toolName === "string" ? data.toolName : "unknown",
-        input: typeof data.input === "object" && data.input !== null
-          ? (data.input as Record<string, unknown>)
-          : {},
-        toolUseId: typeof data.toolUseId === "string" ? data.toolUseId : undefined,
+        input:
+          typeof data.input === "object" && data.input !== null
+            ? (data.input as Record<string, unknown>)
+            : {},
+        toolUseId:
+          typeof data.toolUseId === "string" ? data.toolUseId : undefined,
         messageId:
           typeof data.messageId === "string" ? data.messageId : undefined,
         conversationId:
@@ -513,16 +457,32 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
         toolName: typeof data.toolName === "string" ? data.toolName : "unknown",
         result: typeof data.result === "string" ? data.result : "",
         isError: typeof data.isError === "boolean" ? data.isError : undefined,
-        toolUseId: typeof data.toolUseId === "string" ? data.toolUseId : undefined,
+        toolUseId:
+          typeof data.toolUseId === "string" ? data.toolUseId : undefined,
         messageId:
           typeof data.messageId === "string" ? data.messageId : undefined,
-        conversationId: typeof data.conversationId === "string" ? data.conversationId : undefined,
-        riskLevel: typeof data.riskLevel === "string" ? data.riskLevel : undefined,
-        riskReason: typeof data.riskReason === "string" ? data.riskReason : undefined,
-        matchedTrustRuleId: typeof data.matchedTrustRuleId === "string" ? data.matchedTrustRuleId : undefined,
-        approvalMode: typeof data.approvalMode === "string" ? data.approvalMode : undefined,
-        approvalReason: typeof data.approvalReason === "string" ? data.approvalReason : undefined,
-        riskThreshold: typeof data.riskThreshold === "string" ? data.riskThreshold : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
+        riskLevel:
+          typeof data.riskLevel === "string" ? data.riskLevel : undefined,
+        riskReason:
+          typeof data.riskReason === "string" ? data.riskReason : undefined,
+        matchedTrustRuleId:
+          typeof data.matchedTrustRuleId === "string"
+            ? data.matchedTrustRuleId
+            : undefined,
+        approvalMode:
+          typeof data.approvalMode === "string" ? data.approvalMode : undefined,
+        approvalReason:
+          typeof data.approvalReason === "string"
+            ? data.approvalReason
+            : undefined,
+        riskThreshold:
+          typeof data.riskThreshold === "string"
+            ? data.riskThreshold
+            : undefined,
         // The daemon emits two semantically distinct arrays on tool_result:
         //   - `riskAllowlistOptions`  → Minimatch-glob save-path patterns (the
         //     ones that get persisted as a trust rule's `pattern`). This is
@@ -552,16 +512,21 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       };
 
     case "tool_progress": {
-      const toolName = typeof data.toolName === "string" ? data.toolName : "unknown";
-      const elapsedSec = typeof data.elapsedSec === "number" ? data.elapsedSec : 0;
-      const timeoutSec = typeof data.timeoutSec === "number" ? data.timeoutSec : 0;
+      const toolName =
+        typeof data.toolName === "string" ? data.toolName : "unknown";
+      const elapsedSec =
+        typeof data.elapsedSec === "number" ? data.elapsedSec : 0;
+      const timeoutSec =
+        typeof data.timeoutSec === "number" ? data.timeoutSec : 0;
       return {
         type: "tool_progress",
         toolName,
         elapsedSec,
         timeoutSec,
         conversationId:
-          typeof data.conversationId === "string" ? data.conversationId : undefined,
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
         toolUseId:
           typeof data.toolUseId === "string" ? data.toolUseId : undefined,
       };
@@ -648,34 +613,48 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       return { type: "avatar_updated" };
 
     case "turn_profile_auto_routed": {
-      const conversationId = typeof data.conversationId === "string" ? data.conversationId : "";
+      const conversationId =
+        typeof data.conversationId === "string" ? data.conversationId : "";
       const profile = typeof data.profile === "string" ? data.profile : "";
-      const profileLabel = typeof data.profileLabel === "string" ? data.profileLabel : "";
+      const profileLabel =
+        typeof data.profileLabel === "string" ? data.profileLabel : "";
       if (!profileLabel) return unknownEvent(rawType, data);
       return {
         type: "turn_profile_auto_routed",
         conversationId,
         profile,
         profileLabel,
-        conversationKey: typeof data.conversationKey === "string" ? data.conversationKey : undefined,
+        conversationKey:
+          typeof data.conversationKey === "string"
+            ? data.conversationKey
+            : undefined,
       };
     }
 
     case "conversation_error":
       return {
         type: "conversation_error",
-        conversationId: typeof data.conversationId === "string" ? data.conversationId : "",
+        conversationId:
+          typeof data.conversationId === "string" ? data.conversationId : "",
         code: typeof data.code === "string" ? data.code : "UNKNOWN",
-        userMessage: typeof data.userMessage === "string" ? data.userMessage : "Something went wrong.",
+        userMessage:
+          typeof data.userMessage === "string"
+            ? data.userMessage
+            : "Something went wrong.",
         retryable: typeof data.retryable === "boolean" ? data.retryable : false,
-        debugDetails: typeof data.debugDetails === "string" ? data.debugDetails : undefined,
-        errorCategory: typeof data.errorCategory === "string" ? data.errorCategory : undefined,
+        debugDetails:
+          typeof data.debugDetails === "string" ? data.debugDetails : undefined,
+        errorCategory:
+          typeof data.errorCategory === "string"
+            ? data.errorCategory
+            : undefined,
       };
 
     case "compaction_circuit_open":
       return {
         type: "compaction_circuit_open",
-        conversationId: typeof data.conversationId === "string" ? data.conversationId : "",
+        conversationId:
+          typeof data.conversationId === "string" ? data.conversationId : "",
         reason: typeof data.reason === "string" ? data.reason : "",
         openUntil: typeof data.openUntil === "number" ? data.openUntil : 0,
       };
@@ -683,7 +662,8 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
     case "compaction_circuit_closed":
       return {
         type: "compaction_circuit_closed",
-        conversationId: typeof data.conversationId === "string" ? data.conversationId : "",
+        conversationId:
+          typeof data.conversationId === "string" ? data.conversationId : "",
       };
 
     case "disk_pressure_status_changed":
@@ -694,7 +674,10 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
             ? data.status
             : data,
         ),
-        conversationId: typeof data.conversationId === "string" ? data.conversationId : undefined,
+        conversationId:
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
       };
 
     case "message_queued":
@@ -732,7 +715,10 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       return {
         type: "message_request_complete",
         requestId: typeof data.requestId === "string" ? data.requestId : "",
-        runStillActive: typeof data.runStillActive === "boolean" ? data.runStillActive : undefined,
+        runStillActive:
+          typeof data.runStillActive === "boolean"
+            ? data.runStillActive
+            : undefined,
         conversationId:
           typeof data.conversationId === "string"
             ? data.conversationId
@@ -743,11 +729,13 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       return {
         type: "home_feed_updated",
         updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : "",
-        newItemCount: typeof data.newItemCount === "number" ? data.newItemCount : 0,
+        newItemCount:
+          typeof data.newItemCount === "number" ? data.newItemCount : 0,
       };
 
     case "subagent_spawned": {
-      const subagentId = typeof data.subagentId === "string" ? data.subagentId : "";
+      const subagentId =
+        typeof data.subagentId === "string" ? data.subagentId : "";
       const label = typeof data.label === "string" ? data.label : "";
       if (!subagentId || !label) {
         return unknownEvent(rawType, data);
@@ -756,10 +744,16 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
         type: "subagent_spawned",
         subagentId,
         parentConversationId:
-          typeof data.parentConversationId === "string" ? data.parentConversationId : undefined,
+          typeof data.parentConversationId === "string"
+            ? data.parentConversationId
+            : undefined,
         label,
         objective: typeof data.objective === "string" ? data.objective : "",
         isFork: typeof data.isFork === "boolean" ? data.isFork : undefined,
+        parentToolUseId:
+          typeof data.parentToolUseId === "string"
+            ? data.parentToolUseId
+            : undefined,
         conversationId:
           typeof data.conversationId === "string"
             ? data.conversationId
@@ -768,22 +762,35 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
     }
 
     case "subagent_status_changed": {
-      const subagentId = typeof data.subagentId === "string" ? data.subagentId : "";
+      const subagentId =
+        typeof data.subagentId === "string" ? data.subagentId : "";
       const status = typeof data.status === "string" ? data.status : "";
       if (!subagentId || !status) {
         return unknownEvent(rawType, data);
       }
-      const usage = data.usage && typeof data.usage === "object" && !Array.isArray(data.usage)
-        ? (data.usage as Record<string, unknown>)
-        : null;
+      const usage =
+        data.usage &&
+        typeof data.usage === "object" &&
+        !Array.isArray(data.usage)
+          ? (data.usage as Record<string, unknown>)
+          : null;
       return {
         type: "subagent_status_changed",
         subagentId,
         status: status as SubagentStatus,
         error: typeof data.error === "string" ? data.error : undefined,
-        inputTokens: typeof usage?.inputTokens === "number" ? usage.inputTokens : undefined,
-        outputTokens: typeof usage?.outputTokens === "number" ? usage.outputTokens : undefined,
-        totalCost: typeof usage?.estimatedCost === "number" ? usage.estimatedCost : undefined,
+        inputTokens:
+          typeof usage?.inputTokens === "number"
+            ? usage.inputTokens
+            : undefined,
+        outputTokens:
+          typeof usage?.outputTokens === "number"
+            ? usage.outputTokens
+            : undefined,
+        totalCost:
+          typeof usage?.estimatedCost === "number"
+            ? usage.estimatedCost
+            : undefined,
         conversationId:
           typeof data.conversationId === "string"
             ? data.conversationId
@@ -792,80 +799,26 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
     }
 
     case "subagent_event": {
-      const subagentId = typeof data.subagentId === "string" ? data.subagentId : "";
+      const subagentId =
+        typeof data.subagentId === "string" ? data.subagentId : "";
       const event = data.event;
-      if (!subagentId || !event || typeof event !== "object" || Array.isArray(event)) {
+      if (
+        !subagentId ||
+        !event ||
+        typeof event !== "object" ||
+        Array.isArray(event)
+      ) {
         return unknownEvent(rawType, data);
       }
       return {
         type: "subagent_event",
         subagentId,
         conversationId:
-          typeof data.conversationId === "string" ? data.conversationId : undefined,
+          typeof data.conversationId === "string"
+            ? data.conversationId
+            : undefined,
         event: event as SubagentInnerEvent,
       };
-    }
-
-    // ---- Document comment events ----
-
-    case "document_comment_created": {
-      const conversationId =
-        typeof data.conversationId === "string" ? data.conversationId : "";
-      const surfaceId =
-        typeof data.surfaceId === "string" ? data.surfaceId : "";
-      const comment = data.comment;
-      if (
-        !conversationId ||
-        !surfaceId ||
-        !comment ||
-        typeof comment !== "object" ||
-        Array.isArray(comment)
-      ) {
-        return unknownEvent(rawType, data);
-      }
-      const c = comment as Record<string, unknown>;
-      return {
-        type: "document_comment_created",
-        conversationId,
-        surfaceId,
-        comment: {
-          id: typeof c.id === "string" ? c.id : "",
-          surfaceId: typeof c.surfaceId === "string" ? c.surfaceId : surfaceId,
-          author: typeof c.author === "string" ? c.author : "user",
-          content: typeof c.content === "string" ? c.content : "",
-          anchorStart:
-            typeof c.anchorStart === "number" ? c.anchorStart : undefined,
-          anchorEnd:
-            typeof c.anchorEnd === "number" ? c.anchorEnd : undefined,
-          anchorText:
-            typeof c.anchorText === "string" ? c.anchorText : undefined,
-          parentCommentId:
-            typeof c.parentCommentId === "string"
-              ? c.parentCommentId
-              : undefined,
-          status: typeof c.status === "string" ? c.status : "open",
-          createdAt: typeof c.createdAt === "number" ? c.createdAt : 0,
-          updatedAt: typeof c.updatedAt === "number" ? c.updatedAt : 0,
-        },
-      };
-    }
-
-    case "document_comment_resolved":
-    case "document_comment_reopened":
-    case "document_comment_deleted": {
-      const base = parseDocumentCommentBase(data);
-      if (!base) {
-        return unknownEvent(rawType, data);
-      }
-      if (rawType === "document_comment_resolved") {
-        return {
-          type: "document_comment_resolved",
-          ...base,
-          resolvedBy:
-            typeof data.resolvedBy === "string" ? data.resolvedBy : "",
-        };
-      }
-      return { type: rawType as "document_comment_reopened" | "document_comment_deleted", ...base };
     }
 
     case "interaction_resolved": {
@@ -902,8 +855,7 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
     case "document_editor_update": {
       const surfaceId =
         typeof data.surfaceId === "string" ? data.surfaceId : "";
-      const markdown =
-        typeof data.markdown === "string" ? data.markdown : "";
+      const markdown = typeof data.markdown === "string" ? data.markdown : "";
       const mode = typeof data.mode === "string" ? data.mode : "replace";
       const conversationId =
         typeof data.conversationId === "string"
@@ -978,44 +930,6 @@ function parseDiskPressureStatus(raw: unknown): DiskPressureStatus | null {
 }
 
 /**
- * Parse an optional `attachments` payload from an SSE event into a typed array.
- * Returns `undefined` when no valid attachments are present.
- */
-function parseOutboundAttachments(
-  raw: unknown,
-): AssistantOutboundAttachment[] | undefined {
-  if (!Array.isArray(raw) || raw.length === 0) return undefined;
-  const result: AssistantOutboundAttachment[] = [];
-  for (const item of raw) {
-    if (
-      item &&
-      typeof item === "object" &&
-      typeof (item as Record<string, unknown>).filename === "string" &&
-      typeof (item as Record<string, unknown>).mimeType === "string"
-    ) {
-      const a = item as Record<string, unknown>;
-      result.push({
-        id: typeof a.id === "string" ? a.id : undefined,
-        filename: a.filename as string,
-        mimeType: a.mimeType as string,
-        data: typeof a.data === "string" ? a.data : "",
-        sourceType:
-          a.sourceType === "sandbox_file" ||
-          a.sourceType === "host_file" ||
-          a.sourceType === "tool_block"
-            ? a.sourceType
-            : undefined,
-        sizeBytes: typeof a.sizeBytes === "number" ? a.sizeBytes : undefined,
-        thumbnailData:
-          typeof a.thumbnailData === "string" ? a.thumbnailData : undefined,
-        fileBacked: typeof a.fileBacked === "boolean" ? a.fileBacked : undefined,
-      });
-    }
-  }
-  return result.length > 0 ? result : undefined;
-}
-
-/**
  * Convert backend `AssistantOutboundAttachment` objects into `DisplayAttachment`
  * objects suitable for rendering in chat message bubbles. When inline base64
  * data is available, a data-URI `previewUrl` is created for all MIME types so
@@ -1040,7 +954,8 @@ export function toDisplayAttachments(
       id: att.id ?? att.filename,
       filename: att.filename,
       mimeType: att.mimeType,
-      sizeBytes: att.sizeBytes ?? (att.data ? Math.floor((att.data.length * 3) / 4) : 0),
+      sizeBytes:
+        att.sizeBytes ?? (att.data ? Math.floor((att.data.length * 3) / 4) : 0),
       previewUrl,
     };
   });

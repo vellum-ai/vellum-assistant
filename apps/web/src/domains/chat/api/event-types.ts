@@ -6,11 +6,7 @@
  * consumed by event-parser.ts and the stream handler domain modules.
  */
 
-import type {
-  AssistantTurnStartEvent,
-  RelationshipStateUpdatedEvent,
-  ToolUseStartEvent,
-} from "@vellumai/assistant-api";
+import type { AssistantEvent as APIAssistantEvent } from "@vellumai/assistant-api";
 import type { DiskPressureStatus } from "@/assistant/types";
 import type { Surface } from "@/domains/chat/types/types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
@@ -33,13 +29,6 @@ import type {
   SubagentInnerEvent,
   SubagentStatus,
 } from "@/types/interaction-ui-types";
-
-// Re-export canonical event types under the web side's existing names so
-// downstream importers continue working unchanged. The canonical schema in
-// `@vellumai/assistant-api` is the source of truth; the inline declarations
-// here that haven't been migrated yet are gradually getting replaced with
-// imports of this shape.
-export type { AssistantTurnStartEvent, ToolUseStartEvent };
 
 /** Data needed to render an inline permission prompt inside a ToolCallChip. */
 export interface PendingToolConfirmation {
@@ -107,7 +96,11 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   surfaces?: Surface[];
-  textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
+  textSegments?: Array<{
+    type: string;
+    content: string;
+    [key: string]: unknown;
+  }>;
   contentOrder?: Array<{ type: string; id: string }>;
   metadata?: Record<string, unknown>;
   toolCalls?: ChatMessageToolCall[];
@@ -118,41 +111,6 @@ export interface ChatMessage {
 // ---------------------------------------------------------------------------
 // Runtime event types
 // ---------------------------------------------------------------------------
-
-export interface AssistantTextDeltaEvent {
-  type: "assistant_text_delta";
-  text: string;
-  messageId?: string;
-  conversationId?: string;
-}
-
-/** An attachment emitted by the assistant alongside a completed message. */
-export interface AssistantOutboundAttachment {
-  id?: string;
-  filename: string;
-  mimeType: string;
-  /** Base64-encoded file data. May be empty when `fileBacked` is true. */
-  data: string;
-  sourceType?: "sandbox_file" | "host_file" | "tool_block";
-  sizeBytes?: number;
-  thumbnailData?: string;
-  fileBacked?: boolean;
-}
-
-export interface MessageCompleteEvent {
-  type: "message_complete";
-  messageId?: string;
-  content?: string;
-  conversationId?: string;
-  attachments?: AssistantOutboundAttachment[];
-}
-
-export interface GenerationHandoffEvent {
-  type: "generation_handoff";
-  messageId?: string;
-  conversationId?: string;
-  attachments?: AssistantOutboundAttachment[];
-}
 
 export interface StreamErrorEvent {
   type: "error";
@@ -179,8 +137,6 @@ export interface SecretRequestEvent {
 
 /** Valid decisions accepted by the assistant runtime's POST /v1/confirm endpoint. */
 export type ConfirmationDecision = "allow" | "deny";
-
-
 
 export interface ConfirmationRequestEvent {
   type: "confirmation_request";
@@ -214,8 +170,6 @@ export interface ContactRequestEvent {
   role?: string;
   conversationId?: string;
 }
-
-
 
 export interface QuestionRequestEvent {
   type: "question_request";
@@ -280,7 +234,12 @@ export interface UISurfaceShowEvent {
   surfaceType: string;
   title?: string;
   data: Record<string, unknown>;
-  actions?: Array<{ id: string; label: string; style?: string; data?: Record<string, unknown> }>;
+  actions?: Array<{
+    id: string;
+    label: string;
+    style?: string;
+    data?: Record<string, unknown>;
+  }>;
   display?: "inline" | "panel";
   messageId?: string;
   conversationId?: string;
@@ -365,11 +324,6 @@ export interface UsageUpdateEvent {
   conversationId?: string;
 }
 
-export interface GenerationCancelledEvent {
-  type: "generation_cancelled";
-  conversationId?: string;
-}
-
 /**
  * Server-side assistant activity lifecycle for thinking-indicator placement
  * and turn-state recovery.
@@ -419,13 +373,6 @@ export interface AssistantActivityStateEvent {
   conversationId?: string;
 }
 
-export interface OpenUrlEvent {
-  type: "open_url";
-  url: string;
-  title?: string;
-  conversationId?: string;
-}
-
 export interface NavigateSettingsEvent {
   type: "navigate_settings";
   tab: string;
@@ -450,6 +397,13 @@ export interface SubagentSpawnedEvent {
   label: string;
   objective: string;
   isFork?: boolean;
+  /**
+   * Tool-use block ID of the spawning tool call in the parent conversation.
+   * Lets the client anchor the inline subagent card to its exact spawn tool
+   * call (survives optimistic→reconciled message id swaps). Optional — older
+   * daemons omit it.
+   */
+  parentToolUseId?: string;
   conversationId?: string;
 }
 
@@ -470,26 +424,6 @@ export interface SubagentEventWrapperEvent {
   event: SubagentInnerEvent;
   conversationId?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Document comment event types — extend the canonical shapes from PR 9
-// with the standard `conversationId` field for SSE stream routing.
-// ---------------------------------------------------------------------------
-
-import type {
-  DocumentCommentCreatedEvent,
-  DocumentCommentDeletedEvent,
-  DocumentCommentReopenedEvent,
-  DocumentCommentResolvedEvent,
-} from "@/domains/chat/api/document-comment-events";
-
-export type DocumentCommentCreatedSseEvent = DocumentCommentCreatedEvent;
-
-export type DocumentCommentResolvedSseEvent = DocumentCommentResolvedEvent;
-
-export type DocumentCommentReopenedSseEvent = DocumentCommentReopenedEvent;
-
-export type DocumentCommentDeletedSseEvent = DocumentCommentDeletedEvent;
 
 export interface DocumentEditorUpdateEvent {
   type: "document_editor_update";
@@ -718,11 +652,16 @@ export interface InteractionResolvedEvent {
   kind: InteractionKind;
 }
 
+/**
+ * Every event the chat SSE stream might emit. Schema-validated events
+ * are covered by `APIAssistantEvent` (the inferred union from
+ * `@vellumai/assistant-api`); each new schema added there appears here
+ * automatically. The members listed individually are events still on
+ * the hand-rolled legacy parser path — they peel off this union one by
+ * one as they migrate into the canonical schema.
+ */
 export type AssistantEvent =
-  | AssistantTurnStartEvent
-  | AssistantTextDeltaEvent
-  | MessageCompleteEvent
-  | GenerationHandoffEvent
+  | APIAssistantEvent
   | StreamErrorEvent
   | SecretRequestEvent
   | ConfirmationRequestEvent
@@ -732,16 +671,13 @@ export type AssistantEvent =
   | UISurfaceUpdateEvent
   | UISurfaceDismissEvent
   | UISurfaceCompleteEvent
-  | ToolUseStartEvent
   | ToolResultEvent
   | ToolProgressEvent
   | ConversationListInvalidatedEvent
   | ConversationTitleUpdatedEvent
   | NotificationIntentEvent
   | UsageUpdateEvent
-  | GenerationCancelledEvent
   | AssistantActivityStateEvent
-  | OpenUrlEvent
   | NavigateSettingsEvent
   | IdentityChangedEvent
   | AvatarUpdatedEvent
@@ -755,14 +691,9 @@ export type AssistantEvent =
   | MessageRequestCompleteEvent
   | AssistantSyncChangedEvent
   | HomeFeedUpdatedEvent
-  | RelationshipStateUpdatedEvent
   | SubagentSpawnedEvent
   | SubagentStatusChangedEvent
   | SubagentEventWrapperEvent
-  | DocumentCommentCreatedSseEvent
-  | DocumentCommentResolvedSseEvent
-  | DocumentCommentReopenedSseEvent
-  | DocumentCommentDeletedSseEvent
   | DocumentEditorUpdateEvent
   | TurnProfileAutoRoutedEvent
   | InteractionResolvedEvent

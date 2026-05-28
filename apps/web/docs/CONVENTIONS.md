@@ -61,6 +61,26 @@ Push hooks down to the route component that needs them. Lift shared
 state to the nearest common ancestor — typically a layout route or a
 context provider mounted in `<App />`.
 
+### Layout header slots
+
+`ChatLayout` owns a shared `ChatLayoutHeader` that renders on every
+child route (home, chat, library, identity, etc.). Child routes
+populate the header's center and right sections via
+`setTopBarCenter` / `setTopBarRightSlot` from `useAssistantContext()`.
+Register content in a `useEffect` and clear it on unmount:
+
+```ts
+const { setTopBarCenter } = useAssistantContext();
+useEffect(() => {
+  setTopBarCenter(<span>Page Title</span>);
+  return () => { setTopBarCenter(null); };
+}, [setTopBarCenter]);
+```
+
+Every child route under `ChatLayout` should register its title this
+way. Without it the header center is empty, which is especially
+noticeable on mobile where the sidebar is hidden.
+
 References:
 - [React — Thinking in React](https://react.dev/learn/thinking-in-react)
 - [React Router — Layout Routes](https://reactrouter.com/start/framework/routing#layout-routes)
@@ -96,8 +116,32 @@ When adding a new route, default to `lazy` unless it's on the primary
 landing path. Use `Component`, not `element` — they are mutually
 exclusive and `lazy` returns `Component`.
 
-The `RouterProvider.onError` handler in `main.tsx` catches chunk load
-failures (stale deploys, network errors) and triggers a page reload.
+Errors during route resolution (loader exceptions, lazy chunk fetch
+failures, render bugs) are caught by `RouteErrorBoundary`
+(`src/components/route-error-boundary.tsx`), mounted at every level of
+the route tree. It picks one of two UI variants based on the error
+shape:
+
+- **Lazy-chunk fetch failure** (stale deploy, network drop) — renders
+  an inline "this section couldn't load" message with a Reload
+  button. Mounted via pathless wrappers inside `/account`,
+  `/assistant`, and `ChatLayout` so the parent chrome (sidebar, etc.)
+  stays visible and the user can navigate elsewhere.
+- **Anything else** — renders the full-page "Something went wrong"
+  treatment.
+
+`isChunkLoadError(err)` in `src/lib/chunk-errors.ts` is the single
+predicate used by both the boundary and `LazyBoundary`
+(component-level lazy in `src/components/lazy-boundary.tsx`). For
+non-route lazy components (modals, inline lazy widgets) use
+`LazyBoundary` directly.
+
+`RouterProvider.onError` in `main.tsx` is the single Sentry capture
+point for router errors — it tags each event with
+`boundary: "lazy-route"` for chunk failures and
+`boundary: "route-render"` for everything else, so the two are
+sliceable in Sentry. Component-level `LazyBoundary` tags its captures
+analogously (`"lazy-component"` / `"component-render"`).
 
 References:
 - [React Router — Route Object (`Component`)](https://reactrouter.com/start/data/route-object#component)

@@ -80,13 +80,6 @@ export const ConnectionProviderSchema = z.enum(
 );
 
 // ---------------------------------------------------------------------------
-// Connection status
-// ---------------------------------------------------------------------------
-
-export const ConnectionStatusSchema = z.enum(["active", "disabled"]);
-export type ConnectionStatus = z.infer<typeof ConnectionStatusSchema>;
-
-// ---------------------------------------------------------------------------
 // Per-connection model entries (openai-compatible)
 // ---------------------------------------------------------------------------
 
@@ -104,7 +97,6 @@ export const ProviderConnectionSchema = z.object({
   name: z.string().min(1),
   provider: ConnectionProviderSchema,
   auth: AuthSchema,
-  status: ConnectionStatusSchema,
   label: z.string().min(1).nullable(),
   baseUrl: z.string().url().nullable(),
   models: z.array(ConnectionModelSchema).nullable(),

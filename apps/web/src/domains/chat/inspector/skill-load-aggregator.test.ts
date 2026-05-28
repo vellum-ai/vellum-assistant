@@ -9,7 +9,7 @@ import { describe, expect, test } from "bun:test";
 import type {
   LLMContextSection,
   LLMRequestLogEntry,
-} from "@/domains/chat/types/inspector-types";
+} from "@vellumai/assistant-api";
 
 import { aggregateSkillLoads } from "@/domains/chat/inspector/skill-load-aggregator";
 

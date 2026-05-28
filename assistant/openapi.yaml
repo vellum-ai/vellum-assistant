@@ -5156,6 +5156,27 @@ paths:
                   - nextOffset
                   - hasMore
                 additionalProperties: false
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Maximum number of conversations to return (default 50).
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Number of conversations to skip (default 0).
+        - name: conversationType
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - background
+          description: Filter by conversation type. Pass "background" to list only background/scheduled conversations.
     post:
       operationId: conversations_post
       summary: Create a conversation
@@ -5469,6 +5490,185 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      title:
+                        type: string
+                      createdAt:
+                        type: number
+                      updatedAt:
+                        type: number
+                      lastMessageAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      conversationType:
+                        type: string
+                        enum:
+                          - standard
+                          - background
+                          - scheduled
+                      source:
+                        type: string
+                      scheduleJobId:
+                        type: string
+                      channelBinding:
+                        type: object
+                        properties:
+                          sourceChannel:
+                            type: string
+                          externalChatId:
+                            type: string
+                          externalChatName:
+                            type: string
+                          externalThreadId:
+                            type: string
+                          externalUserId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          displayName:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          username:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          slackThread:
+                            type: object
+                            properties:
+                              channelId:
+                                type: string
+                              threadTs:
+                                type: string
+                              link:
+                                type: object
+                                properties:
+                                  appUrl:
+                                    type: string
+                                  webUrl:
+                                    type: string
+                                additionalProperties: false
+                            required:
+                              - channelId
+                              - threadTs
+                            additionalProperties: false
+                          slackChannel:
+                            type: object
+                            properties:
+                              channelId:
+                                type: string
+                              name:
+                                type: string
+                              link:
+                                type: object
+                                properties:
+                                  webUrl:
+                                    type: string
+                                required:
+                                  - webUrl
+                                additionalProperties: false
+                            required:
+                              - channelId
+                            additionalProperties: false
+                        required:
+                          - sourceChannel
+                          - externalChatId
+                          - externalUserId
+                          - displayName
+                          - username
+                        additionalProperties: false
+                      conversationOriginChannel:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - telegram
+                              - phone
+                              - vellum
+                              - whatsapp
+                              - slack
+                              - email
+                              - platform
+                              - a2a
+                          - type: "null"
+                      assistantAttention:
+                        type: object
+                        properties:
+                          hasUnseenLatestAssistantMessage:
+                            type: boolean
+                          latestAssistantMessageAt:
+                            type: number
+                          lastSeenAssistantMessageAt:
+                            type: number
+                          lastSeenConfidence:
+                            type: string
+                            enum:
+                              - explicit
+                              - inferred
+                          lastSeenSignalType:
+                            type: string
+                            enum:
+                              - macos_notification_view
+                              - macos_conversation_opened
+                              - ios_conversation_opened
+                              - telegram_inbound_message
+                              - telegram_callback
+                              - slack_inbound_message
+                              - slack_callback
+                        required:
+                          - hasUnseenLatestAssistantMessage
+                        additionalProperties: false
+                      isPinned:
+                        type: boolean
+                        const: true
+                      displayOrder:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      groupId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      forkParent:
+                        type: object
+                        properties:
+                          conversationId:
+                            type: string
+                          messageId:
+                            type: string
+                          title:
+                            type: string
+                        required:
+                          - conversationId
+                          - messageId
+                          - title
+                        additionalProperties: false
+                      archivedAt:
+                        type: number
+                      inferenceProfile:
+                        type: string
+                    required:
+                      - id
+                      - title
+                      - createdAt
+                      - updatedAt
+                      - lastMessageAt
+                      - conversationType
+                      - source
+                      - groupId
+                    additionalProperties: false
+                required:
+                  - conversation
+                additionalProperties: false
       parameters:
         - name: id
           in: path
@@ -10185,6 +10385,197 @@ paths:
           required: true
           schema:
             type: string
+  /v1/home/feed/query:
+    post:
+      operationId: home_feed_query_post
+      summary: List home feed items with filters
+      description:
+        Return home feed items filtered by status, urgency, category, conversation, and date range. Defaults to
+        excluding dismissed items. Used by the assistant CLI to inspect what notifications have been surfaced to the
+        user.
+      tags:
+        - home
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                          const: notification
+                        priority:
+                          type: integer
+                          minimum: 0
+                          maximum: 100
+                        title:
+                          type: string
+                        summary:
+                          type: string
+                        timestamp:
+                          type: string
+                        status:
+                          default: new
+                          type: string
+                          enum:
+                            - new
+                            - seen
+                            - acted_on
+                            - dismissed
+                        expiresAt:
+                          type: string
+                        actions:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              label:
+                                type: string
+                              prompt:
+                                type: string
+                            required:
+                              - id
+                              - label
+                              - prompt
+                            additionalProperties: false
+                        urgency:
+                          type: string
+                          enum:
+                            - low
+                            - medium
+                            - high
+                            - critical
+                        conversationId:
+                          type: string
+                        detailPanel:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                              enum:
+                                - emailDraft
+                                - documentPreview
+                                - permissionChat
+                                - paymentAuth
+                                - toolPermission
+                                - updatesList
+                          required:
+                            - kind
+                          additionalProperties: false
+                        category:
+                          type: string
+                          enum:
+                            - security
+                            - scheduling
+                            - background
+                            - email
+                            - system
+                        noteworthy:
+                          type: boolean
+                        fromAssistant:
+                          type: boolean
+                        metadata:
+                          type: object
+                          propertyNames:
+                            type: string
+                          additionalProperties: {}
+                        createdAt:
+                          type: string
+                      required:
+                        - id
+                        - type
+                        - priority
+                        - summary
+                        - timestamp
+                        - status
+                        - createdAt
+                      additionalProperties: false
+                  total:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  returned:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  hasMore:
+                    type: boolean
+                  updatedAt:
+                    type: string
+                required:
+                  - items
+                  - total
+                  - returned
+                  - hasMore
+                  - updatedAt
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                includeDismissed:
+                  type: boolean
+                statuses:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - new
+                      - seen
+                      - acted_on
+                      - dismissed
+                before:
+                  type: string
+                after:
+                  type: string
+                urgencies:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - low
+                      - medium
+                      - high
+                      - critical
+                categories:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - security
+                      - scheduling
+                      - background
+                      - email
+                      - system
+                conversationId:
+                  type: string
+                fromAssistant:
+                  type: boolean
+                noteworthy:
+                  type: boolean
+                limit:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 200
+                offset:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+              additionalProperties: false
   /v1/home/state:
     get:
       operationId: home_state_get
@@ -10757,10 +11148,8 @@ paths:
   /v1/identity/intro:
     get:
       operationId: identity_intro_get
-      summary: Get identity intro text
-      description:
-        Returns a deterministic greeting derived from the assistant name in IDENTITY.md, falling back to
-        LLM-generated cache.
+      summary: Get identity greetings
+      description: Returns an array of greetings sourced from SOUL.md, LLM cache, or static fallbacks.
       tags:
         - identity
       responses:
@@ -10771,9 +11160,14 @@ paths:
               schema:
                 type: object
                 properties:
+                  greetings:
+                    type: array
+                    items:
+                      type: string
                   text:
                     type: string
                 required:
+                  - greetings
                   - text
                 additionalProperties: false
   /v1/image-generation/generate:
@@ -10936,11 +11330,6 @@ paths:
                                 - type
                                 - credential
                               additionalProperties: false
-                        status:
-                          type: string
-                          enum:
-                            - active
-                            - disabled
                         label:
                           anyOf:
                             - type: string
@@ -10981,7 +11370,6 @@ paths:
                         - name
                         - provider
                         - auth
-                        - status
                         - label
                         - baseUrl
                         - models
@@ -11083,11 +11471,6 @@ paths:
                           - type
                           - credential
                         additionalProperties: false
-                  status:
-                    type: string
-                    enum:
-                      - active
-                      - disabled
                   label:
                     anyOf:
                       - type: string
@@ -11128,7 +11511,6 @@ paths:
                   - name
                   - provider
                   - auth
-                  - status
                   - label
                   - baseUrl
                   - models
@@ -11218,11 +11600,6 @@ paths:
                 label:
                   type: string
                   minLength: 1
-                status:
-                  type: string
-                  enum:
-                    - active
-                    - disabled
                 base_url:
                   anyOf:
                     - type: string
@@ -11367,11 +11744,6 @@ paths:
                           - type
                           - credential
                         additionalProperties: false
-                  status:
-                    type: string
-                    enum:
-                      - active
-                      - disabled
                   label:
                     anyOf:
                       - type: string
@@ -11412,7 +11784,6 @@ paths:
                   - name
                   - provider
                   - auth
-                  - status
                   - label
                   - baseUrl
                   - models
@@ -11433,8 +11804,7 @@ paths:
       summary: Update a provider connection
       description:
         Update an existing connection. Cannot rename or change the provider. For managed connections
-        (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label and status remain
-        editable.
+        (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label remains editable.
       tags:
         - inference
       responses:
@@ -11513,11 +11883,6 @@ paths:
                           - type
                           - credential
                         additionalProperties: false
-                  status:
-                    type: string
-                    enum:
-                      - active
-                      - disabled
                   label:
                     anyOf:
                       - type: string
@@ -11558,7 +11923,6 @@ paths:
                   - name
                   - provider
                   - auth
-                  - status
                   - label
                   - baseUrl
                   - models
@@ -11637,11 +12001,6 @@ paths:
                         - type
                         - credential
                       additionalProperties: false
-                status:
-                  type: string
-                  enum:
-                    - active
-                    - disabled
                 label:
                   anyOf:
                     - type: string

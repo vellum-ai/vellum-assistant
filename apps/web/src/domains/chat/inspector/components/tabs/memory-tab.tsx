@@ -8,7 +8,7 @@ import type {
   MemoryRecallLog,
   MemoryV2ActivationLog,
   MemoryV2ConceptRow,
-} from "@/domains/chat/types/inspector-types";
+} from "@vellumai/assistant-api";
 
 /**
  * Memory tab rendering V1 recall and/or V2 activation data. When both

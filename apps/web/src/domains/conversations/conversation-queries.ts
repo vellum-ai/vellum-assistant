@@ -8,15 +8,16 @@
  *
  * Two queries cover the surface:
  *
- * - **`useChatContextQuery` / `useConversationListQuery`** — wraps the
- *   `getChatContext` bootstrapping fetch. The returned `ChatContext`
- *   carries the conversation list (`conversations`) plus the initially
- *   resolved assistant + default conversation key. Sidebar and chat
- *   consumers read `conversations` via the convenience wrapper; the
- *   loader hook reads the full context for boot-time selection.
+ * - **`useConversationListQuery`** — fetches all conversations
+ *   (foreground + background) for a given assistant via the generated
+ *   `conversationsGet()` SDK with pagination and deduplication. The
+ *   cache stores a flat `Conversation[]` under
+ *   `conversationsQueryKey(assistantId)`. All sidebar, loader, and
+ *   mutation cache-helper consumers read from this single entry.
  *
- * - **`useConversationGroupsQuery`** — wraps `fetchGroups`. Mounted
- *   conditionally behind the `conversationGroupsUI` flag.
+ * - **`useConversationGroupsQuery`** — wraps the generated
+ *   `groupsGetOptions()`. Mounted conditionally behind the
+ *   `conversationGroupsUI` flag.
  *
  * Mutations (archive/unarchive, rename, pin, group CRUD, draft
  * resolution, SSE-driven title updates) update the cache via the named
@@ -28,37 +29,148 @@
  * - https://tanstack.com/query/latest/docs/framework/react/guides/updates-from-mutation-responses
  */
 
+import * as Sentry from "@sentry/browser";
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 
 import {
-  type ChatContext,
-  getChatContext,
-} from "@/domains/chat/api/assistant";
+  groupsGetOptions,
+  groupsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  conversationsGet,
+  type Options,
+} from "@/generated/daemon/sdk.gen";
+import type {
+  GroupsGetData,
+  GroupsGetResponse,
+} from "@/generated/daemon/types.gen";
+import {
+  ApiError,
+  assertHasResponse,
+  extractErrorMessage,
+} from "@/lib/api-errors";
+import {
+  CONVERSATIONS_QUERY_KEY,
+  conversationsQueryKey,
+} from "@/lib/sync/query-tags";
+import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+
 import {
   CONVERSATION_NOT_FOUND,
-  type Conversation,
-  type ConversationGroup,
   fetchConversationDetail,
-  fetchGroups,
-} from "@/lib/conversations-api";
+  type FetchConversationDetailResult,
+} from "./fetch-conversation-detail";
+import { toConversation } from "./conversation-transforms";
+
+export { CONVERSATION_NOT_FOUND, type FetchConversationDetailResult };
 
 // ---------------------------------------------------------------------------
 // Query keys
 // ---------------------------------------------------------------------------
 
-import {
-  CHAT_CONTEXT_QUERY_KEY,
-  CONVERSATION_GROUPS_QUERY_KEY,
-  chatContextQueryKey,
-  conversationGroupsQueryKey,
-} from "@/lib/sync/query-tags";
+export { CONVERSATIONS_QUERY_KEY, conversationsQueryKey };
 
-export {
-  CHAT_CONTEXT_QUERY_KEY,
-  CONVERSATION_GROUPS_QUERY_KEY,
-  chatContextQueryKey,
-  conversationGroupsQueryKey,
-};
+/**
+ * Build the generated query key for conversation groups. Exported so that
+ * invalidation call sites (sync stream, loader, group actions) can target
+ * the same cache entry that `useConversationGroupsQuery` populates.
+ */
+export function conversationGroupsQueryKey(
+  assistantId: string | null,
+): ReturnType<typeof groupsGetQueryKey> {
+  return groupsGetQueryKey({
+    path: { assistant_id: assistantId ?? "" },
+  } as Options<GroupsGetData>);
+}
+
+// ---------------------------------------------------------------------------
+// Conversation list + detail fetching
+// ---------------------------------------------------------------------------
+
+const CONVERSATION_LIST_PAGE_SIZE = 50;
+const CONVERSATION_LIST_MAX_PAGES = 200;
+
+async function fetchConversationList(
+  assistantId: string,
+  conversationType?: "background",
+): Promise<Conversation[]> {
+  const all: Conversation[] = [];
+
+  for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
+    const offset = page * CONVERSATION_LIST_PAGE_SIZE;
+    const { data, error, response } = await conversationsGet({
+      path: { assistant_id: assistantId },
+      query: {
+        limit: CONVERSATION_LIST_PAGE_SIZE,
+        offset,
+        ...(conversationType ? { conversationType } : {}),
+      },
+      throwOnError: false,
+    });
+    assertHasResponse(response, error, "Failed to list conversations.");
+    if (!response.ok) {
+      const msg = extractErrorMessage(error, response, "Failed to list conversations.");
+      throw new ApiError(response.status, msg);
+    }
+
+    const conversations = data?.conversations ?? [];
+    all.push(...conversations.map(toConversation));
+
+    const hasMore = data?.hasMore ?? false;
+    if (!hasMore) break;
+
+    if (conversations.length === 0) break;
+  }
+
+  return all;
+}
+
+/**
+ * Fetch all conversations (foreground + background) for a given assistant.
+ * Both are fetched in parallel and merged so the sidebar can display every
+ * conversation type. Returns sorted newest-first.
+ *
+ * The background fetch is best-effort: if it fails the foreground list is
+ * still returned so the sidebar remains usable.
+ */
+export async function listConversations(
+  assistantId: string,
+): Promise<Conversation[]> {
+  const [foregroundResult, backgroundResult] = await Promise.allSettled([
+    fetchConversationList(assistantId),
+    fetchConversationList(assistantId, "background"),
+  ]);
+
+  if (foregroundResult.status === "rejected") {
+    throw foregroundResult.reason;
+  }
+
+  const foreground = foregroundResult.value;
+  let background: Conversation[] = [];
+  if (backgroundResult.status === "fulfilled") {
+    background = backgroundResult.value;
+  } else {
+    Sentry.captureException(backgroundResult.reason, {
+      level: "warning",
+      tags: { context: "listConversations.backgroundFetch" },
+      extra: { assistantId },
+    });
+  }
+
+  const seen = new Set<string>();
+  const conversations: Conversation[] = [];
+  for (const conversation of [...foreground, ...background]) {
+    if (seen.has(conversation.conversationId)) {
+      continue;
+    }
+    seen.add(conversation.conversationId);
+    conversations.push(conversation);
+  }
+
+  conversations.sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
+
+  return conversations;
+}
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -67,35 +179,22 @@ export {
 const QUERY_STALE_TIME_MS = 30_000;
 
 /**
- * Subscribe to the bootstrapping chat context. Sidebar/list consumers
- * should prefer {@link useConversationListQuery}; only the loader needs
- * the full `{ assistantId, conversationId, conversations }` payload.
- */
-export function useChatContextQuery(
-  assistantId: string | null,
-  enabled: boolean = true,
-) {
-  return useQuery({
-    queryKey: chatContextQueryKey(assistantId),
-    queryFn: getChatContext,
-    enabled: enabled && Boolean(assistantId),
-    staleTime: QUERY_STALE_TIME_MS,
-  });
-}
-
-/**
  * Subscribe to the conversation list for the given assistant.
+ *
+ * Fetches all conversations (foreground + background) via
+ * `listConversations()`, which paginates both lists in parallel,
+ * deduplicates, and sorts newest-first. The cache stores a flat
+ * `Conversation[]`.
  *
  * Returns an empty array until the query resolves so consumers can render
  * an empty sidebar without null-checking. Cache writes from mutations and
  * SSE handlers feed through here automatically.
  *
- * `isError` and `refetch` are exposed so chat-surface consumers can
- * surface a visible error state when the conversation list fails — most
- * notably for self-hosted assistants, where a missing actor-token JWT
- * surfaces as a gateway 401 that has to terminate the loading spinner
- * with an actionable retry instead of silently keeping the sidebar
- * empty.
+ * `isError`, `error`, and `refetch` are exposed so chat-surface consumers
+ * can surface a visible error state when the conversation list fails —
+ * most notably for self-hosted assistants, where a missing actor-token
+ * JWT surfaces as a gateway 401 that has to terminate the loading spinner
+ * with an actionable retry instead of silently keeping the sidebar empty.
  */
 export function useConversationListQuery(
   assistantId: string | null,
@@ -105,16 +204,21 @@ export function useConversationListQuery(
   isLoading: boolean;
   isPending: boolean;
   isError: boolean;
+  error: Error | null;
   refetch: () => void;
 } {
-  const query = useChatContextQuery(assistantId, enabled);
+  const query = useQuery({
+    queryKey: conversationsQueryKey(assistantId),
+    queryFn: () => listConversations(assistantId!),
+    enabled: enabled && Boolean(assistantId),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
   return {
-    conversations: query.data?.conversations ?? EMPTY_CONVERSATIONS,
+    conversations: query.data ?? EMPTY_CONVERSATIONS,
     isLoading: query.isLoading,
     isPending: query.isPending,
     isError: query.isError,
-    // Wrap in a void-returning closure so callers don't have to know
-    // about TanStack's `QueryObserverResult` promise.
+    error: query.error,
     refetch: () => {
       void query.refetch();
     },
@@ -131,9 +235,10 @@ export function useConversationGroupsQuery(
   enabled: boolean = true,
 ): { conversationGroups: ConversationGroup[]; isLoading: boolean } {
   const query = useQuery({
-    queryKey: conversationGroupsQueryKey(assistantId),
-    queryFn: () =>
-      assistantId ? fetchGroups(assistantId) : Promise.resolve([]),
+    ...groupsGetOptions({
+      path: { assistant_id: assistantId ?? "" },
+    } as Options<GroupsGetData>),
+    select: (data) => data.groups,
     enabled: enabled && Boolean(assistantId),
     staleTime: QUERY_STALE_TIME_MS,
   });
@@ -150,29 +255,29 @@ const EMPTY_GROUPS: ConversationGroup[] = [];
 // ---------------------------------------------------------------------------
 // Cache helpers — conversations
 //
-// These mutate the chat-context query cache (where conversations live).
+// These mutate the conversations query cache (a flat `Conversation[]`).
 // They are the domain-level "change this conversation locally" operations;
 // `queryClient.setQueryData` is implementation detail.
 // ---------------------------------------------------------------------------
 
-function updateChatContextConversations(
+function updateConversationsCache(
   queryClient: QueryClient,
   assistantId: string | null,
   updater: (conversations: Conversation[]) => Conversation[],
 ): void {
-  queryClient.setQueryData<ChatContext | null>(
-    chatContextQueryKey(assistantId),
+  queryClient.setQueryData<Conversation[]>(
+    conversationsQueryKey(assistantId),
     (prev) => {
-      if (!prev) return prev;
-      const next = updater(prev.conversations);
-      if (next === prev.conversations) return prev;
-      return { ...prev, conversations: next };
+      const list = prev ?? [];
+      const next = updater(list);
+      if (next === list) return prev;
+      return next;
     },
   );
 }
 
 /**
- * Read a single conversation from the chat-context query cache. Used by
+ * Read a single conversation from the conversations query cache. Used by
  * imperative callers (send pipeline, attention tracking) that need the
  * current value without subscribing to re-renders.
  */
@@ -181,14 +286,15 @@ export function findConversation(
   assistantId: string | null,
   key: string,
 ): Conversation | undefined {
-  const ctx = queryClient.getQueryData<ChatContext | null>(
-    chatContextQueryKey(assistantId),
-  );
-  return ctx?.conversations.find((c) => c.conversationId === key);
+  const list =
+    queryClient.getQueryData<Conversation[]>(
+      conversationsQueryKey(assistantId),
+    ) ?? [];
+  return list.find((c) => c.conversationId === key);
 }
 
 /**
- * Read all conversations from the chat-context query cache. Returns an
+ * Read all conversations from the conversations query cache. Returns an
  * empty array when the query hasn't populated yet.
  */
 export function getConversations(
@@ -196,9 +302,9 @@ export function getConversations(
   assistantId: string | null,
 ): Conversation[] {
   return (
-    queryClient.getQueryData<ChatContext | null>(
-      chatContextQueryKey(assistantId),
-    )?.conversations ?? []
+    queryClient.getQueryData<Conversation[]>(
+      conversationsQueryKey(assistantId),
+    ) ?? []
   );
 }
 
@@ -212,7 +318,7 @@ export function patchConversation(
   key: string,
   patch: Partial<Conversation>,
 ): void {
-  updateChatContextConversations(queryClient, assistantId, (conversations) => {
+  updateConversationsCache(queryClient, assistantId, (conversations) => {
     let changed = false;
     const next = conversations.map((c) => {
       if (c.conversationId !== key) return c;
@@ -233,9 +339,9 @@ export function markConversationSeenLocal(
   queryClient: QueryClient,
   assistantId: string | null,
   key: string,
-  lastSeenAssistantMessageAt?: string,
+  lastSeenAssistantMessageAt?: number,
 ): void {
-  updateChatContextConversations(queryClient, assistantId, (conversations) => {
+  updateConversationsCache(queryClient, assistantId, (conversations) => {
     let changed = false;
     const next = conversations.map((c) => {
       if (c.conversationId !== key) return c;
@@ -258,7 +364,7 @@ export function prependConversation(
   assistantId: string | null,
   conversation: Conversation,
 ): void {
-  updateChatContextConversations(queryClient, assistantId, (conversations) => [
+  updateConversationsCache(queryClient, assistantId, (conversations) => [
     conversation,
     ...conversations,
   ]);
@@ -269,7 +375,7 @@ export function removeConversation(
   assistantId: string | null,
   key: string,
 ): void {
-  updateChatContextConversations(queryClient, assistantId, (conversations) => {
+  updateConversationsCache(queryClient, assistantId, (conversations) => {
     const filtered = conversations.filter((c) => c.conversationId !== key);
     return filtered.length === conversations.length ? conversations : filtered;
   });
@@ -280,7 +386,7 @@ export function removeConversation(
  * fetching `GET /v1/conversations/:id` and patching the cache in place.
  *
  * Drives the per-conversation `sync_changed` metadata-tag handler in
- * `use-assistant-sync-stream.ts`: when the assistant emits a
+ * `use-conversation-sync.ts`: when the assistant emits a
  * `conversation:<id>:metadata` invalidation for a content-only change
  * (seen state, title, attention cursor), the consumer GETs that single
  * row instead of refetching the full paginated list — a single request
@@ -310,7 +416,7 @@ export async function refreshConversationRow(
     removeConversation(queryClient, assistantId, conversationId);
     return;
   }
-  updateChatContextConversations(queryClient, assistantId, (conversations) => {
+  updateConversationsCache(queryClient, assistantId, (conversations) => {
     let replaced = false;
     const next = conversations.map((c) => {
       if (c.conversationId !== result.conversationId) return c;
@@ -328,7 +434,7 @@ export function resolveDraftKey(
   oldKey: string,
   newKey: string,
 ): void {
-  updateChatContextConversations(queryClient, assistantId, (conversations) => {
+  updateConversationsCache(queryClient, assistantId, (conversations) => {
     let changed = false;
     const next = conversations.map((c) => {
       if (c.conversationId !== oldKey) return c;
@@ -348,12 +454,13 @@ function updateGroupsCache(
   assistantId: string | null,
   updater: (groups: ConversationGroup[]) => ConversationGroup[],
 ): void {
-  queryClient.setQueryData<ConversationGroup[]>(
+  queryClient.setQueryData<GroupsGetResponse>(
     conversationGroupsQueryKey(assistantId),
     (prev) => {
-      const list = prev ?? [];
+      const list = prev?.groups ?? [];
       const next = updater(list);
-      return next === list ? prev : next;
+      if (next === list) return prev;
+      return { ...prev, groups: next };
     },
   );
 }
@@ -419,7 +526,7 @@ export function removeGroup(
 
 /**
  * Atomically delete a group and clear its `groupId` from every affected
- * conversation in the chat-context cache.
+ * conversation in the conversations cache.
  */
 export function deleteGroupAndResetConversations(
   queryClient: QueryClient,
@@ -427,7 +534,7 @@ export function deleteGroupAndResetConversations(
   groupId: string,
 ): void {
   removeGroup(queryClient, assistantId, groupId);
-  updateChatContextConversations(queryClient, assistantId, (conversations) => {
+  updateConversationsCache(queryClient, assistantId, (conversations) => {
     let changed = false;
     const next = conversations.map((c) => {
       if (c.groupId !== groupId) return c;

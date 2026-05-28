@@ -559,6 +559,19 @@ export function resolveCloud(entry: AssistantEntry): string {
   return "local";
 }
 
+/**
+ * Extract the hostname from a URL string. Falls back to stripping the scheme
+ * and taking the hostname portion if URL parsing fails.
+ */
+export function extractHostFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    return parsed.hostname;
+  } catch {
+    return url.replace(/^https?:\/\//, "").split(":")[0];
+  }
+}
+
 export function saveAssistantEntry(entry: AssistantEntry): void {
   const entries = readAssistants().filter(
     (e) => e.assistantId !== entry.assistantId,

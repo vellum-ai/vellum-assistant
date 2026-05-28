@@ -27,11 +27,18 @@ import { useAssistantContext } from "@/components/layout/assistant-context";
 import { useShallow } from "zustand/shallow";
 import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
+  COMPOSER_FOCUS_EVENT,
+  consumePendingComposerFocus,
+  insertTextAtSelection,
+  requestComposerFocus,
+  shouldFocusComposerForTyping,
+} from "./composer-focus";
+import {
   useConversationGroupsQuery,
   useConversationListQuery,
 } from "@/domains/conversations/conversation-queries";
 import { useViewerStore } from "@/stores/viewer-store";
-import { useDeployStore } from "@/domains/chat/deploy-store";
+import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/subagents/subagent-store";
 import type { SubagentStatus } from "@/domains/chat/api/event-types";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";
@@ -52,7 +59,7 @@ import { createDraftConversationId } from "@/domains/chat/utils/conversation-sel
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 
-import { Button, ConfirmDialog } from "@vellum/design-library";
+import { Button } from "@vellum/design-library";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { useSyncChatStore } from "@/domains/chat/chat-store";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
@@ -63,6 +70,7 @@ import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { useConversationLoader } from "@/domains/conversations/use-conversation-loader";
+import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
 import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration";
 import { useConversationActions } from "@/domains/conversations/use-conversation-actions";
 import { RenameConversationDialog } from "@/domains/conversations/rename-conversation-dialog";
@@ -85,9 +93,10 @@ import { PlatformHostedScreen } from "@/domains/chat/components/platform-hosted-
 import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen";
 import { VersionSelectionScreen } from "@/domains/chat/components/version-selection-screen";
 import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
-import { fetchSuggestion } from "@/domains/chat/api/suggestion-api";
+import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router";
-import { fetchAssistantIdentity } from "@/assistant/identity";
+import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
+import { useQueryClient } from "@tanstack/react-query";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
@@ -101,12 +110,12 @@ const AddCreditsModal = lazy(() =>
     default: m.AddCreditsModal,
   })),
 );
-// Vercel token dialog is only shown when the deploy flow needs a token, and
-// CommandPalette only renders when the user opens it (Cmd+K / Ctrl+K). Defer
+// Deploy dialogs (VercelTokenDialog + complex-deploy confirm) are only shown
+// during the deploy flow. CommandPalette only renders on Cmd+K / Ctrl+K. Defer
 // loading to keep their form/list deps out of the chat-critical bundle.
-const VercelTokenDialog = lazy(() =>
-  import("@/components/vercel-token-dialog").then((m) => ({
-    default: m.VercelTokenDialog,
+const DeployDialogs = lazy(() =>
+  import("@/components/deploy-dialogs").then((m) => ({
+    default: m.DeployDialogs,
   })),
 );
 const CommandPalette = lazy(() =>
@@ -115,10 +124,12 @@ const CommandPalette = lazy(() =>
   })),
 );
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
-import { abortSubagent, fetchSubagentDetail } from "@/lib/conversations-api";
+import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
+import { fetchSubagentDetail } from "@/utils/fetch-subagent-detail";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
+import { MobileToolDetailOverlay } from "@/domains/chat/components/mobile-tool-detail-overlay";
 import {
   type ChatConnectingReason,
   resolveChatConnectingReason,
@@ -126,7 +137,6 @@ import {
 import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
-import type { AssistantIdentity } from "@/assistant/identity";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
 import {
   ChatRouteContent,
@@ -155,7 +165,6 @@ export function ChatPage() {
     checkAssistant,
     retryAssistant,
     hatchVersion,
-    setAssistantId,
     setTopBarCenter,
     setTopBarRightSlot,
     setOnSearchClick,
@@ -172,7 +181,7 @@ export function ChatPage() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [error, setError] = useState<ChatError | null>(null);
   // Seed with `true` so the chat scroll area renders the skeleton on the very
-  // first frame. The conversation loader bootstrap (`getChatContext` →
+  // first frame. The conversation loader bootstrap (conversation list query →
   // `SET_ACTIVE_KEY` → `use-conversation-history`) is asynchronous, and
   // without this seed the brief window between mount and the history effect
   // dispatching `setIsLoadingHistory(true)` leaves the user staring at a
@@ -182,7 +191,6 @@ export function ChatPage() {
   // and flips it false (for both real conversations and empty drafts).
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [compactionCircuitOpenUntil, setCompactionCircuitOpenUntil] = useState<Date | null>(null);
-  const [suggestion, setSuggestion] = useState<string | null>(null);
   const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
 
   const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
@@ -198,8 +206,6 @@ export function ChatPage() {
     isPinnedToLatest: true,
   });
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
-  const [assistantIdentity, setAssistantIdentity] = useState<AssistantIdentity | null>(null);
-  const [overlayTarget, setOverlayTarget] = useState<HTMLElement | null>(null);
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
   // -------------------------------------------------------------------------
@@ -240,6 +246,7 @@ export function ChatPage() {
     viewBeforeDocument: s.viewBeforeDocument,
     activeSubagentId: s.activeSubagentId,
     viewBeforeSubagentDetail: s.viewBeforeSubagentDetail,
+    activeToolDetail: s.activeToolDetail,
   })));
   const subagentState = useSubagentStore(useShallow((s) => ({ byId: s.byId, orderedIds: s.orderedIds })));
   const isSharing = useDeployStore.use.isSharing();
@@ -247,23 +254,21 @@ export function ChatPage() {
   const isTokenDialogOpen = useDeployStore.use.isTokenDialogOpen();
   const complexDeployApp = useDeployStore.use.complexDeployApp();
 
+  // Assistant identity is fetched and stored by `useAssistantIdentityInit`
+  // at the `ChatLayout` level (TanStack Query → Zustand) so the sidebar
+  // header populates on every `/assistant/*` route. ChatPage reads the
+  // store via atomic selectors per `docs/STATE_MANAGEMENT.md` rather
+  // than maintaining its own local copy.
+  const assistantName = useAssistantIdentityStore.use.name();
+  const queryClient = useQueryClient();
+
   // -------------------------------------------------------------------------
   // Pin-sync side-effect
   // -------------------------------------------------------------------------
-  const handleActiveAppUnpinned = useCallback(
-    (appId: string) => {
-      const { activeAppId, mainView } = useViewerStore.getState();
-      useViewerStore.getState().handleAppUnpinned(appId);
-      if (
-        activeAppId === appId &&
-        (mainView === "app" || mainView === "app-editing")
-      ) {
-        useConversationStore.getState().setEditingConversationId(null);
-      }
-    },
-    [],
-  );
-  useActiveAppPinSync(handleActiveAppUnpinned);
+  // Cross-store coordination (clearing the app + editing-conversation when
+  // the active app gets unpinned) lives inside `viewer-store.handleAppUnpinned`,
+  // so every consumer gets the same behavior without re-implementing it.
+  useActiveAppPinSync(useViewerStore.getState().handleAppUnpinned);
 
   // -------------------------------------------------------------------------
   // Shared refs — owned here, read/written by hooks
@@ -279,9 +284,28 @@ export function ChatPage() {
   // the actual `<Transcript />` instance there.
   const transcriptRef = useRef<TranscriptHandle | null>(null);
 
+  // Composer focus from the Electron host's File > Current Conversation
+  // command. The command is dispatched in `chat-layout.tsx` via the
+  // `useVellumCommands` hook; the textarea ref lives here, so we listen
+  // for a window event rather than threading the ref upward through
+  // props/context just for this one cross-cutting capability. On mount,
+  // also drain any pending focus request that fired before we mounted
+  // (e.g. when the command was invoked from `/assistant/home` and
+  // chat-layout navigated us here) — see `./composer-focus.ts`.
+  useEffect(() => {
+    const focusInput = () => inputRef.current?.focus();
+    const handleFocusRequest = () => {
+      consumePendingComposerFocus();
+      focusInput();
+    };
+    window.addEventListener(COMPOSER_FOCUS_EVENT, handleFocusRequest);
+    if (consumePendingComposerFocus()) {
+      queueMicrotask(focusInput);
+    }
+    return () =>
+      window.removeEventListener(COMPOSER_FOCUS_EVENT, handleFocusRequest);
+  }, []);
 
-  const activeConversationIdRef = useRef<string | null>(activeConversationId);
-  useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
 
   const assistantIdRef = useRef<string | null>(assistantId);
   useEffect(() => { assistantIdRef.current = assistantId; }, [assistantId]);
@@ -304,7 +328,6 @@ export function ChatPage() {
   const pendingLocalDeletionsRef = useRef<Set<string>>(new Set());
   const confirmationToolCallMapRef = useRef<Map<string, string>>(new Map());
   const streamingMessageIdsRef = useRef<Set<string>>(new Set());
-  const lastSuggestionMsgIdRef = useRef<string | null>(null);
   const autoGreetRef = useRef(false);
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -364,6 +387,36 @@ export function ChatPage() {
     draftConversationIdResolutionRef,
     onDraftRestored: setRestoredDraftConversationId,
   });
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const inputEl = inputRef.current;
+      if (!inputEl || inputEl.disabled || inputEl.readOnly) return;
+      if (document.activeElement === inputEl) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+      if (!shouldFocusComposerForTyping(event, document.activeElement)) return;
+
+      event.preventDefault();
+      inputEl.focus();
+      setInput((current) => {
+        const next = insertTextAtSelection({
+          value: current,
+          text: event.key,
+          selectionStart: inputEl.selectionStart,
+          selectionEnd: inputEl.selectionEnd,
+        });
+        requestAnimationFrame(() => {
+          inputEl.setSelectionRange(next.cursor, next.cursor);
+        });
+        return next.value;
+      });
+    };
+
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
+    };
+  }, [setInput]);
 
   // -------------------------------------------------------------------------
   // Attachments
@@ -439,7 +492,6 @@ export function ChatPage() {
     draftConversationIdResolutionRef,
     previousConversationIdRef,
     onboardingDraftConversationIdRef,
-    activeConversationIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     streamingMessageIdsRef,
@@ -447,18 +499,15 @@ export function ChatPage() {
     requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    lastSuggestionMsgIdRef,
     autoGreetRef,
     conversationListInvalidatedTimerRef,
     pendingInitialMessageRef,
-    setAssistantId,
     setMessages,
     setTranscriptPagination: setTranscriptPagination as Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>,
     setIsLoadingHistory,
     setError,
     setAutoGreetPending,
     setContextWindowUsage,
-    setSuggestion,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,
     shouldSuppressGenericChatErrorNotice,
@@ -482,6 +531,7 @@ export function ChatPage() {
     (opts: { silent?: boolean; initialMessage?: string } = {}) => {
       useSubagentStore.getState().reset();
       rawStartNewConversation(opts);
+      requestComposerFocus();
     },
     [rawStartNewConversation],
   );
@@ -522,23 +572,28 @@ export function ChatPage() {
     setMessages,
     streamContextRef,
     streamEpochRef,
-    activeConversationIdRef,
     initialPageOldestTsRef,
   });
 
   // -------------------------------------------------------------------------
-  // Assistant identity
+  // Assistant identity (refresh trigger)
   // -------------------------------------------------------------------------
+  // The actual fetch lives in `useAssistantIdentityInit` at the
+  // `ChatLayout` level (TanStack Query → Zustand store). Chat-page only
+  // owns the *invalidation* triggers that the layout's query doesn't
+  // know about: SSE `identity_changed`, post-`/edit-identity` flush,
+  // and reachability resumes. Each downstream consumer (sync router,
+  // stream event handler, send-message hook) calls this and the layout
+  // re-fetches.
   const refreshAssistantIdentity = useCallback(
-    async (preserveOnFailure = false) => {
+    async () => {
       const targetId = assistantIdRef.current;
       if (!targetId) return;
-      const identity = await fetchAssistantIdentity(targetId);
-      if (assistantIdRef.current !== targetId) return;
-      if (identity === null && preserveOnFailure) return;
-      setAssistantIdentity(identity);
+      await queryClient.invalidateQueries({
+        queryKey: assistantIdentityQueryKey(targetId),
+      });
     },
-    [],
+    [queryClient],
   );
 
   useEffect(() => {
@@ -553,7 +608,6 @@ export function ChatPage() {
 
   useEffect(() => {
     const syncRouter = createWebSyncRouter({
-      activeConversationIdRef,
       invalidateAvatar,
       refreshAssistantIdentity,
       invalidateAssistantConfig: () => {},
@@ -588,7 +642,6 @@ export function ChatPage() {
     push,
     isNative,
     streamEpochRef,
-    activeConversationIdRef,
     streamContextRef,
     assistantIdRef,
     setMessages,
@@ -630,7 +683,6 @@ export function ChatPage() {
     diskPressureChatBlockReason,
     messages,
     assistantIdRef,
-    activeConversationIdRef,
     messagesRef,
     streamRef,
     streamContextRef,
@@ -670,7 +722,7 @@ export function ChatPage() {
 
   // Kick off a background reachability probe immediately when a pending
   // onboarding message exists, instead of waiting for a 502 from
-  // getChatContext to trigger the unreachable-bus.
+  // the conversation list query to trigger the unreachable-bus.
   useEffect(() => {
     if (!assistantId) return;
     const message = peekPendingPreChatContext()?.initialMessage;
@@ -865,7 +917,6 @@ export function ChatPage() {
     setError,
     messagesRef,
     streamContextRef,
-    activeConversationIdRef,
     confirmationToolCallMapRef,
   });
 
@@ -899,7 +950,6 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const refreshLatestMessages = useRefreshLatestMessages({
     assistantId,
-    activeConversationIdRef,
     messagesRef,
     setMessages,
     dismissedSurfaceIdsRef,
@@ -922,7 +972,6 @@ export function ChatPage() {
     streamContextRef,
     streamRef,
     streamEpochRef,
-    activeConversationIdRef,
     getAssistantId: () => assistantIdRef.current,
     getTurnState: () => useTurnStore.getState(),
     getUIContext: () => _uiContext,
@@ -965,24 +1014,10 @@ export function ChatPage() {
     sendMessage,
   });
 
-  // -------------------------------------------------------------------------
-  // Sync assistant identity to the global store (read by ChatLayout)
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    // Identity is hoisted to the layout via `useAssistantIdentityInit`
-    // (LUM-1747) so the sidebar keeps the correct name on sibling
-    // routes (Library, Identity, Contacts). ChatPage still writes
-    // when it has fresher local state (e.g. after an SSE
-    // `identity_changed` refresh), and only when non-null — clearing
-    // on assistant context change (tenant switch, logout) is owned
-    // by `useAssistantIdentityInit`, not by route transitions.
-    if (assistantIdentity) {
-      useAssistantIdentityStore.getState().setIdentity(
-        assistantIdentity.name ?? null,
-        assistantIdentity.version ?? null,
-      );
-    }
-  }, [assistantIdentity]);
+  // (Previously: a useEffect mirrored a local `useState<AssistantIdentity>`
+  // into `useAssistantIdentityStore`. That mirror is gone — chat-page now
+  // reads the store via atomic selectors above and `useAssistantIdentityInit`
+  // at the layout level owns the fetch + write. LUM-1959.)
 
   // -------------------------------------------------------------------------
   // Conversation actions (archive, pin, rename, etc.)
@@ -1021,7 +1056,7 @@ export function ChatPage() {
     assistantId,
     activeConversationId,
     activeConversation: activeConversation ?? null,
-    assistantIdentityName: assistantIdentity?.name ?? undefined,
+    assistantIdentityName: assistantName ?? undefined,
     messagesRef,
     refreshConversations,
     switchConversation,
@@ -1040,7 +1075,7 @@ export function ChatPage() {
   const { commandPalette, mergedSections, handleItemSelect } =
     useCommandPaletteSections({
       assistantId,
-      assistantName: assistantIdentity?.name ?? undefined,
+      assistantName: assistantName ?? undefined,
       conversations,
       activeConversationId: activeConversationId ?? undefined,
       startNewConversation: () => startNewConversation(),
@@ -1249,36 +1284,27 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Mobile overlay portal — resolve after DOM commit (CONVENTIONS.md §SSR)
   // -------------------------------------------------------------------------
-  useEffect(() => {
-    setOverlayTarget(
-      isMobile ? document.getElementById("viewport-overlays") : null,
-    );
-  }, [isMobile]);
+  const overlayTarget = useMobileOverlayTarget();
 
   // -------------------------------------------------------------------------
-  // Ghost-text suggestion: fetch after each completed assistant turn
+  // Ghost-text suggestion (server state via TanStack Query — LUM-2009)
   // -------------------------------------------------------------------------
-  const inputSnapshotRef = useRef(input);
-  useEffect(() => { inputSnapshotRef.current = input; }, [input]);
+  // Derive the scalar the query keys on; the hook stays pure w.r.t.
+  // composer input — `ChatComposer.computeGhostSuffix` is the single
+  // source of truth for "what part of the suggestion is visible right
+  // now given the user's typed prefix".
+  const lastCompleteAssistantMsgId = useMemo<string | null>(() => {
+    const last = messages[messages.length - 1];
+    return last && last.role === "assistant" && !last.isStreaming
+      ? last.id ?? null
+      : null;
+  }, [messages]);
 
-  useEffect(() => {
-    const lastMsg = messages[messages.length - 1];
-    if (!lastMsg || lastMsg.role !== "assistant" || lastMsg.isStreaming) return;
-    if (!assistantId || !activeConversationId) return;
-    const msgId = lastMsg.id ?? null;
-    if (msgId === lastSuggestionMsgIdRef.current) return;
-    lastSuggestionMsgIdRef.current = msgId;
-
-    const controller = new AbortController();
-    void fetchSuggestion(assistantId, activeConversationId, lastMsg.id, controller.signal)
-      .then((r) => {
-        if (controller.signal.aborted) return;
-        if (inputSnapshotRef.current) return;
-        setSuggestion(r.suggestion);
-      })
-      .catch(() => {});
-    return () => { controller.abort(); };
-  }, [messages, assistantId, activeConversationId, setSuggestion]);
+  const suggestion = useGhostTextSuggestion({
+    assistantId,
+    conversationId: activeConversationId,
+    lastCompleteAssistantMsgId,
+  });
 
   // -------------------------------------------------------------------------
   // Derived UI state
@@ -1439,7 +1465,7 @@ export function ChatPage() {
   const chatRouteProps: ChatRouteContentProps = {
     assistantId,
     assistantState,
-    assistantIdentity,
+    assistantName,
     chatPullToRefreshEnabled,
     deployToVercel,
     doctor,
@@ -1473,7 +1499,6 @@ export function ChatPage() {
     compactionCircuitOpenUntil,
     setCompactionCircuitOpenUntil,
     suggestion,
-    setSuggestion,
     transcriptPagination,
     setTranscriptPagination: setTranscriptPagination as Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>,
     setShowAddCreditsModal,
@@ -1593,7 +1618,11 @@ export function ChatPage() {
     onStopSubagent: async (subagentId: string) => {
       if (!assistantId || !activeConversationId) return;
       try {
-        await abortSubagent(assistantId, activeConversationId, subagentId);
+        await subagentsByIdAbortPost({
+          path: { assistant_id: assistantId, id: subagentId },
+          body: { conversationId: activeConversationId },
+          throwOnError: true,
+        });
       } catch {
         // Best-effort — the daemon may have already completed
       }
@@ -1608,7 +1637,6 @@ export function ChatPage() {
       messagesRef,
       sanitizedMessagesRef,
       transcriptItemsRef,
-      activeConversationIdRef,
       assistantIdRef,
       streamContextRef,
       expandedToolCallIdsRef,
@@ -1660,17 +1688,12 @@ export function ChatPage() {
           />
         </LazyBoundary>
       ) : null}
-      {assistantId && isTokenDialogOpen ? (
+      {assistantId && (isTokenDialogOpen || complexDeployApp) ? (
         <LazyBoundary>
-          <VercelTokenDialog
-            open={isTokenDialogOpen}
-            onOpenChange={(open) => {
-              if (!open) useDeployStore.getState().hideTokenDialog();
-            }}
+          <DeployDialogs
             assistantId={assistantId}
-            onTokenSaved={() => {
-              void useDeployStore.getState().deployAfterTokenSaved(assistantId);
-            }}
+            assistantName={assistantName ?? undefined}
+            onStartConversation={(msg) => startNewConversation({ initialMessage: msg })}
           />
         </LazyBoundary>
       ) : null}
@@ -1679,20 +1702,6 @@ export function ChatPage() {
         currentTitle={renameRequest?.currentTitle ?? ""}
         onSubmit={submitRenameConversation}
         onCancel={cancelRenameConversation}
-      />
-      <ConfirmDialog
-        open={complexDeployApp !== null}
-        title="This app needs a full deploy"
-        message={`"${complexDeployApp?.name ?? ""}" uses backend services that won't work on a static Vercel page. ${assistantIdentity?.name ?? "Your assistant"} can deploy it properly with serverless functions.`}
-        confirmLabel={`Let ${assistantIdentity?.name ?? "assistant"} handle it`}
-        onConfirm={() => {
-          const appName = useDeployStore.getState().complexDeployApp?.name ?? "this app";
-          useDeployStore.getState().setComplexDeployApp(null);
-          startNewConversation({
-            initialMessage: `Deploy my app "${appName}" to Vercel. It uses backend services that need serverless functions — please use the deploy-fullstack-vercel skill to handle it properly.`,
-          });
-        }}
-        onCancel={() => useDeployStore.getState().setComplexDeployApp(null)}
       />
       {overlayTarget &&
         createPortal(
@@ -1758,12 +1767,26 @@ export function ChatPage() {
               onStop={async (subagentId: string) => {
                 if (!assistantId || !activeConversationId) return;
                 try {
-                  await abortSubagent(assistantId, activeConversationId, subagentId);
+                  await subagentsByIdAbortPost({
+                    path: { assistant_id: assistantId, id: subagentId },
+                    body: { conversationId: activeConversationId },
+                    throwOnError: true,
+                  });
                 } catch {
                   // Best-effort — the daemon may have already completed
                 }
               }}
               onRequestDetail={handleRequestSubagentDetail}
+            />
+            <MobileToolDetailOverlay
+              detail={
+                viewerState.mainView === "tool-detail"
+                  ? viewerState.activeToolDetail
+                  : null
+              }
+              onClose={() => {
+                useViewerStore.getState().closeToolDetail();
+              }}
             />
           </>,
           overlayTarget,

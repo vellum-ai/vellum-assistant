@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@vellum/design-library";
 import { cn } from "@/utils/misc";
+import { preparePreviewHtml } from "@/utils/sandbox-bridge";
 
 export interface AppCardProps {
   name: string;
@@ -187,7 +188,7 @@ export function AppPreviewThumbnail({
         // shrunken result in the thumbnail. Net effect: ~2× more app content
         // visible compared to a 100%×100% iframe.
         <iframe
-          srcDoc={withHiddenScrollbars(html)}
+          srcDoc={preparePreviewHtml(html)}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
           title={`${name} preview`}
@@ -215,16 +216,4 @@ export function AppPreviewThumbnail({
   );
 }
 
-/**
- * Inject a small style block that hides scrollbars inside the iframe.
- * Belt-and-suspenders alongside the deprecated `scrolling="no"` attribute,
- * since `scrolling="no"` is ignored in some modern engines.
- */
-const HIDE_SCROLLBARS_STYLE =
-  "<style>html,body{overflow:hidden!important;scrollbar-width:none!important;}::-webkit-scrollbar{display:none!important;}</style>";
 
-function withHiddenScrollbars(html: string): string {
-  if (html.includes("</head>")) return html.replace("</head>", HIDE_SCROLLBARS_STYLE + "</head>");
-  if (html.includes("<body")) return html.replace("<body", HIDE_SCROLLBARS_STYLE + "<body");
-  return HIDE_SCROLLBARS_STYLE + html;
-}

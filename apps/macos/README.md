@@ -17,22 +17,63 @@ Code signing, notarization, and auto-update wiring live in follow-up tickets.
 ## Prerequisites
 
 - Bun (see `.tool-versions` at the repo root)
-- The web dev server must be running before `bun run dev` here:
 
-  ```sh
-  cd ../web && bun install && bun run dev
-  ```
-
-  That serves the renderer on `http://localhost:5173`, which Electron loads
-  in development.
+That's it — `bun run dev` and `bun run dev:electron-only` both run
+`bun install` for you on first launch (and verify on subsequent runs,
+which is a fast no-op when the lockfile already matches).
 
 ## How it runs
 
-- **Dev** — Electron loads `http://localhost:5173` directly. Hot reload comes
-  from Vite in `apps/web/`.
-- **Prod** — A custom `app://vellum.ai/` protocol serves the static
-  `apps/web/dist/` bundle. Same-origin policy treats `app://` as a secure
-  standard scheme.
+`bun run dev` is the one command. On launch it probes
+`http://localhost:3000` (the URL Swift Vellum hits — `vel up`'s edge
+proxy) with a 1.5s timeout and picks one of two paths:
+
+1. **vel up is running** → dispatches to `dev:electron-only` with
+   `VELLUM_DEV_URL=http://localhost:3000`. No Vite is spawned here; the
+   Electron BrowserWindow loads the edge proxy URL and reuses vel's
+   backends (Django, gateway, daemon) the same way Swift Vellum does
+   today. This is the common case once you have `vel up` going.
+
+2. **No vel up** → dispatches to `dev:standalone`, which uses
+   [`concurrently`](https://github.com/open-cli-tools/concurrently) to
+   run two children in parallel:
+   - `dev:web` → `cd ../web && bun run dev -- --port 5173 --strictPort`.
+     Going through `apps/web`'s own `dev` script means we use *its*
+     local Vite (8.x) and plugin tree, not whatever older Vite happens
+     to live in `apps/macos/node_modules`. Pinning the port via the
+     Vite CLI overrides `apps/web/.env` if `PORT` is set there.
+   - `dev:electron` → [`wait-on`](https://github.com/jeffbski/wait-on)
+     polls `:5173` (30s timeout), then runs `electron-vite dev` against
+     it. The wait avoids Electron racing the renderer.
+
+   `concurrently --kill-others` tears both down on Ctrl+C or on either
+   child exiting. Logs are prefixed and color-coded (`[web]` blue,
+   `[electron]` green). Standalone mode has no backends, so renderer
+   API calls will fail — useful for shell-only work (menus, IPC, window
+   chrome), not for feature development against the real stack.
+
+The main-process URL choice lives in `src/main/index.ts`:
+`process.env.VELLUM_DEV_URL ?? "http://localhost:5173"`. Override the
+env var yourself (e.g., `VELLUM_DEV_URL=http://localhost:3002 bun run
+dev:electron-only`) if you need to point at a non-default service.
+
+The app shows up as **Vellum Electron** in the menu bar and Dock
+(via `app.setName`, gated to `!app.isPackaged` in `src/main/index.ts`),
+and writes preferences / electron-store data under
+`~/Library/Application Support/Vellum Electron/`. That keeps it cleanly
+separate from the Swift `Vellum.app`, `Vellum Local.app`, and
+`Vellum Dev.app` installs — running this locally won't clobber
+whichever Swift channel you have around.
+
+You don't have to ship a DMG to try it. Packaging (DMG, signing,
+notarization, auto-update) lands in follow-up tickets once we actually
+need a distributable artifact.
+
+- **Dev (vel up)** — Electron loads `http://localhost:3000` (edge proxy).
+- **Dev (standalone)** — Electron loads `http://localhost:5173` (our Vite).
+- **Prod (future)** — A custom `app://vellum.ai/` protocol serves the
+  static `apps/web/dist/` bundle. Same-origin policy treats `app://` as
+  a secure standard scheme.
 - **Assistant process** — The main process spawns the bundled assistant
   binary at `process.resourcesPath/bun` (invoked with the `daemon` subcommand
   the binary itself exposes). If it exits, it restarts with exponential
@@ -42,14 +83,30 @@ Code signing, notarization, and auto-update wiring live in follow-up tickets.
   logged but does not retry — expected in local dev where the assistant
   isn't bundled yet.
 
+## Native macOS integration
+
+- **Application menu** (`src/main/menu.ts`). Installs a standard macOS menu
+  bar with `Vellum`, `File`, `Edit`, `View`, `Window`, and `Help` submenus.
+  Most items are role-based so they work without renderer IPC; the `File`
+  items dispatch through the typed command bus in `src/main/commands.ts`,
+  which broadcasts to the focused window's renderer via a single
+  `vellum:command` IPC channel (subscribed to by `useVellumCommands` in
+  `apps/web/src/runtime/vellum-commands.ts`). Accelerators are read from
+  `settings.hotkeys.<kind>` with defaults from `DEFAULT_ACCELERATORS`.
+  `View > Toggle Developer Tools` is gated to dev builds only so the
+  packaged build doesn't expose devtools to end users.
+
 ## Scripts
 
 ```sh
-bun install
-bun run dev        # electron-vite dev — opens the BrowserWindow
-bun run build      # electron-vite build — bundles main + preload to out/
-bun run dist       # electron-builder — produces a DMG (signing/notarization TBD)
-bun run typecheck  # tsc --noEmit
+bun run dev                # probe vel-up at :3000, dispatch to dev:electron-only or dev:standalone
+bun run dev:standalone     # explicit: spawn our Vite (:5173) + electron-vite dev (no backends)
+bun run dev:electron-only  # explicit: electron-vite dev only, honors $VELLUM_DEV_URL (default :5173)
+bun run install:all        # bun install in apps/macos and apps/web (called automatically by dev)
+bun run dev:web            # apps/web Vite (port 5173, strict) — invoked by dev:standalone
+bun run dev:electron       # wait-on :5173 then electron-vite dev — invoked by dev:standalone
+bun run build              # electron-vite build — bundles main + preload to out/
+bun run typecheck          # tsc --noEmit
 ```
 
 ## Layout
@@ -57,9 +114,13 @@ bun run typecheck  # tsc --noEmit
 ```
 apps/macos/
 ├── electron.vite.config.ts   # main + preload Vite entries (no renderer)
+├── scripts/
+│   └── dev.ts                # probes vel-up at :3000, dispatches to standalone or electron-only
 ├── src/
 │   ├── main/index.ts         # window creation, app://, assistant supervisor
+│   ├── main/commands.ts      # typed command bus + accelerator resolver
 │   ├── main/settings.ts      # electron-store schema + IPC-backed accessors
+│   ├── main/menu.ts          # macOS application menu
 │   └── preload/index.ts      # contextBridge: window.vellum.*
 └── tsconfig.json
 ```
@@ -73,6 +134,12 @@ The preload script exposes a typed `window.vellum` API to the renderer:
   backed by `electron-store` in the main process. Writes are validated against
   a JSON schema (`hotkeys`, `theme`, `featureFlags`); a schema violation
   surfaces as a rejected `Promise`.
+- `commands.on(callback)` — subscribe to main-process commands dispatched
+  by the application menu (and, eventually, global hotkeys). Returns an
+  unsubscribe function. The renderer-side wrapper is
+  [`apps/web/src/runtime/vellum-commands.ts`](../web/src/runtime/vellum-commands.ts);
+  feature code mounts the `useVellumCommands` hook with a partial handler
+  map at whichever component owns the relevant state.
 - `auth.*` and `helper.*` — typed stubs that reject with "not implemented yet"
   until the corresponding feature tickets land.
 

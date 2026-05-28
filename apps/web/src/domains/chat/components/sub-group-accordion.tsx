@@ -2,9 +2,8 @@ import type { ReactNode } from "react";
 
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
 import { PanelItem, SideMenu } from "@vellum/design-library";
-import type { Conversation } from "@/lib/conversations-api";
+import type { Conversation } from "@/types/conversation-types";
 import type { SubGroup } from "@/domains/chat/utils/sub-group-utils";
-import { countBadge } from "@/domains/chat/components/sidebar-count-badge";
 
 // ---------------------------------------------------------------------------
 // SubGroupAccordion — shared sub-accordion for Background + Scheduled
@@ -62,7 +61,6 @@ export function SubGroupAccordion({
             <CollapsibleNavSection.Section
               value={group.key}
               label={group.label}
-              trailing={countBadge(group.conversations.length)}
             >
               <SideMenu.SubList>
                 {group.conversations.map((c) =>

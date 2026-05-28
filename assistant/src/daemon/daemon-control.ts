@@ -33,7 +33,7 @@ const DAEMON_TIMEOUT_DEFAULTS = {
 };
 
 const HEALTH_CHECK_TIMEOUT_MS = 1500;
-const STARTUP_LOCK_STALE_MS = 30_000;
+const STARTUP_LOCK_STALE_MS = 120_000;
 
 function isPositiveInteger(v: unknown): v is number {
   return typeof v === "number" && Number.isInteger(v) && v > 0;

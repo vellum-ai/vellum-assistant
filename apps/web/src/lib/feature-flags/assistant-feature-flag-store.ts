@@ -56,8 +56,9 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
         }),
 
       setFlag: (key: string, value: boolean, assistantId: string | null) => {
-        set({ [key]: value });
-
+        // Fire the PATCH before updating local state: the platform-features
+        // interceptor reads this store synchronously, so toggling
+        // platformFeaturesInLocalMode OFF would block its own request.
         const flagKey = storeKeyToFlagKey(key);
         if (assistantId && flagKey) {
           void client.patch({
@@ -66,6 +67,8 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
             throwOnError: false,
           } as Parameters<typeof client.patch>[0]);
         }
+
+        set({ [key]: value });
       },
 
       markHydrated: () => set({ hasHydrated: true }),

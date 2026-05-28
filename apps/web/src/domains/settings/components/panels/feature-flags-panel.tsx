@@ -16,10 +16,8 @@ import {
   type SingleScope,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
-import {
-  assistantFlagValuesQueryKey,
-  fetchAssistantFlagValues,
-} from "@/lib/feature-flags/use-assistant-feature-flag-sync";
+import { fetchAssistantFlagValues } from "@/lib/feature-flags/use-assistant-feature-flag-sync";
+import { assistantFlagValuesQueryKey } from "@/lib/sync/query-tags";
 
 const SCOPE_TONE: Record<SingleScope, TagTone> = {
   client: "warning",

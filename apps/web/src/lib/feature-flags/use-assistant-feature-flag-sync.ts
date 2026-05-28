@@ -9,6 +9,7 @@ import {
   flagKeyToStoreKey,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
+import { assistantFlagValuesQueryKey } from "@/lib/sync/query-tags";
 
 interface FeatureFlagEntry {
   key: string;
@@ -23,16 +24,6 @@ interface AssistantFlagValuesResponse {
 }
 
 const VALID_KEYS = new Set(Object.keys(ASSISTANT_FLAG_DEFAULTS));
-
-export const ASSISTANT_FLAG_VALUES_QUERY_KEY = "assistant-feature-flag-values" as const;
-
-/**
- * Shared so the Developer panel can layer a same-key observer on the
- * exact same query and let TanStack Query dedupe the fetch.
- */
-export function assistantFlagValuesQueryKey(assistantId: string | null) {
-  return [ASSISTANT_FLAG_VALUES_QUERY_KEY, assistantId] as const;
-}
 
 function mapFlags(
   entries: FeatureFlagEntry[],

@@ -4,11 +4,18 @@
  * These functions are consumed by the auth store (logout), settings
  * (retire assistant, debug controls), and are extracted here so domain
  * code doesn't reach into `domains/onboarding/` directly.
+ *
+ * Clears localStorage keys directly rather than going through the Zustand
+ * store — all callers (logout, retire) navigate away immediately, so the
+ * in-memory store state is irrelevant and reinitializes from localStorage
+ * on the next page load.
  */
 import { removeLocalSetting } from "@/lib/local-settings";
 import { getDeviceSetting, setDeviceSetting } from "@/lib/device-settings";
-import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
+export const KEY_TOS_ACCEPTED = "onboarding.tosAccepted";
+export const KEY_AI_DATA_CONSENT = "onboarding.aiDataConsent";
+export const KEY_COMPLETED = "onboarding.completed";
 const KEY_SELECTED_VERSION = "onboarding.selectedVersion";
 
 /**
@@ -23,7 +30,9 @@ const KEY_SELECTED_VERSION = "onboarding.selectedVersion";
  * Safe to call during SSR (no-op) and safe to call when keys are absent.
  */
 export function clearOnboardingFlags(): void {
-  useOnboardingStore.getState().resetOnboardingFlags();
+  removeLocalSetting(KEY_TOS_ACCEPTED);
+  removeLocalSetting(KEY_AI_DATA_CONSENT);
+  removeLocalSetting(KEY_COMPLETED);
   removeLocalSetting(KEY_SELECTED_VERSION);
 }
 
@@ -50,8 +59,7 @@ export function syncOnboardingUser(userId: string | null): void {
   try {
     const stored = getDeviceSetting("lastUserId", "");
     if (stored === userId) return;
-    useOnboardingStore.getState().resetOnboardingFlags();
-    removeLocalSetting(KEY_SELECTED_VERSION);
+    clearOnboardingFlags();
     setDeviceSetting("lastUserId", userId);
   } catch {
     // Storage unavailable — nothing to reconcile.

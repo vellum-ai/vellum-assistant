@@ -16,13 +16,29 @@ public func wasExpected(approvalMode: String?, riskLevel: String?, riskThreshold
 
 /// Returns the inline provenance suffix to append to the risk badge label, or nil
 /// when no provenance should be shown (expected outcome or missing fields).
+///
+/// For `sandbox_auto_approve`, returns nil — the Workspace chip now communicates
+/// this provenance visually, so inline text is redundant.
 public func approvalProvenanceText(approvalReason: String?) -> String? {
     switch approvalReason {
     case "trust_rule_allowed":    return "· Auto-approved · Trust rule matched"
-    case "sandbox_auto_approve":  return "· Auto-approved · Sandboxed workspace"
+    case "sandbox_auto_approve":  return nil
     case "platform_auto_approve": return "· Auto-approved · Platform session"
     // "no_interactive_client" has approvalMode "blocked", so wasExpected always
     // returns true for it — the call site never reaches here for that reason.
     default:                      return nil
     }
+}
+
+/// Determines the display risk level and inherent risk for rendering.
+///
+/// For sandbox-auto-approved tool calls, returns `"workspace"` as the display level
+/// so `RiskBadgeView` renders the muted Workspace chip, and preserves the original
+/// risk level as `inherentRisk` for tooltip display. For all other cases, passes
+/// through the original risk level unchanged.
+public func effectiveRiskDisplay(approvalReason: String?, riskLevel: String?) -> (displayLevel: String, inherentRisk: String?) {
+    if approvalReason == "sandbox_auto_approve" {
+        return (displayLevel: "workspace", inherentRisk: riskLevel)
+    }
+    return (displayLevel: riskLevel ?? "unknown", inherentRisk: nil)
 }

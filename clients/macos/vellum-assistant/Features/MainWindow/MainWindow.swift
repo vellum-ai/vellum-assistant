@@ -1,7 +1,10 @@
 import AppKit
 import Combine
+import os
 import VellumAssistantShared
 import SwiftUI
+
+private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "MainWindow")
 
 /// Delegate that intercepts the window close button to hide the window
 /// instead of closing it, keeping the app running in the dock + menu bar.
@@ -415,6 +418,18 @@ public final class MainWindow {
     }
 
     func handleDocumentEditorUpdate(_ msg: DocumentEditorUpdateMessage) {
+        // Safety: only apply when the message targets the currently-active document.
+        // Otherwise we'd mutate `currentContent` for an unrelated doc and the
+        // subsequent autoSave would persistently corrupt it on the daemon.
+        // (The active surface may not match the message — e.g. when the dedupe
+        // path in maybeReuseEmptyDocument fires for an empty draft the user has
+        // already navigated away from. In that case the daemon has the right
+        // content; the user just won't see it surface in the editor until they
+        // reopen the doc.)
+        guard documentManager.surfaceId == msg.surfaceId else {
+            log.info("Ignoring document_editor_update for surface \(msg.surfaceId) (active surface is \(self.documentManager.surfaceId ?? "nil"))")
+            return
+        }
         documentManager.updateDocument(markdown: msg.markdown, mode: msg.mode)
     }
 

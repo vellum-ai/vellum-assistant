@@ -10,6 +10,7 @@
 
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyResultAsync } from "../security/secure-keys.js";
+import { getTelegramBotUsername } from "../telegram/bot-username.js";
 import { getLogger } from "../util/logger.js";
 import {
   createConnection,
@@ -23,6 +24,44 @@ const log = getLogger("manual-token-connection");
 
 /** Sentinel client_id used for non-OAuth providers that don't have a real app. */
 const MANUAL_TOKEN_CLIENT_ID = "manual-config";
+
+type ResolvedAccountInfoSource = "provided" | "derived" | "none";
+
+interface ResolvedAccountInfo {
+  value?: string;
+  source: ResolvedAccountInfoSource;
+}
+
+function resolveManualTokenAccountInfo(
+  provider: string,
+  accountInfo?: string,
+): ResolvedAccountInfo {
+  if (accountInfo !== undefined) {
+    return { value: accountInfo, source: "provided" };
+  }
+
+  if (provider === "telegram") {
+    const botUsername = getTelegramBotUsername();
+    if (!botUsername) return { source: "none" };
+    return {
+      value: botUsername.startsWith("@") ? botUsername : `@${botUsername}`,
+      source: "derived",
+    };
+  }
+
+  return { source: "none" };
+}
+
+function accountInfoForManualTokenSync(
+  provider: string,
+  resolved: ResolvedAccountInfo,
+): string | undefined {
+  if (resolved.source !== "derived") return resolved.value;
+
+  const existing = getConnectionByProvider(provider);
+  if (existing?.accountInfo) return undefined;
+  return resolved.value;
+}
 
 /**
  * Ensure an active oauth_connection row exists for the given manual-token
@@ -79,6 +118,15 @@ export async function syncManualTokenConnection(
   provider: string,
   accountInfo?: string,
 ): Promise<void> {
+  const resolvedAccountInfo = resolveManualTokenAccountInfo(
+    provider,
+    accountInfo,
+  );
+  const accountInfoToStore = accountInfoForManualTokenSync(
+    provider,
+    resolvedAccountInfo,
+  );
+
   switch (provider) {
     case "telegram": {
       const botTokenResult = await getSecureKeyResultAsync(
@@ -94,7 +142,7 @@ export async function syncManualTokenConnection(
         return;
       }
       if (botTokenResult.value && webhookSecretResult.value) {
-        await ensureManualTokenConnection(provider, accountInfo);
+        await ensureManualTokenConnection(provider, accountInfoToStore);
       } else {
         removeManualTokenConnection(provider);
       }
@@ -115,7 +163,7 @@ export async function syncManualTokenConnection(
         return;
       }
       if (botTokenResult.value && appTokenResult.value) {
-        await ensureManualTokenConnection(provider, accountInfo);
+        await ensureManualTokenConnection(provider, accountInfoToStore);
       } else {
         removeManualTokenConnection(provider);
       }
@@ -133,7 +181,7 @@ export async function syncManualTokenConnection(
         return;
       }
       if (tokenResult.value) {
-        await ensureManualTokenConnection(provider, accountInfo);
+        await ensureManualTokenConnection(provider, accountInfoToStore);
       } else {
         removeManualTokenConnection(provider);
       }

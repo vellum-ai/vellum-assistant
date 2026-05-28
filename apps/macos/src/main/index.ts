@@ -4,10 +4,51 @@ import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
-import { readSetting, writeSetting } from "./settings.js";
+import { installApplicationMenu } from "./menu";
+import { readSetting, writeSetting } from "./settings";
 
-const DEV_SERVER_URL = "http://localhost:5173";
+// Dev-mode renderer URL. Honors `VELLUM_DEV_URL` so the launcher can
+// point the BrowserWindow at whichever Vite-or-equivalent is actually
+// up:
+//
+//   - Standalone `bun run dev` → unset, falls back to localhost:5173
+//     (our own Vite, spawned by `dev:standalone`).
+//   - `bun run dev` while `vel up` is running → the probe shim sets it
+//     to `http://localhost:3000` (the edge proxy that Swift Vellum also
+//     hits), so the renderer is same-origin with the running backends.
+//   - Future `vel up electron` → vel sets it directly when spawning us.
+//
+// The port-5173 fallback agrees with `dev:web` in package.json, which
+// passes `--port 5173 --strictPort` so apps/web's `.env` defaults can't
+// silently move it.
+const DEV_SERVER_URL = process.env.VELLUM_DEV_URL ?? "http://localhost:5173";
 const DEV_SERVER_ORIGIN = new URL(DEV_SERVER_URL).origin;
+
+// Dev-only: override the workspace `name` (`@vellumai/macos`) so the
+// menu bar's first submenu reads "Vellum Electron", and — more
+// importantly — so `app.getPath("userData")` resolves to
+// `~/Library/Application Support/Vellum Electron/`, cleanly separate
+// from the Swift `Vellum.app` / `Vellum Local.app` / `Vellum Dev.app`
+// installs the developer may also be running.
+//
+// Caveat: `app.setName()` does NOT change the Dock / Cmd-Tab label.
+// Those come from the running binary's `CFBundleName` — in dev the
+// binary is `node_modules/electron/dist/Electron.app`, so the Dock
+// says "Electron". That's cosmetic and acceptable for dev runs; the
+// userData split is what actually prevents collision with Swift
+// installs. Packaged builds get a real `productName` via
+// electron-builder (LUM-1987), which writes CFBundleName, at which
+// point Dock / Cmd-Tab pick up the real name too.
+//
+// Gated on `!app.isPackaged` so a packaged build keeps its
+// electron-builder-derived `CFBundleName` instead of being overridden
+// at runtime. Must run before `app.getPath("userData")` is first read;
+// the electron-store instance in `./settings` is constructed lazily on
+// first IPC call, so this timing holds as long as `app.setName` runs
+// before `app.whenReady`.
+if (!app.isPackaged) {
+  app.setName("Vellum Electron");
+}
 const APP_PROTOCOL = "app";
 const APP_HOST = "vellum.ai";
 
@@ -271,6 +312,7 @@ app
     }
     installPermissionHandler();
     installSettingsIpc();
+    installApplicationMenu();
     spawnDaemon();
     createWindow();
 

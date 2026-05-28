@@ -74,6 +74,7 @@ import {
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { registerSecretsDeps } from "../runtime/routes/secrets-deps.js";
+import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
 import {
@@ -1019,6 +1020,7 @@ export async function runDaemon(): Promise<void> {
           scheduleJobId: info.scheduleJobId,
           title: info.title,
         });
+        publishConversationListChanged("created");
       },
     );
 
@@ -1083,7 +1085,7 @@ export async function runDaemon(): Promise<void> {
           // its own finally block.
           conversation.toolsDisabledDepth++;
           try {
-            const messageId = await conversation.persistUserMessage(
+            const { id: messageId } = await conversation.persistUserMessage(
               instruction,
               [],
               undefined,
