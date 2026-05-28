@@ -257,3 +257,81 @@ describe("document tool security", () => {
     expect(getDocumentById("doc-current")).toBeNull();
   });
 });
+
+describe("executeDocumentUpdate — input validation", () => {
+  beforeEach(() => {
+    bootstrapDocumentTables();
+    seedFixtureDocuments();
+  });
+
+  test("returns Invalid input when surface_id is missing", () => {
+    const result = executeDocumentUpdate({}, makeContext());
+    expect(result.isError).toBe(true);
+    const body = parseResult<{ error: string }>(result);
+    expect(body.error).toContain("Invalid input: surface_id is required");
+    expect(body.error).not.toContain("Document not found");
+  });
+
+  test("returns Invalid input when content is missing", () => {
+    const result = executeDocumentUpdate(
+      { surface_id: "doc-x" },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    const body = parseResult<{ error: string }>(result);
+    expect(body.error).toBe(
+      "Invalid input: content is required and must be a string",
+    );
+  });
+
+  test("allows empty string content (falls through to access check)", () => {
+    const result = executeDocumentUpdate(
+      { surface_id: "doc-x", content: "" },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    const body = parseResult<{ error: string }>(result);
+    // Did NOT fail input validation; fell through to access/not-found path.
+    expect(body.error).toBe("Document not found");
+  });
+
+  test("returns Invalid input when mode is not replace or append", () => {
+    const result = executeDocumentUpdate(
+      { surface_id: "doc-x", content: "hi", mode: "bogus" },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    const body = parseResult<{ error: string }>(result);
+    expect(body.error).toBe(
+      'Invalid input: mode must be "replace" or "append"',
+    );
+  });
+
+  test("treats mode: null the same as undefined (factory validator accepts both)", () => {
+    // validateInputAgainstSchema treats null as "absent" for enum checks, so
+    // the executor must agree — { mode: null } should fall through to the
+    // access check, not return a confusing 'mode must be ...' error.
+    const result = executeDocumentUpdate(
+      { surface_id: "doc-x", content: "hi", mode: null },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    const body = parseResult<{ error: string }>(result);
+    expect(body.error).not.toContain("Invalid input: mode");
+    expect(body.error).toBe("Document not found");
+  });
+
+  test("executeDocumentRead returns Invalid input when surface_id is missing", () => {
+    const result = executeDocumentRead({}, makeContext());
+    expect(result.isError).toBe(true);
+    const body = parseResult<{ error: string }>(result);
+    expect(body.error).toContain("Invalid input: surface_id is required");
+  });
+
+  test("executeDocumentDelete returns Invalid input when surface_id is missing", () => {
+    const result = executeDocumentDelete({}, makeContext());
+    expect(result.isError).toBe(true);
+    const body = parseResult<{ error: string }>(result);
+    expect(body.error).toContain("Invalid input: surface_id is required");
+  });
+});
