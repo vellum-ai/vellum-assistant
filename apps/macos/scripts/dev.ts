@@ -40,6 +40,13 @@ let shuttingDown = false;
  * tracked procs list. The optional `env` is merged onto `process.env` so
  * callers only specify overrides.
  *
+ * `detached: true` puts the child in its own process group via `setsid(2)`
+ * so we can signal the whole subtree at teardown — `bun run dev` /
+ * `bunx electron-vite dev` are wrapper processes; the real Vite and
+ * Electron processes are descendants that would otherwise survive when we
+ * SIGTERM only the wrapper (Bun's `run.noOrphans` would handle this too,
+ * but it's a bunfig.toml setting we don't control from here).
+ *
  * Any child exiting while we're not already shutting down triggers a
  * coordinated teardown.
  */
@@ -55,6 +62,7 @@ function start(
     cwd,
     stdio: ["ignore", "pipe", "pipe"],
     env: { ...process.env, ...env },
+    detached: true,
   });
   child.stdout?.on("data", (b: Buffer) =>
     process.stdout.write(`[${name}] ${b}`),
@@ -74,21 +82,49 @@ function start(
 }
 
 /**
- * Coordinated teardown. Sends SIGTERM to anything still running, then
- * escalates to SIGKILL after the grace window so a stuck child can't
- * keep the launcher alive. `child.killed` only tracks whether a signal
- * was *sent*, not whether the child has exited, so we check
- * `exitCode === null` to determine "still running" instead.
+ * Send a signal to a child's entire process group (negative pid). The
+ * child was spawned with `detached: true`, so `process.kill(-pid, ...)`
+ * reaches every descendant — Vite/Electron sitting under the `bun run` /
+ * `bunx` wrapper. Falls back to signalling the leader directly if the
+ * group is already gone (ESRCH).
+ *
+ * No-op if the child already exited.
+ */
+function signalProcessGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (child.pid == null || child.exitCode !== null) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ESRCH") return;
+    try {
+      child.kill(signal);
+    } catch {
+      // Ignore — race between exit and signal.
+    }
+  }
+}
+
+/**
+ * Coordinated teardown. Sends SIGTERM to every child's process group,
+ * then escalates to SIGKILL after the grace window so a stuck descendant
+ * can't keep the launcher alive.
+ *
+ * Sets `process.exitCode` *before* unref'ing the escalation timer: once
+ * the kills go out and the child exits, the only ref'd handle keeping
+ * the event loop alive may be gone, and Node will exit naturally. If
+ * `exitCode` weren't set first, that natural exit would report `0` and
+ * make a failed startup look like success to `vel up --electron`.
  */
 function shutdown(exitCode: number): void {
   if (shuttingDown) return;
   shuttingDown = true;
+  process.exitCode = exitCode;
   for (const { child } of procs) {
-    if (child.exitCode === null) child.kill("SIGTERM");
+    signalProcessGroup(child, "SIGTERM");
   }
   setTimeout(() => {
     for (const { child } of procs) {
-      if (child.exitCode === null) child.kill("SIGKILL");
+      signalProcessGroup(child, "SIGKILL");
     }
     process.exit(exitCode);
   }, SHUTDOWN_GRACE_MS).unref();
