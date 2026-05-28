@@ -614,6 +614,73 @@ describe("VellumAgent", () => {
     );
   });
 
+  test("newConversation kills the cached events process and the next events() respawns against the new conversation key", async () => {
+    // Regression guard for the two-conversation SSE caching bug
+    // (see vellum.ts → `events()` + `newConversation()`).
+    //
+    // Before the fix:
+    //   - events() memoized the spawned process by setting
+    //     `this.eventsProcess ??= ...` against the ingest
+    //     conversation key
+    //   - newConversation() rotated `this.conversationKey` but never
+    //     touched `eventsProcess`
+    //   - the second events() call returned the cached iterable, still
+    //     bound to the ingest process, so `runIngestAsk`'s question
+    //     turn drained the WRONG conversation's stream and timed out
+    //     with "zero events"
+    //
+    // The fix invalidates the cache; this test pins both halves
+    // (cached process killed + new spawn observed) to a unit-level
+    // assertion so a future refactor can't silently regress.
+    const runner = new FakeRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "lme-v2",
+      runId: "eval-events-rotation",
+    });
+    await agent.hatch();
+
+    const ingestKey = agent.conversationKey;
+
+    // Subscribe to events for conversation A. We don't iterate — the
+    // assertions below operate on the spawn record and the cached
+    // process flag, not on consumed stream values.
+    agent.events();
+    expect(runner.spawns.at(-1)?.args).toEqual([
+      "events",
+      "eval-events-rotation",
+      "--conversation-key",
+      ingestKey,
+      "--json",
+    ]);
+    const ingestProcess = runner.process;
+    expect(ingestProcess.killed).toBe(false);
+    const spawnsBeforeRotate = runner.spawns.length;
+
+    // Rotate. The contract this test is enforcing: a successful
+    // newConversation() MUST kill the cached events process AND
+    // clear the slot, so the next events() call respawns against the
+    // rotated key.
+    await agent.newConversation!();
+    const questionKey = agent.conversationKey;
+    expect(questionKey).not.toBe(ingestKey);
+    expect(ingestProcess.killed).toBe(true);
+
+    // Subscribe again — should spawn a fresh process bound to the new
+    // key. The shared FakeProcess instance is reused, but the spawn
+    // record is what we care about.
+    agent.events();
+    expect(runner.spawns.length).toBe(spawnsBeforeRotate + 1);
+    expect(runner.spawns.at(-1)?.args).toEqual([
+      "events",
+      "eval-events-rotation",
+      "--conversation-key",
+      questionKey,
+      "--json",
+    ]);
+  });
+
   test("newConversation throws when the agent has not been hatched", async () => {
     const runner = new FakeRunner();
     const agent = new VellumAgent({

@@ -513,6 +513,17 @@ export class VellumAgent implements BaseAgent {
    * Invokes `assistant conversations new` (no `--content-file`) inside
    * the container via `vellum exec`. Parses the generated conversation
    * key from stdout and updates `this.conversationKey`.
+   *
+   * Also kills + clears the cached `events()` subprocess. `events()`
+   * memoizes the spawned `vellum events --conversation-key …` process
+   * (so repeated calls share one SSE stream), but that process is
+   * bound to the conversation key it was *started* with — bumping
+   * `this.conversationKey` here without invalidating the cache would
+   * leave the next `events()` caller reading the prior conversation's
+   * stream. `runIngestAsk` exercises exactly this sequence: subscribe
+   * to A → drain → `newConversation()` → subscribe to B → drain.
+   * Without the invalidation the B subscription silently re-reads the
+   * A stream and the question turn looks like "zero events".
    */
   async newConversation(): Promise<void> {
     this.assertHatched();
@@ -532,6 +543,12 @@ export class VellumAgent implements BaseAgent {
       );
     }
     this.conversationKey = conversationKey;
+
+    // Drop the events-process cache so the next `events()` call
+    // respawns against the rotated key. Safe even if `events()` was
+    // never called — `?.kill()` and `= undefined` are no-ops.
+    this.eventsProcess?.kill();
+    this.eventsProcess = undefined;
   }
 
   events(): AsyncIterable<AgentEvent> {

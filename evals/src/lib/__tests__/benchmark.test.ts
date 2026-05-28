@@ -40,6 +40,54 @@ describe("loadBenchmark", () => {
     expect(benchmark.unitsDir).toBe(join(dir, "longmemeval-v2", "items"));
   });
 
+  test("attaches a run function discovered at benchmarks/<id>/src/run.ts", async () => {
+    // The benchmark module's run.ts is resolved relative to the
+    // evals source tree (NOT EVALS_BENCHMARKS_DIR — the env var only
+    // controls manifest + unit data layout). We verify the wiring
+    // for the two real benchmarks; the test asserts the contract
+    // (typeof === "function") rather than calling run() since that
+    // would require a full hatched profile.
+    const dir = await mkdtemp(join(tmpdir(), "evals-benchmarks-"));
+    process.env.EVALS_BENCHMARKS_DIR = dir;
+
+    for (const id of ["longmemeval-v2", "personal-intelligence"]) {
+      const unitDirName = id === "longmemeval-v2" ? "items" : "tests";
+      const unitNoun = id === "longmemeval-v2" ? "item" : "test";
+      await mkdir(join(dir, id, unitDirName), { recursive: true });
+      await writeFile(
+        join(dir, id, "manifest.json"),
+        JSON.stringify({ displayName: id, unitDirName, unitNoun }),
+        "utf8",
+      );
+
+      const benchmark = await loadBenchmark(id);
+      expect(typeof benchmark.run).toBe("function");
+    }
+  });
+
+  test("reports a missing run module with the expected convention path", async () => {
+    // A benchmark id valid by the SAFE_ID regex and with a present
+    // manifest, but no `src/run.ts` at the conventional location in
+    // the evals source tree, must surface a clear, conventional
+    // error pointing at the file the operator needs to create.
+    const dir = await mkdtemp(join(tmpdir(), "evals-benchmarks-"));
+    process.env.EVALS_BENCHMARKS_DIR = dir;
+    await mkdir(join(dir, "ghost-benchmark", "items"), { recursive: true });
+    await writeFile(
+      join(dir, "ghost-benchmark", "manifest.json"),
+      JSON.stringify({
+        displayName: "Ghost",
+        unitDirName: "items",
+        unitNoun: "item",
+      }),
+      "utf8",
+    );
+
+    await expect(loadBenchmark("ghost-benchmark")).rejects.toThrow(
+      /missing a run module at benchmarks\/ghost-benchmark\/src\/run\.ts/,
+    );
+  });
+
   test("rejects ids that escape the benchmarks directory", async () => {
     const dir = await mkdtemp(join(tmpdir(), "evals-benchmarks-"));
     process.env.EVALS_BENCHMARKS_DIR = dir;
