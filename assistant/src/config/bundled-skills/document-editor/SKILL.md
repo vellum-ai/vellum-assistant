@@ -39,9 +39,13 @@ When the user asks to see, open, or pull up a document:
 
 ## Creating a new document
 
-1. **Create the document**: Call `document_create` with a title (inferred from the request). Call the tool immediately, not after conversational preamble.
+1. **Create the document**: Call `document_create` with a title (inferred from the request). Call the tool immediately, not after conversational preamble. Capture the `surface_id` from the response — every subsequent `document_update` call must reference it.
 2. **Write content in Markdown**: Use proper structure (`#` for titles, `##` for sections), **bold**, _italic_, code blocks, tables, lists, blockquotes as appropriate.
 3. **CRITICAL - Stream content in chunks**: Call `document_update` MULTIPLE times, not just once. Break content into logical chunks (paragraphs, sections, or every 200-300 words). Call `document_update` with `mode: "append"` for EACH chunk separately. The user experiences real-time content appearing as you write.
+
+### Recovering from a failed update
+
+If a `document_update` call fails with an `Invalid input` error (for example because `surface_id` was missing), do NOT call `document_create` again. The `surface_id` you need is in the tool result of the most recent `document_create` call in this turn. Retry `document_update` with that `surface_id` and the same content. Creating a second document with the same title produces a duplicate for the user.
 
 ## Editing an existing document
 

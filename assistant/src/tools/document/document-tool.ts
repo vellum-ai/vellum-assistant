@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  addDocumentConversation,
   deleteDocument,
   findInDocument,
+  findRecentEmptyDocumentByTitle,
   getDocumentById,
   getDocumentsForConversation,
   isDocumentAssociatedWithConversation,
@@ -40,13 +42,36 @@ export function canAccessDocument(
   );
 }
 
+function invalidInput(message: string): ToolExecutionResult {
+  return {
+    content: JSON.stringify({
+      success: false,
+      error: `Invalid input: ${message}`,
+    }),
+    isError: true,
+  };
+}
+
+function validateSurfaceId(
+  input: Record<string, unknown>,
+): ToolExecutionResult | string {
+  if (typeof input.surface_id !== "string" || input.surface_id.trim() === "") {
+    return invalidInput(
+      "surface_id is required and must be a non-empty string",
+    );
+  }
+  return input.surface_id;
+}
+
 // ── Exported execute functions ──────────────────────────────────────
 
 export function executeDocumentOpen(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
+  const surfaceIdOrError = validateSurfaceId(input);
+  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  const surfaceId = surfaceIdOrError;
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
   }
@@ -101,12 +126,87 @@ export function executeDocumentOpen(
   };
 }
 
+const EMPTY_DOCUMENT_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * If the model just created an empty same-title document in this conversation
+ * and is now creating a second one with real content, reuse the first row
+ * instead of producing a duplicate. Returns `null` when no dedupe applies.
+ *
+ * Only triggers when `initialContent` is non-empty — an empty incoming create
+ * likely means the model intends a fresh blank doc.
+ */
+function maybeReuseEmptyDocument(
+  title: string,
+  initialContent: string,
+  context: ToolContext,
+): ToolExecutionResult | null {
+  if (initialContent.length === 0) return null;
+  const existing = findRecentEmptyDocumentByTitle(
+    context.conversationId,
+    title,
+    EMPTY_DOCUMENT_DEDUPE_WINDOW_MS,
+  );
+  if (!existing) return null;
+
+  const surfaceId = existing.surfaceId;
+  const update = updateDocumentContent(surfaceId, initialContent, "replace");
+  if (!update.success) return null;
+
+  // Defensive idempotent insert (saveDocument from the create-new path already
+  // ran addDocumentConversation; INSERT OR IGNORE makes this a safe no-op).
+  addDocumentConversation(surfaceId, context.conversationId);
+
+  if (context.sendToClient) {
+    // Use document_editor_update — not document_editor_show — because the
+    // empty draft is typically still OPEN on the macOS client. A *_show on an
+    // open doc triggers DocumentManager.closeDocument() → async save() of the
+    // OLD (empty) content, clobbering the initialContent we just persisted.
+    context.sendToClient({
+      type: "document_editor_update",
+      conversationId: context.conversationId,
+      surfaceId,
+      markdown: initialContent,
+      mode: "replace",
+    });
+
+    context.sendToClient({
+      type: "ui_surface_show",
+      conversationId: context.conversationId,
+      surfaceId: `preview-${surfaceId}`,
+      surfaceType: "document_preview",
+      display: "inline",
+      title,
+      data: {
+        title,
+        surfaceId,
+        subtitle: "Document",
+      },
+    });
+  }
+
+  return {
+    content: JSON.stringify({
+      surface_id: surfaceId,
+      title,
+      opened: context.sendToClient != null,
+      reused: true,
+      message: "Document editor reopened (deduped empty draft)",
+    }),
+    isError: false,
+  };
+}
+
 export function executeDocumentCreate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
   const title = (input.title as string | undefined) || "Untitled Document";
   const initialContent = (input.initial_content as string | undefined) || "";
+
+  const reused = maybeReuseEmptyDocument(title, initialContent, context);
+  if (reused) return reused;
+
   const surfaceId = `doc-${randomUUID()}`;
 
   // Persist the document so any client (web or macOS) can fetch it via
@@ -174,9 +274,24 @@ export function executeDocumentUpdate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
-  const content = input.content as string;
-  const mode = (input.mode as string | undefined) || "append";
+  const surfaceIdOrError = validateSurfaceId(input);
+  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  const surfaceId = surfaceIdOrError;
+  if (typeof input.content !== "string") {
+    return invalidInput("content is required and must be a string");
+  }
+  // Loose `!= null` to match validateInputAgainstSchema, which treats null as
+  // "absent" for enum checks — without this, { mode: null } passes the
+  // factory validator but rejects here. The `?? "append"` below handles null.
+  if (
+    input.mode != null &&
+    input.mode !== "replace" &&
+    input.mode !== "append"
+  ) {
+    return invalidInput('mode must be "replace" or "append"');
+  }
+  const content = input.content;
+  const mode = (input.mode as "replace" | "append" | undefined) ?? "append";
 
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
@@ -229,7 +344,9 @@ export function executeDocumentRead(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
+  const surfaceIdOrError = validateSurfaceId(input);
+  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  const surfaceId = surfaceIdOrError;
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
   }
@@ -286,7 +403,9 @@ export function executeDocumentDelete(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
+  const surfaceIdOrError = validateSurfaceId(input);
+  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  const surfaceId = surfaceIdOrError;
   if (!canAccessDocument(surfaceId, context)) {
     return documentNotFound(surfaceId);
   }
@@ -309,7 +428,9 @@ export function executeDocumentFind(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
+  const surfaceIdOrError = validateSurfaceId(input);
+  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  const surfaceId = surfaceIdOrError;
   const query = input.query as string;
   const regex = (input.regex as boolean | undefined) ?? false;
   const caseSensitive = (input.case_sensitive as boolean | undefined) ?? false;
@@ -360,7 +481,9 @@ export function executeDocumentReplaceText(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
-  const surfaceId = input.surface_id as string;
+  const surfaceIdOrError = validateSurfaceId(input);
+  if (typeof surfaceIdOrError !== "string") return surfaceIdOrError;
+  const surfaceId = surfaceIdOrError;
   const find = input.find as string;
   const replace = (input.replace as string) ?? "";
   const regex = (input.regex as boolean | undefined) ?? false;

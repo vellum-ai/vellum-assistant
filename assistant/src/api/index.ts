@@ -119,3 +119,11 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   RelationshipStateUpdatedEventSchema,
   ToolUseStartEventSchema,
 ]);
+
+/**
+ * Inferred TypeScript union for every event currently covered by
+ * `AssistantEventSchema`. Consumers should reference this single type
+ * rather than re-listing the individual member types — as each new
+ * event migrates into the schema, it appears here automatically.
+ */
+export type AssistantEvent = z.infer<typeof AssistantEventSchema>;
