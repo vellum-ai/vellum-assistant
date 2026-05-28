@@ -23,7 +23,6 @@ describe("loadLongMemEvalV2", () => {
       ability: "static-state-recall",
       question: "What is the URL of the project settings page?",
       answer: "/settings/project",
-      questionDate: "2026-01-15",
       trajectoryIds: ["traj_a", "traj_b"],
     });
     expect(items[1].trajectoryIds).toEqual(["traj_b", "traj_c", "traj_d"]);
@@ -50,13 +49,13 @@ describe("loadLongMemEvalV2", () => {
       join(dir, "questions.jsonl"),
       [
         JSON.stringify({
-          question_id: "q1",
+          id: "q1",
           question_type: "static-state-recall",
           question: "Q1?",
           answer: "A1",
         }),
         JSON.stringify({
-          question_id: "q2",
+          id: "q2",
           question_type: "premise-awareness",
           question: "Q2?",
           answer: "A2",
@@ -102,14 +101,14 @@ describe("loadLongMemEvalV2", () => {
       join(dir, "questions.jsonl"),
       [
         JSON.stringify({
-          question_id: "q1",
+          id: "q1",
           question_type: "static-state-recall",
           question: "Q1?",
           answer: "A1",
         }),
         // Missing required `answer` field.
         JSON.stringify({
-          question_id: "q2",
+          id: "q2",
           question_type: "premise-awareness",
           question: "Q2?",
         }),
@@ -133,7 +132,7 @@ describe("loadLongMemEvalV2", () => {
     await writeFile(
       join(dir, "questions.jsonl"),
       JSON.stringify({
-        question_id: "q1",
+        id: "q1",
         question_type: "static-state-recall",
         question: "Q1?",
         answer: "A1",
@@ -151,6 +150,35 @@ describe("loadLongMemEvalV2", () => {
     ).rejects.toThrow(/failed schema validation/);
   });
 
+  test("rejects V1-shaped rows that use the legacy `question_id` field", async () => {
+    // V1 of LongMemEval used `question_id`; V2 (per SCHEMA.md) uses `id`.
+    // If someone wires the loader up against a V1 dump we want a loud,
+    // schema-validation failure with a line number — not a silent
+    // "haystack mapping is missing 1 question id" mismatch on a synthetic
+    // `undefined` key.
+    const dir = await mkdtemp(join(tmpdir(), "lme-v2-"));
+    await mkdir(join(dir, "haystacks"), { recursive: true });
+    await writeFile(
+      join(dir, "questions.jsonl"),
+      JSON.stringify({
+        question_id: "q1",
+        question_type: "static-state-recall",
+        question: "Q1?",
+        answer: "A1",
+      }),
+      "utf8",
+    );
+    await writeFile(
+      join(dir, "haystacks", "lme_v2_small.json"),
+      JSON.stringify({ q1: ["t1"] }),
+      "utf8",
+    );
+
+    await expect(
+      loadLongMemEvalV2({ dataRoot: dir, tier: "small" }),
+    ).rejects.toThrow(/questions\.jsonl line 1 failed schema validation/);
+  });
+
   test("skips blank lines in questions.jsonl", async () => {
     const dir = await mkdtemp(join(tmpdir(), "lme-v2-"));
     await mkdir(join(dir, "haystacks"), { recursive: true });
@@ -159,7 +187,7 @@ describe("loadLongMemEvalV2", () => {
       [
         "",
         JSON.stringify({
-          question_id: "q1",
+          id: "q1",
           question_type: "static-state-recall",
           question: "Q1?",
           answer: "A1",

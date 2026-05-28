@@ -32,13 +32,21 @@ import { z } from "zod";
 export const TIERS = ["small", "medium"] as const;
 export type Tier = (typeof TIERS)[number];
 
+/**
+ * Subset of the V2 questions.jsonl schema we depend on.
+ *
+ * Per `SCHEMA.md` in the published dataset, V2 questions use `id` (not
+ * `question_id` — that was the V1 field name). The schema also ships
+ * `domain`, `environment`, `image`, and `eval_function` fields which the
+ * runner / judge consume directly; `.passthrough()` preserves them so the
+ * loader stays a single source of truth without growing here.
+ */
 const RawQuestionSchema = z
   .object({
-    question_id: z.string().min(1),
+    id: z.string().min(1),
     question_type: z.string().min(1),
     question: z.string().min(1),
     answer: z.string(),
-    question_date: z.string().optional(),
   })
   .passthrough();
 
@@ -51,7 +59,7 @@ const RawQuestionSchema = z
 const HaystackMappingSchema = z.record(z.string(), z.array(z.string()).min(1));
 
 export interface BenchmarkItem {
-  /** Question id from V2 `questions.jsonl`. Stable across tiers. */
+  /** Stable question id from V2 `questions.jsonl` (`id` field). */
   questionId: string;
   /**
    * Verbatim `question_type` from V2 — one of the five abilities (static
@@ -64,8 +72,6 @@ export interface BenchmarkItem {
   question: string;
   /** Gold answer — reference signal for the GPT-4o judge. */
   answer: string;
-  /** Optional question date for temporal-awareness items. */
-  questionDate?: string;
   /**
    * Ordered trajectory ids that form this question's haystack at the
    * chosen tier. The runner resolves these against `trajectories.jsonl`.
@@ -183,17 +189,16 @@ export async function loadLongMemEvalV2(
   const items: BenchmarkItem[] = [];
   const missing: string[] = [];
   for (const q of questions) {
-    const trajectoryIds = haystack[q.question_id];
+    const trajectoryIds = haystack[q.id];
     if (trajectoryIds === undefined) {
-      missing.push(q.question_id);
+      missing.push(q.id);
       continue;
     }
     items.push({
-      questionId: q.question_id,
+      questionId: q.id,
       ability: q.question_type,
       question: q.question,
       answer: q.answer,
-      questionDate: q.question_date,
       trajectoryIds,
     });
   }

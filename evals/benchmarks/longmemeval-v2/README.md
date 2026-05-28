@@ -45,13 +45,18 @@ cd evals/benchmarks/longmemeval-v2/data
 
 ```ts
 interface BenchmarkItem {
-  questionId: string; // V2 questions.jsonl `question_id`
+  questionId: string; // V2 questions.jsonl `id` (stable question id)
   ability: string; // V2 questions.jsonl `question_type` (one of the five abilities)
   question: string;
-  answer: string; // gold answer, used by the GPT-4o judge
-  questionDate?: string;
+  answer: string; // reference answer, used by the GPT-4o judge
   trajectoryIds: string[]; // ordered haystack from haystacks/lme_v2_<tier>.json
 }
 ```
+
+The V2 schema also ships `domain`, `environment`, `image`, and
+`eval_function` fields (see `SCHEMA.md` in the published dataset). The
+loader's zod schema preserves these via `.passthrough()`; the runner /
+judge will consume them in subsequent PRs without the loader having to
+grow first.
 
 This PR ships the loader and its fixture tests only. The two-conversation runner (`run-ingest-ask`), GPT-4o paper-faithful judge, and Phase 1 wiring land in subsequent PRs against the contract established here.
