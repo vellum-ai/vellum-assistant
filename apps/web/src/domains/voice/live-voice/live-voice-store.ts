@@ -74,6 +74,7 @@ export interface LiveVoiceStoreActions {
   setPartialTranscript: (text: string) => void;
   setFinalTranscript: (text: string) => void;
   appendAssistantTranscript: (delta: string) => void;
+  clearAssistantTranscript: () => void;
   setInputAmplitude: (amp: number) => void;
   setError: (msg: string) => void;
   reset: () => void;
@@ -114,6 +115,8 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
 
   appendAssistantTranscript: (delta) =>
     set((prev) => ({ assistantTranscript: prev.assistantTranscript + delta })),
+
+  clearAssistantTranscript: () => set({ assistantTranscript: "" }),
 
   setInputAmplitude: (amp) => set({ inputAmplitude: amp }),
 
