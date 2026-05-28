@@ -7,7 +7,7 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Guard
 public protocol GuardianClientProtocol {
     func fetchPendingActions(conversationId: String) async -> GuardianActionsPendingResponseMessage?
     func submitDecision(requestId: String, action: String, conversationId: String?) async -> GuardianActionDecisionResponseMessage?
-    func bootstrapActorToken(platform: String, deviceId: String) async -> Bool
+    func bootstrapActorToken(platform: String, deviceId: String, bootstrapSecret: String?) async -> Bool
     func resetBootstrap() async -> Bool
 }
 
@@ -78,15 +78,14 @@ public struct GuardianClient: GuardianClientProtocol {
     /// `ActorTokenManager`.
     ///
     /// - Returns: `true` on success, `false` on failure.
-    public func bootstrapActorToken(platform: String, deviceId: String) async -> Bool {
+    public func bootstrapActorToken(platform: String, deviceId: String, bootstrapSecret: String? = nil) async -> Bool {
         let body: [String: Any] = [
             "platform": platform,
             "deviceId": deviceId
         ]
 
-        // Generate a one-time bootstrap secret in memory (never stored on disk).
-        let bootstrapSecret = UUID().uuidString
-        let extraHeaders = ["x-bootstrap-secret": bootstrapSecret]
+        let secret = bootstrapSecret ?? UUID().uuidString
+        let extraHeaders = ["x-bootstrap-secret": secret]
 
         do {
             let response = try await GatewayHTTPClient.post(
