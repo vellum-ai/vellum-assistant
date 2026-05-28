@@ -81,6 +81,11 @@ function defaultAudioContextFactory(): PcmAudioContextLike {
     return new Ctor();
 }
 
+interface PendingWaiter {
+    timer: ReturnType<typeof setTimeout>;
+    resolve: () => void;
+}
+
 export class LiveVoicePcmPlayback {
     private readonly factory: AudioContextFactory;
     private readonly logger: Pick<Console, "warn">;
@@ -88,6 +93,7 @@ export class LiveVoicePcmPlayback {
     private nextStartTime = 0;
     private acceptsAudio = true;
     private readonly scheduledNodes = new Set<AudioBufferSourceNodeLike>();
+    private readonly pendingWaiters = new Set<PendingWaiter>();
 
     constructor(options: LiveVoicePcmPlaybackOptions = {}) {
         this.factory = options.audioContextFactory ?? defaultAudioContextFactory;
@@ -173,6 +179,7 @@ export class LiveVoicePcmPlayback {
         this.stopAllScheduledNodes();
         this.nextStartTime = 0;
         this.acceptsAudio = false;
+        this.resolvePendingWaiters();
     }
 
     /**
@@ -185,6 +192,7 @@ export class LiveVoicePcmPlayback {
         this.stopAllScheduledNodes();
         this.nextStartTime = 0;
         this.acceptsAudio = false;
+        this.resolvePendingWaiters();
     }
 
     handleSessionError(): void {
@@ -203,6 +211,11 @@ export class LiveVoicePcmPlayback {
      * Resolve once `audioContext.currentTime` catches up to `nextStartTime`.
      * Uses a single `setTimeout` rounded to the residual gap rather than a
      * polling loop, matching `LiveVoiceAudioPlayer.waitUntilPlaybackFinishes()`.
+     *
+     * If `handleInterrupt()` or `handleEnd()` runs while a waiter is pending,
+     * the waiter is resolved immediately so close/cleanup paths don't block on
+     * a stale cursor — mirrors `LiveVoiceAudioPlayer.stop(reason:)` resolving
+     * its own waiters on stop.
      */
     waitUntilPlaybackFinishes(): Promise<void> {
         const ctx = this.audioContext;
@@ -211,7 +224,14 @@ export class LiveVoicePcmPlayback {
         if (remaining <= 0) return Promise.resolve();
         return new Promise((resolve) => {
             const delayMs = Math.ceil(remaining * 1000);
-            setTimeout(resolve, delayMs);
+            const waiter: PendingWaiter = {
+                timer: setTimeout(() => {
+                    this.pendingWaiters.delete(waiter);
+                    resolve();
+                }, delayMs),
+                resolve,
+            };
+            this.pendingWaiters.add(waiter);
         });
     }
 
@@ -233,6 +253,14 @@ export class LiveVoicePcmPlayback {
             }
         }
         this.scheduledNodes.clear();
+    }
+
+    private resolvePendingWaiters(): void {
+        for (const waiter of this.pendingWaiters) {
+            clearTimeout(waiter.timer);
+            waiter.resolve();
+        }
+        this.pendingWaiters.clear();
     }
 }
 

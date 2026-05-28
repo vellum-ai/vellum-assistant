@@ -328,6 +328,70 @@ describe("LiveVoicePcmPlayback", () => {
         expect(fresh?.startedAt).toBe(0);
     });
 
+    it("handleInterrupt() resolves a pending waitUntilPlaybackFinishes() promise without waiting for the original cursor", async () => {
+        const ctx = new MockAudioContext();
+        const playback = new LiveVoicePcmPlayback({ audioContextFactory: () => ctx });
+
+        // 0.5s @ 24kHz = 12000 samples — long enough that a real setTimeout
+        // would visibly stall the test if the waiter weren't resolved early.
+        playback.enqueueTtsAudio(pcmChunk(new Array(12000).fill(0)));
+
+        let resolved = false;
+        const wait = playback.waitUntilPlaybackFinishes().then(() => {
+            resolved = true;
+        });
+
+        // Synchronously, the waiter hasn't fired.
+        await Promise.resolve();
+        expect(resolved).toBe(false);
+
+        // Interrupt before the cursor (0.5s) is reached. The waiter should
+        // resolve promptly rather than waiting for the original duration.
+        playback.handleInterrupt();
+        await wait;
+        expect(resolved).toBe(true);
+        expect(playback.isPlaying).toBe(false);
+    });
+
+    it("handleEnd() resolves a pending waitUntilPlaybackFinishes() promise without waiting for the original cursor", async () => {
+        const ctx = new MockAudioContext();
+        const playback = new LiveVoicePcmPlayback({ audioContextFactory: () => ctx });
+
+        playback.enqueueTtsAudio(pcmChunk(new Array(12000).fill(0))); // 0.5s
+
+        let resolved = false;
+        const wait = playback.waitUntilPlaybackFinishes().then(() => {
+            resolved = true;
+        });
+
+        await Promise.resolve();
+        expect(resolved).toBe(false);
+
+        playback.handleEnd();
+        await wait;
+        expect(resolved).toBe(true);
+        expect(playback.isPlaying).toBe(false);
+    });
+
+    it("handleSessionError() resolves a pending waitUntilPlaybackFinishes() promise", async () => {
+        const ctx = new MockAudioContext();
+        const playback = new LiveVoicePcmPlayback({ audioContextFactory: () => ctx });
+
+        playback.enqueueTtsAudio(pcmChunk(new Array(12000).fill(0))); // 0.5s
+
+        let resolved = false;
+        const wait = playback.waitUntilPlaybackFinishes().then(() => {
+            resolved = true;
+        });
+
+        await Promise.resolve();
+        expect(resolved).toBe(false);
+
+        playback.handleSessionError();
+        await wait;
+        expect(resolved).toBe(true);
+    });
+
     it("resetForNextResponse() re-enables enqueue after handleEnd", () => {
         const ctx = new MockAudioContext();
         const playback = new LiveVoicePcmPlayback({ audioContextFactory: () => ctx });
