@@ -243,24 +243,53 @@ class FakePlayback implements LiveVoicePcmPlaybackLike {
 
 interface Harness {
   manager: LiveVoiceChannelManager;
-  client: FakeClient;
+  /**
+   * Returns the most-recently-built fake client. The manager
+   * constructs a fresh client via the factory in every `start()` call,
+   * so tests resolve the client lazily (after calling `start`) rather
+   * than destructuring it up front. Tests that want to inspect a
+   * prior session's client should snapshot the returned reference
+   * before driving the next `start()`.
+   */
+  client(): FakeClient;
+  /** Every client the factory has handed out, oldest-first. */
+  clients: FakeClient[];
   capture: FakeCapture;
   playback: FakePlayback;
   store: LiveVoiceStoreLike;
 }
 
 function makeHarness(): Harness {
-  const client = new FakeClient();
+  const clients: FakeClient[] = [];
   const capture = new FakeCapture();
   const playback = new FakePlayback();
   const store = createFakeStore();
   const manager = new LiveVoiceChannelManager({
-    client,
+    clientFactory: () => {
+      const next = new FakeClient();
+      clients.push(next);
+      return next;
+    },
     capture,
     playback,
     store,
   });
-  return { manager, client, capture, playback, store };
+  return {
+    manager,
+    clients,
+    capture,
+    playback,
+    store,
+    client: () => {
+      const latest = clients[clients.length - 1];
+      if (!latest) {
+        throw new Error(
+          "FakeClient factory has not been invoked yet — call manager.start first",
+        );
+      }
+      return latest;
+    },
+  };
 }
 
 /**
@@ -281,9 +310,11 @@ async function flushMicrotasks(): Promise<void> {
 describe("LiveVoiceChannelManager", () => {
   describe("happy path", () => {
     test("walks the macOS state machine through a full turn", async () => {
-      const { manager, client, capture, playback, store } = makeHarness();
+      const harness = makeHarness();
+      const { manager, capture, playback, store } = harness;
 
       await manager.start("conv-1");
+      const client = harness.client();
       expect(store.getState().state).toBe("connecting");
       expect(client.startCalls.length).toBe(1);
       expect(client.startCalls[0]!.conversationId).toBe("conv-1");
@@ -372,8 +403,10 @@ describe("LiveVoiceChannelManager", () => {
 
   describe("interrupt path", () => {
     test("interruptSpeakingAndStartListening interrupts client + playback and restarts capture", async () => {
-      const { manager, client, capture, playback } = makeHarness();
+      const harness = makeHarness();
+      const { manager, capture, playback } = harness;
       await manager.start("conv-1");
+      const client = harness.client();
       client.emit({
         type: "ready",
         sessionId: "sess-1",
@@ -393,8 +426,10 @@ describe("LiveVoiceChannelManager", () => {
 
   describe("end path", () => {
     test("end shuts down capture, drains playback, ends client, resets store", async () => {
-      const { manager, client, capture, playback, store } = makeHarness();
+      const harness = makeHarness();
+      const { manager, capture, playback, store } = harness;
       await manager.start("conv-1");
+      const client = harness.client();
       client.emit({
         type: "ready",
         sessionId: "sess-1",
@@ -424,9 +459,11 @@ describe("LiveVoiceChannelManager", () => {
 
   describe("early failure path", () => {
     test("busy failure tears down capture+playback and surfaces error state", async () => {
-      const { manager, client, capture, playback, store } = makeHarness();
+      const harness = makeHarness();
+      const { manager, capture, playback, store } = harness;
 
       await manager.start("conv-1");
+      const client = harness.client();
       expect(store.getState().state).toBe("connecting");
 
       // No `ready` yet — server reports another session is already active.
@@ -442,8 +479,10 @@ describe("LiveVoiceChannelManager", () => {
     });
 
     test("failure with explicit message stores that message verbatim", async () => {
-      const { manager, client, store } = makeHarness();
+      const harness = makeHarness();
+      const { manager, store } = harness;
       await manager.start("conv-1");
+      const client = harness.client();
 
       client.fail({
         type: "connectionFailed",
@@ -457,8 +496,10 @@ describe("LiveVoiceChannelManager", () => {
 
   describe("stopListening", () => {
     test("releases push-to-talk and stops capture, keeps channel open", async () => {
-      const { manager, client, capture } = makeHarness();
+      const harness = makeHarness();
+      const { manager, capture } = harness;
       await manager.start("conv-1");
+      const client = harness.client();
       client.emit({
         type: "ready",
         sessionId: "sess-1",
@@ -477,9 +518,11 @@ describe("LiveVoiceChannelManager", () => {
 
   describe("barge-in playback gate", () => {
     test("re-opens playback gate before the first ttsAudio of a new turn after interrupt", async () => {
-      const { manager, client, capture, playback } = makeHarness();
+      const harness = makeHarness();
+      const { manager, capture, playback } = harness;
 
       await manager.start("conv-1");
+      const client = harness.client();
       client.emit({
         type: "ready",
         sessionId: "sess-1",
@@ -547,9 +590,11 @@ describe("LiveVoiceChannelManager", () => {
     });
 
     test("subsequent ttsAudio chunks in the same turn do not call resetForNextResponse again", async () => {
-      const { manager, client, playback } = makeHarness();
+      const harness = makeHarness();
+      const { manager, playback } = harness;
 
       await manager.start("conv-1");
+      const client = harness.client();
       client.emit({
         type: "ready",
         sessionId: "sess-1",
@@ -586,9 +631,11 @@ describe("LiveVoiceChannelManager", () => {
 
   describe("ttsDone teardown race", () => {
     test("ttsDone continuation bails after end() arrives during the playback drain", async () => {
-      const { manager, client, playback, store } = makeHarness();
+      const harness = makeHarness();
+      const { manager, playback, store } = harness;
 
       await manager.start("conv-1");
+      const client = harness.client();
       client.emit({
         type: "ready",
         sessionId: "sess-1",
@@ -640,9 +687,11 @@ describe("LiveVoiceChannelManager", () => {
     });
 
     test("ttsDone continuation bails after a failure arrives during the playback drain", async () => {
-      const { manager, client, playback, store } = makeHarness();
+      const harness = makeHarness();
+      const { manager, playback, store } = harness;
 
       await manager.start("conv-1");
+      const client = harness.client();
       client.emit({
         type: "ready",
         sessionId: "sess-1",
@@ -676,6 +725,196 @@ describe("LiveVoiceChannelManager", () => {
       // State stays `failed` — not clobbered back to `listening`.
       expect(store.getState().state).toBe("failed");
       expect(playback.resetCalls).toBe(resetCallsAtFailure);
+    });
+  });
+
+  describe("client factory", () => {
+    test("start → end → start uses a fresh client each time", async () => {
+      const { manager, clients, store } = makeHarness();
+
+      // ---- Session 1: start then end. ----
+      await manager.start("conv-1");
+      expect(clients.length).toBe(1);
+      const firstClient = clients[0]!;
+      expect(firstClient.startCalls.length).toBe(1);
+
+      firstClient.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+
+      await manager.end();
+      expect(firstClient.endCalls).toBe(1);
+      expect(store.getState().state).toBe("off");
+
+      // ---- Session 2: a brand-new client must be built. ----
+      await manager.start("conv-2");
+      expect(clients.length).toBe(2);
+      const secondClient = clients[1]!;
+      expect(secondClient).not.toBe(firstClient);
+      expect(secondClient.startCalls.length).toBe(1);
+      expect(secondClient.startCalls[0]!.conversationId).toBe("conv-2");
+      // The old (closed) client must not be touched again.
+      expect(firstClient.startCalls.length).toBe(1);
+
+      // The second client's `ready` event drives the second session
+      // through the same listening transition as the first.
+      secondClient.emit({
+        type: "ready",
+        sessionId: "sess-2",
+        conversationId: "conv-2",
+      });
+      await flushMicrotasks();
+      expect(store.getState().state).toBe("listening");
+      expect(store.getState().sessionId).toBe("sess-2");
+    });
+
+    test("failure path discards the client so the next start gets a fresh one", async () => {
+      const { manager, clients } = makeHarness();
+
+      await manager.start("conv-1");
+      const firstClient = clients[0]!;
+      firstClient.fail({ type: "connectionFailed", message: "boom" });
+      expect(firstClient.closeCalls).toBe(1);
+
+      await manager.start("conv-2");
+      expect(clients.length).toBe(2);
+      const secondClient = clients[1]!;
+      expect(secondClient).not.toBe(firstClient);
+      expect(secondClient.startCalls.length).toBe(1);
+    });
+  });
+
+  describe("user mute suppresses ttsDone listening transition", () => {
+    test("ttsDone after stopListening does NOT transition state to listening", async () => {
+      const harness = makeHarness();
+      const { manager, store } = harness;
+
+      await manager.start("conv-1");
+      const client = harness.client();
+      client.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+
+      // Run a normal turn so we're in `speaking` when ttsDone arrives.
+      client.emit({ type: "thinking", turnId: "turn-1" });
+      client.emit({ type: "assistantTextDelta", text: "ok", seq: 1 });
+      client.emit({
+        type: "ttsAudio",
+        pcm: new Uint8Array([1]),
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        seq: 2,
+      });
+      expect(store.getState().state).toBe("speaking");
+
+      // User releases PTT — manager flips `isUserMuted = true` and
+      // forwards the mute to the client/capture.
+      await manager.stopListening();
+      expect(client.releasePushToTalkCalls).toBe(1);
+
+      // ttsDone fires after the mute. The post-drain continuation must
+      // NOT clobber the state back to `listening` — that would
+      // silently re-arm the mic against the user's wish.
+      client.emit({ type: "ttsDone", turnId: "turn-1" });
+      await flushMicrotasks();
+
+      expect(store.getState().state).not.toBe("listening");
+      // The continuation still tears down the per-response transcript
+      // and resets the playback gate so the next response is heard.
+      expect(store.getState().assistantTranscript).toBe("");
+    });
+
+    test("interruptSpeakingAndStartListening re-arms the mic so subsequent ttsDone transitions to listening", async () => {
+      const harness = makeHarness();
+      const { manager, store } = harness;
+
+      await manager.start("conv-1");
+      const client = harness.client();
+      client.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+
+      // Enter the muted state via stopListening, then verify ttsDone
+      // does not flip to listening.
+      await manager.stopListening();
+      client.emit({ type: "thinking", turnId: "turn-1" });
+      client.emit({ type: "assistantTextDelta", text: "ok", seq: 1 });
+      client.emit({
+        type: "ttsAudio",
+        pcm: new Uint8Array([1]),
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        seq: 2,
+      });
+      client.emit({ type: "ttsDone", turnId: "turn-1" });
+      await flushMicrotasks();
+      expect(store.getState().state).not.toBe("listening");
+
+      // User barges in — clears the mute flag and restarts capture.
+      await manager.interruptSpeakingAndStartListening("conv-1");
+      await flushMicrotasks();
+
+      // A subsequent ttsDone should now transition to listening since
+      // the user is no longer muted.
+      client.emit({ type: "thinking", turnId: "turn-2" });
+      client.emit({ type: "assistantTextDelta", text: "again", seq: 3 });
+      client.emit({
+        type: "ttsAudio",
+        pcm: new Uint8Array([2]),
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        seq: 4,
+      });
+      client.emit({ type: "ttsDone", turnId: "turn-2" });
+      await flushMicrotasks();
+      expect(store.getState().state).toBe("listening");
+    });
+
+    test("start() resets isUserMuted so a new session is not stuck muted", async () => {
+      const { manager, clients, store } = makeHarness();
+
+      // Session 1: mute then end without un-muting.
+      await manager.start("conv-1");
+      clients[0]!.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+      await manager.stopListening();
+      await manager.end();
+
+      // Session 2: start fresh — the mute flag must be cleared.
+      await manager.start("conv-2");
+      const secondClient = clients[1]!;
+      secondClient.emit({
+        type: "ready",
+        sessionId: "sess-2",
+        conversationId: "conv-2",
+      });
+      await flushMicrotasks();
+
+      secondClient.emit({ type: "thinking", turnId: "turn-1" });
+      secondClient.emit({ type: "assistantTextDelta", text: "hi", seq: 1 });
+      secondClient.emit({
+        type: "ttsAudio",
+        pcm: new Uint8Array([1]),
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        seq: 2,
+      });
+      secondClient.emit({ type: "ttsDone", turnId: "turn-1" });
+      await flushMicrotasks();
+      expect(store.getState().state).toBe("listening");
     });
   });
 });

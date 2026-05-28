@@ -83,7 +83,14 @@ export interface LiveVoiceStoreLike {
 }
 
 export interface LiveVoiceChannelManagerDeps {
-  client?: LiveVoiceChannelClientLike;
+  /**
+   * Factory invoked once per `start()` to create a fresh
+   * `LiveVoiceChannelClient`. The underlying client is single-shot —
+   * after `end()` or a failure transitions it to `closed`, calling
+   * `start()` on the same instance is a no-op. We must instantiate a
+   * new client each time the manager starts a session.
+   */
+  clientFactory?: () => LiveVoiceChannelClientLike;
   capture?: LiveVoicePcmCaptureLike;
   playback?: LiveVoicePcmPlaybackLike;
   store?: LiveVoiceStoreLike;
@@ -96,7 +103,14 @@ export interface LiveVoiceChannelManagerDeps {
 const DEFAULT_FAILURE_MESSAGE = "Live voice session failed";
 
 export class LiveVoiceChannelManager {
-  private readonly client: LiveVoiceChannelClientLike;
+  /**
+   * Per-session client factory. We construct a fresh client in `start()`
+   * because `LiveVoiceChannelClient` is single-shot: once `end()` /
+   * `close()` move it to the `closed` state, subsequent `start()`
+   * calls early-return without ever emitting a `ready` event.
+   */
+  private readonly clientFactory: () => LiveVoiceChannelClientLike;
+  private client: LiveVoiceChannelClientLike | null = null;
   private readonly capture: LiveVoicePcmCaptureLike;
   private readonly playback: LiveVoicePcmPlaybackLike;
   private readonly store: LiveVoiceStoreLike;
@@ -122,8 +136,18 @@ export class LiveVoiceChannelManager {
    */
   private playbackReadyForResponse = false;
 
+  /**
+   * Set to `true` by `stopListening()` (user pressed PTT-release) and
+   * cleared by `start()` / `interruptSpeakingAndStartListening()`. When
+   * a `ttsDone` continuation lands after the user has muted, we skip
+   * the transition back to `listening` so the UI does not silently
+   * re-arm the mic against the user's wish.
+   */
+  private isUserMuted = false;
+
   constructor(deps: LiveVoiceChannelManagerDeps = {}) {
-    this.client = deps.client ?? new LiveVoiceChannelClient();
+    this.clientFactory =
+      deps.clientFactory ?? (() => new LiveVoiceChannelClient());
     this.capture = deps.capture ?? new LiveVoicePcmCapture();
     this.playback = deps.playback ?? new LiveVoicePcmPlayback();
     this.store = deps.store ?? useLiveVoiceStore;
@@ -136,11 +160,15 @@ export class LiveVoiceChannelManager {
   async start(conversationId: string): Promise<void> {
     this.sessionGeneration += 1;
     this.playbackReadyForResponse = false;
+    this.isUserMuted = false;
 
     const actions = this.actions();
     actions.setState("connecting");
     actions.setError("");
 
+    // Build a fresh client for this session — see the field comment
+    // for why the client must not be reused across sessions.
+    this.client = this.clientFactory();
     await this.client.start({
       conversationId,
       onEvent: (event) => this.handleEvent(event),
@@ -155,7 +183,8 @@ export class LiveVoiceChannelManager {
     // future work can reopen the channel when the id changes.
     _conversationId: string,
   ): Promise<void> {
-    this.client.interrupt();
+    this.isUserMuted = false;
+    this.client?.interrupt();
     this.playback.handleInterrupt();
     // The playback gate is now closed; the next assistant response's
     // first `ttsAudio` must call `resetForNextResponse()` before
@@ -165,7 +194,8 @@ export class LiveVoiceChannelManager {
   }
 
   async stopListening(): Promise<void> {
-    this.client.releasePushToTalk();
+    this.isUserMuted = true;
+    this.client?.releasePushToTalk();
     this.capture.stop();
   }
 
@@ -177,7 +207,9 @@ export class LiveVoiceChannelManager {
 
     this.capture.shutdown();
     this.playback.handleEnd();
-    await this.client.end();
+    await this.client?.end();
+    // Drop the closed client so the next `start()` builds a fresh one.
+    this.client = null;
     this.actions().reset();
   }
 
@@ -265,7 +297,9 @@ export class LiveVoiceChannelManager {
     // channel is already gone, so we use `close()` instead.
     this.capture.shutdown();
     this.playback.handleInterrupt();
-    this.client.close();
+    this.client?.close();
+    // Drop the closed client so the next `start()` builds a fresh one.
+    this.client = null;
   }
 
   private async completeAssistantTurn(): Promise<void> {
@@ -287,6 +321,14 @@ export class LiveVoiceChannelManager {
     // Clear the rolling assistant transcript so the next turn starts
     // from a clean buffer.
     actions.clearAssistantTranscript();
+    // Skip the transition back to `listening` if the user explicitly
+    // muted via `stopListening()` — re-arming the mic would silently
+    // override the user's mute. The next user action
+    // (`interruptSpeakingAndStartListening` or `end`) drives the next
+    // state transition.
+    if (this.isUserMuted) {
+      return;
+    }
     actions.setState("listening");
   }
 
@@ -297,7 +339,7 @@ export class LiveVoiceChannelManager {
   private async startCapture(): Promise<void> {
     const started = await this.capture.start({
       onChunk: (chunk) => {
-        this.client.sendAudio(chunk.pcm16);
+        this.client?.sendAudio(chunk.pcm16);
       },
       onAmplitude: (amplitude) => {
         this.actions().setInputAmplitude(amplitude);
