@@ -34,7 +34,6 @@ export interface StreamHandlerContext {
 
   // --- Stream context ---
   streamContextRef: MutableRefObject<StreamContext | null>;
-  activeConversationIdRef: MutableRefObject<string | null>;
   assistantIdRef: MutableRefObject<string | null>;
 
   // --- Messages ---

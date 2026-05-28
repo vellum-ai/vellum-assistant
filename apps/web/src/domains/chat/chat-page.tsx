@@ -306,8 +306,6 @@ export function ChatPage() {
       window.removeEventListener(COMPOSER_FOCUS_EVENT, handleFocusRequest);
   }, []);
 
-  const activeConversationIdRef = useRef<string | null>(activeConversationId);
-  useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);
 
   const assistantIdRef = useRef<string | null>(assistantId);
   useEffect(() => { assistantIdRef.current = assistantId; }, [assistantId]);
@@ -494,7 +492,6 @@ export function ChatPage() {
     draftConversationIdResolutionRef,
     previousConversationIdRef,
     onboardingDraftConversationIdRef,
-    activeConversationIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     streamingMessageIdsRef,
@@ -575,7 +572,6 @@ export function ChatPage() {
     setMessages,
     streamContextRef,
     streamEpochRef,
-    activeConversationIdRef,
     initialPageOldestTsRef,
   });
 
@@ -612,7 +608,6 @@ export function ChatPage() {
 
   useEffect(() => {
     const syncRouter = createWebSyncRouter({
-      activeConversationIdRef,
       invalidateAvatar,
       refreshAssistantIdentity,
       invalidateAssistantConfig: () => {},
@@ -647,7 +642,6 @@ export function ChatPage() {
     push,
     isNative,
     streamEpochRef,
-    activeConversationIdRef,
     streamContextRef,
     assistantIdRef,
     setMessages,
@@ -689,7 +683,6 @@ export function ChatPage() {
     diskPressureChatBlockReason,
     messages,
     assistantIdRef,
-    activeConversationIdRef,
     messagesRef,
     streamRef,
     streamContextRef,
@@ -924,7 +917,6 @@ export function ChatPage() {
     setError,
     messagesRef,
     streamContextRef,
-    activeConversationIdRef,
     confirmationToolCallMapRef,
   });
 
@@ -958,7 +950,6 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const refreshLatestMessages = useRefreshLatestMessages({
     assistantId,
-    activeConversationIdRef,
     messagesRef,
     setMessages,
     dismissedSurfaceIdsRef,
@@ -981,7 +972,6 @@ export function ChatPage() {
     streamContextRef,
     streamRef,
     streamEpochRef,
-    activeConversationIdRef,
     getAssistantId: () => assistantIdRef.current,
     getTurnState: () => useTurnStore.getState(),
     getUIContext: () => _uiContext,
@@ -1647,7 +1637,6 @@ export function ChatPage() {
       messagesRef,
       sanitizedMessagesRef,
       transcriptItemsRef,
-      activeConversationIdRef,
       assistantIdRef,
       streamContextRef,
       expandedToolCallIdsRef,

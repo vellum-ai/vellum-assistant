@@ -26,6 +26,7 @@ import {
   type SyncChangedEvent,
 } from "@/lib/sync/types";
 import { getClientId } from "@/lib/telemetry/client-identity";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 
 const OTHER_CLIENT_ID = "22222222-2222-2222-2222-222222222222";
 
@@ -34,9 +35,9 @@ interface HarnessOptions {
 }
 
 function createHarness(opts: HarnessOptions = {}) {
-  const activeConversationIdRef = {
-    current: opts.activeConversationId ?? null,
-  };
+  useConversationStore.setState({
+    activeConversationId: opts.activeConversationId ?? null,
+  });
   const calls = {
     invalidateAvatar: 0,
     refreshAssistantIdentity: 0,
@@ -47,7 +48,6 @@ function createHarness(opts: HarnessOptions = {}) {
     refreshActiveConversationMessages: 0,
   };
   const router = createWebSyncRouter({
-    activeConversationIdRef,
     invalidateAvatar: () => {
       calls.invalidateAvatar += 1;
     },
@@ -71,7 +71,7 @@ function createHarness(opts: HarnessOptions = {}) {
       return { changed: false, messagesAdded: 0, assistantProgress: false };
     },
   });
-  return { router, calls, activeConversationIdRef };
+  return { router, calls };
 }
 
 describe("createWebSyncRouter — self-echo drop", () => {

@@ -60,6 +60,7 @@ import {
   type UIContext,
   shouldShowThinkingIndicator,
 } from "@/domains/messaging/turn-selectors";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -347,7 +348,6 @@ export interface ChatDebugRefs {
   } | null>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  activeConversationIdRef: MutableRefObject<string | null>;
   /**
    * Reads the latest transcript pagination state (`hasMore`,
    * `isLoadingOlder`) for {@link ChatDebugApi.getScrollState}. Held as a
@@ -539,12 +539,12 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 
   async function forceReconcile(): Promise<ReconcileActiveConversationResult> {
     recordChatDiagnostic("debug_force_reconcile_start", {
-      activeConversationId: refs.activeConversationIdRef.current,
+      activeConversationId: useConversationStore.getState().activeConversationId,
       assistantId: refs.getAssistantId(),
     });
     const result = await refs.reconcileActiveConversation();
     recordChatDiagnostic("debug_force_reconcile_result", {
-      activeConversationId: refs.activeConversationIdRef.current,
+      activeConversationId: useConversationStore.getState().activeConversationId,
       changed: result.changed,
       messagesAdded: result.messagesAdded,
       assistantProgress: result.assistantProgress,
@@ -562,7 +562,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       streamContext?.assistantId ?? refs.getAssistantId() ?? null;
     const conversationId =
       streamContext?.conversationId ??
-      refs.activeConversationIdRef.current ??
+      useConversationStore.getState().activeConversationId ??
       null;
     if (!assistantId || !conversationId) {
       throw new Error(
@@ -813,7 +813,6 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
       streamContextRef: refs.streamContextRef,
       streamRef: refs.streamRef,
       streamEpochRef: refs.streamEpochRef,
-      activeConversationIdRef: refs.activeConversationIdRef,
       getAssistantId: () => latestRefs.current.getAssistantId(),
       getTurnState: () => latestRefs.current.getTurnState(),
       getUIContext: () => latestRefs.current.getUIContext(),

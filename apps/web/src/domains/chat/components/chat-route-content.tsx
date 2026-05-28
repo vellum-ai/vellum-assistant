@@ -234,7 +234,6 @@ export interface ChatRouteRefs {
   messagesRef: MutableRefObject<DisplayMessage[]>;
   sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
   transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
-  activeConversationIdRef: MutableRefObject<string | null>;
   assistantIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
   expandedToolCallIdsRef: MutableRefObject<Set<string>>;
@@ -518,7 +517,6 @@ export function ChatRouteContent({
     messagesRef,
     sanitizedMessagesRef,
     transcriptItemsRef,
-    activeConversationIdRef: _activeConversationIdRef,
     assistantIdRef: _assistantIdRef,
     streamContextRef,
     expandedToolCallIdsRef,
