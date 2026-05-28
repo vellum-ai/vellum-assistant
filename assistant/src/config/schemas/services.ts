@@ -46,6 +46,10 @@ const ImageGenerationServiceSchema = BaseServiceSchema.extend({
 });
 
 const WebSearchServiceSchema = BaseServiceSchema.extend({
+  // Provider choice for app-executed search in Your Own mode, or the native
+  // hosted-search preference when set to `inference-provider-native`. In
+  // Managed mode, non-native inference providers can still use the platform
+  // managed search proxy through the app-executed `web_search` tool.
   provider: z
     .enum(VALID_WEB_SEARCH_PROVIDERS)
     .default("inference-provider-native"),

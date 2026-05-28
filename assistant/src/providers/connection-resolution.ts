@@ -152,7 +152,7 @@ export async function tryResolveProviderForConnectionName(
   // catch is specifically for in-flight failures that should not take
   // dispatch offline.
   try {
-    return await resolveProviderFromConnection(connection, config);
+    return await resolveProviderFromConnection(connection, config, { model });
   } catch (err) {
     log.warn(
       { err, connectionName },

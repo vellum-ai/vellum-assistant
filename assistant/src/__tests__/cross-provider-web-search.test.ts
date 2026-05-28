@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { ContentBlock, Message } from "../providers/types.js";
+import type {
+  ContentBlock,
+  Message,
+  ToolDefinition,
+} from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -84,6 +88,22 @@ function webSearchResultOnlyMessage(): Message[] {
     },
   ];
 }
+
+const sampleTools: ToolDefinition[] = [
+  {
+    name: "file_read",
+    description: "Read a file",
+    input_schema: { type: "object", properties: { path: { type: "string" } } },
+  },
+  {
+    name: "web_search",
+    description: "Search the web",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string" } },
+    },
+  },
+];
 
 // ---------------------------------------------------------------------------
 // Mock OpenAI SDK
@@ -194,6 +214,7 @@ mock.module("@google/genai", () => {
 });
 
 // Import providers after mocking
+import { FireworksProvider } from "../providers/fireworks/client.js";
 import { GeminiProvider } from "../providers/gemini/client.js";
 import {
   OpenAIChatCompletionsProvider,
@@ -455,6 +476,39 @@ describe("Cross-Provider Web Search — OpenAI Chat Completions (compatibility)"
     const assistantMsg = messages.find((m) => m.role === "assistant");
     expect(assistantMsg).toBeDefined();
     expect(assistantMsg!.tool_calls).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fireworks provider tests
+// ---------------------------------------------------------------------------
+
+describe("Cross-Provider Web Search — Fireworks", () => {
+  beforeEach(() => {
+    lastOpenAIChatParams = null;
+  });
+
+  test("keeps web_search as an app-executed function tool for managed Brave fallback", async () => {
+    const provider = new FireworksProvider(
+      "fw-test",
+      "accounts/fireworks/models/kimi-k2p6",
+    );
+
+    await provider.sendMessage([userMsg("Search for something")], sampleTools);
+
+    const tools = lastOpenAIChatParams!.tools as Array<{
+      type: string;
+      function: { name: string; description?: string };
+    }>;
+
+    expect(tools).toHaveLength(2);
+    expect(tools[1]).toMatchObject({
+      type: "function",
+      function: {
+        name: "web_search",
+        description: "Search the web",
+      },
+    });
   });
 });
 

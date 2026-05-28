@@ -29,9 +29,17 @@ const log = getLogger("provider-registry");
 const providers = new Map<string, Provider>();
 const routingSources = new Map<string, "user-key" | "managed-proxy">();
 const OPENAI_COMPATIBLE_ENDPOINTS_FLAG = "openai-compatible-endpoints";
+const NATIVE_WEB_SEARCH_PROVIDER_IDS = new Set(["anthropic", "openai"]);
 
-/** Per-connection provider cache, keyed by connection name. */
+/** Per-connection provider cache, keyed by connection name and model. */
 const connectionProviders = new Map<string, Provider>();
+
+function getConnectionProviderCacheKey(
+  connection: ProviderConnection,
+  model: string,
+): string {
+  return `${connection.name}\u0000${model}`;
+}
 
 function registerProvider(name: string, provider: Provider): void {
   providers.set(name, new UsageTrackingProvider(provider));
@@ -98,6 +106,30 @@ function resolveModel(config: ProvidersConfig, providerName: string): string {
   return getProviderDefaultModel(providerName);
 }
 
+export function isNativeWebSearchCapableProvider(
+  providerName: string,
+  model: string,
+): boolean {
+  if (NATIVE_WEB_SEARCH_PROVIDER_IDS.has(providerName)) {
+    return true;
+  }
+  if (providerName === "openrouter" && model.startsWith("anthropic/")) {
+    return true;
+  }
+  return false;
+}
+
+function shouldUseNativeWebSearch(
+  config: ProvidersConfig,
+  providerName: string,
+  model: string,
+): boolean {
+  return (
+    config.services["web-search"].provider === "inference-provider-native" &&
+    isNativeWebSearchCapableProvider(providerName, model)
+  );
+}
+
 /**
  * Resolve provider credentials. User key takes precedence; managed proxy is
  * used as a fallback when platform prerequisites are available.
@@ -135,8 +167,6 @@ export async function initializeProviders(
 
   const streamTimeoutMs =
     (config.timeouts?.providerStreamTimeoutSec ?? 1800) * 1000;
-  const useNativeWebSearch =
-    config.services["web-search"].provider === "inference-provider-native";
   const mainAgentProvider = resolveCallSiteConfig(
     "mainAgent",
     config.llm,
@@ -174,6 +204,11 @@ export async function initializeProviders(
     }
 
     const model = resolveModel(config, entry.id);
+    const useNativeWebSearch = shouldUseNativeWebSearch(
+      config,
+      entry.id,
+      model,
+    );
     const adapter = buildProviderAdapter(entry.id, {
       apiKey,
       model,
@@ -221,6 +256,7 @@ export async function initializeProviders(
 export async function resolveProviderFromConnection(
   connection: ProviderConnection,
   config: ProvidersConfig,
+  opts: { model?: string } = {},
 ): Promise<Provider | null> {
   if (
     connection.provider === "openai-compatible" &&
@@ -229,7 +265,9 @@ export async function resolveProviderFromConnection(
     return null;
   }
 
-  const cached = connectionProviders.get(connection.name);
+  const model = opts.model ?? resolveModel(config, connection.provider);
+  const cacheKey = getConnectionProviderCacheKey(connection, model);
+  const cached = connectionProviders.get(cacheKey);
   if (cached) return cached;
 
   const authResult = await resolveAuth(connection.auth, connection.provider, {
@@ -259,9 +297,11 @@ export async function resolveProviderFromConnection(
 
   const streamTimeoutMs =
     (config.timeouts?.providerStreamTimeoutSec ?? 1800) * 1000;
-  const useNativeWebSearch =
-    config.services["web-search"].provider === "inference-provider-native";
-  const model = resolveModel(config, connection.provider);
+  const useNativeWebSearch = shouldUseNativeWebSearch(
+    config,
+    connection.provider,
+    model,
+  );
 
   const provider = createAdapterFromConnection(
     connection,
@@ -274,7 +314,7 @@ export async function resolveProviderFromConnection(
   );
 
   if (provider) {
-    connectionProviders.set(connection.name, provider);
+    connectionProviders.set(cacheKey, provider);
   }
 
   return provider;

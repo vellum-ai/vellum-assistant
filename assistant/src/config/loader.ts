@@ -122,6 +122,9 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
   if (process.env.IS_PLATFORM !== "true" && process.env.IS_PLATFORM !== "1") {
     return {};
   }
+  // `web-search.mode = managed` enables platform-backed app-executed search
+  // for non-native inference providers while preserving provider-native hosted
+  // search for providers/models that support it.
   const managed = { mode: "managed" as const };
   return {
     services: {
@@ -161,11 +164,7 @@ export function fillContextDefaultsForMissingKeys(
 ): void {
   for (const [key, value] of Object.entries(contextDefaults)) {
     const fileVal = fileConfig[key];
-    if (
-      value !== null &&
-      typeof value === "object" &&
-      !Array.isArray(value)
-    ) {
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
       const targetChild = readPlainObject(target[key]);
       const fileChild = readPlainObject(fileVal);
       if (targetChild) {

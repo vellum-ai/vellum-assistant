@@ -164,6 +164,9 @@ describe("platform-managed config defaults", () => {
     for (const svc of MANAGED_SERVICES) {
       expect((services[svc] as { mode?: string })?.mode).toBe("managed");
     }
+    expect((services["web-search"] as { provider?: string })?.provider).toBe(
+      "inference-provider-native",
+    );
   });
 
   test("IS_PLATFORM=false, no config file → service modes follow schema defaults (your-own except google/notion-oauth which are managed)", () => {
