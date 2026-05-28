@@ -62,6 +62,32 @@ const patchFeedItemRequestSchema = z.object({
   status: z.enum(["new", "seen", "acted_on", "dismissed"]),
 });
 
+const listHomeFeedRequestSchema = z.object({
+  includeDismissed: z.boolean().optional(),
+  statuses: z
+    .array(z.enum(["new", "seen", "acted_on", "dismissed"]))
+    .optional(),
+  before: z.string().optional(),
+  after: z.string().optional(),
+  urgencies: z.array(z.enum(["low", "medium", "high", "critical"])).optional(),
+  categories: z
+    .array(z.enum(["security", "scheduling", "background", "email", "system"]))
+    .optional(),
+  conversationId: z.string().optional(),
+  fromAssistant: z.boolean().optional(),
+  noteworthy: z.boolean().optional(),
+  limit: z.number().int().positive().max(200).optional(),
+  offset: z.number().int().nonnegative().optional(),
+});
+
+const listHomeFeedResponseSchema = z.object({
+  items: z.array(feedItemSchema),
+  total: z.number().int().nonnegative(),
+  returned: z.number().int().nonnegative(),
+  hasMore: z.boolean(),
+  updatedAt: z.string(),
+});
+
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for direct testing)
 // ---------------------------------------------------------------------------
@@ -183,6 +209,97 @@ export async function handlePatchFeedItem({
   return updated as unknown as Record<string, unknown>;
 }
 
+export function handleListHomeFeed({
+  body = {},
+}: RouteHandlerArgs): Record<string, unknown> {
+  const parsed = listHomeFeedRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(
+      `Invalid list request: ${parsed.error.issues
+        .map((i) => `${i.path.join(".")} ${i.message}`)
+        .join("; ")}`,
+    );
+  }
+  const params = parsed.data;
+
+  const beforeMs =
+    params.before !== undefined ? Date.parse(params.before) : undefined;
+  if (beforeMs !== undefined && Number.isNaN(beforeMs)) {
+    throw new BadRequestError(
+      `Invalid 'before' timestamp; expected ISO-8601 (got "${params.before}")`,
+    );
+  }
+  const afterMs =
+    params.after !== undefined ? Date.parse(params.after) : undefined;
+  if (afterMs !== undefined && Number.isNaN(afterMs)) {
+    throw new BadRequestError(
+      `Invalid 'after' timestamp; expected ISO-8601 (got "${params.after}")`,
+    );
+  }
+
+  // `statuses` is the explicit override. Otherwise default to excluding
+  // dismissed unless includeDismissed=true — the assistant's primary use
+  // case is "what's still outstanding", so dismissed items are noise
+  // unless explicitly requested.
+  const statusFilter: Set<FeedItemStatus> | null = params.statuses
+    ? new Set(params.statuses)
+    : params.includeDismissed
+      ? null
+      : new Set<FeedItemStatus>(["new", "seen", "acted_on"]);
+
+  const urgencySet = params.urgencies ? new Set(params.urgencies) : null;
+  const categorySet = params.categories ? new Set(params.categories) : null;
+
+  const feed = readHomeFeed();
+
+  const filtered = feed.items.filter((item) => {
+    if (statusFilter && !statusFilter.has(item.status)) return false;
+    if (urgencySet) {
+      if (!item.urgency || !urgencySet.has(item.urgency)) return false;
+    }
+    if (categorySet) {
+      if (!item.category || !categorySet.has(item.category)) return false;
+    }
+    if (
+      params.conversationId !== undefined &&
+      item.conversationId !== params.conversationId
+    )
+      return false;
+    if (
+      params.fromAssistant !== undefined &&
+      (item.fromAssistant ?? false) !== params.fromAssistant
+    )
+      return false;
+    if (
+      params.noteworthy !== undefined &&
+      (item.noteworthy ?? false) !== params.noteworthy
+    )
+      return false;
+
+    if (beforeMs !== undefined || afterMs !== undefined) {
+      const createdMs = Date.parse(item.createdAt);
+      if (Number.isNaN(createdMs)) return false;
+      if (beforeMs !== undefined && createdMs >= beforeMs) return false;
+      if (afterMs !== undefined && createdMs <= afterMs) return false;
+    }
+
+    return true;
+  });
+
+  const total = filtered.length;
+  const offset = params.offset ?? 0;
+  const limit = params.limit ?? 20;
+  const items = filtered.slice(offset, offset + limit);
+
+  return {
+    items,
+    total,
+    returned: items.length,
+    hasMore: total > offset + items.length,
+    updatedAt: feed.updatedAt,
+  };
+}
+
 export async function handlePostFeedAction({
   pathParams = {},
 }: RouteHandlerArgs): Promise<Record<string, unknown>> {
@@ -260,6 +377,18 @@ export const ROUTES: RouteDefinition[] = [
       "404": { description: "Feed item not found" },
       "500": { description: "Failed to persist feed item status" },
     },
+  },
+  {
+    operationId: "list_home_feed",
+    endpoint: "home/feed/query",
+    method: "POST",
+    handler: handleListHomeFeed,
+    summary: "List home feed items with filters",
+    description:
+      "Return home feed items filtered by status, urgency, category, conversation, and date range. Defaults to excluding dismissed items. Used by the assistant CLI to inspect what notifications have been surfaced to the user.",
+    tags: ["home"],
+    requestBody: listHomeFeedRequestSchema,
+    responseBody: listHomeFeedResponseSchema,
   },
   {
     operationId: "trigger_home_feed_action",
