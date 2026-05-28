@@ -1,0 +1,4 @@
+{
+  "q_001": ["traj_a", "traj_b", "traj_x", "traj_y"],
+  "q_002": ["traj_b", "traj_c", "traj_d", "traj_z"]
+}

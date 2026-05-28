@@ -12,6 +12,6 @@
     "noEmit": true,
     "types": ["bun"]
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "benchmarks/*/src/**/*"],
   "exclude": ["node_modules"]
 }
