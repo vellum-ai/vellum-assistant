@@ -184,8 +184,8 @@ function makeHangingConversation(): Conversation {
   const messages: unknown[] = [];
   const enqueuedMessages: Array<{
     content: string;
-    onEvent: (msg: ServerMessage) => void;
-    requestId: string;
+    onEvent?: (msg: ServerMessage) => void;
+    requestId?: string;
   }> = [];
   return {
     isProcessing: () => processing,
@@ -215,14 +215,20 @@ function makeHangingConversation(): Conversation {
     hasPendingConfirmation: () => false,
     denyAllPendingConfirmations: () => {},
     getQueueDepth: () => enqueuedMessages.length,
-    enqueueMessage: (
-      content: string,
-      _attachments: unknown[],
-      onEvent: (msg: ServerMessage) => void,
-      requestId: string,
-    ) => {
-      enqueuedMessages.push({ content, onEvent, requestId });
-      return { queued: true, requestId };
+    enqueueMessage: (options: {
+      content: string;
+      onEvent?: (msg: ServerMessage) => void;
+      requestId?: string;
+    }) => {
+      enqueuedMessages.push({
+        content: options.content,
+        onEvent: options.onEvent,
+        requestId: options.requestId,
+      });
+      return {
+        queued: true,
+        requestId: options.requestId ?? "hanging-req",
+      };
     },
     runAgentLoop: async () => {
       // Hang forever
