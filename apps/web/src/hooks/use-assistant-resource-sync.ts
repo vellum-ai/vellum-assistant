@@ -20,14 +20,15 @@
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
 import {
   assistantDaemonConfigQueryKey,
+  assistantIdentityQueryKey,
   assistantScheduleRunsQueryKey,
   assistantSchedulesQueryKey,
   assistantSoundsAvailableQueryKey,
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
+  HOME_FEED_QUERY_KEY_PREFIX,
 } from "@/lib/sync/query-tags";
 import { SYNC_TAGS } from "@/lib/sync/types";
 
@@ -90,7 +91,9 @@ export function useAssistantResourceSync(
 
       case "home_feed_updated":
       case "relationship_state_updated":
-        void queryClient.invalidateQueries({ queryKey: ["home-feed"] });
+        void queryClient.invalidateQueries({
+          queryKey: [HOME_FEED_QUERY_KEY_PREFIX],
+        });
         return;
     }
   });

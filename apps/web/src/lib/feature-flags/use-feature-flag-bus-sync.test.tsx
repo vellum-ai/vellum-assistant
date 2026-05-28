@@ -5,7 +5,7 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import { useFeatureFlagBusSync } from "@/lib/feature-flags/use-feature-flag-bus-sync";
 import {
-  ASSISTANT_FLAG_VALUES_QUERY_KEY,
+  assistantFlagValuesQueryKey,
   CLIENT_FLAG_QUERY_KEY,
 } from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
@@ -92,7 +92,7 @@ describe("useFeatureFlagBusSync", () => {
     emit(syncEvent([SYNC_TAGS.featureFlagsAssistant]));
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
-        queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
+        queryKey: assistantFlagValuesQueryKey("asst-1"),
       });
     });
   });
@@ -108,7 +108,7 @@ describe("useFeatureFlagBusSync", () => {
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({ queryKey: CLIENT_FLAG_QUERY_KEY });
       expect(spy).toHaveBeenCalledWith({
-        queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
+        queryKey: assistantFlagValuesQueryKey("asst-1"),
       });
     });
   });
@@ -125,7 +125,7 @@ describe("useFeatureFlagBusSync", () => {
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({ queryKey: CLIENT_FLAG_QUERY_KEY });
       expect(spy).toHaveBeenCalledWith({
-        queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
+        queryKey: assistantFlagValuesQueryKey("asst-1"),
       });
     });
   });

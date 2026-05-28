@@ -4,13 +4,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AssistantEvent } from "@/domains/chat/api/event-types";
-import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import {
   assistantDaemonConfigQueryKey,
+  assistantIdentityQueryKey,
   assistantSchedulesQueryKey,
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
+  HOME_FEED_QUERY_KEY_PREFIX,
 } from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
@@ -155,7 +156,7 @@ describe("useAssistantResourceSync", () => {
       const homeCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
         (call) => {
           const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-          return arg?.queryKey?.[0] === "home-feed";
+          return arg?.queryKey?.[0] === HOME_FEED_QUERY_KEY_PREFIX;
         },
       );
       expect(homeCalls.length).toBe(2);

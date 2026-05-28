@@ -16,7 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import {
-  ASSISTANT_FLAG_VALUES_QUERY_KEY,
+  assistantFlagValuesQueryKey,
   CLIENT_FLAG_QUERY_KEY,
 } from "@/lib/sync/query-tags";
 import { SYNC_TAGS } from "@/lib/sync/types";
@@ -46,7 +46,7 @@ export function useFeatureFlagBusSync(
         });
       } else if (tag === SYNC_TAGS.featureFlagsAssistant) {
         void queryClient.invalidateQueries({
-          queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
+          queryKey: assistantFlagValuesQueryKey(assistantId),
         });
       }
     }
@@ -59,7 +59,7 @@ export function useFeatureFlagBusSync(
       queryKey: CLIENT_FLAG_QUERY_KEY,
     });
     void queryClient.invalidateQueries({
-      queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
+      queryKey: assistantFlagValuesQueryKey(assistantId),
     });
   });
 }
