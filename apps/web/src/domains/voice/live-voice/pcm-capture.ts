@@ -13,6 +13,12 @@
  * The worklet posts two message types: `chunk` (PCM16 LE Int16Array, 320
  * samples = 20 ms at 16 kHz) and `amplitude` (peak abs in [0, 1] at ~20 Hz).
  *
+ * Web Audio only pulls render quanta along graph edges that terminate at
+ * `audioContext.destination`. With no downstream consumer the worklet's
+ * `process()` never runs, so we also connect the worklet through a muted
+ * `GainNode` (gain = 0) to the destination. This keeps the graph
+ * renderable without producing any audible output.
+ *
  * `stop()` tears down the active capture but keeps the `AudioContext` warm
  * so the next `start()` can resume without paying for context creation
  * again. `shutdown()` fully releases everything (tracks, context).
@@ -65,6 +71,12 @@ export class LiveVoicePcmCapture {
   private stream: MediaStream | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private workletNode: AudioWorkletNode | null = null;
+  /**
+   * Muted sink that keeps the capture graph connected to
+   * `audioContext.destination` so the AudioWorklet's `process()` is
+   * actually scheduled. Gain is pinned to 0 — no audible output.
+   */
+  private muteNode: GainNode | null = null;
   private moduleLoaded = false;
   private isShutdown = false;
   /**
@@ -170,6 +182,17 @@ export class LiveVoicePcmCapture {
 
       sourceNode.connect(workletNode);
 
+      // Web Audio only pulls render quanta along graph edges that
+      // terminate at `audioContext.destination`. Without a sink the
+      // worklet's `process()` is never called, so live voice would
+      // receive zero PCM chunks. Route the worklet through a muted
+      // GainNode (gain = 0) to the destination — keeps the graph
+      // renderable without producing audible output.
+      const muteNode = audioContext.createGain();
+      muteNode.gain.value = 0;
+      workletNode.connect(muteNode);
+      muteNode.connect(audioContext.destination);
+
       // Final guard before publishing the new nodes — even node
       // construction is synchronous, so this is mostly belt-and-
       // suspenders, but cheap.
@@ -185,6 +208,11 @@ export class LiveVoicePcmCapture {
         } catch {
           // Best-effort cleanup.
         }
+        try {
+          muteNode.disconnect();
+        } catch {
+          // Best-effort cleanup.
+        }
         releaseStream(stream);
         return false;
       }
@@ -192,6 +220,7 @@ export class LiveVoicePcmCapture {
       this.stream = stream;
       this.sourceNode = sourceNode;
       this.workletNode = workletNode;
+      this.muteNode = muteNode;
       return true;
     } catch {
       releaseStream(stream);
@@ -259,6 +288,14 @@ export class LiveVoicePcmCapture {
         // Already disconnected — safe to ignore.
       }
       this.sourceNode = null;
+    }
+    if (this.muteNode) {
+      try {
+        this.muteNode.disconnect();
+      } catch {
+        // Already disconnected — safe to ignore.
+      }
+      this.muteNode = null;
     }
   }
 }

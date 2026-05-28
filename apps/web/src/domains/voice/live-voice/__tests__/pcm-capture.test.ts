@@ -53,8 +53,12 @@ class MockMessagePort {
 class MockAudioWorkletNode {
   port = new MockMessagePort();
   disconnectCount = 0;
+  connectedTo: unknown[] = [];
   constructor(public context: MockAudioContext, public name: string) {
     context.lastWorkletNode = this;
+  }
+  connect(destination: unknown): void {
+    this.connectedTo.push(destination);
   }
   disconnect() {
     this.disconnectCount += 1;
@@ -63,8 +67,11 @@ class MockAudioWorkletNode {
 
 class MockMediaStreamAudioSourceNode {
   disconnectCount = 0;
+  connectedTo: unknown[] = [];
   constructor(public context: MockAudioContext, public stream: MockMediaStream) {}
-  connect(_destination: unknown): void {}
+  connect(destination: unknown): void {
+    this.connectedTo.push(destination);
+  }
   disconnect() {
     this.disconnectCount += 1;
   }
@@ -78,14 +85,36 @@ class MockAudioWorklet {
   }
 }
 
+class MockAudioDestinationNode {}
+
+class MockGainNode {
+  gain = { value: 1 };
+  disconnectCount = 0;
+  connectedTo: unknown[] = [];
+  constructor(public context: MockAudioContext) {}
+  connect(destination: unknown): void {
+    this.connectedTo.push(destination);
+  }
+  disconnect() {
+    this.disconnectCount += 1;
+  }
+}
+
 class MockAudioContext {
   audioWorklet = new MockAudioWorklet();
+  destination = new MockAudioDestinationNode();
   closed = false;
   lastWorkletNode: MockAudioWorkletNode | null = null;
   lastSourceNode: MockMediaStreamAudioSourceNode | null = null;
+  lastGainNode: MockGainNode | null = null;
   createMediaStreamSource(stream: MockMediaStream): MockMediaStreamAudioSourceNode {
     const node = new MockMediaStreamAudioSourceNode(this, stream);
     this.lastSourceNode = node;
+    return node;
+  }
+  createGain(): MockGainNode {
+    const node = new MockGainNode(this);
+    this.lastGainNode = node;
     return node;
   }
   close(): Promise<void> {
@@ -241,6 +270,29 @@ describe("LiveVoicePcmCapture", () => {
     ]);
   });
 
+  it("connects the worklet through a muted GainNode to the destination", async () => {
+    // Regression: Web Audio only pulls render quanta along edges that
+    // terminate at `audioContext.destination`. Without the muted sink
+    // the AudioWorklet's `process()` never runs and live voice gets
+    // zero PCM chunks.
+    mockStream = new MockMediaStream();
+    getUserMediaImpl = () => Promise.resolve(mockStream as MockMediaStream);
+
+    const capture = new LiveVoicePcmCapture();
+    const ok = await capture.start({ onChunk: () => undefined });
+    expect(ok).toBe(true);
+
+    const lastContext = getInternalContext(capture);
+    const worklet = lastContext.lastWorkletNode!;
+    const gain = lastContext.lastGainNode!;
+    expect(gain).not.toBeNull();
+
+    // Worklet feeds into the GainNode, which feeds into destination.
+    expect(worklet.connectedTo).toContain(gain);
+    expect(gain.gain.value).toBe(0);
+    expect(gain.connectedTo).toContain(lastContext.destination);
+  });
+
   it("stop() is idempotent", async () => {
     mockStream = new MockMediaStream();
     getUserMediaImpl = () => Promise.resolve(mockStream as MockMediaStream);
@@ -250,16 +302,19 @@ describe("LiveVoicePcmCapture", () => {
     const lastContext = getInternalContext(capture);
     const worklet = lastContext.lastWorkletNode!;
     const source = lastContext.lastSourceNode!;
+    const gain = lastContext.lastGainNode!;
 
     capture.stop();
     expect(worklet.disconnectCount).toBe(1);
     expect(source.disconnectCount).toBe(1);
+    expect(gain.disconnectCount).toBe(1);
     expect(mockStream!.getTracks()[0]!.readyState).toBe("ended");
 
     // Second stop is a no-op and does not throw.
     expect(() => capture.stop()).not.toThrow();
     expect(worklet.disconnectCount).toBe(1);
     expect(source.disconnectCount).toBe(1);
+    expect(gain.disconnectCount).toBe(1);
 
     // AudioContext stays warm after stop().
     expect(lastContext.closed).toBe(false);
@@ -295,14 +350,17 @@ describe("LiveVoicePcmCapture", () => {
     const capture = new LiveVoicePcmCapture();
     await capture.start({ onChunk: () => undefined });
     const lastContext = getInternalContext(capture);
+    const gain = lastContext.lastGainNode!;
 
     capture.shutdown();
     expect(mockStream!.getTracks()[0]!.readyState).toBe("ended");
     expect(lastContext.closed).toBe(true);
+    expect(gain.disconnectCount).toBe(1);
 
     // Second shutdown is a no-op.
     expect(() => capture.shutdown()).not.toThrow();
     expect(lastContext.closed).toBe(true);
+    expect(gain.disconnectCount).toBe(1);
 
     // start() after shutdown returns false.
     const ok = await capture.start({ onChunk: () => undefined });
