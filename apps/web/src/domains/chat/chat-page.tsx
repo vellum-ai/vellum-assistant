@@ -93,7 +93,7 @@ import { PlatformHostedScreen } from "@/domains/chat/components/platform-hosted-
 import { SelfHostedScreen } from "@/domains/chat/components/self-hosted-screen";
 import { VersionSelectionScreen } from "@/domains/chat/components/version-selection-screen";
 import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
-import { fetchSuggestion } from "@/domains/chat/api/suggestion-api";
+import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-suggestion";
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
 import { useQueryClient } from "@tanstack/react-query";
@@ -191,7 +191,6 @@ export function ChatPage() {
   // and flips it false (for both real conversations and empty drafts).
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [compactionCircuitOpenUntil, setCompactionCircuitOpenUntil] = useState<Date | null>(null);
-  const [suggestion, setSuggestion] = useState<string | null>(null);
   const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
 
   const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
@@ -331,7 +330,6 @@ export function ChatPage() {
   const pendingLocalDeletionsRef = useRef<Set<string>>(new Set());
   const confirmationToolCallMapRef = useRef<Map<string, string>>(new Map());
   const streamingMessageIdsRef = useRef<Set<string>>(new Set());
-  const lastSuggestionMsgIdRef = useRef<string | null>(null);
   const autoGreetRef = useRef(false);
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -504,7 +502,6 @@ export function ChatPage() {
     requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    lastSuggestionMsgIdRef,
     autoGreetRef,
     conversationListInvalidatedTimerRef,
     pendingInitialMessageRef,
@@ -514,7 +511,6 @@ export function ChatPage() {
     setError,
     setAutoGreetPending,
     setContextWindowUsage,
-    setSuggestion,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,
     shouldSuppressGenericChatErrorNotice,
@@ -1301,29 +1297,24 @@ export function ChatPage() {
   const overlayTarget = useMobileOverlayTarget();
 
   // -------------------------------------------------------------------------
-  // Ghost-text suggestion: fetch after each completed assistant turn
+  // Ghost-text suggestion (server state via TanStack Query — LUM-2009)
   // -------------------------------------------------------------------------
-  const inputSnapshotRef = useRef(input);
-  useEffect(() => { inputSnapshotRef.current = input; }, [input]);
+  // Derive the scalar the query keys on; the hook stays pure w.r.t.
+  // composer input — `ChatComposer.computeGhostSuffix` is the single
+  // source of truth for "what part of the suggestion is visible right
+  // now given the user's typed prefix".
+  const lastCompleteAssistantMsgId = useMemo<string | null>(() => {
+    const last = messages[messages.length - 1];
+    return last && last.role === "assistant" && !last.isStreaming
+      ? last.id ?? null
+      : null;
+  }, [messages]);
 
-  useEffect(() => {
-    const lastMsg = messages[messages.length - 1];
-    if (!lastMsg || lastMsg.role !== "assistant" || lastMsg.isStreaming) return;
-    if (!assistantId || !activeConversationId) return;
-    const msgId = lastMsg.id ?? null;
-    if (msgId === lastSuggestionMsgIdRef.current) return;
-    lastSuggestionMsgIdRef.current = msgId;
-
-    const controller = new AbortController();
-    void fetchSuggestion(assistantId, activeConversationId, lastMsg.id, controller.signal)
-      .then((r) => {
-        if (controller.signal.aborted) return;
-        if (inputSnapshotRef.current) return;
-        setSuggestion(r.suggestion);
-      })
-      .catch(() => {});
-    return () => { controller.abort(); };
-  }, [messages, assistantId, activeConversationId, setSuggestion]);
+  const suggestion = useGhostTextSuggestion({
+    assistantId,
+    conversationId: activeConversationId,
+    lastCompleteAssistantMsgId,
+  });
 
   // -------------------------------------------------------------------------
   // Derived UI state
@@ -1518,7 +1509,6 @@ export function ChatPage() {
     compactionCircuitOpenUntil,
     setCompactionCircuitOpenUntil,
     suggestion,
-    setSuggestion,
     transcriptPagination,
     setTranscriptPagination: setTranscriptPagination as Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>,
     setShowAddCreditsModal,

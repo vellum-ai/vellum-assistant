@@ -322,7 +322,6 @@ export interface ChatRouteContentProps {
 
   // Suggestion (ghost text)
   suggestion: string | null;
-  setSuggestion: Dispatch<SetStateAction<string | null>>;
 
   // Pagination
   transcriptPagination: Omit<TranscriptPaginationState, "items">;
@@ -431,7 +430,6 @@ export function ChatRouteContent({
   compactionCircuitOpenUntil,
   setCompactionCircuitOpenUntil,
   suggestion,
-  setSuggestion,
   transcriptPagination,
   setTranscriptPagination: _setTranscriptPagination,
   setShowAddCreditsModal,
@@ -924,7 +922,10 @@ export function ChatRouteContent({
         previewUrl: att.previewUrl ?? null,
       }));
     setInput("");
-    setSuggestion(null);
+    // (The ghost-text suggestion clears automatically — once the user
+    // message lands in `messages` the suggestion query key derives
+    // `lastCompleteAssistantMsgId = null` and the cached value is no
+    // longer matched. See `useGhostTextSuggestion`. — LUM-2009)
     if (activeConversationId) {
       clearDraft(activeConversationId);
     }
@@ -942,7 +943,7 @@ export function ChatRouteContent({
     // useViewportMinHeight) stays anchored at the latest message.
     scrollCoordinator.scrollToLatest({ behavior: "auto" });
     await sendMessage(trimmed, attachmentsToSend);
-  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationId, chatAttachments, resetChatAttachments, sendMessage, setInput, setSuggestion, clearDraft, inputRef, scrollCoordinator]);
+  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationId, chatAttachments, resetChatAttachments, sendMessage, setInput, clearDraft, inputRef, scrollCoordinator]);
 
   const handleSelectStarter = (starter: { prompt: string }) => {
     setInput(starter.prompt);
