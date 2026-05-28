@@ -93,9 +93,21 @@ export function BillingOnboardingModal({
   });
 
   const domainSetupAvailable = onboardingQuery.data?.domain_setup_available;
-  const advanceFromSetup = useCallback(() => {
+  // Domain/email/guardian registration must run while the assistant's machine
+  // is still online: registering the email triggers a guardian-channel write to
+  // the machine's gateway. The SetupStep's "Apply & Restart" takes the machine
+  // offline, so the domain step runs *before* setup — otherwise that write hangs
+  // against a restarting machine.
+  const advanceFromWelcome = useCallback(() => {
     if (domainSetupAvailable === false) {
-      setStep("complete");
+      setStep("setup");
+    } else {
+      setStep("domain");
+    }
+  }, [domainSetupAvailable]);
+  const backFromSetup = useCallback(() => {
+    if (domainSetupAvailable === false) {
+      setStep("welcome");
     } else {
       setStep("domain");
     }
@@ -132,7 +144,30 @@ export function BillingOnboardingModal({
     }
 
     if (step === "welcome") {
-      return <WelcomeState onContinue={() => setStep("setup")} />;
+      if (onboardingQuery.isError) {
+        return <FetchErrorState onGoToBilling={onClose} />;
+      }
+      // Gate "Get started" until fresh onboarding data has settled:
+      // advanceFromWelcome routes on domain_setup_available. isPending covers the
+      // cold load; isFetching covers the background refetch from the on-open
+      // invalidation, during which TanStack still serves stale cached data — a
+      // fast click then would route on a pre-checkout domain_setup_available.
+      // On error we show FetchErrorState above rather than routing on stale data.
+      return (
+        <WelcomeState
+          onContinue={advanceFromWelcome}
+          continueDisabled={onboardingQuery.isPending || onboardingQuery.isFetching}
+        />
+      );
+    }
+
+    if (step === "domain") {
+      return (
+        <DomainStep
+          onBack={() => setStep("welcome")}
+          onExit={() => setStep("setup")}
+        />
+      );
     }
 
     if (step === "setup") {
@@ -141,28 +176,23 @@ export function BillingOnboardingModal({
       }
       const maxTier = (onboardingQuery.data?.max_machine_tier ??
         null) as MachineTierEnum | null;
+      // When domain setup is unavailable the domain step is skipped, so setup is
+      // the sole step in the indicator; otherwise it's the second of two.
+      const domainStepIncluded = domainSetupAvailable !== false;
       return (
         <SetupStep
           storageGib={onboardingQuery.data?.selected_storage_gib ?? null}
           maxTier={maxTier}
-          onBack={() => setStep("welcome")}
-          onAdvance={advanceFromSetup}
-        />
-      );
-    }
-
-    if (step === "domain") {
-      return (
-        <DomainStep
-          onBack={() => setStep("setup")}
-          onExit={() => setStep("complete")}
+          onBack={backFromSetup}
+          onAdvance={() => setStep("complete")}
+          dotIndex={domainStepIncluded ? 1 : 0}
+          dotTotal={domainStepIncluded ? 2 : 1}
         />
       );
     }
 
     if (step === "complete") {
-      const backFromComplete = domainSetupAvailable === false ? "setup" : "domain";
-      return <CompleteState onBack={() => setStep(backFromComplete)} />;
+      return <CompleteState onBack={() => setStep("setup")} />;
     }
 
     return null;
