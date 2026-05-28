@@ -47,6 +47,7 @@ const RawQuestionSchema = z
     question_type: z.string().min(1),
     question: z.string().min(1),
     answer: z.string(),
+    eval_function: z.string().min(1),
   })
   .passthrough();
 
@@ -70,8 +71,14 @@ export interface BenchmarkItem {
   ability: string;
   /** Verbatim question text. */
   question: string;
-  /** Gold answer — reference signal for the GPT-4o judge. */
+  /** Gold answer — reference signal for the dispatched evaluator. */
   answer: string;
+  /**
+   * V2 `eval_function` spec string (e.g. `"norm_phrase_set_match"` or
+   * `"norm_phrase_set_match_ordered|separators=>"`). Parsed and dispatched
+   * by `src/judge/evalFromSpec`.
+   */
+  evalFunction: string;
   /**
    * Ordered trajectory ids that form this question's haystack at the
    * chosen tier. The runner resolves these against `trajectories.jsonl`.
@@ -199,6 +206,7 @@ export async function loadLongMemEvalV2(
       ability: q.question_type,
       question: q.question,
       answer: q.answer,
+      evalFunction: q.eval_function,
       trajectoryIds,
     });
   }

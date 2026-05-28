@@ -27,7 +27,10 @@ benchmarks/longmemeval-v2/
 ├── items/                     # virtual unit dir — populated on demand by the loader
 └── src/
     ├── loader.ts              # questions.jsonl + haystacks/<tier>.json → BenchmarkItem[]
-    └── __tests__/             # fixture-backed loader tests
+    ├── trajectories.ts        # trajectories.jsonl → workspace file writes
+    ├── runner.ts              # per-question runIngestAsk + evalFromSpec wiring
+    ├── judge/                 # eval_function dispatcher (deterministic + LLM)
+    └── __tests__/             # fixture-backed loader/trajectories/runner tests
 ```
 
 ## Getting the data
@@ -88,8 +91,90 @@ swap `globalThis.fetch`, no production wrapper.
 `reason` is empty for deterministic evaluators; the function name is
 echoed for audit/logging.
 
+## Trajectories
+
+`src/trajectories.ts` exports two pieces the runner depends on:
+
+- `loadTrajectories(dataRoot)` — parses `trajectories.jsonl` into a
+  `Map<string, TrajectoryRecord>` keyed by id, with line-numbered
+  schema errors and duplicate-id rejection. The current implementation
+  reads the entire file (~1 GB at the small tier) into memory once per
+  `evals run` invocation; a streaming / indexed variant is tracked for
+  the cache PR.
+- `materializeWorkspaceFiles(item, trajectories)` — turns one
+  `BenchmarkItem` + the trajectory map into the `WorkspaceFileWrite[]`
+  the agent receives at ingest time. Layout the agent sees:
+
+  ```
+  longmemeval/
+  ├── trajectories/
+  │   ├── <trajectory_id_1>.json   # verbatim TrajectoryRecord
+  │   ├── <trajectory_id_2>.json
+  │   └── …                         # haystack order preserved
+  └── manifest.json                  # { questionId, ability, question,
+                                     #   trajectoryDir, trajectoryIds, count }
+  ```
+
+## Per-unit runner
+
+`src/runner.ts` exports `runLongMemEvalV2Unit`. Lifecycle mirrors
+`runEvalOnce`:
+
+1. ensure run artifacts + write `run.json` with `status: "running"`
+2. materialize trajectory files into the workspace
+3. drive `runIngestAsk` — conversation A ingests the staged files,
+   conversation B asks the verbatim question
+4. dispatch `evalFromSpec(item.evalFunction, …)` against the hypothesis
+5. write a coarse 3-turn transcript (ingest prompt → question prompt →
+   assistant hypothesis), the question-turn `assistant-events.json`,
+   and the single `longmemeval-v2-judge` metric
+6. flip `run.json` to `status: "completed"` (or `"failed"` on throw)
+
+Out of scope for the wire PR (deferred, not forgotten):
+
+- extracting the artifact-lifecycle boilerplate (progress wrapper +
+  heartbeat ticker) into a helper shared with `runEvalOnce` — flagged
+  with `// PR-6 follow-up` markers in the source
+- per-event transcript reconstruction + usage/cost telemetry — picked
+  up alongside the cache + telemetry PR
+
+## Running the benchmark
+
+`evals run --benchmark longmemeval-v2 --profiles <id>` dispatches by
+`benchmark.id` (not by a manifest field) — the V2 path runs the
+two-conversation flow above; every other benchmark runs the
+simulator-driven `runEvalOnce` path.
+
+Operator surface (env vars):
+
+| Variable                      | Default                          | Meaning                                                          |
+| ----------------------------- | -------------------------------- | ---------------------------------------------------------------- |
+| `EVALS_LONGMEMEVAL_DATA_ROOT` | `benchmarks/longmemeval-v2/data` | Where `download.sh` wrote `questions.jsonl` etc.                 |
+| `EVALS_LONGMEMEVAL_TIER`      | `small`                          | `small` (~115k tokens/haystack) or `medium` (~115M, memory-only) |
+
+`--filter <ids>` selects a subset by V2 `question_id`. Omit to run every
+question in the tier.
+
+### Phase 1 smoke selection
+
+The five-item smoke set used to validate the wire end-to-end covers
+each `eval_function` family at least once. Pick IDs from
+`questions.jsonl` whose `eval_function` matches one of:
+
+| Family                          | Coverage role                         |
+| ------------------------------- | ------------------------------------- |
+| `norm_phrase_set_match`         | Default deterministic phrase grader   |
+| `norm_phrase_set_match_ordered` | Ordered-phrase variant                |
+| `mc_choice_match`               | Single multiple-choice letter         |
+| `llm_abstention_checker`        | LLM judge — flawed-premise abstention |
+| `llm_gotchas_checker`           | LLM judge — gotcha insight            |
+
+Phase 2 expands to the full 451-question small tier once the cache PR
+lands the indexed trajectory reader.
+
 ## Next
 
-The two-conversation runner (`run-ingest-ask`, shipped in PR #32356) and
-this judge unblock Phase 1 wiring (5-item smoke against
-`vellum-simple-memory`), which lands in a follow-up PR.
+The cache PR (PR-7) is the next major step: indexed / streaming
+`trajectories.jsonl` access so the full 451-Q small tier runs without
+a ~1 GB upfront read per `evals run`, plus the shared artifact-lifecycle
+helper extract called out above.
