@@ -130,6 +130,7 @@ mock.module("@/domains/onboarding/prefs", () => ({
   readOnboardingCompleted: () => onboardingCompleted,
   readSelectedVersion: () => null,
   readTosAccepted: () => true,
+  clearOnboardingCompleted: mock(() => {}),
   useOnboardingCompleted: () =>
     [onboardingCompleted, setOnboardingCompletedMock] as const,
   writeSelectedVersion: writeSelectedVersionMock,
@@ -152,6 +153,7 @@ mock.module("@/runtime/native-auth", () => ({
 
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => false,
+  hasAssistants: () => false,
   hatchLocalAssistant: async () => ({ ok: true, assistantId: "local-1" }),
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setSelectedAssistantId: () => {},
