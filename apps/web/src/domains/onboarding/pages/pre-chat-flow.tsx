@@ -117,8 +117,9 @@ export function PreChatFlow() {
   const [selectedPriorAssistants, setSelectedPriorAssistants] = useState<Set<string>>(
     () => new Set(),
   );
+  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
   const { value: userName, onChange: handleUserNameChange } =
-    usePrefilledInput(localMode ? "" : (firstName || lastName));
+    usePrefilledInput(localMode && !hasPlatformSession ? "" : (firstName || lastName));
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [displayedAssistantNames] = useState<string[]>(
     () => sampleSuggestionNames(),
