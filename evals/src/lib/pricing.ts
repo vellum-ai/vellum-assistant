@@ -57,6 +57,7 @@ const PRICING_TABLE: Record<string, ModelRow> = {
   // generation is priced at $5/$25 in the catalog (older Opus 3.x and
   // pre-4.5 Opus generations carried the $15/$75 rate but are not in
   // the evals profile coverage set).
+  "anthropic:claude-opus-4-8": { inputPer1M: 5, outputPer1M: 25 },
   "anthropic:claude-opus-4-7": { inputPer1M: 5, outputPer1M: 25 },
   "anthropic:claude-opus-4-6": { inputPer1M: 5, outputPer1M: 25 },
   "anthropic:claude-opus-4-5": { inputPer1M: 5, outputPer1M: 25 },

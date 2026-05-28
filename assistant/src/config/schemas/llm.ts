@@ -309,7 +309,7 @@ export const LLMConfigBase = z.object({
    * naturally — the underlying profile-level field is on `ProfileEntry`.
    */
   provider_connection: z.string().min(1).optional(),
-  model: ModelSchema.default("claude-opus-4-7"),
+  model: ModelSchema.default("claude-opus-4-8"),
   maxTokens: MaxTokensSchema.default(64000),
   effort: EffortEnum.default("max"),
   speed: SpeedEnum.default("standard"),

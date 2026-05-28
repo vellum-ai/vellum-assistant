@@ -145,6 +145,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
     },
     models: [
       {
+        id: "claude-opus-4-8",
+        displayName: "Claude Opus 4.8",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
+      {
         id: "claude-opus-4-7",
         displayName: "Claude Opus 4.7",
         contextWindowTokens: 1000000,
@@ -244,7 +261,7 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
         },
       },
     ],
-    defaultModel: "claude-opus-4-7",
+    defaultModel: "claude-opus-4-8",
     apiKeyUrl: "https://console.anthropic.com/settings/keys",
     apiKeyPlaceholder: "sk-ant-api03-...",
   },
@@ -703,6 +720,23 @@ const RAW_PROVIDER_CATALOG: ProviderCatalogEntry[] = [
       // OpenRouter proxies anthropic/* through Anthropic's Messages API, so
       // prompt caching and cache TTL metadata pass through unchanged and
       // billing matches Anthropic's direct rates.
+      {
+        id: "anthropic/claude-opus-4.8",
+        displayName: "Claude Opus 4.8",
+        contextWindowTokens: 1000000,
+        maxOutputTokens: 128000,
+        longContextPricingThresholdTokens: 200000,
+        supportsThinking: true,
+        supportsCaching: true,
+        supportsVision: true,
+        supportsToolUse: true,
+        pricing: {
+          inputPer1mTokens: 5,
+          outputPer1mTokens: 25,
+          cacheWritePer1mTokens: 6.25,
+          cacheReadPer1mTokens: 0.5,
+        },
+      },
       {
         id: "anthropic/claude-opus-4.7",
         displayName: "Claude Opus 4.7",

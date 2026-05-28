@@ -208,7 +208,7 @@ assistant inference providers connections create my-anthropic-key \
   --auth api_key \
   --credential credential/anthropic/api_key
 
-assistant config set llm.profiles.opus-personal '{"provider":"anthropic","model":"claude-opus-4-7","label":"Opus (Personal)","provider_connection":"my-anthropic-key"}'
+assistant config set llm.profiles.opus-personal '{"provider":"anthropic","model":"claude-opus-4-8","label":"Opus (Personal)","provider_connection":"my-anthropic-key"}'
 ```
 
 ---
