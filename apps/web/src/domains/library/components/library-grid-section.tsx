@@ -11,12 +11,12 @@ interface LibraryGridSectionProps {
   apps: AppSummary[];
   assistantId: string;
   pinnedAppIds: Set<string>;
-  lastImportedAppId: string | null;
+  lastImportedAppId?: string | null;
   onOpen: (appId: string) => void;
   onPin: (app: AppSummary) => void;
   onDelete: (app: AppSummary) => void;
   onDeploy?: (appId: string) => void;
-  onAnimationEnd: () => void;
+  onAnimationEnd?: () => void;
 }
 
 export function LibraryGridSection({

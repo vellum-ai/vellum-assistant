@@ -100,7 +100,6 @@ export function LibraryView({
   // --- Import state ---
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isImporting, setIsImporting] = useState(false);
-  const [lastImportedAppId, setLastImportedAppId] = useState<string | null>(null);
 
   const handleImportBundle = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -111,19 +110,15 @@ export function LibraryView({
       await queryClient.invalidateQueries({
         queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }),
       });
-      setLastImportedAppId(result.appId);
       toast.success(result.name + " imported");
+      onOpenApp(result.appId);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to import app");
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
-  }, [assistantId, isImporting, queryClient]);
-
-  const clearLastImported = useCallback(() => {
-    setLastImportedAppId(null);
-  }, []);
+  }, [assistantId, isImporting, queryClient, onOpenApp]);
 
   // --- Deploy ---
   const handleDeploy = useCallback(async (appId: string) => {
@@ -247,24 +242,20 @@ export function LibraryView({
               apps={pinnedApps}
               assistantId={assistantId}
               pinnedAppIds={pinnedAppIds}
-              lastImportedAppId={lastImportedAppId}
               onOpen={onOpenApp}
               onPin={handlePinToggle}
               onDelete={setAppPendingDelete}
               onDeploy={deployToVercel ? handleDeploy : undefined}
-              onAnimationEnd={clearLastImported}
             />
             <LibraryGridSection
               title="Recents"
               apps={recentApps}
               assistantId={assistantId}
               pinnedAppIds={pinnedAppIds}
-              lastImportedAppId={lastImportedAppId}
               onOpen={onOpenApp}
               onPin={handlePinToggle}
               onDelete={setAppPendingDelete}
               onDeploy={deployToVercel ? handleDeploy : undefined}
-              onAnimationEnd={clearLastImported}
             />
             {filteredDocuments.length > 0 ? (
               <section>
