@@ -1,5 +1,6 @@
 import type { Command } from "commander";
 
+import type { FeedItem } from "../../home/feed-types.js";
 import {
   cliIpcCall,
   exitCodeFromIpcResult,
@@ -9,6 +10,66 @@ import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 import { tryResolveConversationId } from "../utils/conversation-id.js";
+
+// ---------------------------------------------------------------------------
+// Local types & helpers
+// ---------------------------------------------------------------------------
+
+interface ListHomeFeedPayload {
+  items: FeedItem[];
+  total: number;
+  returned: number;
+  hasMore: boolean;
+  updatedAt: string;
+}
+
+function parseBoundedInt(
+  raw: string | undefined,
+  label: string,
+  bounds: { min: number; max?: number },
+): { value?: number; error?: string } {
+  if (raw === undefined) return {};
+  const n = Number(raw);
+  const upper = bounds.max ?? Infinity;
+  if (
+    !Number.isFinite(n) ||
+    !Number.isInteger(n) ||
+    n < bounds.min ||
+    n > upper
+  ) {
+    const range =
+      bounds.max !== undefined
+        ? `[${bounds.min}, ${bounds.max}]`
+        : `>= ${bounds.min}`;
+    return {
+      error: `Invalid ${label} "${raw}". Must be an integer ${range}`,
+    };
+  }
+  return { value: n };
+}
+
+function renderFeedItemsHuman(payload: ListHomeFeedPayload): void {
+  if (payload.items.length === 0) {
+    log.info("No notifications match the filters.");
+    return;
+  }
+  log.info(`${payload.returned} of ${payload.total} notifications:\n`);
+  for (const item of payload.items) {
+    const idShort = item.id.slice(0, 8);
+    const status = item.status.toUpperCase().padEnd(10);
+    const urgency = (item.urgency ?? "").padEnd(8);
+    const headline = item.title ?? item.summary;
+    const convoTag = item.conversationId
+      ? `  (conv: ${item.conversationId.slice(0, 8)})`
+      : "";
+    log.info(
+      `  ${idShort}  ${item.createdAt}  ${status} ${urgency} ${headline}${convoTag}`,
+    );
+  }
+  if (payload.hasMore) {
+    log.info("\n(more results available; bump --offset to paginate)");
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Command registration
@@ -353,84 +414,189 @@ Examples:
       // list
       // -------------------------------------------------------------------------
 
+      // Commander's `.exitOverride()` (used in tests) swallows thrown errors
+      // from collector functions, so we append values here and validate the
+      // accumulated array inside the action handler instead.
+      const collectFlag = (
+        value: string,
+        prev: string[] | undefined,
+      ): string[] => [...(prev ?? []), value];
+
+      function validateEnumFlag(
+        values: string[] | undefined,
+        label: string,
+        allowed: readonly string[],
+      ): { error?: string } {
+        if (!values) return {};
+        for (const v of values) {
+          if (!allowed.includes(v)) {
+            return {
+              error: `Invalid ${label} "${v}". Must be one of: ${allowed.join(", ")}`,
+            };
+          }
+        }
+        return {};
+      }
+
       notifications
         .command("list")
         .description(
-          "List recent notification events from the local event store",
+          "List notifications surfaced to the user via the home feed. Excludes dismissed items by default.",
         )
         .option(
-          "--limit <n>",
-          "Maximum number of events to return (default: 20)",
+          "--all",
+          "Include dismissed items (default: only new/seen/acted_on)",
+          false,
         )
-        .option("--source-event-name <name>", "Filter by source event name")
+        .option(
+          "--status <status>",
+          "Filter by status (new|seen|acted_on|dismissed); repeatable. Overrides --all default behavior.",
+          collectFlag,
+        )
+        .option(
+          "--before <iso>",
+          "Only items with createdAt strictly before this ISO-8601 timestamp",
+        )
+        .option(
+          "--after <iso>",
+          "Only items with createdAt strictly after this ISO-8601 timestamp",
+        )
+        .option(
+          "--urgency <urgency>",
+          "Filter by urgency (low|medium|high|critical); repeatable",
+          collectFlag,
+        )
+        .option(
+          "--category <category>",
+          "Filter by category (security|scheduling|background|email|system); repeatable",
+          collectFlag,
+        )
+        .option(
+          "--conversation-id <id>",
+          "Only items tied to this conversation id",
+        )
+        .option(
+          "--from-assistant",
+          "Only items emitted by the assistant",
+          false,
+        )
+        .option("--noteworthy", "Only items flagged as noteworthy", false)
+        .option(
+          "--limit <n>",
+          "Maximum number of items to return (default: 20, max: 200)",
+        )
+        .option("--offset <n>", "Pagination offset (default: 0)")
         .addHelpText(
           "after",
           `
-Reads from the local notification events store, ordered by creation time
-(newest first). Each event represents a signal that was emitted through the
-notification pipeline.
+Reads the home feed at ~/.vellum/workspace/data/home-feed.json — the
+user's notification inbox. Items are ordered by priority then recency,
+matching what the user sees in the macOS Home page. The home feed covers
+background/async notifications mirrored from the unified pipeline;
+real-time chat pushes that did not mirror to the feed will not appear.
 
 Examples:
   $ assistant notifications list
-  $ assistant notifications list --limit 5
-  $ assistant notifications list --source-event-name schedule.notify
-  $ assistant notifications list --source-event-name schedule.notify --limit 10 --json`,
+  $ assistant notifications list --all
+  $ assistant notifications list --status new --status seen
+  $ assistant notifications list --after 2026-05-28T00:00:00Z --urgency high
+  $ assistant notifications list --conversation-id 7fab234c --json
+  $ assistant notifications list --limit 5 --offset 5`,
         )
         .action(
           async (
             opts: {
+              all?: boolean;
+              status?: string[];
+              before?: string;
+              after?: string;
+              urgency?: string[];
+              category?: string[];
+              conversationId?: string;
+              fromAssistant?: boolean;
+              noteworthy?: boolean;
               limit?: string;
-              sourceEventName?: string;
+              offset?: string;
             },
             cmd: Command,
           ) => {
             try {
-              // Validate --source-event-name (accept any non-empty string; custom
-              // event names are valid since skills can emit arbitrary names)
-              if (
-                opts.sourceEventName != null &&
-                opts.sourceEventName.trim().length === 0
-              ) {
-                writeOutput(cmd, {
-                  ok: false,
-                  error: "Source event name must be a non-empty string",
-                });
+              const enumChecks: Array<{ error?: string }> = [
+                validateEnumFlag(opts.status, "status", [
+                  "new",
+                  "seen",
+                  "acted_on",
+                  "dismissed",
+                ]),
+                validateEnumFlag(opts.urgency, "urgency", [
+                  "low",
+                  "medium",
+                  "high",
+                  "critical",
+                ]),
+                validateEnumFlag(opts.category, "category", [
+                  "security",
+                  "scheduling",
+                  "background",
+                  "email",
+                  "system",
+                ]),
+              ];
+              const enumError = enumChecks.find((c) => c.error);
+              if (enumError) {
+                writeOutput(cmd, { ok: false, error: enumError.error });
                 process.exitCode = 1;
                 return;
               }
 
-              // Parse and validate --limit
-              let limit = 20;
-              if (opts.limit != null) {
-                const parsed = Number(opts.limit);
-                if (
-                  !Number.isFinite(parsed) ||
-                  !Number.isInteger(parsed) ||
-                  parsed < 1
-                ) {
+              const limit = parseBoundedInt(opts.limit, "limit", {
+                min: 1,
+                max: 200,
+              });
+              if (limit.error) {
+                writeOutput(cmd, { ok: false, error: limit.error });
+                process.exitCode = 1;
+                return;
+              }
+              const offset = parseBoundedInt(opts.offset, "offset", {
+                min: 0,
+              });
+              if (offset.error) {
+                writeOutput(cmd, { ok: false, error: offset.error });
+                process.exitCode = 1;
+                return;
+              }
+
+              if (opts.conversationId != null) {
+                const trimmed = opts.conversationId.trim();
+                if (trimmed.length === 0) {
                   writeOutput(cmd, {
                     ok: false,
-                    error: `Invalid limit "${opts.limit}". Must be a positive integer`,
+                    error: "Conversation ID must be a non-empty string",
                   });
                   process.exitCode = 1;
                   return;
                 }
-                limit = parsed;
               }
 
-              const result = await cliIpcCall<
-                Array<{
-                  id: string;
-                  sourceEventName: string;
-                  sourceChannel: string;
-                  sourceContextId: string;
-                  urgency: string;
-                  dedupeKey: string | null;
-                  createdAt: string;
-                }>
-              >("list_notification_events", {
-                body: { limit, sourceEventName: opts.sourceEventName },
-              });
+              const body: Record<string, unknown> = {};
+              if (opts.all) body.includeDismissed = true;
+              if (opts.status?.length) body.statuses = opts.status;
+              if (opts.before) body.before = opts.before;
+              if (opts.after) body.after = opts.after;
+              if (opts.urgency?.length) body.urgencies = opts.urgency;
+              if (opts.category?.length) body.categories = opts.category;
+              if (opts.conversationId)
+                body.conversationId = opts.conversationId.trim();
+              if (opts.fromAssistant) body.fromAssistant = true;
+              if (opts.noteworthy) body.noteworthy = true;
+              if (limit.value !== undefined) body.limit = limit.value;
+              if (offset.value !== undefined) body.offset = offset.value;
+
+              const result = await cliIpcCall<ListHomeFeedPayload>(
+                "list_home_feed",
+                { body },
+              );
 
               if (!result.ok) {
                 writeOutput(cmd, { ok: false, error: result.error });
@@ -438,21 +604,11 @@ Examples:
                 return;
               }
 
-              const events = result.result!;
-
-              writeOutput(cmd, { ok: true, events });
+              const payload = result.result!;
+              writeOutput(cmd, { ok: true, ...payload });
 
               if (!shouldOutputJson(cmd)) {
-                if (events.length === 0) {
-                  log.info("No notification events found");
-                } else {
-                  log.info(`${events.length} event(s):\n`);
-                  for (const event of events) {
-                    log.info(
-                      `  ${event.createdAt}  ${event.sourceEventName}  ${event.urgency}  ${event.sourceChannel}`,
-                    );
-                  }
-                }
+                renderFeedItemsHuman(payload);
               }
             } catch (err) {
               const message = err instanceof Error ? err.message : String(err);
