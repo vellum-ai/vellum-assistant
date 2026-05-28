@@ -9,7 +9,7 @@ import {
   type UseAssistantLifecycleReturn,
 } from "@/domains/chat/hooks/use-assistant-lifecycle";
 import { useAuthStore } from "@/stores/auth-store";
-import { useEnvironmentStore } from "@/lib/environment/environment-store";
+import { useEnvironmentStore } from "@/lib/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useConversationSync } from "@/domains/conversations/use-conversation-sync";
 import { useFeatureFlagBusSync } from "@/lib/feature-flags/use-feature-flag-bus-sync";

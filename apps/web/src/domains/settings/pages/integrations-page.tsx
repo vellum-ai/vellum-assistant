@@ -22,7 +22,7 @@ import {
   fetchOAuthProviders,
   type OAuthProviderSummary,
 } from "@/domains/settings/api/oauth-providers";
-import { reportError } from "@/lib/errors/report";
+import { reportError } from "@/lib/error-report";
 import { routes } from "@/utils/routes";
 
 import {

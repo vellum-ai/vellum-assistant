@@ -1,4 +1,4 @@
-import { AppViewerContainer } from "@/components/apps/app-viewer-container";
+import { AppViewerContainer } from "@/components/app-viewer-container";
 import type { OpenedAppState } from "@/stores/viewer-store";
 
 interface MobileAppOverlayProps {

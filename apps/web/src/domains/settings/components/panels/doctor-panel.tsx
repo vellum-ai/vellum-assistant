@@ -32,7 +32,7 @@ import {
   buildVellumHeaders,
   buildVellumMutatingHeaders,
 } from "@/lib/auth/request-headers";
-import { reportError } from "@/lib/errors/report";
+import { reportError } from "@/lib/error-report";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { isPointerCoarse } from "@/utils/pointer";
 import { ShareFeedbackModal } from "@/components/share-feedback-modal";

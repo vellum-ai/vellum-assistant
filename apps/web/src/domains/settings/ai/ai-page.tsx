@@ -48,8 +48,8 @@ import {
   assistantsListQueryKey,
   organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { reportError } from "@/lib/errors/report";
-import { useEnvironmentStore } from "@/lib/environment/environment-store";
+import { reportError } from "@/lib/error-report";
+import { useEnvironmentStore } from "@/lib/environment-store";
 import {
   type LlmCatalogModel,
   PROVIDER_DISPLAY_NAMES,

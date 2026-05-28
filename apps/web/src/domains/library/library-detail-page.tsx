@@ -6,7 +6,7 @@ import { toast } from "@vellum/design-library";
 
 import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
 import { appsByIdOpenPost } from "@/generated/daemon/sdk.gen";
-import { AppViewerContainer } from "@/components/apps/app-viewer-container";
+import { AppViewerContainer } from "@/components/app-viewer-container";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { shareApp } from "@/utils/share-app";
 import { routes } from "@/utils/routes";

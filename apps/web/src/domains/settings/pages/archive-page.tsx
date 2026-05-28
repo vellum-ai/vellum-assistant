@@ -11,7 +11,7 @@ import {
 } from "@/lib/conversations";
 import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdUnarchivePost } from "@/generated/daemon/sdk.gen";
-import { reportError } from "@/lib/errors/report";
+import { reportError } from "@/lib/error-report";
 
 function formatConversationDate(timestamp: number | undefined): string {
   if (timestamp == null) return "";

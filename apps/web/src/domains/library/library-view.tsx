@@ -27,7 +27,7 @@ import { LibraryDocumentCard } from "@/domains/library/components/library-docume
 import { LibraryEmptyState } from "@/domains/library/components/library-empty-state";
 import { LibraryGridSection } from "@/domains/library/components/library-grid-section";
 import { DeleteAppDialog } from "@/domains/library/components/delete-app-dialog";
-import { useLibraryData } from "@/domains/library/hooks/use-library-data";
+import { useLibraryData } from "@/domains/library/use-library-data";
 
 export interface LibraryViewProps {
   assistantId: string;

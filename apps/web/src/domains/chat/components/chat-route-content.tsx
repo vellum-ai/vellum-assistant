@@ -52,7 +52,7 @@ import { Loader2 } from "lucide-react";
 import { Button, Notice, ResizablePanel } from "@vellum/design-library";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
-import { AppViewerContainer } from "@/components/apps/app-viewer-container";
+import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";

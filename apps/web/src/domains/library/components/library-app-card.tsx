@@ -21,7 +21,7 @@ import {
 } from "@vellum/design-library";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { cn } from "@/utils/misc";
-import { formatLibraryDate } from "@/domains/library/utils/library-date";
+import { formatLibraryDate } from "@/domains/library/library-date";
 
 interface LibraryAppCardProps {
   app: AppSummary;

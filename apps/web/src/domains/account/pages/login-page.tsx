@@ -6,7 +6,7 @@ import { Button } from "@vellum/design-library";
 import { AppleLogo } from "@/components/icons/apple-logo";
 import { GoogleLogo } from "@/components/icons/google-logo";
 import { NativeSplash } from "@/components/native-splash";
-import { LoginBackground } from "@/domains/account/components/login-background";
+import { LoginBackground } from "@/domains/account/login-background";
 import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
 import { ensureGatewayToken } from "@/lib/auth/gateway-session";
 import {
