@@ -45,7 +45,7 @@ export default defineConfig(({ mode }) => {
           filesToDeleteAfterUpload: ["./dist/**/*.map"],
         },
       }),
-      env.VITE_LOCAL_MODE ? localModePlugin(env) : null,
+      !env.VITE_PLATFORM_MODE ? localModePlugin(env) : null,
     ].filter(Boolean),
     resolve: {
       alias: [

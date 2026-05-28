@@ -52,12 +52,12 @@ const SELECTED_ASSISTANT_STORAGE_KEY = "local:selectedAssistantId";
 // Core helpers
 // ---------------------------------------------------------------------------
 
-const LOCAL_MODE_FALSY = new Set(["", "0", "false", "no"]);
+const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
 
 export function isLocalMode(): boolean {
-  const raw = import.meta.env.VITE_LOCAL_MODE;
-  if (!raw) return false;
-  return !LOCAL_MODE_FALSY.has(raw.toLowerCase());
+  const raw = import.meta.env.VITE_PLATFORM_MODE;
+  if (!raw) return true;
+  return !PLATFORM_MODE_TRUTHY.has(raw.toLowerCase());
 }
 
 export async function loadLockfile(): Promise<Lockfile> {

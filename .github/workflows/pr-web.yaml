@@ -128,7 +128,7 @@ jobs:
 
       - name: Build
         env:
-          VITE_LOCAL_MODE: "false"
+          VITE_PLATFORM_MODE: "true"
           VITE_SENTRY_DSN: ${{ vars.VITE_SENTRY_DSN }}
           VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
           VITE_APP_VERSION: ${{ github.sha }}
