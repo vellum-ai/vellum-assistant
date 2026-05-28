@@ -125,6 +125,7 @@ import {
   migrateLlmRequestLogsCreatedAtIndex,
   migrateLlmUsageAddRawUsage,
   migrateLlmUsageAttribution,
+  migrateLlmUsageEventsAddAssistantVersion,
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
@@ -466,6 +467,7 @@ export function initializeDb(): void {
     migrateLlmRequestLogCallSite,
     migrateDropProviderConnectionStatus,
     migrateMessagesClientMessageId,
+    migrateLlmUsageEventsAddAssistantVersion,
   ];
 
   // Run each migration step, catching and logging individual failures so one
