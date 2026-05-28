@@ -211,6 +211,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "home/feed", scopes: ["settings.read"] },
   { endpoint: "home/feed:PATCH", scopes: ["settings.write"] },
   { endpoint: "home/feed/actions", scopes: ["settings.write"] },
+  { endpoint: "home/feed/query", scopes: ["settings.read"] },
   { endpoint: "brain-graph", scopes: ["settings.read"] },
   { endpoint: "brain-graph-ui", scopes: ["settings.read"] },
   { endpoint: "contacts", scopes: ["settings.read"] },
