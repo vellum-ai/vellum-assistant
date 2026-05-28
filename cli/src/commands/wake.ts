@@ -154,10 +154,12 @@ export async function wake(): Promise<void> {
   }
 
   let bootstrapSecret = entry.guardianBootstrapSecret;
+  let bootstrapSecretBackfilled = false;
   if (!bootstrapSecret) {
     bootstrapSecret = generateLocalSigningKey();
     entry.guardianBootstrapSecret = bootstrapSecret;
     saveAssistantEntry(entry);
+    bootstrapSecretBackfilled = true;
   }
 
   if (!daemonRunning) {
@@ -169,9 +171,15 @@ export async function wake(): Promise<void> {
     const vellumDir = join(resources.instanceDir, ".vellum");
     const gatewayPidFile = join(vellumDir, "gateway.pid");
     const { alive, pid } = isProcessAlive(gatewayPidFile);
-    if (alive) {
+    const needsRestart = bootstrapSecretBackfilled && alive;
+    if (needsRestart) {
+      console.log(
+        `Gateway running (pid ${pid}) — restarting to apply bootstrap secret...`,
+      );
+      await stopProcessByPidFile(gatewayPidFile, "gateway");
+      await startGateway(watch, resources, { signingKey, bootstrapSecret });
+    } else if (alive) {
       if (watch) {
-        // Guard gateway restart separately: check gateway source availability.
         if (!isGatewayWatchModeAvailable()) {
           console.log(
             `Gateway running (pid ${pid}) — watch mode not available (no source files). Keeping existing process.`,
