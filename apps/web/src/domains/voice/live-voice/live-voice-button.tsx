@@ -107,6 +107,27 @@ export function LiveVoiceButton({
     }
   }, [gateOpen]);
 
+  // The composer is stable across conversation navigation — only
+  // `conversationId` changes as a prop. Without this effect, an active
+  // WebSocket would keep streaming audio/STT/LLM/TTS frames against the
+  // previous conversation's session while the UI shows the new one.
+  // Tear down the manager when the user navigates between two real
+  // conversations. Skip the initial mount (no previous id) and the
+  // null→value transition (a new conversation activating for the first
+  // time, not a switch).
+  const previousConversationIdRef = useRef<string | null>(conversationId);
+  useEffect(() => {
+    const previous = previousConversationIdRef.current;
+    previousConversationIdRef.current = conversationId;
+    if (
+      previous !== null &&
+      conversationId !== null &&
+      previous !== conversationId
+    ) {
+      void managerRef.current?.end();
+    }
+  }, [conversationId]);
+
   if (!voiceModeEnabled || !assistantId) return null;
 
   const manager = managerRef.current;

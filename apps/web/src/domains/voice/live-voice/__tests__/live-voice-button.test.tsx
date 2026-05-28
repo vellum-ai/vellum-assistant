@@ -318,4 +318,58 @@ describe("LiveVoiceButton — lifecycle", () => {
     );
     expect(stub.endCalls).toBe(1);
   });
+
+  test("switching conversationId mid-session ends the manager", () => {
+    // The composer is stable across conversation navigation — only the
+    // `conversationId` prop changes. Without the switch-detection effect
+    // the existing WebSocket would keep streaming against conversation A
+    // while the UI shows conversation B.
+    const stub = createStubManager();
+    const { rerender } = render(
+      <LiveVoiceButton
+        assistantId={ASSISTANT_ID}
+        conversationId="conv-A"
+        managerFactory={() => stub}
+      />,
+    );
+    // Drive the store into `listening` so the conversation is meaningfully
+    // bound to a live session at the moment of navigation.
+    act(() => {
+      useLiveVoiceStore.setState({ state: "listening" });
+    });
+    expect(stub.endCalls).toBe(0);
+
+    rerender(
+      <LiveVoiceButton
+        assistantId={ASSISTANT_ID}
+        conversationId="conv-B"
+        managerFactory={() => stub}
+      />,
+    );
+    expect(stub.endCalls).toBe(1);
+  });
+
+  test("initial null→value conversationId binding does NOT end the manager", () => {
+    // Mounting with no conversation, then a conversation activates for
+    // the first time, is initial binding — not a switch. End() must not
+    // fire or we'd kill the session before it can begin.
+    const stub = createStubManager();
+    const { rerender } = render(
+      <LiveVoiceButton
+        assistantId={ASSISTANT_ID}
+        conversationId={null}
+        managerFactory={() => stub}
+      />,
+    );
+    expect(stub.endCalls).toBe(0);
+
+    rerender(
+      <LiveVoiceButton
+        assistantId={ASSISTANT_ID}
+        conversationId="conv-A"
+        managerFactory={() => stub}
+      />,
+    );
+    expect(stub.endCalls).toBe(0);
+  });
 });
