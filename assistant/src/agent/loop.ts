@@ -660,15 +660,6 @@ export class AgentLoop {
         );
         rlog.info({ turn: toolUseTurns }, "LLM call start");
 
-        // Announce the LLM-call boundary so downstream handlers (the
-        // daemon's persistence pipeline) can reserve an empty assistant row
-        // and stamp the resulting `messageId` onto every streaming event the
-        // call emits. Awaited so the row is created and the
-        // `assistant_turn_start` wire event reaches the client BEFORE the
-        // provider starts streaming deltas — the deltas downstream will
-        // carry the freshly-reserved id.
-        await onEvent({ type: "llm_call_started", callSite });
-
         // Strip image contentBlocks from older tool results to prevent
         // screenshots from accumulating in the context window. The LLM
         // already saw each image on the turn it was captured; keeping
@@ -768,6 +759,18 @@ export class AgentLoop {
           requestId,
           toolUseTurns,
         );
+
+        // Announce the LLM-call boundary so downstream handlers (the
+        // daemon's persistence pipeline) can reserve an empty assistant row
+        // and stamp the resulting `messageId` onto every streaming event the
+        // call emits. Emit as late as possible — after history stripping,
+        // arg construction, and turn-context resolution — so the gap
+        // between "we said the call started" and the actual provider HTTP
+        // call is minimized. Awaited so the row is created and the
+        // `assistant_turn_start` wire event reaches the client BEFORE the
+        // provider starts streaming deltas — the deltas downstream will
+        // carry the freshly-reserved id.
+        await onEvent({ type: "llm_call_started", callSite });
 
         // Inner try/catch narrows error-recording scope to the provider
         // call itself. The outer agent-loop catch (below) wraps the entire

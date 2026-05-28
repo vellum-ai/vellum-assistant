@@ -16,12 +16,16 @@ import type {
 import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
+import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import {
+  deleteMessageById,
   getConversation,
   getMessageById,
+  messageMetadataSchema,
   provenanceFromTrustContext,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
+import { indexMessageNow } from "../memory/indexer.js";
 import {
   backfillMessageIdOnLogs,
   buildProviderErrorResponsePayload,
@@ -47,6 +51,7 @@ import type {
 } from "../plugins/types.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
+import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
 import { ProviderError } from "../util/errors.js";
@@ -66,6 +71,7 @@ import {
 import { isProviderOrderingError } from "./conversation-slash.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
 import type { ServerMessage } from "./message-protocol.js";
+import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import type {
   WebSearchMetadata,
   WebSearchResultItem,
@@ -145,6 +151,21 @@ export interface EventHandlerState {
   contextTooLargeError: unknown;
   providerErrorUserMessage: string | null;
   lastAssistantMessageId: string | undefined;
+  /**
+   * True when `handleLlmCallStarted` has reserved an empty assistant row
+   * that has NOT yet been finalized via `handleMessageComplete`
+   * (`op:"updateContent"` + indexing + projection). Used by error/retry
+   * paths to detect a stranded reservation that must be cleaned up
+   * before the next LLM call reserves a fresh row — without it, every
+   * retryable failure (overflow, ordering, image overflow) and every
+   * terminal provider rejection would leak an empty assistant bubble
+   * into the transcript and mispoint downstream sync/projection.
+   *
+   * Cleared by `handleMessageComplete` on successful finalize, and by
+   * the synthetic-error branch in `conversation-agent-loop.ts` after it
+   * absorbs the reserved row into the error message.
+   */
+  assistantRowAwaitingFinalization: boolean;
   readonly pendingToolResults: Map<string, PendingToolResult>;
   readonly persistedToolUseIds: Set<string>;
   readonly accumulatedDirectives: DirectiveRequest[];
@@ -245,6 +266,7 @@ export function createEventHandlerState(): EventHandlerState {
     contextTooLargeError: null,
     providerErrorUserMessage: null,
     lastAssistantMessageId: undefined,
+    assistantRowAwaitingFinalization: false,
     pendingToolResults: new Map(),
     persistedToolUseIds: new Set(),
     accumulatedDirectives: [],
@@ -466,6 +488,33 @@ export async function handleLlmCallStarted(
   state: EventHandlerState,
   deps: EventHandlerDeps,
 ): Promise<void> {
+  // Clean up an orphaned reservation from a previous LLM call in this run
+  // that errored before `message_complete` could finalize it. This covers
+  // the retryable paths (overflow, ordering, image overflow) where the
+  // agent loop re-enters with a fresh `run()` and reserves another row;
+  // without this delete the failed-attempt row stays in the transcript as
+  // an empty assistant bubble. The finalized-row case is filtered out via
+  // the `assistantRowAwaitingFinalization` flag — `handleMessageComplete`
+  // clears it after the successful `updateContent`, so the previous call's
+  // committed row is never touched here.
+  //
+  // Direct `deleteMessageById` (not via the `persistence` pipeline) is
+  // intentional: a never-finalized reservation has no segments, no
+  // attachments, and no observable history — undoing it isn't a real
+  // persistence event for plugins to react to, so routing through the
+  // pipeline would only widen the mock surface for no observability win.
+  if (state.assistantRowAwaitingFinalization && state.lastAssistantMessageId) {
+    try {
+      deleteMessageById(state.lastAssistantMessageId);
+    } catch (err) {
+      // Non-fatal: a leaked empty row is preferable to a turn-level throw.
+      deps.rlog.warn(
+        { err, messageId: state.lastAssistantMessageId },
+        "Failed to clean up stranded reserved assistant row before new reservation",
+      );
+    }
+  }
+
   const metadata = buildAssistantChannelMetadata(state, deps);
   const reserveResult = (await runPipeline<PersistArgs, PersistResult>(
     "persistence",
@@ -481,6 +530,7 @@ export async function handleLlmCallStarted(
     DEFAULT_TIMEOUTS.persistence,
   )) as PersistReserveResult;
   state.lastAssistantMessageId = reserveResult.message.id;
+  state.assistantRowAwaitingFinalization = true;
   deps.onEvent({
     type: "assistant_turn_start",
     messageId: reserveResult.message.id,
@@ -1155,6 +1205,7 @@ export async function handleMessageComplete(
       "handleMessageComplete fired without a prior llm_call_started reserving an assistant row",
     );
   }
+  const contentJson = JSON.stringify(contentForPersistence);
   await runPipeline<PersistArgs, PersistResult>(
     "persistence",
     getMiddlewaresFor("persistence"),
@@ -1162,11 +1213,94 @@ export async function handleMessageComplete(
     {
       op: "updateContent",
       messageId: assistantMessageId,
-      content: JSON.stringify(contentForPersistence),
+      content: contentJson,
     },
     buildHandlerTurnContext(deps),
     DEFAULT_TIMEOUTS.persistence,
   );
+  state.assistantRowAwaitingFinalization = false;
+
+  // ── Indexing + attention projection (restored from the pre-B3 `add` path) ──
+  // `reserveMessage` + `updateMessageContent` are CRUD-only: they don't run
+  // the memory indexer or the attention-cursor projector. The pre-B3 path
+  // wrote the row via `addMessage`, which ran both as side-effects of the
+  // insert. Calling them here keeps the assistant row's external state
+  // (Qdrant segments, conversation attention cursor) in lockstep with the
+  // finalized content. Both are non-fatal — a memory hiccup must not
+  // escalate a successful generation into a turn-level throw. Indexing
+  // intentionally fires AFTER `updateContent` succeeds so we never index
+  // the empty reserved placeholder.
+  const finalizedRow = getMessageById(
+    assistantMessageId,
+    deps.ctx.conversationId,
+  );
+  if (finalizedRow) {
+    let provenanceTrustClass:
+      | "guardian"
+      | "trusted_contact"
+      | "unknown"
+      | undefined;
+    let automated: boolean | undefined;
+    if (finalizedRow.metadata) {
+      try {
+        const parsedMeta = messageMetadataSchema.safeParse(
+          JSON.parse(finalizedRow.metadata),
+        );
+        if (parsedMeta.success) {
+          provenanceTrustClass = parsedMeta.data.provenanceTrustClass;
+          automated = parsedMeta.data.automated;
+        }
+      } catch {
+        // Malformed metadata JSON — fall through with undefined fields,
+        // matching the legacy behavior in `addMessage`.
+      }
+    }
+    try {
+      await indexMessageNow(
+        {
+          messageId: assistantMessageId,
+          conversationId: deps.ctx.conversationId,
+          role: "assistant",
+          content: contentJson,
+          createdAt: finalizedRow.createdAt,
+          scopeId: "default",
+          provenanceTrustClass,
+          automated,
+        },
+        getConfig().memory,
+      );
+    } catch (err) {
+      deps.rlog.warn(
+        {
+          err,
+          conversationId: deps.ctx.conversationId,
+          messageId: assistantMessageId,
+        },
+        "Failed to index assistant message for memory (non-fatal)",
+      );
+    }
+    try {
+      const attentionStateChanged = projectAssistantMessage({
+        conversationId: deps.ctx.conversationId,
+        messageId: assistantMessageId,
+        messageAt: finalizedRow.createdAt,
+      });
+      if (attentionStateChanged) {
+        void publishSyncInvalidation([
+          conversationMetadataSyncTag(deps.ctx.conversationId),
+        ]);
+      }
+    } catch (err) {
+      deps.rlog.warn(
+        {
+          err,
+          conversationId: deps.ctx.conversationId,
+          messageId: assistantMessageId,
+        },
+        "Failed to project assistant message for attention tracking (non-fatal)",
+      );
+    }
+  }
 
   // Backfill message_id on all LLM request logs from this turn.
   // The agent loop is single-threaded per conversation, so all rows with
