@@ -74,12 +74,17 @@ const computePolicy = (): DockState["policy"] => {
   return ALLOW_ACCESSORY_MODE ? "accessory" : "regular";
 };
 
-const applyPolicy = (next: DockState["policy"]): void => {
+// `app.dock.show()` returns a Promise that resolves once the Dock has
+// reflected the change; `setActivationPolicy("regular")` after it
+// keeps the two surfaces in sync (await sequencing is the documented
+// pattern). The accessory transition is synchronous on the Electron
+// side — `hide()` returns void — so no await there.
+const applyPolicy = async (next: DockState["policy"]): Promise<void> => {
   if (next === state.policy) return;
   state.policy = next;
   if (!app.dock) return;
   if (next === "regular") {
-    void app.dock.show();
+    await app.dock.show();
     app.setActivationPolicy("regular");
   } else {
     app.dock.hide();
@@ -91,7 +96,7 @@ const scheduleRefresh = (): void => {
   if (refreshTimer) clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
-    applyPolicy(computePolicy());
+    void applyPolicy(computePolicy());
   }, POLICY_DEBOUNCE_MS);
 };
 
@@ -155,8 +160,11 @@ export const installDock = (): void => {
     if (app.dock) app.dock.setBadge("");
   });
 
-  // Apply initial policy + (empty) badge synchronously so we don't
-  // briefly show the wrong state before the first event fires.
-  applyPolicy(computePolicy());
+  // Apply the initial policy + (empty) badge so we don't briefly show
+  // the wrong state before the first event fires. The policy update is
+  // fire-and-forget — its `dock.show()` Promise just sequences the
+  // following `setActivationPolicy` call inside `applyPolicy`; the
+  // caller has nothing to await on.
+  void applyPolicy(computePolicy());
   applyBadge();
 };
