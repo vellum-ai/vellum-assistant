@@ -680,51 +680,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
             : undefined,
       };
 
-    case "message_queued":
-      return {
-        type: "message_queued",
-        requestId: typeof data.requestId === "string" ? data.requestId : "",
-        position: typeof data.position === "number" ? data.position : 0,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "message_dequeued":
-      return {
-        type: "message_dequeued",
-        requestId: typeof data.requestId === "string" ? data.requestId : "",
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "message_queued_deleted":
-      return {
-        type: "message_queued_deleted",
-        requestId: typeof data.requestId === "string" ? data.requestId : "",
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "message_request_complete":
-      return {
-        type: "message_request_complete",
-        requestId: typeof data.requestId === "string" ? data.requestId : "",
-        runStillActive:
-          typeof data.runStillActive === "boolean"
-            ? data.runStillActive
-            : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
     case "home_feed_updated":
       return {
         type: "home_feed_updated",

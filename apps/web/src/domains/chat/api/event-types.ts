@@ -554,32 +554,6 @@ export interface DiskPressureStatusChangedEvent {
   conversationId?: string;
 }
 
-export interface MessageQueuedEvent {
-  type: "message_queued";
-  requestId: string;
-  position: number;
-  conversationId?: string;
-}
-
-export interface MessageDequeuedEvent {
-  type: "message_dequeued";
-  requestId: string;
-  conversationId?: string;
-}
-
-export interface MessageQueuedDeletedEvent {
-  type: "message_queued_deleted";
-  requestId: string;
-  conversationId?: string;
-}
-
-export interface MessageRequestCompleteEvent {
-  type: "message_request_complete";
-  requestId: string;
-  runStillActive?: boolean;
-  conversationId?: string;
-}
-
 export interface AssistantSyncChangedEvent extends SyncChangedEvent {
   conversationId?: string;
 }
@@ -685,10 +659,6 @@ export type AssistantEvent =
   | CompactionCircuitOpenEvent
   | CompactionCircuitClosedEvent
   | DiskPressureStatusChangedEvent
-  | MessageQueuedEvent
-  | MessageDequeuedEvent
-  | MessageQueuedDeletedEvent
-  | MessageRequestCompleteEvent
   | AssistantSyncChangedEvent
   | HomeFeedUpdatedEvent
   | SubagentSpawnedEvent
