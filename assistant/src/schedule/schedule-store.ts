@@ -131,7 +131,7 @@ export function createSchedule(params: {
   const routingIntent = params.routingIntent ?? "all_channels";
   const routingHints = params.routingHints ?? {};
   const quiet = params.quiet ?? false;
-  const reuseConversation = params.reuseConversation ?? false;
+  const reuseConversation = params.reuseConversation ?? !isOneShot;
   const maxRetries = params.maxRetries ?? 3;
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
 
