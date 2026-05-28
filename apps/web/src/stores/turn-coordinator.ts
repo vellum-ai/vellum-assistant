@@ -30,7 +30,7 @@
  */
 
 import { useConversationStore } from "@/stores/conversation-store";
-import { useTurnStore } from "@/stores/turn-store";
+import { isSending, useTurnStore } from "@/stores/turn-store";
 
 export type TurnTerminalReason =
   | "complete"
@@ -59,23 +59,46 @@ export interface EndTurnArgs {
 
 export function endTurn(args: EndTurnArgs): void {
   const turn = useTurnStore.getState();
-  switch (args.reason) {
-    case "complete":
-      turn.completeTurn();
-      break;
-    case "cancelled":
-      turn.cancelGeneration();
-      break;
-    case "error":
-      turn.onStreamError();
-      break;
-    case "session_error":
-      turn.onSessionError();
-      break;
-    case "rescued":
-      turn.onPollReconciled(args.rescuedTurnId ?? undefined);
-      break;
+
+  // `rescued` is the only non-definitive reason. The other four
+  // (`complete`, `cancelled`, `error`, `session_error`) are sent
+  // from terminal-event handlers and represent definitive "this turn
+  // is over" signals — the processing-key clear is always correct.
+  //
+  // `rescued` is fundamentally different: it's a defense-in-depth
+  // call from polling / `.finally()` paths that fire even when the
+  // turn has already settled via the SSE happy path or has been
+  // replaced by a newer turn. `onPollReconciled` self-guards on
+  // those cases (mismatched turnId, already-idle) and no-ops — but
+  // the processing-key clear must mirror the same guards. Without
+  // it, a stale `.finally()` resolving after the user has started a
+  // new turn in the same conversation would clear the new turn's
+  // processing key mid-stream, hiding its Stop button and sidebar
+  // dot. Pre-checking lets us short-circuit both stores together.
+  if (args.reason === "rescued") {
+    const isStaleRescue =
+      !isSending(turn) ||
+      (args.rescuedTurnId != null &&
+        turn.activeTurnId !== args.rescuedTurnId);
+    if (isStaleRescue) return;
+    turn.onPollReconciled(args.rescuedTurnId ?? undefined);
+  } else {
+    switch (args.reason) {
+      case "complete":
+        turn.completeTurn();
+        break;
+      case "cancelled":
+        turn.cancelGeneration();
+        break;
+      case "error":
+        turn.onStreamError();
+        break;
+      case "session_error":
+        turn.onSessionError();
+        break;
+    }
   }
+
   if (args.conversationId) {
     useConversationStore
       .getState()

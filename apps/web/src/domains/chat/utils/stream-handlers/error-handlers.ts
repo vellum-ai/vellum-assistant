@@ -36,8 +36,13 @@ export function handleConversationErrorEvent(
 ): void {
   const isBannerError = shouldSuppressGenericChatErrorNotice(event);
 
+  // `ConversationErrorEvent` carries `conversationId` as a required
+  // field; prefer it over `streamContextRef.current?.conversationId`
+  // (which is a mirror that may be cleared by a stream teardown
+  // racing the error event) — same fallback shape as the other
+  // terminal handlers.
   ctx.endTurn({
-    conversationId: ctx.streamContextRef.current?.conversationId,
+    conversationId: event.conversationId ?? ctx.streamContextRef.current?.conversationId,
     reason: "error",
   });
 

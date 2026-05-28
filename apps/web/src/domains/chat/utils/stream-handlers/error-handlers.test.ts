@@ -46,4 +46,28 @@ describe("handleConversationErrorEvent", () => {
     expect(ctx.setError).toHaveBeenCalled();
     expect(ctx.setMessages).toHaveBeenCalled();
   });
+
+  it("prefers event.conversationId over streamContextRef when both differ", () => {
+    // Mirror of the same guarantee in `handleMessageComplete` and
+    // `handleGenerationCancelled`: a stream teardown that races the
+    // error event can clear `streamContextRef.current`, but the event
+    // itself carries the canonical id and must drive the cleanup.
+    const ctx = makeCtx({
+      streamContextRef: { current: null },
+    });
+    handleConversationErrorEvent(
+      {
+        type: "conversation_error",
+        conversationId: "conv-from-event",
+        code: "rate_limit",
+        userMessage: "Rate limited",
+        retryable: true,
+      },
+      ctx,
+    );
+    expect(ctx.endTurn).toHaveBeenCalledWith({
+      conversationId: "conv-from-event",
+      reason: "error",
+    });
+  });
 });

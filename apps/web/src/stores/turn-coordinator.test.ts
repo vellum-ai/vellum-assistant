@@ -91,6 +91,47 @@ describe("endTurn — turn-store transition", () => {
     expect(state.phase).toBe("thinking");
     expect(state.activeTurnId).toBe("turn-new");
   });
+
+  test("'rescued' that no-ops also leaves the processing key untouched", () => {
+    // The bug being guarded: a stale `.finally()` from a previous send's
+    // poll/reconcile fires after the user has started a new turn in
+    // the same conversation. `onPollReconciled` correctly no-ops on
+    // turnId mismatch — but if the processing-key clear fires anyway,
+    // it would hide the Stop button + sidebar dot for the NEW in-flight
+    // turn. The coordinator must gate the processing-key clear on
+    // whether the turn-store actually transitioned.
+    seedActiveTurn({ activeTurnId: "turn-new" });
+    seedProcessing("conv-1");
+    endTurn({
+      conversationId: "conv-1",
+      reason: "rescued",
+      rescuedTurnId: "turn-stale",
+    });
+    // Turn-store untouched (mismatched turnId).
+    expect(useTurnStore.getState().activeTurnId).toBe("turn-new");
+    // Critical: the in-flight turn's processing key must NOT be cleared.
+    expect(
+      useConversationStore.getState().processingConversationIds.has("conv-1"),
+    ).toBe(true);
+  });
+
+  test("'rescued' that fires when the turn is already idle is a full no-op", () => {
+    // `onPollReconciled`'s `if (!isSending(s)) return` short-circuits
+    // when the turn has already settled via the SSE terminal path.
+    // The processing key clear must also be skipped — otherwise a
+    // late-arriving rescue could clear a key that has since been
+    // re-added by a subsequent send.
+    useTurnStore.setState({ ...INITIAL_TURN_STATE, phase: "idle" });
+    seedProcessing("conv-1");
+    endTurn({
+      conversationId: "conv-1",
+      reason: "rescued",
+      rescuedTurnId: "turn-42",
+    });
+    expect(
+      useConversationStore.getState().processingConversationIds.has("conv-1"),
+    ).toBe(true);
+  });
 });
 
 describe("endTurn — processing-key cleanup", () => {
