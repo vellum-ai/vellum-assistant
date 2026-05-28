@@ -67,6 +67,7 @@ export function ChatLayoutHeader({
             aria-label="Open navigation"
             aria-expanded={drawerOpen}
             aria-controls="chat-side-menu"
+            tooltip="Open navigation"
             onClick={toggleSidebar}
           />
         ) : (
@@ -76,6 +77,7 @@ export function ChatLayoutHeader({
             aria-label="Toggle sidebar"
             aria-expanded={!collapsed}
             aria-controls="chat-side-menu"
+            tooltip="Toggle sidebar"
             onClick={toggleSidebar}
           />
         )}
@@ -86,6 +88,7 @@ export function ChatLayoutHeader({
               iconOnly={<House />}
               aria-label={hasUnreadHome && !isHomeActive ? "Home (unread notifications)" : "Home"}
               aria-current={isHomeActive ? "page" : undefined}
+              tooltip="Home"
               onClick={onOpenHome}
             />
             {hasUnreadHome && !isHomeActive ? (

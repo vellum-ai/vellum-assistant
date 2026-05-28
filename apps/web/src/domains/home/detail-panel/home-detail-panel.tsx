@@ -63,6 +63,7 @@ export function HomeDetailPanel({
             iconOnly={<ArrowLeft />}
             onClick={onClose}
             aria-label="Back"
+            tooltip="Back"
           />
 
           <Typography
@@ -79,6 +80,7 @@ export function HomeDetailPanel({
               onUpdateStatus(item.id, isUnread ? "seen" : "new")
             }
             aria-label={isUnread ? "Mark as read" : "Mark as unread"}
+            tooltip={isUnread ? "Mark as read" : "Mark as unread"}
           />
           {isDismissed ? (
             <Button
@@ -86,6 +88,7 @@ export function HomeDetailPanel({
               iconOnly={<RotateCcw />}
               onClick={() => onUpdateStatus(item.id, "seen")}
               aria-label="Restore"
+              tooltip="Restore"
             />
           ) : (
             <Button
@@ -93,6 +96,7 @@ export function HomeDetailPanel({
               iconOnly={<Trash2 />}
               onClick={() => onDismiss(item.id)}
               aria-label="Dismiss"
+              tooltip="Dismiss"
             />
           )}
         </div>
@@ -195,6 +199,7 @@ export function HomeDetailPanel({
               size="compact"
               iconOnly={<MoreVertical />}
               aria-label="More actions"
+              tooltip="More actions"
             />
           </Menu.Trigger>
           <Menu.Content align="end">
@@ -238,6 +243,7 @@ export function HomeDetailPanel({
           iconOnly={<X />}
           onClick={onClose}
           aria-label="Close detail panel"
+          tooltip="Close"
         />
       </div>
 
