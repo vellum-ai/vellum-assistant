@@ -164,6 +164,12 @@ class FakeCapture implements LiveVoicePcmCaptureLike {
 
 class FakePlayback implements LiveVoicePcmPlaybackLike {
   isPlaying = false;
+  /**
+   * Ordered call log used to assert call sequencing (e.g. that
+   * `resetForNextResponse` ran BEFORE the first `enqueueTtsAudio` for a
+   * new turn).
+   */
+  callLog: string[] = [];
   enqueueCalls: LiveVoiceTtsChunk[] = [];
   handleInterruptCalls = 0;
   handleEndCalls = 0;
@@ -171,28 +177,63 @@ class FakePlayback implements LiveVoicePcmPlaybackLike {
   resetCalls = 0;
   waitCalls = 0;
 
+  /**
+   * Controls whether `waitUntilPlaybackFinishes()` resolves synchronously
+   * (default) or returns a manually controlled promise. Tests that need
+   * to race teardown against the `ttsDone` continuation flip this to a
+   * deferred promise and resolve it after driving the teardown.
+   */
+  private pendingWait: { promise: Promise<void>; resolve: () => void } | null =
+    null;
+
   enqueueTtsAudio(chunk: LiveVoiceTtsChunk): void {
+    this.callLog.push("enqueueTtsAudio");
     this.enqueueCalls.push(chunk);
   }
 
   handleInterrupt(): void {
+    this.callLog.push("handleInterrupt");
     this.handleInterruptCalls += 1;
   }
 
   handleEnd(): void {
+    this.callLog.push("handleEnd");
     this.handleEndCalls += 1;
   }
 
   handleSessionError(): void {
+    this.callLog.push("handleSessionError");
     this.handleSessionErrorCalls += 1;
   }
 
   resetForNextResponse(): void {
+    this.callLog.push("resetForNextResponse");
     this.resetCalls += 1;
   }
 
   async waitUntilPlaybackFinishes(): Promise<void> {
+    this.callLog.push("waitUntilPlaybackFinishes");
     this.waitCalls += 1;
+    if (this.pendingWait) {
+      await this.pendingWait.promise;
+    }
+  }
+
+  /**
+   * Make the next `waitUntilPlaybackFinishes()` call hang until the
+   * returned `resolve` is invoked. Used to simulate the race where
+   * teardown happens between `ttsDone` and playback drain finishing.
+   */
+  deferNextWait(): () => void {
+    let resolveFn: () => void = () => {};
+    const promise = new Promise<void>((resolve) => {
+      resolveFn = resolve;
+    });
+    this.pendingWait = { promise, resolve: resolveFn };
+    return () => {
+      resolveFn();
+      this.pendingWait = null;
+    };
   }
 }
 
@@ -294,7 +335,7 @@ describe("LiveVoiceChannelManager", () => {
       // Second delta does not re-enter `speaking`.
       expect(store.getState().state).toBe("speaking");
 
-      // ttsAudio → playback enqueued with pcm chunk payload.
+      // ttsAudio → first chunk re-opens the playback gate, then enqueues.
       const ttsPcm = new Uint8Array([0, 1, 2, 3]);
       client.emit({
         type: "ttsAudio",
@@ -310,13 +351,20 @@ describe("LiveVoiceChannelManager", () => {
         sampleRate: 24000,
         channels: 1,
       });
+      // First chunk of the response: reset must come BEFORE enqueue so
+      // the playback gate is open.
+      expect(playback.callLog).toEqual([
+        "resetForNextResponse",
+        "enqueueTtsAudio",
+      ]);
 
       // ttsDone → waitUntilPlaybackFinishes runs, transcript reset,
-      // state back to listening.
+      // state back to listening. The reset count picks up a second call
+      // from the `completeAssistantTurn` continuation.
       client.emit({ type: "ttsDone", turnId: "turn-1" });
       await flushMicrotasks();
       expect(playback.waitCalls).toBe(1);
-      expect(playback.resetCalls).toBe(1);
+      expect(playback.resetCalls).toBe(2);
       expect(store.getState().assistantTranscript).toBe("");
       expect(store.getState().state).toBe("listening");
     });
@@ -424,6 +472,210 @@ describe("LiveVoiceChannelManager", () => {
       expect(capture.stopCalls).toBe(1);
       expect(client.endCalls).toBe(0);
       expect(client.closeCalls).toBe(0);
+    });
+  });
+
+  describe("barge-in playback gate", () => {
+    test("re-opens playback gate before the first ttsAudio of a new turn after interrupt", async () => {
+      const { manager, client, capture, playback } = makeHarness();
+
+      await manager.start("conv-1");
+      client.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+
+      // ---- Turn 1: assistant speaks. ----
+      client.emit({ type: "sttFinal", text: "first", seq: 1 });
+      client.emit({ type: "thinking", turnId: "turn-1" });
+      client.emit({ type: "assistantTextDelta", text: "ok", seq: 2 });
+
+      const turn1Pcm = new Uint8Array([1, 2]);
+      client.emit({
+        type: "ttsAudio",
+        pcm: turn1Pcm,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        seq: 3,
+      });
+
+      // First chunk of turn 1 must reset BEFORE enqueueing.
+      const turn1Calls = playback.callLog.filter(
+        (call) =>
+          call === "resetForNextResponse" || call === "enqueueTtsAudio",
+      );
+      expect(turn1Calls).toEqual([
+        "resetForNextResponse",
+        "enqueueTtsAudio",
+      ]);
+      const turn1ResetCount = playback.resetCalls;
+
+      // ---- User barges in: interrupt slams the playback gate shut. ----
+      await manager.interruptSpeakingAndStartListening("conv-1");
+      await flushMicrotasks();
+      expect(playback.handleInterruptCalls).toBe(1);
+      // Capture restarts after the interrupt.
+      expect(capture.startCalls.length).toBeGreaterThan(1);
+
+      // ---- Turn 2: new utterance produces TTS. The first chunk of
+      //      turn 2 must re-open the gate before enqueueing, otherwise
+      //      `acceptsAudio === false` silently drops the audio. ----
+      client.emit({ type: "sttFinal", text: "second", seq: 4 });
+      client.emit({ type: "thinking", turnId: "turn-2" });
+      client.emit({ type: "assistantTextDelta", text: "again", seq: 5 });
+
+      const turn2Pcm = new Uint8Array([3, 4]);
+      const callsBeforeTurn2 = playback.callLog.length;
+      client.emit({
+        type: "ttsAudio",
+        pcm: turn2Pcm,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        seq: 6,
+      });
+
+      // The next two calls (after the snapshot) must be reset → enqueue,
+      // in that order — the new turn's first chunk re-opens the gate
+      // before it tries to enqueue.
+      expect(playback.callLog.slice(callsBeforeTurn2)).toEqual([
+        "resetForNextResponse",
+        "enqueueTtsAudio",
+      ]);
+      expect(playback.resetCalls).toBe(turn1ResetCount + 1);
+    });
+
+    test("subsequent ttsAudio chunks in the same turn do not call resetForNextResponse again", async () => {
+      const { manager, client, playback } = makeHarness();
+
+      await manager.start("conv-1");
+      client.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+
+      client.emit({ type: "sttFinal", text: "hi", seq: 1 });
+      client.emit({ type: "thinking", turnId: "turn-1" });
+      client.emit({ type: "assistantTextDelta", text: "ok", seq: 2 });
+
+      client.emit({
+        type: "ttsAudio",
+        pcm: new Uint8Array([1]),
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        seq: 3,
+      });
+      expect(playback.resetCalls).toBe(1);
+
+      // Second chunk in the same response should NOT call reset again —
+      // the gate is already open.
+      client.emit({
+        type: "ttsAudio",
+        pcm: new Uint8Array([2]),
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        seq: 4,
+      });
+      expect(playback.resetCalls).toBe(1);
+      expect(playback.enqueueCalls.length).toBe(2);
+    });
+  });
+
+  describe("ttsDone teardown race", () => {
+    test("ttsDone continuation bails after end() arrives during the playback drain", async () => {
+      const { manager, client, playback, store } = makeHarness();
+
+      await manager.start("conv-1");
+      client.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+
+      client.emit({ type: "sttFinal", text: "hi", seq: 1 });
+      client.emit({ type: "thinking", turnId: "turn-1" });
+      client.emit({ type: "assistantTextDelta", text: "ok", seq: 2 });
+
+      // First chunk enqueues and opens the gate (resetCalls = 1).
+      client.emit({
+        type: "ttsAudio",
+        pcm: new Uint8Array([1]),
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        seq: 3,
+      });
+      expect(playback.resetCalls).toBe(1);
+
+      // Make the upcoming drain hang so we can teardown mid-await.
+      const resolveDrain = playback.deferNextWait();
+
+      // ttsDone kicks off completeAssistantTurn, which awaits
+      // waitUntilPlaybackFinishes — but we haven't resolved yet.
+      client.emit({ type: "ttsDone", turnId: "turn-1" });
+      await flushMicrotasks();
+      expect(playback.waitCalls).toBe(1);
+      // No post-await mutations yet — still in `speaking`.
+      expect(store.getState().state).toBe("speaking");
+
+      // User ends the session BEFORE the drain finishes. This bumps the
+      // session generation, so the in-flight continuation must bail.
+      await manager.end();
+      expect(store.getState().state).toBe("off");
+      const resetCallsAtTeardown = playback.resetCalls;
+
+      // Now resolve the drain — the continuation resumes but should
+      // detect the generation mismatch and return without touching the
+      // store or calling resetForNextResponse.
+      resolveDrain();
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      expect(store.getState().state).toBe("off");
+      // No extra reset call from the cancelled continuation.
+      expect(playback.resetCalls).toBe(resetCallsAtTeardown);
+    });
+
+    test("ttsDone continuation bails after a failure arrives during the playback drain", async () => {
+      const { manager, client, playback, store } = makeHarness();
+
+      await manager.start("conv-1");
+      client.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+
+      client.emit({ type: "thinking", turnId: "turn-1" });
+      client.emit({ type: "assistantTextDelta", text: "ok", seq: 1 });
+      client.emit({
+        type: "ttsAudio",
+        pcm: new Uint8Array([1]),
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        seq: 2,
+      });
+
+      const resolveDrain = playback.deferNextWait();
+      client.emit({ type: "ttsDone", turnId: "turn-1" });
+      await flushMicrotasks();
+
+      // Failure arrives mid-await — bumps the generation.
+      client.fail({ type: "abnormalClosure", code: 1006, reason: "boom" });
+      expect(store.getState().state).toBe("failed");
+      const resetCallsAtFailure = playback.resetCalls;
+
+      resolveDrain();
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      // State stays `failed` — not clobbered back to `listening`.
+      expect(store.getState().state).toBe("failed");
+      expect(playback.resetCalls).toBe(resetCallsAtFailure);
     });
   });
 });

@@ -101,6 +101,27 @@ export class LiveVoiceChannelManager {
   private readonly playback: LiveVoicePcmPlaybackLike;
   private readonly store: LiveVoiceStoreLike;
 
+  /**
+   * Monotonically incremented whenever the session boundary changes
+   * (`start`, `end`, failure). The `ttsDone` continuation captures this
+   * before awaiting `waitUntilPlaybackFinishes()` and bails after the
+   * await if it no longer matches — that race lets us avoid clobbering
+   * the `off`/`failed` state that teardown set while we were waiting,
+   * and prevents `resetForNextResponse()` from re-opening the playback
+   * gate after the session has gone away.
+   */
+  private sessionGeneration = 0;
+
+  /**
+   * Tracks whether `playback.resetForNextResponse()` has been called for
+   * the current assistant response. The PCM playback flips its
+   * `acceptsAudio` gate closed on `handleInterrupt` / `handleEnd`, so
+   * the first `ttsAudio` of every new response must re-open the gate
+   * before enqueueing — otherwise the chunk is silently dropped (e.g.
+   * the barge-in -> new utterance flow leaves the assistant mute).
+   */
+  private playbackReadyForResponse = false;
+
   constructor(deps: LiveVoiceChannelManagerDeps = {}) {
     this.client = deps.client ?? new LiveVoiceChannelClient();
     this.capture = deps.capture ?? new LiveVoicePcmCapture();
@@ -113,6 +134,9 @@ export class LiveVoiceChannelManager {
   // -------------------------------------------------------------------------
 
   async start(conversationId: string): Promise<void> {
+    this.sessionGeneration += 1;
+    this.playbackReadyForResponse = false;
+
     const actions = this.actions();
     actions.setState("connecting");
     actions.setError("");
@@ -133,6 +157,10 @@ export class LiveVoiceChannelManager {
   ): Promise<void> {
     this.client.interrupt();
     this.playback.handleInterrupt();
+    // The playback gate is now closed; the next assistant response's
+    // first `ttsAudio` must call `resetForNextResponse()` before
+    // enqueueing.
+    this.playbackReadyForResponse = false;
     await this.startCapture();
   }
 
@@ -142,6 +170,11 @@ export class LiveVoiceChannelManager {
   }
 
   async end(): Promise<void> {
+    // Bump the generation so any in-flight `ttsDone` continuation that
+    // resumes after this teardown bails before touching state.
+    this.sessionGeneration += 1;
+    this.playbackReadyForResponse = false;
+
     this.capture.shutdown();
     this.playback.handleEnd();
     await this.client.end();
@@ -184,6 +217,14 @@ export class LiveVoiceChannelManager {
         actions.appendAssistantTranscript(event.text);
         return;
       case "ttsAudio":
+        // The PCM playback's `acceptsAudio` gate is flipped closed by
+        // any prior `handleInterrupt` / `handleEnd` / `ttsDone`. The
+        // first audio chunk of a new response must re-open the gate
+        // before enqueueing so the assistant's reply is actually heard.
+        if (!this.playbackReadyForResponse) {
+          this.playback.resetForNextResponse();
+          this.playbackReadyForResponse = true;
+        }
         this.playback.enqueueTtsAudio({
           pcm: event.pcm,
           mimeType: event.mimeType,
@@ -210,6 +251,11 @@ export class LiveVoiceChannelManager {
   }
 
   private handleFailure(failure: LiveVoiceChannelFailure): void {
+    // Bump the generation so any in-flight `ttsDone` continuation that
+    // resumes after this teardown bails before touching state.
+    this.sessionGeneration += 1;
+    this.playbackReadyForResponse = false;
+
     const message = this.failureMessage(failure);
     const actions = this.actions();
     actions.setError(message);
@@ -223,7 +269,19 @@ export class LiveVoiceChannelManager {
   }
 
   private async completeAssistantTurn(): Promise<void> {
+    // Capture the generation before awaiting playback so we can detect
+    // a teardown (`end()` / failure) that happens while we wait. Without
+    // this guard the post-await mutations would clobber `off` / `failed`
+    // with `listening` and re-open the playback gate for a session that
+    // no longer exists.
+    const myGeneration = this.sessionGeneration;
     await this.playback.waitUntilPlaybackFinishes();
+    if (myGeneration !== this.sessionGeneration) {
+      return;
+    }
+    // Re-arm the gate flag so the next response's first `ttsAudio`
+    // calls `resetForNextResponse()` again before enqueueing.
+    this.playbackReadyForResponse = false;
     this.playback.resetForNextResponse();
     const actions = this.actions();
     // Clear the rolling assistant transcript so the next turn starts
