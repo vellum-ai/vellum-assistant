@@ -436,28 +436,6 @@ domain root (`domains/settings/theme-store.ts`) or to top-level
 `stores/` if it's cross-domain — not just flatten in place if the
 parent directory is wrong.
 
-### Utility file naming within domains
-
-When a domain has a single utility file, name it `utils.ts`. When a
-domain accumulates enough utilities to justify grouping, move them
-into a `utils/` directory with descriptive names:
-
-```
-domains/home/
-  utils.ts               # single utility file
-  home-page.tsx
-
-domains/chat/
-  utils/
-    chat.ts              # multiple utilities in a directory
-    risk.ts
-    sub-group.ts
-```
-
-If a utility is generic and not domain-specific (e.g. date formatting,
-string helpers), lift it to top-level `utils/` regardless of where it
-was first created.
-
 ---
 
 ## State management
