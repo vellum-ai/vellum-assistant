@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { installApplicationMenu } from "./menu";
 import { readSetting, writeSetting } from "./settings";
+import { restoreBounds, track as trackWindowState } from "./window-state";
 
 // Dev-mode renderer URL. Honors `VELLUM_DEV_URL` so the launcher can
 // point the BrowserWindow at whichever Vite-or-equivalent is actually
@@ -82,8 +83,7 @@ let mainWindow: BrowserWindow | null = null;
 
 const createWindow = (): void => {
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
+    ...restoreBounds("main", { width: 1280, height: 800 }),
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "../preload/index.js"),
@@ -96,6 +96,12 @@ const createWindow = (): void => {
       devTools: isDev,
     },
   });
+
+  // Subscribe to resize/move/close so the next launch can restore the
+  // user's last geometry. See `window-state.ts` for the persistence
+  // model (separate electron-store file, debounced saves, fullscreen
+  // tracked as a flag rather than as bounds).
+  trackWindowState("main", mainWindow);
 
   mainWindow.once("ready-to-show", () => {
     mainWindow?.show();
