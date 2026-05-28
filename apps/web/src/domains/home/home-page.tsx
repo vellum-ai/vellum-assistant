@@ -64,9 +64,11 @@ export function HomePage({
 
   const handleSelectItem = useCallback(
     (item: FeedItem) => {
-      setSelectedItem(item);
       if (item.status === "new") {
+        setSelectedItem({ ...item, status: "seen" });
         feedQuery.updateStatus.mutate({ itemId: item.id, status: "seen" });
+      } else {
+        setSelectedItem(item);
       }
     },
     [feedQuery.updateStatus],
