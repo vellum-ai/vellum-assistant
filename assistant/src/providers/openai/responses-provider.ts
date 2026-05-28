@@ -259,20 +259,26 @@ export class OpenAIResponsesProvider implements Provider {
       let rawFinalResponse: unknown = undefined;
 
       try {
-        // The SDK exposes `client.responses.stream()` — cast through
-        // `unknown` to avoid `any` while the SDK's exported types stabilise.
+        // Use `create()` with `stream: true` instead of the higher-level
+        // `stream()` helper. The `stream()` helper wraps the response in a
+        // `ResponseStream` that runs `maybeParseResponse()` after iteration,
+        // which crashes when the Codex subscription endpoint omits `output`
+        // from the `response.completed` event payload.
         const responsesApi = this.client.responses as unknown as {
-          stream(
+          create(
             p: Record<string, unknown>,
-            o: { signal: AbortSignal; headers?: Record<string, string> },
-          ): AsyncIterable<ResponsesStreamEvent>;
+            o?: { signal?: AbortSignal; headers?: Record<string, string> },
+          ): Promise<AsyncIterable<ResponsesStreamEvent>>;
         };
-        const stream = responsesApi.stream(params, {
-          signal: timeoutSignal,
-          ...(usageAttributionHeaders
-            ? { headers: usageAttributionHeaders }
-            : {}),
-        });
+        const stream = await responsesApi.create(
+          { ...params, stream: true },
+          {
+            signal: timeoutSignal,
+            ...(usageAttributionHeaders
+              ? { headers: usageAttributionHeaders }
+              : {}),
+          },
+        );
 
         for await (const event of stream) {
           switch (event.type) {

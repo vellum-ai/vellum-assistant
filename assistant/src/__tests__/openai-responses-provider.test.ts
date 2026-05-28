@@ -47,7 +47,7 @@ mock.module("openai", () => ({
       lastConstructorOptions = opts;
     }
     responses = {
-      stream: (
+      create: async (
         params: Record<string, unknown>,
         options?: Record<string, unknown>,
       ) => {
@@ -1155,7 +1155,7 @@ describe("OpenAIResponsesProvider", () => {
       "System prompt",
     );
 
-    // rawRequest should contain the params sent to responses.stream()
+    // rawRequest should contain the params sent to responses.create()
     const rawReq = result.rawRequest as Record<string, unknown>;
     expect(rawReq.model).toBe("gpt-5.2");
     expect(rawReq.instructions).toBe("System prompt");
