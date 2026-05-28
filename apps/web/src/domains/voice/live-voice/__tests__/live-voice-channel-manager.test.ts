@@ -543,6 +543,49 @@ describe("LiveVoiceChannelManager", () => {
     });
   });
 
+  describe("capture failure after ready", () => {
+    test("capture.start() returning false transitions to failed and tears down", async () => {
+      // Regression: previously the manager silently dropped a `false`
+      // return from `capture.start()` (mic permission denied / no
+      // AudioContext / etc.), leaving the store stuck in `connecting`
+      // and the UI showing "Connecting voice conversation" forever.
+      // After the ready frame the WS-side connection timeout has already
+      // been cancelled, so there is no other recovery path.
+      const harness = makeHarness();
+      const { manager, store } = harness;
+
+      await manager.start("conv-1");
+      const client = harness.client();
+      const capture = harness.capture();
+      const playback = harness.playback();
+      expect(store.getState().state).toBe("connecting");
+
+      // Mic will fail to start once `ready` triggers `startCapture()`.
+      capture.startResult = false;
+
+      client.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      // Manager transitioned the session to `failed` via the same path
+      // as a server-driven failure, surfacing an error message to the
+      // overlay.
+      expect(store.getState().state).toBe("failed");
+      expect(store.getState().errorMessage.length).toBeGreaterThan(0);
+
+      // Same teardown shape as `handleFailure`: capture shutdown,
+      // playback interrupt, client closed (not `end()`).
+      expect(capture.shutdownCalls).toBe(1);
+      expect(playback.handleInterruptCalls).toBe(1);
+      expect(client.closeCalls).toBe(1);
+      expect(client.endCalls).toBe(0);
+    });
+  });
+
   describe("stopListening", () => {
     test("releases push-to-talk and stops capture, keeps channel open", async () => {
       const harness = makeHarness();
