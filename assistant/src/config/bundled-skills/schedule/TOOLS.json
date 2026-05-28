@@ -62,7 +62,7 @@
           },
           "reuse_conversation": {
             "type": "boolean",
-            "description": "When true, reuse the same conversation across recurring schedule runs instead of creating a new one each time. Useful for polling-style schedules that accumulate context over time. Ignored for one-shot schedules. Defaults to false."
+            "description": "When true, reuse the same conversation across recurring schedule runs instead of creating a new one each time. Defaults to true for recurring schedules, false for one-shot. Set to false explicitly if each run should start fresh."
           },
           "max_retries": {
             "type": "integer",
@@ -161,7 +161,7 @@
           },
           "reuse_conversation": {
             "type": "boolean",
-            "description": "When true, reuse the same conversation across recurring schedule runs instead of creating a new one each time. Useful for polling-style schedules that accumulate context over time. Ignored for one-shot schedules."
+            "description": "When true, reuse the same conversation across recurring schedule runs instead of creating a new one each time. Defaults to true for recurring schedules. Set to false explicitly if each run should start fresh."
           },
           "max_retries": {
             "type": "integer",

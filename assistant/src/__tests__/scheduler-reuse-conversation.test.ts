@@ -210,12 +210,57 @@ describe("scheduler conversation reuse", () => {
     expect(runs2[0].conversationId).toBe(firstConversationId);
   });
 
-  test("recurring schedule with reuseConversation=false creates new conversation each run", async () => {
+  test("recurring schedule defaults to reuseConversation=true", async () => {
     /**
-     * Default behavior: each run creates a brand-new conversation.
+     * When no explicit reuseConversation is provided, recurring schedules
+     * default to true — subsequent runs reuse the same conversation.
      */
 
-    // GIVEN a recurring schedule with reuseConversation disabled (default)
+    // GIVEN a recurring schedule with no explicit reuseConversation
+    const rruleExpr = buildEveryMinuteRrule();
+    const schedule = createSchedule({
+      name: "Default Reuse Test",
+      cronExpression: rruleExpr,
+      message: "Default reuse message",
+      syntax: "rrule",
+      expression: rruleExpr,
+      // no explicit reuseConversation — should default to true for recurring
+    });
+
+    // WHEN the schedule fires for the first time
+    forceScheduleDue(schedule.id);
+
+    const processMessage = async (conversationId: string, message: string) => {
+      processedMessages.push({ conversationId, message });
+    };
+
+    const scheduler1 = startScheduler(processMessage, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    scheduler1.stop();
+
+    expect(processedMessages).toHaveLength(1);
+    const firstConversationId = processedMessages[0].conversationId;
+    expect(firstConversationId).toBeTruthy();
+
+    // WHEN the schedule fires for the second time
+    forceScheduleDue(schedule.id);
+    processedMessages.length = 0;
+
+    const scheduler2 = startScheduler(processMessage, () => {});
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    scheduler2.stop();
+
+    // THEN the same conversation is reused
+    expect(processedMessages).toHaveLength(1);
+    expect(processedMessages[0].conversationId).toBe(firstConversationId);
+  });
+
+  test("recurring schedule with reuseConversation=false creates new conversation each run", async () => {
+    /**
+     * When explicitly opted out, each run creates a brand-new conversation.
+     */
+
+    // GIVEN a recurring schedule with reuseConversation explicitly disabled
     const rruleExpr = buildEveryMinuteRrule();
     const schedule = createSchedule({
       name: "No Reuse Test",
@@ -223,7 +268,7 @@ describe("scheduler conversation reuse", () => {
       message: "New conv each run",
       syntax: "rrule",
       expression: rruleExpr,
-      // reuseConversation defaults to false
+      reuseConversation: false, // explicitly opt out of conversation reuse
     });
 
     // WHEN the schedule fires for the first time

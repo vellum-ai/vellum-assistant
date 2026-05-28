@@ -43,7 +43,7 @@ export async function executeScheduleCreate(
     | Record<string, unknown>
     | undefined;
   const quiet = (input.quiet as boolean) ?? false;
-  const reuseConversation = (input.reuse_conversation as boolean) ?? false;
+  const reuseConversation = input.reuse_conversation as boolean | undefined;
   const maxRetries = input.max_retries as number | undefined;
   const retryBackoffMs = input.retry_backoff_ms as number | undefined;
 
