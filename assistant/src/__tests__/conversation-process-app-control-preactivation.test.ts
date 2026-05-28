@@ -81,7 +81,10 @@ mock.module("../agent/attachments.ts", () => ({
 // SQLite paths after the preactivation block has already run. The drain
 // chain doesn't recurse here because our stubbed `runAgentLoop` is a no-op.
 mock.module("../daemon/conversation-messaging.js", () => ({
-  persistQueuedMessageBody: async () => "user-msg-id",
+  persistQueuedMessageBody: async () => ({
+    id: "user-msg-id",
+    deduplicated: false,
+  }),
 }));
 
 // ---------------------------------------------------------------------------
