@@ -13,6 +13,10 @@ import {
   fetchOnboardingRecipe,
   type OnboardingRecipe,
 } from "@/domains/onboarding/recipe-client.js";
+import {
+  emitOnboardingFunnelStepCompleted,
+  ONBOARDING_FUNNEL_STEPS,
+} from "@/domains/onboarding/funnel-events";
 import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen.js";
 import { NameExchangeScreen } from "@/domains/onboarding/screens/name-exchange-screen.js";
 import { NameStepScreen } from "@/domains/onboarding/screens/name-step-screen.js";
@@ -258,6 +262,16 @@ export function PreChatFlow() {
     setOnboardingCompleted,
   ]);
 
+  const consentReady = isNative || consentDecision === "ok";
+  const recipeReady = isNative || recipeLoadState === "ready";
+  const shouldHidePrechat =
+    isAuthLoading ||
+    !isLoggedIn ||
+    !consentReady ||
+    !recipeReady ||
+    (readOnboardingCompleted() && !isReplay) ||
+    (recipe?.skipPrechat && !isNative && !isReplay);
+
   async function finish(connectedScopes?: string[]): Promise<void> {
     const googleConnected = connectedScopes !== undefined;
     const context: PreChatOnboardingContext = {
@@ -275,6 +289,12 @@ export function PreChatFlow() {
     }
     context.initialMessage = "Wake up, my friend!";
 
+    if (!isNative && !isReplay && screen === 1) {
+      emitOnboardingFunnelStepCompleted(
+        ONBOARDING_FUNNEL_STEPS.gmailConnect,
+        { userId },
+      );
+    }
     setPendingPreChatContext(context);
     if (trimmedAssistant) setPendingAssistantName(trimmedAssistant);
     try {
@@ -288,19 +308,7 @@ export function PreChatFlow() {
     await navigateToChatAfterLifecycleRefresh();
   }
 
-  const consentReady = isNative || consentDecision === "ok";
-  const recipeReady = isNative || recipeLoadState === "ready";
-  if (
-    isAuthLoading ||
-    !isLoggedIn ||
-    !consentReady ||
-    !recipeReady ||
-    (readOnboardingCompleted() && !isReplay)
-  ) {
-    return null;
-  }
-
-  if (recipe?.skipPrechat && !isNative && !isReplay) {
+  if (shouldHidePrechat) {
     return null;
   }
 
@@ -389,6 +397,11 @@ export function PreChatFlow() {
 
   if (screen === 0) {
     const advance = () => {
+      if (!isReplay) {
+        emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.nameVibe, {
+          userId,
+        });
+      }
       if (!canOfferGoogleStep) {
         void finish();
         return;

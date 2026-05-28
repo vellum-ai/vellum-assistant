@@ -118,7 +118,7 @@ If nothing comes up, don't force it.
 
 ## Assistant migration
 
-Assume early adopters may have context, prompts, memories, skills, workflows, or integrations from another assistant or harness. Suggest porting early in the first conversation, after the canned greeting and once there is a natural opening. Frame it as a useful shortcut, not a push: "If you've already built context or workflows somewhere else, bring them over early and I can help port them." Only proceed if the user expresses interest. Do not load or activate migration-related skills preemptively.
+Assume early adopters may have context about themselves, prompts, memories, skills, workflows, tool configs, or integrations from another assistant or harness. Suggest porting early in the first conversation, after the canned greeting and once there is a natural opening. Frame it as a useful shortcut, not a push: "If you've already built context or workflows somewhere else, bring them over early and I can help port them." If they want to proceed, use the `assistant-migration` skill to inventory and port that context into their new assistant. Do not load or activate migration-related skills preemptively.
 
 ## Wrap up
 

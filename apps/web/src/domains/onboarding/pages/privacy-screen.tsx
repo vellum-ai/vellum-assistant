@@ -10,6 +10,11 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
+  emitOnboardingFunnelStepCompleted,
+  getOnboardingFunnelSessionId,
+  ONBOARDING_FUNNEL_STEPS,
+} from "@/domains/onboarding/funnel-events";
+import {
   readOnboardingCompleted,
   useAiDataConsent,
   useShareAnalytics,
@@ -64,6 +69,12 @@ export function PrivacyScreen() {
   const [aiDataConsent, setAiDataConsent] = useAiDataConsent();
 
   useEffect(() => {
+    if (!isNative && !isReplay) {
+      getOnboardingFunnelSessionId();
+    }
+  }, [isNative, isReplay]);
+
+  useEffect(() => {
     if (readOnboardingCompleted() && !isReplay) {
       void navigate(routes.assistant, { replace: true });
     }
@@ -79,6 +90,11 @@ export function PrivacyScreen() {
       });
     }
     markPrivacyConsent(userId);
+    if (!isNative && !isReplay) {
+      emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
+        userId,
+      });
+    }
     void navigate(
       isReplay
         ? `${routes.onboarding.hatching}?replay=1`
