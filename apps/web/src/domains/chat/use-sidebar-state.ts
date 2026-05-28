@@ -149,6 +149,10 @@ export function useSidebarState({
     const el = bodyRef.current;
     if (!el || grouped.recents.length === 0) return;
 
+    // Skip when the sidebar is in collapsed rail mode — the icon layout
+    // has different dimensions and would produce an incorrect fill count.
+    if (el.clientWidth < 100) return;
+
     const lastChild = el.lastElementChild;
     if (!lastChild) return;
 
