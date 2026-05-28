@@ -427,7 +427,7 @@ public final class MainWindow {
         // content; the user just won't see it surface in the editor until they
         // reopen the doc.)
         guard documentManager.surfaceId == msg.surfaceId else {
-            log.info("Ignoring document_editor_update for surface \(msg.surfaceId) (active surface is \(documentManager.surfaceId ?? "nil"))")
+            log.info("Ignoring document_editor_update for surface \(msg.surfaceId) (active surface is \(self.documentManager.surfaceId ?? "nil"))")
             return
         }
         documentManager.updateDocument(markdown: msg.markdown, mode: msg.mode)
