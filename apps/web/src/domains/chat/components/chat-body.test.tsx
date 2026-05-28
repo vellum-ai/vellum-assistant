@@ -113,7 +113,6 @@ function baseProps(
       onDrop: noopDrag,
     },
     isAttachmentDragOver: false,
-    isKeyboardOpen: false,
     showScrollToLatest: false,
     onScrollToLatest: noop,
     refreshFeedback: null,
@@ -218,19 +217,6 @@ describe("ChatBody — startersSlot rendering", () => {
     expect(html).not.toContain("STARTER_CHIPS");
   });
 
-  test("renders starters when keyboard is open", () => {
-    const html = renderToStaticMarkup(
-      <ChatBody
-        {...withEmptyState({
-          isKeyboardOpen: true,
-          startersSlot: (
-            <div data-testid="starters">STARTER_CHIPS</div>
-          ),
-        })}
-      />,
-    );
-    expect(html).toContain("STARTER_CHIPS");
-  });
 });
 
 describe("ChatBody — read-only cancellation", () => {
