@@ -17,6 +17,16 @@ interface CallRailProps {
   logs: LLMRequestLogEntry[];
   selectedLogId: string | undefined;
   buildCallHref: (logId: string) => string;
+  /**
+   * Fires when a row is tapped, *before* `Link` navigation kicks in.
+   *
+   * The desktop rail lives in a persistent `<aside>` so it never needs
+   * to know when a selection was made. The mobile bottom-sheet wrapper
+   * (`mobile-call-selector.tsx`) hooks this to close itself once the
+   * user picks a call — the URL update alone wouldn't reset the sheet's
+   * local `open` state.
+   */
+  onSelect?: () => void;
 }
 
 /**
@@ -30,6 +40,7 @@ export function CallRail({
   logs,
   selectedLogId,
   buildCallHref,
+  onSelect,
 }: CallRailProps): ReactNode {
   if (!logs.length) {
     return (
@@ -60,6 +71,7 @@ export function CallRail({
           isSelected={entry.id === selectedLogId}
           isLatest={displayIndex === 0}
           href={buildCallHref(entry.id)}
+          onSelect={onSelect}
         />
       ))}
     </nav>
@@ -72,6 +84,7 @@ interface CallRowProps {
   isSelected: boolean;
   isLatest: boolean;
   href: string;
+  onSelect?: () => void;
 }
 
 function CallRow({
@@ -80,6 +93,7 @@ function CallRow({
   isSelected,
   isLatest,
   href,
+  onSelect,
 }: CallRowProps): ReactNode {
   const isSynthetic = isSyntheticAgentErrorMessage(entry);
   const subtitle = buildCallSubtitle(entry) ?? "Unrecognized call";
@@ -98,6 +112,7 @@ function CallRow({
   return (
     <Link
       to={href}
+      onClick={onSelect}
       aria-current={isSelected ? "page" : undefined}
       className="flex flex-col gap-1 rounded-md p-3 text-left no-underline transition-colors hover:opacity-90"
       style={{
