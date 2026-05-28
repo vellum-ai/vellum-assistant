@@ -1,36 +1,31 @@
-import {
-  LayoutGrid,
-  Search,
-  Upload,
-} from "lucide-react";
-import { type ChangeEvent, useCallback, useMemo, useRef, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+/**
+ * Library view — renders the user's apps and documents with search,
+ * filtering, pinning, deploy, import, and delete capabilities.
+ *
+ * This component is a thin orchestrator: it composes domain hooks for
+ * data, actions, and side effects, then delegates rendering to focused
+ * sub-components.
+ */
 
-import {
-  appsByIdDeletePost,
-  appsByIdOpenPost,
-} from "@/generated/daemon/sdk.gen";
-import {
-  appsGetOptions,
-  appsGetQueryKey,
-  documentsGetOptions,
-} from "@/generated/daemon/@tanstack/react-query.gen";
+import { type ChangeEvent, useCallback } from "react";
+import { Search, Upload } from "lucide-react";
+
 import type { AppSummary } from "@/types/app-types";
-import { clearAppHtmlCache, getCachedAppHtml, primeAppHtmlCache } from "@/utils/app-html-cache";
-import { importBundle } from "@/utils/import-bundle";
+import { getCachedAppHtml } from "@/utils/app-html-cache";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
-import {
-  Button,
-  ConfirmDialog,
-  Input,
-  toast,
-} from "@vellum/design-library";
+import { Button, Input } from "@vellum/design-library";
 import { AppViewerContainer } from "@/components/apps/app-viewer-container";
 import { DeployDialogs } from "@/components/deploy-dialogs";
-import { LibraryAppCard } from "@/components/apps/library-app-card";
 import { LibraryDocumentCard } from "@/components/apps/library-document-card";
+import { LibraryEmptyState } from "@/components/apps/library-empty-state";
+import { LibraryGridSection } from "@/components/apps/library-grid-section";
+import { DeleteAppDialog } from "@/components/apps/delete-app-dialog";
+import { useLibraryData } from "@/components/apps/use-library-data";
+import { useAppViewer } from "@/components/apps/use-app-viewer";
+import { useAppDelete } from "@/components/apps/use-app-delete";
+import { useAppImport } from "@/components/apps/use-app-import";
 
 export interface LibraryViewProps {
   assistantId: string;
@@ -52,99 +47,47 @@ export function LibraryView({
   onOpenApp,
 }: LibraryViewProps) {
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
-  const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
   const togglePin = usePinnedAppsStore.use.togglePin();
-  const queryClient = useQueryClient();
-
-  // Deploy store — shared with chat-page for consistent deploy UX
   const isDeploying = useDeployStore.use.isDeploying();
   const isSharing = useDeployStore.use.isSharing();
 
-  const { data: apps = [], isLoading: appsLoading, error: appsError } = useQuery({
-    ...appsGetOptions({ path: { assistant_id: assistantId } }),
-    select: (data) => data.apps,
-  });
-  const { data: documents = [], isLoading: docsLoading, error: docsError } = useQuery({
-    ...documentsGetOptions({ path: { assistant_id: assistantId } }),
-    select: (data) => data.documents,
-  });
-  const loading = appsLoading || docsLoading;
-  const error = appsError && docsError
-    ? (appsError instanceof Error ? appsError.message : "Failed to load library")
-    : null;
-  const [searchText, setSearchText] = useState("");
+  const {
+    apps,
+    filteredApps,
+    pinnedApps,
+    recentApps,
+    filteredDocuments,
+    pinnedAppIds,
+    searchText,
+    setSearchText,
+    loading,
+    error,
+  } = useLibraryData(assistantId);
 
-  const [openedApp, setOpenedApp] = useState<{
-    appId: string;
-    dirName?: string;
-    name: string;
-    html: string;
-  } | null>(null);
-  const [openingAppId, setOpeningAppId] = useState<string | null>(null);
-  const [appPendingDelete, setAppPendingDelete] = useState<AppSummary | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [isImporting, setIsImporting] = useState(false);
-  const [lastImportedAppId, setLastImportedAppId] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const {
+    openedApp,
+    setOpenedApp,
+    openingAppId,
+    handleOpenApp,
+    handleClose,
+    handleShareOpenedApp,
+  } = useAppViewer(assistantId, onOpenApp);
 
-  const filteredApps = useMemo(() => {
-    if (!searchText.trim()) return apps;
-    const lower = searchText.toLowerCase();
-    return apps.filter(
-      (a) =>
-        a.name.toLowerCase().includes(lower) ||
-        a.description?.toLowerCase().includes(lower),
-    );
-  }, [apps, searchText]);
+  const {
+    appPendingDelete,
+    setAppPendingDelete,
+    isDeleting,
+    handleConfirmDelete,
+    handleCancelDelete,
+  } = useAppDelete(assistantId);
 
-  const pinnedApps = useMemo(
-    () => filteredApps.filter((a) => pinnedAppIds.has(a.id)).sort((a, b) => b.createdAt - a.createdAt),
-    [filteredApps, pinnedAppIds],
-  );
-
-  const recentApps = useMemo(
-    () => filteredApps.filter((a) => !pinnedAppIds.has(a.id)).sort((a, b) => b.createdAt - a.createdAt),
-    [filteredApps, pinnedAppIds],
-  );
-
-  const filteredDocuments = useMemo(() => {
-    if (!searchText.trim()) return documents;
-    const lower = searchText.toLowerCase();
-    return documents.filter((d) => d.title.toLowerCase().includes(lower));
-  }, [documents, searchText]);
-
-  const handleOpenApp = useCallback(
-    async (appId: string) => {
-      if (onOpenApp) {
-        onOpenApp(appId);
-        return;
-      }
-      if (openingAppId) return;
-      setOpeningAppId(appId);
-      try {
-        const { data: result } = await appsByIdOpenPost({
-          path: { assistant_id: assistantId, id: appId },
-          throwOnError: true,
-        });
-        primeAppHtmlCache(assistantId, result.appId, result.html);
-        setOpenedApp({ appId: result.appId, dirName: result.dirName, name: result.name, html: result.html });
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Failed to open app");
-      } finally {
-        setOpeningAppId(null);
-      }
-    },
-    [assistantId, openingAppId, onOpenApp],
-  );
-
-  const handleClose = useCallback(() => {
-    setOpenedApp(null);
-  }, []);
-
-  const handleShareOpenedApp = useCallback(() => {
-    if (!openedApp) return;
-    void useDeployStore.getState().shareApp(assistantId, openedApp.appId, openedApp.name);
-  }, [assistantId, openedApp]);
+  const {
+    fileInputRef,
+    isImporting,
+    lastImportedAppId,
+    clearLastImported,
+    handleImportBundle,
+  } = useAppImport(assistantId, setOpenedApp);
 
   const handleDeploy = useCallback(async (appId: string) => {
     if (isDeploying) return;
@@ -154,8 +97,6 @@ export function LibraryView({
       const html = await getCachedAppHtml(assistantId, appId);
       void useDeployStore.getState().deployApp(assistantId, appId, appName, html);
     } catch {
-      // If we can't fetch the HTML, try deploying anyway with empty HTML
-      // (the store's complexity check will pass, and the server will handle it)
       void useDeployStore.getState().deployApp(assistantId, appId, appName, "");
     }
   }, [assistantId, isDeploying, apps]);
@@ -165,58 +106,7 @@ export function LibraryView({
     [togglePin],
   );
 
-  const handleConfirmDelete = useCallback(async () => {
-    const target = appPendingDelete;
-    if (!target || isDeleting) return;
-    setIsDeleting(true);
-    try {
-      await appsByIdDeletePost({
-        path: { assistant_id: assistantId, id: target.id },
-        throwOnError: true,
-      });
-      clearAppHtmlCache(assistantId, target.id);
-      void queryClient.invalidateQueries({ queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }) });
-      if (pinnedAppIds.has(target.id)) {
-        togglePin(target);
-      }
-      setAppPendingDelete(null);
-    } catch (err) {
-      toast.error(
-        err instanceof Error ? err.message : "Failed to delete app",
-      );
-    } finally {
-      setIsDeleting(false);
-    }
-  }, [appPendingDelete, isDeleting, assistantId, pinnedAppIds, togglePin]);
-
-  const handleImportBundle = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || isImporting) return;
-    setIsImporting(true);
-    try {
-      const result = await importBundle(assistantId, file);
-      await queryClient.invalidateQueries({ queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }) });
-      setLastImportedAppId(result.appId);
-      try {
-        const { data: appResult } = await appsByIdOpenPost({
-          path: { assistant_id: assistantId, id: result.appId },
-          throwOnError: true,
-        });
-        primeAppHtmlCache(assistantId, appResult.appId, appResult.html);
-        setOpenedApp({ appId: appResult.appId, dirName: appResult.dirName, name: appResult.name, html: appResult.html });
-        setLastImportedAppId(null);
-        toast.success(result.name + " imported");
-      } catch {
-        toast.warning("App imported", { description: "Imported successfully but couldn't open automatically" });
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to import app");
-    } finally {
-      setIsImporting(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }, [assistantId, isImporting]);
-
+  // --- Render: opened app viewer ---
   if (openedApp) {
     return (
       <>
@@ -241,6 +131,7 @@ export function LibraryView({
     );
   }
 
+  // --- Render: loading ---
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -253,6 +144,7 @@ export function LibraryView({
     );
   }
 
+  // --- Render: error ---
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 px-4">
@@ -270,78 +162,19 @@ export function LibraryView({
     );
   }
 
-  if (apps.length === 0 && documents.length === 0) {
+  // --- Render: empty state ---
+  if (apps.length === 0 && filteredDocuments.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 px-4 py-24">
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".vellum"
-          className="hidden"
-          onChange={handleImportBundle}
-        />
-        <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-[var(--surface-base)]">
-          <LayoutGrid size={32} className="text-[var(--content-tertiary)]" />
-        </div>
-        <h2 className="text-title-medium text-[var(--content-default)]">
-          Your library is empty
-        </h2>
-        <p className="max-w-md text-center text-body-medium-lighter text-[color:var(--content-tertiary)]">
-          Ask your assistant to build something, or import a shared app
-        </p>
-        <div className="flex flex-col items-center gap-3">
-          {onNewConversation ? (
-            <>
-              <Button
-                variant="primary"
-                size="regular"
-                onClick={() => onNewConversation?.()}
-              >
-                New Conversation
-              </Button>
-              <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-                or
-              </span>
-            </>
-          ) : null}
-          <Button
-            variant="outlined"
-            size="regular"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={isImporting}
-          >
-            {isImporting ? (
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            ) : (
-              <Upload size={14} />
-            )}
-            <span className="ml-1.5">Import .vellum File</span>
-          </Button>
-        </div>
-      </div>
+      <LibraryEmptyState
+        fileInputRef={fileInputRef}
+        isImporting={isImporting}
+        onImportBundle={handleImportBundle}
+        onNewConversation={onNewConversation ? () => onNewConversation() : undefined}
+      />
     );
   }
 
-  const renderGrid = (items: AppSummary[]) => (
-    <div className="grid grid-cols-[repeat(auto-fill,minmax(max(220px,calc((100%-6rem)/5)),1fr))] gap-6">
-      {items.map((app) => (
-        <LibraryAppCard
-          key={app.id}
-          app={app}
-          assistantId={assistantId}
-          isPinned={pinnedAppIds.has(app.id)}
-          onOpen={handleOpenApp}
-          onPin={handlePinToggle}
-          onDelete={setAppPendingDelete}
-          isOpening={openingAppId === app.id}
-          justImported={app.id === lastImportedAppId}
-          onAnimationEnd={() => setLastImportedAppId(null)}
-          onDeploy={deployToVercel ? () => handleDeploy(app.id) : undefined}
-        />
-      ))}
-    </div>
-  );
-
+  // --- Render: main library grid ---
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="mb-4 flex shrink-0 items-center justify-between gap-4">
@@ -382,7 +215,7 @@ export function LibraryView({
           type="text"
           placeholder="Search your library"
           value={searchText}
-          onChange={(e) => setSearchText(e.target.value)}
+          onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchText(e.target.value)}
           leftIcon={<Search size={16} />}
         />
       </div>
@@ -397,22 +230,32 @@ export function LibraryView({
           </div>
         ) : (
           <div className="flex flex-col gap-8">
-            {pinnedApps.length > 0 ? (
-              <section>
-                <h2 className="mb-4 text-body-small-emphasised text-[color:var(--content-secondary)]">
-                  Pinned
-                </h2>
-                {renderGrid(pinnedApps)}
-              </section>
-            ) : null}
-            {recentApps.length > 0 ? (
-              <section>
-                <h2 className="mb-4 text-body-small-emphasised text-[color:var(--content-secondary)]">
-                  Recents
-                </h2>
-                {renderGrid(recentApps)}
-              </section>
-            ) : null}
+            <LibraryGridSection
+              title="Pinned"
+              apps={pinnedApps}
+              assistantId={assistantId}
+              pinnedAppIds={pinnedAppIds}
+              openingAppId={openingAppId}
+              lastImportedAppId={lastImportedAppId}
+              onOpen={handleOpenApp}
+              onPin={handlePinToggle}
+              onDelete={setAppPendingDelete}
+              onDeploy={deployToVercel ? handleDeploy : undefined}
+              onAnimationEnd={clearLastImported}
+            />
+            <LibraryGridSection
+              title="Recents"
+              apps={recentApps}
+              assistantId={assistantId}
+              pinnedAppIds={pinnedAppIds}
+              openingAppId={openingAppId}
+              lastImportedAppId={lastImportedAppId}
+              onOpen={handleOpenApp}
+              onPin={handlePinToggle}
+              onDelete={setAppPendingDelete}
+              onDeploy={deployToVercel ? handleDeploy : undefined}
+              onAnimationEnd={clearLastImported}
+            />
             {filteredDocuments.length > 0 ? (
               <section>
                 <h2 className="mb-4 text-body-small-emphasised text-[color:var(--content-secondary)]">
@@ -443,20 +286,11 @@ export function LibraryView({
         onStartConversation={onNewConversation}
       />
 
-      <ConfirmDialog
-        open={appPendingDelete !== null}
-        title="Delete app"
-        message={
-          appPendingDelete
-            ? `"${appPendingDelete.name}" will be permanently removed.`
-            : ""
-        }
-        confirmLabel={isDeleting ? "Deleting…" : "Delete"}
-        destructive
+      <DeleteAppDialog
+        app={appPendingDelete}
+        isDeleting={isDeleting}
         onConfirm={handleConfirmDelete}
-        onCancel={() => {
-          if (!isDeleting) setAppPendingDelete(null);
-        }}
+        onCancel={handleCancelDelete}
       />
     </div>
   );
