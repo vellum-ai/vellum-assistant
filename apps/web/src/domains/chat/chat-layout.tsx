@@ -22,6 +22,7 @@ import type { AssistantContextValue } from "@/components/layout/assistant-contex
 
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { requestComposerFocus } from "./composer-focus";
 import {
   conversationsQueryKey,
   useConversationGroupsQuery,
@@ -515,15 +516,21 @@ export function ChatLayout() {
   // Electron host commands (File menu / future global hotkeys). The hook
   // is a no-op on the web host. Handlers close over the latest state via
   // an internal ref, so we don't need to memoize them. Composer focus is
-  // routed to ChatPage via a window event because the textarea ref lives
-  // there, not here — see the matching `vellum:focus-composer` listener
-  // in `chat-page.tsx`.
+  // routed via `requestComposerFocus` (see `./composer-focus.ts`) so it
+  // works whether ChatPage is already mounted (event listener) or the
+  // command comes from another `/assistant/*` route (pending flag drained
+  // on the next ChatPage mount).
   useVellumCommands({
     newConversation: () => {
       startNewConversation();
     },
     currentConversation: () => {
-      window.dispatchEvent(new Event("vellum:focus-composer"));
+      if (!activeConversationId) return;
+      const target = routes.conversation(activeConversationId);
+      if (location.pathname !== target) {
+        void navigate(target);
+      }
+      requestComposerFocus();
     },
     markCurrentUnread: () => {
       if (!activeConversationId) return;
