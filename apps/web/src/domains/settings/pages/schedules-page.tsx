@@ -30,7 +30,7 @@ import {
   runScheduleNow,
   toggleSchedule,
 } from "@/domains/settings/api/schedules";
-import { reportError } from "@/lib/error-report";
+import { reportError } from "@/utils/error-report";
 import {
   assistantScheduleRunsQueryKey,
   assistantSchedulesQueryKey,

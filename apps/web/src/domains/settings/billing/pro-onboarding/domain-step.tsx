@@ -13,7 +13,7 @@ import {
   assistantsListQueryKey,
   organizationsBillingSubscriptionOnboardingDomainCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { useEnvironmentStore } from "@/lib/environment-store";
+import { useEnvironmentStore } from "@/stores/environment-store";
 
 import { DomainField } from "@/domains/settings/components/domain-field";
 import { IconBadge, StepDots } from "./primitives";

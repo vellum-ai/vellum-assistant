@@ -11,7 +11,7 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { Modal } from "@vellum/design-library/components/modal";
 import { toast } from "@vellum/design-library/components/toast";
 import { client } from "@/generated/api/client.gen";
-import { reportError } from "@/lib/error-report";
+import { reportError } from "@/utils/error-report";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import { getDefaultModelForProvider, getModelsForProvider } from "@/assistant/llm-model-catalog";
 
