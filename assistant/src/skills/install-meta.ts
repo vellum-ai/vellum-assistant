@@ -21,6 +21,13 @@ export interface SkillInstallMeta {
   slug?: string; // registry slug
   sourceRepo?: string; // GitHub repo (e.g. "vercel-labs/agent-skills")
   contentHash?: string; // SHA-256 content hash (v2:hex format)
+
+  // Package-install fields. Populated when this skill was installed as part of
+  // a multi-skill package (e.g. `assistant skills add obra/superpowers`). For
+  // single-skill installs and bundled/vellum-catalog skills, both fields are
+  // absent.
+  package?: string; // "owner/repo" — identifies which package this skill belongs to
+  packageContentHash?: string; // SHA-256 hash over the package contents at install time
 }
 
 // ─── Atomic write helper ────────────────────────────────────────────────────

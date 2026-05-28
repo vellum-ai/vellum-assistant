@@ -295,19 +295,53 @@ describe("resolveSkillSource", () => {
 // ─── validateSkillSlug ──────────────────────────────────────────────────────
 
 describe("validateSkillSlug", () => {
-  test("accepts valid slugs", () => {
+  test("accepts valid single-segment slugs", () => {
     expect(() => validateSkillSlug("my-skill")).not.toThrow();
     expect(() => validateSkillSlug("skill123")).not.toThrow();
     expect(() => validateSkillSlug("my.skill")).not.toThrow();
     expect(() => validateSkillSlug("my_skill")).not.toThrow();
   });
 
-  test("rejects path traversal characters", () => {
+  test("accepts three-segment namespaced slugs (owner/repo/skill)", () => {
+    expect(() =>
+      validateSkillSlug("obra/superpowers/brainstorming"),
+    ).not.toThrow();
+    expect(() => validateSkillSlug("my-org/my-repo/my-skill")).not.toThrow();
+    expect(() =>
+      validateSkillSlug("a/b/c"),
+    ).not.toThrow();
+  });
+
+  test("rejects two-segment slugs (reserved for package install args)", () => {
+    expect(() => validateSkillSlug("foo/bar")).toThrow();
+    expect(() => validateSkillSlug("owner/repo")).toThrow();
+  });
+
+  test("rejects four-or-more-segment slugs", () => {
+    expect(() => validateSkillSlug("a/b/c/d")).toThrow();
+    expect(() => validateSkillSlug("a/b/c/d/e")).toThrow();
+  });
+
+  test("rejects path traversal in any segment", () => {
     expect(() => validateSkillSlug("../../malicious")).toThrow(
       "path traversal",
     );
-    expect(() => validateSkillSlug("foo/bar")).toThrow("path traversal");
+    expect(() => validateSkillSlug("owner/../escape")).toThrow();
+    expect(() => validateSkillSlug("owner/repo/..")).toThrow("path traversal");
     expect(() => validateSkillSlug("foo\\bar")).toThrow("path traversal");
+  });
+
+  test("rejects invalid characters in any namespaced segment", () => {
+    // Uppercase, leading dot, leading dash, etc. in any segment
+    expect(() => validateSkillSlug("Owner/repo/skill")).toThrow();
+    expect(() => validateSkillSlug("owner/.hidden/skill")).toThrow();
+    expect(() => validateSkillSlug("owner/repo/-leading-dash")).toThrow();
+  });
+
+  test("rejects empty segments", () => {
+    expect(() => validateSkillSlug("//")).toThrow();
+    expect(() => validateSkillSlug("owner//skill")).toThrow();
+    expect(() => validateSkillSlug("/owner/repo/skill")).toThrow();
   });
 
   test("rejects slugs starting with special chars", () => {

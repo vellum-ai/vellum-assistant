@@ -397,25 +397,46 @@ export async function fetchSkillFromGitHub(
 
 // ─── Slug validation ────────────────────────────────────────────────────────
 
-const VALID_SKILL_SLUG = /^[a-z0-9][a-z0-9._-]*$/;
+/**
+ * Per-segment regex. A valid skill slug is either:
+ *   - One segment: `<name>` (legacy + vellum + bundled skills)
+ *   - Three segments: `<owner>/<repo>/<name>` (third-party package-namespaced)
+ *
+ * Two-segment slugs are reserved for the package-install argument
+ * (`assistant skills add owner/repo`) and are rejected as stored slugs.
+ */
+const VALID_SKILL_SLUG_SEGMENT = /^[a-z0-9][a-z0-9._-]*$/;
 
 /**
  * Validate that a skill slug is safe for use in filesystem paths.
  * Follows the same pattern as `validateManagedSkillId` in managed-store.ts.
+ *
+ * Accepts either single-segment (`my-skill`) or three-segment namespaced
+ * (`owner/repo/skill-name`) slugs. The latter is used for third-party
+ * package installs so multiple skills from the same package can coexist
+ * without collision.
  */
 export function validateSkillSlug(slug: string): void {
   if (!slug || typeof slug !== "string") {
     throw new Error("Skill slug is required");
   }
-  if (slug.includes("..") || slug.includes("/") || slug.includes("\\")) {
+  if (slug.includes("..") || slug.includes("\\")) {
     throw new Error(
       `Invalid skill slug "${slug}": must not contain path traversal characters`,
     );
   }
-  if (!VALID_SKILL_SLUG.test(slug)) {
+  const segments = slug.split("/");
+  if (segments.length !== 1 && segments.length !== 3) {
     throw new Error(
-      `Invalid skill slug "${slug}": must start with a lowercase letter or digit and contain only lowercase letters, digits, dots, hyphens, and underscores`,
+      `Invalid skill slug "${slug}": must be a single name or three-segment namespaced form "owner/repo/skill"`,
     );
+  }
+  for (const segment of segments) {
+    if (!VALID_SKILL_SLUG_SEGMENT.test(segment)) {
+      throw new Error(
+        `Invalid skill slug "${slug}": each segment must start with a lowercase letter or digit and contain only lowercase letters, digits, dots, hyphens, and underscores`,
+      );
+    }
   }
 }
 
