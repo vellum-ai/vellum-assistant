@@ -18,6 +18,7 @@ import {
 } from "@/domains/onboarding/recipe-client.js";
 import {
   emitOnboardingFunnelStepCompleted,
+  onboardingFunnelVariantFromCondensedFlag,
   ONBOARDING_FUNNEL_STEPS,
   ONBOARDING_FUNNEL_VARIANTS,
   readOnboardingFunnelVariant,
@@ -120,9 +121,8 @@ export function PreChatFlow() {
     (isMacOSWeb && !readMacOsAppDownloaded());
   const condensedPrechatFlag =
     useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
-  const preferredFunnelVariant = condensedPrechatFlag
-    ? ONBOARDING_FUNNEL_VARIANTS.paredDown
-    : ONBOARDING_FUNNEL_VARIANTS.control;
+  const preferredFunnelVariant =
+    onboardingFunnelVariantFromCondensedFlag(condensedPrechatFlag);
   const webFunnelVariant =
     readOnboardingFunnelVariant() ?? preferredFunnelVariant;
   const paredDownPrechat =

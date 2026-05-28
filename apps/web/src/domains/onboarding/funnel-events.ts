@@ -13,6 +13,14 @@ export const ONBOARDING_FUNNEL_VARIANTS = {
 export type OnboardingFunnelVariant =
   (typeof ONBOARDING_FUNNEL_VARIANTS)[keyof typeof ONBOARDING_FUNNEL_VARIANTS];
 
+export function onboardingFunnelVariantFromCondensedFlag(
+  condensedFlowEnabled: boolean,
+): OnboardingFunnelVariant {
+  return condensedFlowEnabled
+    ? ONBOARDING_FUNNEL_VARIANTS.paredDown
+    : ONBOARDING_FUNNEL_VARIANTS.control;
+}
+
 export const ONBOARDING_FUNNEL_STEPS = {
   privacyTos: { stepName: "privacy_tos", stepIndex: 0 },
   nameVibe: { stepName: "name_vibe", stepIndex: 1 },

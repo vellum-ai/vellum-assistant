@@ -30,7 +30,7 @@
       "scope": "client",
       "key": "prechat-onboarding-condensed-flow",
       "label": "Condensed Pre-chat Onboarding",
-      "description": "Enable the condensed pre-chat onboarding flow for the 2026-05 A/B test.",
+      "description": "Enable the condensed pre-chat onboarding flow for a standard LaunchDarkly percentage rollout.",
       "defaultEnabled": false
     },
     {

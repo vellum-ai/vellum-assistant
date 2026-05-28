@@ -4,6 +4,7 @@ import {
   __resetOnboardingFunnelEventsForTests,
   buildOnboardingFunnelEvent,
   emitOnboardingFunnelStepCompleted,
+  onboardingFunnelVariantFromCondensedFlag,
   ONBOARDING_FUNNEL_STEPS,
   ONBOARDING_FUNNEL_VERSION,
   ONBOARDING_FUNNEL_VARIANTS,
@@ -24,6 +25,11 @@ afterEach(() => {
 });
 
 describe("onboarding funnel events", () => {
+  test("maps the boolean LaunchDarkly rollout to funnel variants", () => {
+    expect(onboardingFunnelVariantFromCondensedFlag(false)).toBe("control");
+    expect(onboardingFunnelVariantFromCondensedFlag(true)).toBe("pared_down");
+  });
+
   test("builds the expected event shape with a stable session id", () => {
     const privacy = buildOnboardingFunnelEvent(
       ONBOARDING_FUNNEL_STEPS.privacyTos,

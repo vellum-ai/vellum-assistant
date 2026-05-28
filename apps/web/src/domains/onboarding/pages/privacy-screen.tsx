@@ -12,8 +12,8 @@ import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicato
 import {
   emitOnboardingFunnelStepCompleted,
   getOnboardingFunnelSessionId,
+  onboardingFunnelVariantFromCondensedFlag,
   ONBOARDING_FUNNEL_STEPS,
-  ONBOARDING_FUNNEL_VARIANTS,
   resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import {
@@ -68,9 +68,8 @@ export function PrivacyScreen() {
   const isNative = useIsNativePlatform();
   const condensedPrechatFlag =
     useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
-  const preferredFunnelVariant = condensedPrechatFlag
-    ? ONBOARDING_FUNNEL_VARIANTS.paredDown
-    : ONBOARDING_FUNNEL_VARIANTS.control;
+  const preferredFunnelVariant =
+    onboardingFunnelVariantFromCondensedFlag(condensedPrechatFlag);
   const [shareAnalytics, setShareAnalytics] = useShareAnalytics();
   const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
   const [tosAccepted, setTosAccepted] = useTosAccepted();
