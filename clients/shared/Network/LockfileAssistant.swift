@@ -63,6 +63,7 @@ public struct LockfileAssistant {
     public let containerInfo: ContainerInfo?
     public let mgmtSocket: String?
     public let previousContainerInfo: ContainerInfo?
+    public let guardianBootstrapSecret: String?
     public init(
         assistantId: String,
         runtimeUrl: String?,
@@ -78,7 +79,8 @@ public struct LockfileAssistant {
         instanceDir: String?,
         containerInfo: ContainerInfo? = nil,
         mgmtSocket: String? = nil,
-        previousContainerInfo: ContainerInfo? = nil
+        previousContainerInfo: ContainerInfo? = nil,
+        guardianBootstrapSecret: String? = nil
     ) {
         self.assistantId = assistantId
         self.runtimeUrl = runtimeUrl
@@ -95,6 +97,7 @@ public struct LockfileAssistant {
         self.containerInfo = containerInfo
         self.mgmtSocket = mgmtSocket
         self.previousContainerInfo = previousContainerInfo
+        self.guardianBootstrapSecret = guardianBootstrapSecret
     }
 
     /// Whether this assistant is running remotely (not on the local machine).
@@ -222,7 +225,8 @@ public struct LockfileAssistant {
                 instanceDir: resources?["instanceDir"] as? String,
                 containerInfo: containerInfo,
                 mgmtSocket: entry["mgmtSocket"] as? String,
-                previousContainerInfo: previousContainerInfo
+                previousContainerInfo: previousContainerInfo,
+                guardianBootstrapSecret: entry["guardianBootstrapSecret"] as? String
             )
         }
     }

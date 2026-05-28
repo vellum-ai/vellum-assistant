@@ -93,6 +93,7 @@ export async function backup(): Promise<void> {
       const freshToken = await leaseGuardianToken(
         entry.runtimeUrl,
         entry.assistantId,
+        entry.guardianBootstrapSecret,
       );
       accessToken = freshToken.accessToken;
     } catch (err) {
@@ -129,6 +130,7 @@ export async function backup(): Promise<void> {
         const freshToken = await leaseGuardianToken(
           entry.runtimeUrl,
           entry.assistantId,
+          entry.guardianBootstrapSecret,
         );
         refreshedToken = freshToken.accessToken;
       } catch {

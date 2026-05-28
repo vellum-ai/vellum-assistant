@@ -143,6 +143,15 @@ export async function wake(): Promise<void> {
     saveAssistantEntry(entry);
   }
 
+  let bootstrapSecret = entry.guardianBootstrapSecret;
+  let bootstrapSecretBackfilled = false;
+  if (!bootstrapSecret) {
+    bootstrapSecret = generateLocalSigningKey();
+    entry.guardianBootstrapSecret = bootstrapSecret;
+    saveAssistantEntry(entry);
+    bootstrapSecretBackfilled = true;
+  }
+
   if (!daemonRunning) {
     await startLocalDaemon(watch, resources, { foreground, signingKey });
   }
@@ -156,13 +165,31 @@ export async function wake(): Promise<void> {
       resources.gatewayPort,
       "Gateway",
     );
-    if (gatewayState.status === "healthy") {
+    const gatewayAlive = gatewayState.status === "healthy";
+    const needsRestart = bootstrapSecretBackfilled && gatewayAlive;
+    if (needsRestart) {
+      const restartWithWatch = watch && isGatewayWatchModeAvailable();
+      if (restartWithWatch) {
+        console.log(
+          `Gateway running (pid ${gatewayState.pid}) — restarting to apply bootstrap secret...`,
+        );
+      } else {
+        console.log(
+          `Gateway running (pid ${gatewayState.pid}) — restarting without watch mode to apply bootstrap secret...`,
+        );
+      }
+      await stopProcessByPidFile(gatewayPidFile, "gateway");
+      await startGateway(restartWithWatch, resources, {
+        signingKey,
+        bootstrapSecret,
+      });
+    } else if (gatewayAlive) {
       if (watch && isGatewayWatchModeAvailable()) {
         console.log(
           `Gateway running (pid ${gatewayState.pid}) — restarting in watch mode...`,
         );
         await stopProcessByPidFile(gatewayPidFile, "gateway");
-        await startGateway(watch, resources, { signingKey });
+        await startGateway(watch, resources, { signingKey, bootstrapSecret });
       } else {
         if (watch) {
           console.log(
@@ -173,7 +200,7 @@ export async function wake(): Promise<void> {
         }
       }
     } else {
-      await startGateway(watch, resources, { signingKey });
+      await startGateway(watch, resources, { signingKey, bootstrapSecret });
     }
   }
 
