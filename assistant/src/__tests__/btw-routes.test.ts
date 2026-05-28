@@ -49,8 +49,8 @@ const MOCK_TOOLS = [
   },
 ];
 
-mock.module("../daemon/conversation-tool-setup.js", () => ({
-  buildToolDefinitions: () => MOCK_TOOLS,
+mock.module("../tools/registry.js", () => ({
+  getAllToolDefinitions: () => MOCK_TOOLS,
 }));
 
 const MOCK_SYSTEM_PROMPT = "You are a helpful assistant.";

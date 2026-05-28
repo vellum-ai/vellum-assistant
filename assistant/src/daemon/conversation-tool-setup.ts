@@ -22,10 +22,7 @@ import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
-import {
-  getAllToolDefinitions,
-  getMcpToolDefinitions,
-} from "../tools/registry.js";
+import { getMcpToolDefinitions } from "../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
@@ -80,19 +77,6 @@ import {
 } from "./switch-inference-profile-tool.js";
 import type { ToolSetupContext } from "./tool-setup-types.js";
 export type { ToolSetupContext } from "./tool-setup-types.js";
-
-// ── buildToolDefinitions ─────────────────────────────────────────────
-
-/**
- * Collect all tool definitions for the agent loop. Delegates entirely to
- * the registry — UI-surface and app proxy tools are core-registered via
- * `registerUiSurfaceTools()` / `registerAppTools()` during
- * `initializeTools()`, so they flow through `getAllToolDefinitions()`
- * with no need to splice them in here.
- */
-export function buildToolDefinitions(): ToolDefinition[] {
-  return getAllToolDefinitions();
-}
 
 // ── createToolExecutor ───────────────────────────────────────────────
 

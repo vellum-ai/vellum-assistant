@@ -522,11 +522,6 @@ export async function initializeTools(): Promise<void> {
   // registered external skill tool).  This handles ESM cache hits where
   // eager-module tools are already in the registry before init ran.
   if (!coreToolsSnapshot) {
-    // `allComputerUseTools` is intentionally NOT listed: the computer-use
-    // tools are no longer core-registered (removed in #16598) — they live
-    // on the bundled `computer-use` skill and enter the registry via
-    // `registerSkillTools()` during skill projection. Listing them here
-    // would be a no-op since they're never in `tools` at init time.
     const manifestToolNames = new Set<string>([
       ...eagerModuleToolNames,
       ...explicitTools.map((t: Tool) => t.name),
