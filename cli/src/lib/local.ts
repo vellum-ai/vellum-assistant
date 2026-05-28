@@ -1169,6 +1169,20 @@ export async function startGateway(
   return gatewayUrl;
 }
 
+/** Check whether a PID belongs to an ngrok process via its command line. */
+function isNgrokProcess(pid: number): boolean {
+  try {
+    const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return /ngrok/.test(output);
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Stop any locally-running daemon and gateway processes
  * and clean up PID files. Called when hatch fails partway through
@@ -1191,12 +1205,13 @@ export async function stopLocalProcesses(
 
   // Kill ngrok directly by PID rather than using stopProcessByPidFile, because
   // isVellumProcess() won't match the ngrok binary — resulting in a no-op that
-  // leaves ngrok running.
+  // leaves ngrok running. Verify the PID still belongs to ngrok before killing
+  // to avoid hitting an unrelated process if the OS has reused the PID.
   const ngrokPidFile = join(vellumDir, "ngrok.pid");
   if (existsSync(ngrokPidFile)) {
     try {
       const pid = parseInt(readFileSync(ngrokPidFile, "utf-8").trim(), 10);
-      if (!isNaN(pid)) {
+      if (!isNaN(pid) && isNgrokProcess(pid)) {
         await stopProcess(pid, "ngrok");
       }
       unlinkSync(ngrokPidFile);
