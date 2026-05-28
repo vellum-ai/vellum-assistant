@@ -24,6 +24,7 @@ export const DISK_PRESSURE_CLEANUP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "file_read",
   "file_list",
   "host_file_read",
+  "skill_load",
   "background_tool_list",
   "background_tool_cancel",
 ]);
