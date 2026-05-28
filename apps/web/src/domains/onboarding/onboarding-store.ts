@@ -55,6 +55,11 @@ import {
   watchSetting,
 } from "@/lib/local-settings";
 import { deviceKey } from "@/lib/device-settings";
+import {
+  KEY_TOS_ACCEPTED,
+  KEY_AI_DATA_CONSENT,
+  KEY_COMPLETED,
+} from "@/lib/onboarding-cleanup";
 
 // ---------------------------------------------------------------------------
 // Storage keys — shared with other surfaces
@@ -64,12 +69,6 @@ import { deviceKey } from "@/lib/device-settings";
 const KEY_SHARE_ANALYTICS = deviceKey("shareAnalytics");
 /** Shared with `/settings/privacy` and the Sentry consent gate. */
 const KEY_SHARE_DIAGNOSTICS = deviceKey("shareDiagnostics");
-/** Onboarding-only: Terms of Service accepted. */
-const KEY_TOS_ACCEPTED = "onboarding.tosAccepted";
-/** Onboarding-only: explicit AI-data-sharing consent (Apple Guideline 5.1.2(i)). */
-const KEY_AI_DATA_CONSENT = "onboarding.aiDataConsent";
-/** Onboarding-only: completed flag (gates pre-chat / chat routes). */
-const KEY_COMPLETED = "onboarding.completed";
 
 /**
  * Lookup table from localStorage key → which state field to refresh.

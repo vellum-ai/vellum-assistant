@@ -13,9 +13,9 @@
 import { removeLocalSetting } from "@/lib/local-settings";
 import { getDeviceSetting, setDeviceSetting } from "@/lib/device-settings";
 
-const KEY_TOS_ACCEPTED = "onboarding.tosAccepted";
-const KEY_AI_DATA_CONSENT = "onboarding.aiDataConsent";
-const KEY_COMPLETED = "onboarding.completed";
+export const KEY_TOS_ACCEPTED = "onboarding.tosAccepted";
+export const KEY_AI_DATA_CONSENT = "onboarding.aiDataConsent";
+export const KEY_COMPLETED = "onboarding.completed";
 const KEY_SELECTED_VERSION = "onboarding.selectedVersion";
 
 /**
