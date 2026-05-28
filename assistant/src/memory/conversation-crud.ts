@@ -317,11 +317,13 @@ interface InsertMessageCoreParams {
  * conditionally sets the conversation's `originChannel` when the first
  * channel-originated message arrives.
  *
- * When a `clientMessageId` is provided the insert uses
- * `ON CONFLICT DO NOTHING` against the partial unique index
- * `(conversation_id, client_message_id)`, making the operation
- * idempotent for client-generated correlation nonces. The returned
- * `deduplicated` flag indicates whether the row was already present.
+ * When a `clientMessageId` is provided the insert runs inside a
+ * SAVEPOINT. If the partial unique index on
+ * `(conversation_id, client_message_id)` raises
+ * `SQLITE_CONSTRAINT_UNIQUE`, the SAVEPOINT is rolled back, the
+ * existing row is fetched, and returned with `deduplicated: true`.
+ * This makes the operation idempotent for client-generated
+ * correlation nonces.
  *
  * Retries up to 3 times on `SQLITE_BUSY*` / `SQLITE_IOERR*` to handle
  * WAL contention. The timestamp is recomputed each attempt so a late
