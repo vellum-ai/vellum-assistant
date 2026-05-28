@@ -18,12 +18,12 @@ import {
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 import {
-  ArrowLeft,
   Check,
   Download,
   FileText,
   Loader2,
   MessageSquareText,
+  X,
 } from "lucide-react";
 import { Button, Typography } from "@vellum/design-library";
 
@@ -274,13 +274,6 @@ export function DocumentViewerContainer({
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-[var(--border-base)] bg-[var(--surface-overlay)]">
       {/* Navbar */}
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-4 py-2">
-        <Button
-          variant="ghost"
-          size="compact"
-          iconOnly={<ArrowLeft />}
-          aria-label="Close document"
-          onClick={onClose}
-        />
         <FileText
           size={16}
           style={{ color: "var(--content-secondary)" }}
@@ -328,6 +321,15 @@ export function DocumentViewerContainer({
         >
           Comments
         </Button>
+
+        <Button
+          variant="ghost"
+          size="compact"
+          iconOnly={<X />}
+          onClick={onClose}
+          aria-label="Close document"
+          tooltip="Close"
+        />
       </div>
 
       {/* Body: editor + optional comment panel */}
