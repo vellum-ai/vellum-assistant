@@ -62,7 +62,7 @@ final class ConversationSelectionStore {
         activeConversation = listStore.conversationsByLocalId[conversationId]
 
         let vm = getOrCreateViewModel(for: conversationId)
-        vm?.ensureMessageLoopStarted()
+        vm?.startChatEventSubscription()
         onActiveConversationChanged?(conversationId)
 
         // Notify the daemon so it rebinds the socket to this conversation.
@@ -391,7 +391,7 @@ final class ConversationSelectionStore {
     /// Returns an existing or newly-created ViewModel for a detached pop-out window.
     func viewModelForDetachedWindow(conversationLocalId: UUID) -> ChatViewModel? {
         let vm = getOrCreateViewModel(for: conversationLocalId)
-        vm?.ensureMessageLoopStarted()
+        vm?.startChatEventSubscription()
         return vm
     }
 

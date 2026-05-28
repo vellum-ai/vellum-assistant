@@ -810,7 +810,6 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
     public var conversationId: String? {
         didSet {
-            broadcastFilter.conversationId = conversationId
             // If the daemon reconnected before this VM had a conversation ID, a deferred
             // flush was requested. Now that we have a conversation, run it.
             if conversationId != nil && needsOfflineFlush {
@@ -950,13 +949,12 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     /// (conversation_create sent, awaiting conversation_info). Used by ConversationManager
     /// to decide whether it's safe to release the VM on archive.
     public var isBootstrapping: Bool { bootstrapCorrelationId != nil }
-    @ObservationIgnored var messageLoopTask: Task<Void, Never>?
-    /// Monotonically increasing ID used to distinguish successive message-loop
-    /// tasks so that a cancelled loop's cleanup doesn't clear a newer replacement.
-    @ObservationIgnored private var messageLoopGeneration: UInt64 = 0
-    /// Mutable filter shared with EventStreamClient so conversation-scoped SSE
-    /// messages are only delivered to the matching subscriber.
-    @ObservationIgnored private let broadcastFilter = EventStreamClient.ConversationFilter()
+    /// Single chat-event subscription that lives for the lifetime of this VM.
+    /// Started in `init` via `subscribeChatEvents()` and torn down in `deinit`.
+    /// Replaces the legacy `startMessageLoop` / `messageLoopGeneration`
+    /// machinery, which restarted the subscription per turn and produced a
+    /// double-subscriber window during the cancel-and-resubscribe gap.
+    @ObservationIgnored var chatEventSubscriptionTask: Task<Void, Never>?
     @ObservationIgnored var currentAssistantMessageId: UUID?
     /// The trimmed user text that initiated the current assistant turn.
     /// Used to tag the assistant message (e.g. modelList for "/models") without
@@ -1417,6 +1415,13 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // Initialize the action handler for server message dispatch.
         self.actionHandler = ChatActionHandler(viewModel: self)
 
+        // Subscribe to the typed chat-event dispatcher for the lifetime of
+        // this VM. The subscription does not restart per turn (which is what
+        // the legacy `startMessageLoop` did), so there is no window in which
+        // two overlapping subscribers can both apply the same event — one of
+        // the three root causes of the duplication bug this plan addresses.
+        startChatEventSubscription()
+
         // Start consuming streaming events into the new MessageStore. As of
         // PR 4, the chat list renders from `renderedMessages` (which merges
         // the legacy `messages` array with snapshots from this store via
@@ -1625,53 +1630,25 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         sendCoordinator.flushOfflineQueue()
     }
 
-    public func startMessageLoop() {
-        messageLoopTask?.cancel()
-        let messageStream = eventStreamClient.subscribe(filter: broadcastFilter)
-
-        messageLoopGeneration &+= 1
-        let generation = messageLoopGeneration
-
-        messageLoopTask = Task { @MainActor [weak self] in
-            for await message in messageStream {
+    /// Start the chat-event subscription for the lifetime of this view model.
+    ///
+    /// Safe to call multiple times — no-ops once a subscription is already
+    /// active. The stream is owned by `EventStreamClient` and lives for as
+    /// long as the SSE connection (or this VM) does; we no longer tear it
+    /// down between turns. Mid-turn connection drops are recovered through
+    /// the `daemonDidReconnect` / `eventStreamDidReconnect` notifications,
+    /// which run `handleTransportReconnect()` — see that method for the
+    /// spinner/cursor/history-catch-up logic that used to live inline in
+    /// the per-turn loop restart.
+    public func startChatEventSubscription() {
+        guard chatEventSubscriptionTask == nil else { return }
+        let stream = eventStreamClient.subscribeChatEvents()
+        chatEventSubscriptionTask = Task { @MainActor [weak self] in
+            for await message in stream {
                 guard let self, !Task.isCancelled else { break }
                 self.handleServerMessage(message)
             }
-            // Stream ended (e.g. daemon disconnected) — clear the task reference
-            // so the next sendUserMessage() call will re-subscribe.
-            // Only nil out if this task is still the current one; a cancelled
-            // loop that finishes after its replacement must not wipe the new
-            // task reference, which would cause duplicate subscriptions.
-            if self?.messageLoopGeneration == generation {
-                self?.messageLoopTask = nil
-                // Reset spinner state — if the connection drops mid-turn the client
-                // never receives message_complete, leaving the UI stuck.
-                self?.isThinking = false
-                self?.isSending = false
-                self?.isCancelling = false
-                // Stream dropped mid-turn — `message_complete` won't arrive,
-                // so clear pending turns to avoid bumping
-                // `interactiveTurnCompletionTick` on the next turn.
-                self?.messageManager.pendingUserTurnCount = 0
-                self?.messageManager.staleCancelEventsExpected = 0
-                if let existingId = self?.currentAssistantMessageId {
-                    self?.messages.finalizeStreamingMessage(id: existingId, completeToolCalls: .none)
-                }
-                self?.clearCurrentTurnTracking()
-                self?.discardStreamingBuffer()
-                self?.discardPartialOutputBuffer()
-                // If a send-direct was pending when the stream dropped,
-                // dispatch it now so the message isn't silently lost.
-                self?.dispatchPendingSendDirect()
-            }
         }
-    }
-
-    /// Start the daemon message stream if this chat has a bound conversation and
-    /// no active loop yet.
-    public func ensureMessageLoopStarted() {
-        guard conversationId != nil, messageLoopTask == nil else { return }
-        startMessageLoop()
     }
 
     /// Send a message to the daemon without showing a user bubble in the chat.
@@ -1777,10 +1754,10 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         suggestion = nil
         pendingSuggestionRequestId = nil
 
-        // Make sure we're listening for the response
-        if messageLoopTask == nil {
-            startMessageLoop()
-        }
+        // Make sure we're listening for the response. Idempotent — the
+        // chat-event subscription is started once at init and lives for
+        // the lifetime of the VM.
+        startChatEventSubscription()
 
         Task {
             let success = await regenerateClient.regenerate(conversationId: conversationId)
@@ -2675,7 +2652,7 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         // Cancel all Combine subscriptions first so no new work can be scheduled
         // from incoming publisher events while the remaining cleanup runs.
         cancellables.removeAll()
-        messageLoopTask?.cancel()
+        chatEventSubscriptionTask?.cancel()
         streamingFlushTask?.cancel()
         partialOutputFlushTask?.cancel()
         cancelTimeoutTask?.cancel()

@@ -62,7 +62,6 @@ protocol MessageSendCoordinatorDelegate: AnyObject {
 
     // MARK: - Actions
     func flushCoalescedPublish()
-    func startMessageLoop()
     func refreshGuardianPrompts()
     func discardStreamingBuffer()
     func discardPartialOutputBuffer()
@@ -74,7 +73,6 @@ protocol MessageSendCoordinatorDelegate: AnyObject {
     var onConversationCreated: ((String) -> Void)? { get }
     var onFirstUserMessage: ((String) -> Void)? { get set }
     var onUserMessageSent: (() -> Void)? { get }
-    var messageLoopTask: Task<Void, Never>? { get }
 }
 
 /// Side-effect coordinator that owns the message send/cancel/queue logic.
@@ -380,8 +378,8 @@ final class MessageSendCoordinator {
                 }
             }
 
-            // Subscribe to daemon stream
-            delegate.startMessageLoop()
+            // The chat-event subscription was started at VM init and lives
+            // for the lifetime of this view model — no per-send restart.
 
             // Generate conversation ID locally — conversation creation is implicit
             // for HTTP transport. The conversationKey acts as the conversation.
@@ -516,10 +514,8 @@ final class MessageSendCoordinator {
             messageManager.pendingUserTurnCount += 1
         }
 
-        // Make sure we're listening
-        if delegate.messageLoopTask == nil {
-            delegate.startMessageLoop()
-        }
+        // The chat-event subscription is started once at VM init and lives
+        // for the VM lifetime — no per-send (re)subscribe.
 
         // Consume pending onboarding context on the first send so it's
         // included in the POST body. Nil it out immediately so subsequent

@@ -79,46 +79,165 @@ private final class SSEHandshakeCaptureDelegate: NSObject, URLSessionDataDelegat
     }
 }
 
-/// Client that manages an SSE connection to the assistant runtime and broadcasts
-/// parsed `ServerMessage` values to multiple independent subscribers.
+/// Routing category for parsed `ServerMessage` events. Each consumer subscribes
+/// to exactly one category via the typed `subscribeXxxEvents()` entry points;
+/// `EventStreamClient` parses the SSE stream once and dispatches each event to
+/// the consumers in the categories that care about its type.
+///
+/// Replaces the legacy single-broadcaster `subscribe(filter:)` model that
+/// delivered every event to every subscriber. The legacy model caused two
+/// concrete problems this enum addresses:
+///
+/// 1. **Double-subscriber window on loop restart.** `ChatViewModel` used to
+///    tear down and re-create its subscription every turn (`startMessageLoop`);
+///    if a streaming event landed during that window, it could be applied twice
+///    by two overlapping subscribers. Per-domain dispatchers let each consumer
+///    subscribe once at init for the lifetime of its owner — no restart, no
+///    overlap.
+/// 2. **Unbounded fan-out per subscriber.** The legacy `AsyncStream` per
+///    subscriber used the default unbounded buffer. Each typed dispatcher now
+///    runs with `.bufferingNewest(eventStreamSubscriberBufferLimit)` so a slow
+///    consumer cannot pin arbitrary memory.
+public enum EventStreamCategory: Sendable {
+    /// Streaming chat events consumed by `ChatViewModel`'s action handler and
+    /// `MessageStreamReducer` — message lifecycle, blocks, deltas, tool use,
+    /// queue / dequeue, generation handoff, errors, surfaces (which inline-
+    /// render inside chat), confirmations, subagent events, and assistant
+    /// status. The set is intentionally broad because chat is the primary
+    /// consumer of most server events.
+    case chat
+    /// Conversation list management — `conversation_list_response`,
+    /// `history_response`, `conversation_title_updated`,
+    /// `conversation_list_invalidated`. Consumed by `ConversationRestorer`.
+    case conversationList
+    /// Conversation orchestration — `conversation_id_resolved`,
+    /// `conversation_inference_profile_updated`, ACP session lifecycle.
+    /// Consumed by `ConversationManager`.
+    case conversationOrchestration
+    /// Trace + usage telemetry consumed by `MainWindow`.
+    case trace
+    /// Disk pressure status + feature-flag changes consumed by
+    /// `DiskPressureStatusStore`.
+    case diskPressure
+    /// `contacts_changed` invalidations consumed by `ContactsStore`.
+    case contacts
+    /// `app_files_changed` invalidations consumed by `DirectoryStore`.
+    case appFiles
+    /// Settings store events — currently `ingress_config_response` and
+    /// `telegram_config_response`.
+    case settings
+    /// Home tab events — `relationship_state_updated`, `home_feed_updated`.
+    case home
+    /// Meet status events — `meet_*`.
+    case meet
+    /// App-delegate level cross-domain orchestration: notifications,
+    /// open_url, open_conversation, document editor, recording control,
+    /// identity / avatar / sounds / config / feature flags, host tool
+    /// requests + cancels, signing identity, sync invalidation, surface
+    /// dismiss/complete for the surface manager, conversation errors, etc.
+    case appDelegate
+}
+
+/// Bound for each typed dispatcher's per-subscriber buffer. The SSE loop runs
+/// on @MainActor and consumers are also @MainActor, so under normal load this
+/// is empty most of the time. The bound exists to cap memory if a consumer
+/// hangs — newer events take precedence over older buffered ones because the
+/// streaming reducer is idempotent and a stale event has no value once a newer
+/// one of the same kind has been seen.
+private let eventStreamSubscriberBufferLimit = 256
+
+/// Client that manages an SSE connection to the assistant runtime and routes
+/// parsed `ServerMessage` values to typed per-domain dispatchers.
 ///
 /// Backed by `GatewayHTTPClient.stream()` for authenticated SSE connections.
 @MainActor
 public final class EventStreamClient {
 
-    // MARK: - Broadcast Subscribers
-
-    /// Mutable filter that a subscriber can update as its conversation changes.
-    /// Passed by reference so callers can set `conversationId` after subscribing
-    /// (e.g. when `conversationInfo` arrives and assigns the conversation ID).
-    public final class ConversationFilter: @unchecked Sendable {
-        public var conversationId: String?
-        public init(conversationId: String? = nil) { self.conversationId = conversationId }
-    }
+    // MARK: - Typed Dispatchers
 
     private struct Subscription {
         let continuation: AsyncStream<ServerMessage>.Continuation
-        let filter: ConversationFilter?
     }
 
-    private var subscribers: [UUID: Subscription] = [:]
+    /// Subscribers grouped by category. Each category has its own subscriber
+    /// list so a `chat` consumer's slowness can't backpressure a
+    /// `conversationList` consumer (they share no buffer).
+    private var subscribers: [EventStreamCategory: [UUID: Subscription]] = [:]
 
-    /// Creates a new message stream for the caller.
-    ///
-    /// - Parameter filter: Optional conversation filter. When provided,
-    ///   messages whose `conversationId` doesn't match are not delivered,
-    ///   reducing unnecessary subscriber wakeups. Messages with no
-    ///   `conversationId` (system-level) are always delivered.
-    public func subscribe(filter: ConversationFilter? = nil) -> AsyncStream<ServerMessage> {
+    private func makeSubscription(for category: EventStreamCategory) -> AsyncStream<ServerMessage> {
         let id = UUID()
-        let (stream, continuation) = AsyncStream<ServerMessage>.makeStream()
-        subscribers[id] = Subscription(continuation: continuation, filter: filter)
+        let (stream, continuation) = AsyncStream<ServerMessage>.makeStream(
+            bufferingPolicy: .bufferingNewest(eventStreamSubscriberBufferLimit)
+        )
+        var bucket = subscribers[category] ?? [:]
+        bucket[id] = Subscription(continuation: continuation)
+        subscribers[category] = bucket
         continuation.onTermination = { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.subscribers.removeValue(forKey: id)
+                guard let self else { return }
+                var bucket = self.subscribers[category] ?? [:]
+                bucket.removeValue(forKey: id)
+                self.subscribers[category] = bucket
             }
         }
         return stream
+    }
+
+    // MARK: - Typed Subscribe Entry Points
+
+    /// Subscribe to streaming chat events. See ``EventStreamCategory/chat``.
+    public func subscribeChatEvents() -> AsyncStream<ServerMessage> {
+        makeSubscription(for: .chat)
+    }
+
+    /// Subscribe to conversation list management events.
+    public func subscribeConversationListEvents() -> AsyncStream<ServerMessage> {
+        makeSubscription(for: .conversationList)
+    }
+
+    /// Subscribe to conversation orchestration events.
+    public func subscribeConversationOrchestrationEvents() -> AsyncStream<ServerMessage> {
+        makeSubscription(for: .conversationOrchestration)
+    }
+
+    /// Subscribe to trace + usage telemetry events.
+    public func subscribeTraceEvents() -> AsyncStream<ServerMessage> {
+        makeSubscription(for: .trace)
+    }
+
+    /// Subscribe to disk pressure + feature flag events.
+    public func subscribeDiskPressureEvents() -> AsyncStream<ServerMessage> {
+        makeSubscription(for: .diskPressure)
+    }
+
+    /// Subscribe to contacts invalidation events.
+    public func subscribeContactsEvents() -> AsyncStream<ServerMessage> {
+        makeSubscription(for: .contacts)
+    }
+
+    /// Subscribe to app-file change invalidations.
+    public func subscribeAppFilesEvents() -> AsyncStream<ServerMessage> {
+        makeSubscription(for: .appFiles)
+    }
+
+    /// Subscribe to settings store events.
+    public func subscribeSettingsEvents() -> AsyncStream<ServerMessage> {
+        makeSubscription(for: .settings)
+    }
+
+    /// Subscribe to home / feed events.
+    public func subscribeHomeEvents() -> AsyncStream<ServerMessage> {
+        makeSubscription(for: .home)
+    }
+
+    /// Subscribe to meet status events.
+    public func subscribeMeetEvents() -> AsyncStream<ServerMessage> {
+        makeSubscription(for: .meet)
+    }
+
+    /// Subscribe to the app-delegate orchestration stream.
+    public func subscribeAppDelegateEvents() -> AsyncStream<ServerMessage> {
+        makeSubscription(for: .appDelegate)
     }
 
     // MARK: - SSE State
@@ -225,8 +344,10 @@ public final class EventStreamClient {
     func teardown() {
         shouldReconnect = false
         stopSSE()
-        for subscriber in subscribers.values {
-            subscriber.continuation.finish()
+        for bucket in subscribers.values {
+            for subscriber in bucket.values {
+                subscriber.continuation.finish()
+            }
         }
         subscribers.removeAll()
     }
@@ -528,7 +649,6 @@ public final class EventStreamClient {
         // scheduled conversations — which never emit user_message_echo —
         // can't pollute the map with their conversationId during the window
         // between sendUserMessage and the HTTP 202 response.
-        var broadcastConversationId: String?
         if let conversationId = extractJsonStringValue(from: jsonString, key: "conversationId") {
             let eventType = extractJsonStringValue(from: jsonString, key: "type")
             let localId: String?
@@ -545,7 +665,6 @@ public final class EventStreamClient {
             } else {
                 localId = nil
             }
-            broadcastConversationId = localId ?? conversationId
             if let localId {
                 jsonString = jsonString.replacingOccurrences(
                     of: "\"conversationId\":\"\(conversationId)\"",
@@ -618,7 +737,7 @@ public final class EventStreamClient {
 
         guard let message else { return }
         if shouldIgnoreHostToolRequest(message) { return }
-        handleParsedMessage(message, conversationId: broadcastConversationId)
+        handleParsedMessage(message)
     }
 
     private func shouldIgnoreHostToolRequest(_ message: ServerMessage) -> Bool {
@@ -663,8 +782,8 @@ public final class EventStreamClient {
     /// Handle a successfully parsed server message:
     /// 1. Intercept token_rotated (update credentials, reconnect SSE)
     /// 2. Call pre-processor (DaemonStatus state updates)
-    /// 3. Broadcast to all subscribers
-    private func handleParsedMessage(_ message: ServerMessage, conversationId: String? = nil) {
+    /// 3. Route to typed dispatchers
+    private func handleParsedMessage(_ message: ServerMessage) {
         // Intercept token rotation — don't broadcast to subscribers
         if case .tokenRotated(let msg) = message {
             log.info("Received token_rotated event — reconnecting SSE")
@@ -687,19 +806,144 @@ public final class EventStreamClient {
         }
 
         messagePreProcessor?(message)
-        broadcastMessage(message, conversationId: conversationId)
+        broadcastMessage(message)
     }
 
-    /// Broadcast a message to subscribers. When `conversationId` is provided,
-    /// subscribers with a non-matching conversation filter are skipped.
-    public func broadcastMessage(_ message: ServerMessage, conversationId: String? = nil) {
-        for subscriber in subscribers.values {
-            if let filterConvId = subscriber.filter?.conversationId,
-               let messageConvId = conversationId,
-               filterConvId != messageConvId {
-                continue
+    /// Dispatch a parsed event to every typed subscriber whose category
+    /// covers the event's kind. Public so tests and synthetic-event call
+    /// sites (e.g. `userMessagePersisted`) can fan a message into the
+    /// routing layer without going through the SSE parser.
+    public func broadcastMessage(_ message: ServerMessage) {
+        let categories = Self.categories(for: message)
+        for category in categories {
+            guard let bucket = subscribers[category] else { continue }
+            for subscriber in bucket.values {
+                subscriber.continuation.yield(message)
             }
-            subscriber.continuation.yield(message)
+        }
+    }
+
+    /// Static category mapping. Each event type is routed to one or more
+    /// categories — for example, `appFilesChanged` goes to both `appFiles`
+    /// (DirectoryStore invalidation) and `chat` (ChatActionHandler's
+    /// surface-image refresh path).
+    ///
+    /// The mapping is deliberately conservative: when a category cares about
+    /// a class of events (e.g. chat events) we include the full set so a new
+    /// streaming-related event landing in this file doesn't silently bypass
+    /// the consumer that needs it. Cross-domain orchestration events (host
+    /// tools, document editor, recording, etc.) all flow through
+    /// `appDelegate`.
+    private static func categories(for message: ServerMessage) -> [EventStreamCategory] {
+        switch message {
+        // MARK: Chat streaming + lifecycle
+        case .messageOpen, .blockOpen, .blockClose, .messageClose,
+             .assistantTextDelta, .assistantThinkingDelta, .assistantActivityState,
+             .toolUseStart, .toolUsePreviewStart, .toolInputDelta, .toolOutputChunk, .toolResult,
+             .messageComplete, .messageQueued, .messageDequeued, .messageRequestComplete,
+             .messageQueuedDeleted, .messageSteered, .generationCancelled, .generationHandoff,
+             .userMessageEcho, .userMessagePersisted, .queuedMessageAcked,
+             .conversationInfo, .conversationError, .confirmationRequest, .confirmationStateChanged,
+             .undoComplete, .suggestionResponse, .error,
+             .watchStarted, .watchCompleteRequest,
+             .subagentSpawned, .subagentStatusChanged, .subagentEvent,
+             .contextCompacted, .compactionCircuitOpen, .compactionCircuitClosed,
+             .memoryStatus, .memoryRecalled,
+             .modelInfo, .guardianActionsPendingResponse, .turnProfileAutoRouted,
+             .usageProgress:
+            return [.chat]
+
+        // MARK: UI surfaces — chat (inline) + app delegate (overlay surface manager)
+        case .uiSurfaceShow, .uiSurfaceUpdate, .uiSurfaceUndoResult:
+            return [.chat, .appDelegate]
+        case .uiSurfaceDismiss, .uiSurfaceComplete:
+            return [.chat, .appDelegate]
+        case .uiLayoutConfig:
+            return [.appDelegate]
+
+        // MARK: Conversation list management
+        case .conversationListResponse, .historyResponse,
+             .conversationTitleUpdated, .conversationListInvalidated:
+            return [.conversationList]
+
+        // MARK: Conversation orchestration
+        case .conversationIdResolved, .conversationInferenceProfileUpdated,
+             .acpSessionSpawned, .acpSessionUpdate, .acpSessionCompleted, .acpSessionError:
+            return [.conversationOrchestration]
+
+        // MARK: Trace + usage telemetry
+        case .traceEvent:
+            return [.trace]
+        case .usageUpdate:
+            // Chat consumes for in-conversation usage attribution; the main
+            // window's trace category resets the dashboard.
+            return [.chat, .trace]
+
+        // MARK: Disk pressure
+        case .diskPressureStatusChanged:
+            return [.diskPressure]
+
+        // MARK: Feature flag changes — disk pressure (UI-impacting) +
+        // app delegate (kicks off reload).
+        case .featureFlagsChanged:
+            return [.diskPressure, .appDelegate]
+
+        // MARK: Contacts invalidation
+        case .contactsChanged:
+            return [.contacts]
+
+        // MARK: Workspace app files
+        case .appFilesChanged:
+            // DirectoryStore invalidates its app list; chat's action handler
+            // refreshes surface preview images for the active conversation;
+            // app delegate refreshes the in-memory apps cache.
+            return [.appFiles, .chat, .appDelegate]
+
+        // MARK: Settings store
+        case .ingressConfigResponse, .telegramConfigResponse:
+            return [.settings]
+
+        // MARK: Home / feed
+        case .relationshipStateUpdated, .homeFeedUpdated:
+            return [.home]
+
+        // MARK: Meet status
+        case .meetJoining, .meetJoined, .meetLeft, .meetError,
+             .meetParticipantChanged, .meetSpeakerChanged, .meetTranscriptChunk,
+             .meetChatSent, .meetSpeakingStarted, .meetSpeakingEnded:
+            return [.meet]
+
+        // MARK: App-delegate orchestration
+        case .notificationIntent, .notificationConversationCreated,
+             .openUrl, .openConversation, .navigateSettings,
+             .showPlatformLogin, .platformDisconnected,
+             .taskRunConversationCreated, .scheduleConversationCreated,
+             .heartbeatConversationCreated,
+             .documentEditorShow, .documentEditorUpdate,
+             .documentSaveResponse, .documentLoadResponse,
+             .recordingStart, .recordingStop, .recordingPause, .recordingResume,
+             .clientSettingsUpdate, .identityChanged, .avatarUpdated,
+             .soundsConfigUpdated, .configChanged,
+             .syncChanged,
+             .bookmarkCreated, .bookmarkDeleted,
+             .hostBashRequest, .hostBashCancel,
+             .hostFileRequest, .hostFileCancel,
+             .hostCuRequest, .hostCuCancel,
+             .hostAppControlRequest, .hostAppControlCancel,
+             .hostBrowserRequest, .hostBrowserCancel,
+             .hostTransferRequest, .hostTransferCancel,
+             .signBundlePayload, .getSigningIdentity,
+             .secretRequest, .contactRequest,
+             .skillStateChanged,
+             .serviceGroupUpdateStarting, .serviceGroupUpdateProgress, .serviceGroupUpdateComplete:
+            return [.appDelegate]
+
+        // MARK: Unrouted — pre-handled by the parsed-message interceptor
+        // (`tokenRotated`) or pure on-demand request/response payloads that
+        // are consumed directly by their HTTP/IPC initiators rather than
+        // through SSE fan-out.
+        default:
+            return []
         }
     }
 
@@ -738,8 +982,10 @@ public final class EventStreamClient {
         tokenRotationTask?.cancel()
         sseReconnectTask?.cancel()
         sseTask?.cancel()
-        for subscriber in subscribers.values {
-            subscriber.continuation.finish()
+        for bucket in subscribers.values {
+            for subscriber in bucket.values {
+                subscriber.continuation.finish()
+            }
         }
     }
 }

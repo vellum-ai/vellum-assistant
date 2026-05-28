@@ -357,7 +357,7 @@ public final class MainWindow {
         documentManager.connectionManager = connectionManager
         Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in self.eventStreamClient.subscribe() {
+            for await message in self.eventStreamClient.subscribeTraceEvents() {
                 switch message {
                 case .traceEvent(let msg):
                     self.traceStore.ingest(msg)

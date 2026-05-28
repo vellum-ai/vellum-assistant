@@ -743,7 +743,7 @@ public final class SettingsStore: ObservableObject {
         // Subscribe to SSE-pushed config updates
         Task { @MainActor [weak self] in
             guard let self, let eventStreamClient = self.eventStreamClient else { return }
-            for await message in eventStreamClient.subscribe() {
+            for await message in eventStreamClient.subscribeSettingsEvents() {
                 switch message {
                 case .ingressConfigResponse(let response):
                     self.handleIngressConfigResponse(response)

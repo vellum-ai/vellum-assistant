@@ -131,7 +131,7 @@ final class ConversationRestorer {
     func startObserving(skipInitialFetch: Bool = false) {
         Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in self.eventStreamClient.subscribe() {
+            for await message in self.eventStreamClient.subscribeConversationListEvents() {
                 switch message {
                 case .conversationListResponse(let response):
                     // SSE-pushed responses don't have the foreground/background

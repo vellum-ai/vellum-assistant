@@ -125,7 +125,7 @@ public final class ContactsStore {
         subscriptionTask?.cancel()
         subscriptionTask = Task { [weak self] in
             guard let self else { return }
-            let stream = self.eventStreamClient.subscribe()
+            let stream = self.eventStreamClient.subscribeContactsEvents()
 
             for await message in stream {
                 guard !Task.isCancelled else { return }

@@ -191,7 +191,7 @@ public final class DirectoryStore: ObservableObject {
         appFilesChangedTask?.cancel()
         appFilesChangedTask = Task { [weak self] in
             guard let eventStreamClient = self?.eventStreamClient else { return }
-            let stream = eventStreamClient.subscribe()
+            let stream = eventStreamClient.subscribeAppFilesEvents()
 
             for await message in stream {
                 guard let self, !Task.isCancelled else { return }

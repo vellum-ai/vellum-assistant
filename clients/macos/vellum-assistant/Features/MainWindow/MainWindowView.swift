@@ -162,7 +162,7 @@ struct MainWindowView: View {
         // without an app relaunch.
         let homeStoreInstance = HomeStore(
             client: DefaultHomeStateClient(),
-            messageStream: eventStreamClient.subscribe()
+            messageStream: eventStreamClient.subscribeHomeEvents()
         )
         self._homeStore = State(initialValue: homeStoreInstance)
         // Same eager-construction rationale for the activity feed store
@@ -173,7 +173,7 @@ struct MainWindowView: View {
         // already looking at the feed.
         self._feedStore = State(initialValue: HomeFeedStore(
             client: DefaultHomeFeedClient(),
-            messageStream: eventStreamClient.subscribe(),
+            messageStream: eventStreamClient.subscribeHomeEvents(),
             onSSEUpdate: { [weak homeStoreInstance] in
                 guard let homeStoreInstance else { return }
                 if !homeStoreInstance.isHomeTabVisible {
@@ -181,9 +181,9 @@ struct MainWindowView: View {
                 }
             }
         ))
-        // Meet status panel subscribes to the same shared SSE stream.
+        // Meet status panel subscribes to the meet-domain dispatcher.
         self._meetStatusViewModel = State(initialValue: MeetStatusViewModel(
-            messageStream: eventStreamClient.subscribe()
+            messageStream: eventStreamClient.subscribeMeetEvents()
         ))
     }
 
