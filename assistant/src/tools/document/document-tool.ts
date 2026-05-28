@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import {
+  addDocumentConversation,
   deleteDocument,
   findInDocument,
   findRecentEmptyDocumentByTitle,
@@ -152,13 +153,22 @@ function maybeReuseEmptyDocument(
   const update = updateDocumentContent(surfaceId, initialContent, "replace");
   if (!update.success) return null;
 
+  // Mirror the create-new path's saveDocument → addDocumentConversation
+  // invariant so the deduped doc stays discoverable from this conversation
+  // even if the junction row was removed out of band.
+  addDocumentConversation(surfaceId, context.conversationId);
+
   if (context.sendToClient) {
+    // Use document_editor_update — not document_editor_show — because the
+    // empty draft is typically still OPEN on the macOS client. A *_show on an
+    // open doc triggers DocumentManager.closeDocument() → async save() of the
+    // OLD (empty) content, clobbering the initialContent we just persisted.
     context.sendToClient({
-      type: "document_editor_show",
+      type: "document_editor_update",
       conversationId: context.conversationId,
       surfaceId,
-      title,
-      initialContent,
+      markdown: initialContent,
+      mode: "replace",
     });
 
     context.sendToClient({
@@ -271,8 +281,11 @@ export function executeDocumentUpdate(
   if (typeof input.content !== "string") {
     return invalidInput("content is required and must be a string");
   }
+  // Loose `!= null` to match validateInputAgainstSchema, which treats null as
+  // "absent" for enum checks — without this, { mode: null } passes the
+  // factory validator but rejects here. The `?? "append"` below handles null.
   if (
-    input.mode !== undefined &&
+    input.mode != null &&
     input.mode !== "replace" &&
     input.mode !== "append"
   ) {

@@ -307,6 +307,20 @@ describe("executeDocumentUpdate — input validation", () => {
     );
   });
 
+  test("treats mode: null the same as undefined (factory validator accepts both)", () => {
+    // validateInputAgainstSchema treats null as "absent" for enum checks, so
+    // the executor must agree — { mode: null } should fall through to the
+    // access check, not return a confusing 'mode must be ...' error.
+    const result = executeDocumentUpdate(
+      { surface_id: "doc-x", content: "hi", mode: null },
+      makeContext(),
+    );
+    expect(result.isError).toBe(true);
+    const body = parseResult<{ error: string }>(result);
+    expect(body.error).not.toContain("Invalid input: mode");
+    expect(body.error).toBe("Document not found");
+  });
+
   test("executeDocumentRead returns Invalid input when surface_id is missing", () => {
     const result = executeDocumentRead({}, makeContext());
     expect(result.isError).toBe(true);
