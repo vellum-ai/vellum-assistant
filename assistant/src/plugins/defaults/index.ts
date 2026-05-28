@@ -24,7 +24,6 @@
  * chain) does not trip a TDZ.
  */
 
-import { memoryV3ShadowPlugin } from "../../memory/v3/shadow-middleware.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
 import { defaultCircuitBreakerPlugin } from "./circuit-breaker.js";
@@ -61,11 +60,6 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,
     defaultMemoryRetrievalPlugin,
-    // Live-shadow v3 retrieval. Always registered; inert unless both
-    // `memory.v3.enabled` and `memory.v3.shadow` are on (gated inside the
-    // middleware). Ordered after the default so the default terminal still
-    // produces the injected (v2) `MemoryResult`.
-    memoryV3ShadowPlugin,
     defaultInjectorsPlugin,
     defaultTokenEstimatePlugin,
     defaultOverflowReducePlugin,
