@@ -1,19 +1,12 @@
 // User/assistant messages, tool results, confirmations, secrets, errors, and generation lifecycle.
 
+import type { AssistantTextDeltaEvent } from "../../api/events/assistant-text-delta.js";
 import type { AssistantTurnStartEvent } from "../../api/events/assistant-turn-start.js";
+import type { MessageCompleteEvent } from "../../api/events/message-complete.js";
 import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
 import type { ToolActivityMetadata } from "./web-activity.js";
-
-/**
- * Re-export canonical event types under the daemon's interface naming
- * convention (`*` vs `*Event`) so existing `_MessagesServerMessages` union
- * members read consistently. The canonical schemas in
- * `@vellumai/assistant-api` are the source of truth.
- */
-export type AssistantTurnStart = AssistantTurnStartEvent;
-export type ToolUseStart = ToolUseStartEvent;
 
 // === Client → Server ===
 
@@ -83,22 +76,12 @@ export interface UserMessageEcho {
   clientMessageId?: string;
 }
 
-export interface AssistantTextDelta {
-  type: "assistant_text_delta";
-  text: string;
-  conversationId?: string;
-  /** Database ID of the assistant message this delta belongs to. Stamped by
-   *  the agent loop from the pre-allocated turn anchor. Absent on streams
-   *  produced by older daemons that pre-date the anchor protocol. */
-  messageId?: string;
-}
-
 export interface AssistantThinkingDelta {
   type: "assistant_thinking_delta";
   thinking: string;
   conversationId?: string;
   /** Database ID of the assistant message this thinking delta belongs to.
-   *  Same semantics as `AssistantTextDelta.messageId`. */
+   *  Same semantics as `AssistantTextDeltaEvent.messageId`. */
   messageId?: string;
 }
 
@@ -113,7 +96,7 @@ export interface ToolOutputChunk {
   subToolIsError?: boolean;
   subToolId?: string;
   /** Database ID of the assistant message that owns the parent tool_use
-   *  block. Same semantics as `AssistantTextDelta.messageId`. */
+   *  block. Same semantics as `AssistantTextDeltaEvent.messageId`. */
   messageId?: string;
 }
 
@@ -123,7 +106,7 @@ export interface ToolUsePreviewStart {
   toolName: string;
   conversationId?: string;
   /** Database ID of the assistant message that owns this tool_use block.
-   *  Same semantics as `AssistantTextDelta.messageId`. */
+   *  Same semantics as `AssistantTextDeltaEvent.messageId`. */
   messageId?: string;
 }
 
@@ -135,7 +118,7 @@ export interface ToolInputDelta {
   /** The tool_use block ID for client-side correlation. */
   toolUseId?: string;
   /** Database ID of the assistant message that owns this tool_use block.
-   *  Same semantics as `AssistantTextDelta.messageId`. */
+   *  Same semantics as `AssistantTextDeltaEvent.messageId`. */
   messageId?: string;
 }
 
@@ -159,7 +142,7 @@ export interface ToolResult {
   /** The tool_use block ID for client-side correlation. */
   toolUseId?: string;
   /** Database ID of the assistant message that owns the parent tool_use
-   *  block. Same semantics as `AssistantTextDelta.messageId`. */
+   *  block. Same semantics as `AssistantTextDeltaEvent.messageId`. */
   messageId?: string;
   /** Risk level from the classifier ("low" | "medium" | "high" | "unknown"). */
   riskLevel?: string;
@@ -318,26 +301,6 @@ export interface QuestionRequest {
   freeTextPlaceholder?: string;
   conversationId?: string;
   toolUseId?: string;
-}
-
-export interface MessageComplete {
-  type: "message_complete";
-  conversationId?: string;
-  attachments?: UserMessageAttachment[];
-  attachmentWarnings?: string[];
-  /**
-   * Database ID of the completed assistant turn — the id that survives
-   * query-time merging when a turn persists multiple assistant rows. Matches
-   * the row the messages route returns.
-   */
-  messageId?: string;
-  /**
-   * Distinguishes a real main-turn completion from auxiliary events such as
-   * call transcripts, call summaries, and watch notifier outputs. Clients
-   * gate turn-completion side effects (e.g. the task_complete sound) on
-   * `source !== "aux"`. Absent is treated as main for backwards compatibility.
-   */
-  source?: "main" | "aux";
 }
 
 export interface ErrorMessage {
@@ -558,10 +521,10 @@ export type _MessagesClientMessages =
 
 export type _MessagesServerMessages =
   | UserMessageEcho
-  | AssistantTurnStart
-  | AssistantTextDelta
+  | AssistantTurnStartEvent
+  | AssistantTextDeltaEvent
   | AssistantThinkingDelta
-  | ToolUseStart
+  | ToolUseStartEvent
   | ToolUsePreviewStart
   | ToolOutputChunk
   | ToolInputDelta
@@ -569,7 +532,7 @@ export type _MessagesServerMessages =
   | ConfirmationRequest
   | SecretRequest
   | QuestionRequest
-  | MessageComplete
+  | MessageCompleteEvent
   | ErrorMessage
   | MessageQueued
   | MessageDequeued

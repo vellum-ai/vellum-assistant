@@ -12,7 +12,8 @@
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { Surface } from "@/domains/chat/types/types";
 import { toDisplayAttachments } from "@/domains/chat/api/event-parser";
-import type { AllowlistOption, ChatMessageToolCall, DirectoryScopeOption, MessageCompleteEvent, ScopeOption } from "@/domains/chat/api/event-types";
+import type { AllowlistOption, ChatMessageToolCall, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
+import type { MessageCompleteEvent } from "@vellumai/assistant-api";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 
 // ---------------------------------------------------------------------------
@@ -164,8 +165,8 @@ export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
  *     stamped with `event.messageId`. This covers the start-of-turn case
  *     where no streaming bubble was opened (e.g. tool-only or aux turns).
  *   - tail is assistant → finalize it: flip `isStreaming: false`, complete
- *     any running tool calls, merge in `event.content` / `event.attachments`.
- *     The first `message_complete` for an *optimistic* row also adopts
+ *     any running tool calls, merge in `event.attachments`. The first
+ *     `message_complete` for an *optimistic* row also adopts
  *     `event.messageId` as the row id (clearing `isOptimistic`) so the
  *     post-turn history reconcile matches by id instead of falling back to
  *     brittle content matching — the latter breaks for multi-LLM-call turns
@@ -175,6 +176,12 @@ export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
  *     agent turn fold into the same bubble and **keep the adopted id** — the
  *     mirror of the daemon's server-side merge which collapses to the first
  *     row's id (later events carry constituent ids the daemon discards).
+ *
+ * `message_complete` carries no body content on the wire — turn text streams
+ * as `assistant_text_delta` chunks that the assistant bubble accumulates;
+ * `message_complete` only finalizes the bubble and (optionally) appends
+ * attachments. The "push new bubble" branch produces an empty-content row
+ * only when attachments are present.
  */
 export function finalizeMessageComplete(
   prev: DisplayMessage[],
@@ -184,16 +191,16 @@ export function finalizeMessageComplete(
   const attachments = toDisplayAttachments(event.attachments);
 
   if (last?.role !== "assistant") {
-    if (!event.content && !attachments) return prev;
+    if (!attachments) return prev;
     return [
       ...prev,
       {
         id: event.messageId ?? crypto.randomUUID(),
         ...(event.messageId ? {} : { isOptimistic: true }),
         role: "assistant" as const,
-        content: event.content ?? "",
+        content: "",
         timestamp: Date.now(),
-        ...(attachments ? { attachments } : {}),
+        attachments,
       },
     ];
   }
@@ -212,7 +219,6 @@ export function finalizeMessageComplete(
       ...last,
       ...(adoptServerId ? { id: event.messageId!, isOptimistic: false } : {}),
       isStreaming: false,
-      content: event.content || last.content,
       ...(attachments ? { attachments } : {}),
       ...(finalized ? { toolCalls: finalized } : {}),
     },
