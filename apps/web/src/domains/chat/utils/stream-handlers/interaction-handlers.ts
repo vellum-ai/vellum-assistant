@@ -1,4 +1,4 @@
-import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat-utils";
+import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import type { PendingConfirmationState } from "@/domains/chat/types";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";

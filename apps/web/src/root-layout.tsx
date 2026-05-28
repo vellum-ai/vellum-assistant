@@ -12,9 +12,9 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useConversationSync } from "@/domains/conversations/use-conversation-sync";
-import { useFeatureFlagBusSync } from "@/lib/feature-flags/use-feature-flag-bus-sync";
-import { useClientFeatureFlagSync } from "@/lib/feature-flags/use-client-feature-flag-sync";
-import { useAssistantFeatureFlagSync } from "@/lib/feature-flags/use-assistant-feature-flag-sync";
+import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
+import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
+import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta

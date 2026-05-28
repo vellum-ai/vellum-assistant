@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { Outlet, useLocation } from "react-router";
 
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { SETTINGS_SIDEBAR } from "@/domains/settings/navigation";
 import { SidebarShell } from "@/components/sidebar-shell";

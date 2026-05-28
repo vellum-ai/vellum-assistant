@@ -2,7 +2,7 @@ import { Navigate } from "react-router";
 
 import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
 import { PluginsTab } from "@/domains/intelligence/components/plugins/plugins-tab";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
 
 /**

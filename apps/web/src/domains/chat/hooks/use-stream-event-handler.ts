@@ -19,7 +19,7 @@ import {
   recordChatDiagnostic,
   summarizeAssistantEvent,
 } from "@/domains/chat/utils/diagnostics";
-import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils";
+import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import {
   handleHomeFeedUpdated,
   handleRelationshipStateUpdated,

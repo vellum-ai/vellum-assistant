@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getEffectiveRiskDisplay, getProvenanceText, getRiskBadgeStyle, wasExpected } from "@/domains/chat/utils/risk-utils";
+import { getEffectiveRiskDisplay, getProvenanceText, getRiskBadgeStyle, wasExpected } from "@/domains/chat/utils/risk";
 
 describe("wasExpected", () => {
   test("prompted mode is always expected", () => {

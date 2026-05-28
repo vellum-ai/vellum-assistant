@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 
 import { cn, SegmentControl } from "@vellum/design-library";
 
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { watchDeviceSetting } from "@/lib/device-settings";
 import {
   applyThemePreference,

@@ -8,7 +8,7 @@ import { Modal } from "@vellum/design-library/components/modal";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
 import { client } from "@/generated/api/client.gen";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import { type ProfileEntry } from "@/domains/settings/ai/ai-page";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";

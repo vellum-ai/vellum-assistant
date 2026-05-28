@@ -30,7 +30,7 @@ import type {
   ReleaseChannelStatus,
 } from "@/generated/api/types.gen";
 import { extractErrorMessage } from "@/lib/api-errors";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 interface PreviewReleaseChannelProps {
   assistantId: string;

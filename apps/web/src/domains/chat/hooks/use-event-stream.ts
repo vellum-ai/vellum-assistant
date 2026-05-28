@@ -34,7 +34,7 @@ import {
 } from "react";
 
 import type { AssistantEvent } from "@/domains/chat/api/event-types";
-import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils";
+import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import {
   bucketMessagesAdded,
   recordChatDiagnostic,

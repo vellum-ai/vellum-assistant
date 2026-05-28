@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
-import { useFeatureFlagBusSync } from "@/lib/feature-flags/use-feature-flag-bus-sync";
+import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import {
   assistantFlagValuesQueryKey,
   CLIENT_FLAG_QUERY_KEY,

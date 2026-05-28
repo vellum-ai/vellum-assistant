@@ -37,7 +37,7 @@ import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
-import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils";
+import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
@@ -83,7 +83,7 @@ import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constant
 import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";
 import type { SubagentState } from "@/domains/subagents/subagent-store";

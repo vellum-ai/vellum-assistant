@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { client } from "@/generated/api/client.gen";
 import { assertHasResponse } from "@/lib/api-errors";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   CLIENT_FLAG_DEFAULTS,
   flagKeyToStoreKey,

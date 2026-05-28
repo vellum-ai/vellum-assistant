@@ -8,7 +8,7 @@
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
-import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat-utils";
+import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { PendingConfirmationState, PendingSecretState } from "@/domains/chat/types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
 

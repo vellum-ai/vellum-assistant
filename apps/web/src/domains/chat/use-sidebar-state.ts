@@ -19,8 +19,8 @@ import type { Conversation, ConversationGroup } from "@/types/conversation-types
 import { groupConversations, type CustomGroup } from "@/domains/chat/utils/group-conversations";
 import { groupBackgroundConversationsBySource } from "@/domains/chat/utils/background-sub-groups";
 import { groupScheduledConversationsByJobId } from "@/domains/chat/utils/scheduled-sub-groups";
-import type { SubGroup } from "@/domains/chat/utils/sub-group-utils";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import type { SubGroup } from "@/domains/chat/utils/sub-group";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
 
 // ---------------------------------------------------------------------------

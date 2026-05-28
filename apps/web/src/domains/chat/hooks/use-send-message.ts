@@ -48,7 +48,7 @@ import {
 } from "@/domains/onboarding/prechat";
 
 import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters";
-import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat-utils";
+import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
 
 import {
