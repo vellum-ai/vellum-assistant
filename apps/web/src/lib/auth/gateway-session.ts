@@ -1,4 +1,3 @@
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import {
   isLocalMode,
   getLocalGatewayUrl,
@@ -13,10 +12,7 @@ let cachedExpiresAt: number = 0;
 let cachedTokenSource: string | null = null;
 
 export function isGatewayAuthEnabled(): boolean {
-  if (isLocalMode()) {
-    return getLocalGatewayUrl() != null;
-  }
-  return useClientFeatureFlagStore.getState().gatewayWebAuth === true;
+  return isLocalMode() && getLocalGatewayUrl() != null;
 }
 
 export function isGatewayAuthMode(): boolean {
@@ -49,9 +45,13 @@ export function getGatewayToken(): string | null {
   return null;
 }
 
-async function acquireGatewayToken(tokenUrl?: string): Promise<string> {
+async function acquireGatewayToken(tokenUrl?: string, guardianToken?: string): Promise<string> {
   const url = tokenUrl ?? "/auth/token";
-  const res = await fetch(url, { method: "POST" });
+  const headers: Record<string, string> = {};
+  if (guardianToken) {
+    headers["Authorization"] = `Bearer ${guardianToken}`;
+  }
+  const res = await fetch(url, { method: "POST", headers });
   if (!res.ok) {
     throw new Error(`Gateway token request failed: ${res.status}`);
   }
@@ -72,7 +72,7 @@ async function acquireGatewayToken(tokenUrl?: string): Promise<string> {
   return token;
 }
 
-export async function ensureGatewayToken(tokenUrl?: string): Promise<string> {
+export async function ensureGatewayToken(tokenUrl?: string, guardianToken?: string): Promise<string> {
   const source = tokenUrl ?? "/auth/token";
   const storedSource = cachedTokenSource ?? localStorage.getItem(LS_TOKEN_SOURCE_KEY);
   if (storedSource && storedSource !== source) {
@@ -80,7 +80,7 @@ export async function ensureGatewayToken(tokenUrl?: string): Promise<string> {
   }
   const existing = getGatewayToken();
   if (existing) return existing;
-  return acquireGatewayToken(tokenUrl);
+  return acquireGatewayToken(tokenUrl, guardianToken);
 }
 
 export function getLocalTokenUrl(): string | undefined {

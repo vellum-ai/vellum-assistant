@@ -434,14 +434,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "gateway-web-auth",
-      "scope": "client",
-      "key": "gateway-web-auth",
-      "label": "Gateway Web Auth",
-      "description": "Enable web SPA authentication via gateway session cookies.",
-      "defaultEnabled": false
-    },
-    {
       "id": "platform-features-in-local-mode",
       "scope": "assistant",
       "key": "platform-features-in-local-mode",

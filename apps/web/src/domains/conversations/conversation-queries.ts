@@ -386,7 +386,7 @@ export function removeConversation(
  * fetching `GET /v1/conversations/:id` and patching the cache in place.
  *
  * Drives the per-conversation `sync_changed` metadata-tag handler in
- * `use-assistant-sync-stream.ts`: when the assistant emits a
+ * `use-conversation-sync.ts`: when the assistant emits a
  * `conversation:<id>:metadata` invalidation for a content-only change
  * (seen state, title, attention cursor), the consumer GETs that single
  * row instead of refetching the full paginated list — a single request
