@@ -94,19 +94,19 @@ export const restoreBounds = (
  * Reads `getNormalBounds()` rather than `getBounds()` so a maximized or
  * fullscreen window persists its restored-size geometry instead of the
  * full-display rectangle — otherwise un-maximizing on the next run
- * would leave a tiny window. `isFullScreen()` is tracked separately and
- * passed through to the `BrowserWindow` constructor on restore, so the
- * window comes back in the same display mode it was left in.
- *
- * Skips persisting when the window is minimized — the bounds at that
- * moment are not meaningful.
+ * would leave a tiny window. `getNormalBounds()` also returns the
+ * pre-minimize bounds when the window is minimized, so no special
+ * handling is needed for the common macOS "minimize to dock, then
+ * Cmd+Q" path. `isFullScreen()` is tracked separately and passed
+ * through to the `BrowserWindow` constructor on restore, so the window
+ * comes back in the same display mode it was left in.
  */
 export const track = (key: string, win: BrowserWindow): void => {
   const SAVE_DEBOUNCE_MS = 500;
   let saveTimer: NodeJS.Timeout | null = null;
 
   const persist = (): void => {
-    if (win.isDestroyed() || win.isMinimized()) return;
+    if (win.isDestroyed()) return;
     const bounds = win.getNormalBounds();
     const existing = store().get("windows", {});
     store().set("windows", {
