@@ -1203,6 +1203,22 @@ export async function installSkill(spec: {
           spec.contactId,
         );
 
+        // Fail if nothing was actually installed (all skipped or failed)
+        if (result.installed.length === 0) {
+          const failedCount = result.failed.length;
+          const skippedCount = result.skipped.length;
+          const details =
+            failedCount > 0 && skippedCount > 0
+              ? `${failedCount} failed, ${skippedCount} skipped`
+              : failedCount > 0
+                ? `all ${failedCount} failed`
+                : `all ${skippedCount} already installed`;
+          return {
+            success: false,
+            error: `No skills installed from package "${resolved.owner}/${resolved.repo}" (${details})`,
+          };
+        }
+
         // Post-install for each installed skill
         for (const { skillId } of result.installed) {
           postInstallSkill(skillId);
@@ -1210,8 +1226,7 @@ export async function installSkill(spec: {
 
         // Return the first installed skill as the primary result,
         // but the log output should summarize all three lists
-        const firstSkillId =
-          result.installed[0]?.skillId ?? `${resolved.owner}/${resolved.repo}`;
+        const firstSkillId = result.installed[0]!.skillId;
         return { success: true, skillId: firstSkillId };
       }
 
