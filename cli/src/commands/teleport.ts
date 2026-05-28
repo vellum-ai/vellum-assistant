@@ -228,7 +228,7 @@ async function getAccessToken(
   runtimeUrl: string,
   assistantId: string,
   displayName: string,
-  options?: { forceRefresh?: boolean },
+  options?: { forceRefresh?: boolean; bootstrapSecret?: string },
 ): Promise<string> {
   // When forceRefresh is set (e.g. after a runtime 401 on the cached token)
   // we skip the cache and lease a brand-new token from the gateway, so a
@@ -242,7 +242,11 @@ async function getAccessToken(
   }
 
   try {
-    const freshToken = await leaseGuardianToken(runtimeUrl, assistantId);
+    const freshToken = await leaseGuardianToken(
+      runtimeUrl,
+      assistantId,
+      options?.bootstrapSecret,
+    );
     return freshToken.accessToken;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -281,11 +285,15 @@ function isRuntime401(err: unknown): boolean {
  * — propagates to the caller.
  */
 async function callRuntimeWithAuthRetry<T>(
-  runtimeUrl: string,
-  assistantId: string,
+  entry: AssistantEntry,
   fn: (token: string) => Promise<T>,
 ): Promise<T> {
-  const firstToken = await getAccessToken(runtimeUrl, assistantId, assistantId);
+  const firstToken = await getAccessToken(
+    entry.runtimeUrl,
+    entry.assistantId,
+    entry.assistantId,
+    { bootstrapSecret: entry.guardianBootstrapSecret },
+  );
   try {
     return await fn(firstToken);
   } catch (err) {
@@ -293,10 +301,13 @@ async function callRuntimeWithAuthRetry<T>(
       throw err;
     }
     const refreshedToken = await getAccessToken(
-      runtimeUrl,
-      assistantId,
-      assistantId,
-      { forceRefresh: true },
+      entry.runtimeUrl,
+      entry.assistantId,
+      entry.assistantId,
+      {
+        forceRefresh: true,
+        bootstrapSecret: entry.guardianBootstrapSecret,
+      },
     );
     return await fn(refreshedToken);
   }
@@ -386,8 +397,7 @@ async function exportFromAssistant(
     let sourceRuntimeVersion: string;
     try {
       const identity = await callRuntimeWithAuthRetry(
-        entry.runtimeUrl,
-        entry.assistantId,
+        entry,
         async (token) => localRuntimeIdentity(entry, token),
       );
       sourceRuntimeVersion = identity.version;
@@ -423,8 +433,7 @@ async function exportFromAssistant(
     let accessToken: string;
     try {
       const result = await callRuntimeWithAuthRetry(
-        entry.runtimeUrl,
-        entry.assistantId,
+        entry,
         async (token) => {
           const r = await localRuntimeExportToGcs(entry, token, {
             uploadUrl,
@@ -462,7 +471,10 @@ async function exportFromAssistant(
           entry.runtimeUrl,
           entry.assistantId,
           entry.assistantId,
-          { forceRefresh: true },
+          {
+            forceRefresh: true,
+            bootstrapSecret: entry.guardianBootstrapSecret,
+          },
         );
       },
     });
@@ -728,8 +740,7 @@ async function importToAssistant(
     let targetRuntimeVersion: string;
     try {
       const identity = await callRuntimeWithAuthRetry(
-        entry.runtimeUrl,
-        entry.assistantId,
+        entry,
         (token) => localRuntimeIdentity(entry, token),
       );
       targetRuntimeVersion = identity.version;
@@ -774,8 +785,7 @@ async function importToAssistant(
     let accessToken: string;
     try {
       const result = await callRuntimeWithAuthRetry(
-        entry.runtimeUrl,
-        entry.assistantId,
+        entry,
         async (token) => {
           const r = await localRuntimeImportFromGcs(entry, token, {
             bundleUrl,
@@ -806,7 +816,10 @@ async function importToAssistant(
           entry.runtimeUrl,
           entry.assistantId,
           entry.assistantId,
-          { forceRefresh: true },
+          {
+            forceRefresh: true,
+            bootstrapSecret: entry.guardianBootstrapSecret,
+          },
         );
       },
     });

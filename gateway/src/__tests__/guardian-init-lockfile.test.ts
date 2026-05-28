@@ -538,6 +538,8 @@ describe("guardian/reset-bootstrap", () => {
 
   test("allows reset with valid bootstrap secret", async () => {
     process.env.GUARDIAN_BOOTSTRAP_SECRET = "some-secret";
+    writeFileSync(lockPath(), new Date().toISOString(), { mode: 0o600 });
+    writeFileSync(consumedPath(), JSON.stringify([0]) + "\n", { mode: 0o600 });
     const handler = createChannelVerificationSessionProxyHandler(makeConfig());
 
     const req = new Request("http://localhost:7830/v1/guardian/reset-bootstrap", {
@@ -546,6 +548,8 @@ describe("guardian/reset-bootstrap", () => {
     });
     const res = await handler.handleResetBootstrap("127.0.0.1", req);
     expect(res.status).toBe(200);
+    expect(lockFileExists()).toBe(false);
+    expect(consumedSecrets()).toEqual([]);
   });
 
   test("resets in-flight flag so init can proceed", async () => {

@@ -1935,13 +1935,13 @@ export function buildSchema(): Record<string, unknown> {
         post: {
           summary: "Reset guardian bootstrap lock",
           description:
-            "Loopback-only, bare-metal-only endpoint that removes the guardian-init lock file so that /v1/guardian/init can be called again. Used by the desktop app to recover from a lost actor token.",
+            "Loopback-only endpoint that removes the guardian-init lock file so that /v1/guardian/init can be called again. When bootstrap secrets are configured, callers must provide a valid x-bootstrap-secret header. Used by the desktop app to recover from a lost actor token.",
           operationId: "guardianResetBootstrap",
           responses: {
             "200": { description: "Lock file removed (or already absent)" },
             "403": {
               description:
-                "Forbidden — non-loopback origin or containerized mode",
+                "Forbidden — non-loopback origin or invalid bootstrap secret",
             },
             "409": {
               description: "Guardian init is in progress — try again shortly",
