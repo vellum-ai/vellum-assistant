@@ -6,6 +6,7 @@ import {
   type AssistantsConnectionStatusResponse,
   type ConnectionStatus,
 } from "@/generated/api/index";
+import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { subscribeAssistantUnreachable } from "@/assistant/unreachable-bus";
 
 /**
@@ -283,7 +284,7 @@ export function useAssistantReachability(
   }, [runProbe]);
 
   const probe = useCallback((options?: ReachabilityProbeOptions) => {
-    if (!assistantId) {
+    if (!assistantId || isGatewayAuthMode()) {
       return;
     }
     const mode = options?.mode ?? "visible";
