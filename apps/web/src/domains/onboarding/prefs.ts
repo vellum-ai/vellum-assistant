@@ -134,6 +134,11 @@ export function readAiDataConsent(): boolean {
   return useOnboardingStore.getState().aiDataConsent;
 }
 
+/** SSR-safe, non-hook read of the anonymous product analytics preference. */
+export function readShareAnalytics(): boolean {
+  return useOnboardingStore.getState().shareAnalytics;
+}
+
 /**
  * SSR-safe, non-hook check for a returning user signal.
  * Returns `true` when `onboarding.lastUserId` exists in localStorage,

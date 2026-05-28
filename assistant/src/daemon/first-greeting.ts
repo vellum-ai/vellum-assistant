@@ -17,7 +17,7 @@ export interface OnboardingGreetingContext {
 export const CANNED_FIRST_GREETING = [
   "Hey,",
   "",
-  "We can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
+  "We can get into whatever you've got, or just talk first — that tends to go better. Up to you. If you have context or workflows from another assistant or harness, bring them over early and I'll help port them.",
 ].join("\n");
 
 /**
@@ -69,22 +69,22 @@ function buildIntroLine(
 
 const TONE_INVITE: Record<Tone, string> = {
   grounded:
-    "We can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
-  warm: "We can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here.",
+    "We can get into whatever you've got, or just talk first — that tends to go better. Up to you. If you have context or workflows from another assistant or harness, bring them over early and I'll help port them.",
+  warm: "We can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here. If you have context or workflows from another assistant or harness, bring them over early and I can help port them.",
   energetic:
-    "We can jump straight into whatever you've got, or take a few minutes to just talk first. What sounds right?",
+    "We can jump straight into whatever you've got, or take a few minutes to just talk first. If you've got context or workflows from another assistant or harness, bring them over early and I'll port them with you. What sounds right?",
   poetic:
-    "We can start with whatever's in front of you, or just talk for a bit first. Either way.",
+    "We can start with whatever's in front of you, or just talk for a bit first. Either way. If there's old context or workflows from another assistant or harness, bring them over early and I'll help port them.",
 };
 
 const TONE_GOOGLE_SCAN: Record<Tone, string> = {
   grounded:
-    "I can scan your email, calendar, and drive in the background while we talk — just say the word.",
-  warm: "Also — I can scan your email, calendar, and drive in the background while we chat, if you'd like. Just let me know.",
+    "I can scan Gmail in the background while we talk — just say the word.",
+  warm: "Also — I can scan Gmail in the background while we chat, if you'd like. Just let me know.",
   energetic:
-    "Oh, and I can scan your email, calendar, and drive in the background right now — want me to?",
+    "Oh, and I can scan Gmail in the background right now — want me to?",
   poetic:
-    "I can also look through your email, calendar, and drive quietly in the background — say the word.",
+    "I can also look through Gmail quietly in the background — say the word.",
 };
 
 function buildInvite(tone: Tone = "grounded"): string {

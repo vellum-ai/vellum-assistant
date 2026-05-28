@@ -26,6 +26,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "prechat-onboarding-condensed-flow",
+      "scope": "client",
+      "key": "prechat-onboarding-condensed-flow",
+      "label": "Condensed Pre-chat Onboarding",
+      "description": "Enable the condensed pre-chat onboarding flow for a standard LaunchDarkly percentage rollout.",
+      "defaultEnabled": false
+    },
+    {
       "id": "local-docker-enabled",
       "scope": "client",
       "key": "local-docker-enabled",
