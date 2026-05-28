@@ -124,8 +124,9 @@ describe("LiveVoicePcmPlayback", () => {
         // Cursor reset — current time is still 0, so isPlaying is false.
         expect(playback.isPlaying).toBe(false);
 
-        // After interrupt, a fresh enqueue starts at currentTime (0), not
-        // accumulated on top of the prior cursor.
+        // After interrupt + reset, a fresh enqueue starts at currentTime (0),
+        // not accumulated on top of the prior cursor.
+        playback.resetForNextResponse();
         playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0)));
         const fresh = ctx.scheduled[ctx.scheduled.length - 1];
         expect(fresh?.startedAt).toBe(0);
@@ -225,7 +226,7 @@ describe("LiveVoicePcmPlayback", () => {
         expect(data[2]).toBeCloseTo(32767 / 32768, 5);
     });
 
-    it("resetForNextResponse() is a no-op for scheduling (cursor preserved)", () => {
+    it("resetForNextResponse() preserves the cursor between back-to-back responses", () => {
         const ctx = new MockAudioContext();
         const playback = new LiveVoicePcmPlayback({ audioContextFactory: () => ctx });
 
@@ -253,7 +254,20 @@ describe("LiveVoicePcmPlayback", () => {
         expect(playback.isPlaying).toBe(false);
     });
 
-    it("handleEnd() lets the scheduled tail drain without stopping nodes", () => {
+    it("handleSessionError() drops late TTS chunks until resetForNextResponse()", () => {
+        const ctx = new MockAudioContext();
+        const playback = new LiveVoicePcmPlayback({ audioContextFactory: () => ctx });
+
+        playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0)));
+        playback.handleSessionError();
+
+        const scheduledCount = ctx.scheduled.length;
+        playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0)));
+        // No new node was scheduled — `acceptsAudio` gate dropped the chunk.
+        expect(ctx.scheduled).toHaveLength(scheduledCount);
+    });
+
+    it("handleEnd() stops scheduled nodes and resets the cursor", () => {
         const ctx = new MockAudioContext();
         const playback = new LiveVoicePcmPlayback({ audioContextFactory: () => ctx });
 
@@ -261,8 +275,69 @@ describe("LiveVoicePcmPlayback", () => {
         playback.handleEnd();
 
         for (const entry of ctx.scheduled) {
-            expect(entry.stoppedAt).toBeUndefined();
+            expect(entry.stoppedAt).toBe(0);
         }
-        expect(playback.isPlaying).toBe(true);
+        expect(playback.isPlaying).toBe(false);
+    });
+
+    it("handleInterrupt() drops late TTS chunks until resetForNextResponse()", () => {
+        const ctx = new MockAudioContext();
+        const playback = new LiveVoicePcmPlayback({ audioContextFactory: () => ctx });
+
+        playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0)));
+        playback.handleInterrupt();
+
+        const scheduledCount = ctx.scheduled.length;
+        // A delayed TTS chunk arriving after the interrupt must be dropped —
+        // mirrors `LiveVoiceAudioPlayer.stop(reason: .interrupt)` behaviour.
+        playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0)));
+        expect(ctx.scheduled).toHaveLength(scheduledCount);
+    });
+
+    it("handleEnd() drops subsequent TTS chunks until resetForNextResponse()", () => {
+        const ctx = new MockAudioContext();
+        const playback = new LiveVoicePcmPlayback({ audioContextFactory: () => ctx });
+
+        playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0)));
+        playback.handleEnd();
+
+        const scheduledCount = ctx.scheduled.length;
+        // Once the user ends the live voice session, TTS must not resume —
+        // any chunks that race the session-end must be dropped.
+        playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0)));
+        expect(ctx.scheduled).toHaveLength(scheduledCount);
+    });
+
+    it("resetForNextResponse() re-enables enqueue after an interrupt", () => {
+        const ctx = new MockAudioContext();
+        const playback = new LiveVoicePcmPlayback({ audioContextFactory: () => ctx });
+
+        playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0)));
+        playback.handleInterrupt();
+
+        const beforeReset = ctx.scheduled.length;
+        // Sanity: gate is closed after the interrupt.
+        playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0)));
+        expect(ctx.scheduled).toHaveLength(beforeReset);
+
+        playback.resetForNextResponse();
+        playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0)));
+        // After reset, the next assistant turn can play again.
+        expect(ctx.scheduled).toHaveLength(beforeReset + 1);
+        const fresh = ctx.scheduled[ctx.scheduled.length - 1];
+        expect(fresh?.startedAt).toBe(0);
+    });
+
+    it("resetForNextResponse() re-enables enqueue after handleEnd", () => {
+        const ctx = new MockAudioContext();
+        const playback = new LiveVoicePcmPlayback({ audioContextFactory: () => ctx });
+
+        playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0)));
+        playback.handleEnd();
+        playback.resetForNextResponse();
+
+        const beforeEnqueue = ctx.scheduled.length;
+        playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0)));
+        expect(ctx.scheduled).toHaveLength(beforeEnqueue + 1);
     });
 });

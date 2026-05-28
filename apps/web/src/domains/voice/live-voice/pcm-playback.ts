@@ -86,6 +86,7 @@ export class LiveVoicePcmPlayback {
     private readonly logger: Pick<Console, "warn">;
     private audioContext: PcmAudioContextLike | null = null;
     private nextStartTime = 0;
+    private acceptsAudio = true;
     private readonly scheduledNodes = new Set<AudioBufferSourceNodeLike>();
 
     constructor(options: LiveVoicePcmPlaybackOptions = {}) {
@@ -106,6 +107,12 @@ export class LiveVoicePcmPlayback {
      * scheduled chunks. Non-PCM payloads are dropped with a warning.
      */
     enqueueTtsAudio(chunk: LiveVoiceTtsChunk): void {
+        if (!this.acceptsAudio) {
+            // Mirrors `LiveVoiceAudioPlayer.stop(reason:)`'s `acceptsAudio = false`
+            // gate: once the session has been interrupted or ended, drop any
+            // late TTS chunks that race the cancel until `resetForNextResponse()`.
+            return;
+        }
         if (!chunk.mimeType.toLowerCase().startsWith(PCM_MIME_PREFIX)) {
             this.logger.warn(
                 `[LiveVoicePcmPlayback] dropping non-PCM chunk (mimeType=${chunk.mimeType})`,
@@ -158,20 +165,26 @@ export class LiveVoicePcmPlayback {
 
     /**
      * Stop all scheduled playback immediately and clear the queue. Matches
-     * `LiveVoiceAudioPlayer.handleInterrupt()`.
+     * `LiveVoiceAudioPlayer.handleInterrupt()` → `stop(reason: .interrupt)`:
+     * any late chunks from the interrupted response are dropped via the
+     * `acceptsAudio` gate until the next `resetForNextResponse()`.
      */
     handleInterrupt(): void {
         this.stopAllScheduledNodes();
         this.nextStartTime = 0;
+        this.acceptsAudio = false;
     }
 
     /**
-     * Let the currently-scheduled tail drain naturally. The cursor isn't
-     * reset; new chunks would queue after the existing tail.
+     * Stop all scheduled playback and refuse further TTS chunks. Matches
+     * `LiveVoiceAudioPlayer.handleEnd()` → `stop(reason: .end)`: once the user
+     * has ended the session, TTS must not continue playing — late chunks are
+     * dropped via the `acceptsAudio` gate.
      */
     handleEnd(): void {
-        // Scheduled nodes drain on their own; `nextStartTime` stays put so
-        // `waitUntilPlaybackFinishes()` still observes the residual tail.
+        this.stopAllScheduledNodes();
+        this.nextStartTime = 0;
+        this.acceptsAudio = false;
     }
 
     handleSessionError(): void {
@@ -181,8 +194,9 @@ export class LiveVoicePcmPlayback {
     }
 
     resetForNextResponse(): void {
-        // No-op in v1: the scheduling cursor already handles back-to-back
-        // responses. Kept on the surface for parity with the macOS protocol.
+        // Re-enable the `acceptsAudio` gate so the next assistant turn can
+        // play. Matches `LiveVoiceAudioPlayer.resetForNextResponse()`.
+        this.acceptsAudio = true;
     }
 
     /**
