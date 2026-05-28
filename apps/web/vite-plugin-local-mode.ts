@@ -76,6 +76,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
     configureServer(server) {
       server.middlewares.use(lockfileMiddleware(lockfilePaths));
       server.middlewares.use(hatchMiddleware());
+      server.middlewares.use(retireMiddleware());
       server.middlewares.use(gatewayProxyMiddleware());
     },
   };
@@ -318,6 +319,118 @@ function handleHatch(species: string, res: http.ServerResponse): void {
       const match = stdout.match(/Hatching local assistant:\s+(.+)/);
       const assistantId = match?.[1]?.trim() ?? "";
       respond(200, { ok: true, assistantId });
+    } else {
+      respond(500, { ok: false, error: stderr || stdout });
+    }
+  });
+
+  child.on("error", (err) => {
+    respond(500, { ok: false, error: `Failed to spawn CLI: ${err.message}` });
+  });
+}
+
+/**
+ * Connect middleware for the retire endpoint.
+ *
+ * Transport: Vite dev middleware (child_process.spawn → CLI binary).
+ * In Electron, replace with IPC call to main process: window.electronAPI.retireAssistant(assistantId). (LUM-2000)
+ */
+function retireMiddleware(): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (
+      req.url !== "/assistant/__local/retire" &&
+      req.url !== "/__local/retire"
+    ) {
+      return next();
+    }
+
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      let assistantId: string | undefined;
+      if (chunks.length > 0) {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+            assistantId?: string;
+          };
+          assistantId = body.assistantId;
+        } catch {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
+          return;
+        }
+      }
+
+      if (!assistantId) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: false, error: "Missing assistantId" }));
+        return;
+      }
+
+      handleRetire(assistantId, res);
+    });
+  };
+}
+
+const RETIRE_TIMEOUT_MS = 60_000;
+
+function handleRetire(assistantId: string, res: http.ServerResponse): void {
+  const repoRoot = path.resolve(import.meta.dirname, "..", "..");
+  const cliPath = path.join(repoRoot, "cli", "src", "index.ts");
+
+  if (!fs.existsSync(cliPath)) {
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        ok: false,
+        error: `CLI binary not found at ${cliPath}`,
+      }),
+    );
+    return;
+  }
+
+  const child = spawn("bun", ["run", cliPath, "retire", assistantId, "--yes"], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+  let responded = false;
+
+  const respond = (status: number, body: Record<string, unknown>) => {
+    if (responded) return;
+    responded = true;
+    clearTimeout(timeout);
+    res.statusCode = status;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify(body));
+  };
+
+  const timeout = setTimeout(() => {
+    child.kill("SIGTERM");
+    respond(500, { ok: false, error: "Retire timed out after 60 seconds" });
+  }, RETIRE_TIMEOUT_MS);
+
+  child.stdout.on("data", (data: Buffer) => {
+    stdout += data.toString();
+  });
+
+  child.stderr.on("data", (data: Buffer) => {
+    stderr += data.toString();
+  });
+
+  child.on("close", (code) => {
+    if (code === 0) {
+      respond(200, { ok: true });
     } else {
       respond(500, { ok: false, error: stderr || stdout });
     }

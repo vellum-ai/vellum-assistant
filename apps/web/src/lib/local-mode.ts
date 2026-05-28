@@ -139,6 +139,39 @@ export async function saveLockfileAssistant(
 }
 
 // ---------------------------------------------------------------------------
+// Retire
+// ---------------------------------------------------------------------------
+
+export interface LocalRetireResult {
+  ok: boolean;
+  error?: string;
+}
+
+/**
+ * Retire a local assistant via the dev server middleware (shells out to CLI).
+ *
+ * Transport: fetch to Vite dev middleware endpoint.
+ * In Electron, replace with: window.electronAPI.retireAssistant(assistantId) (LUM-2000)
+ */
+export async function retireLocalAssistant(
+  assistantId: string,
+): Promise<LocalRetireResult> {
+  const res = await fetch("/assistant/__local/retire", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assistantId }),
+  });
+  const result = (await res.json()) as LocalRetireResult;
+  if (result.ok) {
+    clearSelectedAssistant();
+    clearGatewayToken();
+    setSelfHostedConnection(null);
+    await loadLockfile();
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Assistant queries
 // ---------------------------------------------------------------------------
 
