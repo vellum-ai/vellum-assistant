@@ -38,6 +38,10 @@ export async function handleCreateToken(
     log.warn({ reason: verifyResult.reason }, "Token create rejected: invalid guardian token");
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
+  if (verifyResult.claims.scope_profile !== "actor_client_v1") {
+    log.warn({ scope: verifyResult.claims.scope_profile }, "Token create rejected: insufficient scope");
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
   const guardianPrincipalId = await ensureVellumGuardianBinding();
 

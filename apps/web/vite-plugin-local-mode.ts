@@ -561,7 +561,7 @@ function guardianTokenMiddleware(
     const child = spawn(
       "bun",
       ["run", cliPath, "gateway", "token", "refresh", assistantId],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } },
     );
 
     let stdout = "";
