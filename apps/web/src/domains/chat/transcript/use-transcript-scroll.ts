@@ -273,6 +273,28 @@ export function useTranscriptScroll(
   // ---------- Saved anchor for prepend preservation ---------------------
   const savedAnchorRef = useRef<AnchorSnapshot | null>(null);
 
+  // ---------- Synchronous load-older in-flight lock ---------------------
+  //
+  // The `isLoadingOlder` prop is the source of truth, but it propagates
+  // through React state: parent calls `setIsLoadingOlder(true)` inside
+  // `onLoadOlder`, React commits, then a `useEffect` mirrors the new
+  // value into `latestRef`. Between the firing scroll event and the
+  // latestRef refresh, ~5–20 more scroll events can fire — every one
+  // sees the stale `isLoadingOlder=false` and re-fires `onLoadOlder`.
+  // Even though React Query dedupes the underlying fetch, the rapid
+  // re-fires overwrite `savedAnchorRef` with progressively different
+  // scrollTop values mid-gesture, producing jittery scroll restoration
+  // after the prepend.
+  //
+  // The fix: a ref that flips to `true` SYNCHRONOUSLY at the moment we
+  // call `onLoadOlder`. Subsequent scroll events within the same burst
+  // see `true` and skip. The lock is released the next time the parent
+  // settles `isLoadingOlder` back from true→false (success or failure
+  // both transition the same way; reaching the items-effect below also
+  // detects this so chain-load on underfilled viewport keeps working).
+  const loadOlderInFlightRef = useRef(false);
+  const prevIsLoadingOlderRef = useRef(isLoadingOlder);
+
   // ---------- Previous items ref (for change detection) -----------------
   const previousItemsRef = useRef<TranscriptItem[]>(items);
 
@@ -357,6 +379,19 @@ export function useTranscriptScroll(
   useLayoutEffect(() => {
     const prev = previousItemsRef.current;
     previousItemsRef.current = items;
+
+    // Directional release of the load-older in-flight lock: when the
+    // parent transitions `isLoadingOlder` true→false, the load has
+    // settled (success OR failure) and the next near-top check should
+    // be allowed to re-fire. Done here (in the layout effect that runs
+    // BEFORE any paint) rather than in a passive useEffect so the
+    // chain-load case below can re-fire on the same commit that just
+    // released the lock — needed for underfilled viewports that need
+    // multiple pages to reach scrollable height.
+    if (prevIsLoadingOlderRef.current && !isLoadingOlder) {
+      loadOlderInFlightRef.current = false;
+    }
+    prevIsLoadingOlderRef.current = isLoadingOlder;
 
     const action = decideItemsChangeAction({
       items,
@@ -451,7 +486,13 @@ export function useTranscriptScroll(
 
       // Underfilled viewport: no scroll event can fire, so kick load-older
       // from here. Skip the anchor save during auto-pin (resize observer re-pins).
-      if (classification.shouldLoadOlder) {
+      // Gate on the synchronous in-flight lock so a chain-load sequence
+      // (response prepends → items change → effect re-runs near top) cannot
+      // double-fire on a single render cycle.
+      if (
+        classification.shouldLoadOlder &&
+        !loadOlderInFlightRef.current
+      ) {
         if (!shouldAutoPinRef.current) {
           const firstItem = items[0];
           if (firstItem) {
@@ -462,6 +503,7 @@ export function useTranscriptScroll(
             };
           }
         }
+        loadOlderInFlightRef.current = true;
         onLoadOlder();
       }
     }
@@ -610,7 +652,7 @@ export function useTranscriptScroll(
       setShowScrollToLatest(classification.showScrollToLatest);
     }
 
-    if (classification.shouldLoadOlder) {
+    if (classification.shouldLoadOlder && !loadOlderInFlightRef.current) {
       // Capture the top-most visible item AND the current scrollHeight so
       // the items-effect can restore the reader's viewport after the
       // older-page prepend lands. The restore is
@@ -623,6 +665,12 @@ export function useTranscriptScroll(
           scrollHeight: metrics.scrollHeight,
         };
       }
+      // Flip the synchronous lock BEFORE firing so re-entrant scroll
+      // events within the same gesture see the in-flight state
+      // immediately, without waiting for React to commit the parent's
+      // `setIsLoadingOlder(true)` and the mirror useEffect to refresh
+      // `latestRef`.
+      loadOlderInFlightRef.current = true;
       latest.onLoadOlder();
     }
   }, []);
