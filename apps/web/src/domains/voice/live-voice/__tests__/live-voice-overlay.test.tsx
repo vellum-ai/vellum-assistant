@@ -134,6 +134,21 @@ describe("LiveVoiceOverlay", () => {
     expect(fill?.style.width).toBe("0%");
   });
 
+  test("root does not disable pointer events so scrollable transcripts work", () => {
+    // Regression: previously the root applied `pointer-events-none`, which is
+    // inherited and made the overflow-y-auto transcript regions unscrollable.
+    act(() => {
+      useLiveVoiceStore.getState().setState("listening");
+    });
+
+    const { container } = render(<LiveVoiceOverlay />);
+    const root = container.querySelector(
+      '[data-slot="live-voice-overlay"]',
+    ) as HTMLElement | null;
+    expect(root).not.toBeNull();
+    expect(root?.className).not.toContain("pointer-events-none");
+  });
+
   test("forwards className overrides onto the overlay root", () => {
     act(() => {
       useLiveVoiceStore.getState().setState("listening");

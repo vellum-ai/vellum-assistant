@@ -66,7 +66,7 @@ export function LiveVoiceOverlay({ className }: LiveVoiceOverlayProps) {
       role="status"
       aria-live="polite"
       className={cn(
-        "pointer-events-none absolute inset-x-0 bottom-full mb-2 flex flex-col gap-2 rounded-lg border border-[var(--border-element)] bg-[var(--surface-overlay)] p-3 shadow-[var(--shadow-popover)]",
+        "absolute inset-x-0 bottom-full mb-2 flex flex-col gap-2 rounded-lg border border-[var(--border-element)] bg-[var(--surface-overlay)] p-3 shadow-[var(--shadow-popover)]",
         className,
       )}
     >
