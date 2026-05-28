@@ -2,7 +2,13 @@ import { Crown } from "lucide-react";
 
 import { Button } from "@vellum/design-library/components/button";
 
-export function WelcomeState({ onContinue }: { onContinue: () => void }) {
+export function WelcomeState({
+  onContinue,
+  continueDisabled = false,
+}: {
+  onContinue: () => void;
+  continueDisabled?: boolean;
+}) {
   return (
     <div className="relative flex min-h-[320px] flex-col items-center justify-center overflow-hidden px-8 text-center">
       <div
@@ -68,6 +74,7 @@ export function WelcomeState({ onContinue }: { onContinue: () => void }) {
         <Button
           variant="primary"
           data-testid="onboarding-welcome-continue"
+          disabled={continueDisabled}
           onClick={onContinue}
         >
           Get started

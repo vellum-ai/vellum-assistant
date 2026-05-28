@@ -144,7 +144,15 @@ export function BillingOnboardingModal({
     }
 
     if (step === "welcome") {
-      return <WelcomeState onContinue={advanceFromWelcome} />;
+      // Gate "Get started" until the onboarding query settles: advanceFromWelcome
+      // routes on domain_setup_available, and a click while it's still pending
+      // (undefined) would skip the intended bypass for orgs without domain setup.
+      return (
+        <WelcomeState
+          onContinue={advanceFromWelcome}
+          continueDisabled={onboardingQuery.isPending}
+        />
+      );
     }
 
     if (step === "domain") {
