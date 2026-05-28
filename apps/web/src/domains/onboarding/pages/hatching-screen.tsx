@@ -103,6 +103,8 @@ export function HatchingScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isReplay = searchParams.get("replay") === "1";
+  const hostingParam = searchParams.get("hosting");
+  const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const userId = useAuthStore.use.user()?.id ?? null;
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isAuthLoading = useAuthStore.use.isLoading();
@@ -187,7 +189,7 @@ export function HatchingScreen() {
       navigateTimer = setTimeout(() => {
         if (cancelled) return;
         void (async () => {
-          if (!isLocalMode()) {
+          if (!useLocalHatch) {
             await checkAssistant();
           }
           if (cancelled) return;
@@ -217,15 +219,15 @@ export function HatchingScreen() {
         return;
       }
 
-      // Local-mode hatch lifecycle:
-      // 1. POST /assistant/__local/hatch -> CLI spawns daemon + gateway
+      // Local/Docker hatch lifecycle:
+      // 1. POST /assistant/__local/hatch → CLI spawns daemon + gateway
       // 2. Reload lockfile to discover new assistant
       // 3. Acquire gateway token + set self-hosted connection
       // 4. Navigate to pre-chat flow
       //
       // Transport: fetch to Vite dev middleware.
-      // In Electron: window.electronAPI.hatchAssistant() -> direct IPC to main process.
-      if (isLocalMode()) {
+      // In Electron: window.electronAPI.hatchAssistant() → direct IPC to main process.
+      if (useLocalHatch) {
         try {
           if (!localHatchPromise) {
             localHatchPromise = hatchLocalAssistant();
@@ -360,6 +362,7 @@ export function HatchingScreen() {
     navigate,
     setOnboardingCompleted,
     transitionPhase,
+    useLocalHatch,
     userId,
   ]);
 

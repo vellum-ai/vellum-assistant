@@ -57,10 +57,11 @@ export function HostingScreen() {
   const [selected, setSelected] = useState<HostingMode>("local");
 
   const onContinue = () => {
-    // Both local and docker go to hatching; the hatching screen will
-    // pass the hosting mode to the CLI hatch command.
-    // Vellum Cloud would redirect to platform login (disabled for now).
-    void navigate(routes.onboarding.hatching);
+    if (selected === "vellum-cloud") {
+      void navigate(routes.onboarding.privacy);
+    } else {
+      void navigate(`${routes.onboarding.hatching}?hosting=${selected}`);
+    }
   };
 
   return (
