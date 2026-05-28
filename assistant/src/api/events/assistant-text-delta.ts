@@ -6,11 +6,19 @@
  * message; the matching `message_complete` event marks the turn done.
  *
  * `messageId` is the database row id of the assistant message this
- * delta belongs to — stamped from the pre-allocated turn anchor (see
- * `reserveMessage` / `AssistantTurnStartEvent`). Absent on streams
- * produced by older daemons that pre-date the anchor protocol, or on
- * synthetic deltas (canned greetings, slash-command echoes, live-voice
- * transcript injections) that don't bind to a row.
+ * delta belongs to. The main agent loop (post PR 1 of the
+ * streaming-message-architecture plan) always allocates and emits a
+ * `messageId` for every delta it produces, via `ensureMessageOpen` in
+ * `conversation-agent-loop-handlers.ts`. The field stays optional in
+ * this schema because synthetic emitters that don't bind to a persisted
+ * row (canned greetings, slash-command echoes, live-voice transcript
+ * injections, wake-target replays, recording handler echoes) still emit
+ * deltas without one; those streams are consumed by channel adapters,
+ * not by the `MessageStreamReducer` path.
+ *
+ * `blockIndex` and `seq` are populated whenever `messageId` is, so a
+ * client receiving any of the three is guaranteed to receive all three
+ * (idempotent reducer keying invariant — see `MessageStreamReducer`).
  *
  * Canonical wire-contract source. Daemon code imports the type directly
  * from this file; external consumers import via `@vellumai/assistant-api`.

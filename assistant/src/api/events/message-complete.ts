@@ -18,6 +18,17 @@
  * side effects on `source !== "aux"`. Absent is treated as `"main"`
  * for backwards compatibility.
  *
+ * Streaming-architecture status (post-PR 6): the new addressable-event
+ * protocol uses `message_open` / `message_close` as the canonical
+ * lifecycle pair for the `MessageStreamReducer` path. `message_complete`
+ * remains the canonical end-of-turn signal for the wider event-consumer
+ * fleet — CLI, voice session bridge, channel retry sweep, background
+ * dispatch — which still gate on it for side effects (task-complete
+ * sound, attachment delivery, channel idle bookkeeping). It is the
+ * post-persistence event with the authoritative DB row id, attachments,
+ * and `source` discriminator; `message_close` is the pre-persistence
+ * streaming signal and does not carry those fields.
+ *
  * Canonical wire-contract source. Daemon code imports the type directly
  * from this file; external consumers import via `@vellumai/assistant-api`.
  */
