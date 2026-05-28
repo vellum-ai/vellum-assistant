@@ -1,6 +1,8 @@
 import { execFileSync } from "child_process";
 import { existsSync, readFileSync, unlinkSync } from "fs";
 
+import { httpHealthCheck } from "./http-client.js";
+
 /**
  * Verify that a PID belongs to a vellum-related process by inspecting its
  * command line via `ps`. Prevents killing unrelated processes when a PID file
@@ -44,6 +46,27 @@ export function isProcessAlive(pidFile: string): {
   } catch {
     return { alive: false, pid: null };
   }
+}
+
+/**
+ * Check if a PID file's process is alive AND responding to HTTP health checks.
+ *
+ * Combines PID existence check with an HTTP `/healthz` probe. A process that
+ * exists but does not respond (hung, deadlocked, at 100% CPU) returns
+ * `alive: true, healthy: false` — callers should kill and restart it.
+ */
+export async function isProcessHealthy(
+  pidFile: string,
+  healthPort: number,
+  timeoutMs: number = 3000,
+): Promise<{ alive: boolean; healthy: boolean; pid: number | null }> {
+  const { alive, pid } = isProcessAlive(pidFile);
+  if (!alive || pid === null) {
+    return { alive: false, healthy: false, pid };
+  }
+
+  const healthy = await httpHealthCheck(healthPort, timeoutMs);
+  return { alive: true, healthy, pid };
 }
 
 /**

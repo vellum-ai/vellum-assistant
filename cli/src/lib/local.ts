@@ -17,7 +17,11 @@ import {
 } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
-import { stopProcessByPidFile } from "./process.js";
+import {
+  isProcessHealthy,
+  stopProcess,
+  stopProcessByPidFile,
+} from "./process.js";
 import { openLogFile, pipeToLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
@@ -355,11 +359,22 @@ async function startDaemonFromSource(
 
       const pid = parseInt(content, 10);
       if (!isNaN(pid)) {
-        try {
-          process.kill(pid, 0);
+        const { alive, healthy } = await isProcessHealthy(
+          pidFile,
+          resources.daemonPort,
+        );
+        if (alive && healthy) {
           console.log(`   Assistant already running (pid ${pid})\n`);
           return;
-        } catch {
+        } else if (alive) {
+          console.log(
+            `   Assistant process alive (pid ${pid}) but not responding — killing and restarting...`,
+          );
+          await stopProcess(pid, "assistant");
+          try {
+            unlinkSync(pidFile);
+          } catch {}
+        } else {
           try {
             unlinkSync(pidFile);
           } catch {}
@@ -492,11 +507,22 @@ async function startDaemonWatchFromSource(
 
       const pid = parseInt(content, 10);
       if (!isNaN(pid)) {
-        try {
-          process.kill(pid, 0); // Check if alive
+        const { alive, healthy } = await isProcessHealthy(
+          pidFile,
+          resources.daemonPort,
+        );
+        if (alive && healthy) {
           console.log(`   Assistant already running (pid ${pid})\n`);
           return;
-        } catch {
+        } else if (alive) {
+          console.log(
+            `   Assistant process alive (pid ${pid}) but not responding — killing and restarting...`,
+          );
+          await stopProcess(pid, "assistant");
+          try {
+            unlinkSync(pidFile);
+          } catch {}
+        } else {
           // Process doesn't exist, clean up stale PID file
           try {
             unlinkSync(pidFile);
@@ -927,11 +953,22 @@ export async function startLocalDaemon(
 
         const pid = parseInt(content, 10);
         if (!isNaN(pid)) {
-          try {
-            process.kill(pid, 0); // Check if alive
+          const { alive, healthy } = await isProcessHealthy(
+            pidFile,
+            resources.daemonPort,
+          );
+          if (alive && healthy) {
             daemonAlive = true;
             console.log(`   Assistant already running (pid ${pid})\n`);
-          } catch {
+          } else if (alive) {
+            console.log(
+              `   Assistant process alive (pid ${pid}) but not responding — killing and restarting...`,
+            );
+            await stopProcess(pid, "assistant");
+            try {
+              unlinkSync(pidFile);
+            } catch {}
+          } else {
             // Process doesn't exist, clean up stale PID file
             try {
               unlinkSync(pidFile);
