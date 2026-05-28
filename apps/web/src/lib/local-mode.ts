@@ -117,6 +117,27 @@ export async function hatchLocalAssistant(
   return res.json() as Promise<LocalHatchResult>;
 }
 
+/**
+ * Write an assistant entry to the lockfile on disk and refresh the cache.
+ *
+ * Transport: fetch to Vite dev middleware endpoint.
+ * In Electron, replace with: window.electronAPI.saveLockfileAssistant(entry)
+ */
+export async function saveLockfileAssistant(
+  assistant: { assistantId: string; cloud: string; runtimeUrl: string; hatchedAt: string },
+): Promise<void> {
+  const res = await fetch("/assistant/__local/lockfile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assistant, activeAssistant: assistant.assistantId }),
+  });
+  if (res.ok) {
+    const { lockfile: updated } = (await res.json()) as { lockfile: Lockfile };
+    lockfile = updated;
+    setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(updated));
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Assistant queries
 // ---------------------------------------------------------------------------

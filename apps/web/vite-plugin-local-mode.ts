@@ -92,6 +92,8 @@ function lockfileMiddleware(
 
     if (req.method === "GET") {
       handleGetLockfile(lockfilePaths, res);
+    } else if (req.method === "POST") {
+      handlePostLockfile(lockfilePaths, req, res);
     } else {
       res.statusCode = 405;
       res.end();
@@ -132,6 +134,87 @@ function handleGetLockfile(
     res.statusCode = 500;
     res.end();
   }
+}
+
+/**
+ * Merge an assistant entry into the lockfile on disk.
+ *
+ * Transport: Vite dev middleware (fs read/write).
+ * In Electron, replace with IPC call to main process: window.electronAPI.saveLockfileAssistant(entry).
+ */
+function handlePostLockfile(
+  lockfilePaths: string[],
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): void {
+  const chunks: Buffer[] = [];
+  req.on("data", (chunk: Buffer) => chunks.push(chunk));
+  req.on("end", () => {
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>;
+    } catch {
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
+      return;
+    }
+
+    const assistant = body.assistant as Record<string, unknown> | undefined;
+    const activeAssistant = body.activeAssistant as string | undefined;
+    if (!assistant || typeof assistant.assistantId !== "string") {
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: "Missing assistant.assistantId" }));
+      return;
+    }
+
+    // Read existing lockfile
+    let lockfile: Record<string, unknown> = { assistants: [], activeAssistant: null };
+    const writePath = lockfilePaths[0]!;
+    for (const candidate of lockfilePaths) {
+      try {
+        lockfile = JSON.parse(fs.readFileSync(candidate, "utf-8")) as Record<string, unknown>;
+        break;
+      } catch {
+        // continue
+      }
+    }
+
+    // Upsert the assistant entry
+    const assistants = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
+    const existingIdx = assistants.findIndex(
+      (a: Record<string, unknown>) => a?.assistantId === assistant.assistantId,
+    );
+    if (existingIdx >= 0) {
+      assistants[existingIdx] = { ...assistants[existingIdx], ...assistant };
+    } else {
+      assistants.push(assistant);
+    }
+    lockfile.assistants = assistants;
+    if (activeAssistant !== undefined) {
+      lockfile.activeAssistant = activeAssistant;
+    }
+
+    // Atomic write
+    try {
+      const dir = path.dirname(writePath);
+      fs.mkdirSync(dir, { recursive: true });
+      const tmp = `${writePath}.tmp.${process.pid}`;
+      fs.writeFileSync(tmp, JSON.stringify(lockfile, null, 2));
+      fs.renameSync(tmp, writePath);
+    } catch (err) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: `Failed to write lockfile: ${err}` }));
+      return;
+    }
+
+    const stripped = JSON.parse(JSON.stringify(lockfile)) as Record<string, unknown>;
+    stripSensitiveFields(stripped);
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ ok: true, lockfile: stripped }));
+  });
 }
 
 const HATCH_TIMEOUT_MS = 120_000;

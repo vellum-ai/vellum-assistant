@@ -18,7 +18,7 @@ import { composeSvg } from "@/utils/avatar-svg-compositor";
 import type { CharacterTraits } from "@/types/avatar";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { extractErrorMessage } from "@/lib/api-errors";
-import { isLocalMode, hatchLocalAssistant, loadLockfile, setSelectedAssistantId, primeLocalGatewayConnection } from "@/lib/local-mode";
+import { isLocalMode, hatchLocalAssistant, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection } from "@/lib/local-mode";
 import { useRootOutletContext } from "@/root-layout";
 import {
   readAiDataConsent,
@@ -323,6 +323,14 @@ export function HatchingScreen() {
                 tags: { context: "onboarding_avatar_sync" },
               });
             });
+            if (isLocalMode()) {
+              void saveLockfileAssistant({
+                assistantId,
+                cloud: "vellum",
+                runtimeUrl: window.location.origin,
+                hatchedAt: new Date().toISOString(),
+              });
+            }
           }
 
           handleHatchReady();
