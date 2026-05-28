@@ -70,8 +70,6 @@ Use these instead:
 
 TRUNCATE _is_ safe on the daemon's own long-lived in-process connection (e.g. at startup or during shutdown when no peer connections exist). Today `src/memory/db-init.ts` and `src/daemon/shutdown-handlers.ts` legitimately use it. **Do not copy that pattern into any code path that runs via `runAsyncSqlite` or otherwise spawns a separate process.**
 
-A repro script lives at `/workspace/scratch/wal-split-brain-repro.ts` (deterministic; uses `bun:sqlite` as the daemon analog and a `sqlite3` CLI subprocess as the outsider).
-
 ## Code comments
 
 When writing or updating comments, **do not reference code that has been removed.** Comments should describe the current state of the codebase, not narrate its history. Avoid phrases like "no longer does X", "previously used Y", or "was removed in PR Z" — future readers should not need to understand past implementations to understand the current code.
