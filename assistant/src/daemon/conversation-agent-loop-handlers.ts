@@ -7,6 +7,7 @@
  */
 
 import type pino from "pino";
+import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
 import type {
@@ -66,10 +67,16 @@ import {
   buildConversationErrorMessage,
   classifyConversationError,
   isContextTooLarge,
+  maxTokensReachedClassification,
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
-import type { ServerMessage } from "./message-protocol.js";
+import type {
+  CardSurfaceData,
+  ServerMessage,
+  SurfaceAction,
+  UiSurfaceShow,
+} from "./message-protocol.js";
 import type {
   WebSearchMetadata,
   WebSearchResultItem,
@@ -311,6 +318,9 @@ function emitLlmCallStartedIfNeeded(
 // tools the client discards it (extractCodePreview only handles app tools),
 // so we skip forwarding entirely to avoid transport/decode overhead.
 const APP_TOOL_NAMES = new Set(["app_create"]);
+const MAX_TOKENS_CONTINUE_PROMPT =
+  "Continue from where you stopped. Do not repeat content you've already sent.";
+const MAX_TOKENS_SURFACE_COMPLETION_SUMMARY = "Continue";
 
 // ── Friendly Tool Names ──────────────────────────────────────────────
 
@@ -907,6 +917,69 @@ function handleError(
   }
 }
 
+export function handleMaxTokensReached(
+  _state: EventHandlerState,
+  deps: EventHandlerDeps,
+  event: Extract<AgentEvent, { type: "max_tokens_reached" }>,
+): void {
+  const classified = maxTokensReachedClassification();
+  const surfaceId = `max_tokens_${uuid()}`;
+  const data: CardSurfaceData = {
+    title: "Response limit reached",
+    subtitle: "The partial response above was saved.",
+    body: classified.userMessage,
+  };
+  const actions: SurfaceAction[] = [
+    {
+      id: "relay_prompt",
+      label: "Continue",
+      style: "primary",
+      data: {
+        prompt: MAX_TOKENS_CONTINUE_PROMPT,
+        _completeSurface: true,
+        _completionSummary: MAX_TOKENS_SURFACE_COMPLETION_SUMMARY,
+      },
+    },
+  ];
+
+  deps.ctx.surfaceState.set(surfaceId, {
+    surfaceType: "card",
+    title: data.title,
+    data,
+    actions,
+  });
+  deps.ctx.currentTurnSurfaces.push({
+    surfaceId,
+    surfaceType: "card",
+    title: data.title,
+    data,
+    actions,
+    display: "inline",
+    persistent: true,
+  });
+
+  deps.rlog.warn(
+    {
+      conversationId: deps.ctx.conversationId,
+      stopReason: event.stopReason,
+      surfaceId,
+    },
+    "Surfacing max-tokens continuation card",
+  );
+
+  deps.onEvent({
+    type: "ui_surface_show",
+    conversationId: deps.ctx.conversationId,
+    surfaceId,
+    surfaceType: "card",
+    title: data.title,
+    data,
+    actions,
+    display: "inline",
+    persistent: true,
+  } as UiSurfaceShow);
+}
+
 export async function handleMessageComplete(
   state: EventHandlerState,
   deps: EventHandlerDeps,
@@ -1454,6 +1527,9 @@ export async function dispatchAgentEvent(
       }
       case "error":
         handleError(state, deps, event);
+        break;
+      case "max_tokens_reached":
+        handleMaxTokensReached(state, deps, event);
         break;
       case "provider_error":
         handleProviderError(deps, event);

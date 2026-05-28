@@ -111,6 +111,8 @@ export type AgentLoopExitReason =
    * leaving `agent_loop_exit_reason` NULL.
    */
   | "budget_yield_unrecovered"
+  /** Provider stopped because the configured output-token limit was reached. */
+  | "max_tokens_reached"
   /** User cancellation landed after a non-terminal checkpoint yield. */
   | "aborted_after_checkpoint"
   /** Signal aborted while the catch handler was synthesizing an error turn. */
@@ -122,6 +124,7 @@ export type AgentEvent =
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; thinking: string }
   | { type: "message_complete"; message: Message }
+  | { type: "max_tokens_reached"; stopReason: string }
   | {
       type: "tool_use";
       id: string;
@@ -256,6 +259,18 @@ const DEFAULT_CONFIG: AgentLoopConfig = {
 
 const MAX_CONSECUTIVE_ERROR_NUDGES = 3;
 const MAX_EMPTY_RESPONSE_RETRIES = 1;
+const MAX_TOKENS_STOP_REASONS = new Set([
+  "length",
+  "max_output_tokens",
+  "max_tokens",
+]);
+
+export function isMaxTokensStopReason(
+  stopReason: string | null | undefined,
+): boolean {
+  if (!stopReason) return false;
+  return MAX_TOKENS_STOP_REASONS.has(stopReason.trim().toLowerCase());
+}
 
 /**
  * Build a minimal {@link TurnContext} for pipeline invocations inside the
@@ -861,6 +876,40 @@ export class AgentLoop {
           },
           "LLM call complete",
         );
+
+        if (isMaxTokensStopReason(response.stopReason)) {
+          const safeContent = response.content.filter(
+            (block) =>
+              block.type !== "tool_use" &&
+              block.type !== "server_tool_use" &&
+              block.type !== "web_search_tool_result",
+          );
+          const safeAssistantMessage: Message = {
+            role: "assistant",
+            content: safeContent,
+          };
+          rlog.warn(
+            {
+              turn: toolUseTurns,
+              stopReason: response.stopReason,
+              contentBlocks: response.content.length,
+              safeContentBlocks: safeContent.length,
+              toolUseCount: toolUseBlocks.length,
+            },
+            "LLM response reached output token limit",
+          );
+          history.push(safeAssistantMessage);
+          await onEvent({
+            type: "max_tokens_reached",
+            stopReason: response.stopReason,
+          });
+          await onEvent({
+            type: "message_complete",
+            message: safeAssistantMessage,
+          });
+          await emitExit("max_tokens_reached");
+          break;
+        }
 
         // Detect empty responses: no user-visible text and no tool calls.
         // This can happen when the model fails to produce output after

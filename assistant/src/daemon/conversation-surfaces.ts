@@ -1142,6 +1142,34 @@ export type SurfaceActionResult =
   | { accepted: false; error: string }
   | void;
 
+const SURFACE_COMPLETE_FLAG = "_completeSurface";
+const SURFACE_COMPLETION_SUMMARY_FIELD = "_completionSummary";
+
+function getRequestedSurfaceCompletionSummary(
+  data?: Record<string, unknown>,
+): string | null {
+  if (data?.[SURFACE_COMPLETE_FLAG] !== true) return null;
+  const summary =
+    typeof data[SURFACE_COMPLETION_SUMMARY_FIELD] === "string"
+      ? data[SURFACE_COMPLETION_SUMMARY_FIELD].trim()
+      : "";
+  return summary || "Completed";
+}
+
+function completeSurfaceFromAction(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+  summary: string,
+): void {
+  broadcastMessage({
+    type: "ui_surface_complete",
+    conversationId: ctx.conversationId,
+    surfaceId,
+    summary,
+  });
+  markSurfaceCompleted(ctx, surfaceId, summary);
+}
+
 export async function handleSurfaceAction(
   ctx: SurfaceConversationContext,
   surfaceId: string,
@@ -1318,9 +1346,16 @@ export async function handleSurfaceAction(
     }
 
     // Determine message content from the action.
+    const stored = ctx.surfaceState.get(surfaceId);
+    const actionDef = stored?.actions?.find((a) => a.id === actionId);
+    const mergedData: Record<string, unknown> | undefined =
+      actionDef?.data || data ? { ...actionDef?.data, ...data } : undefined;
+
     const isRelay = actionId === "relay_prompt" || actionId === "agent_prompt";
     const prompt =
-      isRelay && typeof data?.prompt === "string" ? data.prompt.trim() : "";
+      isRelay && typeof mergedData?.prompt === "string"
+        ? mergedData.prompt.trim()
+        : "";
 
     // Read accumulated state once — used by both relay and custom action paths.
     const accState = ctx.accumulatedSurfaceState.get(surfaceId);
@@ -1329,9 +1364,9 @@ export async function handleSurfaceAction(
     // Extract file attachments from action data so they are sent as proper
     // image/file content blocks instead of dumping base64 into the text.
     let attachments: UserMessageAttachment[] = [];
-    let actionDataForText = data;
-    if (data && Array.isArray(data.files)) {
-      const files = data.files as Array<Record<string, unknown>>;
+    let actionDataForText = mergedData;
+    if (mergedData && Array.isArray(mergedData.files)) {
+      const files = mergedData.files as Array<Record<string, unknown>>;
       attachments = files
         .filter(
           (f) =>
@@ -1351,7 +1386,7 @@ export async function handleSurfaceAction(
       // attachments — otherwise preserve the original data so the model still
       // sees the files field (e.g. IDs/paths from dynamic app actions).
       if (attachments.length > 0) {
-        const { files: _files, ...rest } = data;
+        const { files: _files, ...rest } = mergedData;
         actionDataForText = Object.keys(rest).length > 0 ? rest : undefined;
       }
     }
@@ -1429,6 +1464,12 @@ export async function handleSurfaceAction(
     if (result.rejected) {
       ctx.surfaceActionRequestIds.delete(requestId);
       return;
+    }
+
+    const requestedCompletionSummary =
+      getRequestedSurfaceCompletionSummary(mergedData);
+    if (requestedCompletionSummary) {
+      completeSurfaceFromAction(ctx, surfaceId, requestedCompletionSummary);
     }
 
     // One-shot: clear accumulated state now that the message has been accepted.
@@ -1669,6 +1710,9 @@ export async function handleSurfaceAction(
     return;
   }
 
+  const requestedCompletionSummary =
+    getRequestedSurfaceCompletionSummary(mergedData);
+
   // One-shot interactive surfaces — auto-complete now that the message has
   // been accepted. Deferred until after rejection check so the surface stays
   // active and retryable if the queue was full.
@@ -1678,15 +1722,19 @@ export async function handleSurfaceAction(
     "file_upload",
     "task_preferences",
   ];
-  if (ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)) {
+  if (
+    requestedCompletionSummary ||
+    ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)
+  ) {
+    const completionSummary = requestedCompletionSummary ?? summary;
     broadcastMessage({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
       surfaceId,
-      summary,
+      summary: completionSummary,
       submittedData: mergedDataForText,
     });
-    markSurfaceCompleted(ctx, surfaceId, summary);
+    markSurfaceCompleted(ctx, surfaceId, completionSummary);
   }
 
   // One-shot: clear accumulated state now that the message has been accepted.
