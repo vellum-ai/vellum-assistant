@@ -20,7 +20,6 @@ import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
 import {
@@ -40,7 +39,6 @@ import {
   type ToolExecutionResult,
   type ToolLifecycleEventHandler,
 } from "../tools/types.js";
-import { allUiSurfaceTools } from "../tools/ui-surface/definitions.js";
 import { getLogger } from "../util/logger.js";
 import {
   projectSkillTools,
@@ -86,15 +84,14 @@ export type { ToolSetupContext } from "./tool-setup-types.js";
 // ── buildToolDefinitions ─────────────────────────────────────────────
 
 /**
- * Collect all tool definitions for the agent loop: built-in tools,
- * UI surface proxy tools, and app proxy tools.
+ * Collect all tool definitions for the agent loop. Delegates entirely to
+ * the registry — UI-surface and app proxy tools are core-registered via
+ * `registerUiSurfaceTools()` / `registerAppTools()` during
+ * `initializeTools()`, so they flow through `getAllToolDefinitions()`
+ * with no need to splice them in here.
  */
 export function buildToolDefinitions(): ToolDefinition[] {
-  return [
-    ...getAllToolDefinitions(),
-    ...allUiSurfaceTools,
-    ...coreAppProxyTools,
-  ];
+  return getAllToolDefinitions();
 }
 
 // ── createToolExecutor ───────────────────────────────────────────────
