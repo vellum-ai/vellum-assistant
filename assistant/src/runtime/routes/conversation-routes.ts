@@ -75,6 +75,7 @@ import {
 } from "../../memory/canonical-guardian-store.js";
 import {
   addMessage,
+  extractImageSourcePaths,
   getConversation,
   getMessages,
   getMessagesPaginated,
@@ -395,23 +396,10 @@ async function tryConsumeCanonicalGuardianReply(params: {
   // is not re-processed as a new user turn.
   let messageId: string | undefined;
   try {
-    const guardianImageSourcePaths: Record<string, string> = {};
-    for (let i = 0; i < attachments.length; i++) {
-      const a = attachments[i];
-      if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
-        guardianImageSourcePaths[`${i}:${a.filename}`] = a.filePath;
-      }
-    }
-    const channelMeta = {
-      userMessageChannel: sourceChannel,
-      assistantMessageChannel: sourceChannel,
-      userMessageInterface: sourceInterface,
-      assistantMessageInterface: sourceInterface,
-      provenanceTrustClass: "guardian" as const,
-      ...(Object.keys(guardianImageSourcePaths).length > 0
-        ? { imageSourcePaths: guardianImageSourcePaths }
-        : {}),
-    };
+    const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
+      provenanceOverride: { provenanceTrustClass: "guardian" },
+      attachments,
+    });
 
     const cleanUserMessage = createUserMessage(content, attachments);
     const llmUserMessage = enrichMessageWithSourcePaths(
@@ -1421,19 +1409,13 @@ export async function handleSendMessage(
     conversation.processing = true;
     let cleanupDeferred = false;
     try {
-      const provenance = provenanceFromTrustContext(conversation.trustContext);
-      const channelMeta = {
-        ...provenance,
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-        userMessageInterface: sourceInterface,
-        assistantMessageInterface: sourceInterface,
-      };
-
       const rawContent = content ?? "";
       const attachments = hasAttachments
         ? smDeps.resolveAttachments(attachmentIds)
         : [];
+      const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
+        trustContext: conversation.trustContext,
+      });
       const userMsg = createUserMessage(rawContent, attachments);
       const persisted = await addMessage(
         mapping.conversationId,
@@ -1741,25 +1723,11 @@ export async function handleSendMessage(
     conversation.processing = true;
     let cleanupDeferred = false;
     try {
-      const provenance = provenanceFromTrustContext(conversation.trustContext);
-      const imageSourcePaths: Record<string, string> = {};
-      for (let i = 0; i < attachments.length; i++) {
-        const a = attachments[i];
-        if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
-          imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
-        }
-      }
-      const channelMeta = {
-        ...provenance,
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-        userMessageInterface: sourceInterface,
-        assistantMessageInterface: sourceInterface,
-        ...(body.automated === true ? { automated: true } : {}),
-        ...(Object.keys(imageSourcePaths).length > 0
-          ? { imageSourcePaths }
-          : {}),
-      };
+      const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
+        trustContext: conversation.trustContext,
+        automated: body.automated === true,
+        attachments,
+      });
       const cleanMsg = createUserMessage(rawContent, attachments);
       const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
       const persisted = await addMessage(
@@ -1859,14 +1827,9 @@ export async function handleSendMessage(
 
   if (slashResult.kind === "compact") {
     conversation.processing = true;
-    const provenance = provenanceFromTrustContext(conversation.trustContext);
-    const channelMeta = {
-      ...provenance,
-      userMessageChannel: sourceChannel,
-      assistantMessageChannel: sourceChannel,
-      userMessageInterface: sourceInterface,
-      assistantMessageInterface: sourceInterface,
-    };
+    const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
+      trustContext: conversation.trustContext,
+    });
     const cleanMsg = createUserMessage(rawContent, attachments);
     let persisted: Awaited<ReturnType<typeof addMessage>>;
     try {
@@ -1980,14 +1943,9 @@ export async function handleSendMessage(
     // initial user-message persist below, which would otherwise leave the
     // conversation stuck in queued mode indefinitely.
     try {
-      const provenance = provenanceFromTrustContext(conversation.trustContext);
-      const channelMeta = {
-        ...provenance,
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-        userMessageInterface: sourceInterface,
-        assistantMessageInterface: sourceInterface,
-      };
+      const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
+        trustContext: conversation.trustContext,
+      });
       const cleanMsg = createUserMessage(rawContent, attachments);
       const persisted = await addMessage(
         mapping.conversationId,
@@ -2399,6 +2357,47 @@ function handleSearchConversations({
   });
 
   return { query, results };
+}
+
+// ---------------------------------------------------------------------------
+// Metadata helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Assemble the standard channel metadata object for message persistence.
+ *
+ * Combines provenance (trust context), channel/interface routing, and
+ * optional per-message fields (automated flag, image source paths) into the
+ * Record that `addMessage` stores in the `metadata` column.
+ */
+function buildChannelMetadata(
+  sourceChannel: string,
+  sourceInterface: string,
+  opts?: {
+    trustContext?: Parameters<typeof provenanceFromTrustContext>[0];
+    provenanceOverride?: Record<string, unknown>;
+    automated?: boolean;
+    attachments?: ReadonlyArray<{
+      filename: string;
+      mimeType: string;
+      filePath?: string;
+    }>;
+  },
+): Record<string, unknown> {
+  const provenance =
+    opts?.provenanceOverride ?? provenanceFromTrustContext(opts?.trustContext);
+  const imageSourcePaths = opts?.attachments
+    ? extractImageSourcePaths(opts.attachments)
+    : undefined;
+  return {
+    ...provenance,
+    userMessageChannel: sourceChannel,
+    assistantMessageChannel: sourceChannel,
+    userMessageInterface: sourceInterface,
+    assistantMessageInterface: sourceInterface,
+    ...(opts?.automated ? { automated: true } : {}),
+    ...(imageSourcePaths ? { imageSourcePaths } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
