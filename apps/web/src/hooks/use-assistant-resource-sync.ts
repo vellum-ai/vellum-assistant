@@ -1,0 +1,97 @@
+/**
+ * Bus consumer for assistant-level resource cache invalidation.
+ *
+ * Routes avatar, identity, config, sounds, and schedules
+ * `sync_changed` tags — plus `home_feed_updated` and
+ * `relationship_state_updated` events — into TanStack Query cache
+ * invalidations. All operations are simple one-liner invalidations
+ * with no debouncing or per-row patching.
+ *
+ * More complex sync domains (conversations, feature flags) own their
+ * own hooks:
+ * - `domains/conversations/use-conversation-sync.ts`
+ * - `lib/feature-flags/use-feature-flag-bus-sync.ts`
+ *
+ * References:
+ * - EVENT_BUS.md — bus subscription contract
+ * - CONVENTIONS.md — domain-first decomposition
+ */
+
+import { useQueryClient } from "@tanstack/react-query";
+
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
+import {
+  assistantDaemonConfigQueryKey,
+  assistantScheduleRunsQueryKey,
+  assistantSchedulesQueryKey,
+  assistantSoundsAvailableQueryKey,
+  assistantSoundsConfigQueryKey,
+  avatarQueryKey,
+} from "@/lib/sync/query-tags";
+import { SYNC_TAGS } from "@/lib/sync/types";
+
+/**
+ * Subscribes to assistant-resource sync events via the event bus.
+ *
+ * Handles `sync_changed` tags for avatar, identity, config, sounds,
+ * and schedules, plus `home_feed_updated` / `relationship_state_updated`
+ * event types. These are all stateless invalidations — no reconnect
+ * handling needed since the underlying `useQuery` hooks refetch
+ * automatically when the query becomes stale.
+ */
+export function useAssistantResourceSync(
+  assistantId: string | null,
+  isAssistantActive: boolean,
+): void {
+  const queryClient = useQueryClient();
+
+  useBusSubscription("sse.event", (event) => {
+    if (!assistantId || !isAssistantActive) return;
+
+    switch (event.type) {
+      case "sync_changed":
+        for (const tag of event.tags) {
+          switch (tag) {
+            case SYNC_TAGS.assistantAvatar:
+              void queryClient.invalidateQueries({
+                queryKey: avatarQueryKey(assistantId),
+              });
+              break;
+            case SYNC_TAGS.assistantIdentity:
+              void queryClient.invalidateQueries({
+                queryKey: assistantIdentityQueryKey(assistantId),
+              });
+              break;
+            case SYNC_TAGS.assistantConfig:
+              void queryClient.invalidateQueries({
+                queryKey: assistantDaemonConfigQueryKey(assistantId),
+              });
+              break;
+            case SYNC_TAGS.assistantSounds:
+              void queryClient.invalidateQueries({
+                queryKey: assistantSoundsConfigQueryKey(assistantId),
+              });
+              void queryClient.invalidateQueries({
+                queryKey: assistantSoundsAvailableQueryKey(assistantId),
+              });
+              break;
+            case SYNC_TAGS.assistantSchedules:
+              void queryClient.invalidateQueries({
+                queryKey: assistantSchedulesQueryKey(assistantId),
+              });
+              void queryClient.invalidateQueries({
+                queryKey: assistantScheduleRunsQueryKey(assistantId),
+              });
+              break;
+          }
+        }
+        return;
+
+      case "home_feed_updated":
+      case "relationship_state_updated":
+        void queryClient.invalidateQueries({ queryKey: ["home-feed"] });
+        return;
+    }
+  });
+}

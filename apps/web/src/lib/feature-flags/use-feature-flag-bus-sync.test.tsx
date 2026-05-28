@@ -1,0 +1,142 @@
+import type { ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, renderHook, waitFor } from "@testing-library/react";
+
+import { ASSISTANT_FLAG_VALUES_QUERY_KEY } from "@/lib/feature-flags/use-assistant-feature-flag-sync";
+import { CLIENT_FLAG_QUERY_KEY } from "@/lib/feature-flags/use-client-feature-flag-sync";
+import { useFeatureFlagBusSync } from "@/lib/feature-flags/use-feature-flag-bus-sync";
+import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
+import {
+  __resetEventBusForTesting,
+  useEventBusStore,
+} from "@/stores/event-bus-store";
+
+function createWrapper(queryClient: QueryClient) {
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+  };
+}
+
+function freshQueryClient(): QueryClient {
+  return new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+}
+
+function syncEvent(tags: string[]): SyncChangedEvent {
+  return { type: "sync_changed", tags };
+}
+
+function emit(event: SyncChangedEvent): void {
+  // SyncChangedEvent is structurally assignable to AssistantSyncChangedEvent
+  // (which only adds an optional conversationId field), so this cast is safe.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  useEventBusStore.getState().publish("sse.event", event as any);
+}
+
+function emitOpened(
+  cause: "fresh" | "error" | "watchdog" | "resume",
+  assistantId = "asst-1",
+): void {
+  useEventBusStore.getState().publish("sse.opened", { assistantId, cause });
+}
+
+beforeEach(() => {
+  __resetEventBusForTesting();
+});
+
+afterEach(() => {
+  cleanup();
+  __resetEventBusForTesting();
+});
+
+describe("useFeatureFlagBusSync", () => {
+  test("does not fire when assistant is not active", () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useFeatureFlagBusSync("asst-1", false), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test("invalidates client feature flag query on feature-flags:client sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useFeatureFlagBusSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent([SYNC_TAGS.featureFlagsClient]));
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: CLIENT_FLAG_QUERY_KEY,
+      });
+    });
+  });
+
+  test("invalidates assistant feature flag query prefix on feature-flags:assistant sync tag", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useFeatureFlagBusSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit(syncEvent([SYNC_TAGS.featureFlagsAssistant]));
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
+      });
+    });
+  });
+
+  test("invalidates both flag queries on sse.opened reconnect (cause=error)", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useFeatureFlagBusSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emitOpened("error");
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({ queryKey: CLIENT_FLAG_QUERY_KEY });
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
+      });
+    });
+  });
+
+  test("invalidates both flag queries on sse.opened (cause=watchdog and cause=resume)", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useFeatureFlagBusSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emitOpened("watchdog");
+    emitOpened("resume");
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({ queryKey: CLIENT_FLAG_QUERY_KEY });
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: [ASSISTANT_FLAG_VALUES_QUERY_KEY],
+      });
+    });
+  });
+
+  test("does NOT invalidate on sse.opened (cause=fresh)", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useFeatureFlagBusSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emitOpened("fresh");
+    await Promise.resolve();
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
