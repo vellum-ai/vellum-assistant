@@ -446,6 +446,15 @@ function handleRetire(assistantId: string, res: http.ServerResponse): void {
 // Guardian token middleware
 // ---------------------------------------------------------------------------
 
+function isLoopbackAddr(addr: string): boolean {
+  const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  const normalized = v4Mapped ? v4Mapped[1]! : addr;
+  if (normalized.includes(".")) {
+    return normalized.startsWith("127.");
+  }
+  return normalized === "::1";
+}
+
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 
@@ -508,6 +517,14 @@ function guardianTokenMiddleware(
     if (req.method !== "GET") {
       res.statusCode = 405;
       res.end();
+      return;
+    }
+
+    const peer = req.socket.remoteAddress ?? "";
+    if (!isLoopbackAddr(peer)) {
+      res.statusCode = 403;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Forbidden" }));
       return;
     }
 
