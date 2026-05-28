@@ -464,9 +464,11 @@ export function HatchingScreen() {
               className="h-11 text-base"
               onClick={() =>
                 void navigate(
-                  isReplay
-                    ? `${routes.onboarding.privacy}?replay=1`
-                    : routes.onboarding.privacy,
+                  useLocalHatch
+                    ? routes.onboarding.hosting
+                    : isReplay
+                      ? `${routes.onboarding.privacy}?replay=1`
+                      : routes.onboarding.privacy,
                   { replace: true },
                 )
               }
