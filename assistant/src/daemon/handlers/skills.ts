@@ -1189,20 +1189,47 @@ export async function installSkill(spec: {
       (spec.origin !== "clawhub" && looksLikeSkillsShSlug(spec.slug))
     ) {
       const resolved = resolveSkillSource(spec.slug);
+
+      // Package install (owner/repo — no skillSlug)
+      if (resolved.isPackageInstall) {
+        const { installPackage } = await import(
+          "../skills/skillssh-registry.js"
+        );
+        const result = await installPackage(
+          resolved.owner,
+          resolved.repo,
+          spec.overwrite ?? true,
+          resolved.ref ?? spec.version,
+          spec.contactId,
+        );
+
+        // Post-install for each installed skill
+        for (const { skillId } of result.installed) {
+          postInstallSkill(skillId);
+        }
+
+        // Return the first installed skill as the primary result,
+        // but the log output should summarize all three lists
+        const firstSkillId =
+          result.installed[0]?.skillId ?? `${resolved.owner}/${resolved.repo}`;
+        return { success: true, skillId: firstSkillId };
+      }
+
+      // Single-skill install (owner/repo/skill-name)
       // Default `overwrite` to true at the handler boundary to preserve
       // pre-existing HTTP API behaviour (same rationale as the catalog
       // install path above).
       await installExternalSkill(
         resolved.owner,
         resolved.repo,
-        resolved.skillSlug,
+        resolved.skillSlug!,
         spec.overwrite ?? true,
         resolved.ref ?? spec.version,
         spec.contactId,
       );
 
-      postInstallSkill(resolved.skillSlug);
-      return { success: true, skillId: resolved.skillSlug };
+      postInstallSkill(resolved.skillSlug!);
+      return { success: true, skillId: resolved.skillSlug! };
     }
 
     // Install from clawhub (community)
