@@ -24,26 +24,38 @@ which is a fast no-op when the lockfile already matches).
 
 ## How it runs
 
-`bun run dev` in this directory is the single command. Under the hood
-it runs [`concurrently`](https://github.com/open-cli-tools/concurrently)
-to launch two processes in parallel:
+`bun run dev` is the one command. On launch it probes
+`http://localhost:3000` (the URL Swift Vellum hits — `vel up`'s edge
+proxy) with a 1.5s timeout and picks one of two paths:
 
-1. **`dev:web`** — `cd ../web && bun run dev -- --port 5173 --strictPort`.
-   Going through `apps/web`'s own `dev` script means we use *its* local
-   Vite (`8.x` per `apps/web/package.json`) and its plugin tree, not
-   whatever older Vite happens to live in `apps/macos/node_modules`.
-   Pinning the port via the Vite CLI overrides `apps/web/.env` if a
-   developer has `PORT` set there (Vite CLI flags beat env vars beat
-   config).
-2. **`dev:electron`** — [`wait-on`](https://github.com/jeffbski/wait-on)
-   polls `http://localhost:5173` (30s timeout) and then runs
-   `electron-vite dev`. The wait avoids Electron racing the renderer
-   and trying to load a URL that isn't up yet.
+1. **vel up is running** → dispatches to `dev:electron-only` with
+   `VELLUM_DEV_URL=http://localhost:3000`. No Vite is spawned here; the
+   Electron BrowserWindow loads the edge proxy URL and reuses vel's
+   backends (Django, gateway, daemon) the same way Swift Vellum does
+   today. This is the common case once you have `vel up` going.
 
-`concurrently --kill-others` tears down both processes on Ctrl+C or on
-either child exiting, so quitting the launcher doesn't leave a zombie
-Vite server on the port. Logs from each are prefixed and color-coded
-(`[web]` blue / `[electron]` green).
+2. **No vel up** → dispatches to `dev:standalone`, which uses
+   [`concurrently`](https://github.com/open-cli-tools/concurrently) to
+   run two children in parallel:
+   - `dev:web` → `cd ../web && bun run dev -- --port 5173 --strictPort`.
+     Going through `apps/web`'s own `dev` script means we use *its*
+     local Vite (8.x) and plugin tree, not whatever older Vite happens
+     to live in `apps/macos/node_modules`. Pinning the port via the
+     Vite CLI overrides `apps/web/.env` if `PORT` is set there.
+   - `dev:electron` → [`wait-on`](https://github.com/jeffbski/wait-on)
+     polls `:5173` (30s timeout), then runs `electron-vite dev` against
+     it. The wait avoids Electron racing the renderer.
+
+   `concurrently --kill-others` tears both down on Ctrl+C or on either
+   child exiting. Logs are prefixed and color-coded (`[web]` blue,
+   `[electron]` green). Standalone mode has no backends, so renderer
+   API calls will fail — useful for shell-only work (menus, IPC, window
+   chrome), not for feature development against the real stack.
+
+The main-process URL choice lives in `src/main/index.ts`:
+`process.env.VELLUM_DEV_URL ?? "http://localhost:5173"`. Override the
+env var yourself (e.g., `VELLUM_DEV_URL=http://localhost:3002 bun run
+dev:electron-only`) if you need to point at a non-default service.
 
 The app shows up as **Vellum Electron** in the menu bar and Dock
 (via `app.setName`, gated to `!app.isPackaged` in `src/main/index.ts`),
@@ -57,8 +69,8 @@ You don't have to ship a DMG to try it. Packaging (DMG, signing,
 notarization, auto-update) lands in follow-up tickets once we actually
 need a distributable artifact.
 
-- **Dev** — Electron loads `http://localhost:5173` directly. Hot reload
-  comes from Vite in `apps/web/`.
+- **Dev (vel up)** — Electron loads `http://localhost:3000` (edge proxy).
+- **Dev (standalone)** — Electron loads `http://localhost:5173` (our Vite).
 - **Prod (future)** — A custom `app://vellum.ai/` protocol serves the
   static `apps/web/dist/` bundle. Same-origin policy treats `app://` as
   a secure standard scheme.
@@ -87,11 +99,12 @@ need a distributable artifact.
 ## Scripts
 
 ```sh
-bun run dev                # auto-installs both apps, then concurrently runs dev:web + dev:electron
-bun run dev:electron-only  # auto-installs apps/macos, then electron-vite dev (web server elsewhere)
+bun run dev                # probe vel-up at :3000, dispatch to dev:electron-only or dev:standalone
+bun run dev:standalone     # explicit: spawn our Vite (:5173) + electron-vite dev (no backends)
+bun run dev:electron-only  # explicit: electron-vite dev only, honors $VELLUM_DEV_URL (default :5173)
 bun run install:all        # bun install in apps/macos and apps/web (called automatically by dev)
-bun run dev:web            # apps/web Vite dev server (port 5173, strict) — invoked by concurrently
-bun run dev:electron       # wait-on http://localhost:5173 then electron-vite dev — invoked by concurrently
+bun run dev:web            # apps/web Vite (port 5173, strict) — invoked by dev:standalone
+bun run dev:electron       # wait-on :5173 then electron-vite dev — invoked by dev:standalone
 bun run build              # electron-vite build — bundles main + preload to out/
 bun run typecheck          # tsc --noEmit
 ```
@@ -101,6 +114,8 @@ bun run typecheck          # tsc --noEmit
 ```
 apps/macos/
 ├── electron.vite.config.ts   # main + preload Vite entries (no renderer)
+├── scripts/
+│   └── dev.ts                # probes vel-up at :3000, dispatches to standalone or electron-only
 ├── src/
 │   ├── main/index.ts         # window creation, app://, assistant supervisor
 │   ├── main/commands.ts      # typed command bus + accelerator resolver
