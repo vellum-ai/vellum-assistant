@@ -7,6 +7,7 @@ import path from "node:path";
 import { installApplicationMenu } from "./menu";
 import { readSetting, writeSetting } from "./settings";
 import { restoreBounds, track as trackWindowState } from "./window-state";
+import { installDock } from "./dock";
 
 // Dev-mode renderer URL. Honors `VELLUM_DEV_URL` so the launcher can
 // point the BrowserWindow at whichever Vite-or-equivalent is actually
@@ -330,6 +331,7 @@ app
     installPermissionHandler();
     installSettingsIpc();
     installApplicationMenu();
+    installDock();
     spawnDaemon();
     createWindow();
 
