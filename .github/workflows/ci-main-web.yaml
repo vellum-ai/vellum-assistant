@@ -1,6 +1,7 @@
 name: CI/CD Main Web
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -127,6 +128,9 @@ jobs:
   deploy:
     name: Deploy SPA (${{ matrix.environment }})
     needs: [checks]
+    # workflow_dispatch has no branch filter, so guard `deploy` step explicitly to
+    # prevent accidental dispatch from feature branch.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     defaults:
       run:

@@ -24,10 +24,7 @@ export function sanitizeToolList(tools: string[]): string[] {
  */
 export function getRegisteredToolNames(): string[] {
   return getAllTools()
-    .filter(
-      (t) =>
-        t.executionMode !== "proxy" && getToolOwner(t.name)?.kind !== "skill",
-    )
+    .filter((t) => getToolOwner(t.name)?.kind !== "skill")
     .map((t) => t.name)
     .sort();
 }
