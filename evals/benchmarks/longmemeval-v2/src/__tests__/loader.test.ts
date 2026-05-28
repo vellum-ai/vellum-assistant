@@ -53,12 +53,14 @@ describe("loadLongMemEvalV2", () => {
           question_type: "static-state-recall",
           question: "Q1?",
           answer: "A1",
+          eval_function: "norm_phrase_set_match",
         }),
         JSON.stringify({
           id: "q2",
           question_type: "premise-awareness",
           question: "Q2?",
           answer: "A2",
+          eval_function: "llm_abstention_checker",
         }),
       ].join("\n"),
       "utf8",
@@ -105,12 +107,14 @@ describe("loadLongMemEvalV2", () => {
           question_type: "static-state-recall",
           question: "Q1?",
           answer: "A1",
+          eval_function: "norm_phrase_set_match",
         }),
         // Missing required `answer` field.
         JSON.stringify({
           id: "q2",
           question_type: "premise-awareness",
           question: "Q2?",
+          eval_function: "llm_abstention_checker",
         }),
       ].join("\n"),
       "utf8",
@@ -136,6 +140,7 @@ describe("loadLongMemEvalV2", () => {
         question_type: "static-state-recall",
         question: "Q1?",
         answer: "A1",
+        eval_function: "norm_phrase_set_match",
       }),
       "utf8",
     );
@@ -165,6 +170,7 @@ describe("loadLongMemEvalV2", () => {
         question_type: "static-state-recall",
         question: "Q1?",
         answer: "A1",
+        eval_function: "norm_phrase_set_match",
       }),
       "utf8",
     );
@@ -191,6 +197,7 @@ describe("loadLongMemEvalV2", () => {
           question_type: "static-state-recall",
           question: "Q1?",
           answer: "A1",
+          eval_function: "norm_phrase_set_match",
         }),
         "",
         "",

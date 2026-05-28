@@ -1,5 +1,6 @@
 /** `evals run` — Cartesian profile × test runner. */
 import { randomBytes } from "crypto";
+import { join } from "node:path";
 
 import type { Command } from "commander";
 
@@ -10,16 +11,37 @@ import {
 import {
   createConsoleReporter,
   createSummaryOnlyReporter,
+  type EvalProgressReporter,
 } from "../lib/runner/progress";
 import {
   abandonAllRunningRunsSync,
   scavengeAbandonedRuns,
 } from "../lib/metrics";
-import { loadBenchmark } from "../lib/benchmark";
-import { DEFAULT_BENCHMARK_ID, listBenchmarkUnitIds } from "../lib/catalog";
-import { loadProfile } from "../lib/profile";
+import {
+  loadLongMemEvalV2,
+  type Tier,
+  TIERS,
+} from "../../benchmarks/longmemeval-v2/src/loader";
+import { loadTrajectories } from "../../benchmarks/longmemeval-v2/src/trajectories";
+import { runLongMemEvalV2Unit } from "../../benchmarks/longmemeval-v2/src/runner";
+import { type Benchmark, loadBenchmark } from "../lib/benchmark";
+import {
+  DEFAULT_BENCHMARK_ID,
+  getBenchmarksDir,
+  listBenchmarkUnitIds,
+} from "../lib/catalog";
+import { loadProfile, type Profile } from "../lib/profile";
 import { loadTestDef } from "../lib/test-def";
 import { openInBrowser, startReportServer } from "./server";
+
+/**
+ * The LongMemEval-V2 benchmark id. Hard-coded here because `run.ts`
+ * dispatches per-benchmark by id — not by a manifest field — to keep
+ * each benchmark's execution shape owned by the benchmark module
+ * itself. Adding a third benchmark means: import its runner, add a
+ * branch below, update the assertion below.
+ */
+const LONGMEMEVAL_V2_BENCHMARK_ID = "longmemeval-v2";
 
 /**
  * Exit codes for the signals we handle. POSIX convention: 128 + signal
@@ -177,20 +199,6 @@ export function registerRunCommand(program: Command): void {
 
         const benchmark = await loadBenchmark(opts.benchmark);
         const filterIds = filter !== undefined ? splitCsv(filter) : [];
-        const unitIds =
-          filterIds.length > 0
-            ? filterIds
-            : await listBenchmarkUnitIds(benchmark.unitsDir);
-        if (unitIds.length === 0) {
-          throw new Error(
-            filter !== undefined
-              ? "--filter is empty after splitting on commas"
-              : `Benchmark "${benchmark.id}" has no ${benchmark.manifest.unitNoun} units at ${benchmark.unitsDir}`,
-          );
-        }
-        const tests = await Promise.all(
-          unitIds.map((id) => loadTestDef(id, benchmark.unitsDir)),
-        );
 
         // `--quiet` still lets the per-run `result` summary and any
         // `status: "error"` events through so operators get one line per
@@ -207,52 +215,34 @@ export function registerRunCommand(program: Command): void {
         const session = sessionId(opts.label, sessionTimestamp);
         const sessionLabel = opts.label;
 
-        let anyFailed = false;
-        for (const profile of profiles) {
-          for (const test of tests) {
-            const id = runId(profile.id, test.id, timestampSuffix());
-            try {
-              await runEvalOnce({
-                profile,
-                test,
-                runId: id,
-                sessionId: session,
-                sessionLabel,
-                maxTurns: opts.maxTurns,
-                progress,
-              });
-              // No stdout dump: the runner has already emitted the
-              // `result` progress event with per-metric scores in the
-              // same timestamped/labeled format as every other step.
-            } catch (err) {
-              // Per-test isolation: a crash in one combination (e.g. the
-              // user simulator returning unparseable content) shouldn't
-              // take down the rest of the suite.
-              //
-              // The run-once layer normally already writes status:"failed"
-              // + error to the run's metadata and emits a red
-              // `status:"error"` progress event with diagnostic details
-              // before re-throwing — at which point we just flip the
-              // exit-code flag and move on. `wasErrorReportedToProgress`
-              // is the explicit signal that path completed.
-              //
-              // Without the marker we'd be in the "throw bypassed
-              // run-once's inner catch" case (e.g. a future regression
-              // moves construction back outside the try, or runEvalOnce
-              // throws synchronously from its function header). Emit one
-              // line through the same reporter so the operator gets
-              // SOMETHING — silent exit with exit-code 1 was the actual
-              // diagnostic gap that motivated this guard.
-              if (!wasErrorReportedToProgress(err)) {
-                progress({
-                  step: "shutdown",
-                  status: "error",
-                  message: err instanceof Error ? err.message : String(err),
-                });
-              }
-              anyFailed = true;
-            }
-          }
+        // Dispatch by `benchmark.id` (not by a manifest "driver" enum) so
+        // each benchmark module owns its own execution shape. PI runs a
+        // simulator-driven Cartesian over `TestDef`s; V2 runs the
+        // ingest→ask two-conversation flow over `BenchmarkItem`s with
+        // pre-staged trajectory files. Adding a benchmark means: import
+        // its loader + runner here and add a branch.
+        let anyFailed: boolean;
+        if (benchmark.id === LONGMEMEVAL_V2_BENCHMARK_ID) {
+          anyFailed = await runLongMemEvalV2Benchmark({
+            benchmark,
+            profiles,
+            filterIds,
+            filterFlag: filter,
+            session,
+            sessionLabel,
+            progress,
+          });
+        } else {
+          anyFailed = await runPersonalIntelligenceBenchmark({
+            benchmark,
+            profiles,
+            filterIds,
+            filterFlag: filter,
+            session,
+            sessionLabel,
+            progress,
+            maxTurns: opts.maxTurns,
+          });
         }
 
         if (anyFailed) {
@@ -274,4 +264,191 @@ export function registerRunCommand(program: Command): void {
         }
       },
     );
+}
+
+interface DispatchContext {
+  benchmark: Benchmark;
+  profiles: Profile[];
+  /** Parsed --filter ids, empty when --filter not supplied. */
+  filterIds: string[];
+  /** Original --filter string, for "you set --filter to an empty value" messaging. */
+  filterFlag: string | undefined;
+  session: string;
+  sessionLabel: string | undefined;
+  progress: EvalProgressReporter;
+}
+
+interface PersonalIntelligenceDispatchContext extends DispatchContext {
+  maxTurns: number | undefined;
+}
+
+/**
+ * Emit a structured progress error event for a thrown error unless the
+ * underlying runner already did so. Shared by both per-benchmark
+ * dispatch helpers so each benchmark's catch path looks identical to
+ * what the CLI promised before the dispatch refactor.
+ */
+function reportRunFailure(progress: EvalProgressReporter, err: unknown): void {
+  if (wasErrorReportedToProgress(err)) return;
+  progress({
+    step: "shutdown",
+    status: "error",
+    message: err instanceof Error ? err.message : String(err),
+  });
+}
+
+/**
+ * Personal-Intelligence dispatch: directory-per-unit `TestDef`s →
+ * simulator-driven `runEvalOnce`. This is the pre-existing harness shape;
+ * extracting it into a helper keeps the dispatch logic next to its V2
+ * sibling.
+ */
+async function runPersonalIntelligenceBenchmark(
+  ctx: PersonalIntelligenceDispatchContext,
+): Promise<boolean> {
+  const { benchmark, profiles, filterIds, filterFlag, session, sessionLabel } =
+    ctx;
+  const unitIds =
+    filterIds.length > 0
+      ? filterIds
+      : await listBenchmarkUnitIds(benchmark.unitsDir);
+  if (unitIds.length === 0) {
+    throw new Error(
+      filterFlag !== undefined
+        ? "--filter is empty after splitting on commas"
+        : `Benchmark "${benchmark.id}" has no ${benchmark.manifest.unitNoun} units at ${benchmark.unitsDir}`,
+    );
+  }
+  const tests = await Promise.all(
+    unitIds.map((id) => loadTestDef(id, benchmark.unitsDir)),
+  );
+
+  let anyFailed = false;
+  for (const profile of profiles) {
+    for (const test of tests) {
+      const id = runId(profile.id, test.id, timestampSuffix());
+      try {
+        await runEvalOnce({
+          profile,
+          test,
+          runId: id,
+          sessionId: session,
+          sessionLabel,
+          maxTurns: ctx.maxTurns,
+          progress: ctx.progress,
+        });
+      } catch (err) {
+        // Per-test isolation: a crash in one combination (e.g. the user
+        // simulator returning unparseable content) shouldn't take down
+        // the rest of the suite.
+        //
+        // The run-once layer normally already writes status:"failed" +
+        // error to the run's metadata and emits a red status:"error"
+        // progress event with diagnostic details before re-throwing —
+        // at which point we just flip the exit-code flag and move on.
+        // `wasErrorReportedToProgress` (checked inside reportRunFailure)
+        // is the explicit signal that path completed. The fallback path
+        // exists for "throw bypassed run-once's inner catch" cases (e.g.
+        // a future regression moves construction outside the try); emit
+        // one line through the same reporter so the operator gets
+        // SOMETHING — silent exit with exit-code 1 was the actual
+        // diagnostic gap that motivated this guard.
+        reportRunFailure(ctx.progress, err);
+        anyFailed = true;
+      }
+    }
+  }
+  return anyFailed;
+}
+
+/**
+ * Parse the LongMemEval-V2 tier from `EVALS_LONGMEMEVAL_TIER` (falling
+ * back to `"small"`). The small tier is the publishable target; medium
+ * is the long-horizon, memory-only variant. Rejected values surface
+ * with the same "valid options" message as Zod-validated CLI flags
+ * elsewhere so misconfiguration is loud rather than silent.
+ */
+function resolveLongMemEvalTier(): Tier {
+  const raw = process.env["EVALS_LONGMEMEVAL_TIER"];
+  if (raw === undefined || raw === "") return "small";
+  if (!(TIERS as readonly string[]).includes(raw)) {
+    throw new Error(
+      `EVALS_LONGMEMEVAL_TIER="${raw}" is not a valid tier. ` +
+        `Pick one of: ${TIERS.join(", ")}.`,
+    );
+  }
+  return raw as Tier;
+}
+
+/**
+ * LongMemEval-V2 dispatch: `BenchmarkItem`s + a once-loaded trajectory
+ * map → two-conversation `runLongMemEvalV2Unit`. The dataset itself is
+ * never downloaded from source code — operators run the benchmark's
+ * own `data/download.sh` first, and the loader+trajectories module
+ * throws helpful "missing file" errors pointing at that script if the
+ * data isn't on disk yet.
+ *
+ * Operator surface:
+ *
+ *   EVALS_LONGMEMEVAL_DATA_ROOT  — defaults to
+ *     `benchmarks/longmemeval-v2/data` under the evals package, which
+ *     is where `data/download.sh` writes by convention.
+ *   EVALS_LONGMEMEVAL_TIER       — "small" (default) or "medium".
+ */
+async function runLongMemEvalV2Benchmark(
+  ctx: DispatchContext,
+): Promise<boolean> {
+  const { benchmark, profiles, filterIds, filterFlag, session, sessionLabel } =
+    ctx;
+  const dataRoot =
+    process.env["EVALS_LONGMEMEVAL_DATA_ROOT"] ??
+    join(getBenchmarksDir(), benchmark.id, "data");
+  const tier = resolveLongMemEvalTier();
+
+  const items = await loadLongMemEvalV2({ dataRoot, tier });
+  const selected =
+    filterIds.length > 0
+      ? items.filter((item) => filterIds.includes(item.questionId))
+      : items;
+  if (selected.length === 0) {
+    if (filterFlag !== undefined) {
+      throw new Error(
+        `--filter selected zero LongMemEval-V2 items. Got ${filterIds.length} id(s); ` +
+          `none matched ${items.length} loaded item(s) in tier "${tier}".`,
+      );
+    }
+    throw new Error(
+      `LongMemEval-V2 loaded zero items from ${dataRoot} at tier "${tier}". ` +
+        "Confirm `bash data/download.sh` has run and the haystack mapping is non-empty.",
+    );
+  }
+
+  // Load the trajectories file ONCE per `evals run` invocation rather
+  // than per item. The file is ~1 GB at the small tier and re-reading
+  // it per question would dominate wall-clock for any non-trivial
+  // selection. Phase 2's full-451-Q run will want an indexed/streaming
+  // variant (tracked in the cache PR).
+  const trajectories = await loadTrajectories(dataRoot);
+
+  let anyFailed = false;
+  for (const profile of profiles) {
+    for (const item of selected) {
+      const id = runId(profile.id, item.questionId, timestampSuffix());
+      try {
+        await runLongMemEvalV2Unit({
+          profile,
+          item,
+          trajectories,
+          runId: id,
+          sessionId: session,
+          sessionLabel,
+          progress: ctx.progress,
+        });
+      } catch (err) {
+        reportRunFailure(ctx.progress, err);
+        anyFailed = true;
+      }
+    }
+  }
+  return anyFailed;
 }
