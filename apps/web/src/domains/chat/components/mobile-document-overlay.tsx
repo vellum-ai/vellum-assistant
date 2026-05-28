@@ -16,13 +16,8 @@ interface MobileDocumentOverlayProps {
  * Mobile-only full-screen overlay that hosts the document viewer for a
  * surface referenced from chat.
  *
- * **Mounting constraint**: must render outside `RootLayout`'s inner
- * transformed wrapper (see `src/root-layout.tsx`) so
- * `position: fixed` anchors to the viewport's initial containing block
- * rather than the keyboard-following transform `RootLayout` applies when
- * the soft keyboard opens.
- *
- * https://www.w3.org/TR/css-transforms-1/#transform-rendering
+ * **Mounting constraint**: must render inside `RootLayout`'s
+ * `#viewport-overlays` portal, outside the main content wrapper.
  */
 export function MobileDocumentOverlay({
   openedDocumentState,
