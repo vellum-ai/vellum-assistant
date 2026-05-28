@@ -10,6 +10,10 @@
  *  (c) `stop()` is idempotent
  *  (d) `shutdown()` releases MediaStream tracks and closes the
  *      AudioContext, and is idempotent
+ *  (e) `stop()` issued before `getUserMedia` resolves cancels the
+ *      pending start and releases the late-arriving stream
+ *  (f) Two overlapping `start()` calls cooperate — only the latest
+ *      wins; the earlier one releases its stream
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
@@ -303,5 +307,127 @@ describe("LiveVoicePcmCapture", () => {
     // start() after shutdown returns false.
     const ok = await capture.start({ onChunk: () => undefined });
     expect(ok).toBe(false);
+  });
+
+  it("stop() during a pending start() cancels it and releases the late stream", async () => {
+    // Regression: in a push-to-talk flow, the user can release the key
+    // before `getUserMedia()` resolves. The pending start must observe
+    // the cancellation, release the stream that does eventually arrive,
+    // and return false rather than wiring up a phantom mic.
+    let resolveGetUserMedia: ((stream: MockMediaStream) => void) | null = null;
+    const pendingStream = new MockMediaStream();
+    getUserMediaImpl = () =>
+      new Promise<MockMediaStream>((resolve) => {
+        resolveGetUserMedia = resolve;
+      });
+
+    const capture = new LiveVoicePcmCapture();
+    const startPromise = capture.start({ onChunk: () => undefined });
+
+    // User releases PTT key before `getUserMedia` resolves.
+    capture.stop();
+
+    // Now permission grant resolves, late — pending start should
+    // release the stream and bail.
+    expect(resolveGetUserMedia).not.toBeNull();
+    resolveGetUserMedia!(pendingStream);
+
+    const ok = await startPromise;
+    expect(ok).toBe(false);
+    expect(pendingStream.getTracks()[0]!.readyState).toBe("ended");
+
+    // No nodes should have been wired up.
+    const internalStream = (
+      capture as unknown as { stream: MockMediaStream | null }
+    ).stream;
+    const internalWorklet = (
+      capture as unknown as { workletNode: MockAudioWorkletNode | null }
+    ).workletNode;
+    expect(internalStream).toBeNull();
+    expect(internalWorklet).toBeNull();
+  });
+
+  it("two overlapping start() calls cancel the earlier one and only the latest wins", async () => {
+    // Regression: prior to the generation counter, both starts would
+    // race past the synchronous guard and the slower one would
+    // overwrite the stored nodes, leaving the earlier capture's
+    // MediaStream dangling.
+    const resolvers: ((stream: MockMediaStream) => void)[] = [];
+    const streams: MockMediaStream[] = [];
+    getUserMediaImpl = () => {
+      const stream = new MockMediaStream();
+      streams.push(stream);
+      return new Promise<MockMediaStream>((resolve) => {
+        resolvers.push(resolve);
+      });
+    };
+
+    const capture = new LiveVoicePcmCapture();
+    const startPromise1 = capture.start({ onChunk: () => undefined });
+    const startPromise2 = capture.start({ onChunk: () => undefined });
+
+    // Both starts are pending on getUserMedia; the second one bumped
+    // the generation past the first.
+    expect(resolvers).toHaveLength(2);
+    expect(streams).toHaveLength(2);
+
+    // Resolve the FIRST start last to exercise the "earlier resolves
+    // last" ordering too. Actually we want the first to resolve first
+    // to mirror the bug scenario where the slower second overwrites
+    // the first's nodes. With the generation counter both orderings
+    // are correct — the first call always loses regardless of order.
+    resolvers[0]!(streams[0]!);
+    resolvers[1]!(streams[1]!);
+
+    const [ok1, ok2] = await Promise.all([startPromise1, startPromise2]);
+
+    expect(ok1).toBe(false);
+    expect(ok2).toBe(true);
+
+    // The first call's stream must be released; the second's must be
+    // live and wired up.
+    expect(streams[0]!.getTracks()[0]!.readyState).toBe("ended");
+    expect(streams[1]!.getTracks()[0]!.readyState).toBe("live");
+
+    const internalStream = (
+      capture as unknown as { stream: MockMediaStream | null }
+    ).stream;
+    expect(internalStream).toBe(streams[1]!);
+  });
+
+  it("two overlapping start() calls — earlier resolves last, latest still wins", async () => {
+    // Same as above but with the resolution order swapped: the second
+    // (winning) start resolves first, then the stale first one
+    // resolves. The first must still release its stream and not
+    // clobber the second's nodes.
+    const resolvers: ((stream: MockMediaStream) => void)[] = [];
+    const streams: MockMediaStream[] = [];
+    getUserMediaImpl = () => {
+      const stream = new MockMediaStream();
+      streams.push(stream);
+      return new Promise<MockMediaStream>((resolve) => {
+        resolvers.push(resolve);
+      });
+    };
+
+    const capture = new LiveVoicePcmCapture();
+    const startPromise1 = capture.start({ onChunk: () => undefined });
+    const startPromise2 = capture.start({ onChunk: () => undefined });
+
+    expect(resolvers).toHaveLength(2);
+
+    resolvers[1]!(streams[1]!);
+    resolvers[0]!(streams[0]!);
+
+    const [ok1, ok2] = await Promise.all([startPromise1, startPromise2]);
+    expect(ok1).toBe(false);
+    expect(ok2).toBe(true);
+    expect(streams[0]!.getTracks()[0]!.readyState).toBe("ended");
+    expect(streams[1]!.getTracks()[0]!.readyState).toBe("live");
+
+    const internalStream = (
+      capture as unknown as { stream: MockMediaStream | null }
+    ).stream;
+    expect(internalStream).toBe(streams[1]!);
   });
 });

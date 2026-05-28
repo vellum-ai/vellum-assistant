@@ -67,18 +67,32 @@ export class LiveVoicePcmCapture {
   private workletNode: AudioWorkletNode | null = null;
   private moduleLoaded = false;
   private isShutdown = false;
+  /**
+   * Monotonic counter bumped on every `start()`, `stop()`, and
+   * `shutdown()`. The async `start()` work captures its generation at
+   * entry and re-verifies it after each `await` (and before each
+   * mutation). If the counter has moved, a concurrent `stop()`,
+   * `shutdown()`, or newer `start()` has superseded this attempt, and
+   * the continuation releases any opened stream and bails. Mirrors the
+   * macOS `LiveVoiceAudioCapture` generation counter.
+   */
+  private startGeneration = 0;
 
   async start(options: LiveVoicePcmCaptureStartOptions): Promise<boolean> {
     if (this.isShutdown) return false;
-    // If a previous capture is still wired up, tear it down before
-    // starting a fresh one — keeps `start` callable as a "make sure
-    // we're currently capturing" idempotent step. Use `stop()` (not
-    // `stopInternal()`) so the previous `MediaStream` is released —
-    // otherwise the assignment to `this.stream` below would drop the
-    // only reference and leak the mic.
+
+    // If a previous capture is already wired up synchronously, tear it
+    // down so the new start observes a clean slate. Pending async
+    // starts are handled by the generation bump below — their
+    // continuations will bail without touching `this.stream` etc.
     if (this.workletNode || this.stream) {
       this.stop();
     }
+
+    // Bump the generation: this both cancels any in-flight `start()`
+    // continuation (it will observe a stale generation at its next
+    // checkpoint) AND captures the current generation for this call.
+    const myGen = ++this.startGeneration;
 
     const mediaDevices = navigator.mediaDevices;
     if (!mediaDevices?.getUserMedia) return false;
@@ -97,9 +111,10 @@ export class LiveVoicePcmCapture {
       return false;
     }
 
-    // If `shutdown()` ran between awaiting permission and getting the
-    // stream, release the tracks we just opened and bail.
-    if (this.isShutdown) {
+    // A concurrent `stop()`, `shutdown()`, or newer `start()` may have
+    // run while we awaited permission. Release the tracks we just
+    // opened and bail.
+    if (myGen !== this.startGeneration || this.isShutdown) {
       releaseStream(stream);
       return false;
     }
@@ -118,11 +133,18 @@ export class LiveVoicePcmCapture {
 
       if (!this.moduleLoaded) {
         await audioContext.audioWorklet.addModule(WORKLET_MODULE_URL);
+        // Re-check after the worklet module load — `stop()`,
+        // `shutdown()`, or a newer `start()` may have raced it.
+        if (myGen !== this.startGeneration || this.isShutdown) {
+          releaseStream(stream);
+          return false;
+        }
         this.moduleLoaded = true;
-      }
-
-      // Shutdown could have raced the worklet module load.
-      if (this.isShutdown) {
+      } else if (myGen !== this.startGeneration || this.isShutdown) {
+        // Even when the module is already loaded we re-check, because
+        // a concurrent caller may have invalidated us between the
+        // permission await and here (e.g. another `start()` chained
+        // synchronously).
         releaseStream(stream);
         return false;
       }
@@ -148,6 +170,25 @@ export class LiveVoicePcmCapture {
 
       sourceNode.connect(workletNode);
 
+      // Final guard before publishing the new nodes — even node
+      // construction is synchronous, so this is mostly belt-and-
+      // suspenders, but cheap.
+      if (myGen !== this.startGeneration || this.isShutdown) {
+        try {
+          workletNode.port.onmessage = null;
+          workletNode.disconnect();
+        } catch {
+          // Best-effort cleanup.
+        }
+        try {
+          sourceNode.disconnect();
+        } catch {
+          // Best-effort cleanup.
+        }
+        releaseStream(stream);
+        return false;
+      }
+
       this.stream = stream;
       this.sourceNode = sourceNode;
       this.workletNode = workletNode;
@@ -162,8 +203,13 @@ export class LiveVoicePcmCapture {
    * Stop the current capture but keep the `AudioContext` warm — cheap
    * to call again from `start()`. The MediaStream is also released so
    * the OS-level mic indicator clears; `start()` opens a fresh stream.
+   *
+   * Also bumps `startGeneration` so any pending `start()` continuation
+   * (e.g. still awaiting `getUserMedia` after PTT release) observes a
+   * stale generation and releases the stream it opens.
    */
   stop(): void {
+    this.startGeneration++;
     this.stopInternal();
     if (this.stream) {
       releaseStream(this.stream);
@@ -178,6 +224,10 @@ export class LiveVoicePcmCapture {
   shutdown(): void {
     if (this.isShutdown) return;
     this.isShutdown = true;
+    // Bump for consistency with `stop()` — `isShutdown` already gates
+    // the continuation, but the generation check is the primary
+    // cancellation signal so we keep them in sync.
+    this.startGeneration++;
 
     this.stopInternal();
 
