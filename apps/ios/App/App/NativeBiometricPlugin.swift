@@ -292,11 +292,15 @@ public class NativeBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let preferredName = serverURL.scheme == "https" ? "__Secure-sessionid" : "sessionid"
-        let acceptedNames: Set<String> = [preferredName, "sessionid"]
 
         DispatchQueue.main.async {
             webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
-                let match = cookies.first(where: { acceptedNames.contains($0.name) })
+                // Prefer the env's canonical name. Only fall back to bare
+                // `sessionid` if no `__Secure-` cookie exists — upgraded
+                // users may still carry both in WKWebView's jar from the
+                // pre-host-only dual-cookie planting.
+                let match = cookies.first(where: { $0.name == preferredName })
+                    ?? cookies.first(where: { $0.name == "sessionid" })
                 call.resolve(["token": match?.value as Any])
             }
         }
