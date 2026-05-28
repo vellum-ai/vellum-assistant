@@ -75,11 +75,17 @@ export function LiveVoiceButton({
   const state = useLiveVoiceStore.use.state();
   const errorMessage = useLiveVoiceStore.use.errorMessage();
 
+  const gateOpen = voiceModeEnabled && assistantId !== null;
+
   // `useRef` (not `useState`) so React strict-mode's double-invoke of
   // render doesn't build two managers and leak the first one's
-  // WebSocket / mic handles.
+  // WebSocket / mic handles. We only construct the manager once the
+  // gate is open — for flag-off or assistantId-null mounts, leaving the
+  // ref null keeps the unmount + gate-close `end()` calls no-ops so we
+  // don't churn `useLiveVoiceStore` (which the manager's `end()` resets
+  // via `actions().reset()`) on every disabled render.
   const managerRef = useRef<LiveVoiceButtonManager | null>(null);
-  if (managerRef.current === null) {
+  if (managerRef.current === null && gateOpen) {
     managerRef.current = managerFactory
       ? managerFactory()
       : new LiveVoiceChannelManager();
@@ -87,11 +93,12 @@ export function LiveVoiceButton({
 
   // Fire-and-forget: React's cleanup is sync, the manager's `end()` is
   // async. Dropping the promise is safe — the component has already
-  // left the tree, so there's nothing to surface failures to.
+  // left the tree, so there's nothing to surface failures to. When the
+  // gate was closed for the lifetime of this mount, `managerRef.current`
+  // stays null and the cleanup is a no-op.
   useEffect(() => {
-    const manager = managerRef.current;
     return () => {
-      void manager?.end();
+      void managerRef.current?.end();
     };
   }, []);
 
@@ -100,7 +107,6 @@ export function LiveVoiceButton({
   // underlying manager would silently keep the WebSocket and mic open
   // with no visible control to stop it. Tear it down on every gate
   // transition to closed so the session ends with the affordance.
-  const gateOpen = voiceModeEnabled && assistantId !== null;
   useEffect(() => {
     if (!gateOpen) {
       void managerRef.current?.end();
