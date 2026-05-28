@@ -3,9 +3,11 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
-import { ASSISTANT_FLAG_VALUES_QUERY_KEY } from "@/lib/feature-flags/use-assistant-feature-flag-sync";
-import { CLIENT_FLAG_QUERY_KEY } from "@/lib/feature-flags/use-client-feature-flag-sync";
 import { useFeatureFlagBusSync } from "@/lib/feature-flags/use-feature-flag-bus-sync";
+import {
+  ASSISTANT_FLAG_VALUES_QUERY_KEY,
+  CLIENT_FLAG_QUERY_KEY,
+} from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
   __resetEventBusForTesting,

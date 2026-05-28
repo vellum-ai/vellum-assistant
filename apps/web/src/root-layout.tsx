@@ -90,7 +90,7 @@ export function RootLayout() {
 
   useEventBusInit({
     assistantId: lifecycle.assistantId,
-    isAssistantActive: lifecycle.assistantState.kind === "active",
+    isAssistantActive,
     checkAssistant: lifecycle.checkAssistant,
   });
 

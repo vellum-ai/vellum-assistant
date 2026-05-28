@@ -15,8 +15,10 @@
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { ASSISTANT_FLAG_VALUES_QUERY_KEY } from "@/lib/feature-flags/use-assistant-feature-flag-sync";
-import { CLIENT_FLAG_QUERY_KEY } from "@/lib/feature-flags/use-client-feature-flag-sync";
+import {
+  ASSISTANT_FLAG_VALUES_QUERY_KEY,
+  CLIENT_FLAG_QUERY_KEY,
+} from "@/lib/sync/query-tags";
 import { SYNC_TAGS } from "@/lib/sync/types";
 
 /**
