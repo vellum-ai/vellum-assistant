@@ -4,6 +4,8 @@ import { useNavigate } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { clearGatewayToken } from "@/lib/auth/gateway-session";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
@@ -58,6 +60,8 @@ export function HostingScreen() {
 
   const onContinue = () => {
     if (selected === "vellum-cloud") {
+      clearGatewayToken();
+      setSelfHostedConnection(null);
       void navigate(routes.onboarding.privacy);
     } else {
       void navigate(`${routes.onboarding.hatching}?hosting=${selected}`);
