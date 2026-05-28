@@ -114,23 +114,6 @@ export async function startNativeLogin(options?: {
 }
 
 /**
- * Read the current Django session token from cookies.
- * Checks `__Secure-sessionid` (prod) then `sessionid` (dev).
- */
-export function getSessionTokenFromCookies(): string | null {
-  if (typeof document === "undefined") return null;
-  const cookies = document.cookie.split("; ");
-  for (const name of ["__Secure-sessionid", "sessionid"]) {
-    const entry = cookies.find((c) => c.startsWith(`${name}=`));
-    if (entry) {
-      const value = entry.slice(name.length + 1);
-      if (value) return value;
-    }
-  }
-  return null;
-}
-
-/**
  * Unified auth-flow entry point that transparently chooses between the
  * native iOS plugin path and the web form-POST path.
  *

@@ -35,6 +35,7 @@ interface NativeBiometricPlugin {
     token: string;
     serverURL: string;
   }): Promise<void>;
+  readSessionCookie(opts: { serverURL: string }): Promise<{ token: string | null }>;
 }
 
 const NativeBiometric = registerPlugin<NativeBiometricPlugin>("NativeBiometric");
@@ -114,6 +115,23 @@ export async function installBiometricSessionCookie(
 ): Promise<void> {
   if (!isNativePlatform()) return;
   await NativeBiometric.installSessionCookie({ token, serverURL });
+}
+
+/**
+ * Read the current session token from WKWebView's cookie jar. The cookie
+ * is HttpOnly so `document.cookie` can't see it; the settings UI uses
+ * this when the user enables biometrics mid-session.
+ */
+export async function readNativeSessionCookie(
+  serverURL: string,
+): Promise<string | null> {
+  if (!isNativePlatform()) return null;
+  try {
+    const { token } = await NativeBiometric.readSessionCookie({ serverURL });
+    return token ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -2,12 +2,13 @@ import { useEffect, useState } from "react";
 
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { DetailCard } from "@/components/detail-card";
-import { useIsNativePlatform, getSessionTokenFromCookies } from "@/runtime/native-auth";
+import { deriveAuthBaseURL, useIsNativePlatform } from "@/runtime/native-auth";
 import {
   deleteBiometricToken,
   getBiometricTypeLabel,
   isBiometricAvailable,
   isBiometricEnabled,
+  readNativeSessionCookie,
   setBiometricEnabled,
   storeBiometricToken,
 } from "@/runtime/native-biometric";
@@ -32,10 +33,15 @@ export function BiometricSettingsCard() {
     try {
       const next = !enabled;
       if (next) {
-        const token = getSessionTokenFromCookies();
-        if (token) {
-          await storeBiometricToken(token);
-        }
+        // The session cookie is HttpOnly, so we read it through the
+        // native plugin instead of `document.cookie`. Skip flipping the
+        // preference if we can't capture a token — otherwise the user
+        // would think biometrics is on, but no token would be in the
+        // Keychain for recovery later.
+        const token = await readNativeSessionCookie(deriveAuthBaseURL());
+        if (!token) return;
+        const stored = await storeBiometricToken(token);
+        if (!stored) return;
         setBiometricEnabled(true);
         setEnabled(true);
       } else {

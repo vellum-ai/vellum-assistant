@@ -42,6 +42,7 @@ public class NativeBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "retrieveToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deleteToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "installSessionCookie", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "readSessionCookie", returnType: CAPPluginReturnPromise),
     ]
 
     private static let keychainService = "ai.vocify-inc.vellum-assistant-ios.biometric-auth"
@@ -265,6 +266,39 @@ public class NativeBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
             into: webView
         ) {
             call.resolve()
+        }
+    }
+
+    // MARK: - readSessionCookie
+
+    /// Read the current session token out of WKWebView's cookie jar.
+    /// JS can't see the cookie any more (it's HttpOnly), so the settings
+    /// UI uses this to capture the in-flight token when the user enables
+    /// biometrics mid-session.
+    ///
+    /// Expects `{ serverURL: string }` (scheme decides which cookie name
+    /// to prefer; not used for domain-matching since WKWebView's jar is
+    /// per-app and may still hold transitional `.vellum.ai`-scoped
+    /// cookies from earlier app versions).
+    /// Resolves with `{ token: string | null }`.
+    @objc public func readSessionCookie(_ call: CAPPluginCall) {
+        guard let serverURLString = call.getString("serverURL"),
+              let serverURL = URL(string: serverURLString) else {
+            call.reject("Missing or invalid serverURL")
+            return
+        }
+        guard let webView = self.webView else {
+            call.reject("WebView unavailable")
+            return
+        }
+        let preferredName = serverURL.scheme == "https" ? "__Secure-sessionid" : "sessionid"
+        let acceptedNames: Set<String> = [preferredName, "sessionid"]
+
+        DispatchQueue.main.async {
+            webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { cookies in
+                let match = cookies.first(where: { acceptedNames.contains($0.name) })
+                call.resolve(["token": match?.value as Any])
+            }
         }
     }
 }
