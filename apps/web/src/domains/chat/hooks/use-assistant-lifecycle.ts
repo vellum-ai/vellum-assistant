@@ -210,7 +210,7 @@ export function useAssistantLifecycle({
         // New signups without completed onboarding should land on
         // `/onboarding/privacy` before we hatch an assistant for them.
         const onboardingRedirect = resolveOnboardingRedirect({
-          intendedDestination: routes.assistant,
+          intendedDestination: window.location.pathname,
         });
         if (onboardingRedirect) {
           onRedirectRef.current(onboardingRedirect);
