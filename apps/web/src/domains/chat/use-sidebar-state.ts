@@ -141,15 +141,22 @@ export function useSidebarState({
   // Auto-fill: after conversations render, measure empty space in the
   // scrollable body and expand recents to fill the viewport.
   // useLayoutEffect runs before paint so the user never sees the short list.
+  // Note: can't compare scrollHeight vs clientHeight because the body uses
+  // flex-1, making them equal even when content is shorter than the container.
+  // Instead, measure the gap between the last child's bottom and the body's
+  // bottom edge.
   useLayoutEffect(() => {
     const el = bodyRef.current;
     if (!el || grouped.recents.length === 0) return;
 
-    const viewportH = el.clientHeight;
-    const scrollH = el.scrollHeight;
-    if (viewportH === 0 || scrollH >= viewportH) return;
+    const lastChild = el.lastElementChild;
+    if (!lastChild) return;
 
-    const emptyPx = viewportH - scrollH;
+    const emptyPx =
+      el.getBoundingClientRect().bottom -
+      lastChild.getBoundingClientRect().bottom;
+    if (emptyPx <= 0) return;
+
     const additional = Math.floor(emptyPx / ITEM_HEIGHT_ESTIMATE);
     if (additional <= 0) return;
 
