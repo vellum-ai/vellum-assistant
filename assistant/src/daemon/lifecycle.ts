@@ -67,6 +67,7 @@ import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
+import { publishConversationListChanged } from "../runtime/sync/resource-sync-events.js";
 import {
   initAuthSigningKey,
   resolveSigningKey,
@@ -1019,6 +1020,7 @@ export async function runDaemon(): Promise<void> {
           scheduleJobId: info.scheduleJobId,
           title: info.title,
         });
+        publishConversationListChanged("created");
       },
     );
 
