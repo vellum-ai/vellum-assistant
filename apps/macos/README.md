@@ -29,10 +29,11 @@ which is a fast no-op when the lockfile already matches).
 proxy) with a 1.5s timeout and picks one of two paths:
 
 1. **vel up is running** → dispatches to `dev:electron-only` with
-   `VELLUM_DEV_URL=http://localhost:3000`. No Vite is spawned here; the
-   Electron BrowserWindow loads the edge proxy URL and reuses vel's
-   backends (Django, gateway, daemon) the same way Swift Vellum does
-   today. This is the common case once you have `vel up` going.
+   `VELLUM_DEV_URL=http://localhost:3000/assistant`. No Vite is spawned
+   here; the Electron BrowserWindow loads the edge proxy at the
+   `/assistant` path (the bare root is the marketing site) and reuses
+   vel's backends (Django, gateway, daemon) the same way Swift Vellum
+   does today. This is the common case once you have `vel up` going.
 
 2. **No vel up** → dispatches to `dev:standalone`, which uses
    [`concurrently`](https://github.com/open-cli-tools/concurrently) to
@@ -53,9 +54,14 @@ proxy) with a 1.5s timeout and picks one of two paths:
    chrome), not for feature development against the real stack.
 
 The main-process URL choice lives in `src/main/index.ts`:
-`process.env.VELLUM_DEV_URL ?? "http://localhost:5173"`. Override the
-env var yourself (e.g., `VELLUM_DEV_URL=http://localhost:3002 bun run
-dev:electron-only`) if you need to point at a non-default service.
+`process.env.VELLUM_DEV_URL ?? "http://localhost:5173/assistant"`.
+`VELLUM_DEV_URL` is treated as the full URL — callers must include the
+`/assistant` path themselves because `apps/web/vite.config.ts` sets
+`base: "/assistant/"` (so the bare origin lands the BrowserWindow on
+the marketing page in vel-up mode, or on a Vite 404 in standalone).
+Override the env var yourself (e.g.,
+`VELLUM_DEV_URL=http://localhost:3002/assistant bun run dev:electron-only`)
+if you need to point at a non-default service.
 
 The app shows up as **Vellum Electron** in the menu bar and Dock
 (via `app.setName`, gated to `!app.isPackaged` in `src/main/index.ts`),
@@ -69,8 +75,8 @@ You don't have to ship a DMG to try it. Packaging (DMG, signing,
 notarization, auto-update) lands in follow-up tickets once we actually
 need a distributable artifact.
 
-- **Dev (vel up)** — Electron loads `http://localhost:3000` (edge proxy).
-- **Dev (standalone)** — Electron loads `http://localhost:5173` (our Vite).
+- **Dev (vel up)** — Electron loads `http://localhost:3000/assistant` (edge proxy + the path apps/web's Vite is configured for).
+- **Dev (standalone)** — Electron loads `http://localhost:5173/assistant` (our Vite, same path).
 - **Prod (future)** — A custom `app://vellum.ai/` protocol serves the
   static `apps/web/dist/` bundle. Same-origin policy treats `app://` as
   a secure standard scheme.

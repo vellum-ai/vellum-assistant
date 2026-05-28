@@ -11,17 +11,28 @@ import { readSetting, writeSetting } from "./settings";
 // point the BrowserWindow at whichever Vite-or-equivalent is actually
 // up:
 //
-//   - Standalone `bun run dev` → unset, falls back to localhost:5173
-//     (our own Vite, spawned by `dev:standalone`).
+//   - Standalone `bun run dev` → unset, falls back to
+//     `http://localhost:5173/assistant` (our own Vite, spawned by
+//     `dev:standalone`).
 //   - `bun run dev` while `vel up` is running → the probe shim sets it
-//     to `http://localhost:3000` (the edge proxy that Swift Vellum also
-//     hits), so the renderer is same-origin with the running backends.
+//     to `http://localhost:3000/assistant` (vel's edge proxy + the
+//     renderer path that Swift Vellum hits), so the renderer is
+//     same-origin with the running backends.
 //   - Future `vel up electron` → vel sets it directly when spawning us.
+//
+// The `/assistant` path matters: `apps/web/vite.config.ts` declares
+// `base: "/assistant/"`, and vel's edge proxy reserves the `:3000` root
+// for the marketing site and routes `/assistant/*` to apps/web. Loading
+// the bare origin lands the BrowserWindow on the marketing page instead
+// of the renderer. Callers (vel, the probe shim, a developer setting
+// the env var by hand) are responsible for including the path —
+// `VELLUM_DEV_URL` is treated as the full URL to load.
 //
 // The port-5173 fallback agrees with `dev:web` in package.json, which
 // passes `--port 5173 --strictPort` so apps/web's `.env` defaults can't
 // silently move it.
-const DEV_SERVER_URL = process.env.VELLUM_DEV_URL ?? "http://localhost:5173";
+const DEV_SERVER_URL =
+  process.env.VELLUM_DEV_URL ?? "http://localhost:5173/assistant";
 const DEV_SERVER_ORIGIN = new URL(DEV_SERVER_URL).origin;
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
