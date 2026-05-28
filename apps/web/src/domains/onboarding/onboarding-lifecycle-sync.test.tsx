@@ -150,6 +150,15 @@ mock.module("@/runtime/native-auth", () => ({
   useIsNativePlatform: () => false,
 }));
 
+mock.module("@/lib/local-mode", () => ({
+  isLocalMode: () => false,
+  hatchLocalAssistant: async () => ({ ok: true, assistantId: "local-1" }),
+  loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
+  setSelectedAssistantId: () => {},
+  saveLockfileAssistant: async () => {},
+  primeLocalGatewayConnection: async () => {},
+}));
+
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     use: {
@@ -160,6 +169,7 @@ mock.module("@/stores/auth-store", () => ({
       }),
       isLoggedIn: () => true,
       isLoading: () => false,
+      hasPlatformSession: () => false,
     },
   },
 }));
