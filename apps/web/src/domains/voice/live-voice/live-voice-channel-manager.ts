@@ -91,8 +91,25 @@ export interface LiveVoiceChannelManagerDeps {
    * new client each time the manager starts a session.
    */
   clientFactory?: () => LiveVoiceChannelClientLike;
-  capture?: LiveVoicePcmCaptureLike;
-  playback?: LiveVoicePcmPlaybackLike;
+  /**
+   * Factory invoked once per `start()` to create a fresh
+   * `LiveVoicePcmCapture`. Like the client, capture is single-shot:
+   * `shutdown()` (called by `end()` / failure paths) sets
+   * `isShutdown = true` and subsequent `start()` calls return `false`
+   * without ever restarting the microphone. We must instantiate a new
+   * capture each time the manager starts a session, otherwise the
+   * second session's `ready` event never transitions out of
+   * `connecting`.
+   */
+  captureFactory?: () => LiveVoicePcmCaptureLike;
+  /**
+   * Factory invoked once per `start()` to create a fresh
+   * `LiveVoicePcmPlayback`. Mirrors the capture factory rationale —
+   * playback teardown flips a one-shot disabled bit, so reusing the
+   * same instance across sessions leaves the next response unable to
+   * play any audio.
+   */
+  playbackFactory?: () => LiveVoicePcmPlaybackLike;
   store?: LiveVoiceStoreLike;
 }
 
@@ -111,8 +128,23 @@ export class LiveVoiceChannelManager {
    */
   private readonly clientFactory: () => LiveVoiceChannelClientLike;
   private client: LiveVoiceChannelClientLike | null = null;
-  private readonly capture: LiveVoicePcmCaptureLike;
-  private readonly playback: LiveVoicePcmPlaybackLike;
+  /**
+   * Per-session capture factory. We construct a fresh capture in
+   * `start()` because `LiveVoicePcmCapture.shutdown()` (called by
+   * `end()` / failure teardown) sets `isShutdown = true` and later
+   * `start()` returns `false`. Reusing the same instance across
+   * sessions left the next session's `ready` event unable to restart
+   * the microphone — the UI stayed stuck in `connecting` forever.
+   */
+  private readonly captureFactory: () => LiveVoicePcmCaptureLike;
+  private capture: LiveVoicePcmCaptureLike | null = null;
+  /**
+   * Per-session playback factory. Mirrors `captureFactory` — playback
+   * teardown is also one-shot disable, so a reused instance silently
+   * drops every subsequent response's audio.
+   */
+  private readonly playbackFactory: () => LiveVoicePcmPlaybackLike;
+  private playback: LiveVoicePcmPlaybackLike | null = null;
   private readonly store: LiveVoiceStoreLike;
 
   /**
@@ -148,8 +180,10 @@ export class LiveVoiceChannelManager {
   constructor(deps: LiveVoiceChannelManagerDeps = {}) {
     this.clientFactory =
       deps.clientFactory ?? (() => new LiveVoiceChannelClient());
-    this.capture = deps.capture ?? new LiveVoicePcmCapture();
-    this.playback = deps.playback ?? new LiveVoicePcmPlayback();
+    this.captureFactory =
+      deps.captureFactory ?? (() => new LiveVoicePcmCapture());
+    this.playbackFactory =
+      deps.playbackFactory ?? (() => new LiveVoicePcmPlayback());
     this.store = deps.store ?? useLiveVoiceStore;
   }
 
@@ -166,9 +200,11 @@ export class LiveVoiceChannelManager {
     actions.setState("connecting");
     actions.setError("");
 
-    // Build a fresh client for this session — see the field comment
-    // for why the client must not be reused across sessions.
+    // Build a fresh client/capture/playback for this session — see the
+    // field comments for why these must not be reused across sessions.
     this.client = this.clientFactory();
+    this.capture = this.captureFactory();
+    this.playback = this.playbackFactory();
     await this.client.start({
       conversationId,
       onEvent: (event) => this.handleEvent(event),
@@ -185,7 +221,7 @@ export class LiveVoiceChannelManager {
   ): Promise<void> {
     this.isUserMuted = false;
     this.client?.interrupt();
-    this.playback.handleInterrupt();
+    this.playback?.handleInterrupt();
     // The playback gate is now closed; the next assistant response's
     // first `ttsAudio` must call `resetForNextResponse()` before
     // enqueueing.
@@ -196,7 +232,7 @@ export class LiveVoiceChannelManager {
   async stopListening(): Promise<void> {
     this.isUserMuted = true;
     this.client?.releasePushToTalk();
-    this.capture.stop();
+    this.capture?.stop();
   }
 
   async end(): Promise<void> {
@@ -205,11 +241,14 @@ export class LiveVoiceChannelManager {
     this.sessionGeneration += 1;
     this.playbackReadyForResponse = false;
 
-    this.capture.shutdown();
-    this.playback.handleEnd();
+    this.capture?.shutdown();
+    this.playback?.handleEnd();
     await this.client?.end();
-    // Drop the closed client so the next `start()` builds a fresh one.
+    // Drop the closed collaborators so the next `start()` builds fresh
+    // ones — `shutdown()` permanently disables capture/playback.
     this.client = null;
+    this.capture = null;
+    this.playback = null;
     this.actions().reset();
   }
 
@@ -254,10 +293,10 @@ export class LiveVoiceChannelManager {
         // first audio chunk of a new response must re-open the gate
         // before enqueueing so the assistant's reply is actually heard.
         if (!this.playbackReadyForResponse) {
-          this.playback.resetForNextResponse();
+          this.playback?.resetForNextResponse();
           this.playbackReadyForResponse = true;
         }
-        this.playback.enqueueTtsAudio({
+        this.playback?.enqueueTtsAudio({
           pcm: event.pcm,
           mimeType: event.mimeType,
           sampleRate: event.sampleRate,
@@ -295,11 +334,14 @@ export class LiveVoiceChannelManager {
 
     // Same teardown as `end()` minus the protocol `end` frame — the
     // channel is already gone, so we use `close()` instead.
-    this.capture.shutdown();
-    this.playback.handleInterrupt();
+    this.capture?.shutdown();
+    this.playback?.handleInterrupt();
     this.client?.close();
-    // Drop the closed client so the next `start()` builds a fresh one.
+    // Drop the closed collaborators so the next `start()` builds fresh
+    // ones — `shutdown()` permanently disables capture/playback.
     this.client = null;
+    this.capture = null;
+    this.playback = null;
   }
 
   private async completeAssistantTurn(): Promise<void> {
@@ -309,24 +351,26 @@ export class LiveVoiceChannelManager {
     // with `listening` and re-open the playback gate for a session that
     // no longer exists.
     const myGeneration = this.sessionGeneration;
-    await this.playback.waitUntilPlaybackFinishes();
+    await this.playback?.waitUntilPlaybackFinishes();
     if (myGeneration !== this.sessionGeneration) {
       return;
     }
     // Re-arm the gate flag so the next response's first `ttsAudio`
     // calls `resetForNextResponse()` again before enqueueing.
     this.playbackReadyForResponse = false;
-    this.playback.resetForNextResponse();
+    this.playback?.resetForNextResponse();
     const actions = this.actions();
     // Clear the rolling assistant transcript so the next turn starts
     // from a clean buffer.
     actions.clearAssistantTranscript();
-    // Skip the transition back to `listening` if the user explicitly
-    // muted via `stopListening()` — re-arming the mic would silently
-    // override the user's mute. The next user action
-    // (`interruptSpeakingAndStartListening` or `end`) drives the next
-    // state transition.
+    // If the user has called `stopListening()` (i.e. PTT-released), the
+    // assistant server treats the `ptt_release` as terminal for this
+    // session — subsequent audio frames are rejected or ignored. The
+    // WebSocket is logically dead, so tear it down here instead of
+    // dangling in a half-alive state. The next user action will
+    // `start()` a fresh session.
     if (this.isUserMuted) {
+      await this.end();
       return;
     }
     actions.setState("listening");
@@ -337,7 +381,7 @@ export class LiveVoiceChannelManager {
   // -------------------------------------------------------------------------
 
   private async startCapture(): Promise<void> {
-    const started = await this.capture.start({
+    const started = await this.capture?.start({
       onChunk: (chunk) => {
         this.client?.sendAudio(chunk.pcm16);
       },
