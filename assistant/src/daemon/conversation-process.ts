@@ -1253,6 +1253,21 @@ async function drainBatch(
         );
       }
       if (batchPersistResult.deduplicated) {
+        if (i === 0) {
+          // Head was deduplicated — persistUserMessage cleared the
+          // processing flag. Recursively drain remaining items so the
+          // first non-duplicate becomes the new batch head and sets
+          // processing via persistUserMessage.
+          const remaining = batch.slice(1);
+          if (remaining.length >= 2) {
+            await drainBatch(conversation, remaining, reason);
+          } else if (remaining.length === 1) {
+            await drainSingleMessage(conversation, remaining[0], reason);
+          } else {
+            await drainQueue(conversation);
+          }
+          return;
+        }
         continue;
       }
       lastUserMessageId = batchPersistResult.id;

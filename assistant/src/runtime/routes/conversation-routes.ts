@@ -2040,19 +2040,14 @@ export async function handleSendMessage(
   const resolvedContent = slashResult.content;
 
   const requestId = crypto.randomUUID();
-  let persistResult: { id: string; deduplicated: boolean };
-  try {
-    persistResult = await conversation.persistUserMessage(
-      resolvedContent,
-      attachments,
-      requestId,
-      body.automated === true ? { automated: true } : undefined,
-      undefined,
-      clientMessageId,
-    );
-  } catch (err) {
-    throw err;
-  }
+  const persistResult = await conversation.persistUserMessage(
+    resolvedContent,
+    attachments,
+    requestId,
+    body.automated === true ? { automated: true } : undefined,
+    undefined,
+    clientMessageId,
+  );
 
   const messageId = persistResult.id;
 
