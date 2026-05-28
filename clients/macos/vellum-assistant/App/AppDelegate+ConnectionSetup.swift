@@ -219,7 +219,7 @@ extension AppDelegate {
         eventSubscriptionTask?.cancel()
         eventSubscriptionTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            let stream = self.eventStreamClient.subscribe()
+            let stream = self.eventStreamClient.subscribeAppDelegateEvents()
             for await message in stream {
                 guard !Task.isCancelled else { break }
                 switch message {

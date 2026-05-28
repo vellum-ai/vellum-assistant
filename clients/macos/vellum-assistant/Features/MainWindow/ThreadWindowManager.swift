@@ -74,7 +74,7 @@ final class ThreadWindowManager {
         )
 
         threadWindows[conversationLocalId] = threadWindow
-        viewModel.ensureMessageLoopStarted()
+        viewModel.startChatEventSubscription()
 
         log.info("Opened thread window for \(conversationLocalId), \(self.threadWindows.count) total")
         return true

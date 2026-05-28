@@ -49,14 +49,14 @@ public final class MessageStreamReducer {
         subscriptionTask?.cancel()
     }
 
-    /// Subscribe to the `EventStreamClient` and feed every message into
-    /// `apply(event:)`. Safe to call multiple times — re-subscribes after
-    /// cancelling the previous task.
+    /// Subscribe to the chat event dispatcher and feed every relevant
+    /// message into `apply(event:)`. Safe to call multiple times —
+    /// re-subscribes after cancelling the previous task.
     public func start() {
         subscriptionTask?.cancel()
         subscriptionTask = Task { [weak self] in
             guard let self else { return }
-            let stream = self.eventStreamClient.subscribe()
+            let stream = self.eventStreamClient.subscribeChatEvents()
             for await message in stream {
                 if Task.isCancelled { return }
                 self.apply(event: message)

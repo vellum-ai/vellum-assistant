@@ -212,7 +212,7 @@ final class DiskPressureStatusStore {
         guard eventTask == nil, let eventStreamClient else { return }
         eventTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in eventStreamClient.subscribe() {
+            for await message in eventStreamClient.subscribeDiskPressureEvents() {
                 guard !Task.isCancelled else { break }
                 self.handle(message)
             }

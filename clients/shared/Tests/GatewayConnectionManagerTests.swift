@@ -40,14 +40,15 @@ final class GatewayConnectionManagerTests: XCTestCase {
 
     func testSubscribeReturnsStream() {
         let client = GatewayConnectionManager()
-        let stream = client.eventStreamClient.subscribe()
-        // Simply verify subscribe() returns without crashing; stream is non-nil (value type)
+        let stream = client.eventStreamClient.subscribeChatEvents()
+        // Simply verify the typed dispatcher returns without crashing; stream
+        // is non-nil (value type).
         _ = stream
     }
 
     func testEmitDeliversToSubscriber() async {
         let client = GatewayConnectionManager()
-        let stream = client.eventStreamClient.subscribe()
+        let stream = client.eventStreamClient.subscribeChatEvents()
 
         // Collect one message from the stream
         let expectation = XCTestExpectation(description: "Subscriber receives emitted message")
@@ -81,8 +82,8 @@ final class GatewayConnectionManagerTests: XCTestCase {
     func testEmitDeliversToMultipleSubscribers() async {
         let client = GatewayConnectionManager()
 
-        let stream1 = client.eventStreamClient.subscribe()
-        let stream2 = client.eventStreamClient.subscribe()
+        let stream1 = client.eventStreamClient.subscribeChatEvents()
+        let stream2 = client.eventStreamClient.subscribeChatEvents()
 
         let exp1 = XCTestExpectation(description: "Subscriber 1 receives message")
         let exp2 = XCTestExpectation(description: "Subscriber 2 receives message")

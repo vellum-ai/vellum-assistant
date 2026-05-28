@@ -266,7 +266,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         }
         Task { @MainActor [weak self] in
             guard let self else { return }
-            for await message in self.eventStreamClient.subscribe() {
+            for await message in self.eventStreamClient.subscribeConversationOrchestrationEvents() {
                 switch message {
                 case .conversationIdResolved(let localId, let serverId):
                     self.resolveConversationId(from: localId, to: serverId)
@@ -744,7 +744,9 @@ final class ConversationManager: ConversationRestorerDelegate {
         if markHistoryLoaded {
             viewModel.isHistoryLoaded = true
         }
-        viewModel.startMessageLoop()
+        // No-op when the VM was already initialized — chat-event subscription
+        // is started at VM init and runs for the VM lifetime.
+        viewModel.startChatEventSubscription()
 
         listStore.conversations.insert(conversation, at: 0)
         selectionStore.chatViewModels[conversation.id] = viewModel
@@ -1453,7 +1455,7 @@ final class ConversationManager: ConversationRestorerDelegate {
             if let viewModel = selectionStore.chatViewModels[existingConversation.id] {
                 viewModel.conversationId = item.id
                 viewModel.isChannelConversation = updatedConversation.isChannelConversation
-                viewModel.ensureMessageLoopStarted()
+                viewModel.startChatEventSubscription()
             }
             return existingConversation.id
         }
@@ -1462,7 +1464,7 @@ final class ConversationManager: ConversationRestorerDelegate {
         let viewModel = makeViewModel()
         viewModel.conversationId = item.id
         viewModel.isChannelConversation = conversationModel.isChannelConversation
-        viewModel.startMessageLoop()
+        viewModel.startChatEventSubscription()
 
         listStore.conversations.insert(conversationModel, at: 0)
         selectionStore.chatViewModels[conversationModel.id] = viewModel
