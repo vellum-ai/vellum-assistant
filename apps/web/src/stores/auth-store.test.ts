@@ -18,7 +18,9 @@ const deleteBiometricTokenMock = mock(async () => {});
 let mockIsNativePlatform = false;
 let mockIsBiometricEnabled = false;
 let mockBiometricToken: string | null = null;
-const installSessionCookiesMock = mock((_token: string) => {});
+const installBiometricSessionCookieMock = mock(
+  async (_token: string, _serverURL: string) => {},
+);
 const retrieveBiometricTokenMock = mock(async () => mockBiometricToken);
 
 mock.module("@/lib/auth/allauth-client", () => ({
@@ -37,12 +39,12 @@ mock.module("@/lib/auth/allauth-client", () => ({
 
 mock.module("@/runtime/native-auth", () => ({
   isNativePlatform: () => mockIsNativePlatform,
-  installSessionCookies: installSessionCookiesMock,
-  waitForNativeSessionCookie: async () => {},
+  deriveAuthBaseURL: () => "https://test.vellum.ai",
 }));
 
 mock.module("@/runtime/native-biometric", () => ({
   deleteBiometricToken: deleteBiometricTokenMock,
+  installBiometricSessionCookie: installBiometricSessionCookieMock,
   isBiometricEnabled: () => mockIsBiometricEnabled,
   retrieveBiometricToken: retrieveBiometricTokenMock,
 }));
@@ -93,7 +95,7 @@ beforeEach(() => {
   clearUserScopedStorageMock.mockClear();
   logoutMock.mockClear();
   deleteBiometricTokenMock.mockClear();
-  installSessionCookiesMock.mockClear();
+  installBiometricSessionCookieMock.mockClear();
   retrieveBiometricTokenMock.mockClear();
   resetAuthStore();
 });
@@ -157,8 +159,9 @@ describe("biometric session recovery", () => {
 
     await useAuthStore.getState().initSession();
 
-    expect(installSessionCookiesMock).toHaveBeenCalledWith(
+    expect(installBiometricSessionCookieMock).toHaveBeenCalledWith(
       "recovered-session-token",
+      expect.any(String),
     );
     expect(useAuthStore.getState().isLoggedIn).toBe(true);
     expect(useAuthStore.getState().user?.id).toBe("user-1");
@@ -193,7 +196,10 @@ describe("biometric session recovery", () => {
 
     await useAuthStore.getState().initSession();
 
-    expect(installSessionCookiesMock).toHaveBeenCalledWith("expired-token");
+    expect(installBiometricSessionCookieMock).toHaveBeenCalledWith(
+      "expired-token",
+      expect.any(String),
+    );
     expect(useAuthStore.getState().isLoggedIn).toBe(false);
     expect(useAuthStore.getState().user).toBeNull();
   });

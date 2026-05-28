@@ -31,6 +31,10 @@ interface NativeBiometricPlugin {
     reason?: string;
   }): Promise<{ token: string }>;
   deleteToken(opts: { server: string }): Promise<void>;
+  installSessionCookie(opts: {
+    token: string;
+    serverURL: string;
+  }): Promise<void>;
 }
 
 const NativeBiometric = registerPlugin<NativeBiometricPlugin>("NativeBiometric");
@@ -97,6 +101,19 @@ export async function retrieveBiometricToken(): Promise<string | null> {
   })();
 
   return pendingRetrieval;
+}
+
+/**
+ * Plant a biometric-recovered session token into WKWebView's cookie jar.
+ * Resolves once the cookie is committed so callers can immediately
+ * re-probe the session.
+ */
+export async function installBiometricSessionCookie(
+  token: string,
+  serverURL: string,
+): Promise<void> {
+  if (!isNativePlatform()) return;
+  await NativeBiometric.installSessionCookie({ token, serverURL });
 }
 
 /**

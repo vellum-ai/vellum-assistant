@@ -41,6 +41,7 @@ public class NativeBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "storeToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retrieveToken", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deleteToken", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "installSessionCookie", returnType: CAPPluginReturnPromise),
     ]
 
     private static let keychainService = "ai.vocify-inc.vellum-assistant-ios.biometric-auth"
@@ -232,6 +233,38 @@ public class NativeBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve()
         } else {
             call.reject("Keychain delete failed with status: \(status)")
+        }
+    }
+
+    // MARK: - installSessionCookie
+
+    /// Plant a biometric-recovered session token into WKWebView's cookie
+    /// jar so subsequent requests carry the Django session. Used after
+    /// `retrieveToken` returns a token from the Keychain on cold launch.
+    ///
+    /// Expects `{ token: string, serverURL: string }` where `serverURL`
+    /// is a full origin (e.g. `https://dev-assistant.vellum.ai`).
+    @objc public func installSessionCookie(_ call: CAPPluginCall) {
+        guard let token = call.getString("token"), !token.isEmpty else {
+            call.reject("Missing required option: token")
+            return
+        }
+        guard let serverURLString = call.getString("serverURL"),
+              let serverURL = URL(string: serverURLString),
+              serverURL.host != nil else {
+            call.reject("Missing or invalid serverURL")
+            return
+        }
+        guard let webView = self.webView else {
+            call.reject("WebView unavailable for cookie install")
+            return
+        }
+        SessionCookieInstaller.install(
+            token: token,
+            server: serverURL,
+            into: webView
+        ) {
+            call.resolve()
         }
     }
 }

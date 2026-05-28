@@ -257,7 +257,20 @@ public class NativeAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                         call.reject("Code exchange returned invalid response")
                         return
                     }
-                    call.resolve(["sessionToken": sessionToken])
+                    // The exchange POST writes to `HTTPCookieStorage.shared`,
+                    // not WKWebView's jar; plant the cookie before resolving
+                    // so the next JS navigation actually carries it.
+                    guard let webView = self?.webView else {
+                        call.reject("WebView unavailable for cookie install")
+                        return
+                    }
+                    SessionCookieInstaller.install(
+                        token: sessionToken,
+                        server: baseURL,
+                        into: webView
+                    ) {
+                        call.resolve(["sessionToken": sessionToken])
+                    }
                 }.resume()
             }
 

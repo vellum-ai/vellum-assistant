@@ -37,8 +37,12 @@ import { syncOnboardingUser, clearOnboardingFlags } from "@/lib/onboarding-clean
 import { clearOrganization } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
 import { useEventBusStore } from "@/stores/event-bus-store";
-import { isNativePlatform, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
-import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric";
+import { deriveAuthBaseURL, isNativePlatform } from "@/runtime/native-auth";
+import {
+  installBiometricSessionCookie,
+  isBiometricEnabled,
+  retrieveBiometricToken,
+} from "@/runtime/native-biometric";
 
 export interface AuthUser {
   id: string | null;
@@ -168,14 +172,13 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       console.error("auth.initSession failed", err);
     }
 
-    // Biometric recovery: on iOS, the session cookie may have been lost
-    // when WKWebView was killed. Try to restore from Keychain via Face ID.
+    // Biometric recovery: only reached when the persistent session
+    // cookie has expired or been cleared (e.g. user wiped Safari data).
     if (isNativePlatform() && isBiometricEnabled()) {
       try {
         const token = await retrieveBiometricToken();
         if (token) {
-          installSessionCookies(token);
-          await waitForNativeSessionCookie();
+          await installBiometricSessionCookie(token, deriveAuthBaseURL());
           const retryResult = await getSession();
           if (retryResult.ok && retryResult.data.user) {
             const user = toAuthUser(retryResult.data.user);

@@ -6,7 +6,6 @@ import {
   startProviderRedirect,
 } from "@/domains/account/social-auth";
 import { sanitizeReturnTo } from "@/domains/account/return-to";
-import { getSession } from "@/lib/auth/allauth-client";
 import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biometric";
 import { routes } from "@/utils/routes";
 
@@ -74,10 +73,11 @@ export function useIsNativePlatform(): boolean {
 
 /**
  * Run the native login flow end to end. On success the Django session
- * cookie is installed into the WKWebView's cookie jar and the page is
- * navigated to `returnTo` (sanitized) or `/assistant`, so `AuthProvider`
- * re-fetches `/_allauth/browser/v1/auth/session` and renders the
- * authenticated app at the right destination.
+ * cookie is installed into the WKWebView's cookie jar (by the Swift
+ * plugin, before the promise resolves) and the page is navigated to
+ * `returnTo` (sanitized) or `/assistant`, so `AuthProvider` re-fetches
+ * `/_allauth/browser/v1/auth/session` and renders the authenticated app
+ * at the right destination.
  *
  * Throws on user cancellation (`USER_CANCELLED`) and any other error; the
  * caller decides whether to surface or swallow.
@@ -95,39 +95,6 @@ export async function startNativeLogin(options?: {
     ...(options?.providerHint ? { providerHint: options.providerHint } : {}),
   });
 
-  // `document.cookie` can't set HttpOnly, but Django validates the
-  // session by DB lookup — the HttpOnly flag is client-side only.
-  //
-  // We set BOTH `sessionid` (dev) and `__Secure-sessionid` (prod) so
-  // the same code works across environments without runtime host
-  // sniffing. Whichever name the server is configured to read, it
-  // finds. The `__Secure-` prefix has browser-enforced rules: HTTPS
-  // origin + `Secure` attribute, both of which apply here.
-  //
-  // Intentionally NOT using `WKHTTPCookieStore.setCookie()` on the
-  // Swift side — that was the spike's dead end. The JS-side cookie is
-  // enough.
-  installSessionCookies(sessionToken);
-
-  // iOS WKWebView async-flushes `document.cookie` writes to its
-  // `WKHTTPCookieStore`. Without a synchronization step, the subsequent
-  // hard navigation can race the flush and the request to `/assistant`
-  // goes out without the session cookie — Django sees an anonymous user,
-  // `AuthProvider` redirects back to `/account/login`, and the user is
-  // dumped at the login screen even though auth itself succeeded.
-  //
-  // Probe `/_allauth/browser/v1/auth/session` until the server agrees
-  // we're authenticated. This both (a) forces WKWebView to flush the
-  // cookie store so subsequent requests carry the cookie and (b) confirms
-  // Django actually recognized it before we navigate.
-  //
-  // The biometric branch below incidentally awaited enough async work
-  // to mask the race for biometrics-enabled users, which is why this
-  // bug only reproduces consistently when biometrics is off.
-  if (isNativePlatform()) {
-    await waitForNativeSessionCookie();
-  }
-
   // Persist the token in the Keychain for biometric session recovery.
   // Respects the user's opt-out preference; storeBiometricToken is also
   // a no-op if biometrics are unavailable on the device.
@@ -144,45 +111,6 @@ export async function startNativeLogin(options?: {
     DEFAULT_POST_AUTH_DESTINATION,
   );
   window.location.href = destination;
-}
-
-/**
- * Block until the just-written session cookie is reachable to Django.
- *
- * Polls `getSession()` with backoff. Each call is a real same-origin
- * fetch with `credentials: "include"`, so iOS WKWebView has to send the
- * cookie from its store — if `document.cookie` hasn't flushed yet, the
- * server returns anonymous and we retry until it does.
- *
- * If every attempt fails we still fall through and let the navigation
- * proceed; the post-nav `AuthProvider` may succeed once the store
- * finally settles, and a stuck loop here would block the user worse
- * than a possible re-login.
- */
-export async function waitForNativeSessionCookie(): Promise<void> {
-  const MAX_ATTEMPTS = 6;
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    try {
-      const result = await getSession();
-      if (result.ok && result.data.user) {
-        return;
-      }
-    } catch {
-      // Transient network errors fall through to the backoff.
-    }
-    await new Promise((resolve) => setTimeout(resolve, 50 * (attempt + 1)));
-  }
-}
-
-/**
- * Install Django session cookies for both dev and prod environments.
- * Sets both `sessionid` (dev) and `__Secure-sessionid` (prod) so the
- * same code works across environments without runtime host sniffing.
- */
-export function installSessionCookies(sessionToken: string): void {
-  const cookieAttrs = "path=/; domain=.vellum.ai; secure; samesite=lax";
-  document.cookie = `sessionid=${sessionToken}; ${cookieAttrs}`;
-  document.cookie = `__Secure-sessionid=${sessionToken}; ${cookieAttrs}`;
 }
 
 /**
