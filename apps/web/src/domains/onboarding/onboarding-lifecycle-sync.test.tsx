@@ -130,6 +130,7 @@ mock.module("@/domains/onboarding/prefs", () => ({
   readAiDataConsent: () => true,
   readOnboardingCompleted: () => onboardingCompleted,
   readSelectedVersion: () => null,
+  readShareAnalytics: () => true,
   readTosAccepted: () => true,
   clearOnboardingCompleted: mock(() => {}),
   useOnboardingCompleted: () =>
