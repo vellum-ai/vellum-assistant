@@ -8,13 +8,7 @@ import {
 } from "../lib/assistant-config.js";
 import { dockerResourceNames, wakeContainers } from "../lib/docker.js";
 import { seedGuardianTokenFromSiblingEnv } from "../lib/guardian-token.js";
-import {
-  isProcessHealthy,
-  isVellumProcess,
-  stopProcess,
-  stopProcessByPidFile,
-} from "../lib/process";
-import { waitForDaemonReady } from "../lib/http-client";
+import { resolveProcessState, stopProcessByPidFile } from "../lib/process";
 import {
   generateLocalSigningKey,
   isAssistantWatchModeAvailable,
@@ -91,65 +85,27 @@ export async function wake(): Promise<void> {
 
   const pidFile = getDaemonPidPath(resources);
 
-  // Check if daemon is already running and healthy
   let daemonRunning = false;
-  const daemonStatus = await isProcessHealthy(pidFile, resources.daemonPort);
-  if (daemonStatus.alive) {
-    if (!daemonStatus.healthy) {
-      // The process may still be starting up (fresh installs can take up to
-      // 60s). Wait briefly before concluding it is hung.
-      const becameHealthy = await waitForDaemonReady(
-        resources.daemonPort,
-        10_000,
+  const daemonState = await resolveProcessState(
+    pidFile,
+    resources.daemonPort,
+    "Assistant",
+  );
+  if (daemonState.status === "healthy") {
+    if (watch && isAssistantWatchModeAvailable()) {
+      console.log(
+        `Assistant running (pid ${daemonState.pid}) — restarting in watch mode...`,
       );
-      if (becameHealthy) {
-        if (watch) {
-          // Process recovered — but caller wants watch mode, so fall through
-          // to the watch-mode restart path below.
-          if (!isAssistantWatchModeAvailable()) {
-            daemonRunning = true;
-            console.log(
-              `Assistant running (pid ${daemonStatus.pid}) — watch mode not available (no source files). Keeping existing process.`,
-            );
-          } else {
-            console.log(
-              `Assistant running (pid ${daemonStatus.pid}) — restarting in watch mode...`,
-            );
-            await stopProcessByPidFile(pidFile, "assistant");
-          }
-        } else {
-          daemonRunning = true;
-          console.log(`Assistant running (pid ${daemonStatus.pid}).`);
-        }
-      } else if (!isVellumProcess(daemonStatus.pid!)) {
-        console.log(
-          `Stale PID file (pid ${daemonStatus.pid} is not a Vellum process) — cleaning up...`,
-        );
-      } else {
-        console.log(
-          `Assistant process alive (pid ${daemonStatus.pid}) but not responding — killing and restarting...`,
-        );
-        await stopProcess(daemonStatus.pid!, "assistant");
-      }
-    } else if (watch) {
-      // Restart in watch mode — but only if source files are available.
-      // Watch mode requires bun --watch with .ts sources; packaged desktop
-      // builds only have a compiled binary. Stopping the daemon without a
-      // viable watch-mode path would leave the user with no running assistant.
-      if (!isAssistantWatchModeAvailable()) {
-        daemonRunning = true;
-        console.log(
-          `Assistant running (pid ${daemonStatus.pid}) — watch mode not available (no source files). Keeping existing process.`,
-        );
-      } else {
-        console.log(
-          `Assistant running (pid ${daemonStatus.pid}) — restarting in watch mode...`,
-        );
-        await stopProcessByPidFile(pidFile, "assistant");
-      }
+      await stopProcessByPidFile(pidFile, "assistant");
     } else {
       daemonRunning = true;
-      console.log(`Assistant already running (pid ${daemonStatus.pid}).`);
+      if (watch) {
+        console.log(
+          `Assistant running (pid ${daemonState.pid}) — watch mode not available (no source files). Keeping existing process.`,
+        );
+      } else {
+        console.log(`Assistant already running (pid ${daemonState.pid}).`);
+      }
     }
   }
 
@@ -195,45 +151,29 @@ export async function wake(): Promise<void> {
   {
     const vellumDir = join(resources.instanceDir, ".vellum");
     const gatewayPidFile = join(vellumDir, "gateway.pid");
-    const gatewayStatus = await isProcessHealthy(
+    const gatewayState = await resolveProcessState(
       gatewayPidFile,
       resources.gatewayPort,
+      "Gateway",
     );
-    if (gatewayStatus.alive && gatewayStatus.healthy) {
-      if (watch) {
-        // Guard gateway restart separately: check gateway source availability.
-        if (!isGatewayWatchModeAvailable()) {
+    if (gatewayState.status === "healthy") {
+      if (watch && isGatewayWatchModeAvailable()) {
+        console.log(
+          `Gateway running (pid ${gatewayState.pid}) — restarting in watch mode...`,
+        );
+        await stopProcessByPidFile(gatewayPidFile, "gateway");
+        await startGateway(watch, resources, { signingKey });
+      } else {
+        if (watch) {
           console.log(
-            `Gateway running (pid ${gatewayStatus.pid}) — watch mode not available (no source files). Keeping existing process.`,
+            `Gateway running (pid ${gatewayState.pid}) — watch mode not available (no source files). Keeping existing process.`,
           );
         } else {
-          console.log(
-            `Gateway running (pid ${gatewayStatus.pid}) — restarting in watch mode...`,
-          );
-          await stopProcessByPidFile(gatewayPidFile, "gateway");
-          await startGateway(watch, resources, { signingKey });
+          console.log(`Gateway already running (pid ${gatewayState.pid}).`);
         }
-      } else {
-        console.log(`Gateway already running (pid ${gatewayStatus.pid}).`);
       }
     } else {
-      let gatewayStartNeeded = true;
-      if (gatewayStatus.alive && !gatewayStatus.healthy) {
-        // Brief wait — gateway may still be initializing.
-        const gwReady = await waitForDaemonReady(resources.gatewayPort, 10_000);
-        if (gwReady) {
-          console.log(`Gateway already running (pid ${gatewayStatus.pid}).`);
-          gatewayStartNeeded = false;
-        } else {
-          console.log(
-            `Gateway process alive (pid ${gatewayStatus.pid}) but not responding — killing and restarting...`,
-          );
-          await stopProcessByPidFile(gatewayPidFile, "gateway");
-        }
-      }
-      if (gatewayStartNeeded) {
-        await startGateway(watch, resources, { signingKey });
-      }
+      await startGateway(watch, resources, { signingKey });
     }
   }
 
