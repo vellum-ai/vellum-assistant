@@ -203,6 +203,31 @@ describe("callManagedSearchProxy", () => {
     });
   });
 
+  test("preserves insufficient-balance platform errors", async () => {
+    mockClient!.fetch = mock(async () => {
+      return new Response(JSON.stringify({ detail: "Insufficient balance" }), {
+        status: 402,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const result = await callManagedSearchProxy("brave", {
+      method: "GET",
+      path: "/res/v1/web/search",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      kind: "platform-error",
+      status: 402,
+      headers: {
+        "content-type": "application/json",
+      },
+      body: { detail: "Insufficient balance" },
+      message: "Managed search proxy returned status 402: Insufficient balance",
+    });
+  });
+
   test("returns unavailable when platform context is missing", async () => {
     mockClient = null;
 
