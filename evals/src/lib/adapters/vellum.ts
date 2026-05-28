@@ -7,6 +7,7 @@ import type {
   AgentHatchInput,
   AgentMessage,
   BaseAgent,
+  WorkspaceFileWrite,
 } from "../adapter";
 import type { Profile } from "../profile";
 import type { TestSetupCommand } from "../setup-command";
@@ -175,6 +176,40 @@ function seedConversationCommand(containerSeedPath: string): string {
 function parseConversationKey(output: string): string | null {
   const match = output.match(/conversation key: ([^\s,]+)/);
   return match?.[1] ?? null;
+}
+
+/**
+ * Workspace path inside the assistant container. Pinned to
+ * `VELLUM_WORKSPACE_DIR` in `cli/src/lib/statefulset.ts`; if that
+ * static env value ever moves, this constant moves with it. Adapters
+ * deliberately do NOT import from `cli/src/` (see `evals/AGENTS.md`),
+ * so duplication here is intentional.
+ */
+const CONTAINER_WORKSPACE_DIR = "/workspace";
+
+/**
+ * Validate a workspace-relative path before staging a file. Rejects
+ * absolute paths (would escape the workspace root) and any segment
+ * equal to `..` (path-traversal escape). Empty paths are rejected so
+ * a typo can't write at the workspace root with an unnamed file.
+ */
+function assertSafeWorkspacePath(relPath: string): void {
+  if (relPath.length === 0) {
+    throw new Error("workspace path must be non-empty");
+  }
+  if (relPath.startsWith("/")) {
+    throw new Error(
+      `workspace path must be workspace-relative, got absolute path: ${relPath}`,
+    );
+  }
+  const segments = relPath.split("/");
+  for (const segment of segments) {
+    if (segment === "..") {
+      throw new Error(
+        `workspace path must not escape the workspace root: ${relPath}`,
+      );
+    }
+  }
 }
 
 export class VellumAgent implements BaseAgent {
@@ -414,6 +449,89 @@ export class VellumAgent implements BaseAgent {
         break;
       }
     }
+  }
+
+  /**
+   * Stage a file into the assistant container's workspace. Used by the
+   * file-on-disk injection contract in `runIngestAsk` — the runner
+   * writes the haystack here *before* sending the ingest message that
+   * tells the agent where to read it.
+   *
+   * Flow: write content to a host temp file → `docker cp` into the
+   * container at `${CONTAINER_WORKSPACE_DIR}/<path>`. Parent dirs are
+   * created in the container first so `docker cp` doesn't fail on a
+   * missing intermediate directory.
+   *
+   * Path safety: workspace-relative only. Absolute paths and `..`
+   * segments are rejected up front by `assertSafeWorkspacePath`.
+   */
+  async writeWorkspaceFile(input: WorkspaceFileWrite): Promise<void> {
+    this.assertHatched();
+    assertSafeWorkspacePath(input.path);
+    const stageDir = await mkdtemp(join(tmpdir(), "vellum-evals-workspace-"));
+    const stagePath = join(stageDir, "payload");
+    const containerPath = `${CONTAINER_WORKSPACE_DIR}/${input.path}`;
+    const containerParent = containerPath.slice(
+      0,
+      containerPath.lastIndexOf("/"),
+    );
+    try {
+      await writeFile(stagePath, input.content, "utf8");
+      // Create the destination parent dir inside the container so
+      // `docker cp` doesn't error on intermediate paths that don't
+      // exist yet (e.g. `inputs/longmemeval/<id>/`).
+      const mkdir = await this.runner.run("docker", [
+        "exec",
+        this.assistantContainerName,
+        "mkdir",
+        "-p",
+        containerParent,
+      ]);
+      assertSuccess(
+        mkdir,
+        `mkdir -p ${containerParent} for ${this.id} workspace file ${input.path}`,
+      );
+      const copy = await this.runner.run("docker", [
+        "cp",
+        stagePath,
+        `${this.assistantContainerName}:${containerPath}`,
+      ]);
+      assertSuccess(copy, `docker cp ${input.path} to ${this.id} workspace`);
+    } finally {
+      await rm(stageDir, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * Open a fresh conversation against the same agent. Persistent state
+   * (memory layer, workspace files, hatched container) survives — only
+   * the chat history resets so the next `send()` cannot see prior
+   * turns. Used by `runIngestAsk` to enforce the two-conversation
+   * contract: the question turn must not see the ingest transcript,
+   * only the memory layer's distillation of it.
+   *
+   * Invokes `assistant conversations new` (no `--content-file`) inside
+   * the container via `vellum exec`. Parses the generated conversation
+   * key from stdout and updates `this.conversationKey`.
+   */
+  async newConversation(): Promise<void> {
+    this.assertHatched();
+    const result = await this.runner.run(this.cliCommand, [
+      "exec",
+      this.id,
+      "--",
+      "assistant",
+      "conversations",
+      "new",
+    ]);
+    assertSuccess(result, `open new conversation for ${this.id}`);
+    const conversationKey = parseConversationKey(result.stdout);
+    if (!conversationKey) {
+      throw new Error(
+        `assistant conversations new for ${this.id} did not return a conversation key (stdout: ${result.stdout})`,
+      );
+    }
+    this.conversationKey = conversationKey;
   }
 
   events(): AsyncIterable<AgentEvent> {

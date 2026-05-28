@@ -55,8 +55,16 @@ class FakeRunner implements CommandRunner {
     opts?: RunOptions,
   ): Promise<CommandResult> {
     this.runs.push({ command, args, opts });
-    const script = args.at(-1) ?? "";
-    const stdout = script.includes("assistant conversations new")
+    // Two call shapes invoke `assistant conversations new` in the
+    // adapter:
+    //   1. `seed-conversation` builds a single shell script and
+    //      passes it as the last arg of `vellum exec -- sh -lc <script>`.
+    //   2. `newConversation()` passes the assistant CLI verb tokens
+    //      directly: `vellum exec <id> -- assistant conversations new`.
+    // Matching on the joined args string covers both without having
+    // to teach the runner each shape.
+    const joined = args.join(" ");
+    const stdout = joined.includes("assistant conversations new")
       ? "Created conversation: New Conversation (conv-123), conversation key: generated-key-123, seeded 2 messages\n"
       : "ok";
     return { exitCode: 0, stdout, stderr: "" };
@@ -436,6 +444,188 @@ describe("VellumAgent", () => {
     );
     expect(retireCalls).toHaveLength(1);
     expect(retireCalls[0][2]).toBe("eval-vellum-bare-x-20260524160000123-abcd");
+  });
+
+  // The two capability methods below back the LongMemEval-V2
+  // two-conversation runner (`runIngestAsk`). They both go through
+  // the assistant container — `writeWorkspaceFile` via `docker cp`
+  // into the `/workspace` mount, `newConversation` via `vellum exec
+  // assistant conversations new` — so the FakeRunner trace asserts
+  // we shape those calls correctly without standing up Docker.
+
+  test("writeWorkspaceFile docker-mkdir's the parent and docker cp's the payload into the container workspace", async () => {
+    const runner = new FakeRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "lme-v2",
+      runId: "eval-write-1",
+    });
+    await agent.hatch();
+
+    const baseline = runner.runs.length;
+    await agent.writeWorkspaceFile!({
+      path: "inputs/longmemeval/q_001/haystack.jsonl",
+      content: '{"id":"t1"}\n',
+    });
+    const newRuns = runner.runs.slice(baseline);
+
+    // First new call: docker exec <container> mkdir -p <parent>
+    expect(newRuns[0].command).toBe("docker");
+    expect(newRuns[0].args.slice(0, 2)).toEqual([
+      "exec",
+      "eval-write-1-assistant",
+    ]);
+    expect(newRuns[0].args.slice(2)).toEqual([
+      "mkdir",
+      "-p",
+      "/workspace/inputs/longmemeval/q_001",
+    ]);
+
+    // Second new call: docker cp <stage> <container>:/workspace/<path>
+    expect(newRuns[1].command).toBe("docker");
+    expect(newRuns[1].args[0]).toBe("cp");
+    expect(newRuns[1].args[2]).toBe(
+      "eval-write-1-assistant:/workspace/inputs/longmemeval/q_001/haystack.jsonl",
+    );
+  });
+
+  test("writeWorkspaceFile rejects absolute paths", async () => {
+    const runner = new FakeRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "lme-v2",
+      runId: "eval-write-abs",
+    });
+    await agent.hatch();
+
+    await expect(
+      agent.writeWorkspaceFile!({ path: "/etc/passwd", content: "x" }),
+    ).rejects.toThrow(/absolute path/);
+  });
+
+  test("writeWorkspaceFile rejects parent-traversal segments", async () => {
+    const runner = new FakeRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "lme-v2",
+      runId: "eval-write-traverse",
+    });
+    await agent.hatch();
+
+    await expect(
+      agent.writeWorkspaceFile!({
+        path: "inputs/../../etc/passwd",
+        content: "x",
+      }),
+    ).rejects.toThrow(/escape the workspace root/);
+  });
+
+  test("writeWorkspaceFile rejects an empty path", async () => {
+    const runner = new FakeRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "lme-v2",
+      runId: "eval-write-empty",
+    });
+    await agent.hatch();
+
+    await expect(
+      agent.writeWorkspaceFile!({ path: "", content: "x" }),
+    ).rejects.toThrow(/non-empty/);
+  });
+
+  test("writeWorkspaceFile throws when the agent has not been hatched", async () => {
+    const runner = new FakeRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "lme-v2",
+      runId: "eval-write-prehatch",
+    });
+
+    await expect(
+      agent.writeWorkspaceFile!({ path: "a.txt", content: "x" }),
+    ).rejects.toThrow(/has not been hatched/);
+  });
+
+  test("newConversation runs `vellum exec assistant conversations new` and updates the conversation key", async () => {
+    const runner = new FakeRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "lme-v2",
+      runId: "eval-newconvo",
+    });
+    await agent.hatch();
+    const beforeKey = agent.conversationKey;
+
+    await agent.newConversation!();
+
+    const newConvoRun = runner.runs.at(-1)!;
+    expect(newConvoRun.command).toBe("vellum");
+    expect(newConvoRun.args).toEqual([
+      "exec",
+      "eval-newconvo",
+      "--",
+      "assistant",
+      "conversations",
+      "new",
+    ]);
+    expect(agent.conversationKey).toBe("generated-key-123");
+    expect(agent.conversationKey).not.toBe(beforeKey);
+  });
+
+  test("newConversation throws if no conversation key is found in the CLI output", async () => {
+    // Custom runner: same shape as FakeRunner but returns stdout
+    // that lacks the `conversation key:` token, simulating a CLI
+    // version drift or a malformed output line.
+    class SilentRunner extends FakeRunner {
+      override async run(
+        command: string,
+        args: string[],
+        opts?: RunOptions,
+      ): Promise<CommandResult> {
+        this.runs.push({ command, args, opts });
+        if (args[0] === "exec" && args.includes("conversations")) {
+          return {
+            exitCode: 0,
+            stdout: "Created conversation: (no-key)\n",
+            stderr: "",
+          };
+        }
+        return { exitCode: 0, stdout: "ok", stderr: "" };
+      }
+    }
+    const runner = new SilentRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "lme-v2",
+      runId: "eval-newconvo-bad",
+    });
+    await agent.hatch();
+
+    await expect(agent.newConversation!()).rejects.toThrow(
+      /did not return a conversation key/,
+    );
+  });
+
+  test("newConversation throws when the agent has not been hatched", async () => {
+    const runner = new FakeRunner();
+    const agent = new VellumAgent({
+      runner,
+      profile,
+      testId: "lme-v2",
+      runId: "eval-newconvo-prehatch",
+    });
+
+    await expect(agent.newConversation!()).rejects.toThrow(
+      /has not been hatched/,
+    );
   });
 });
 

@@ -30,6 +30,23 @@ export interface AgentHatchInput {
   runId?: string;
 }
 
+/**
+ * Input for `BaseAgent.writeWorkspaceFile`. The path is resolved
+ * *relative to the agent's workspace root* — adapters MUST reject any
+ * path that escapes the workspace (e.g. `../`, absolute paths).
+ *
+ * Used by file-on-disk injection contracts where the runner needs to
+ * stage a payload (haystack, fixtures, …) into the agent's view of
+ * disk *before* sending the message that asks it to read them. The
+ * LongMemEval-V2 two-conversation flow is the first concrete user.
+ */
+export interface WorkspaceFileWrite {
+  /** Workspace-relative path. Must not escape the workspace root. */
+  path: string;
+  /** Bytes to write. UTF-8 strings are written as-is. */
+  content: string;
+}
+
 export interface BaseAgent {
   readonly id: string;
   readonly conversationKey: string;
@@ -39,4 +56,23 @@ export interface BaseAgent {
   events(): AsyncIterable<AgentEvent>;
   readUsageRecords?(): Promise<Array<Record<string, unknown>>>;
   shutdown(): Promise<void>;
+  /**
+   * Write a file into the agent's workspace. Optional capability:
+   * adapters that don't expose a writable workspace boundary may omit
+   * this method, and `runIngestAsk` will throw a clear "this profile's
+   * adapter doesn't support workspace file injection" error if a caller
+   * tries to use it.
+   */
+  writeWorkspaceFile?(input: WorkspaceFileWrite): Promise<void>;
+  /**
+   * Open a fresh conversation against the same agent process. The
+   * agent's persistent state (memory layer, workspace files, hatched
+   * container) survives; only the chat history resets. After this
+   * resolves, `conversationKey` reflects the new conversation.
+   *
+   * Optional capability — adapters that don't expose multi-conversation
+   * flows may omit. `runIngestAsk` checks for this method up-front and
+   * throws a clear error if it's missing.
+   */
+  newConversation?(): Promise<void>;
 }
