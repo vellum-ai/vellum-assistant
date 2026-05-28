@@ -674,6 +674,12 @@ function walkForSkills(
       continue;
     }
 
+    // Skip dot-prefixed directories during *recursion* only. The test fixture
+    // `.linked-targets/` is the canonical example: symlink targets staged
+    // inside the skills root but addressed via a symlink at the top level. We
+    // already accept them as leaves above if they directly hold SKILL.md.
+    if (entry.name.startsWith(".")) continue;
+
     if (depth < MAX_SKILL_DEPTH) {
       try {
         walkForSkills(directoryPath, depth + 1, out);

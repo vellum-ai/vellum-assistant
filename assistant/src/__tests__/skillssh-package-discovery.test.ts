@@ -9,7 +9,12 @@ const originalFetch = global.fetch;
 describe("listPackageSkills", () => {
   it("discovers skills in the conventional skills/ layout", async () => {
     const mockFetch = mock((url: string) => {
-      if (url.includes("/contents/skills?") || url.includes("/contents/skills'")) {
+      // Match the directory listing for `skills/`. The impl URL is either
+      // `.../contents/skills` (no ref) or `.../contents/skills?ref=…` (with ref).
+      const isSkillsDirListing =
+        url.endsWith("/contents/skills") ||
+        url.includes("/contents/skills?");
+      if (isSkillsDirListing) {
         // Directory listing for skills/
         return Promise.resolve(
           new Response(
