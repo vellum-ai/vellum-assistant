@@ -561,7 +561,7 @@ export async function installPackage(
   };
 
   // Install each skill with namespaced path: owner/repo/skill-name
-  for (const { slug, dirPath } of discovered) {
+  for (const { slug } of discovered) {
     const skillId = `${packageKey}/${slug}`;
 
     try {

@@ -1,7 +1,7 @@
-import { describe, expect, it, mock, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, mkdtempSync, readFileSync,rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach,beforeEach, describe, expect, it, mock } from "bun:test";
 
 /**
  * Integration test for the package install flow.

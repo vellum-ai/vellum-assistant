@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from "bun:test";
-import type { GitHubTreeEntry } from "../skills/skillssh-registry.js";
+
 import { listPackageSkills } from "../skills/skillssh-package-discovery.js";
+import type { GitHubTreeEntry } from "../skills/skillssh-registry.js";
 
 // Mock fetch globally for testing
 const originalFetch = global.fetch;

@@ -1,4 +1,4 @@
-import { type GitHubTreeEntry, githubHeaders } from "./skillssh-registry.js";
+import { githubHeaders,type GitHubTreeEntry } from "./skillssh-registry.js";
 
 export interface DiscoveredSkill {
   slug: string; // e.g. "brainstorming"
