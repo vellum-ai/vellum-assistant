@@ -89,6 +89,24 @@ mock.module("../prompts/persona-resolver.js", () => ({
   resolveGuardianPersona: () => mockPersona.guardianPersona,
 }));
 
+const mockOauthConnections: Array<{
+  provider: string;
+  status: string;
+  accountInfo?: string | null;
+}> = [];
+const mockManagedConnections: Array<{
+  provider: string;
+  accountInfo?: string | null;
+}> = [];
+
+mock.module("../oauth/oauth-store.js", () => ({
+  listConnections: () => mockOauthConnections,
+}));
+
+mock.module("../credential-execution/managed-catalog.js", () => ({
+  getCachedManagedConnections: () => mockManagedConnections,
+}));
+
 // Import after mock
 const { buildSystemPrompt, ensurePromptFiles, stripCommentLines } =
   await import("../prompts/system-prompt.js");
@@ -100,6 +118,8 @@ describe("buildSystemPrompt", () => {
     // no-guardian baseline.
     mockPersona.userSlug = null;
     mockPersona.guardianPersona = null;
+    mockOauthConnections.length = 0;
+    mockManagedConnections.length = 0;
   });
 
   afterEach(() => {
@@ -150,6 +170,27 @@ describe("buildSystemPrompt", () => {
     const identityIdx = result.indexOf("# Identity\n\nI am Vellum.");
     const soulIdx = result.indexOf("# Soul\n\nBe thoughtful.");
     expect(identityIdx).toBeLessThan(soulIdx);
+  });
+
+  test("renders runtime-computed dynamic sections after workspace-only static sections", () => {
+    const systemPromptsDir = join(TEST_DIR, "prompts", "system");
+    mkdirSync(systemPromptsDir, { recursive: true });
+    writeFileSync(
+      join(systemPromptsDir, "99-org-policy.md"),
+      "# Org policy\n\nMostly static workspace policy.\n",
+    );
+    mockManagedConnections.push({
+      provider: "google",
+      accountInfo: "user@example.com",
+    });
+
+    const result = buildSystemPrompt();
+
+    const staticIdx = result.indexOf("Mostly static workspace policy.");
+    const dynamicIdx = result.indexOf("# Connected Services");
+    expect(staticIdx).toBeGreaterThan(-1);
+    expect(dynamicIdx).toBeGreaterThan(-1);
+    expect(dynamicIdx).toBeGreaterThan(staticIdx);
   });
 
   test("side-chain prompt options still include IDENTITY.md and SOUL.md", () => {
