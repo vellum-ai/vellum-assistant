@@ -10385,6 +10385,197 @@ paths:
           required: true
           schema:
             type: string
+  /v1/home/feed/query:
+    post:
+      operationId: home_feed_query_post
+      summary: List home feed items with filters
+      description:
+        Return home feed items filtered by status, urgency, category, conversation, and date range. Defaults to
+        excluding dismissed items. Used by the assistant CLI to inspect what notifications have been surfaced to the
+        user.
+      tags:
+        - home
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        type:
+                          type: string
+                          const: notification
+                        priority:
+                          type: integer
+                          minimum: 0
+                          maximum: 100
+                        title:
+                          type: string
+                        summary:
+                          type: string
+                        timestamp:
+                          type: string
+                        status:
+                          default: new
+                          type: string
+                          enum:
+                            - new
+                            - seen
+                            - acted_on
+                            - dismissed
+                        expiresAt:
+                          type: string
+                        actions:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              label:
+                                type: string
+                              prompt:
+                                type: string
+                            required:
+                              - id
+                              - label
+                              - prompt
+                            additionalProperties: false
+                        urgency:
+                          type: string
+                          enum:
+                            - low
+                            - medium
+                            - high
+                            - critical
+                        conversationId:
+                          type: string
+                        detailPanel:
+                          type: object
+                          properties:
+                            kind:
+                              type: string
+                              enum:
+                                - emailDraft
+                                - documentPreview
+                                - permissionChat
+                                - paymentAuth
+                                - toolPermission
+                                - updatesList
+                          required:
+                            - kind
+                          additionalProperties: false
+                        category:
+                          type: string
+                          enum:
+                            - security
+                            - scheduling
+                            - background
+                            - email
+                            - system
+                        noteworthy:
+                          type: boolean
+                        fromAssistant:
+                          type: boolean
+                        metadata:
+                          type: object
+                          propertyNames:
+                            type: string
+                          additionalProperties: {}
+                        createdAt:
+                          type: string
+                      required:
+                        - id
+                        - type
+                        - priority
+                        - summary
+                        - timestamp
+                        - status
+                        - createdAt
+                      additionalProperties: false
+                  total:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  returned:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  hasMore:
+                    type: boolean
+                  updatedAt:
+                    type: string
+                required:
+                  - items
+                  - total
+                  - returned
+                  - hasMore
+                  - updatedAt
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                includeDismissed:
+                  type: boolean
+                statuses:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - new
+                      - seen
+                      - acted_on
+                      - dismissed
+                before:
+                  type: string
+                after:
+                  type: string
+                urgencies:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - low
+                      - medium
+                      - high
+                      - critical
+                categories:
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - security
+                      - scheduling
+                      - background
+                      - email
+                      - system
+                conversationId:
+                  type: string
+                fromAssistant:
+                  type: boolean
+                noteworthy:
+                  type: boolean
+                limit:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 200
+                offset:
+                  type: integer
+                  minimum: 0
+                  maximum: 9007199254740991
+              additionalProperties: false
   /v1/home/state:
     get:
       operationId: home_state_get

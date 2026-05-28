@@ -20,13 +20,9 @@ import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
-import { coreAppProxyTools } from "../tools/apps/definitions.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
-import {
-  getAllToolDefinitions,
-  getMcpToolDefinitions,
-} from "../tools/registry.js";
+import { getMcpToolDefinitions } from "../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
@@ -40,7 +36,6 @@ import {
   type ToolExecutionResult,
   type ToolLifecycleEventHandler,
 } from "../tools/types.js";
-import { allUiSurfaceTools } from "../tools/ui-surface/definitions.js";
 import { getLogger } from "../util/logger.js";
 import {
   projectSkillTools,
@@ -82,20 +77,6 @@ import {
 } from "./switch-inference-profile-tool.js";
 import type { ToolSetupContext } from "./tool-setup-types.js";
 export type { ToolSetupContext } from "./tool-setup-types.js";
-
-// ── buildToolDefinitions ─────────────────────────────────────────────
-
-/**
- * Collect all tool definitions for the agent loop: built-in tools,
- * UI surface proxy tools, and app proxy tools.
- */
-export function buildToolDefinitions(): ToolDefinition[] {
-  return [
-    ...getAllToolDefinitions(),
-    ...allUiSurfaceTools,
-    ...coreAppProxyTools,
-  ];
-}
 
 // ── createToolExecutor ───────────────────────────────────────────────
 
