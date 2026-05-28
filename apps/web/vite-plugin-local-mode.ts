@@ -4,6 +4,7 @@ import http from "node:http";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import type { Duplex } from "node:stream";
 import type { Plugin, Connect } from "vite";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
@@ -123,6 +124,18 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(retireMiddleware());
       server.middlewares.use(guardianTokenMiddleware(env));
       server.middlewares.use(gatewayProxyMiddleware());
+
+      // Connect middleware only handles HTTP requests; WebSocket
+      // upgrades bypass the middleware pipeline entirely and are
+      // dispatched via the underlying httpServer's `'upgrade'` event.
+      // Without this listener Vite would handle (and reject) browser
+      // WS upgrades to `/assistant/__gateway/:port/...`, so the live
+      // voice client could never connect to the local Bun gateway in
+      // local mode. `server.httpServer` is null when Vite runs in
+      // middleware mode (we don't use that), but be defensive.
+      if (server.httpServer) {
+        server.httpServer.on("upgrade", gatewayUpgradeHandler);
+      }
     },
   };
 }
@@ -713,4 +726,89 @@ function gatewayProxyMiddleware(): Connect.NextHandleFunction {
     // Pipe the incoming request body to the proxy request (supports POST, etc.)
     req.pipe(proxyReq);
   };
+}
+
+/**
+ * `'upgrade'` listener that tunnels WebSocket upgrades for paths
+ * matching `/assistant/__gateway/:port/*` (or `/__gateway/:port/*`)
+ * to the local Bun gateway at `http://127.0.0.1:{port}{rest}`.
+ *
+ * Why this exists: Connect/Vite middleware only handles HTTP requests
+ * that arrive through `httpServer.on('request', ...)`. WebSocket
+ * upgrades are dispatched separately via `httpServer.on('upgrade', ...)`
+ * and bypass the middleware stack entirely. Without an upgrade
+ * listener that mirrors the HTTP proxy in `gatewayProxyMiddleware`,
+ * browser WS upgrades to `/assistant/__gateway/:port/v1/live-voice`
+ * (and any future gateway WS endpoints) would terminate at Vite
+ * instead of being forwarded to the local Bun gateway, so live voice
+ * sessions could never connect in local mode.
+ *
+ * Implementation note: we issue a fresh `http.request` to 127.0.0.1
+ * with the original `Upgrade` / `Connection` / `Sec-WebSocket-*`
+ * headers, listen for the upstream `'upgrade'` event, replay the
+ * upstream HTTP 101 response line + headers onto the client socket,
+ * and then bidirectionally pipe the two sockets. This matches the
+ * minimal-dependency approach used by the HTTP proxy and avoids
+ * adding an external WS-proxy library to dev tooling.
+ */
+function gatewayUpgradeHandler(
+  req: http.IncomingMessage,
+  clientSocket: Duplex,
+  head: Buffer,
+): void {
+  const match = req.url?.match(GATEWAY_PATTERN);
+  if (!match) return;
+
+  const port = parseInt(match[1]!, 10);
+  if (port < 1024 || port > 65535) {
+    clientSocket.destroy();
+    return;
+  }
+  const restPath = match[2] || "/";
+
+  const proxyReq = http.request({
+    hostname: "127.0.0.1",
+    port,
+    path: restPath,
+    method: req.method ?? "GET",
+    headers: { ...req.headers, host: `127.0.0.1:${port}` },
+  });
+
+  proxyReq.on(
+    "upgrade",
+    (proxyRes: http.IncomingMessage, upstreamSocket: Duplex, upstreamHead: Buffer) => {
+      // Replay the upstream 101 Switching Protocols response onto the
+      // browser socket: status line, headers, blank line, then any
+      // body bytes that came along with the upgrade ack.
+      const statusLine = `HTTP/1.1 ${proxyRes.statusCode ?? 101} ${proxyRes.statusMessage ?? "Switching Protocols"}\r\n`;
+      const headerLines: string[] = [];
+      for (const [key, value] of Object.entries(proxyRes.headers)) {
+        if (value === undefined) continue;
+        if (Array.isArray(value)) {
+          for (const v of value) headerLines.push(`${key}: ${v}`);
+        } else {
+          headerLines.push(`${key}: ${value}`);
+        }
+      }
+      const responseHead = `${statusLine}${headerLines.join("\r\n")}\r\n\r\n`;
+      clientSocket.write(responseHead);
+      if (upstreamHead.length > 0) clientSocket.write(upstreamHead);
+
+      // Bidirectional pipe. Once either side closes the underlying
+      // socket, the other end will see EOF and tear down naturally.
+      upstreamSocket.on("error", () => clientSocket.destroy());
+      clientSocket.on("error", () => upstreamSocket.destroy());
+      upstreamSocket.pipe(clientSocket);
+      clientSocket.pipe(upstreamSocket);
+    },
+  );
+
+  proxyReq.on("error", () => {
+    clientSocket.destroy();
+  });
+
+  // Forward any pre-upgrade bytes the client already sent, then end
+  // the request side of the proxy connection (upgrades have no body).
+  if (head.length > 0) proxyReq.write(head);
+  proxyReq.end();
 }
