@@ -128,6 +128,13 @@ const CATALOG_RECORD: CatalogRecord = {
       "Picks which leaves of the topic tree to open for the next agent turn by routing over a cache-warm static leaf block.",
     domain: "memory",
   },
+  memoryV3SelectL2: {
+    id: "memoryV3SelectL2",
+    displayName: "Memory V3 L2 Selector",
+    description:
+      "Selects which pages within an opened topic-tree leaf are relevant for the next agent turn, one bounded call per leaf over a cache-warm static page block.",
+    domain: "memory",
+  },
   memoryV2Consolidation: {
     id: "memoryV2Consolidation",
     displayName: "Memory V2 Consolidation",
