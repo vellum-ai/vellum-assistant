@@ -153,9 +153,8 @@ function maybeReuseEmptyDocument(
   const update = updateDocumentContent(surfaceId, initialContent, "replace");
   if (!update.success) return null;
 
-  // Mirror the create-new path's saveDocument → addDocumentConversation
-  // invariant so the deduped doc stays discoverable from this conversation
-  // even if the junction row was removed out of band.
+  // Defensive idempotent insert (saveDocument from the create-new path already
+  // ran addDocumentConversation; INSERT OR IGNORE makes this a safe no-op).
   addDocumentConversation(surfaceId, context.conversationId);
 
   if (context.sendToClient) {
