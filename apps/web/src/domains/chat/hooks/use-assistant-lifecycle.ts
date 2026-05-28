@@ -20,7 +20,7 @@ import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import { getSelectedAssistant, getLocalGatewayUrl, isLocalMode } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
-import { routes } from "@/utils/routes";
+
 
 const POLL_INTERVAL_MS = 3000;
 const MAX_HATCH_RETRIES = 3;
