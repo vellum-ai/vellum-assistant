@@ -430,9 +430,11 @@ the file up one level and remove the empty directory. Directories
 exist to organize multiple files, not to wrap a single file.
 
 When flattening, verify the file lands in the **correct parent**
-directory, not just one level up. A Zustand store that was nested in
-`lib/environment/environment-store.ts` should move to `stores/`, not
-just flatten to `lib/`.
+directory, not just one level up. For example, a Zustand store nested
+in `domains/settings/stores/theme-store.ts` should move to the
+domain root (`domains/settings/theme-store.ts`) or to top-level
+`stores/` if it's cross-domain — not just flatten in place if the
+parent directory is wrong.
 
 ### Utility file naming within domains
 
