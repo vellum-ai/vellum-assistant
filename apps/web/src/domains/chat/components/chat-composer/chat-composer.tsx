@@ -23,6 +23,8 @@ import {
   VoiceInputButton,
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
+import { LiveVoiceButton } from "@/domains/voice/live-voice/live-voice-button";
+import { LiveVoiceOverlay } from "@/domains/voice/live-voice/live-voice-overlay";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -195,6 +197,30 @@ export interface ChatComposerProps {
   assistantId: string | null;
 
   /**
+   * Active conversation id. Required for `LiveVoiceButton` to bind the
+   * live voice session to a specific chat; the button reads its own
+   * gating (voice-mode flag + assistantId) internally, so passing
+   * `null`/`undefined` simply disables the button.
+   */
+  conversationId?: string | null;
+
+  /**
+   * Mounts `<LiveVoiceOverlay />` above the composer form when `true`.
+   * The form is wrapped in a `relative` container so the overlay's
+   * `absolute bottom-full` anchors directly above the composer rather
+   * than the surrounding page. The main chat sets this to `true`; the
+   * app-editing variant leaves it `false` so the overlay doesn't bleed
+   * into the chat-on-the-side surface.
+   *
+   * Defined here (not in `chat-route-content.tsx`) because the chat
+   * domain isn't permitted to import from `domains/voice` — the
+   * composer already owns voice-domain wiring (live + dictation), so
+   * rendering the overlay alongside the button keeps the cross-domain
+   * import contained.
+   */
+  showLiveVoiceOverlay?: boolean;
+
+  /**
    * Whether the currently-active inference model accepts image input.
    * When `false`, the AttachFileButton is disabled so users can't pick a
    * file that the provider would reject downstream (MiniMax, Fireworks
@@ -257,6 +283,8 @@ export function ChatComposer({
   onVoiceBeforeStart,
   onStopGenerating,
   assistantId,
+  conversationId,
+  showLiveVoiceOverlay = false,
   thresholdPickerSlot,
   contextWindowIndicatorSlot,
   noticesAboveFormSlot,
@@ -371,12 +399,20 @@ export function ChatComposer({
       {noticesAboveFormSlot}
       <Popover.Root open={emoji.show || slash.show}>
         <Popover.Anchor asChild>
-          <form
-            onSubmit={onSubmit}
-            className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${
-              hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"
-            }`}
-          >
+          {/* `relative` wrapper anchors the live voice overlay's
+              `absolute bottom-full` directly above the composer form —
+              since the overlay is out of flow, the wrapper's content
+              height collapses to the form's height, so `bottom: 100%`
+              of the wrapper sits flush against the top of the form. */}
+          <div className="relative">
+            {showLiveVoiceOverlay && <LiveVoiceOverlay />}
+            <form
+              onSubmit={onSubmit}
+              className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${
+                hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"
+              }`}
+            >
+
             <ChatAttachmentsStrip
               attachments={chatAttachments}
               onRemove={onRemoveAttachment}
@@ -663,6 +699,16 @@ export function ChatComposer({
                         }}
                       />
                     )}
+                    {/* Live voice (always-on) sits next to the batch
+                    dictation button. The button gates itself internally
+                    on the `voice-mode` flag + `assistantId`, so it's
+                    cheap to render unconditionally — it short-circuits
+                    to `null` when either is falsy. */}
+                    <LiveVoiceButton
+                      assistantId={assistantId}
+                      conversationId={conversationId ?? null}
+                      disabled={typingDisabled}
+                    />
                     {/* macOS parity: the send button is hidden during recording
                     and while transcription is being processed. Only the voice
                     button (mic / stop / spinner) is shown. */}
@@ -692,7 +738,8 @@ export function ChatComposer({
                 )}
               </div>
             </div>
-          </form>
+            </form>
+          </div>
         </Popover.Anchor>
         <Popover.Content
           side="top"

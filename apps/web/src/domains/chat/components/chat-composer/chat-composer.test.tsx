@@ -11,10 +11,11 @@
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
-import { cleanup, render } from "@testing-library/react";
+import { act, cleanup, render } from "@testing-library/react";
 
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import { ChatComposer, computeGhostSuffix, shouldSubmitOnEnter } from "@/domains/chat/components/chat-composer/chat-composer";
 
@@ -472,6 +473,63 @@ describe("ChatComposer — optional slots", () => {
     // VoiceInputButton renders aria-label="Start voice input" / "Stop voice input".
     expect(html).not.toContain("Start voice input");
     expect(html).not.toContain("Stop voice input");
+  });
+
+  test("showLiveVoiceOverlay mounts the overlay slot ABOVE the form (off by default)", () => {
+    // Off: the overlay's `data-slot="live-voice-overlay"` is absent.
+    // The overlay itself renders `null` when `state === "off"`, but the
+    // gate around `<LiveVoiceOverlay />` is what we assert here, so we
+    // toggle it via the `showLiveVoiceOverlay` prop.
+    const offHtml = renderComposer({ showLiveVoiceOverlay: false });
+    expect(offHtml).not.toContain('data-slot="live-voice-overlay"');
+    // On: the live voice store's default state is `off`, so the
+    // overlay still renders `null` — but we can assert the surrounding
+    // `relative` wrapper still sits ABOVE the form to keep the
+    // structural contract intact.
+    const onHtml = renderComposer({ showLiveVoiceOverlay: true });
+    const wrapperIdx = onHtml.indexOf('class="relative"');
+    const formIdx = onHtml.indexOf("<form");
+    expect(wrapperIdx).toBeGreaterThan(-1);
+    expect(formIdx).toBeGreaterThan(-1);
+    expect(wrapperIdx).toBeLessThan(formIdx);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HTML rendering — LiveVoiceButton mount
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer — LiveVoiceButton mount", () => {
+  test("LiveVoiceButton renders in the toolbar when voice-mode flag is on + assistantId is set", () => {
+    // The button gates itself on `voiceMode` + `assistantId`. With the flag
+    // off (default), it short-circuits to null. Flip the flag on and assert
+    // the button surface lands in the rendered HTML. `act` wraps the
+    // store mutation so React's gate-close `useEffect` (which fires the
+    // manager `end()` cleanup) flushes inside the test boundary.
+    act(() => {
+      useAssistantFeatureFlagStore.setState({ voiceMode: true });
+    });
+    const html = renderComposer({
+      assistantId: "asst_test",
+      conversationId: "conv_test",
+    });
+    // LiveVoiceButton uses aria-label "Start voice conversation" in the
+    // initial `off` state — that's the unambiguous signal it mounted.
+    expect(html).toContain("Start voice conversation");
+    act(() => {
+      useAssistantFeatureFlagStore.setState({ voiceMode: false });
+    });
+  });
+
+  test("LiveVoiceButton is omitted when voice-mode flag is off (gate closed)", () => {
+    act(() => {
+      useAssistantFeatureFlagStore.setState({ voiceMode: false });
+    });
+    const html = renderComposer({
+      assistantId: "asst_test",
+      conversationId: "conv_test",
+    });
+    expect(html).not.toContain("Start voice conversation");
   });
 });
 

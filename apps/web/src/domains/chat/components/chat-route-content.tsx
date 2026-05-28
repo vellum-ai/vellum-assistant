@@ -1345,6 +1345,7 @@ export function ChatRouteContent({
     onVoiceBeforeStart: handleVoiceBeforeStart,
     onStopGenerating: handleStopGenerating,
     assistantId,
+    conversationId: activeConversationId,
     modelSupportsVision: activeModelSupportsVision,
     onRecallLastMessage: phase === "idle" ? () => {
       const content = startEditing();
@@ -1549,7 +1550,11 @@ export function ChatRouteContent({
     );
   }
 
-  // Default: main chat content (with optional document panel)
+  // Default: main chat content (with optional document panel).
+  // `showLiveVoiceOverlay: true` mounts `<LiveVoiceOverlay />` above
+  // the composer — only on the main chat. The app-editing side panel
+  // omits it so the overlay doesn't bleed into the chat-on-the-side
+  // experience.
   const chatContent = (
     <ChatBody
       variant="main"
@@ -1557,7 +1562,10 @@ export function ChatRouteContent({
         ...chatBodyScrollAreaPropsBase,
         showMaintenanceRecoveryCard: isInMaintenanceWithNoMessages,
       }}
-      composerProps={chatBodyComposerProps}
+      composerProps={{
+        ...chatBodyComposerProps,
+        showLiveVoiceOverlay: true,
+      }}
       dragHandlers={attachmentDropHandlers}
       isAttachmentDragOver={isAttachmentDragOver}
       showScrollToLatest={
