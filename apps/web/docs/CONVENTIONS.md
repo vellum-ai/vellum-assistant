@@ -167,6 +167,7 @@ src/
   stores/                          # app-level Zustand stores (cross-domain)
     viewer-store.ts
     sse-connected-store.ts
+    conversation-store.ts
   domains/                         # feature modules
     messages/                      # message lifecycle
       message-store.ts
@@ -177,8 +178,7 @@ src/
       components/
         chat-body.tsx
     conversations/                 # conversation CRUD, grouping, selection
-      conversation-store.ts
-      conversation-store.test.ts
+      conversation-queries.ts
       use-conversation-loader.ts
       types.ts
     streaming/                     # SSE transport, event parsing

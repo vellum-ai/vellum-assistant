@@ -111,12 +111,13 @@ export function handleMessageComplete(
 
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.turnActions.completeTurn();
-  // Prefer the event's own `conversationId` over `streamContextRef` —
-  // `handleAssistantActivityState` does the same. The event carries the
-  // canonical id; the ref is a mirror that may be cleared by a stream
-  // teardown that races the terminal event. Matching the three terminal
-  // handlers on this fallback chain keeps the processing-key clear
-  // reliable across reconnects (LUM-1952).
+  // Prefer the event's own `conversationId` over `streamContextRef`.
+  // The event carries the canonical id; the ref is a mirror that may be
+  // cleared by a stream teardown that races the terminal event. All
+  // three terminal handlers (`handleAssistantActivityState(idle)`,
+  // `handleMessageComplete`, `handleGenerationCancelled`) use this same
+  // fallback chain so the processing-key clear stays reliable across
+  // reconnects.
   const convId =
     event.conversationId ?? ctx.streamContextRef.current?.conversationId;
   if (convId) {
@@ -146,7 +147,7 @@ export function handleGenerationCancelled(
 ): void {
   ctx.turnActions.cancelGeneration();
   // See `handleMessageComplete` for the rationale on the event-first
-  // fallback chain (LUM-1952).
+  // fallback chain.
   const convId =
     event.conversationId ?? ctx.streamContextRef.current?.conversationId;
   if (convId) {

@@ -152,7 +152,7 @@ describe("handleMessageComplete", () => {
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
-  it("prefers event.conversationId over streamContextRef when both differ (LUM-1952)", () => {
+  it("prefers event.conversationId over streamContextRef when both differ", () => {
     // streamContextRef is a mirror that may be cleared by a stream
     // teardown that races the terminal event. When the event itself
     // carries the canonical conversationId, the handler must use it
@@ -272,7 +272,7 @@ describe("handleGenerationCancelled", () => {
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 
-  it("prefers event.conversationId over streamContextRef when both differ (LUM-1952)", () => {
+  it("prefers event.conversationId over streamContextRef when both differ", () => {
     const ctx = makeCtx({
       streamContextRef: { current: null },
     });

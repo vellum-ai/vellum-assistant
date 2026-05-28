@@ -235,7 +235,7 @@ export function useMessageReconciliation({
         // the active conversation. Without this call the rescue would
         // leave `activeConversationIsProcessing` stuck at `true` — which
         // keeps `canStopGeneration` true and the sidebar processing dot
-        // visible even though the turn has clearly completed (LUM-1952).
+        // visible even though the turn has clearly completed.
         useConversationStore
           .getState()
           .removeProcessingConversationId(snapshotConversationId);
