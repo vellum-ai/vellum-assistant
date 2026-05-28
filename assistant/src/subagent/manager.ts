@@ -612,7 +612,7 @@ export class SubagentManager {
       return "terminal";
 
     // If the conversation is busy, queue the message; otherwise process immediately.
-    const result = managed.conversation.enqueueMessage(trimmed, []);
+    const result = managed.conversation.enqueueMessage({ content: trimmed });
     if (result.rejected) {
       return "sent"; // error event already delivered via sendToClient
     }
@@ -989,15 +989,10 @@ export class SubagentManager {
       );
       return;
     }
-    const enqueueResult = parentConversation.enqueueMessage(
-      message,
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
+    const enqueueResult = parentConversation.enqueueMessage({
+      content: message,
       metadata,
-    );
+    });
     if (!enqueueResult.queued && !enqueueResult.rejected) {
       parentConversation
         .persistUserMessage({ content: message, metadata })

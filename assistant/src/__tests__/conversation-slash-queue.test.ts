@@ -399,13 +399,16 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
 
     // Enqueue a slash-like passthrough and a normal passthrough after it.
     // Both resolve to passthrough, so the batch builder groups them into one run.
-    conversation.enqueueMessage(
-      "/not-a-skill",
-      [],
-      (e) => eventsSlash.push(e),
-      "req-slash",
-    );
-    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
+    conversation.enqueueMessage({
+      content: "/not-a-skill",
+      onEvent: (e) => eventsSlash.push(e),
+      requestId: "req-slash",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-3",
+    });
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete first run — drain pulls both queued messages into one batched run.
@@ -441,12 +444,11 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     await waitForPendingRun(1);
 
     // Enqueue a slash command that matches a skill name — still passes through
-    conversation.enqueueMessage(
-      "/start-the-day",
-      [],
-      (e) => eventsSlash.push(e),
-      "req-slash",
-    );
+    conversation.enqueueMessage({
+      content: "/start-the-day",
+      onEvent: (e) => eventsSlash.push(e),
+      requestId: "req-slash",
+    });
 
     // Complete first run — triggers drain
     resolveRun(0);
@@ -484,14 +486,21 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     // batch builder stops at "hi" (length-1 batch → drainSingleMessage). Then
     // /compact takes its short-circuit path (no new runAgentLoop), and "bye"
     // drains as its own run.
-    conversation.enqueueMessage("hi", [], (e) => eventsHi.push(e), "req-hi");
-    conversation.enqueueMessage(
-      "/compact",
-      [],
-      (e) => eventsCompact.push(e),
-      "req-compact",
-    );
-    conversation.enqueueMessage("bye", [], (e) => eventsBye.push(e), "req-bye");
+    conversation.enqueueMessage({
+      content: "hi",
+      onEvent: (e) => eventsHi.push(e),
+      requestId: "req-hi",
+    });
+    conversation.enqueueMessage({
+      content: "/compact",
+      onEvent: (e) => eventsCompact.push(e),
+      requestId: "req-compact",
+    });
+    conversation.enqueueMessage({
+      content: "bye",
+      onEvent: (e) => eventsBye.push(e),
+      requestId: "req-bye",
+    });
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Resolve msg-1 → drain pulls only "hi" (batch builder stops at /compact).

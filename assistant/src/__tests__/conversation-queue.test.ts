@@ -534,12 +534,11 @@ describe("Conversation message queue", () => {
     expect(conversation.isProcessing()).toBe(true);
 
     // Enqueue second message — should NOT throw
-    const result = conversation.enqueueMessage(
-      "msg-2",
-      [],
-      (e) => events2.push(e),
-      "req-2",
-    );
+    const result = conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+    });
     expect(result.queued).toBe(true);
     expect(result.requestId).toBe("req-2");
     expect(conversation.getQueueDepth()).toBe(1);
@@ -580,8 +579,16 @@ describe("Conversation message queue", () => {
     await waitForPendingRun(1);
 
     // Enqueue two more sibling passthrough messages
-    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
-    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-3",
+    });
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete run 0 → drain pulls msg-2 and msg-3 into ONE batched run.
@@ -642,12 +649,11 @@ describe("Conversation message queue", () => {
     await waitForPendingRun(1);
 
     // Enqueue second — simulating what handleUserMessage does
-    const result = conversation.enqueueMessage(
-      "msg-2",
-      [],
-      (e) => events2.push(e),
-      "req-2",
-    );
+    const result = conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+    });
     expect(result.queued).toBe(true);
 
     // Complete first
@@ -681,8 +687,16 @@ describe("Conversation message queue", () => {
     await waitForPendingRun(1);
 
     // Enqueue two more
-    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
-    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-3",
+    });
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Abort
@@ -760,13 +774,13 @@ describe("Conversation message queue", () => {
 
     expect(conversation.getQueueDepth()).toBe(0);
 
-    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    conversation.enqueueMessage({ content: "msg-2", requestId: "req-2" });
     expect(conversation.getQueueDepth()).toBe(1);
 
-    conversation.enqueueMessage("msg-3", [], () => {}, "req-3");
+    conversation.enqueueMessage({ content: "msg-3", requestId: "req-3" });
     expect(conversation.getQueueDepth()).toBe(2);
 
-    conversation.enqueueMessage("msg-4", [], () => {}, "req-4");
+    conversation.enqueueMessage({ content: "msg-4", requestId: "req-4" });
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Complete first → drain pulls all three same-interface passthroughs
@@ -801,9 +815,17 @@ describe("Conversation message queue", () => {
     await waitForPendingRun(1);
 
     // Enqueue a message with empty content (will fail persistUserMessage)
-    conversation.enqueueMessage("", [], (e) => events2.push(e), "req-2");
+    conversation.enqueueMessage({
+      content: "",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+    });
     // Enqueue a valid message after the bad one
-    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-3",
+    });
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete first message — triggers drain. The empty message should fail
@@ -861,42 +883,30 @@ describe("Batched drain", () => {
       userMessageInterface: iface,
       assistantMessageInterface: iface,
     });
-    conversation.enqueueMessage(
-      "msg-2",
-      [],
-      (e) => events2.push(e),
-      "req-2",
-      undefined,
-      undefined,
-      meta("macos"),
-    );
-    conversation.enqueueMessage(
-      "msg-3",
-      [],
-      (e) => events3.push(e),
-      "req-3",
-      undefined,
-      undefined,
-      meta("macos"),
-    );
-    conversation.enqueueMessage(
-      "msg-4",
-      [],
-      (e) => events4.push(e),
-      "req-4",
-      undefined,
-      undefined,
-      meta("cli"),
-    );
-    conversation.enqueueMessage(
-      "msg-5",
-      [],
-      (e) => events5.push(e),
-      "req-5",
-      undefined,
-      undefined,
-      meta("macos"),
-    );
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+      metadata: meta("macos"),
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-3",
+      metadata: meta("macos"),
+    });
+    conversation.enqueueMessage({
+      content: "msg-4",
+      onEvent: (e) => events4.push(e),
+      requestId: "req-4",
+      metadata: meta("cli"),
+    });
+    conversation.enqueueMessage({
+      content: "msg-5",
+      onEvent: (e) => events5.push(e),
+      requestId: "req-5",
+      metadata: meta("macos"),
+    });
     expect(conversation.getQueueDepth()).toBe(4);
 
     // Resolve msg-1 → batched run pulls macos msg-2 + msg-3.
@@ -978,24 +988,21 @@ describe("Batched drain", () => {
     // passthrough slash, so the batch builder stops at "hello" (length 1),
     // then /compact takes the single-message /compact short-circuit path
     // (no new runAgentLoop invocation), then "world" drains as its own run.
-    conversation.enqueueMessage(
-      "hello",
-      [],
-      (e) => eventsHello.push(e),
-      "req-hello",
-    );
-    conversation.enqueueMessage(
-      "/compact",
-      [],
-      (e) => eventsSlash.push(e),
-      "req-slash",
-    );
-    conversation.enqueueMessage(
-      "world",
-      [],
-      (e) => eventsWorld.push(e),
-      "req-world",
-    );
+    conversation.enqueueMessage({
+      content: "hello",
+      onEvent: (e) => eventsHello.push(e),
+      requestId: "req-hello",
+    });
+    conversation.enqueueMessage({
+      content: "/compact",
+      onEvent: (e) => eventsSlash.push(e),
+      requestId: "req-slash",
+    });
+    conversation.enqueueMessage({
+      content: "world",
+      onEvent: (e) => eventsWorld.push(e),
+      requestId: "req-world",
+    });
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Resolve msg-1 → drain pulls "hello" as its own run (batch stops at
@@ -1052,24 +1059,21 @@ describe("Batched drain", () => {
     // unknown-slash short-circuit path (no new runAgentLoop invocation — it
     // emits assistant_text_delta + message_complete inline), then "plain-b"
     // drains as its own run.
-    conversation.enqueueMessage(
-      "plain-a",
-      [],
-      (e) => eventsPlainA.push(e),
-      "req-plain-a",
-    );
-    conversation.enqueueMessage(
-      "/status",
-      [],
-      (e) => eventsSlash.push(e),
-      "req-slash",
-    );
-    conversation.enqueueMessage(
-      "plain-b",
-      [],
-      (e) => eventsPlainB.push(e),
-      "req-plain-b",
-    );
+    conversation.enqueueMessage({
+      content: "plain-a",
+      onEvent: (e) => eventsPlainA.push(e),
+      requestId: "req-plain-a",
+    });
+    conversation.enqueueMessage({
+      content: "/status",
+      onEvent: (e) => eventsSlash.push(e),
+      requestId: "req-slash",
+    });
+    conversation.enqueueMessage({
+      content: "plain-b",
+      onEvent: (e) => eventsPlainB.push(e),
+      requestId: "req-plain-b",
+    });
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Resolve msg-1 → drain pulls "plain-a" as its own run (batch stops at
@@ -1133,8 +1137,16 @@ describe("Batched drain", () => {
         filePath: "/tmp/b.png",
       },
     ];
-    conversation.enqueueMessage("with-A", attachA, () => {}, "req-A");
-    conversation.enqueueMessage("with-B", attachB, () => {}, "req-B");
+    conversation.enqueueMessage({
+      content: "with-A",
+      attachments: attachA,
+      requestId: "req-A",
+    });
+    conversation.enqueueMessage({
+      content: "with-B",
+      attachments: attachB,
+      requestId: "req-B",
+    });
     expect(conversation.getQueueDepth()).toBe(2);
 
     resolveRun(0);
@@ -1190,30 +1202,25 @@ describe("Batched drain", () => {
     await waitForPendingRun(1);
 
     // Fill to just-under budget: two ~500-char messages (1512+1512 = 3024 bytes).
-    const accepted1 = conversation.enqueueMessage(
-      "x".repeat(500),
-      [],
-      () => {},
-      "req-big-1",
-    );
-    const accepted2 = conversation.enqueueMessage(
-      "y".repeat(500),
-      [],
-      () => {},
-      "req-big-2",
-    );
+    const accepted1 = conversation.enqueueMessage({
+      content: "x".repeat(500),
+      requestId: "req-big-1",
+    });
+    const accepted2 = conversation.enqueueMessage({
+      content: "y".repeat(500),
+      requestId: "req-big-2",
+    });
     expect(accepted1.queued).toBe(true);
     expect(accepted2.queued).toBe(true);
     // A third would push the queue over budget → rejected. Capture its
     // onEvent callback so we can verify the queue_full error event reaches
     // the rejected caller (not just the synchronous return value).
     const rejectedEvents: ServerMessage[] = [];
-    const rejected = conversation.enqueueMessage(
-      "z".repeat(500),
-      [],
-      (e) => rejectedEvents.push(e),
-      "req-over",
-    );
+    const rejected = conversation.enqueueMessage({
+      content: "z".repeat(500),
+      onEvent: (e) => rejectedEvents.push(e),
+      requestId: "req-over",
+    });
     expect(rejected.queued).toBe(false);
     expect(rejected.rejected).toBe(true);
     expect(conversation.getQueueDepth()).toBe(2);
@@ -1247,12 +1254,16 @@ describe("Batched drain", () => {
     const p2 = conversation.processMessage("msg-2", [], () => {}, "req-2");
     await waitForPendingRun(3);
     expect(
-      conversation.enqueueMessage("a".repeat(500), [], () => {}, "req-a")
-        .queued,
+      conversation.enqueueMessage({
+        content: "a".repeat(500),
+        requestId: "req-a",
+      }).queued,
     ).toBe(true);
     expect(
-      conversation.enqueueMessage("b".repeat(500), [], () => {}, "req-b")
-        .queued,
+      conversation.enqueueMessage({
+        content: "b".repeat(500),
+        requestId: "req-b",
+      }).queued,
     ).toBe(true);
 
     resolveRun(2);
@@ -1290,19 +1301,17 @@ describe("Batched drain correctness fixes", () => {
     // same interface. The batch builder must reject the surface-action head
     // so each drains as its own run.
     conversation.surfaceActionRequestIds.add("req-surface");
-    conversation.enqueueMessage(
-      "surface action response",
-      [],
-      (e) => eventsSurface.push(e),
-      "req-surface",
-      "surface-1", // activeSurfaceId
-    );
-    conversation.enqueueMessage(
-      "regular follow-up",
-      [],
-      (e) => eventsRegular.push(e),
-      "req-regular",
-    );
+    conversation.enqueueMessage({
+      content: "surface action response",
+      onEvent: (e) => eventsSurface.push(e),
+      requestId: "req-surface",
+      activeSurfaceId: "surface-1",
+    });
+    conversation.enqueueMessage({
+      content: "regular follow-up",
+      onEvent: (e) => eventsRegular.push(e),
+      requestId: "req-regular",
+    });
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete run 0 → drain must NOT batch the surface-action with the
@@ -1361,7 +1370,11 @@ describe("Batched drain correctness fixes", () => {
     // fresh one). Calling abort() now aborts that fresh controller, and
     // the drainBatch loop's abort check after msg-3's persist will break,
     // so msg-4 never persists.
-    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+    });
 
     // Install a one-shot abort trigger on msg-3's dequeue event. We do
     // this before enqueueing so the wrapped callback is what drainBatch
@@ -1374,8 +1387,16 @@ describe("Batched drain correctness fixes", () => {
         conversation.abort();
       }
     };
-    conversation.enqueueMessage("msg-3", [], onMsg3Event, "req-3");
-    conversation.enqueueMessage("msg-4", [], (e) => events4.push(e), "req-4");
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: onMsg3Event,
+      requestId: "req-3",
+    });
+    conversation.enqueueMessage({
+      content: "msg-4",
+      onEvent: (e) => events4.push(e),
+      requestId: "req-4",
+    });
     expect(conversation.getQueueDepth()).toBe(3);
 
     const persistedUserRowCountBefore = capturedAddMessages.filter(
@@ -1427,24 +1448,21 @@ describe("Batched drain correctness fixes", () => {
     // msg-tail's requestId (the LAST successful persist), not msg-mid's.
     addMessageShouldThrowForContent.add("msg-mid-unique-marker");
 
-    conversation.enqueueMessage(
-      "msg-head",
-      [],
-      (e) => events2.push(e),
-      "req-head",
-    );
-    conversation.enqueueMessage(
-      "msg-mid-unique-marker",
-      [],
-      (e) => events3.push(e),
-      "req-mid",
-    );
-    conversation.enqueueMessage(
-      "msg-tail",
-      [],
-      (e) => events4.push(e),
-      "req-tail",
-    );
+    conversation.enqueueMessage({
+      content: "msg-head",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-head",
+    });
+    conversation.enqueueMessage({
+      content: "msg-mid-unique-marker",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-mid",
+    });
+    conversation.enqueueMessage({
+      content: "msg-tail",
+      onEvent: (e) => events4.push(e),
+      requestId: "req-tail",
+    });
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Complete run 0 → batched drain.
@@ -1493,24 +1511,21 @@ describe("Batched drain correctness fixes", () => {
     // desync the client.
     addMessageShouldThrowForContent.add("fanout-mid-marker");
 
-    conversation.enqueueMessage(
-      "fanout-head",
-      [],
-      (e) => events2.push(e),
-      "req-fanout-head",
-    );
-    conversation.enqueueMessage(
-      "fanout-mid-marker",
-      [],
-      (e) => events3.push(e),
-      "req-fanout-mid",
-    );
-    conversation.enqueueMessage(
-      "fanout-tail",
-      [],
-      (e) => events4.push(e),
-      "req-fanout-tail",
-    );
+    conversation.enqueueMessage({
+      content: "fanout-head",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-fanout-head",
+    });
+    conversation.enqueueMessage({
+      content: "fanout-mid-marker",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-fanout-mid",
+    });
+    conversation.enqueueMessage({
+      content: "fanout-tail",
+      onEvent: (e) => events4.push(e),
+      requestId: "req-fanout-tail",
+    });
 
     resolveRun(0);
     await p1;
@@ -1545,9 +1560,9 @@ describe("Batched drain correctness fixes", () => {
     const baseline = activityStates.length;
 
     // Enqueue three sibling passthroughs.
-    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
-    conversation.enqueueMessage("msg-3", [], () => {}, "req-3");
-    conversation.enqueueMessage("msg-4", [], () => {}, "req-4");
+    conversation.enqueueMessage({ content: "msg-2", requestId: "req-2" });
+    conversation.enqueueMessage({ content: "msg-3", requestId: "req-3" });
+    conversation.enqueueMessage({ content: "msg-4", requestId: "req-4" });
 
     // Complete run 0 → drain pulls the batched siblings as ONE run.
     resolveRun(0);
@@ -1615,7 +1630,7 @@ describe("Conversation queue policy helpers", () => {
     await waitForPendingRun(1);
 
     // Enqueue a message while processing
-    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    conversation.enqueueMessage({ content: "msg-2", requestId: "req-2" });
     expect(conversation.hasQueuedMessages()).toBe(true);
 
     // Cleanup: resolve the pending run
@@ -1659,7 +1674,7 @@ describe("Conversation queue policy helpers", () => {
     await waitForPendingRun(1);
 
     // Enqueue a message
-    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    conversation.enqueueMessage({ content: "msg-2", requestId: "req-2" });
 
     expect(conversation.isProcessing()).toBe(true);
     expect(conversation.hasQueuedMessages()).toBe(true);
@@ -1715,7 +1730,7 @@ describe("Conversation checkpoint handoff", () => {
     await waitForPendingRun(1);
 
     // Enqueue a second message while the first is processing
-    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    conversation.enqueueMessage({ content: "msg-2", requestId: "req-2" });
     expect(conversation.hasQueuedMessages()).toBe(true);
 
     // The pending run should have received an onCheckpoint callback.
@@ -1799,9 +1814,21 @@ describe("Conversation checkpoint handoff", () => {
     await waitForPendingRun(1);
 
     // Enqueue three sibling passthroughs while msg-1 is mid-turn
-    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
-    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
-    conversation.enqueueMessage("msg-4", [], (e) => events4.push(e), "req-4");
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-3",
+    });
+    conversation.enqueueMessage({
+      content: "msg-4",
+      onEvent: (e) => events4.push(e),
+      requestId: "req-4",
+    });
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Simulate the agent loop yielding at the checkpoint (first run is mid-tool-use)
@@ -1855,7 +1882,11 @@ describe("Conversation checkpoint handoff", () => {
     await waitForPendingRun(1);
 
     // Enqueue a second message while the first is processing
-    conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: (e) => events2.push(e),
+      requestId: "req-2",
+    });
     expect(conversation.hasQueuedMessages()).toBe(true);
 
     // Simulate tool-use turns: the agent loop calls onCheckpoint at each turn boundary.
@@ -1927,33 +1958,24 @@ describe("Conversation checkpoint handoff", () => {
       userMessageInterface: iface,
       assistantMessageInterface: iface,
     });
-    conversation.enqueueMessage(
-      "msg-B",
-      [],
-      makeHandler("B"),
-      "req-B",
-      undefined,
-      undefined,
-      meta("macos"),
-    );
-    conversation.enqueueMessage(
-      "msg-C",
-      [],
-      makeHandler("C"),
-      "req-C",
-      undefined,
-      undefined,
-      meta("cli"),
-    );
-    conversation.enqueueMessage(
-      "msg-D",
-      [],
-      makeHandler("D"),
-      "req-D",
-      undefined,
-      undefined,
-      meta("vellum"),
-    );
+    conversation.enqueueMessage({
+      content: "msg-B",
+      onEvent: makeHandler("B"),
+      requestId: "req-B",
+      metadata: meta("macos"),
+    });
+    conversation.enqueueMessage({
+      content: "msg-C",
+      onEvent: makeHandler("C"),
+      requestId: "req-C",
+      metadata: meta("cli"),
+    });
+    conversation.enqueueMessage({
+      content: "msg-D",
+      onEvent: makeHandler("D"),
+      requestId: "req-D",
+      metadata: meta("vellum"),
+    });
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Handoff from A -> B
@@ -2039,8 +2061,16 @@ describe("Conversation checkpoint handoff", () => {
     await waitForPendingRun(1);
 
     // Enqueue B (empty content — will fail to persist) and C (valid)
-    conversation.enqueueMessage("", [], (e) => eventsB.push(e), "req-B");
-    conversation.enqueueMessage("msg-C", [], (e) => eventsC.push(e), "req-C");
+    conversation.enqueueMessage({
+      content: "",
+      onEvent: (e) => eventsB.push(e),
+      requestId: "req-B",
+    });
+    conversation.enqueueMessage({
+      content: "msg-C",
+      onEvent: (e) => eventsC.push(e),
+      requestId: "req-C",
+    });
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete message A — triggers drain. B should fail, C should proceed.
@@ -2154,9 +2184,9 @@ describe("Terminal trace events on rejection/failure", () => {
     await waitForPendingRun(1);
 
     // Enqueue empty content (will fail persistUserMessage)
-    conversation.enqueueMessage("", [], () => {}, "req-bad");
+    conversation.enqueueMessage({ content: "", requestId: "req-bad" });
     // Enqueue valid message so drain continues
-    conversation.enqueueMessage("msg-3", [], () => {}, "req-3");
+    conversation.enqueueMessage({ content: "msg-3", requestId: "req-3" });
 
     // Complete first — triggers drain, empty msg fails persist
     resolveRun(0);
@@ -2424,7 +2454,7 @@ describe("Conversation attachment event payloads", () => {
     await waitForPendingRun(1);
 
     // Queue a second message so the first run yields via checkpoint handoff.
-    conversation.enqueueMessage("msg-2", [], () => {}, "req-2");
+    conversation.enqueueMessage({ content: "msg-2", requestId: "req-2" });
 
     const run = pendingRuns[0];
     expect(run.onCheckpoint).toBeDefined();
@@ -2623,18 +2653,16 @@ describe("Regression: cancel semantics and error channel split", () => {
     );
     await waitForPendingRun(1);
 
-    conversation.enqueueMessage(
-      "msg-2",
-      [],
-      (e) => eventsPerMsg[1].push(e),
-      "req-2",
-    );
-    conversation.enqueueMessage(
-      "msg-3",
-      [],
-      (e) => eventsPerMsg[2].push(e),
-      "req-3",
-    );
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: (e) => eventsPerMsg[1].push(e),
+      requestId: "req-2",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: (e) => eventsPerMsg[2].push(e),
+      requestId: "req-3",
+    });
 
     conversation.abort();
 
@@ -2678,7 +2706,11 @@ describe("Regression: cancel semantics and error channel split", () => {
       await waitForPendingRun(1);
 
       // Enqueue a second message while the first is processing
-      conversation.enqueueMessage("msg-2", [], (e) => events2.push(e), "req-2");
+      conversation.enqueueMessage({
+        content: "msg-2",
+        onEvent: (e) => events2.push(e),
+        requestId: "req-2",
+      });
 
       // Complete the first agent loop run
       resolveRun(0);

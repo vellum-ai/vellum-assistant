@@ -460,10 +460,9 @@ export class AcpSessionManager {
             current.parentConversationId,
           );
           if (parentConversation) {
-            const enqueueResult = parentConversation.enqueueMessage(
-              notifyMessage,
-              [],
-            );
+            const enqueueResult = parentConversation.enqueueMessage({
+              content: notifyMessage,
+            });
             if (!enqueueResult.queued && !enqueueResult.rejected) {
               parentConversation
                 .persistUserMessage({ content: notifyMessage })

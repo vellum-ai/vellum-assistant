@@ -285,22 +285,44 @@ export function buildSlackMetaForPersistence(params: {
   return writeSlackMetadata(slackMeta);
 }
 
+// ── EnqueueMessageOptions ────────────────────────────────────────────
+
+/** Options for `enqueueMessage`. Only `content` is required; everything
+ *  else has a sensible default or is genuinely optional. */
+export interface EnqueueMessageOptions {
+  content: string;
+  attachments?: UserMessageAttachment[];
+  onEvent?: (msg: ServerMessage) => void;
+  requestId?: string;
+  activeSurfaceId?: string;
+  currentPage?: string;
+  metadata?: Record<string, unknown>;
+  isInteractive?: boolean;
+  displayContent?: string;
+  transport?: ConversationTransportMetadata;
+  clientMessageId?: string;
+}
+
 // ── enqueueMessage ───────────────────────────────────────────────────
 
 export function enqueueMessage(
   ctx: MessagingConversationContext,
-  content: string,
-  attachments: UserMessageAttachment[],
-  onEvent: (msg: ServerMessage) => void,
-  requestId: string,
-  activeSurfaceId?: string,
-  currentPage?: string,
-  metadata?: Record<string, unknown>,
-  options?: { isInteractive?: boolean },
-  displayContent?: string,
-  transport?: ConversationTransportMetadata,
-  clientMessageId?: string,
+  options: EnqueueMessageOptions,
 ): { queued: boolean; requestId: string; rejected?: boolean } {
+  const {
+    content,
+    attachments = [],
+    onEvent,
+    requestId = crypto.randomUUID(),
+    activeSurfaceId,
+    currentPage,
+    metadata,
+    isInteractive,
+    displayContent,
+    transport,
+    clientMessageId,
+  } = options;
+
   if (!ctx.processing) {
     return { queued: false, requestId };
   }
@@ -317,20 +339,20 @@ export function enqueueMessage(
     content,
     attachments,
     requestId,
-    onEvent,
+    onEvent: onEvent ?? (() => {}),
     activeSurfaceId,
     currentPage,
     metadata,
     turnChannelContext,
     turnInterfaceContext,
-    isInteractive: options?.isInteractive,
+    isInteractive,
     transport,
     displayContent,
     sentAt: Date.now(),
     clientMessageId,
   });
   if (!accepted) {
-    onEvent({
+    onEvent?.({
       type: "error",
       conversationId: ctx.conversationId,
       message:

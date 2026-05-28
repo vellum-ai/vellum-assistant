@@ -28,6 +28,7 @@ import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
+import type { EnqueueMessageOptions } from "./conversation-messaging.js";
 import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
@@ -45,7 +46,6 @@ import type {
   UiSurfaceShow,
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
-import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { HostAppControlInput } from "./message-types/host-app-control.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
 import type { TrustContext } from "./trust-context.js";
@@ -518,18 +518,11 @@ export interface SurfaceConversationContext {
   /** True when no interactive client is connected (headless / channel-only). */
   readonly hasNoClient?: boolean;
   isProcessing(): boolean;
-  enqueueMessage(
-    content: string,
-    attachments: UserMessageAttachment[],
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
-    activeSurfaceId?: string,
-    currentPage?: string,
-    metadata?: Record<string, unknown>,
-    options?: { isInteractive?: boolean },
-    displayContent?: string,
-    transport?: ConversationTransportMetadata,
-  ): { queued: boolean; requestId: string; rejected?: boolean };
+  enqueueMessage(options: EnqueueMessageOptions): {
+    queued: boolean;
+    requestId: string;
+    rejected?: boolean;
+  };
   getQueueDepth(): number;
   processMessage(
     content: string,
@@ -1449,17 +1442,14 @@ export async function handleSurfaceAction(
       attributes: { source: "surface_action", surfaceId, actionId },
     });
 
-    const result = ctx.enqueueMessage(
+    const result = ctx.enqueueMessage({
       content,
       attachments,
       onEvent,
       requestId,
-      surfaceId,
-      undefined,
-      undefined,
-      undefined,
+      activeSurfaceId: surfaceId,
       displayContent,
-    );
+    });
 
     if (result.rejected) {
       ctx.surfaceActionRequestIds.delete(requestId);
@@ -1694,17 +1684,14 @@ export async function handleSurfaceAction(
     "Surface action follow-up: preparing to send message to model",
   );
 
-  const result = ctx.enqueueMessage(
+  const result = ctx.enqueueMessage({
     content,
-    pendingAttachments,
+    attachments: pendingAttachments,
     onEvent,
     requestId,
-    surfaceId,
-    undefined,
-    undefined,
-    undefined,
+    activeSurfaceId: surfaceId,
     displayContent,
-  );
+  });
   if (result.rejected) {
     ctx.surfaceActionRequestIds.delete(requestId);
     return;
