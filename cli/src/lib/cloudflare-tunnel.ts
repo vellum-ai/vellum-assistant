@@ -170,7 +170,16 @@ export function waitForCloudflareTunnelUrl(
  *
  * No Cloudflare account is required — quick tunnels are free and ephemeral.
  */
-export async function runCloudflareTunnel(): Promise<void> {
+export interface RunCloudflareTunnelOptions {
+  /** Gateway port to forward. Defaults to the global GATEWAY_PORT. */
+  port?: number;
+  /** Workspace directory for config read/write. Defaults to ~/.vellum/workspace. */
+  workspaceDir?: string;
+}
+
+export async function runCloudflareTunnel(
+  opts: RunCloudflareTunnelOptions = {},
+): Promise<void> {
   const version = getCloudflareTunnelVersion();
   if (!version) {
     console.error("Error: cloudflared is not installed.");
@@ -188,8 +197,8 @@ export async function runCloudflareTunnel(): Promise<void> {
 
   console.log(`Using ${version}`);
 
-  const port = GATEWAY_PORT;
-  const workspaceDir = getDefaultWorkspaceDir();
+  const port = opts.port ?? GATEWAY_PORT;
+  const workspaceDir = opts.workspaceDir ?? getDefaultWorkspaceDir();
 
   console.log(`Starting cloudflared quick tunnel to localhost:${port}...`);
   console.log("No Cloudflare account required — quick tunnels are free.");
@@ -221,7 +230,12 @@ export async function runCloudflareTunnel(): Promise<void> {
   });
 
   child.on("exit", (code) => {
-    if (publicUrl !== undefined && code !== null && code !== 0) {
+    // Always clear the saved ingress URL when the tunnel process ends so
+    // webhook integrations don't keep hitting a dead endpoint.
+    if (publicUrl !== undefined) {
+      clearIngressUrl(workspaceDir);
+    }
+    if (code !== null && code !== 0) {
       console.error(`\ncloudflared exited with code ${code}.`);
       process.exit(1);
     }

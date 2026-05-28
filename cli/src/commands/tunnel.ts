@@ -1,3 +1,5 @@
+import { join } from "path";
+
 import { resolveAssistant } from "../lib/assistant-config";
 import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
 import { runNgrokTunnel } from "../lib/ngrok";
@@ -108,7 +110,15 @@ export async function tunnel(): Promise<void> {
   }
 
   if (provider === "cloudflare") {
-    await runCloudflareTunnel();
+    const resources = entry.resources;
+    await runCloudflareTunnel(
+      resources
+        ? {
+            port: resources.gatewayPort,
+            workspaceDir: join(resources.instanceDir, ".vellum", "workspace"),
+          }
+        : {},
+    );
     return;
   }
 
