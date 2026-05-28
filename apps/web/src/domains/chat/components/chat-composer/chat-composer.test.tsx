@@ -9,7 +9,7 @@
  *   2. `@testing-library/react` `render` for HTML surface checks (placeholder,
  *      send/stop button, disabled attribute).
  */
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
 import { act, cleanup, render } from "@testing-library/react";
 
@@ -277,7 +277,23 @@ describe("computeGhostSuffix", () => {
 // HTML rendering — placeholder and send/stop button surface
 // ---------------------------------------------------------------------------
 
-afterEach(cleanup);
+// Snapshot the `voiceMode` flag before each test and restore it in
+// `afterEach`. The flag store is a module-scoped Zustand singleton, so
+// without this guard a mid-test failure in any voice-mode-on case
+// (`setState({ voiceMode: true })` ... assertion throws ... restore
+// `false` never runs) leaves the flag set for every subsequent test in
+// the file. Mirrors the explicit reset pattern from
+// `live-voice-button.test.tsx`.
+let voiceModeSnapshot = false;
+beforeEach(() => {
+  voiceModeSnapshot = useAssistantFeatureFlagStore.getState().voiceMode;
+  useAssistantFeatureFlagStore.setState({ voiceMode: false });
+});
+
+afterEach(() => {
+  cleanup();
+  useAssistantFeatureFlagStore.setState({ voiceMode: voiceModeSnapshot });
+});
 
 function renderComposer(props: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
   const { container } = render(
@@ -501,11 +517,13 @@ describe("ChatComposer — optional slots", () => {
 
 describe("ChatComposer — LiveVoiceButton mount", () => {
   test("LiveVoiceButton renders in the toolbar when voice-mode flag is on + assistantId is set", () => {
-    // The button gates itself on `voiceMode` + `assistantId`. With the flag
-    // off (default), it short-circuits to null. Flip the flag on and assert
-    // the button surface lands in the rendered HTML. `act` wraps the
-    // store mutation so React's gate-close `useEffect` (which fires the
-    // manager `end()` cleanup) flushes inside the test boundary.
+    // The button gates itself on `voiceMode` + `assistantId`. The shared
+    // `beforeEach` already reset the flag to `false`; flip it on and
+    // assert the button surface lands in the rendered HTML. `act` wraps
+    // the store mutation so React's gate-close `useEffect` (which fires
+    // the manager `end()` cleanup) flushes inside the test boundary.
+    // The shared `afterEach` restores the snapshot so a thrown assertion
+    // here can't leak `voiceMode: true` into subsequent tests.
     act(() => {
       useAssistantFeatureFlagStore.setState({ voiceMode: true });
     });
@@ -516,15 +534,11 @@ describe("ChatComposer — LiveVoiceButton mount", () => {
     // LiveVoiceButton uses aria-label "Start voice conversation" in the
     // initial `off` state — that's the unambiguous signal it mounted.
     expect(html).toContain("Start voice conversation");
-    act(() => {
-      useAssistantFeatureFlagStore.setState({ voiceMode: false });
-    });
   });
 
   test("LiveVoiceButton is omitted when voice-mode flag is off (gate closed)", () => {
-    act(() => {
-      useAssistantFeatureFlagStore.setState({ voiceMode: false });
-    });
+    // `beforeEach` already set the flag to `false`; no explicit
+    // mutation needed here.
     const html = renderComposer({
       assistantId: "asst_test",
       conversationId: "conv_test",
