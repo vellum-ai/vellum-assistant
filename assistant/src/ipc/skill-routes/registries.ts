@@ -48,7 +48,6 @@ const ToolManifestSchema = z.object({
   defaultRiskLevel: z.enum(["low", "medium", "high"]),
   category: z.string().min(1),
   executionTarget: z.enum(["sandbox", "host"]).optional(),
-  executionMode: z.enum(["local", "proxy"]).optional(),
 });
 
 export type ToolManifest = z.infer<typeof ToolManifestSchema>;
@@ -189,11 +188,9 @@ function buildProxyTool(manifest: ToolManifest): Tool {
     input_schema: manifest.input_schema as object,
     category: manifest.category,
     defaultRiskLevel: manifest.defaultRiskLevel as RiskLevel,
-    executionMode: manifest.executionMode ?? "proxy",
     executionTarget: resolveExecutionTarget({
       name: manifest.name,
       executionTarget: manifest.executionTarget as ExecutionTarget | undefined,
-      executionMode: manifest.executionMode ?? "proxy",
     }),
     execute: async () => {
       // Only reached when no supervisor is attached (tests/boot race);

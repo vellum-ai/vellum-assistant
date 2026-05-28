@@ -340,8 +340,12 @@ export class ToolApprovalHandler {
     const tool = getTool(name);
     if (!tool) {
       const allowedToolNames = context.allowedToolNames;
+      // List every registered tool. Tools that need an external resolver
+      // (computer-use, ui-surface, etc.) now return a structured error
+      // from their `execute()` when no resolver is connected, rather than
+      // being filtered out here — listing them surfaces a clearer path
+      // than hiding their names entirely.
       const available = getAllTools()
-        .filter((t) => t.executionMode !== "proxy" || context.proxyToolResolver)
         .map((t) => t.name)
         .filter((n) => !allowedToolNames || allowedToolNames.has(n))
         .sort()
@@ -369,8 +373,7 @@ export class ToolApprovalHandler {
     // Gate tools not active for the current turn
     if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
       const owner = getToolOwner(name);
-      const ownerSkillId =
-        owner?.kind === "skill" ? owner.id : undefined;
+      const ownerSkillId = owner?.kind === "skill" ? owner.id : undefined;
       const loadHint = ownerSkillId
         ? `Load the "${ownerSkillId}" skill that provides this tool first.`
         : `Load the skill that provides this tool first.`;

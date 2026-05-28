@@ -502,9 +502,7 @@ export class SkillHostClient implements SkillHost {
 
     socket.on("close", () => {
       this.socket = null;
-      const err = new Error(
-        "SkillHostClient: socket closed before response",
-      );
+      const err = new Error("SkillHostClient: socket closed before response");
       for (const { reject, timer } of this.pending.values()) {
         clearTimeout(timer);
         reject(err);
@@ -1057,9 +1055,7 @@ export class SkillHostClient implements SkillHost {
         // Fire-and-forget close RPC — we don't await the ack because the
         // server also tears down on socket close, which is the fallback.
         if (self.socket && !self.socket.destroyed) {
-          self
-            .call(SUBSCRIBE_CLOSE_METHOD, { subscribeId: id })
-            .catch(swallow);
+          self.call(SUBSCRIBE_CLOSE_METHOD, { subscribeId: id }).catch(swallow);
         }
       },
     };
@@ -1081,7 +1077,6 @@ export class SkillHostClient implements SkillHost {
             defaultRiskLevel: t.defaultRiskLevel,
             category: t.category,
             executionTarget: t.executionTarget,
-            executionMode: t.executionMode ?? "proxy",
           };
         });
         // Cache the provider so `skill.dispatch_tool` can resolve a tool

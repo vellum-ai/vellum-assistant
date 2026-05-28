@@ -195,12 +195,9 @@ describe("baseline characterization: core app tool surface", () => {
 
     const tool = getTool("app_open");
     expect(tool).toBeDefined();
-    expect(tool?.executionMode).toBe("proxy");
 
     // app_open is core-owned (no skill owner) so it flows through
-    // `getAllToolDefinitions()` like any other core tool. The dispatch
-    // distinction lives on `executionMode` / `executionTarget`, not on
-    // the base-list filter.
+    // `getAllToolDefinitions()` like any other core tool.
     const definitionNames = getAllToolDefinitions().map((def) => def.name);
     expect(definitionNames).toContain("app_open");
   });

@@ -133,7 +133,6 @@ function buildProxyTool(
     input_schema: (entry.input_schema as object) ?? {},
     category: entry.category,
     defaultRiskLevel: risk,
-    executionMode: "proxy",
     executionTarget: "host" as ExecutionTarget,
     execute: async (input, context) => {
       // `dispatchTool` ensures the meet-host child is up + connected

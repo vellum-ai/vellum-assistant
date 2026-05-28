@@ -338,7 +338,9 @@ export interface ToolDefinition {
 }
 
 /** Tool after the loader has derived its name and filled defaults. */
-export type LoadedTool = Required<ToolDefinition> & { name: string };
+export type LoadedTool = Required<ToolDefinition> & {
+  name: string;
+};
 
 /** The kind of extension that owns a tool. Core tools have no owner. */
 export type OwnerKind = "skill" | "mcp" | "plugin";
@@ -356,6 +358,4 @@ export interface OwnerInfo {
 
 export interface Tool extends LoadedTool {
   category: string;
-  /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. */
-  executionMode?: "local" | "proxy";
 }
