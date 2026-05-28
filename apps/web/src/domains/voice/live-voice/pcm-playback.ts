@@ -14,7 +14,10 @@
  * keep the protocol surface but skip `<audio>`-element fallbacks.
  */
 
-const PCM_MIME_PREFIX = "audio/pcm";
+// Match only `audio/pcm` exactly (case-insensitive) or `audio/pcm;<parameters>`.
+// A raw prefix check would incorrectly accept G.711 codecs like `audio/pcma`
+// (A-law) and `audio/pcmu` (mu-law) — those bytes are NOT 16-bit LE PCM.
+const PCM_MIME_PATTERN = /^audio\/pcm(?:;|$)/i;
 const BYTES_PER_SAMPLE = 2; // 16-bit signed little-endian PCM
 const INT16_MAX = 32768;
 
@@ -119,7 +122,7 @@ export class LiveVoicePcmPlayback {
             // late TTS chunks that race the cancel until `resetForNextResponse()`.
             return;
         }
-        if (!chunk.mimeType.toLowerCase().startsWith(PCM_MIME_PREFIX)) {
+        if (!PCM_MIME_PATTERN.test(chunk.mimeType.trim())) {
             this.logger.warn(
                 `[LiveVoicePcmPlayback] dropping non-PCM chunk (mimeType=${chunk.mimeType})`,
             );
@@ -167,6 +170,7 @@ export class LiveVoicePcmPlayback {
         };
         node.start(scheduledAt);
         this.nextStartTime = scheduledAt + buffer.duration;
+        this.rescheduleWaitersForExtendedCursor();
     }
 
     /**
@@ -261,6 +265,28 @@ export class LiveVoicePcmPlayback {
             waiter.resolve();
         }
         this.pendingWaiters.clear();
+    }
+
+    /**
+     * When `enqueueTtsAudio()` extends `nextStartTime`, any pending
+     * `waitUntilPlaybackFinishes()` timer was rounded to the old cursor and
+     * would resolve too early. Reschedule each pending waiter against the new
+     * cursor so callers wait for the actual end of buffered audio. The waiter
+     * itself stays pending — only its timer handle is replaced.
+     */
+    private rescheduleWaitersForExtendedCursor(): void {
+        const ctx = this.audioContext;
+        if (!ctx) return;
+        if (this.pendingWaiters.size === 0) return;
+        for (const waiter of this.pendingWaiters) {
+            clearTimeout(waiter.timer);
+            const remaining = this.nextStartTime - ctx.currentTime;
+            const delayMs = remaining > 0 ? Math.ceil(remaining * 1000) : 0;
+            waiter.timer = setTimeout(() => {
+                this.pendingWaiters.delete(waiter);
+                waiter.resolve();
+            }, delayMs);
+        }
     }
 }
 

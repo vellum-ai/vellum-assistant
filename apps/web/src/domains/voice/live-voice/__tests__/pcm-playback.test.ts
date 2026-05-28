@@ -404,4 +404,156 @@ describe("LiveVoicePcmPlayback", () => {
         playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0)));
         expect(ctx.scheduled).toHaveLength(beforeEnqueue + 1);
     });
+
+    it("accepts audio/pcm with no parameters", () => {
+        const ctx = new MockAudioContext();
+        const warn = mock(() => {});
+        const playback = new LiveVoicePcmPlayback({
+            audioContextFactory: () => ctx,
+            logger: { warn },
+        });
+
+        playback.enqueueTtsAudio({
+            pcm: new Uint8Array([0x00, 0x00, 0x00, 0x00]),
+            mimeType: "audio/pcm",
+            sampleRate: 24000,
+            channels: 1,
+        });
+
+        expect(warn).toHaveBeenCalledTimes(0);
+        expect(ctx.scheduled).toHaveLength(1);
+    });
+
+    it("accepts audio/pcm with parameters", () => {
+        const ctx = new MockAudioContext();
+        const warn = mock(() => {});
+        const playback = new LiveVoicePcmPlayback({
+            audioContextFactory: () => ctx,
+            logger: { warn },
+        });
+
+        playback.enqueueTtsAudio({
+            pcm: new Uint8Array([0x00, 0x00, 0x00, 0x00]),
+            mimeType: "audio/pcm;rate=16000",
+            sampleRate: 16000,
+            channels: 1,
+        });
+
+        expect(warn).toHaveBeenCalledTimes(0);
+        expect(ctx.scheduled).toHaveLength(1);
+    });
+
+    it("accepts audio/PCM case-insensitively", () => {
+        const ctx = new MockAudioContext();
+        const warn = mock(() => {});
+        const playback = new LiveVoicePcmPlayback({
+            audioContextFactory: () => ctx,
+            logger: { warn },
+        });
+
+        playback.enqueueTtsAudio({
+            pcm: new Uint8Array([0x00, 0x00, 0x00, 0x00]),
+            mimeType: "audio/PCM",
+            sampleRate: 24000,
+            channels: 1,
+        });
+
+        expect(warn).toHaveBeenCalledTimes(0);
+        expect(ctx.scheduled).toHaveLength(1);
+    });
+
+    it("rejects audio/pcma (G.711 A-law)", () => {
+        const ctx = new MockAudioContext();
+        const warn = mock(() => {});
+        const playback = new LiveVoicePcmPlayback({
+            audioContextFactory: () => ctx,
+            logger: { warn },
+        });
+
+        playback.enqueueTtsAudio({
+            pcm: new Uint8Array([0x00, 0x00, 0x00, 0x00]),
+            mimeType: "audio/pcma",
+            sampleRate: 8000,
+            channels: 1,
+        });
+
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(ctx.scheduled).toHaveLength(0);
+    });
+
+    it("rejects audio/pcmu (G.711 mu-law)", () => {
+        const ctx = new MockAudioContext();
+        const warn = mock(() => {});
+        const playback = new LiveVoicePcmPlayback({
+            audioContextFactory: () => ctx,
+            logger: { warn },
+        });
+
+        playback.enqueueTtsAudio({
+            pcm: new Uint8Array([0x00, 0x00, 0x00, 0x00]),
+            mimeType: "audio/pcmu",
+            sampleRate: 8000,
+            channels: 1,
+        });
+
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(ctx.scheduled).toHaveLength(0);
+    });
+
+    it("rejects audio/wav", () => {
+        const ctx = new MockAudioContext();
+        const warn = mock(() => {});
+        const playback = new LiveVoicePcmPlayback({
+            audioContextFactory: () => ctx,
+            logger: { warn },
+        });
+
+        playback.enqueueTtsAudio({
+            pcm: new Uint8Array([0x00, 0x00, 0x00, 0x00]),
+            mimeType: "audio/wav",
+            sampleRate: 24000,
+            channels: 1,
+        });
+
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(ctx.scheduled).toHaveLength(0);
+    });
+
+    it("waitUntilPlaybackFinishes() keeps waiting when a new chunk extends the cursor", async () => {
+        const ctx = new MockAudioContext();
+        const playback = new LiveVoicePcmPlayback({ audioContextFactory: () => ctx });
+
+        // First chunk: 0.05s
+        playback.enqueueTtsAudio(pcmChunk(new Array(1200).fill(0)));
+
+        let resolved = false;
+        const wait = playback.waitUntilPlaybackFinishes().then(() => {
+            resolved = true;
+        });
+
+        // The waiter is pending against the 0.05s cursor.
+        await Promise.resolve();
+        expect(resolved).toBe(false);
+
+        // Enqueue a second chunk before the first finishes — extends the
+        // cursor from 0.05s to 0.15s.
+        playback.enqueueTtsAudio(pcmChunk(new Array(2400).fill(0))); // 0.1s
+
+        // Advance past where the FIRST chunk ended. The waiter must NOT
+        // resolve here — buffered audio still extends to 0.15s.
+        ctx.advanceTo(0.05);
+        // Give the rescheduled timer enough wall time to fire if it were
+        // pointed at the old cursor (~50ms is what the original waiter delay
+        // was). After this, the still-pending timer should be a ~100ms one
+        // counting toward the extended cursor.
+        await new Promise((r) => setTimeout(r, 60));
+        expect(resolved).toBe(false);
+
+        // Advance past the extended cursor — the rescheduled timer fires
+        // shortly after, resolving the waiter.
+        ctx.advanceTo(0.2);
+        await wait;
+        expect(resolved).toBe(true);
+        expect(playback.isPlaying).toBe(false);
+    });
 });
