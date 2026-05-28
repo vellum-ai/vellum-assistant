@@ -14,16 +14,6 @@ import type {
 } from "@vellumai/assistant-api";
 import type { DocumentComment } from "@/domains/chat/api/document-comments";
 
-// Re-export canonical wire types so callers in this module's neighborhood
-// can keep using the local import path. The shapes themselves are owned
-// by `@vellumai/assistant-api` and validated at the SSE parser boundary.
-export type {
-  DocumentCommentCreatedEvent,
-  DocumentCommentDeletedEvent,
-  DocumentCommentReopenedEvent,
-  DocumentCommentResolvedEvent,
-};
-
 export type DocumentCommentEvent =
   | DocumentCommentCreatedEvent
   | DocumentCommentResolvedEvent
