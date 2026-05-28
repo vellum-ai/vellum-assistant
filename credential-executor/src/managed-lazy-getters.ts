@@ -32,6 +32,27 @@ export interface AssistantIdRef {
   current: string;
 }
 
+/**
+ * Overwrite the session-scoped managed credential refs.
+ *
+ * The managed handler registry is long-lived — it persists across assistant
+ * reconnects — so every handshake and every `update_managed_credential` must
+ * fully overwrite these refs, including clearing them when a value is absent.
+ * Otherwise a new or reprovisioned session could keep materializing platform
+ * credentials with the previous session's API key or assistant ID. Absent
+ * values fall back to "" (fail closed): the lazy getters then return no
+ * materialization options, and `getAssistantApiKey` falls back to the env key.
+ */
+export function applyManagedCredentialRefs(
+  apiKeyRef: ApiKeyRef,
+  assistantIdRef: AssistantIdRef,
+  apiKey: string | undefined,
+  assistantId: string | undefined,
+): void {
+  apiKeyRef.current = apiKey ?? "";
+  assistantIdRef.current = assistantId ?? "";
+}
+
 export interface LazyGetterOptions {
   platformBaseUrl: string;
   assistantIdRef: AssistantIdRef;
@@ -55,10 +76,11 @@ export interface LazyGetters {
 export function buildLazyGetters(opts: LazyGetterOptions): LazyGetters {
   const { platformBaseUrl, assistantIdRef, apiKeyRef, envApiKey } = opts;
 
-  const getAssistantApiKey = (): string =>
-    apiKeyRef.current || envApiKey || "";
+  const getAssistantApiKey = (): string => apiKeyRef.current || envApiKey || "";
 
-  const getManagedSubjectOptions = (): ManagedSubjectResolverOptions | undefined => {
+  const getManagedSubjectOptions = ():
+    | ManagedSubjectResolverOptions
+    | undefined => {
     const key = getAssistantApiKey();
     const id = assistantIdRef.current;
     return platformBaseUrl && key && id
@@ -66,7 +88,9 @@ export function buildLazyGetters(opts: LazyGetterOptions): LazyGetters {
       : undefined;
   };
 
-  const getManagedMaterializerOptions = (): ManagedMaterializerOptions | undefined => {
+  const getManagedMaterializerOptions = ():
+    | ManagedMaterializerOptions
+    | undefined => {
     const key = getAssistantApiKey();
     const id = assistantIdRef.current;
     return platformBaseUrl && key && id
