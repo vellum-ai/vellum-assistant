@@ -151,7 +151,9 @@ describe("createSkillTool", () => {
       hash,
     );
 
-    const result = await tool.execute({}, makeContext());
+    // Provide valid input so we reach the executor (the default schema
+    // declares `query` as required).
+    const result = await tool.execute({ query: "x" }, makeContext());
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("Failed to load skill tool script");
@@ -215,8 +217,9 @@ describe("createSkillTool — unknown parameter validation", () => {
     );
 
     expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "test_tool"');
     expect(result.content).toContain('Unknown parameter "unsubscribe"');
-    expect(result.content).toContain("Supported parameters");
+    expect(result.content).toContain("Supported:");
     expect(result.content).toContain('"query"');
   });
 
@@ -234,9 +237,9 @@ describe("createSkillTool — unknown parameter validation", () => {
     );
 
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("Unknown parameters");
-    expect(result.content).toContain('"foo"');
-    expect(result.content).toContain('"bar"');
+    expect(result.content).toContain('Invalid input for tool "test_tool"');
+    expect(result.content).toContain('Unknown parameter "foo"');
+    expect(result.content).toContain('Unknown parameter "bar"');
   });
 
   test("allows input with only known parameters", async () => {
@@ -285,6 +288,85 @@ describe("createSkillTool — unknown parameter validation", () => {
     const result = await tool.execute({ anything: "goes" }, makeContext());
 
     expect(result.isError).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createSkillTool — required / type / enum validation
+// ---------------------------------------------------------------------------
+
+describe("createSkillTool — required/type/enum validation", () => {
+  test("rejects missing required field with self-correcting message", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({ executor: "echo.ts" }),
+      tempDir,
+      hash,
+    );
+
+    const result = await tool.execute({}, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "test_tool"');
+    expect(result.content).toContain("query is required");
+  });
+
+  test("rejects wrong type with `must be a string` message", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({ executor: "echo.ts" }),
+      tempDir,
+      hash,
+    );
+
+    const result = await tool.execute({ query: 123 }, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "test_tool"');
+    expect(result.content).toContain("query must be a string");
+  });
+
+  test("rejects enum violation with `must be one of` message", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({
+        executor: "echo.ts",
+        input_schema: {
+          type: "object",
+          properties: { mode: { type: "string", enum: ["a", "b"] } },
+        },
+      }),
+      tempDir,
+      hash,
+    );
+
+    const result = await tool.execute({ mode: "c" }, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('Invalid input for tool "test_tool"');
+    expect(result.content).toContain('mode must be one of "a", "b"');
+  });
+
+  test("passes valid input through to the executor unchanged", async () => {
+    const hash = computeSkillVersionHash(tempDir);
+    const tool = createSkillTool(
+      makeEntry({
+        executor: "echo.ts",
+        input_schema: {
+          type: "object",
+          properties: { mode: { type: "string", enum: ["a", "b"] } },
+          required: ["mode"],
+        },
+      }),
+      tempDir,
+      hash,
+    );
+
+    const result = await tool.execute({ mode: "a" }, makeContext());
+
+    expect(result.isError).toBe(false);
+    const parsed = JSON.parse(result.content);
+    expect(parsed.input).toEqual({ mode: "a" });
   });
 });
 

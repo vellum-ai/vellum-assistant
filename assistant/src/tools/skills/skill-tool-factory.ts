@@ -1,5 +1,6 @@
 import type { SkillToolEntry } from "../../config/skills.js";
 import { RiskLevel } from "../../permissions/types.js";
+import { validateInputAgainstSchema } from "../../skills/validate-input.js";
 import type {
   ExecutionTarget,
   Tool,
@@ -13,31 +14,6 @@ const riskMap: Record<SkillToolEntry["risk"], RiskLevel> = {
   medium: RiskLevel.Medium,
   high: RiskLevel.High,
 };
-
-/**
- * Validate that all keys in `input` are declared in the tool's input_schema
- * properties. Returns an error result listing unknown parameters, or undefined
- * if validation passes.
- */
-function validateNoUnknownParams(
-  toolName: string,
-  input: Record<string, unknown>,
-  schema: SkillToolEntry["input_schema"],
-): ToolExecutionResult | undefined {
-  const properties = schema?.properties;
-  if (!properties) return undefined;
-
-  const knownKeys = new Set(Object.keys(properties));
-  const unknownKeys = Object.keys(input).filter((k) => !knownKeys.has(k));
-  if (unknownKeys.length === 0) return undefined;
-
-  const listed = unknownKeys.map((k) => `"${k}"`).join(", ");
-  const supported = [...knownKeys].map((k) => `"${k}"`).join(", ");
-  return {
-    content: `Unknown parameter${unknownKeys.length > 1 ? "s" : ""} ${listed} for tool "${toolName}". Supported parameters: ${supported}. Remove unsupported parameters and retry.`,
-    isError: true,
-  };
-}
 
 /**
  * Create a runtime Tool object from a manifest entry.
@@ -66,12 +42,17 @@ export function createSkillTool(
       input: Record<string, unknown>,
       context: ToolContext,
     ): Promise<ToolExecutionResult> {
-      const validationError = validateNoUnknownParams(
+      const validation = validateInputAgainstSchema(
         entry.name,
         input,
-        entry.input_schema,
+        entry.input_schema as Record<string, unknown> | undefined,
       );
-      if (validationError) return validationError;
+      if (!validation.ok) {
+        return {
+          content: `Invalid input for tool "${entry.name}": ${validation.errors.join("; ")}. Fix the arguments and retry.`,
+          isError: true,
+        };
+      }
 
       return runSkillToolScript(skillDir, entry.executor, input, context, {
         target: entry.execution_target,
