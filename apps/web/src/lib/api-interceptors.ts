@@ -197,21 +197,13 @@ function arePlatformFeaturesEnabled(): boolean {
   );
 }
 
-platformClient.interceptors.request.use(async (request: Request) => {
+platformClient.interceptors.request.use((request: Request) => {
   if (!isLocalMode()) return request;
   if (arePlatformFeaturesEnabled()) return request;
 
-  const ingressUrl = getSelfHostedIngressUrl();
-  if (ingressUrl) {
-    const reqOrigin = new URL(request.url).origin;
-    const ingressOrigin = new URL(ingressUrl).origin;
-    if (reqOrigin === ingressOrigin) return request;
-  }
-
-  const url = new URL(request.url);
   console.debug(
     "platform-features-in-local-mode is disabled — no-op platform request:",
-    url.pathname,
+    new URL(request.url).pathname,
   );
   throw new DOMException(
     "Platform features disabled in local mode",
