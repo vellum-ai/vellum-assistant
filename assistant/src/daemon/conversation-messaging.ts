@@ -351,7 +351,7 @@ export async function persistUserMessage(
   metadata?: Record<string, unknown>,
   displayContent?: string,
   clientMessageId?: string,
-): Promise<string> {
+): Promise<{ id: string; deduplicated: boolean }> {
   if (ctx.processing) {
     throw new Error("Conversation is already processing a message");
   }
@@ -366,7 +366,7 @@ export async function persistUserMessage(
   ctx.abortController = new AbortController();
 
   try {
-    return await persistQueuedMessageBody(
+    const result = await persistQueuedMessageBody(
       ctx,
       content,
       attachments,
@@ -375,6 +375,12 @@ export async function persistUserMessage(
       displayContent,
       clientMessageId,
     );
+    if (result.deduplicated) {
+      ctx.processing = false;
+      ctx.abortController = null;
+      ctx.currentRequestId = undefined;
+    }
+    return result;
   } catch (err) {
     ctx.processing = false;
     ctx.abortController = null;
@@ -402,7 +408,7 @@ export async function persistQueuedMessageBody(
   metadata: Record<string, unknown> | undefined,
   displayContent: string | undefined,
   clientMessageId?: string,
-): Promise<string> {
+): Promise<{ id: string; deduplicated: boolean }> {
   const attachmentInputs = attachments.map((attachment) => ({
     id: attachment.id,
     filename: attachment.filename,
@@ -493,6 +499,11 @@ export async function persistQueuedMessageBody(
       clientMessageId,
     );
 
+    if (persistedUserMessage.deduplicated) {
+      ctx.messages.pop();
+      return { id: persistedUserMessage.id, deduplicated: true };
+    }
+
     if (turnCtx) {
       setConversationOriginChannelIfUnset(
         ctx.conversationId,
@@ -574,7 +585,7 @@ export async function persistQueuedMessageBody(
       );
     }
 
-    return persistedUserMessage.id;
+    return { id: persistedUserMessage.id, deduplicated: false };
   } catch (err) {
     ctx.messages.pop();
     throw err;

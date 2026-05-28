@@ -1284,7 +1284,7 @@ export class Conversation {
     metadata?: Record<string, unknown>,
     displayContent?: string,
     clientMessageId?: string,
-  ): Promise<string> {
+  ): Promise<{ id: string; deduplicated: boolean }> {
     if (!this.processing) {
       await this.ensureActorScopedHistory();
     }

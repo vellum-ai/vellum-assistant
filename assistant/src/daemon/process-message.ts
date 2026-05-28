@@ -508,7 +508,7 @@ export async function processMessage(
   const persistMetadata = options?.slackInbound
     ? { slackInbound: options.slackInbound }
     : undefined;
-  const messageId = await conversation.persistUserMessage(
+  const { id: messageId } = await conversation.persistUserMessage(
     resolvedContent,
     attachments,
     requestId,
@@ -571,7 +571,7 @@ export async function processMessageInBackground(
   const persistMetadata = options?.slackInbound
     ? { slackInbound: options.slackInbound }
     : undefined;
-  const messageId = await conversation.persistUserMessage(
+  const { id: messageId } = await conversation.persistUserMessage(
     content,
     attachments,
     requestId,

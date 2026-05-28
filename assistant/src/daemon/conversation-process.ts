@@ -164,7 +164,7 @@ export interface ProcessConversationContext {
     metadata?: Record<string, unknown>,
     displayContent?: string,
     clientMessageId?: string,
-  ): Promise<string>;
+  ): Promise<{ id: string; deduplicated: boolean }>;
   runAgentLoop(
     content: string,
     userMessageId: string,
@@ -922,9 +922,9 @@ async function drainSingleMessage(
   // succeeds, runAgentLoop is called and its finally block will drain
   // the next message. If persistUserMessage fails, processMessage
   // resolves early (no runAgentLoop call), so we must continue draining.
-  let userMessageId: string;
+  let persistResult: { id: string; deduplicated: boolean };
   try {
-    userMessageId = await conversation.persistUserMessage(
+    persistResult = await conversation.persistUserMessage(
       resolvedContent,
       next.attachments,
       next.requestId,
@@ -959,6 +959,18 @@ async function drainSingleMessage(
     // runAgentLoop never ran, so its finally block won't clear this
     conversation.preactivatedSkillIds = undefined;
     // Continue draining — don't strand remaining messages
+    await drainQueue(conversation);
+    return;
+  }
+
+  const userMessageId = persistResult.id;
+
+  if (persistResult.deduplicated) {
+    log.info(
+      { conversationId: conversation.conversationId, userMessageId },
+      "Skipping agent loop for deduplicated queued message",
+    );
+    conversation.preactivatedSkillIds = undefined;
     await drainQueue(conversation);
     return;
   }
@@ -1219,8 +1231,9 @@ async function drainBatch(
     const qmContent = qmSlash.content;
 
     try {
+      let batchPersistResult: { id: string; deduplicated: boolean };
       if (i === 0) {
-        lastUserMessageId = await conversation.persistUserMessage(
+        batchPersistResult = await conversation.persistUserMessage(
           qmContent,
           qm.attachments,
           qm.requestId,
@@ -1229,7 +1242,7 @@ async function drainBatch(
           qm.clientMessageId,
         );
       } else {
-        lastUserMessageId = await persistQueuedMessageBody(
+        batchPersistResult = await persistQueuedMessageBody(
           conversation,
           qmContent,
           qm.attachments,
@@ -1239,6 +1252,10 @@ async function drainBatch(
           qm.clientMessageId,
         );
       }
+      if (batchPersistResult.deduplicated) {
+        continue;
+      }
+      lastUserMessageId = batchPersistResult.id;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -1863,13 +1880,14 @@ export async function processMessage(
 
   let userMessageId: string;
   try {
-    userMessageId = await conversation.persistUserMessage(
+    const pmResult = await conversation.persistUserMessage(
       resolvedContent,
       attachments,
       requestId,
       undefined,
       displayContent,
     );
+    userMessageId = pmResult.id;
     publishConversationMessagesChanged(conversation.conversationId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

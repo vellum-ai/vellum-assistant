@@ -2040,9 +2040,9 @@ export async function handleSendMessage(
   const resolvedContent = slashResult.content;
 
   const requestId = crypto.randomUUID();
-  let messageId: string;
+  let persistResult: { id: string; deduplicated: boolean };
   try {
-    messageId = await conversation.persistUserMessage(
+    persistResult = await conversation.persistUserMessage(
       resolvedContent,
       attachments,
       requestId,
@@ -2052,6 +2052,16 @@ export async function handleSendMessage(
     );
   } catch (err) {
     throw err;
+  }
+
+  const messageId = persistResult.id;
+
+  if (persistResult.deduplicated) {
+    return {
+      accepted: true,
+      messageId,
+      conversationId: mapping.conversationId,
+    };
   }
 
   broadcastMessage({

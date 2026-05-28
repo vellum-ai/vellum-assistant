@@ -436,7 +436,10 @@ export class SubagentManager {
             "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯",
           ].join("\n")
         : objective;
-      const messageId = await conversation.persistUserMessage(message, []);
+      const { id: messageId } = await conversation.persistUserMessage(
+        message,
+        [],
+      );
       await conversation.runAgentLoop(message, messageId, undefined, {
         callSite: "subagentSpawn",
         ...(managed.state.config.overrideProfile
@@ -621,7 +624,10 @@ export class SubagentManager {
       // Capture conversation before the await — managed.conversation may be
       // nulled by an external dispose() while persistUserMessage is awaited.
       const conversation = managed.conversation;
-      const messageId = await conversation.persistUserMessage(trimmed, []);
+      const { id: messageId } = await conversation.persistUserMessage(
+        trimmed,
+        [],
+      );
       conversation
         .runAgentLoop(trimmed, messageId, undefined, {
           callSite: "subagentSpawn",
@@ -997,7 +1003,7 @@ export class SubagentManager {
     if (!enqueueResult.queued && !enqueueResult.rejected) {
       parentConversation
         .persistUserMessage(message, [], undefined, metadata)
-        .then((messageId) =>
+        .then(({ id: messageId }) =>
           parentConversation.runAgentLoop(message, messageId),
         )
         .catch((err) => {
