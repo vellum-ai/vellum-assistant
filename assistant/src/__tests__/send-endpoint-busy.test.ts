@@ -142,7 +142,7 @@ function makeCompletingConversation(): Conversation {
       requestId?: string,
     ) => {
       processing = true;
-      return requestId ?? "msg-1";
+      return { id: requestId ?? "msg-1", deduplicated: false };
     },
     memoryPolicy: {
       scopeId: "default",
@@ -199,7 +199,7 @@ function makeHangingConversation(): Conversation {
       requestId?: string,
     ) => {
       processing = true;
-      return requestId ?? "msg-1";
+      return { id: requestId ?? "msg-1", deduplicated: false };
     },
     memoryPolicy: {
       scopeId: "default",
@@ -282,7 +282,7 @@ function makePendingApprovalConversation(
       _content: string,
       _attachments: unknown[],
       reqId?: string,
-    ) => reqId ?? "msg-1",
+    ) => ({ id: reqId ?? "msg-1", deduplicated: false }),
     memoryPolicy: {
       scopeId: "default",
       includeDefaultFallback: false,

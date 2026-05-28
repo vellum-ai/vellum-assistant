@@ -1878,16 +1878,15 @@ export async function processMessage(
     }
   }
 
-  let userMessageId: string;
+  let pmResult: { id: string; deduplicated: boolean };
   try {
-    const pmResult = await conversation.persistUserMessage(
+    pmResult = await conversation.persistUserMessage(
       resolvedContent,
       attachments,
       requestId,
       undefined,
       displayContent,
     );
-    userMessageId = pmResult.id;
     publishConversationMessagesChanged(conversation.conversationId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1900,6 +1899,8 @@ export async function processMessage(
     conversation.preactivatedSkillIds = undefined;
     return "";
   }
+
+  const userMessageId = pmResult.id;
 
   // Fire-and-forget: detect notification preferences in the user message
   // and persist any that are found. Runs in the background so it doesn't

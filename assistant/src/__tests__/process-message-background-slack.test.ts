@@ -90,7 +90,7 @@ type PersistUserMessageMock = ReturnType<
       attachments: unknown[],
       requestId?: string,
       metadata?: Record<string, unknown>,
-    ) => Promise<string>
+    ) => Promise<{ id: string; deduplicated: boolean }>
   >
 >;
 type RunAgentLoopMock = ReturnType<
@@ -215,7 +215,7 @@ function makeConversation(): TestConversation {
         _attachments: unknown[],
         _requestId?: string,
         _metadata?: Record<string, unknown>,
-      ) => "persisted-user-message-id",
+      ) => ({ id: "persisted-user-message-id", deduplicated: false }),
     ),
     runAgentLoop: mock(async (..._args: unknown[]) => {
       await loopDeferred.promise;
