@@ -41,10 +41,16 @@ export interface VisibleViewport {
 // dimensions change due to rotation rather than a keyboard event.
 let referenceInnerHeight =
   typeof window !== "undefined" ? window.innerHeight : 0;
-let lastOrientationType: string =
-  typeof window !== "undefined"
-    ? (window.screen.orientation?.type ?? "portrait-primary")
-    : "portrait-primary";
+
+// Orientation detection via matchMedia — universally supported (iOS 9+),
+// unlike screen.orientation which was only added in Safari 16.4.
+function isPortrait(): boolean {
+  if (typeof window === "undefined") {
+    return true;
+  }
+  return window.matchMedia("(orientation: portrait)").matches;
+}
+let lastIsPortrait: boolean = isPortrait();
 
 /**
  * Read the current visual-viewport state.
@@ -61,10 +67,9 @@ export function readVisibleViewport(): VisibleViewport | null {
   // Reset the reference when the device orientation changes — a rotation
   // legitimately changes the viewport dimensions and would otherwise look
   // like a keyboard event.
-  const orientation =
-    window.screen.orientation?.type ?? "portrait-primary";
-  if (orientation !== lastOrientationType) {
-    lastOrientationType = orientation;
+  const currentIsPortrait = isPortrait();
+  if (currentIsPortrait !== lastIsPortrait) {
+    lastIsPortrait = currentIsPortrait;
     referenceInnerHeight = window.innerHeight;
   }
 
