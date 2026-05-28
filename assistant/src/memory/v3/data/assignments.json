@@ -1,0 +1,5 @@
+{
+  "page-a": ["domain-a/topic-x"],
+  "page-b": ["domain-a/topic-x", "domain-a/topic-y"],
+  "page-c": ["domain-b/topic-z"]
+}
