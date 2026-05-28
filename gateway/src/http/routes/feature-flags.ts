@@ -35,7 +35,9 @@ export function createFeatureFlagsGetHandler() {
       const remote = readRemoteFeatureFlags();
       const hasRemoteSnapshot = hasRemoteFeatureFlagSnapshot();
 
-      // Build entries for ALL declared flags, merging persisted values
+      // Build entries for ALL declared flags, merging persisted values.
+      // When a remote snapshot exists, flags absent from it are treated
+      // as disabled (the platform omitted them intentionally).
       const entries: FeatureFlagEntry[] = [];
       for (const [key, def] of Object.entries(defaults)) {
         const persistedValue = persisted[key];

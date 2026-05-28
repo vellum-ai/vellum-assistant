@@ -29,6 +29,7 @@ import { client as authClient } from "@/generated/auth/client.gen";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import { client as platformClient } from "@/generated/api/client.gen";
 import { ensureCsrfCookie, getCsrfToken } from "@/lib/auth/csrf";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
@@ -188,3 +189,25 @@ export async function requestInterceptor(request: Request): Promise<Request> {
 for (const apiClient of [authClient, daemonClient, platformClient]) {
   apiClient.interceptors.request.use(requestInterceptor);
 }
+
+function arePlatformFeaturesEnabled(): boolean {
+  return (
+    (useAssistantFeatureFlagStore.getState() as Record<string, unknown>)
+      .platformFeaturesInLocalMode !== false
+  );
+}
+
+platformClient.interceptors.request.use((request: Request) => {
+  if (!isLocalMode()) return request;
+  if (arePlatformFeaturesEnabled()) return request;
+
+  console.debug(
+    "platform-features-in-local-mode is disabled — no-op platform request:",
+    new URL(request.url).pathname,
+  );
+  const aborted = new AbortController();
+  aborted.abort(
+    new DOMException("Platform features disabled in local mode", "AbortError"),
+  );
+  return new Request(request.url, { signal: aborted.signal });
+});

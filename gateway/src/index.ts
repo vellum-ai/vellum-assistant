@@ -160,6 +160,7 @@ import {
 import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { fetchImpl } from "./fetch.js";
+import { arePlatformFeaturesEnabled } from "./feature-flag-resolver.js";
 import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
@@ -1753,6 +1754,13 @@ async function main() {
    *  Throttled to at most one outbound POST per 30 seconds. */
   let lastRecordActivityTs = 0;
   async function notifyRecordActivity(): Promise<void> {
+    if (!arePlatformFeaturesEnabled()) {
+      log.debug(
+        "platform-features-in-local-mode is disabled — skipping record-activity",
+      );
+      return;
+    }
+
     const now = Date.now();
     if (now - lastRecordActivityTs < 30_000) return;
     lastRecordActivityTs = now;
