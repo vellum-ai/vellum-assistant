@@ -1193,7 +1193,7 @@ export async function installSkill(spec: {
       // Package install (owner/repo — no skillSlug)
       if (resolved.isPackageInstall) {
         const { installPackage } = await import(
-          "../skills/skillssh-registry.js"
+          "../../skills/skillssh-registry.js"
         );
         const result = await installPackage(
           resolved.owner,

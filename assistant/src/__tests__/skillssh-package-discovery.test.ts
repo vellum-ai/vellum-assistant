@@ -39,7 +39,7 @@ describe("listPackageSkills", () => {
       return Promise.resolve(new Response("Not found", { status: 404 }));
     });
 
-    global.fetch = mockFetch;
+    global.fetch = mockFetch as unknown as typeof fetch;
 
     try {
       const skills = await listPackageSkills("obra", "superpowers");
@@ -83,7 +83,7 @@ describe("listPackageSkills", () => {
       return Promise.resolve(new Response("Not found", { status: 404 }));
     });
 
-    global.fetch = mockFetch;
+    global.fetch = mockFetch as unknown as typeof fetch;
 
     try {
       const skills = await listPackageSkills("vercel-labs", "agent-skills");
@@ -112,7 +112,7 @@ describe("listPackageSkills", () => {
       return Promise.resolve(new Response("Not found", { status: 404 }));
     });
 
-    global.fetch = mockFetch;
+    global.fetch = mockFetch as unknown as typeof fetch;
 
     try {
       const skills = await listPackageSkills("empty-org", "empty-repo");
@@ -150,7 +150,7 @@ describe("listPackageSkills", () => {
       return Promise.resolve(new Response("Not found", { status: 404 }));
     });
 
-    global.fetch = mockFetch;
+    global.fetch = mockFetch as unknown as typeof fetch;
 
     try {
       const skills = await listPackageSkills("test-org", "test-repo");
@@ -185,7 +185,7 @@ describe("listPackageSkills", () => {
       return Promise.resolve(new Response("Not found", { status: 404 }));
     });
 
-    global.fetch = mockFetch;
+    global.fetch = mockFetch as unknown as typeof fetch;
 
     try {
       const skills = await listPackageSkills("obra", "superpowers", "v1.0.0");

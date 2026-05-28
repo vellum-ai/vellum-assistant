@@ -124,7 +124,7 @@ describe("package install integration", () => {
       return Promise.resolve(new Response("Not found", { status: 404 }));
     });
 
-    global.fetch = mockFetch;
+    global.fetch = mockFetch as unknown as typeof fetch;
 
     try {
       const skills = await listPackageSkills("obra", "superpowers");
