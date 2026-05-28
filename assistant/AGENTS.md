@@ -14,7 +14,9 @@ When you introduce a new env var that the assistant process needs to read at run
 
 ## Daemon startup philosophy
 
-The daemon must **never** block startup under _any circumstance_. All possible errors should be logged so that the assistant can recover from it's corrupted state after the fact.
+The daemon must **never** block startup due to **subsystem** failures (DB, Qdrant, plugins, feature flags, etc.). If an individual subsystem fails, log the error and continue in degraded mode so the process remains reachable for health checks and diagnostics.
+
+**Exception — duplicate daemon detection:** If the daemon cannot establish **any** client-facing transport because another daemon already holds both the IPC socket and HTTP port, it must exit immediately. A daemon with no transport is unmanageable (invisible to health checks, unreachable by stop commands) yet still runs background jobs (scheduler, memory worker, background wake) against the shared database, causing duplicate side effects.
 
 ## Post-execution hooks
 

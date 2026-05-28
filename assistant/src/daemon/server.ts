@@ -50,6 +50,15 @@ import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 
 const log = getLogger("server");
 
+function isEaddrInUse(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as NodeJS.ErrnoException).code === "EADDRINUSE"
+  );
+}
+
 function readPackageVersion(): string | undefined {
   try {
     const pkgPath = join(import.meta.dir, "../../package.json");
@@ -259,6 +268,13 @@ export class DaemonServer {
     try {
       await this.cliIpc.start();
     } catch (err) {
+      if (isEaddrInUse(err)) {
+        log.error(
+          { err },
+          "CLI IPC socket already in use by another daemon — aborting startup to prevent duplicate processing",
+        );
+        throw err;
+      }
       log.warn(
         { err },
         "CLI IPC server failed to start — continuing startup with degraded CLI connectivity",
