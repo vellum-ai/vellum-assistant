@@ -38,8 +38,8 @@ const capturedMessages: string[] = [];
 
 mock.module("../daemon/conversation-store.js", () => ({
   findConversation: (_id: string) => ({
-    enqueueMessage: (content: string) => {
-      capturedMessages.push(content);
+    enqueueMessage: (options: { content: string }) => {
+      capturedMessages.push(options.content);
       return { queued: true };
     },
     persistUserMessage: async () => ({ id: "mock-msg", deduplicated: false }),

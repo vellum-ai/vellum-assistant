@@ -251,14 +251,9 @@ function makePendingApprovalConversation(
   const messages: unknown[] = [];
   const runAgentLoopMock = mock(async () => {});
   const enqueueMessageMock = mock(
-    (
-      _content: string,
-      _attachments: unknown[],
-      _onEvent: (msg: ServerMessage) => void,
-      queuedRequestId: string,
-    ) => ({
+    (options: { content: string; requestId?: string }) => ({
       queued: true,
-      requestId: queuedRequestId,
+      requestId: options.requestId ?? "queued-req",
     }),
   );
   const denyAllPendingConfirmationsMock = mock(() => {
