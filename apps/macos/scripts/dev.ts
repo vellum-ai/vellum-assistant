@@ -8,9 +8,11 @@
  * repo) and dispatches accordingly:
  *
  *   - vel up detected → `bun run dev:electron-only` with
- *     `VELLUM_DEV_URL=http://localhost:3000`. The renderer attaches to
- *     the running stack and the BrowserWindow loads the edge proxy URL,
- *     so backend calls work the same way they do for the Swift app.
+ *     `VELLUM_DEV_URL=http://localhost:3000/assistant`. The renderer
+ *     attaches to the running stack and the BrowserWindow loads the
+ *     edge proxy at the `/assistant` path (the bare root is the
+ *     marketing site), so backend calls work the same way they do for
+ *     the Swift app.
  *   - no vel up        → `bun run dev:standalone`. Spawns our own Vite
  *     on :5173 plus Electron. No backends, but the shell — menus, IPC
  *     bridge, window chrome, settings — is fully exercisable.
