@@ -161,6 +161,26 @@ export class LiveVoicePcmCapture {
         return false;
       }
 
+      // Chrome's autoplay policy and Safari's tab lifecycle can leave
+      // the AudioContext in `"suspended"` after construction. A
+      // suspended context never schedules `process()` on the worklet —
+      // we'd report capture as started but deliver zero PCM chunks.
+      // Resume it before publishing the new graph; on rejection
+      // (no user gesture, etc.) bail so the manager surfaces an error.
+      if (audioContext.state === "suspended") {
+        try {
+          await audioContext.resume();
+        } catch {
+          releaseStream(stream);
+          return false;
+        }
+        // Re-check after the await — same race window as `addModule()`.
+        if (myGen !== this.startGeneration || this.isShutdown) {
+          releaseStream(stream);
+          return false;
+        }
+      }
+
       const sourceNode = audioContext.createMediaStreamSource(stream);
       const workletNode = new AudioWorkletNode(
         audioContext,
