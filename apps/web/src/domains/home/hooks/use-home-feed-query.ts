@@ -11,13 +11,8 @@ import type {
   FeedItemStatus,
   HomeFeedResponse,
 } from "../types";
+import { homeFeedQueryKey } from "@/lib/sync/query-tags";
 import { useEventBusStore } from "@/stores/event-bus-store";
-
-const QUERY_KEY_PREFIX = "home-feed" as const;
-
-function homeFeedQueryKey(assistantId: string) {
-  return [QUERY_KEY_PREFIX, assistantId] as const;
-}
 
 /**
  * React Query hook for the home feed.
