@@ -27,12 +27,22 @@ public final class MessageStreamReducer {
     /// The store this reducer mutates. Owned by the caller.
     public let store: MessageStore
 
+    /// Persistent per-conversation `seq` watermark. Updated for every event
+    /// the reducer applies so the next SSE (re)connect can send
+    /// `Last-Event-Id` and skip re-applying durable-log replays.
+    private let lastAppliedSeqStore: LastAppliedSeqStore
+
     private let eventStreamClient: EventStreamClient
     private var subscriptionTask: Task<Void, Never>?
 
-    public init(store: MessageStore, eventStreamClient: EventStreamClient) {
+    public init(
+        store: MessageStore,
+        eventStreamClient: EventStreamClient,
+        lastAppliedSeqStore: LastAppliedSeqStore = .shared
+    ) {
         self.store = store
         self.eventStreamClient = eventStreamClient
+        self.lastAppliedSeqStore = lastAppliedSeqStore
     }
 
     deinit {
@@ -94,7 +104,7 @@ public final class MessageStreamReducer {
     private func applyMessageOpen(_ msg: MessageOpenMessage) {
         guard shouldApply(messageId: msg.messageId, blockIndex: Self.messageLevelBlockIndex, seq: msg.seq) else { return }
         store.upsertMessage(id: msg.messageId, role: msg.role)
-        recordSeq(messageId: msg.messageId, blockIndex: Self.messageLevelBlockIndex, seq: msg.seq)
+        recordSeq(messageId: msg.messageId, blockIndex: Self.messageLevelBlockIndex, seq: msg.seq, conversationId: msg.conversationId)
     }
 
     private func applyBlockOpen(_ msg: BlockOpenMessage) {
@@ -113,7 +123,7 @@ public final class MessageStreamReducer {
                 )
             }
         }
-        recordSeq(messageId: msg.messageId, blockIndex: msg.blockIndex, seq: msg.seq)
+        recordSeq(messageId: msg.messageId, blockIndex: msg.blockIndex, seq: msg.seq, conversationId: msg.conversationId)
     }
 
     private func applyBlockClose(_ msg: BlockCloseMessage) {
@@ -121,7 +131,7 @@ public final class MessageStreamReducer {
         store.updateMessage(id: msg.messageId) { snapshot in
             snapshot.blocks[msg.blockIndex]?.isComplete = true
         }
-        recordSeq(messageId: msg.messageId, blockIndex: msg.blockIndex, seq: msg.seq)
+        recordSeq(messageId: msg.messageId, blockIndex: msg.blockIndex, seq: msg.seq, conversationId: msg.conversationId)
     }
 
     private func applyMessageClose(_ msg: MessageCloseMessage) {
@@ -129,7 +139,7 @@ public final class MessageStreamReducer {
         store.updateMessage(id: msg.messageId) { snapshot in
             snapshot.isComplete = true
         }
-        recordSeq(messageId: msg.messageId, blockIndex: Self.messageLevelBlockIndex, seq: msg.seq)
+        recordSeq(messageId: msg.messageId, blockIndex: Self.messageLevelBlockIndex, seq: msg.seq, conversationId: msg.conversationId)
     }
 
     private func applyTextDelta(_ msg: AssistantTextDeltaMessage) {
@@ -149,7 +159,7 @@ public final class MessageStreamReducer {
             snapshot.blocks[blockIndex]?.text.append(msg.text)
         }
         if let seq = msg.seq {
-            recordSeq(messageId: messageId, blockIndex: blockIndex, seq: seq)
+            recordSeq(messageId: messageId, blockIndex: blockIndex, seq: seq, conversationId: msg.conversationId)
         }
     }
 
@@ -167,7 +177,7 @@ public final class MessageStreamReducer {
             snapshot.blocks[blockIndex]?.toolInput = msg.input
         }
         if let seq = msg.seq {
-            recordSeq(messageId: messageId, blockIndex: blockIndex, seq: seq)
+            recordSeq(messageId: messageId, blockIndex: blockIndex, seq: seq, conversationId: msg.conversationId)
         }
     }
 
@@ -182,7 +192,7 @@ public final class MessageStreamReducer {
             snapshot.blocks[blockIndex]?.toolInputJson.append(msg.content)
         }
         if let seq = msg.seq {
-            recordSeq(messageId: messageId, blockIndex: blockIndex, seq: seq)
+            recordSeq(messageId: messageId, blockIndex: blockIndex, seq: seq, conversationId: msg.conversationId)
         }
     }
 
@@ -197,7 +207,7 @@ public final class MessageStreamReducer {
             snapshot.blocks[blockIndex]?.toolResult = msg
         }
         if let seq = msg.seq {
-            recordSeq(messageId: messageId, blockIndex: blockIndex, seq: seq)
+            recordSeq(messageId: messageId, blockIndex: blockIndex, seq: seq, conversationId: msg.conversationId)
         }
     }
 
@@ -217,12 +227,18 @@ public final class MessageStreamReducer {
         return true
     }
 
-    private func recordSeq(messageId: String, blockIndex: Int, seq: Int) {
+    private func recordSeq(messageId: String, blockIndex: Int, seq: Int, conversationId: String?) {
         store.updateMessage(id: messageId) { snapshot in
             if let existing = snapshot.seqWatermarks[blockIndex], existing >= seq {
                 return
             }
             snapshot.seqWatermarks[blockIndex] = seq
+        }
+        // Persist the per-conversation watermark so the next SSE (re)connect
+        // can send `Last-Event-Id` and skip durable-log replays the client
+        // has already applied (see `LastAppliedSeqStore`).
+        if let conversationId, !conversationId.isEmpty {
+            lastAppliedSeqStore.setSeq(seq, forConversation: conversationId)
         }
     }
 }

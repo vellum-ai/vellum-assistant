@@ -168,6 +168,15 @@ public final class EventStreamClient {
     /// Called when a token_rotated event is received.
     var onTokenRefreshed: ((String) -> Void)?
 
+    /// Resolves the `Last-Event-Id` value to send on the next SSE connect /
+    /// reconnect. Returning `nil` skips the header. Set by `ChatViewModel`
+    /// from the persisted `LastAppliedSeqStore` watermark for the currently
+    /// active conversation. The daemon only honors the header when the
+    /// stream is conversation-scoped — today's global `/v1/events` stream
+    /// ignores it, but the wiring is in place for PR 5's per-conversation
+    /// subscription model.
+    public var lastEventIdProvider: (() -> String?)?
+
 
     // MARK: - Init
 
@@ -402,10 +411,12 @@ public final class EventStreamClient {
 
             do {
                 await self.sseHandshakeDiagnostics.reset()
+                let lastEventId = self.lastEventIdProvider?()
                 let (bytes, response) = try await GatewayHTTPClient.stream(
                     path: "events",
                     timeout: .infinity,
-                    session: session
+                    session: session,
+                    lastEventId: lastEventId
                 )
 
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
