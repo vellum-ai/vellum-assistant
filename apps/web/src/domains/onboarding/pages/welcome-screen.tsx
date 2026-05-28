@@ -3,7 +3,6 @@ import { useNavigate } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
 import { startAuthFlow } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 
@@ -16,10 +15,9 @@ export function WelcomeScreen() {
     setError(null);
     setLoading(true);
     try {
-      const callbackUrl = buildProviderCallbackUrl(routes.onboarding.hosting);
-      await startAuthFlow(PROVIDER_ID, callbackUrl, {
-        returnTo: routes.onboarding.hosting,
-      });
+      const returnTo = routes.onboarding.hosting;
+      const callbackUrl = `${routes.account.providerCallback}?returnTo=${encodeURIComponent(returnTo)}`;
+      await startAuthFlow("workos-oidc", callbackUrl, { returnTo });
     } catch {
       setError("Something went wrong. Please try again.");
       setLoading(false);
