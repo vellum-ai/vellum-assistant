@@ -18,6 +18,7 @@ import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
+import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import type { AssistantContextValue } from "@/components/layout/assistant-context";
 
 import { useVellumCommands } from "@/runtime/vellum-commands";
@@ -215,6 +216,12 @@ export function ChatLayout() {
   const { hasUnreadHome } = useHomeUnreadBadge(
     homePageEnabled ? lifecycle.assistantId : null,
   );
+
+  // Mirror the unread count + signed-in flag into the Electron Dock
+  // (no-op off Electron). Uses the conversation list this layout
+  // already subscribes to, so there's no extra query — see
+  // `./hooks/use-electron-dock-sync.ts`.
+  useElectronDockSync(conversations);
 
   // --- Layout slot state for child route content ---
   const [topBarCenter, setTopBarCenter] = useState<ReactNode>(null);

@@ -146,6 +146,16 @@ The preload script exposes a typed `window.vellum` API to the renderer:
   [`apps/web/src/runtime/vellum-commands.ts`](../web/src/runtime/vellum-commands.ts);
   feature code mounts the `useVellumCommands` hook with a partial handler
   map at whichever component owns the relevant state.
+- `dock.setBadge(count)` / `dock.setSignedIn(signedIn)` — publish the
+  inputs that drive the Dock unread badge and visibility state machine
+  in [`src/main/dock.ts`](src/main/dock.ts). Renderer wrapper at
+  [`apps/web/src/runtime/dock.ts`](../web/src/runtime/dock.ts) (no-ops
+  off Electron); feature code calls
+  `useElectronDockSync(conversations)` from `ChatLayout` to keep them in
+  sync. The accessory-mode (Dock-hidden) transition is gated on
+  `ALLOW_ACCESSORY_MODE` until a menu-bar (tray) entry point exists;
+  until then the icon stays in the Dock so the user always has a way
+  back to the window.
 - `auth.*` and `helper.*` — typed stubs that reject with "not implemented yet"
   until the corresponding feature tickets land.
 

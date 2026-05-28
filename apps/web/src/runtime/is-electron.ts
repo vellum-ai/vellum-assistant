@@ -36,6 +36,10 @@ declare global {
       commands: {
         on(callback: (command: VellumCommand) => void): () => void;
       };
+      dock: {
+        setBadge(count: number): Promise<void>;
+        setSignedIn(signedIn: boolean): Promise<void>;
+      };
     };
   }
 }
