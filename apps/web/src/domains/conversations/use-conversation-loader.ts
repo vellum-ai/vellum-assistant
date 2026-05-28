@@ -81,7 +81,6 @@ interface UseConversationLoaderParams {
   draftConversationIdResolutionRef: MutableRefObject<boolean>;
   previousConversationIdRef: MutableRefObject<string | null>;
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
-  activeConversationIdRef: MutableRefObject<string | null>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   streamingMessageIdsRef: MutableRefObject<Set<string>>;
@@ -148,7 +147,6 @@ export function useConversationLoader({
   draftConversationIdResolutionRef,
   previousConversationIdRef,
   onboardingDraftConversationIdRef,
-  activeConversationIdRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   streamingMessageIdsRef,
@@ -404,7 +402,7 @@ export function useConversationLoader({
     const key = resolveBootstrappedConversationId({
       queryParamKey: explicitConversationId,
       onboardingDraftConversationId,
-      currentConversationId: activeConversationIdRef.current,
+      currentConversationId: useConversationStore.getState().activeConversationId,
       currentAssistantId: assistantIdRef.current,
       nextAssistantId: assistantId,
       storedConversationId: loadLastViewedConversationId(assistantId),
@@ -425,7 +423,6 @@ export function useConversationLoader({
     searchParams,
     navigate,
     assistantIdRef,
-    activeConversationIdRef,
     onboardingDraftConversationIdRef,
   ]);
 

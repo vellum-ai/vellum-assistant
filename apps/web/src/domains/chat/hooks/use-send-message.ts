@@ -119,7 +119,6 @@ interface UseSendMessageParams {
 
   // Refs
   assistantIdRef: MutableRefObject<string | null>;
-  activeConversationIdRef: MutableRefObject<string | null>;
 
   messagesRef: MutableRefObject<DisplayMessage[]>;
   streamRef: MutableRefObject<ChatEventStream | null>;
@@ -162,7 +161,6 @@ export function useSendMessage({
   diskPressureChatBlockReason,
   messages,
   assistantIdRef,
-  activeConversationIdRef,
   messagesRef,
   streamRef,
   streamContextRef,
@@ -266,7 +264,7 @@ export function useSendMessage({
       const isCurrentSendScope = (resolvedConversationId?: string | null) =>
         isAsyncChatScopeCurrent({
           currentAssistantId: assistantIdRef.current,
-          currentConversationId: activeConversationIdRef.current,
+          currentConversationId: useConversationStore.getState().activeConversationId,
           requestAssistantId,
           requestConversationId,
           resolvedConversationId,
@@ -314,7 +312,7 @@ export function useSendMessage({
             assistantId: requestAssistantId,
             conversationId: requestConversationId,
             activeAssistantId: assistantIdRef.current,
-            activeConversationId: activeConversationIdRef.current,
+            activeConversationId: useConversationStore.getState().activeConversationId,
           });
           return { status: "ignored" };
         }
@@ -357,7 +355,7 @@ export function useSendMessage({
           conversationId: requestConversationId,
           resolvedConversationId: effectiveConversationId,
           activeAssistantId: assistantIdRef.current,
-          activeConversationId: activeConversationIdRef.current,
+          activeConversationId: useConversationStore.getState().activeConversationId,
         });
         return {
           status: "ok",
@@ -398,7 +396,7 @@ export function useSendMessage({
               conversationId: requestConversationId,
               resolvedConversationId: effectiveConversationId,
               activeAssistantId: assistantIdRef.current,
-              activeConversationId: activeConversationIdRef.current,
+              activeConversationId: useConversationStore.getState().activeConversationId,
             });
             return;
           }
@@ -719,7 +717,7 @@ export function useSendMessage({
           resolveEditChatDraftConversationId(activeConversationId, newConversationId);
 
           // Only update active view state if the user is still on this conversation.
-          if (activeConversationIdRef.current === activeConversationId) {
+          if (useConversationStore.getState().activeConversationId === activeConversationId) {
             draftConversationIdResolutionRef.current = true;
             previousConversationIdRef.current = newConversationId;
             useConversationStore.getState().setActiveConversationId(newConversationId);

@@ -76,10 +76,18 @@
     "messaging"
   ],
   "src/domains/chat/hooks/use-message-reconciliation.test.tsx": [
+    "conversations",
     "messaging"
   ],
   "src/domains/chat/hooks/use-message-reconciliation.ts": [
+    "conversations",
     "messaging"
+  ],
+  "src/domains/chat/hooks/use-refresh-latest-messages.test.ts": [
+    "conversations"
+  ],
+  "src/domains/chat/hooks/use-refresh-latest-messages.ts": [
+    "conversations"
   ],
   "src/domains/chat/hooks/use-send-message.ts": [
     "conversations",
@@ -111,9 +119,11 @@
     "subagents"
   ],
   "src/domains/chat/utils/debug-api.test.ts": [
+    "conversations",
     "messaging"
   ],
   "src/domains/chat/utils/debug-api.ts": [
+    "conversations",
     "messaging"
   ],
   "src/domains/chat/utils/stream-handlers/interaction-handlers.test.ts": [
@@ -136,6 +146,9 @@
   ],
   "src/domains/chat/utils/stream-handlers/navigation-handlers.ts": [
     "settings"
+  ],
+  "src/domains/chat/utils/stream-handlers/queue-handlers.ts": [
+    "conversations"
   ],
   "src/domains/chat/utils/stream-handlers/subagent-handlers.ts": [
     "subagents"

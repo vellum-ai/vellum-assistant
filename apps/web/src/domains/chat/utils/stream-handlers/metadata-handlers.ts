@@ -8,6 +8,7 @@ import {
 import { patchConversation } from "@/domains/conversations/conversation-queries";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { AvatarUpdatedEvent, CompactionCircuitClosedEvent, CompactionCircuitOpenEvent, ConversationTitleUpdatedEvent, DiskPressureStatusChangedEvent, IdentityChangedEvent, NotificationIntentEvent, TurnProfileAutoRoutedEvent, UsageUpdateEvent } from "@/domains/chat/api/event-types";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 
 export function handleUsageUpdate(
   event: UsageUpdateEvent,
@@ -87,7 +88,7 @@ export function handleNotificationIntent(
   );
   if (
     metadataConversationId &&
-    metadataConversationId === ctx.activeConversationIdRef.current
+    metadataConversationId === useConversationStore.getState().activeConversationId
   ) {
     if (ackAssistantId && event.deliveryId) {
       void sendNotificationIntentAck(

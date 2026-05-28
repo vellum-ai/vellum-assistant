@@ -19,6 +19,7 @@ import { createElement, type Dispatch, type RefObject, type SetStateAction } fro
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/messaging/turn-store";
+import { useConversationStore } from "@/domains/conversations/conversation-store";
 
 // ---------------------------------------------------------------------------
 // Mocks — module mocks MUST come before importing the subject under test.
@@ -128,7 +129,6 @@ interface HarnessProps {
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
   streamEpochRef: RefObject<number>;
-  activeConversationIdRef: RefObject<string | null>;
   initialPageOldestTsRef?: RefObject<number | null>;
   collect: (result: HookReturn) => void;
 }
@@ -142,7 +142,6 @@ function HookHarness(props: HarnessProps): null {
     setMessages: props.setMessages,
     streamContextRef: props.streamContextRef,
     streamEpochRef: props.streamEpochRef,
-    activeConversationIdRef: props.activeConversationIdRef,
     initialPageOldestTsRef: props.initialPageOldestTsRef ?? makeRef(null),
   });
   props.collect(result);
@@ -185,13 +184,18 @@ function createHarness(overrides?: {
   onPollReconciledSpy = mock();
   useTurnStore.setState({ onPollReconciled: onPollReconciledSpy as never });
 
+  // Seed the conversation store with the active conversation id — the
+  // hook reads it via `useConversationStore.getState().activeConversationId`.
+  useConversationStore.setState({
+    activeConversationId: overrides?.activeConversationId ?? "conv-1",
+  });
+
   let captured: HookReturn | null = null;
   renderToStaticMarkup(
     createElement(HookHarness, {
       setMessages,
       streamContextRef: makeRef(overrides?.streamContext ?? null),
       streamEpochRef: overrides?.streamEpochRef ?? makeRef(overrides?.streamEpoch ?? 0),
-      activeConversationIdRef: makeRef(overrides?.activeConversationId ?? "conv-1"),
       collect: (result) => { captured = result; },
     }),
   );

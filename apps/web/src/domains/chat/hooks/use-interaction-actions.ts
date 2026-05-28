@@ -69,7 +69,6 @@ export interface UseInteractionActionsParams {
   setError: Dispatch<ChatError | null>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
   streamContextRef: MutableRefObject<StreamContext | null>;
-  activeConversationIdRef: MutableRefObject<string | null>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
 }
 
@@ -106,7 +105,6 @@ export function useInteractionActions({
   setError,
   messagesRef,
   streamContextRef,
-  activeConversationIdRef,
   confirmationToolCallMapRef,
 }: UseInteractionActionsParams): UseInteractionActionsReturn {
   const pendingSecret = useInteractionStore.use.pendingSecret();
@@ -154,7 +152,7 @@ export function useInteractionActions({
         }
 
         useInteractionStore.getState().submitSecretEnd(true);
-        const convKey = activeConversationIdRef.current;
+        const convKey = useConversationStore.getState().activeConversationId;
         if (convKey) {
           useConversationStore.getState().removeAttentionConversationId(convKey);
         }
@@ -181,7 +179,7 @@ export function useInteractionActions({
       submitSecretResponse(ctx.assistantId, requestId, "", "none").catch(() => {});
     }
     useInteractionStore.getState().dismissSecret();
-    const convKey = activeConversationIdRef.current;
+    const convKey = useConversationStore.getState().activeConversationId;
     if (convKey) {
       useConversationStore.getState().removeAttentionConversationId(convKey);
     }
@@ -256,7 +254,7 @@ export function useInteractionActions({
       const confirmationDecisionValue = decision === "allow" ? "approved" : "denied";
       useInteractionStore.getState().dismissConfirmation();
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      const convKey = activeConversationIdRef.current;
+      const convKey = useConversationStore.getState().activeConversationId;
       if (convKey) {
         useConversationStore.getState().removeAttentionConversationId(convKey);
       }
