@@ -15,7 +15,9 @@
  *
  * Composed pieces:
  *   - `loadLongMemEvalV2`      — `BenchmarkItem`s with `eval_function`
- *   - `loadTrajectories`       — id → record map, loaded once per run
+ *   - `openTrajectories`       — indexed positional reader over
+ *                                `trajectories.jsonl`, opened once per
+ *                                run and closed in a `finally`
  *   - `runLongMemEvalV2Unit`   — per-question two-conversation runner
  */
 import { randomBytes } from "node:crypto";
@@ -32,7 +34,7 @@ import { wasErrorReportedToProgress } from "../../../src/lib/runner/run-once";
 
 import { loadLongMemEvalV2, type Tier, TIERS } from "./loader";
 import { runLongMemEvalV2Unit } from "./runner";
-import { loadTrajectories } from "./trajectories";
+import { openTrajectories } from "./trajectory-reader";
 
 function timestampSuffix(): string {
   const ms = new Date()
@@ -105,32 +107,39 @@ export async function run(
     );
   }
 
-  // Load the trajectories file ONCE per `evals run` invocation rather
-  // than per item. The file is ~1 GB at the small tier and re-reading
-  // it per question would dominate wall-clock for any non-trivial
-  // selection. Phase 2's full-451-Q run will want an indexed/streaming
-  // variant (tracked in the cache PR).
-  const trajectories = await loadTrajectories(dataRoot);
+  // Open an indexed/positional handle over `trajectories.jsonl`
+  // ONCE per `evals run` invocation. First open after a fresh
+  // `data/download.sh` builds a sibling `trajectories.index.json`;
+  // subsequent invocations reuse it as long as the file's size +
+  // mtime are unchanged. See `trajectory-reader.ts` for the full
+  // index format + invalidation rules.
+  const trajectoryReader = await openTrajectories(dataRoot);
 
   let anyFailed = false;
-  for (const profile of profiles) {
-    for (const item of selected) {
-      const id = runId(profile.id, item.questionId, timestampSuffix());
-      try {
-        await runLongMemEvalV2Unit({
-          profile,
-          item,
-          trajectories,
-          runId: id,
-          sessionId: session,
-          sessionLabel,
-          progress,
-        });
-      } catch (err) {
-        reportRunFailure(progress, err);
-        anyFailed = true;
+  try {
+    for (const profile of profiles) {
+      for (const item of selected) {
+        const id = runId(profile.id, item.questionId, timestampSuffix());
+        try {
+          await runLongMemEvalV2Unit({
+            profile,
+            item,
+            trajectoryReader,
+            runId: id,
+            sessionId: session,
+            sessionLabel,
+            progress,
+          });
+        } catch (err) {
+          reportRunFailure(progress, err);
+          anyFailed = true;
+        }
       }
     }
+  } finally {
+    // Always release the underlying file handle, even if the loop
+    // bailed early on an unexpected throw. `close` is idempotent.
+    await trajectoryReader.close();
   }
   return { anyFailed };
 }
