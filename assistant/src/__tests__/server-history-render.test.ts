@@ -578,7 +578,10 @@ describe("getAttachmentsForMessage", () => {
     db.run("DELETE FROM conversations");
   });
 
-  async function createMessage(role: string, content: string): Promise<string> {
+  async function createMessage(
+    role: "user" | "assistant" | "system",
+    content: string,
+  ): Promise<string> {
     const conv = createConversation("test");
     const msg = await addMessage(conv.id, role, content);
     return msg.id;

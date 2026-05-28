@@ -32,6 +32,7 @@ import type { RepairResult } from "../daemon/history-repair.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import type { MessageRole } from "../memory/conversation-crud.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import type {
   ContentBlock,
@@ -466,7 +467,7 @@ export interface OverflowReduceResult {
 export type PersistAddArgs = {
   readonly op: "add";
   readonly conversationId: string;
-  readonly role: string;
+  readonly role: MessageRole;
   readonly content: string;
   readonly metadata?: Record<string, unknown>;
   readonly addOptions?: { readonly skipIndexing?: boolean };
@@ -483,7 +484,7 @@ export type PersistAddArgs = {
 export type PersistReserveArgs = {
   readonly op: "reserve";
   readonly conversationId: string;
-  readonly role: string;
+  readonly role: MessageRole;
   readonly metadata?: Record<string, unknown>;
 };
 

@@ -2047,6 +2047,8 @@ export async function handleSendMessage(
       attachments,
       requestId,
       body.automated === true ? { automated: true } : undefined,
+      undefined,
+      clientMessageId,
     );
   } catch (err) {
     throw err;

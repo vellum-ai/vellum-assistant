@@ -249,6 +249,9 @@ export const parseConversation = createRowMapper<
   lastNotifiedInferenceProfile: "lastNotifiedInferenceProfile",
 });
 
+/** Allowed values for the `role` column on `messages`. */
+export type MessageRole = "user" | "assistant" | "system";
+
 export interface MessageRow {
   id: string;
   conversationId: string;
@@ -281,6 +284,191 @@ function monotonicNow(): number {
   const now = Date.now();
   lastTimestamp = Math.max(now, lastTimestamp + 1);
   return lastTimestamp;
+}
+
+// ── insertMessageCore ─────────────────────────────────────────────────
+
+/** Shape returned by {@link insertMessageCore} and its public wrappers. */
+interface InsertedMessage {
+  id: string;
+  conversationId: string;
+  role: string;
+  content: string;
+  createdAt: number;
+  metadata?: string;
+  clientMessageId?: string;
+  deduplicated: boolean;
+}
+
+interface InsertMessageCoreParams {
+  conversationId: string;
+  role: MessageRole;
+  content: string;
+  metadata?: Record<string, unknown>;
+  clientMessageId?: string;
+}
+
+/**
+ * Core message persistence primitive shared by {@link addMessage} and
+ * {@link reserveMessage}.
+ *
+ * Inserts a message row inside a transaction that atomically bumps the
+ * parent conversation's `updatedAt` / `lastMessageAt` timestamps and
+ * conditionally sets the conversation's `originChannel` when the first
+ * channel-originated message arrives.
+ *
+ * When a `clientMessageId` is provided the insert uses
+ * `ON CONFLICT DO NOTHING` against the partial unique index
+ * `(conversation_id, client_message_id)`, making the operation
+ * idempotent for client-generated correlation nonces. The returned
+ * `deduplicated` flag indicates whether the row was already present.
+ *
+ * Retries up to 3 times on `SQLITE_BUSY*` / `SQLITE_IOERR*` to handle
+ * WAL contention. The timestamp is recomputed each attempt so a late
+ * retry doesn't persist a stale `updatedAt`.
+ */
+async function insertMessageCore(
+  params: InsertMessageCoreParams,
+): Promise<InsertedMessage> {
+  const { conversationId, role, content, metadata, clientMessageId } = params;
+  const db = getDb();
+  const messageId = uuid();
+
+  if (metadata) {
+    const result = messageMetadataSchema.safeParse(metadata);
+    if (!result.success) {
+      log.warn(
+        { conversationId, messageId, issues: result.error.issues },
+        "Invalid message metadata, storing as-is",
+      );
+    }
+  }
+
+  const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
+  const originChannelCandidate =
+    metadata && isChannelId(metadata.userMessageChannel)
+      ? metadata.userMessageChannel
+      : null;
+
+  const MAX_RETRIES = 3;
+  let now!: number;
+  for (let attempt = 0; ; attempt++) {
+    now = monotonicNow();
+    try {
+      const values = {
+        id: messageId,
+        conversationId,
+        role,
+        content,
+        createdAt: now,
+        ...(metadataStr ? { metadata: metadataStr } : {}),
+        ...(clientMessageId ? { clientMessageId } : {}),
+      };
+
+      if (clientMessageId) {
+        // Idempotent insert: skip silently if this clientMessageId was
+        // already persisted for the conversation.
+        const raw = getSqliteFrom(db);
+        raw.exec("SAVEPOINT insert_msg");
+        try {
+          db.insert(messages).values(values).run();
+          if (originChannelCandidate) {
+            db.update(conversations)
+              .set({ originChannel: originChannelCandidate })
+              .where(
+                and(
+                  eq(conversations.id, conversationId),
+                  isNull(conversations.originChannel),
+                ),
+              )
+              .run();
+          }
+          db.update(conversations)
+            .set({ updatedAt: now, lastMessageAt: now })
+            .where(eq(conversations.id, conversationId))
+            .run();
+          raw.exec("RELEASE insert_msg");
+        } catch (insertErr) {
+          raw.exec("ROLLBACK TO insert_msg");
+          raw.exec("RELEASE insert_msg");
+          const code = (insertErr as { code?: string }).code ?? "";
+          if (code === "SQLITE_CONSTRAINT_UNIQUE") {
+            // Duplicate clientMessageId — return the existing row.
+            const existing = db
+              .select()
+              .from(messages)
+              .where(
+                and(
+                  eq(messages.conversationId, conversationId),
+                  eq(messages.clientMessageId, clientMessageId),
+                ),
+              )
+              .get();
+            if (existing) {
+              return {
+                id: existing.id,
+                conversationId: existing.conversationId,
+                role: existing.role,
+                content: existing.content,
+                createdAt: existing.createdAt,
+                ...(existing.metadata ? { metadata: existing.metadata } : {}),
+                clientMessageId: existing.clientMessageId ?? undefined,
+                deduplicated: true,
+              };
+            }
+          }
+          throw insertErr;
+        }
+      } else {
+        // No clientMessageId — standard insert inside a transaction.
+        db.transaction((tx) => {
+          tx.insert(messages).values(values).run();
+          if (originChannelCandidate) {
+            tx.update(conversations)
+              .set({ originChannel: originChannelCandidate })
+              .where(
+                and(
+                  eq(conversations.id, conversationId),
+                  isNull(conversations.originChannel),
+                ),
+              )
+              .run();
+          }
+          tx.update(conversations)
+            .set({ updatedAt: now, lastMessageAt: now })
+            .where(eq(conversations.id, conversationId))
+            .run();
+        });
+      }
+      break;
+    } catch (err) {
+      const errCode = (err as { code?: string }).code ?? "";
+      if (
+        attempt < MAX_RETRIES &&
+        (errCode.startsWith("SQLITE_BUSY") ||
+          errCode.startsWith("SQLITE_IOERR"))
+      ) {
+        log.warn(
+          { attempt, conversationId, code: errCode },
+          "insertMessageCore: transient SQLite error, retrying",
+        );
+        await Bun.sleep(50 * (attempt + 1));
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  return {
+    id: messageId,
+    conversationId,
+    role,
+    content,
+    createdAt: now,
+    ...(metadataStr ? { metadata: metadataStr } : {}),
+    ...(clientMessageId ? { clientMessageId } : {}),
+    deduplicated: false,
+  };
 }
 
 export function createConversation(
@@ -987,92 +1175,36 @@ export function wipeConversation(id: string): WipeConversationResult {
   };
 }
 
+/**
+ * Persist a message and run post-insert side effects (memory indexing,
+ * attention projection). Delegates the core insert + retry logic to
+ * {@link insertMessageCore}.
+ *
+ * @param clientMessageId  Optional client-generated nonce. When
+ *   provided, duplicate inserts for the same `(conversationId,
+ *   clientMessageId)` pair are silently skipped (idempotent).
+ */
 export async function addMessage(
   conversationId: string,
-  role: string,
+  role: MessageRole,
   content: string,
   metadata?: Record<string, unknown>,
   opts?: { skipIndexing?: boolean },
+  clientMessageId?: string,
 ) {
-  const db = getDb();
-  const messageId = uuid();
-
-  if (metadata) {
-    const result = messageMetadataSchema.safeParse(metadata);
-    if (!result.success) {
-      log.warn(
-        { conversationId, messageId, issues: result.error.issues },
-        "Invalid message metadata, storing as-is",
-      );
-    }
-  }
-
-  const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
-  const originChannelCandidate =
-    metadata && isChannelId(metadata.userMessageChannel)
-      ? metadata.userMessageChannel
-      : null;
-  // Wrap insert + updatedAt bump in a transaction so they're atomic.
-  // Retry on SQLITE_BUSY* and SQLITE_IOERR* — covers WAL contention variants
-  // (SQLITE_BUSY_SNAPSHOT, SQLITE_BUSY_RECOVERY) and transient disk I/O errors.
-  // Timestamp is recomputed each attempt so a late retry doesn't persist a stale updatedAt.
-  const MAX_RETRIES = 3;
-  let now!: number;
-  for (let attempt = 0; ; attempt++) {
-    now = monotonicNow();
-    try {
-      const values = {
-        id: messageId,
-        conversationId,
-        role,
-        content,
-        createdAt: now,
-        ...(metadataStr ? { metadata: metadataStr } : {}),
-      };
-      db.transaction((tx) => {
-        tx.insert(messages).values(values).run();
-        if (originChannelCandidate) {
-          tx.update(conversations)
-            .set({ originChannel: originChannelCandidate })
-            .where(
-              and(
-                eq(conversations.id, conversationId),
-                isNull(conversations.originChannel),
-              ),
-            )
-            .run();
-        }
-        tx.update(conversations)
-          .set({ updatedAt: now, lastMessageAt: now })
-          .where(eq(conversations.id, conversationId))
-          .run();
-      });
-      break;
-    } catch (err) {
-      const errCode = (err as { code?: string }).code ?? "";
-      if (
-        attempt < MAX_RETRIES &&
-        (errCode.startsWith("SQLITE_BUSY") ||
-          errCode.startsWith("SQLITE_IOERR"))
-      ) {
-        log.warn(
-          { attempt, conversationId, code: errCode },
-          "addMessage: transient SQLite error, retrying",
-        );
-        await Bun.sleep(50 * (attempt + 1));
-        continue;
-      }
-      throw err;
-    }
-  }
-  const message = {
-    id: messageId,
+  const inserted = await insertMessageCore({
     conversationId,
     role,
     content,
-    createdAt: now,
-    ...(metadataStr ? { metadata: metadataStr } : {}),
-  };
+    metadata,
+    clientMessageId,
+  });
+
+  if (inserted.deduplicated) {
+    return inserted;
+  }
+
+  const message = inserted;
 
   if (!opts?.skipIndexing) {
     try {
@@ -1978,101 +2110,26 @@ interface WipeConversationResult extends DeletedMemoryIds {
 }
 
 /**
- * Reserve an empty message row at a known id, so the agent loop can stamp
- * outbound streaming events with a stable identity before any content is
- * produced. The returned row has `content: "[]"` and no metadata-side
- * effects beyond `addMessage`'s usual conversation-row bump.
+ * Reserve an empty message row so the agent loop can stamp outbound
+ * streaming events with a stable identity before content is produced.
  *
- * Intentionally skips both Qdrant indexing and attention projection — an
- * empty placeholder is not meaningful for either. The caller will later
- * write final content via {@link updateMessageContent} (and is responsible
- * for triggering any indexing/projection at that point if it cares).
+ * Intentionally skips Qdrant indexing and attention projection — an empty
+ * placeholder is meaningless for either. The caller writes final content
+ * via {@link updateMessageContent} and handles indexing/projection itself.
  *
- * Mirrors {@link addMessage}'s SQLITE_BUSY/SQLITE_IOERR retry shape so the
- * primitives behave consistently under WAL contention.
+ * Delegates the core insert + retry logic to {@link insertMessageCore}.
  */
 export async function reserveMessage(
   conversationId: string,
-  role: string,
+  role: MessageRole,
   metadata?: Record<string, unknown>,
 ) {
-  const db = getDb();
-  const messageId = uuid();
-
-  if (metadata) {
-    const result = messageMetadataSchema.safeParse(metadata);
-    if (!result.success) {
-      log.warn(
-        { conversationId, messageId, issues: result.error.issues },
-        "Invalid message metadata, storing as-is",
-      );
-    }
-  }
-
-  const metadataStr = metadata ? JSON.stringify(metadata) : undefined;
-  const originChannelCandidate =
-    metadata && isChannelId(metadata.userMessageChannel)
-      ? metadata.userMessageChannel
-      : null;
-
-  const MAX_RETRIES = 3;
-  let now!: number;
-  for (let attempt = 0; ; attempt++) {
-    now = monotonicNow();
-    try {
-      const values = {
-        id: messageId,
-        conversationId,
-        role,
-        content: "[]",
-        createdAt: now,
-        ...(metadataStr ? { metadata: metadataStr } : {}),
-      };
-      db.transaction((tx) => {
-        tx.insert(messages).values(values).run();
-        if (originChannelCandidate) {
-          tx.update(conversations)
-            .set({ originChannel: originChannelCandidate })
-            .where(
-              and(
-                eq(conversations.id, conversationId),
-                isNull(conversations.originChannel),
-              ),
-            )
-            .run();
-        }
-        tx.update(conversations)
-          .set({ updatedAt: now, lastMessageAt: now })
-          .where(eq(conversations.id, conversationId))
-          .run();
-      });
-      break;
-    } catch (err) {
-      const errCode = (err as { code?: string }).code ?? "";
-      if (
-        attempt < MAX_RETRIES &&
-        (errCode.startsWith("SQLITE_BUSY") ||
-          errCode.startsWith("SQLITE_IOERR"))
-      ) {
-        log.warn(
-          { attempt, conversationId, code: errCode },
-          "reserveMessage: transient SQLite error, retrying",
-        );
-        await Bun.sleep(50 * (attempt + 1));
-        continue;
-      }
-      throw err;
-    }
-  }
-
-  return {
-    id: messageId,
+  return insertMessageCore({
     conversationId,
     role,
     content: "[]",
-    createdAt: now,
-    ...(metadataStr ? { metadata: metadataStr } : {}),
-  };
+    metadata,
+  });
 }
 
 /**

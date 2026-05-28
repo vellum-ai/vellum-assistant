@@ -134,6 +134,7 @@ import {
   migrateMemoryV3AutoEdges,
   migrateMemoryV3Coactivation,
   migrateMessageBookmarks,
+  migrateMessagesClientMessageId,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -464,6 +465,7 @@ export function initializeDb(): void {
     migrateMemoryV3AutoEdges,
     migrateLlmRequestLogCallSite,
     migrateDropProviderConnectionStatus,
+    migrateMessagesClientMessageId,
   ];
 
   // Run each migration step, catching and logging individual failures so one

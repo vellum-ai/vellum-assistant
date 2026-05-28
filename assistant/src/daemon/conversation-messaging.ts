@@ -350,6 +350,7 @@ export async function persistUserMessage(
   requestId?: string,
   metadata?: Record<string, unknown>,
   displayContent?: string,
+  clientMessageId?: string,
 ): Promise<string> {
   if (ctx.processing) {
     throw new Error("Conversation is already processing a message");
@@ -372,6 +373,7 @@ export async function persistUserMessage(
       reqId,
       metadata,
       displayContent,
+      clientMessageId,
     );
   } catch (err) {
     ctx.processing = false;
@@ -399,6 +401,7 @@ export async function persistQueuedMessageBody(
   requestId: string,
   metadata: Record<string, unknown> | undefined,
   displayContent: string | undefined,
+  clientMessageId?: string,
 ): Promise<string> {
   const attachmentInputs = attachments.map((attachment) => ({
     id: attachment.id,
@@ -486,6 +489,8 @@ export async function persistQueuedMessageBody(
       "user",
       contentToPersist,
       mergedMetadata,
+      undefined,
+      clientMessageId,
     );
 
     if (turnCtx) {

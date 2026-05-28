@@ -17,13 +17,14 @@ import type { SkillIpcRoute } from "../skill-ipc-types.js";
 
 /**
  * Shape mirrors the daemon's `addMessage()` positional signature:
- * `(conversationId, role, content, metadata?, opts?)`. Metadata is a
- * free-form record (validated downstream by `messageMetadataSchema` with a
+ * `(conversationId, role, content, metadata?, opts?)`. `role` is
+ * constrained to the `MessageRole` union. Metadata is a free-form
+ * record (validated downstream by `messageMetadataSchema` with a
  * warn-and-store fallback). Only `skipIndexing` is recognised in `opts`.
  */
 const MemoryAddMessageParams = z.object({
   conversationId: z.string().min(1),
-  role: z.string().min(1),
+  role: z.enum(["user", "assistant", "system"]),
   content: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   opts: z

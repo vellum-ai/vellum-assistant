@@ -163,6 +163,7 @@ export interface ProcessConversationContext {
     requestId?: string,
     metadata?: Record<string, unknown>,
     displayContent?: string,
+    clientMessageId?: string,
   ): Promise<string>;
   runAgentLoop(
     content: string,
@@ -929,6 +930,7 @@ async function drainSingleMessage(
       next.requestId,
       { ...next.metadata, sentAt: next.sentAt },
       next.displayContent,
+      next.clientMessageId,
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1224,6 +1226,7 @@ async function drainBatch(
           qm.requestId,
           { ...qm.metadata, sentAt: qm.sentAt },
           qm.displayContent,
+          qm.clientMessageId,
         );
       } else {
         lastUserMessageId = await persistQueuedMessageBody(
@@ -1233,6 +1236,7 @@ async function drainBatch(
           qm.requestId,
           { ...qm.metadata, sentAt: qm.sentAt },
           qm.displayContent,
+          qm.clientMessageId,
         );
       }
     } catch (err) {

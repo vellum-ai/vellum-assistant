@@ -1,9 +1,11 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
   real,
   sqliteTable,
   text,
+  uniqueIndex,
 } from "drizzle-orm/sqlite-core";
 
 export const conversations = sqliteTable(
@@ -66,8 +68,14 @@ export const messages = sqliteTable(
     content: text("content").notNull(),
     createdAt: integer("created_at").notNull(),
     metadata: text("metadata"),
+    clientMessageId: text("client_message_id"),
   },
-  (table) => [index("idx_messages_conversation_id").on(table.conversationId)],
+  (table) => [
+    index("idx_messages_conversation_id").on(table.conversationId),
+    uniqueIndex("idx_messages_conv_client_msg_id")
+      .on(table.conversationId, table.clientMessageId)
+      .where(sql`client_message_id IS NOT NULL`),
+  ],
 );
 
 export const toolInvocations = sqliteTable(

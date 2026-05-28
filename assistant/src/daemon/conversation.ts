@@ -1283,6 +1283,7 @@ export class Conversation {
     requestId?: string,
     metadata?: Record<string, unknown>,
     displayContent?: string,
+    clientMessageId?: string,
   ): Promise<string> {
     if (!this.processing) {
       await this.ensureActorScopedHistory();
@@ -1294,6 +1295,7 @@ export class Conversation {
       requestId,
       metadata,
       displayContent,
+      clientMessageId,
     );
   }
 
