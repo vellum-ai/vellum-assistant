@@ -687,6 +687,26 @@ extension AssistantTextDelta {
     }
 }
 
+/// Declares the start of an assistant message — carries a stable `messageId`
+/// that the block-scoped events in this turn stamp on. Paired with
+/// `MessageCloseMessage` at end-of-turn.
+/// Backed by generated `MessageOpenEvent`.
+public typealias MessageOpenMessage = MessageOpenEvent
+
+/// Declares the start of a content block within an assistant message.
+/// Paired with `BlockCloseMessage`.
+/// Backed by generated `BlockOpenEvent`.
+public typealias BlockOpenMessage = BlockOpenEvent
+
+/// Declares the end of a content block within an assistant message.
+/// Peer of `BlockOpenMessage`.
+/// Backed by generated `BlockCloseEvent`.
+public typealias BlockCloseMessage = BlockCloseEvent
+
+/// Declares the end of an assistant turn. Peer of `MessageOpenMessage`.
+/// Backed by generated `MessageCloseEvent`.
+public typealias MessageCloseMessage = MessageCloseEvent
+
 /// Streamed thinking delta from the assistant's reasoning.
 public typealias AssistantThinkingDeltaMessage = AssistantThinkingDelta
 
@@ -2914,6 +2934,10 @@ public enum ServerMessage: Decodable, Sendable {
     case assistantTextDelta(AssistantTextDeltaMessage)
     case assistantActivityState(AssistantActivityStateMessage)
     case assistantThinkingDelta(AssistantThinkingDeltaMessage)
+    case messageOpen(MessageOpenMessage)
+    case blockOpen(BlockOpenMessage)
+    case blockClose(BlockCloseMessage)
+    case messageClose(MessageCloseMessage)
     case messageComplete(MessageCompleteMessage)
     case conversationInfo(ConversationInfoMessage)
     case conversationInferenceProfileUpdated(ConversationInferenceProfileUpdatedMessage)
@@ -3135,6 +3159,18 @@ public enum ServerMessage: Decodable, Sendable {
         case "assistant_thinking_delta":
             let message = try AssistantThinkingDeltaMessage(from: decoder)
             self = .assistantThinkingDelta(message)
+        case "message_open":
+            let message = try MessageOpenMessage(from: decoder)
+            self = .messageOpen(message)
+        case "block_open":
+            let message = try BlockOpenMessage(from: decoder)
+            self = .blockOpen(message)
+        case "block_close":
+            let message = try BlockCloseMessage(from: decoder)
+            self = .blockClose(message)
+        case "message_close":
+            let message = try MessageCloseMessage(from: decoder)
+            self = .messageClose(message)
         case "message_complete":
             let message = try MessageCompleteMessage(from: decoder)
             self = .messageComplete(message)

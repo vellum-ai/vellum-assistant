@@ -460,11 +460,26 @@ public struct AssistantTextDelta: Codable, Sendable {
     public let type: String
     public let text: String
     public let conversationId: String?
+    /// Database row id of the assistant message this delta belongs to. Stamped
+    /// from the pre-allocated turn anchor (see `AssistantTurnStartEvent`).
+    /// Absent on streams produced by older daemons that pre-date the anchor
+    /// protocol or on synthetic deltas (canned greetings, slash-command echoes).
+    public let messageId: String?
+    /// 0-based content-block index within the parent `messageId`. Optional for
+    /// backwards compatibility with synthetic deltas that don't bind to a block.
+    public let blockIndex: Int?
+    /// Monotonically increasing per-conversation sequence number for idempotent
+    /// client replay. Optional during the streaming-architecture rollout —
+    /// daemons that pre-date the protocol omit it.
+    public let seq: Int?
 
-    public init(type: String, text: String, conversationId: String? = nil) {
+    public init(type: String, text: String, conversationId: String? = nil, messageId: String? = nil, blockIndex: Int? = nil, seq: Int? = nil) {
         self.type = type
         self.text = text
         self.conversationId = conversationId
+        self.messageId = messageId
+        self.blockIndex = blockIndex
+        self.seq = seq
     }
 }
 
@@ -511,6 +526,63 @@ public struct AvatarUpdated: Codable, Sendable {
     public init(type: String, avatarPath: String) {
         self.type = type
         self.avatarPath = avatarPath
+    }
+}
+
+/// `block_open` SSE event. Declares the start of a new content block within an
+/// assistant message. Paired with `BlockClose` at the block's end.
+///
+/// Block kinds:
+///   - `text`     — a streamed text block opened on the first text delta
+///                  emitted after the previous block closed.
+///   - `tool_use` — a tool invocation; opened immediately before the matching
+///                  `ToolUseStart` and closed when the corresponding `ToolResult`
+///                  arrives.
+///
+/// `blockIndex` is 0-based and monotonically increases within a single message.
+public struct BlockOpenEvent: Codable, Sendable {
+    public let type: String
+    public let messageId: String
+    public let blockIndex: Int
+    /// "text" or "tool_use".
+    public let blockType: String
+    /// Tool name when `blockType == "tool_use"`; absent otherwise.
+    public let toolName: String?
+    /// Tool-use id when `blockType == "tool_use"`; absent otherwise.
+    public let toolUseId: String?
+    /// Monotonically increasing per-conversation sequence number.
+    public let seq: Int
+    public let conversationId: String?
+
+    public init(type: String = "block_open", messageId: String, blockIndex: Int, blockType: String, toolName: String? = nil, toolUseId: String? = nil, seq: Int, conversationId: String? = nil) {
+        self.type = type
+        self.messageId = messageId
+        self.blockIndex = blockIndex
+        self.blockType = blockType
+        self.toolName = toolName
+        self.toolUseId = toolUseId
+        self.seq = seq
+        self.conversationId = conversationId
+    }
+}
+
+/// `block_close` SSE event. Peer of `BlockOpen`. Text blocks close when the
+/// next non-text content starts (or when the turn ends); tool_use blocks close
+/// when their matching `ToolResult` arrives.
+public struct BlockCloseEvent: Codable, Sendable {
+    public let type: String
+    public let messageId: String
+    public let blockIndex: Int
+    /// Monotonically increasing per-conversation sequence number.
+    public let seq: Int
+    public let conversationId: String?
+
+    public init(type: String = "block_close", messageId: String, blockIndex: Int, seq: Int, conversationId: String? = nil) {
+        self.type = type
+        self.messageId = messageId
+        self.blockIndex = blockIndex
+        self.seq = seq
+        self.conversationId = conversationId
     }
 }
 
@@ -2760,6 +2832,46 @@ public struct MessageComplete: Codable, Sendable {
     }
 }
 
+/// `message_open` SSE event. Declares a stable `messageId` (UUIDv7) for an
+/// assistant message at the start of a turn, before the first content event.
+/// Paired with `MessageClose` at end-of-turn. Clients should anchor a message
+/// bubble at `MessageOpen` instead of inferring identity from the first delta.
+public struct MessageOpenEvent: Codable, Sendable {
+    public let type: String
+    public let messageId: String
+    /// "assistant".
+    public let role: String
+    /// Monotonically increasing per-conversation sequence number.
+    public let seq: Int
+    public let conversationId: String?
+
+    public init(type: String = "message_open", messageId: String, role: String, seq: Int, conversationId: String? = nil) {
+        self.type = type
+        self.messageId = messageId
+        self.role = role
+        self.seq = seq
+        self.conversationId = conversationId
+    }
+}
+
+/// `message_close` SSE event. Peer of `MessageOpen`. Marks the assistant turn
+/// done in the new streaming architecture; the legacy `MessageComplete` event
+/// continues to fire alongside it during the rollout for backward compatibility.
+public struct MessageCloseEvent: Codable, Sendable {
+    public let type: String
+    public let messageId: String
+    /// Monotonically increasing per-conversation sequence number.
+    public let seq: Int
+    public let conversationId: String?
+
+    public init(type: String = "message_close", messageId: String, seq: Int, conversationId: String? = nil) {
+        self.type = type
+        self.messageId = messageId
+        self.seq = seq
+        self.conversationId = conversationId
+    }
+}
+
 public struct MessageContentRequest: Codable, Sendable {
     public let type: String
     public let conversationId: String
@@ -4809,13 +4921,23 @@ public struct ToolInputDelta: Codable, Sendable {
     public let conversationId: String?
     /// The tool_use block ID for client-side correlation.
     public let toolUseId: String?
+    /// Database row id of the assistant message that owns this tool_use block.
+    /// Same semantics as `AssistantTextDelta.messageId`.
+    public let messageId: String?
+    /// 0-based content-block index within the parent `messageId`.
+    public let blockIndex: Int?
+    /// Monotonically increasing per-conversation sequence number.
+    public let seq: Int?
 
-    public init(type: String, toolName: String, content: String, conversationId: String? = nil, toolUseId: String? = nil) {
+    public init(type: String, toolName: String, content: String, conversationId: String? = nil, toolUseId: String? = nil, messageId: String? = nil, blockIndex: Int? = nil, seq: Int? = nil) {
         self.type = type
         self.toolName = toolName
         self.content = content
         self.conversationId = conversationId
         self.toolUseId = toolUseId
+        self.messageId = messageId
+        self.blockIndex = blockIndex
+        self.seq = seq
     }
 }
 
@@ -4997,8 +5119,15 @@ public struct ToolResult: Codable, Sendable {
     /// trust rule from the chip-ladder UI.
     public let riskAllowlistOptions: [ConfirmationRequestAllowlistOption]?
     public let riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]?
+    /// Database row id of the assistant message that owns the parent tool_use
+    /// block. Same semantics as `AssistantTextDelta.messageId`.
+    public let messageId: String?
+    /// 0-based content-block index within the parent `messageId`.
+    public let blockIndex: Int?
+    /// Monotonically increasing per-conversation sequence number.
+    public let seq: Int?
 
-    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, matchedTrustRuleId: String? = nil, approvalMode: String? = nil, approvalReason: String? = nil, riskThreshold: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil, riskAllowlistOptions: [ConfirmationRequestAllowlistOption]? = nil, riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil) {
+    public init(type: String, toolName: String, result: String, isError: Bool? = nil, diff: ToolResultDiff? = nil, status: String? = nil, conversationId: String? = nil, imageDataList: [String]? = nil, toolUseId: String? = nil, riskLevel: String? = nil, riskReason: String? = nil, matchedTrustRuleId: String? = nil, approvalMode: String? = nil, approvalReason: String? = nil, riskThreshold: String? = nil, isContainerized: Bool? = nil, riskScopeOptions: [ToolResultRiskScopeOption]? = nil, riskAllowlistOptions: [ConfirmationRequestAllowlistOption]? = nil, riskDirectoryScopeOptions: [ConfirmationRequestDirectoryScopeOption]? = nil, messageId: String? = nil, blockIndex: Int? = nil, seq: Int? = nil) {
         self.type = type
         self.toolName = toolName
         self.result = result
@@ -5018,6 +5147,9 @@ public struct ToolResult: Codable, Sendable {
         self.riskScopeOptions = riskScopeOptions
         self.riskAllowlistOptions = riskAllowlistOptions
         self.riskDirectoryScopeOptions = riskDirectoryScopeOptions
+        self.messageId = messageId
+        self.blockIndex = blockIndex
+        self.seq = seq
     }
 }
 
@@ -5065,13 +5197,23 @@ public struct ToolUseStart: Codable, Sendable {
     public let conversationId: String?
     /// The tool_use block ID for client-side correlation.
     public let toolUseId: String?
+    /// Database row id of the assistant message that owns this tool_use block.
+    /// Same semantics as `AssistantTextDelta.messageId`.
+    public let messageId: String?
+    /// 0-based content-block index within the parent `messageId`.
+    public let blockIndex: Int?
+    /// Monotonically increasing per-conversation sequence number.
+    public let seq: Int?
 
-    public init(type: String, toolName: String, input: [String: AnyCodable], conversationId: String? = nil, toolUseId: String? = nil) {
+    public init(type: String, toolName: String, input: [String: AnyCodable], conversationId: String? = nil, toolUseId: String? = nil, messageId: String? = nil, blockIndex: Int? = nil, seq: Int? = nil) {
         self.type = type
         self.toolName = toolName
         self.input = input
         self.conversationId = conversationId
         self.toolUseId = toolUseId
+        self.messageId = messageId
+        self.blockIndex = blockIndex
+        self.seq = seq
     }
 }
 

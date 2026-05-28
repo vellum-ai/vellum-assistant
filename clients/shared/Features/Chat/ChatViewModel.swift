@@ -708,6 +708,14 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
     static let maxImageSize = ChatAttachmentManager.maxImageSize
 
     public let subagentDetailStore = SubagentDetailStore()
+    /// New transcript representation populated by `MessageStreamReducer` from
+    /// the daemon's PR-1 streaming events (`message_open` / `block_open` /
+    /// `block_close` / `message_close`). Currently **unused by any view** —
+    /// the on-screen transcript is still driven by the legacy `messages`
+    /// array. PR 4 of the streaming-message-architecture plan flips renderers
+    /// to read from this store.
+    public let messageStore = MessageStore()
+    @ObservationIgnored let messageStreamReducer: MessageStreamReducer
     let connectionManager: GatewayConnectionManager
     let eventStreamClient: EventStreamClient
     private let settingsClient: any SettingsClientProtocol
@@ -1286,6 +1294,13 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         self.interactionClient = interactionClient
         self.conversationQueueClient = conversationQueueClient
         self.onToolCallsComplete = onToolCallsComplete
+        // Initialize the new streaming-architecture reducer. The data path is
+        // wired so events accumulate into `messageStore`, but no view reads
+        // from the store yet (see the property doc comment for context).
+        self.messageStreamReducer = MessageStreamReducer(
+            store: messageStore,
+            eventStreamClient: eventStreamClient
+        )
         self.paginationState = ChatPaginationState(
             messageManager: messageManager
         )
@@ -1312,6 +1327,11 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
 
         // Initialize the action handler for server message dispatch.
         self.actionHandler = ChatActionHandler(viewModel: self)
+
+        // Start consuming streaming events into the new MessageStore. Output
+        // is not rendered by any view in this PR — see `messageStore` doc
+        // comment for the rollout plan.
+        self.messageStreamReducer.start()
 
         // Surface attachment validation errors in the error manager so the UI
         // can show them without the attachment manager needing a direct reference.
