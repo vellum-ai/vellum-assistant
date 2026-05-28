@@ -205,8 +205,9 @@ platformClient.interceptors.request.use((request: Request) => {
     "platform-features-in-local-mode is disabled — no-op platform request:",
     new URL(request.url).pathname,
   );
-  throw new DOMException(
-    "Platform features disabled in local mode",
-    "AbortError",
+  const aborted = new AbortController();
+  aborted.abort(
+    new DOMException("Platform features disabled in local mode", "AbortError"),
   );
+  return new Request(request.url, { signal: aborted.signal });
 });
