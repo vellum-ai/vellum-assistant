@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseAssistantEvent, toDisplayAttachments } from "@/domains/chat/api/event-parser";
+import {
+  parseAssistantEvent,
+  toDisplayAttachments,
+} from "@/domains/chat/api/event-parser";
 import { SYNC_TAGS } from "@/lib/sync/types";
 
 describe("parseAssistantEvent", () => {
@@ -225,6 +228,293 @@ describe("parseAssistantEvent", () => {
     expect(event).toEqual({ type: "generation_cancelled" });
   });
 
+  // ---------------------------------------------------------------------
+  // document_comment_created (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses document_comment_created with full comment payload", () => {
+    const event = parseAssistantEvent({
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      comment: {
+        id: "c-1",
+        surfaceId: "surface-1",
+        author: "user",
+        content: "looks good",
+        anchorStart: 12,
+        anchorEnd: 24,
+        anchorText: "the section",
+        parentCommentId: "c-0",
+        status: "open",
+        createdAt: 1_700_000_000_000,
+        updatedAt: 1_700_000_000_500,
+      },
+    });
+    expect(event).toEqual({
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      comment: {
+        id: "c-1",
+        surfaceId: "surface-1",
+        author: "user",
+        content: "looks good",
+        anchorStart: 12,
+        anchorEnd: 24,
+        anchorText: "the section",
+        parentCommentId: "c-0",
+        status: "open",
+        createdAt: 1_700_000_000_000,
+        updatedAt: 1_700_000_000_500,
+      },
+    });
+  });
+
+  test("parses document_comment_created without optional anchor/thread fields", () => {
+    const event = parseAssistantEvent({
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      comment: {
+        id: "c-1",
+        surfaceId: "surface-1",
+        author: "assistant",
+        content: "",
+        status: "open",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    });
+    expect(event).toEqual({
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      comment: {
+        id: "c-1",
+        surfaceId: "surface-1",
+        author: "assistant",
+        content: "",
+        status: "open",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    });
+  });
+
+  test("returns unknown document_comment_created event when comment is missing", () => {
+    const data = {
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_created",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown document_comment_created event when surfaceId is missing", () => {
+    const data = {
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      comment: {
+        id: "c-1",
+        surfaceId: "surface-1",
+        author: "user",
+        content: "x",
+        status: "open",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_created",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown document_comment_created event when an unknown field is present", () => {
+    // Strict schema rejects forward-compat extras — the daemon and the
+    // canonical schema must move in lockstep.
+    const data = {
+      type: "document_comment_created",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      comment: {
+        id: "c-1",
+        surfaceId: "surface-1",
+        author: "user",
+        content: "x",
+        status: "open",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+      legacyField: "x",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_created",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // document_comment_resolved (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses document_comment_resolved with all required fields", () => {
+    const event = parseAssistantEvent({
+      type: "document_comment_resolved",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+      resolvedBy: "user-alice",
+    });
+    expect(event).toEqual({
+      type: "document_comment_resolved",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+      resolvedBy: "user-alice",
+    });
+  });
+
+  test("returns unknown document_comment_resolved event when resolvedBy is missing", () => {
+    const data = {
+      type: "document_comment_resolved",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_resolved",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown document_comment_resolved event when an unknown field is present", () => {
+    const data = {
+      type: "document_comment_resolved",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+      resolvedBy: "user-alice",
+      legacyField: "x",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_resolved",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // document_comment_reopened (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses document_comment_reopened with all required fields", () => {
+    const event = parseAssistantEvent({
+      type: "document_comment_reopened",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+    });
+    expect(event).toEqual({
+      type: "document_comment_reopened",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+    });
+  });
+
+  test("returns unknown document_comment_reopened event when commentId is missing", () => {
+    const data = {
+      type: "document_comment_reopened",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_reopened",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown document_comment_reopened event when an unknown field is present", () => {
+    const data = {
+      type: "document_comment_reopened",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+      legacyField: "x",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_reopened",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // document_comment_deleted (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses document_comment_deleted with all required fields", () => {
+    const event = parseAssistantEvent({
+      type: "document_comment_deleted",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+    });
+    expect(event).toEqual({
+      type: "document_comment_deleted",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+    });
+  });
+
+  test("returns unknown document_comment_deleted event when surfaceId is missing", () => {
+    const data = {
+      type: "document_comment_deleted",
+      conversationId: "conv-1",
+      commentId: "c-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_deleted",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown document_comment_deleted event when an unknown field is present", () => {
+    const data = {
+      type: "document_comment_deleted",
+      conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+      legacyField: "x",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "document_comment_deleted",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
   test("parses error with code and message", () => {
     const event = parseAssistantEvent({
       type: "error",
@@ -339,7 +629,10 @@ describe("parseAssistantEvent", () => {
   });
 
   test("returns unknown for sync_changed with non-string tags", () => {
-    const data = { type: "sync_changed", tags: [SYNC_TAGS.assistantAvatar, 42] };
+    const data = {
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantAvatar, 42],
+    };
     const event = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
@@ -516,7 +809,11 @@ describe("parseAssistantEvent", () => {
   });
 
   test("returns unknown open_url event when url is missing", () => {
-    const data = { type: "open_url", title: "Connect Google", conversationId: "conv-1" };
+    const data = {
+      type: "open_url",
+      title: "Connect Google",
+      conversationId: "conv-1",
+    };
     const event = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
@@ -798,12 +1095,8 @@ describe("parseAssistantEvent", () => {
         allowlistOptions: [
           { pattern: "Bash(*)", label: "Allow all bash commands" },
         ],
-        scopeOptions: [
-          { scope: "workspace", label: "Current workspace" },
-        ],
-        directoryScopeOptions: [
-          { scope: "/src", label: "Source directory" },
-        ],
+        scopeOptions: [{ scope: "workspace", label: "Current workspace" }],
+        directoryScopeOptions: [{ scope: "/src", label: "Source directory" }],
         persistentDecisionsAllowed: true,
         input: { command: "ls -la /tmp" },
       });
@@ -861,8 +1154,16 @@ describe("parseAssistantEvent", () => {
         result: "ok",
         riskLevel: "medium",
         riskAllowlistOptions: [
-          { pattern: "ls -la", label: "Just this command", description: "Allow only `ls -la`" },
-          { pattern: "action:ls", label: "All ls commands", description: "Allow any `ls …` invocation" },
+          {
+            pattern: "ls -la",
+            label: "Just this command",
+            description: "Allow only `ls -la`",
+          },
+          {
+            pattern: "action:ls",
+            label: "All ls commands",
+            description: "Allow any `ls …` invocation",
+          },
         ],
         riskDirectoryScopeOptions: [
           { scope: "/home/user/project", label: "Project directory" },
@@ -871,8 +1172,16 @@ describe("parseAssistantEvent", () => {
       expect(event.type).toBe("tool_result");
       if (event.type === "tool_result") {
         expect(event.allowlistOptions).toEqual([
-          { pattern: "ls -la", label: "Just this command", description: "Allow only `ls -la`" },
-          { pattern: "action:ls", label: "All ls commands", description: "Allow any `ls …` invocation" },
+          {
+            pattern: "ls -la",
+            label: "Just this command",
+            description: "Allow only `ls -la`",
+          },
+          {
+            pattern: "action:ls",
+            label: "All ls commands",
+            description: "Allow any `ls …` invocation",
+          },
         ]);
         expect(event.directoryScopeOptions).toEqual([
           { scope: "/home/user/project", label: "Project directory" },
@@ -1165,7 +1474,6 @@ describe("parseAssistantEvent", () => {
       expect(event.type).toBe("identity_changed");
     });
   });
-
 });
 
 describe("envelope format parsing", () => {
@@ -1204,13 +1512,19 @@ describe("envelope format parsing", () => {
       type: "wrapper",
       message: {
         type: "sync_changed",
-        tags: [SYNC_TAGS.assistantIdentity, "conversation:conversation-1:messages"],
+        tags: [
+          SYNC_TAGS.assistantIdentity,
+          "conversation:conversation-1:messages",
+        ],
       },
     });
 
     expect(event).toEqual({
       type: "sync_changed",
-      tags: [SYNC_TAGS.assistantIdentity, "conversation:conversation-1:messages"],
+      tags: [
+        SYNC_TAGS.assistantIdentity,
+        "conversation:conversation-1:messages",
+      ],
     });
   });
 
@@ -1365,9 +1679,7 @@ describe("RuntimeMessage metadata types", () => {
           data: { title: "Test" },
         },
       ],
-      textSegments: [
-        { type: "text", content: "Hello" },
-      ],
+      textSegments: [{ type: "text", content: "Hello" }],
       contentOrder: [
         { type: "text", id: "seg-1" },
         { type: "surface", id: "s-1" },

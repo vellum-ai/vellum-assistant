@@ -9,6 +9,10 @@
 import type {
   AssistantTextDeltaEvent,
   AssistantTurnStartEvent,
+  DocumentCommentCreatedEvent,
+  DocumentCommentDeletedEvent,
+  DocumentCommentReopenedEvent,
+  DocumentCommentResolvedEvent,
   GenerationCancelledEvent,
   GenerationHandoffEvent,
   MessageCompleteEvent,
@@ -105,7 +109,11 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   surfaces?: Surface[];
-  textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
+  textSegments?: Array<{
+    type: string;
+    content: string;
+    [key: string]: unknown;
+  }>;
   contentOrder?: Array<{ type: string; id: string }>;
   metadata?: Record<string, unknown>;
   toolCalls?: ChatMessageToolCall[];
@@ -143,8 +151,6 @@ export interface SecretRequestEvent {
 /** Valid decisions accepted by the assistant runtime's POST /v1/confirm endpoint. */
 export type ConfirmationDecision = "allow" | "deny";
 
-
-
 export interface ConfirmationRequestEvent {
   type: "confirmation_request";
   requestId: string;
@@ -177,8 +183,6 @@ export interface ContactRequestEvent {
   role?: string;
   conversationId?: string;
 }
-
-
 
 export interface QuestionRequestEvent {
   type: "question_request";
@@ -243,7 +247,12 @@ export interface UISurfaceShowEvent {
   surfaceType: string;
   title?: string;
   data: Record<string, unknown>;
-  actions?: Array<{ id: string; label: string; style?: string; data?: Record<string, unknown> }>;
+  actions?: Array<{
+    id: string;
+    label: string;
+    style?: string;
+    data?: Record<string, unknown>;
+  }>;
   display?: "inline" | "panel";
   messageId?: string;
   conversationId?: string;
@@ -428,26 +437,6 @@ export interface SubagentEventWrapperEvent {
   event: SubagentInnerEvent;
   conversationId?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Document comment event types — extend the canonical shapes from PR 9
-// with the standard `conversationId` field for SSE stream routing.
-// ---------------------------------------------------------------------------
-
-import type {
-  DocumentCommentCreatedEvent,
-  DocumentCommentDeletedEvent,
-  DocumentCommentReopenedEvent,
-  DocumentCommentResolvedEvent,
-} from "@/domains/chat/api/document-comment-events";
-
-export type DocumentCommentCreatedSseEvent = DocumentCommentCreatedEvent;
-
-export type DocumentCommentResolvedSseEvent = DocumentCommentResolvedEvent;
-
-export type DocumentCommentReopenedSseEvent = DocumentCommentReopenedEvent;
-
-export type DocumentCommentDeletedSseEvent = DocumentCommentDeletedEvent;
 
 export interface DocumentEditorUpdateEvent {
   type: "document_editor_update";
@@ -717,10 +706,10 @@ export type AssistantEvent =
   | SubagentSpawnedEvent
   | SubagentStatusChangedEvent
   | SubagentEventWrapperEvent
-  | DocumentCommentCreatedSseEvent
-  | DocumentCommentResolvedSseEvent
-  | DocumentCommentReopenedSseEvent
-  | DocumentCommentDeletedSseEvent
+  | DocumentCommentCreatedEvent
+  | DocumentCommentResolvedEvent
+  | DocumentCommentReopenedEvent
+  | DocumentCommentDeletedEvent
   | DocumentEditorUpdateEvent
   | TurnProfileAutoRoutedEvent
   | InteractionResolvedEvent
