@@ -87,9 +87,11 @@ export type ProcessState =
 /**
  * Determine whether a PID-tracked process is alive and healthy. If the
  * process exists but is unresponsive, waits up to `readinessWaitMs`
- * (default 30s — covers first-boot scenarios like Qdrant download) for
- * it to finish initializing. If it remains unresponsive, verifies it
- * belongs to Vellum before killing it, then cleans up the PID file.
+ * (default 60s — matches the spawner's own `waitForDaemonReady` timeout
+ * so a concurrent caller never kills a daemon the spawner is still
+ * waiting on) for it to finish initializing. If it remains unresponsive,
+ * verifies it belongs to Vellum before killing it, then cleans up the
+ * PID file.
  *
  * Encapsulates the full health → readiness-wait → guard → kill → cleanup
  * flow so callers don't need to reimplement it.
@@ -98,7 +100,7 @@ export async function resolveProcessState(
   pidFile: string,
   healthPort: number,
   label: string,
-  readinessWaitMs: number = 30_000,
+  readinessWaitMs: number = 60_000,
 ): Promise<ProcessState> {
   const result = await isProcessHealthy(pidFile, healthPort);
 
