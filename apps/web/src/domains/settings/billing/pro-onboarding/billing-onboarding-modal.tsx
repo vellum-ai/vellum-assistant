@@ -170,12 +170,17 @@ export function BillingOnboardingModal({
       }
       const maxTier = (onboardingQuery.data?.max_machine_tier ??
         null) as MachineTierEnum | null;
+      // When domain setup is unavailable the domain step is skipped, so setup is
+      // the sole step in the indicator; otherwise it's the second of two.
+      const domainStepIncluded = domainSetupAvailable !== false;
       return (
         <SetupStep
           storageGib={onboardingQuery.data?.selected_storage_gib ?? null}
           maxTier={maxTier}
           onBack={backFromSetup}
           onAdvance={() => setStep("complete")}
+          dotIndex={domainStepIncluded ? 1 : 0}
+          dotTotal={domainStepIncluded ? 2 : 1}
         />
       );
     }
