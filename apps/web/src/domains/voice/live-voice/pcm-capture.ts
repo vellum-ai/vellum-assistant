@@ -72,9 +72,12 @@ export class LiveVoicePcmCapture {
     if (this.isShutdown) return false;
     // If a previous capture is still wired up, tear it down before
     // starting a fresh one — keeps `start` callable as a "make sure
-    // we're currently capturing" idempotent step.
-    if (this.workletNode) {
-      this.stopInternal();
+    // we're currently capturing" idempotent step. Use `stop()` (not
+    // `stopInternal()`) so the previous `MediaStream` is released —
+    // otherwise the assignment to `this.stream` below would drop the
+    // only reference and leak the mic.
+    if (this.workletNode || this.stream) {
+      this.stop();
     }
 
     const mediaDevices = navigator.mediaDevices;

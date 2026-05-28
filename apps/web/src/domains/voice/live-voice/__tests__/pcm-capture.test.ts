@@ -261,6 +261,29 @@ describe("LiveVoicePcmCapture", () => {
     expect(lastContext.closed).toBe(false);
   });
 
+  it("start() called while already active releases the previous MediaStream", async () => {
+    // Regression: previously `start()` only called `stopInternal()` when
+    // restarting, leaving the old MediaStream alive and leaking the mic.
+    const streams: MockMediaStream[] = [];
+    getUserMediaImpl = () => {
+      const s = new MockMediaStream();
+      streams.push(s);
+      return Promise.resolve(s);
+    };
+
+    const capture = new LiveVoicePcmCapture();
+    const ok1 = await capture.start({ onChunk: () => undefined });
+    expect(ok1).toBe(true);
+    const ok2 = await capture.start({ onChunk: () => undefined });
+    expect(ok2).toBe(true);
+
+    // Two distinct streams were opened; the first one must have been
+    // released so the OS-level mic indicator can clear.
+    expect(streams).toHaveLength(2);
+    expect(streams[0]!.getTracks()[0]!.readyState).toBe("ended");
+    expect(streams[1]!.getTracks()[0]!.readyState).toBe("live");
+  });
+
   it("shutdown() releases MediaStream tracks, closes AudioContext, and is idempotent", async () => {
     mockStream = new MockMediaStream();
     getUserMediaImpl = () => Promise.resolve(mockStream as MockMediaStream);
