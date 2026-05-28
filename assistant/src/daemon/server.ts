@@ -288,13 +288,6 @@ export class DaemonServer {
     try {
       await this.skillIpc.start();
     } catch (err) {
-      if (isEaddrInUse(err)) {
-        log.error(
-          { err },
-          "Skill IPC socket already in use by another daemon — aborting startup to prevent duplicate processing",
-        );
-        throw err;
-      }
       log.warn(
         { err },
         "Skill IPC server failed to start — continuing startup with degraded skill host connectivity",
