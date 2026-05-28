@@ -21,20 +21,34 @@ Code signing, notarization, and auto-update wiring live in follow-up tickets.
 
 ## How it runs
 
-`bun run dev` in this directory is the single command — it spawns the
-`apps/web` Vite dev server (with `PORT=5173` so the spawned process
-agrees with what the BrowserWindow loads), waits for it to come up, then
-runs `electron-vite dev` against it. Killing the script tears both
-processes down (SIGTERM, SIGKILL-escalating). Logs from each are prefixed
-with `[web]` / `[electron]`. See `scripts/dev.ts` for the orchestration
-and `src/shared/dev-server.ts` for the shared port/URL constant.
+`bun run dev` in this directory is the single command. Under the hood
+it runs [`concurrently`](https://github.com/open-cli-tools/concurrently)
+to launch two processes in parallel:
+
+1. **`dev:web`** — `cd ../web && bun run dev -- --port 5173 --strictPort`.
+   Going through `apps/web`'s own `dev` script means we use *its* local
+   Vite (`8.x` per `apps/web/package.json`) and its plugin tree, not
+   whatever older Vite happens to live in `apps/macos/node_modules`.
+   Pinning the port via the Vite CLI overrides `apps/web/.env` if a
+   developer has `PORT` set there (Vite CLI flags beat env vars beat
+   config).
+2. **`dev:electron`** — [`wait-on`](https://github.com/jeffbski/wait-on)
+   polls `http://localhost:5173` (30s timeout) and then runs
+   `electron-vite dev`. The wait avoids Electron racing the renderer
+   and trying to load a URL that isn't up yet.
+
+`concurrently --kill-others` tears down both processes on Ctrl+C or on
+either child exiting, so quitting the launcher doesn't leave a zombie
+Vite server on the port. Logs from each are prefixed and color-coded
+(`[web]` blue / `[electron]` green).
 
 The app shows up as **Vellum Electron** in the menu bar and Dock
-(`app.setName` in `src/main/index.ts`), and writes preferences /
-electron-store data under `~/Library/Application Support/Vellum Electron/`.
-That keeps it cleanly separate from the Swift `Vellum.app`,
-`Vellum Local.app`, and `Vellum Dev.app` installs — running this
-locally won't clobber whichever Swift channel you have around.
+(via `app.setName`, gated to `!app.isPackaged` in `src/main/index.ts`),
+and writes preferences / electron-store data under
+`~/Library/Application Support/Vellum Electron/`. That keeps it cleanly
+separate from the Swift `Vellum.app`, `Vellum Local.app`, and
+`Vellum Dev.app` installs — running this locally won't clobber
+whichever Swift channel you have around.
 
 You don't have to ship a DMG to try it. Packaging (DMG, signing,
 notarization, auto-update) lands in follow-up tickets once we actually
@@ -71,8 +85,10 @@ need a distributable artifact.
 
 ```sh
 bun install
-bun run dev                # spawns web dev server + electron-vite dev
-bun run dev:electron-only  # electron-vite only (web server already running)
+bun run dev                # concurrently runs dev:web + dev:electron
+bun run dev:web            # apps/web Vite dev server (port 5173, strict)
+bun run dev:electron       # wait-on http://localhost:5173 then electron-vite dev
+bun run dev:electron-only  # electron-vite only (when web server is already running)
 bun run build              # electron-vite build — bundles main + preload to out/
 bun run typecheck          # tsc --noEmit
 ```
@@ -82,15 +98,12 @@ bun run typecheck          # tsc --noEmit
 ```
 apps/macos/
 ├── electron.vite.config.ts   # main + preload Vite entries (no renderer)
-├── scripts/
-│   └── dev.ts                # orchestrates web dev server + electron-vite dev
 ├── src/
 │   ├── main/index.ts         # window creation, app://, assistant supervisor
 │   ├── main/commands.ts      # typed command bus + accelerator resolver
 │   ├── main/settings.ts      # electron-store schema + IPC-backed accessors
 │   ├── main/menu.ts          # macOS application menu
-│   ├── preload/index.ts      # contextBridge: window.vellum.*
-│   └── shared/dev-server.ts  # dev-mode port/URL shared by main + scripts/dev.ts
+│   └── preload/index.ts      # contextBridge: window.vellum.*
 └── tsconfig.json
 ```
 

@@ -6,24 +6,32 @@ import path from "node:path";
 
 import { installApplicationMenu } from "./menu";
 import { readSetting, writeSetting } from "./settings";
-import { DEV_SERVER_URL } from "../shared/dev-server";
 
-// Set the app name explicitly so dev runs (`bun run dev`) show "Vellum
-// Electron" in the menu bar / Dock instead of the workspace name
-// (`@vellumai/macos`). Also redirects `app.getPath("userData")` to
-// `~/Library/Application Support/Vellum Electron/`, which keeps preferences,
-// electron-store, and Chromium state cleanly separate from the Swift
-// `Vellum.app` / `Vellum Local.app` / `Vellum Dev.app` installs — running
-// Electron locally won't clobber whichever Swift channel the user has
-// running. Must be called before `app.getPath("userData")` is first read
-// (which the electron-store import path eventually does).
-//
-// In a future packaged build, electron-builder's `productName` becomes the
-// source of truth via `Info.plist`'s `CFBundleName` and this call is a
-// no-op against that — the dev path is the only place it matters.
-app.setName("Vellum Electron");
-
+// Dev-mode renderer URL. Kept in sync with the `dev:web` script in
+// package.json, which passes `--port 5173 --strictPort` to Vite so the
+// port is fixed regardless of `apps/web/.env` or `apps/web/vite.config.ts`
+// defaults. Two places to update (this constant + the package.json
+// script); both stable and grep-able for "5173".
+const DEV_SERVER_URL = "http://localhost:5173";
 const DEV_SERVER_ORIGIN = new URL(DEV_SERVER_URL).origin;
+
+// Dev-only: override the workspace `name` (`@vellumai/macos`) so the
+// menu bar / Dock / Cmd-Tab show "Vellum Electron", and so
+// `app.getPath("userData")` resolves to
+// `~/Library/Application Support/Vellum Electron/` — cleanly separate
+// from the Swift `Vellum.app` / `Vellum Local.app` / `Vellum Dev.app`
+// installs the developer may also be running.
+//
+// `app.setName()` overrides `Info.plist`'s `CFBundleName` in BOTH dev
+// and packaged builds, so we gate on `!app.isPackaged` to let
+// electron-builder's `productName` win for shipped artifacts (per the
+// per-channel naming matrix in LUM-1987). Must be called before
+// `app.getPath("userData")` is first read; the electron-store instance
+// in `./settings` is constructed lazily on first IPC call, so this
+// timing holds as long as `app.setName` runs before `app.whenReady`.
+if (!app.isPackaged) {
+  app.setName("Vellum Electron");
+}
 const APP_PROTOCOL = "app";
 const APP_HOST = "vellum.ai";
 
