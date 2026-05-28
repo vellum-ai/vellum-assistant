@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   deleteDocument,
   findInDocument,
+  findRecentEmptyDocumentByTitle,
   getDocumentById,
   getDocumentsForConversation,
   isDocumentAssociatedWithConversation,
@@ -124,12 +125,79 @@ export function executeDocumentOpen(
   };
 }
 
+const EMPTY_DOCUMENT_DEDUPE_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * If the model just created an empty same-title document in this conversation
+ * and is now creating a second one with real content, reuse the first row
+ * instead of producing a duplicate. Returns `null` when no dedupe applies.
+ *
+ * Only triggers when `initialContent` is non-empty — an empty incoming create
+ * likely means the model intends a fresh blank doc.
+ */
+function maybeReuseEmptyDocument(
+  title: string,
+  initialContent: string,
+  context: ToolContext,
+): ToolExecutionResult | null {
+  if (initialContent.length === 0) return null;
+  const existing = findRecentEmptyDocumentByTitle(
+    context.conversationId,
+    title,
+    EMPTY_DOCUMENT_DEDUPE_WINDOW_MS,
+  );
+  if (!existing) return null;
+
+  const surfaceId = existing.surfaceId;
+  const update = updateDocumentContent(surfaceId, initialContent, "replace");
+  if (!update.success) return null;
+
+  if (context.sendToClient) {
+    context.sendToClient({
+      type: "document_editor_show",
+      conversationId: context.conversationId,
+      surfaceId,
+      title,
+      initialContent,
+    });
+
+    context.sendToClient({
+      type: "ui_surface_show",
+      conversationId: context.conversationId,
+      surfaceId: `preview-${surfaceId}`,
+      surfaceType: "document_preview",
+      display: "inline",
+      title,
+      data: {
+        title,
+        surfaceId,
+        subtitle: "Document",
+      },
+    });
+  }
+
+  return {
+    content: JSON.stringify({
+      surface_id: surfaceId,
+      title,
+      opened: context.sendToClient != null,
+      reused: true,
+      message: "Document editor reopened (deduped empty draft)",
+    }),
+    isError: false,
+  };
+}
+
 export function executeDocumentCreate(
   input: Record<string, unknown>,
   context: ToolContext,
 ): ToolExecutionResult {
   const title = (input.title as string | undefined) || "Untitled Document";
   const initialContent = (input.initial_content as string | undefined) || "";
+
+  const reused = maybeReuseEmptyDocument(title, initialContent, context);
+  if (reused) return reused;
+
   const surfaceId = `doc-${randomUUID()}`;
 
   // Persist the document so any client (web or macOS) can fetch it via
