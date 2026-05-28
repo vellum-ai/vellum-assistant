@@ -1,6 +1,10 @@
 import { createBrowserRouter, Navigate, useSearchParams } from "react-router";
 
 import { authMiddleware } from "@/lib/auth/auth-middleware";
+import {
+  localModeOnlyMiddleware,
+  onboardingCompletedMiddleware,
+} from "@/lib/onboarding-middleware";
 import { RootLayout } from "@/root-layout";
 import { ChatLayout } from "@/domains/chat/chat-layout";
 import { ChatPage } from "@/domains/chat/chat-page";
@@ -99,27 +103,38 @@ export const router = createBrowserRouter(
         {
           ErrorBoundary: RouteErrorBoundary,
           children: [
-        // Onboarding routes — full-screen (no ChatLayout sidebar).
-        // Lazy-loaded: one-time flow, not revisited.
+        // Onboarding routes — redirect to /assistant when onboarding is
+        // already completed (unless ?replay is present).
         {
-          path: "onboarding/welcome",
-          lazy: { Component: () => import("@/domains/onboarding/pages/welcome-screen").then((m) => m.WelcomeScreen) },
-        },
-        {
-          path: "onboarding/hosting",
-          lazy: { Component: () => import("@/domains/onboarding/pages/hosting-screen").then((m) => m.HostingScreen) },
-        },
-        {
-          path: "onboarding/privacy",
-          lazy: { Component: () => import("@/domains/onboarding/pages/privacy-screen").then((m) => m.PrivacyScreen) },
-        },
-        {
-          path: "onboarding/prechat",
-          lazy: { Component: () => import("@/domains/onboarding/pages/pre-chat-flow").then((m) => m.PreChatFlow) },
-        },
-        {
-          path: "onboarding/hatching",
-          lazy: { Component: () => import("@/domains/onboarding/pages/hatching-screen").then((m) => m.HatchingScreen) },
+          middleware: [onboardingCompletedMiddleware],
+          children: [
+            // Local-mode-only: redirect to /assistant when not in local mode.
+            {
+              middleware: [localModeOnlyMiddleware],
+              children: [
+                {
+                  path: "onboarding/welcome",
+                  lazy: { Component: () => import("@/domains/onboarding/pages/welcome-screen").then((m) => m.WelcomeScreen) },
+                },
+                {
+                  path: "onboarding/hosting",
+                  lazy: { Component: () => import("@/domains/onboarding/pages/hosting-screen").then((m) => m.HostingScreen) },
+                },
+              ],
+            },
+            {
+              path: "onboarding/privacy",
+              lazy: { Component: () => import("@/domains/onboarding/pages/privacy-screen").then((m) => m.PrivacyScreen) },
+            },
+            {
+              path: "onboarding/prechat",
+              lazy: { Component: () => import("@/domains/onboarding/pages/pre-chat-flow").then((m) => m.PreChatFlow) },
+            },
+            {
+              path: "onboarding/hatching",
+              lazy: { Component: () => import("@/domains/onboarding/pages/hatching-screen").then((m) => m.HatchingScreen) },
+            },
+          ],
         },
 
         // Settings routes — full-screen overlay panel (no ChatLayout sidebar).
