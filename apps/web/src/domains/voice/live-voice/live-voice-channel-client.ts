@@ -124,6 +124,14 @@ export class LiveVoiceChannelClient {
   private ws: LiveVoiceWebSocketLike | null = null;
   private connectionTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private endGraceTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Resolver for the Promise returned by `end()` while the 1 s grace
+   * timer is pending. Tracked separately from the timer so that
+   * `teardown()` (called by `close()`, `handleError()`, or a server
+   * failure) can resolve any awaited `end()` before clearing the
+   * timer — otherwise the caller hangs indefinitely.
+   */
+  private pendingEndResolver: (() => void) | null = null;
   private onEvent: ((event: LiveVoiceChannelEvent) => void) | null = null;
   private onFailure:
     | ((failure: LiveVoiceChannelFailure) => void)
@@ -224,8 +232,14 @@ export class LiveVoiceChannelClient {
     this.sendControlFrame("end", ["ending"]);
 
     await new Promise<void>((resolve) => {
+      // Track the resolver alongside the timer so `teardown()` can
+      // resolve this Promise even if it cancels the grace timer first
+      // (e.g. a concurrent `close()` or a WS error during the grace
+      // window). Without this, `await client.end()` would hang.
+      this.pendingEndResolver = resolve;
       this.endGraceTimeoutId = setTimeout(() => {
         this.endGraceTimeoutId = null;
+        this.pendingEndResolver = null;
         resolve();
       }, END_GRACE_MS);
     });
@@ -446,6 +460,15 @@ export class LiveVoiceChannelClient {
     this.state = "closed";
 
     this.cancelConnectionTimeout();
+    // If `end()` is currently awaiting the 1 s grace timer, resolve
+    // its Promise *before* clearing the timer. Otherwise the awaited
+    // `client.end()` would hang when a concurrent `close()` or error
+    // path tears the client down during the grace window.
+    if (this.pendingEndResolver !== null) {
+      const resolve = this.pendingEndResolver;
+      this.pendingEndResolver = null;
+      resolve();
+    }
     if (this.endGraceTimeoutId !== null) {
       clearTimeout(this.endGraceTimeoutId);
       this.endGraceTimeoutId = null;

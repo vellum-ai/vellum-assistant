@@ -437,6 +437,50 @@ describe("LiveVoiceChannelClient", () => {
     expect(MockWebSocket.instances.length).toBe(0);
   });
 
+  test("end() resolves even when teardown clears the grace timer first", async () => {
+    // Patch setTimeout so the 1 s end-grace timer never fires on its
+    // own (we want to drive teardown manually). The 10 s connection
+    // timeout is also a no-op so `start()` resolves cleanly.
+    const realSetTimeout = globalThis.setTimeout;
+    const stub = ((handler: TimerHandler, ms?: number) => {
+      if (typeof handler === "function" && (ms === 1_000 || ms === 10_000)) {
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }
+      return realSetTimeout(handler, ms);
+    }) as typeof setTimeout;
+    globalThis.setTimeout = stub;
+
+    try {
+      const client = new LiveVoiceChannelClient();
+      await client.start({ onEvent: () => {}, onFailure: () => {} });
+      const ws = MockWebSocket.instances[0]!;
+      ws.emitOpen();
+      ws.emitJson({
+        type: "ready",
+        seq: 0,
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      expect(client.getState()).toBe("active");
+
+      // Kick off end() but don't await it — the grace timer is
+      // stubbed to never fire, so end() is parked on the Promise.
+      const endPromise = client.end();
+      expect(client.getState()).toBe("ending");
+
+      // Force teardown via a WS abnormal close before the grace timer
+      // fires. handleClose -> teardown clears the grace timer; before
+      // the fix this orphans the resolver and end() would hang.
+      ws.emitClose(1006, "abnormal");
+
+      // The awaited end() must now resolve rather than hang.
+      await endPromise;
+      expect(client.getState()).toBe("closed");
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+    }
+  });
+
   test("busy server frame fires onFailure(busy)", async () => {
     const client = new LiveVoiceChannelClient();
     const failures: LiveVoiceChannelFailure[] = [];
