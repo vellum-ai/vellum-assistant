@@ -8,6 +8,7 @@ import { env } from "./commands/env";
 import { events } from "./commands/events";
 import { exec } from "./commands/exec";
 import { flags } from "./commands/flags";
+import { gateway } from "./commands/gateway";
 import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
 import { logs } from "./commands/logs";
@@ -39,6 +40,7 @@ const commands = {
   events,
   exec,
   flags,
+  gateway,
   hatch,
   login,
   logout,
@@ -75,6 +77,7 @@ function printHelp(): void {
   console.log("  events   Stream events from a running assistant");
   console.log("  exec     Execute a command inside an assistant's container");
   console.log("  flags    Show and toggle feature flags");
+  console.log("  gateway  Gateway management commands");
   console.log("  hatch    Create a new assistant instance");
   console.log("  logs     View logs from an assistant instance");
   console.log("  login    Log in to the Vellum platform");

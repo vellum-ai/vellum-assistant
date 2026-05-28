@@ -17,6 +17,7 @@ import {
   getPlatformAssistants,
   setSelectedAssistantId,
   gatewayProxyUrl,
+  fetchGuardianToken,
 } from "@/lib/local-mode";
 import {
   startAuthFlow,
@@ -268,9 +269,10 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
       setConnectError(null);
       setConnectingId(assistant.assistantId);
       try {
+        const guardianToken = await fetchGuardianToken(assistant.assistantId);
         const tokenUrl = `${gatewayProxyUrl(assistant.resources!.gatewayPort)}/auth/token`;
         setSelectedAssistantId(assistant.assistantId);
-        await ensureGatewayToken(tokenUrl);
+        await ensureGatewayToken(tokenUrl, guardianToken);
         await useAuthStore.getState().initSession();
         navigate(returnTo || "/assistant");
       } catch {
