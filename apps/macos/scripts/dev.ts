@@ -123,7 +123,20 @@ async function waitForRenderer(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  start("web", "bun", ["run", "dev"], WEB_ROOT, { PORT: DEV_SERVER_PORT });
+  // Port resolution in apps/web's vite.config.ts is:
+  //   const env = { ...process.env, ...loadEnv(mode, cwd, "") }
+  //   server.port = parseInt(env.PORT || "3000")
+  // — i.e. .env files WIN over the spawn env. Passing `--port` as a Vite
+  // CLI flag is the only way to override `apps/web/.env` if a developer
+  // has set `PORT` there. The `PORT` env var is kept as a belt-and-
+  // suspenders signal for any tooling downstream that reads it.
+  start(
+    "web",
+    "bun",
+    ["run", "dev", "--", "--port", DEV_SERVER_PORT],
+    WEB_ROOT,
+    { PORT: DEV_SERVER_PORT },
+  );
   console.log(`[dev] waiting for renderer at ${DEV_SERVER_URL}...`);
   try {
     await waitForRenderer();
