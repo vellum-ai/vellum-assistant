@@ -102,9 +102,9 @@ export function HomeDetailPanel({
         </div>
 
         {/* Detail header */}
-        <div className="flex items-start justify-center gap-3 px-4 py-3">
+        <div className="flex items-center gap-3 px-4 py-3">
           <span
-            className="mt-0.5 flex shrink-0 items-center justify-center rounded-full"
+            className="flex shrink-0 items-center justify-center rounded-full"
             style={{
               width: 40,
               height: 40,
