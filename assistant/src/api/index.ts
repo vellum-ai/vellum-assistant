@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
+import { DocumentCommentCreatedEventSchema } from "./events/document-comment-created.js";
+import { DocumentCommentDeletedEventSchema } from "./events/document-comment-deleted.js";
+import { DocumentCommentReopenedEventSchema } from "./events/document-comment-reopened.js";
+import { DocumentCommentResolvedEventSchema } from "./events/document-comment-resolved.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
 import { MessageCompleteEventSchema } from "./events/message-complete.js";
@@ -22,6 +26,22 @@ export {
   type AssistantTurnStartEvent,
   AssistantTurnStartEventSchema,
 } from "./events/assistant-turn-start.js";
+export {
+  type DocumentCommentCreatedEvent,
+  DocumentCommentCreatedEventSchema,
+} from "./events/document-comment-created.js";
+export {
+  type DocumentCommentDeletedEvent,
+  DocumentCommentDeletedEventSchema,
+} from "./events/document-comment-deleted.js";
+export {
+  type DocumentCommentReopenedEvent,
+  DocumentCommentReopenedEventSchema,
+} from "./events/document-comment-reopened.js";
+export {
+  type DocumentCommentResolvedEvent,
+  DocumentCommentResolvedEventSchema,
+} from "./events/document-comment-resolved.js";
 export {
   type GenerationCancelledEvent,
   GenerationCancelledEventSchema,
@@ -88,6 +108,10 @@ export {
 export const AssistantEventSchema = z.discriminatedUnion("type", [
   AssistantTextDeltaEventSchema,
   AssistantTurnStartEventSchema,
+  DocumentCommentCreatedEventSchema,
+  DocumentCommentDeletedEventSchema,
+  DocumentCommentReopenedEventSchema,
+  DocumentCommentResolvedEventSchema,
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
   MessageCompleteEventSchema,
