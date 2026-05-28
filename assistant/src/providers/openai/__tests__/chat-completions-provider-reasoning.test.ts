@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { OpenAIChatCompletionsProvider } from "../chat-completions-provider.js";
+import {
+  OpenAIChatCompletionsProvider,
+  type OpenAIChatCompletionsProviderOptions,
+} from "../chat-completions-provider.js";
 
 type ReasoningDetail = {
   type?: string;
@@ -32,23 +35,35 @@ function makeStream(chunks: MockChunk[]): AsyncIterable<MockChunk> {
   };
 }
 
-function stubProvider(chunks: MockChunk[]): {
+function stubProvider(
+  chunks: MockChunk[],
+  options?: OpenAIChatCompletionsProviderOptions,
+): {
   provider: OpenAIChatCompletionsProvider;
   events: Array<{ type: string; thinking?: string; text?: string }>;
+  requests: unknown[];
 } {
-  const provider = new OpenAIChatCompletionsProvider("test-key", "test-model");
+  const provider = new OpenAIChatCompletionsProvider(
+    "test-key",
+    "test-model",
+    options,
+  );
+  const requests: unknown[] = [];
   // Swap the SDK client for a stub whose chat.completions.create returns our
   // canned async iterable.
   (provider as unknown as { client: unknown }).client = {
     chat: {
       completions: {
-        create: async () => makeStream(chunks),
+        create: async (params: unknown) => {
+          requests.push(params);
+          return makeStream(chunks);
+        },
       },
     },
   };
   const events: Array<{ type: string; thinking?: string; text?: string }> = [];
   (provider as unknown as { __events: typeof events }).__events = events;
-  return { provider, events };
+  return { provider, events, requests };
 }
 
 async function runStream(
@@ -231,5 +246,142 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
     const deltas = events.filter((e) => e.type === "thinking_delta");
     expect(deltas.map((d) => d.thinking)).toEqual(["it ", "worked", "!"]);
     expect(thinking).toBe("it worked!");
+  });
+
+  test("round-trips prior assistant thinking as reasoning_content when field is set", async () => {
+    const { provider, requests } = stubProvider(
+      [
+        {
+          choices: [{ delta: { content: "continued" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 4, completion_tokens: 2 },
+        },
+      ],
+      { assistantReasoningField: "reasoning_content" },
+    );
+
+    await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "first question" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "hidden chain state", signature: "" },
+          { type: "text", text: "first answer" },
+        ],
+      },
+      { role: "user", content: [{ type: "text", text: "follow up" }] },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{
+        role: string;
+        content: string | null;
+        reasoning_content?: string;
+      }>;
+    };
+    const assistantMsg = params.messages.find((m) => m.role === "assistant");
+    expect(assistantMsg).toEqual({
+      role: "assistant",
+      content: "first answer",
+      reasoning_content: "hidden chain state",
+    });
+  });
+
+  test("uses reasoning field for OpenRouter-style round-trip", async () => {
+    const { provider, requests } = stubProvider(
+      [
+        {
+          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        },
+      ],
+      { assistantReasoningField: "reasoning" },
+    );
+
+    await provider.sendMessage([
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "visible summary", signature: "" },
+          { type: "text", text: "answer" },
+        ],
+      },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{
+        role: string;
+        reasoning?: string;
+        reasoning_content?: string;
+      }>;
+    };
+    expect(params.messages[0].reasoning).toBe("visible summary");
+    expect(params.messages[0].reasoning_content).toBeUndefined();
+  });
+
+  test("drops thinking blocks when assistantReasoningField is unset", async () => {
+    const { provider, requests } = stubProvider([
+      {
+        choices: [{ delta: { content: "reply" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 2, completion_tokens: 1 },
+      },
+    ]);
+
+    await provider.sendMessage([
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", thinking: "should be dropped", signature: "" },
+          { type: "text", text: "visible" },
+        ],
+      },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{
+        role: string;
+        content: string | null;
+        reasoning?: string;
+        reasoning_content?: string;
+      }>;
+    };
+    const assistantMsg = params.messages[0];
+    expect(assistantMsg.content).toBe("visible");
+    expect(assistantMsg.reasoning).toBeUndefined();
+    expect(assistantMsg.reasoning_content).toBeUndefined();
+  });
+
+  test("skips Anthropic-originated thinking blocks (with signatures)", async () => {
+    const { provider, requests } = stubProvider(
+      [
+        {
+          choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 2, completion_tokens: 1 },
+        },
+      ],
+      { assistantReasoningField: "reasoning_content" },
+    );
+
+    await provider.sendMessage([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "thinking",
+            thinking: "anthropic thinking",
+            signature: "sig-abc",
+          },
+          { type: "thinking", thinking: "deepseek thinking", signature: "" },
+          { type: "text", text: "answer" },
+        ],
+      },
+    ]);
+
+    const params = requests[0] as {
+      messages: Array<{
+        role: string;
+        reasoning_content?: string;
+      }>;
+    };
+    expect(params.messages[0].reasoning_content).toBe("deepseek thinking");
   });
 });

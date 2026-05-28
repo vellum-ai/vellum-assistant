@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
@@ -74,6 +75,8 @@ export function localModePlugin(env: Record<string, string>): Plugin {
     name: "vellum-local-mode",
     configureServer(server) {
       server.middlewares.use(lockfileMiddleware(lockfilePaths));
+      server.middlewares.use(hatchMiddleware());
+      server.middlewares.use(retireMiddleware());
       server.middlewares.use(gatewayProxyMiddleware());
     },
   };
@@ -90,6 +93,8 @@ function lockfileMiddleware(
 
     if (req.method === "GET") {
       handleGetLockfile(lockfilePaths, res);
+    } else if (req.method === "POST") {
+      handlePostLockfile(lockfilePaths, req, res);
     } else {
       res.statusCode = 405;
       res.end();
@@ -130,6 +135,310 @@ function handleGetLockfile(
     res.statusCode = 500;
     res.end();
   }
+}
+
+/**
+ * Merge an assistant entry into the lockfile on disk.
+ *
+ * Transport: Vite dev middleware (fs read/write).
+ * In Electron, replace with IPC call to main process: window.electronAPI.saveLockfileAssistant(entry). (LUM-1998)
+ */
+function handlePostLockfile(
+  lockfilePaths: string[],
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): void {
+  const chunks: Buffer[] = [];
+  req.on("data", (chunk: Buffer) => chunks.push(chunk));
+  req.on("end", () => {
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(Buffer.concat(chunks).toString()) as Record<string, unknown>;
+    } catch {
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
+      return;
+    }
+
+    const assistant = body.assistant as Record<string, unknown> | undefined;
+    const activeAssistant = body.activeAssistant as string | undefined;
+    if (!assistant || typeof assistant.assistantId !== "string") {
+      res.statusCode = 400;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: "Missing assistant.assistantId" }));
+      return;
+    }
+
+    // Read existing lockfile
+    let lockfile: Record<string, unknown> = { assistants: [], activeAssistant: null };
+    const writePath = lockfilePaths[0]!;
+    for (const candidate of lockfilePaths) {
+      try {
+        lockfile = JSON.parse(fs.readFileSync(candidate, "utf-8")) as Record<string, unknown>;
+        break;
+      } catch {
+        // continue
+      }
+    }
+
+    // Upsert the assistant entry
+    const assistants = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
+    const existingIdx = assistants.findIndex(
+      (a: Record<string, unknown>) => a?.assistantId === assistant.assistantId,
+    );
+    if (existingIdx >= 0) {
+      assistants[existingIdx] = { ...assistants[existingIdx], ...assistant };
+    } else {
+      assistants.push(assistant);
+    }
+    lockfile.assistants = assistants;
+    if (activeAssistant !== undefined) {
+      lockfile.activeAssistant = activeAssistant;
+    }
+
+    // Atomic write
+    try {
+      const dir = path.dirname(writePath);
+      fs.mkdirSync(dir, { recursive: true });
+      const tmp = `${writePath}.tmp.${process.pid}`;
+      fs.writeFileSync(tmp, JSON.stringify(lockfile, null, 2));
+      fs.renameSync(tmp, writePath);
+    } catch (err) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: `Failed to write lockfile: ${err}` }));
+      return;
+    }
+
+    const stripped = JSON.parse(JSON.stringify(lockfile)) as Record<string, unknown>;
+    stripSensitiveFields(stripped);
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ ok: true, lockfile: stripped }));
+  });
+}
+
+const HATCH_TIMEOUT_MS = 120_000;
+
+/**
+ * Connect middleware for the hatch endpoint.
+ *
+ * Transport: Vite dev middleware (child_process.spawn → CLI binary).
+ * In Electron, replace with IPC call to main process: window.electronAPI.hatchAssistant(species). (LUM-1997)
+ * The main process has direct access to the hatch-local module without spawning a subprocess.
+ */
+function hatchMiddleware(): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (
+      req.url !== "/assistant/__local/hatch" &&
+      req.url !== "/__local/hatch"
+    ) {
+      return next();
+    }
+
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      let species = "vellum";
+      if (chunks.length > 0) {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+            species?: string;
+          };
+          if (body.species) {
+            species = body.species;
+          }
+        } catch {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
+          return;
+        }
+      }
+
+      handleHatch(species, res);
+    });
+  };
+}
+
+function handleHatch(species: string, res: http.ServerResponse): void {
+  // Resolve CLI entry point in dev mode (Vite runs in Node inside the repo).
+  const repoRoot = path.resolve(import.meta.dirname, "..", "..");
+  const cliPath = path.join(repoRoot, "cli", "src", "index.ts");
+
+  if (!fs.existsSync(cliPath)) {
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        ok: false,
+        error: `CLI binary not found at ${cliPath}`,
+      }),
+    );
+    return;
+  }
+
+  const child = spawn("bun", ["run", cliPath, "hatch", species], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+  let responded = false;
+
+  const respond = (status: number, body: Record<string, unknown>) => {
+    if (responded) return;
+    responded = true;
+    clearTimeout(timeout);
+    res.statusCode = status;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify(body));
+  };
+
+  const timeout = setTimeout(() => {
+    child.kill("SIGTERM");
+    respond(500, { ok: false, error: "Hatch timed out after 120 seconds" });
+  }, HATCH_TIMEOUT_MS);
+
+  child.stdout.on("data", (data: Buffer) => {
+    stdout += data.toString();
+  });
+
+  child.stderr.on("data", (data: Buffer) => {
+    stderr += data.toString();
+  });
+
+  child.on("close", (code) => {
+    if (code === 0) {
+      const match = stdout.match(/Hatching local assistant:\s+(.+)/);
+      const assistantId = match?.[1]?.trim() ?? "";
+      respond(200, { ok: true, assistantId });
+    } else {
+      respond(500, { ok: false, error: stderr || stdout });
+    }
+  });
+
+  child.on("error", (err) => {
+    respond(500, { ok: false, error: `Failed to spawn CLI: ${err.message}` });
+  });
+}
+
+/**
+ * Connect middleware for the retire endpoint.
+ *
+ * Transport: Vite dev middleware (child_process.spawn → CLI binary).
+ * In Electron, replace with IPC call to main process: window.electronAPI.retireAssistant(assistantId). (LUM-2000)
+ */
+function retireMiddleware(): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (
+      req.url !== "/assistant/__local/retire" &&
+      req.url !== "/__local/retire"
+    ) {
+      return next();
+    }
+
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      let assistantId: string | undefined;
+      if (chunks.length > 0) {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+            assistantId?: string;
+          };
+          assistantId = body.assistantId;
+        } catch {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
+          return;
+        }
+      }
+
+      if (!assistantId) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: false, error: "Missing assistantId" }));
+        return;
+      }
+
+      handleRetire(assistantId, res);
+    });
+  };
+}
+
+const RETIRE_TIMEOUT_MS = 60_000;
+
+function handleRetire(assistantId: string, res: http.ServerResponse): void {
+  const repoRoot = path.resolve(import.meta.dirname, "..", "..");
+  const cliPath = path.join(repoRoot, "cli", "src", "index.ts");
+
+  if (!fs.existsSync(cliPath)) {
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        ok: false,
+        error: `CLI binary not found at ${cliPath}`,
+      }),
+    );
+    return;
+  }
+
+  const child = spawn("bun", ["run", cliPath, "retire", assistantId, "--yes"], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+  let responded = false;
+
+  const respond = (status: number, body: Record<string, unknown>) => {
+    if (responded) return;
+    responded = true;
+    clearTimeout(timeout);
+    res.statusCode = status;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify(body));
+  };
+
+  const timeout = setTimeout(() => {
+    child.kill("SIGTERM");
+    respond(500, { ok: false, error: "Retire timed out after 60 seconds" });
+  }, RETIRE_TIMEOUT_MS);
+
+  child.stdout.on("data", (data: Buffer) => {
+    stdout += data.toString();
+  });
+
+  child.stderr.on("data", (data: Buffer) => {
+    stderr += data.toString();
+  });
+
+  child.on("close", (code) => {
+    if (code === 0) {
+      respond(200, { ok: true });
+    } else {
+      respond(500, { ok: false, error: stderr || stdout });
+    }
+  });
+
+  child.on("error", (err) => {
+    respond(500, { ok: false, error: `Failed to spawn CLI: ${err.message}` });
+  });
 }
 
 const GATEWAY_PATTERN = /^(?:\/assistant)?\/__gateway\/(\d+)(\/.*)?$/;

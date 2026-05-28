@@ -304,6 +304,12 @@ describe("InspectPage — data-loading branches", () => {
     // Tab bar from the loaded path
     expect(html).toContain("Overview");
     expect(html).toContain("Prompt");
+    // The mobile call-selector trigger is mounted alongside the
+    // desktop aside (CSS hides whichever doesn't match the viewport).
+    // We rely on its trigger so phone users can pick a call when the
+    // aside is collapsed; the label shape is `Call N of M`.
+    expect(html).toContain("Call 2 of 2");
+    expect(html).toContain('aria-label="Select an LLM call to inspect"');
   });
 
   test("renders the error state when the context query errors out", () => {

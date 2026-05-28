@@ -15,7 +15,7 @@ import type { Conversation } from "@/types/conversation-types";
 import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
-} from "@/utils/last-viewed-conversation-storage";
+} from "@/lib/last-viewed-conversation-storage";
 import {
   formatLatency,
   formatTimelineTimestamp,

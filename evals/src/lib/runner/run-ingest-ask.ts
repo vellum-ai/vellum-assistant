@@ -1,0 +1,212 @@
+/**
+ * Two-conversation runner: stages files into the agent's workspace,
+ * sends an "ingest" message in conversation A, opens a fresh
+ * conversation B, sends a follow-up message, and captures the
+ * assistant's response as the hypothesis.
+ *
+ * Designed to be benchmark-agnostic. The caller (e.g. the
+ * LongMemEval-V2 Phase 1 wire) is responsible for shaping `inputs`,
+ * `ingestMessage`, and `questionMessage` to the benchmark's contract.
+ *
+ * Why a separate runner instead of extending `runEvalOnce`:
+ *
+ * - `runEvalOnce` is driven by a simulator (a stand-in user that
+ *   decides what to say next). LongMemEval-V2's contract is fixed
+ *   ingest-then-ask, with no per-turn decision needed.
+ * - The injection contract — "write the haystack to disk, tell the
+ *   agent where it is" — depends on workspace-file capabilities that
+ *   `runEvalOnce` does not exercise.
+ * - Two conversations against the *same* agent (persistent memory
+ *   intact, chat history reset) is a separate orchestration shape.
+ *
+ * Shared infrastructure (artifact directory layout, heartbeat,
+ * progress event persistence, transcript serialization) is *not*
+ * duplicated here. PR 6 (Phase 1 wire) is the place to unify those
+ * helpers across both runners; doing it as part of this PR would
+ * balloon the diff well past one concern.
+ */
+import type {
+  AgentEvent,
+  AgentHatchInput,
+  BaseAgent,
+  WorkspaceFileWrite,
+} from "../adapter";
+import type { Profile } from "../profile";
+
+import { createAgent } from "./create-agent";
+import { AgentEventCollector } from "./event-collector";
+import { assistantContent } from "./run-once";
+
+export interface IngestAskInput {
+  /** Profile to hatch. */
+  profile: Profile;
+  /**
+   * Logical run id. Used for the agent hatch input and surfaced on the
+   * result. Caller-supplied so it can match the workstream's run
+   * accounting (`<benchmark>-<profile>-<unitId>-<timestamp>`).
+   */
+  runId: string;
+  /**
+   * Files to stage into the agent's workspace *before* the ingest
+   * message is sent. Paths are workspace-relative; the adapter
+   * enforces the workspace boundary.
+   */
+  inputs: WorkspaceFileWrite[];
+  /**
+   * First conversation's only message. Typically tells the agent
+   * where to read the staged files and what to do with them.
+   * The memory layer (or lack of one) does its work as the agent
+   * processes this turn.
+   */
+  ingestMessage: string;
+  /**
+   * Second conversation's only message. Sent against a *fresh*
+   * conversation key after the first conversation completes.
+   * The captured response is returned as `hypothesis`.
+   */
+  questionMessage: string;
+  /**
+   * Quiet timeout in milliseconds for the post-message event drain.
+   * Both conversations use the same quiet window. Defaults to 30s.
+   * `maxMs` is derived as `quietMs * 6` per `AgentEventCollector`.
+   */
+  quietMs?: number;
+}
+
+export interface IngestAskResult {
+  runId: string;
+  profileId: string;
+  /** Conversation key used during the ingest turn. */
+  ingestConversationKey: string;
+  /** Conversation key used during the question turn. Must differ from `ingestConversationKey`. */
+  questionConversationKey: string;
+  /** Assistant response text from conversation B. */
+  hypothesis: string;
+  /** Raw events captured during conversation A's drain. */
+  ingestEvents: AgentEvent[];
+  /** Raw events captured during conversation B's drain. */
+  questionEvents: AgentEvent[];
+}
+
+const DEFAULT_QUIET_MS = 30_000;
+
+class IngestAskError extends Error {}
+
+function assertCapability(
+  agent: BaseAgent,
+  method: "writeWorkspaceFile" | "newConversation",
+  profileId: string,
+): void {
+  if (typeof agent[method] !== "function") {
+    throw new IngestAskError(
+      `Profile '${profileId}' adapter does not implement ${method}(). ` +
+        `Two-conversation runs require both writeWorkspaceFile() and newConversation(); ` +
+        `extend the adapter or pick a profile whose species supports them.`,
+    );
+  }
+}
+
+function joinAssistantText(events: AgentEvent[]): string {
+  let out = "";
+  for (const event of events) {
+    const text = assistantContent(event);
+    if (text !== undefined) out += text;
+  }
+  return out;
+}
+
+export async function runIngestAsk(
+  input: IngestAskInput,
+): Promise<IngestAskResult> {
+  const quietMs = input.quietMs ?? DEFAULT_QUIET_MS;
+
+  const hatchInput: AgentHatchInput = {
+    profile: input.profile,
+    // The two-conversation runner is currently only used by the
+    // LongMemEval-V2 benchmark; the agent adapter uses `testId` purely
+    // as a label inside the conversation key, so we pass the runId
+    // through. PR 6 may refine this once the unit-id concept is wired
+    // through the benchmark runner.
+    testId: input.runId,
+    runId: input.runId,
+  };
+  const agent = createAgent(hatchInput);
+
+  try {
+    await agent.hatch();
+
+    // Capability check happens *after* hatch so adapters that throw on
+    // missing prerequisites (Docker daemon, env vars) surface those
+    // first. Otherwise we'd convert a real infrastructure failure into
+    // a misleading "doesn't support newConversation" error.
+    assertCapability(agent, "writeWorkspaceFile", input.profile.id);
+    assertCapability(agent, "newConversation", input.profile.id);
+
+    for (const file of input.inputs) {
+      await agent.writeWorkspaceFile!(file);
+    }
+
+    // Conversation A — "ingest".
+    const ingestConversationKey = agent.conversationKey;
+    const ingestCollector = new AgentEventCollector(
+      agent.events()[Symbol.asyncIterator](),
+    );
+    await agent.send({ content: input.ingestMessage });
+    const ingestEvents = await ingestCollector.collectUntilQuiet({ quietMs });
+    if (ingestEvents.length === 0) {
+      throw new IngestAskError(
+        `Ingest turn produced no events for conversation ${ingestConversationKey}.`,
+      );
+    }
+
+    // Close A → open B. The agent process and any persistent state
+    // (memory layer, staged workspace files) survive; only the chat
+    // history resets so the question turn cannot just look at the
+    // ingest transcript.
+    await agent.newConversation!();
+    const questionConversationKey = agent.conversationKey;
+    if (questionConversationKey === ingestConversationKey) {
+      throw new IngestAskError(
+        `newConversation() did not rotate the conversation key (still ${ingestConversationKey}). ` +
+          `Adapter bug: the question turn would otherwise reuse the ingest history.`,
+      );
+    }
+
+    // Conversation B — "ask". Fresh event subscription against the new
+    // conversation; mixing it with the ingest collector would risk
+    // capturing tail events from the closed conversation.
+    const questionCollector = new AgentEventCollector(
+      agent.events()[Symbol.asyncIterator](),
+    );
+    await agent.send({ content: input.questionMessage });
+    const questionEvents = await questionCollector.collectUntilQuiet({
+      quietMs,
+    });
+    if (questionEvents.length === 0) {
+      throw new IngestAskError(
+        `Question turn produced no events for conversation ${questionConversationKey}.`,
+      );
+    }
+
+    const hypothesis = joinAssistantText(questionEvents);
+    if (hypothesis.trim() === "") {
+      throw new IngestAskError(
+        `Question turn captured ${questionEvents.length} event(s) but no assistant text; ` +
+          `cannot produce a hypothesis to judge.`,
+      );
+    }
+
+    return {
+      runId: input.runId,
+      profileId: input.profile.id,
+      ingestConversationKey,
+      questionConversationKey,
+      hypothesis,
+      ingestEvents,
+      questionEvents,
+    };
+  } finally {
+    // Best-effort shutdown — never swallow the original throw.
+    await agent.shutdown().catch(() => undefined);
+  }
+}

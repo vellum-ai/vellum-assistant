@@ -34,6 +34,7 @@ export class FireworksProvider extends OpenAIChatCompletionsProvider {
       // overrides (e.g. DeepSeek V4 → "max") come from
       // {@link resolveMaxReasoningEffort}.
       maxReasoningEffort: "high",
+      assistantReasoningField: "reasoning_content",
     });
   }
 

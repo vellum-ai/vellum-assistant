@@ -195,11 +195,11 @@ describe("baseline characterization: core app tool surface", () => {
 
     const tool = getTool("app_open");
     expect(tool).toBeDefined();
-    expect(tool?.executionMode).toBe("proxy");
 
-    // Proxy tools are excluded from getAllToolDefinitions() by design
+    // app_open is core-owned (no skill owner) so it flows through
+    // `getAllToolDefinitions()` like any other core tool.
     const definitionNames = getAllToolDefinitions().map((def) => def.name);
-    expect(definitionNames).not.toContain("app_open");
+    expect(definitionNames).toContain("app_open");
   });
 
   test("bundled app-builder skill has TOOLS.json manifest", async () => {

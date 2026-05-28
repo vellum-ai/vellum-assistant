@@ -18,9 +18,9 @@ import {
 } from "@/assistant/lifecycle";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
-import { getSelectedAssistant, getLocalGatewayUrl } from "@/lib/local-mode";
+import { getSelectedAssistant, getLocalGatewayUrl, isLocalMode } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
-import { routes } from "@/utils/routes";
+
 
 const POLL_INTERVAL_MS = 3000;
 const MAX_HATCH_RETRIES = 3;
@@ -210,7 +210,7 @@ export function useAssistantLifecycle({
         // New signups without completed onboarding should land on
         // `/onboarding/privacy` before we hatch an assistant for them.
         const onboardingRedirect = resolveOnboardingRedirect({
-          intendedDestination: routes.assistant,
+          intendedDestination: window.location.pathname,
         });
         if (onboardingRedirect) {
           onRedirectRef.current(onboardingRedirect);
@@ -395,11 +395,13 @@ export function useAssistantLifecycle({
     }
   }, [hatchAndCheck]);
 
-  // Initial check when auth is ready
+  // Local-mode: gateway token and connection are primed during onboarding hatch.
   useEffect(() => {
     if (!isLoggedIn || isLoading) {
       return;
     }
+    // Gateway auth takes priority over the platform session path below.
+    // In local mode after hatch, this branch is the entry point.
     if (isGatewayAuthMode()) {
       let ingressUrl = window.location.origin;
       let assistantId = "self";
@@ -418,6 +420,20 @@ export function useAssistantLifecycle({
       setAssistantId(assistantId);
       setAssistantState({ kind: "active", isLocal: true });
       return;
+    }
+    // In local mode without a gateway token AND no platform session,
+    // the platform API isn't available — redirect to onboarding.
+    // If the user logged in and chose Vellum Cloud, hasPlatformSession
+    // is true and we fall through to checkAssistant() below.
+    if (isLocalMode() && !isGatewayAuthMode() && !hasPlatformSession) {
+      const redirect = resolveOnboardingRedirect({ intendedDestination: window.location.pathname });
+      if (redirect) {
+        onRedirectRef.current(redirect);
+        return;
+      }
+      // No redirect needed (e.g., already on onboarding page, or has
+      // assistants) — fall through to checkAssistant() which will
+      // discover the assistant or surface an error state.
     }
     if (hasPlatformSession) {
       setSelfHostedConnection(null);

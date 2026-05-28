@@ -166,11 +166,14 @@ describe("polling reconciliation with state machine", () => {
 
     const complete = parseAssistantEvent({
       type: "message_complete",
-      content: "done",
+      messageId: "msg-1",
     });
     expect(complete.type).toBe("message_complete");
 
-    const handoff = parseAssistantEvent({ type: "generation_handoff" });
+    const handoff = parseAssistantEvent({
+      type: "generation_handoff",
+      queuedCount: 0,
+    });
     expect(handoff.type).toBe("generation_handoff");
 
     const error = parseAssistantEvent({ type: "error", message: "fail" });

@@ -46,7 +46,11 @@ export class BYOOAuthConnection implements OAuthConnection {
       this.provider,
       async (token) => {
         const effectiveBaseUrl = req.baseUrl ?? this.baseUrl;
-        let fullUrl = `${effectiveBaseUrl}${req.path}`;
+        const isTelegram = this.provider === "telegram";
+        const requestPath = isTelegram
+          ? buildTelegramBotApiPath(req.path, token)
+          : req.path;
+        let fullUrl = `${effectiveBaseUrl}${requestPath}`;
 
         if (req.query && Object.keys(req.query).length > 0) {
           const params = new URLSearchParams();
@@ -60,8 +64,12 @@ export class BYOOAuthConnection implements OAuthConnection {
           fullUrl += `?${params.toString()}`;
         }
 
+        const logUrl = isTelegram
+          ? redactTelegramBotTokenFromUrl(fullUrl, token)
+          : fullUrl;
+
         log.debug(
-          { method: req.method, url: fullUrl, provider: this.provider },
+          { method: req.method, url: logUrl, provider: this.provider },
           "Making authenticated request",
         );
 
@@ -76,18 +84,23 @@ export class BYOOAuthConnection implements OAuthConnection {
             headers.set(key, value);
           }
         }
-        headers.set("Authorization", `Bearer ${token}`);
+        if (!isTelegram) {
+          headers.set("Authorization", `Bearer ${token}`);
+        }
 
         const resp = await fetch(fullUrl, {
           method: req.method,
           headers,
           body: req.body ? JSON.stringify(req.body) : undefined,
           signal: req.signal
-            ? AbortSignal.any([req.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+            ? AbortSignal.any([
+                req.signal,
+                AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+              ])
             : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
         });
 
-        if (resp.status === 401) {
+        if (resp.status === 401 && !isTelegram) {
           // Throw with a status property so withValidToken detects the 401
           // and triggers its refresh-and-retry logic.
           const err = new Error(`HTTP 401 from ${this.provider}`);
@@ -106,6 +119,20 @@ export class BYOOAuthConnection implements OAuthConnection {
       connectionId: this.id,
     });
   }
+}
+
+function buildTelegramBotApiPath(path: string, token: string): string {
+  if (path.startsWith("/bot")) return path;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `/bot${token}${normalizedPath}`;
+}
+
+function redactTelegramBotTokenFromUrl(url: string, token: string): string {
+  const redactedStoredToken = url.split(token).join("[REDACTED]");
+  return redactedStoredToken.replace(
+    /\/bot[^/?#]+(?=\/|[?#]|$)/g,
+    "/bot[REDACTED]",
+  );
 }
 
 async function buildResponse(resp: Response): Promise<OAuthConnectionResponse> {

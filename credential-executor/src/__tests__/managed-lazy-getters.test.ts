@@ -9,10 +9,75 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  applyManagedCredentialRefs,
   buildLazyGetters,
   type ApiKeyRef,
   type AssistantIdRef,
 } from "../managed-lazy-getters.js";
+
+// ---------------------------------------------------------------------------
+// applyManagedCredentialRefs — fail-closed overwrite across sessions
+// ---------------------------------------------------------------------------
+
+describe("applyManagedCredentialRefs", () => {
+  test("overwrites both refs with the provided values", () => {
+    const apiKeyRef: ApiKeyRef = { current: "old-key" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_old" };
+
+    applyManagedCredentialRefs(apiKeyRef, assistantIdRef, "new-key", "ast_new");
+
+    expect(apiKeyRef.current).toBe("new-key");
+    expect(assistantIdRef.current).toBe("ast_new");
+  });
+
+  test("clears a stale assistant ID when the new value is omitted", () => {
+    // A new session (or an API-key-only update) that does not carry an
+    // assistant ID must not inherit the previous session's ID.
+    const apiKeyRef: ApiKeyRef = { current: "prev-key" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_prev" };
+
+    applyManagedCredentialRefs(
+      apiKeyRef,
+      assistantIdRef,
+      "rotated-key",
+      undefined,
+    );
+
+    expect(apiKeyRef.current).toBe("rotated-key");
+    expect(assistantIdRef.current).toBe("");
+  });
+
+  test("clears a stale API key when the new value is omitted", () => {
+    const apiKeyRef: ApiKeyRef = { current: "prev-key" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_prev" };
+
+    applyManagedCredentialRefs(apiKeyRef, assistantIdRef, undefined, undefined);
+
+    expect(apiKeyRef.current).toBe("");
+    expect(assistantIdRef.current).toBe("");
+  });
+
+  test("lazy getters fail closed after a reconnect that omits the ID", () => {
+    const apiKeyRef: ApiKeyRef = { current: "session1-key" };
+    const assistantIdRef: AssistantIdRef = { current: "ast_session1" };
+    const { getManagedMaterializerOptions } = buildLazyGetters({
+      platformBaseUrl: "https://api.vellum.ai",
+      assistantIdRef,
+      apiKeyRef,
+    });
+
+    // A reconnecting session provides a key but no assistant ID.
+    applyManagedCredentialRefs(
+      apiKeyRef,
+      assistantIdRef,
+      "session2-key",
+      undefined,
+    );
+
+    // Materialization must not proceed with the prior session's assistant ID.
+    expect(getManagedMaterializerOptions()).toBeUndefined();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Before API key arrives

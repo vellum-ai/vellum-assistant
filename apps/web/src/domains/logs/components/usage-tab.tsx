@@ -5,7 +5,7 @@ import { useNavigate } from "react-router";
 
 import { Dropdown } from "@vellum/design-library";
 
-import { storePendingInitialMessage } from "@/utils/initial-message-launch";
+import { storePendingInitialMessage } from "@/lib/initial-message-launch";
 import { routes } from "@/utils/routes";
 import { formatCost, formatTokens } from "@/domains/logs/format";
 import { getBrowserTimezone } from "@/utils/browser-timezone";

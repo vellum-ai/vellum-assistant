@@ -83,7 +83,6 @@ describe("host.registries.register_tools", () => {
       kind: "skill",
       id: "demo-skill",
     });
-    expect(installed!.executionMode).toBe("proxy");
   });
 
   test("proxy execute throws when no supervisor is attached", async () => {

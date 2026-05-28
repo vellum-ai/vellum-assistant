@@ -9,6 +9,7 @@ import { getLogger } from "../util/logger.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
 import { getConnectionAccessTokenResult } from "./credential-token-resolver.js";
+import { syncManualTokenConnection } from "./manual-token-connection.js";
 import { getActiveConnection, getProvider } from "./oauth-store.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
 
@@ -82,6 +83,10 @@ export async function resolveOAuthConnection(
   }
 
   // BYO path — requires a local connection row, access token, and base URL.
+  if (providerRow?.authorizeUrl === "urn:manual-token") {
+    await syncManualTokenConnection(provider);
+  }
+
   const conn = getActiveConnection(provider, { clientId, account });
   if (!conn) {
     const filters = [
@@ -185,20 +190,26 @@ interface ResolvePlatformConnectionIdOptions {
   account?: string;
 }
 
-/**
- * Fetch the platform-side connection ID for a managed provider by calling
- * the List Connections endpoint.
- */
-async function resolvePlatformConnectionId(
-  options: ResolvePlatformConnectionIdOptions,
-): Promise<string> {
-  const { client, provider, account } = options;
+interface PlatformConnectionEntry {
+  id: string;
+  account_label?: string | null;
+}
 
+/**
+ * Fetch active platform connections for a managed provider by calling the
+ * List Connections endpoint.
+ */
+async function fetchPlatformConnections(options: {
+  client: VellumPlatformClient;
+  provider: string;
+  accountIdentifier?: string;
+}): Promise<PlatformConnectionEntry[]> {
+  const { client, provider, accountIdentifier } = options;
   const params = new URLSearchParams();
   params.set("provider", provider);
   params.set("status", "ACTIVE");
-  if (account) {
-    params.set("account_identifier", account);
+  if (accountIdentifier) {
+    params.set("account_identifier", accountIdentifier);
   }
 
   const path = `/v1/assistants/${client.platformAssistantId}/oauth/connections/?${params.toString()}`;
@@ -219,7 +230,35 @@ async function resolvePlatformConnectionId(
     Array.isArray(body)
       ? body
       : ((body as Record<string, unknown>).results ?? [])
-  ) as Array<{ id: string; account_label?: string }>;
+  ) as PlatformConnectionEntry[];
+  return connections;
+}
+
+/**
+ * Fetch the platform-side connection ID for a managed provider by calling
+ * the List Connections endpoint.
+ */
+async function resolvePlatformConnectionId(
+  options: ResolvePlatformConnectionIdOptions,
+): Promise<string> {
+  const { client, provider, account } = options;
+
+  let connections = await fetchPlatformConnections({
+    client,
+    provider,
+    accountIdentifier: account,
+  });
+
+  if (account && connections.length === 0) {
+    const unfilteredConnections = await fetchPlatformConnections({
+      client,
+      provider,
+    });
+    connections = unfilteredConnections.filter(
+      (connection) =>
+        connection.account_label === account || connection.id === account,
+    );
+  }
 
   if (connections.length === 0) {
     throw new Error(

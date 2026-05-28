@@ -9,6 +9,7 @@ let mockConnection: Record<string, unknown> | undefined;
 let mockAccessToken: string | undefined;
 let mockConfig: Record<string, unknown> = {};
 let mockPlatformClient: Record<string, unknown> | null = null;
+let syncManualTokenCalls: string[] = [];
 
 // ---------------------------------------------------------------------------
 // Module mocks (must precede imports of the module under test)
@@ -45,6 +46,15 @@ mock.module("./credential-token-resolver.js", () => ({
     unreachable: false,
     key: "mock-key",
   }),
+}));
+
+mock.module("./manual-token-connection.js", () => ({
+  syncManualTokenConnection: async (provider: string) => {
+    syncManualTokenCalls.push(provider);
+    if (provider === "telegram" && mockConnection?.provider === "telegram") {
+      mockConnection.accountInfo = "@example_bot";
+    }
+  },
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -92,6 +102,7 @@ function setupDefaults(): void {
   mockProvider = {
     provider: "google",
     baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
+    authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     managedServiceConfigKey: null,
   };
   mockConnection = {
@@ -121,6 +132,7 @@ function setupDefaults(): void {
     },
   };
   mockPlatformClient = makeMockClient();
+  syncManualTokenCalls = [];
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +169,42 @@ describe("resolveOAuthConnection", () => {
     });
     expect(result).toBeInstanceOf(PlatformOAuthConnection);
     expect(result.accountInfo).toBe("user@example.com");
+  });
+
+  test("managed path falls back to displayed account label when account_identifier does not match", async () => {
+    mockProvider!.managedServiceConfigKey = "google-oauth";
+    const fetchPaths: string[] = [];
+    mockPlatformClient = {
+      ...makeMockClient(),
+      fetch: mock(async (path: string) => {
+        fetchPaths.push(path);
+        if (path.includes("account_identifier=alice%40example.com")) {
+          return new Response(JSON.stringify({ results: [] }), { status: 200 });
+        }
+        return new Response(
+          JSON.stringify({
+            results: [
+              {
+                id: "platform-conn-1",
+                account_label: "alice@example.com",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }),
+    };
+
+    const result = await resolveOAuthConnection("google", {
+      account: "alice@example.com",
+    });
+
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+    expect(result.accountInfo).toBe("alice@example.com");
+    expect(fetchPaths).toEqual([
+      "/v1/assistants/asst-123/oauth/connections/?provider=google&status=ACTIVE&account_identifier=alice%40example.com",
+      "/v1/assistants/asst-123/oauth/connections/?provider=google&status=ACTIVE",
+    ]);
   });
 
   test("returns PlatformOAuthConnection when GitHub is in managed mode", async () => {
@@ -215,6 +263,34 @@ describe("resolveOAuthConnection", () => {
         clientId: "wrong-client",
       }),
     ).rejects.toThrow(/No active OAuth connection found/);
+  });
+
+  test("BYO path reconciles manual-token providers before exact account lookup", async () => {
+    mockProvider = {
+      provider: "telegram",
+      baseUrl: "https://api.telegram.org",
+      authorizeUrl: "urn:manual-token",
+      managedServiceConfigKey: null,
+    };
+    mockConnection = {
+      id: "conn-telegram",
+      provider: "telegram",
+      oauthAppId: "app-telegram",
+      accountInfo: null,
+      grantedScopes: JSON.stringify([]),
+      status: "active",
+      clientId: "manual-config",
+    };
+    mockAccessToken = "telegram-test-token";
+
+    const result = await resolveOAuthConnection("telegram", {
+      account: "@example_bot",
+    });
+
+    expect(syncManualTokenCalls).toEqual(["telegram"]);
+    expect(mockConnection.accountInfo).toBe("@example_bot");
+    expect(result).toBeInstanceOf(BYOOAuthConnection);
+    expect(result.id).toBe("conn-telegram");
   });
 });
 

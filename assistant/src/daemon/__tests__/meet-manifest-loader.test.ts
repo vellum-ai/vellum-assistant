@@ -187,7 +187,6 @@ describe("loadMeetManifestProxies", () => {
     expect(t.description).toBe("Fixture demo tool");
     expect(t.category).toBe("meet");
     expect(t.defaultRiskLevel).toBe(RiskLevel.Medium);
-    expect(t.executionMode).toBe("proxy");
     // Ownership now lives on the assistant-side registry's ownersByName map
     // (recorded by registerSkillTools at the IPC boundary), not on the Tool
     // object — the daemon-side projection doesn't carry the kind.

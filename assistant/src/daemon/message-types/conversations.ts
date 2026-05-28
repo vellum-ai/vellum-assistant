@@ -1,5 +1,7 @@
 // Conversation lifecycle, auth, model config, and history types.
 
+import type { GenerationCancelledEvent } from "../../api/events/generation-cancelled.js";
+import type { GenerationHandoffEvent } from "../../api/events/generation-handoff.js";
 import type {
   ChannelId,
   HostProxyInterfaceId,
@@ -307,26 +309,6 @@ export interface AssistantStatusMessage {
   type: "assistant_status";
   version?: string;
   keyFingerprint?: string;
-}
-
-export interface GenerationCancelled {
-  type: "generation_cancelled";
-  conversationId?: string;
-}
-
-export interface GenerationHandoff {
-  type: "generation_handoff";
-  conversationId: string;
-  requestId?: string;
-  queuedCount: number;
-  attachments?: UserMessageAttachment[];
-  attachmentWarnings?: string[];
-  /**
-   * Database ID of the completed assistant turn — the id that survives
-   * query-time merging when a turn persists multiple assistant rows. Matches
-   * the row the messages route returns.
-   */
-  messageId?: string;
 }
 
 export interface ModelInfo {
@@ -659,8 +641,8 @@ export type _ConversationsServerMessages =
   | AuthResult
   | PongMessage
   | AssistantStatusMessage
-  | GenerationCancelled
-  | GenerationHandoff
+  | GenerationCancelledEvent
+  | GenerationHandoffEvent
   | ModelInfo
   | HistoryResponse
   | UndoComplete

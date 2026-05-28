@@ -143,7 +143,7 @@ describe("handleMessageComplete", () => {
   it("finalizes message and completes turn without starting reconcile", () => {
     const ctx = makeCtx();
     handleMessageComplete(
-      { type: "message_complete", messageId: "msg-1", content: "Done" },
+      { type: "message_complete", messageId: "msg-1" },
       ctx,
     );
     expect(ctx.setMessages).toHaveBeenCalled();
@@ -170,7 +170,7 @@ describe("handleMessageComplete", () => {
       currentAssistantMessageIdRef: { current: "stream-bubble-1" },
     });
     handleMessageComplete(
-      { type: "message_complete", messageId: "server-msg-1", content: "Done" },
+      { type: "message_complete", messageId: "server-msg-1" },
       ctx,
     );
 
@@ -196,7 +196,7 @@ describe("handleMessageComplete", () => {
     const ctx = makeCtx({
       currentAssistantMessageIdRef: { current: "stream-bubble-1" },
     });
-    handleMessageComplete({ type: "message_complete", content: "Done" }, ctx);
+    handleMessageComplete({ type: "message_complete" }, ctx);
 
     expect(useSubagentStore.getState().byId["sa-1"]?.parentMessageId).toBe(
       undefined,
@@ -217,7 +217,7 @@ describe("handleMessageComplete", () => {
       currentAssistantMessageIdRef: { current: undefined },
     });
     handleMessageComplete(
-      { type: "message_complete", messageId: "server-msg-1", content: "Done" },
+      { type: "message_complete", messageId: "server-msg-1" },
       ctx,
     );
 
@@ -234,7 +234,7 @@ describe("handleGenerationHandoff", () => {
   it("cancels reconciliation and finalizes streaming tail", () => {
     const ctx = makeCtx();
     handleGenerationHandoff(
-      { type: "generation_handoff", messageId: "msg-1" },
+      { type: "generation_handoff", messageId: "msg-1", queuedCount: 0 },
       ctx,
     );
     expect(ctx.cancelReconciliation).toHaveBeenCalled();

@@ -29,7 +29,7 @@ import { ensureBun } from "../util/bun-runtime.js";
 import { getLogger } from "../util/logger.js";
 import type { CesTransport } from "./client.js";
 import {
-  discoverCes,
+  discoverCesWithRetry,
   discoverLocalCes,
   type DiscoveryResult,
   type LocalDiscoverySuccess,
@@ -118,7 +118,11 @@ export function createCesProcessManager(
         throw new Error("CES process manager is already running");
       }
 
-      discoveryResult = await discoverCes();
+      // Poll for the managed bootstrap socket with a short backoff. The CES
+      // sidecar re-binds its socket after each assistant session ends, so a
+      // reconnecting assistant can briefly race the re-bind; a single probe
+      // would otherwise fall back to local discovery and fail in managed mode.
+      discoveryResult = await discoverCesWithRetry();
       if (discoveryResult.mode === "unavailable") {
         // The managed sidecar bootstrap socket is not present — this happens
         // when the instance pre-dates the socket volume mount (e.g. existing

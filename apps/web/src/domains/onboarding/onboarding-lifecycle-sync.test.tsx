@@ -130,6 +130,7 @@ mock.module("@/domains/onboarding/prefs", () => ({
   readOnboardingCompleted: () => onboardingCompleted,
   readSelectedVersion: () => null,
   readTosAccepted: () => true,
+  clearOnboardingCompleted: mock(() => {}),
   useOnboardingCompleted: () =>
     [onboardingCompleted, setOnboardingCompletedMock] as const,
   writeSelectedVersion: writeSelectedVersionMock,
@@ -150,6 +151,16 @@ mock.module("@/runtime/native-auth", () => ({
   useIsNativePlatform: () => false,
 }));
 
+mock.module("@/lib/local-mode", () => ({
+  isLocalMode: () => false,
+  hasAssistants: () => false,
+  hatchLocalAssistant: async () => ({ ok: true, assistantId: "local-1" }),
+  loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
+  setSelectedAssistantId: () => {},
+  saveLockfileAssistant: async () => {},
+  primeLocalGatewayConnection: async () => {},
+}));
+
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     use: {
@@ -160,6 +171,7 @@ mock.module("@/stores/auth-store", () => ({
       }),
       isLoggedIn: () => true,
       isLoading: () => false,
+      hasPlatformSession: () => false,
     },
   },
 }));
@@ -183,7 +195,7 @@ mock.module("@/hooks/use-prefilled-input", () => ({
   }),
 }));
 
-mock.module("@/utils/platform-detection", () => ({
+mock.module("@/runtime/platform-detection", () => ({
   useIsIOSWeb: () => false,
   useIsMacOSWeb: () => false,
 }));

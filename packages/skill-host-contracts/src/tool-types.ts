@@ -435,8 +435,6 @@ export interface Tool {
   description: string;
   category: string;
   defaultRiskLevel: RiskLevel;
-  /** When set to 'proxy', the tool is forwarded to a connected client rather than executed locally. */
-  executionMode?: "local" | "proxy";
   /** Declared execution target from the skill manifest. Used by resolveExecutionTarget
    * to accurately label lifecycle events for skill-provided tools. */
   executionTarget?: ExecutionTarget;

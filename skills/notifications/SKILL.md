@@ -62,10 +62,65 @@ assistant notifications send \
 { "ok": true, "signalId": "...", "dispatched": true }
 ```
 
-## Listing Notifications
+## Reading Surfaced Notifications
 
 ```bash
 assistant notifications list --json
+```
+
+Reads from the user's home feed (`~/.vellum/workspace/data/home-feed.json`) — the inbox that mirrors background and async notifications surfaced via the unified pipeline. Real-time chat pushes that did not mirror to the feed (direct Telegram/Slack/Vellum-chat sends without `--is-async-background`) will not appear here.
+
+### When to call
+
+- **Before sending**: check whether you already surfaced a similar item recently (filter by `--conversation-id` or `--after` to dedupe).
+- **Catch-up summaries**: when the user asks "what did I miss" or returns after a session break, list the items they haven't dismissed.
+- **Lookup**: when the user references a past notification ("the email thing you flagged earlier"), find it by `--conversation-id` or date range.
+
+### Filters
+
+| Flag | Purpose |
+| --- | --- |
+| `--all` | Include dismissed items (default: excluded — assistant cares about outstanding work) |
+| `--status <s>` | Filter by status (`new` / `seen` / `acted_on` / `dismissed`); repeatable. Overrides the `--all` default. |
+| `--before <iso>` / `--after <iso>` | ISO-8601 createdAt bounds (strict; `=` is excluded). |
+| `--urgency <u>` | Filter by urgency (`low` / `medium` / `high` / `critical`); repeatable. |
+| `--category <c>` | Filter by category (`security` / `scheduling` / `background` / `email` / `system`); repeatable. |
+| `--conversation-id <id>` | Only items tied to this conversation. |
+| `--from-assistant` | Only items the assistant herself emitted. |
+| `--noteworthy` | Only items flagged as noteworthy. |
+| `--limit <n>` | Default 20, max 200. |
+| `--offset <n>` | Pagination offset. Combine with `--limit` to walk older pages. |
+
+### Examples
+
+```bash
+# What's outstanding right now (defaults: skip dismissed, newest first)
+assistant notifications list --json
+
+# Everything you've shown the user today
+assistant notifications list --after 2026-05-28T00:00:00Z --all --json
+
+# Only high-stakes items
+assistant notifications list --urgency high --urgency critical --json
+
+# Pre-send dedupe: anything you already surfaced for this conversation
+assistant notifications list --conversation-id 7fab234c --after 2026-05-28T00:00:00Z --json
+
+# Walk older pages
+assistant notifications list --limit 20 --offset 20 --json
+```
+
+### Response shape
+
+```json
+{
+  "ok": true,
+  "items": [ /* FeedItem records: id, title?, summary, status, urgency?, category?, conversationId?, createdAt, ... */ ],
+  "total": 12,
+  "returned": 3,
+  "hasMore": true,
+  "updatedAt": "2026-05-28T10:30:00.000Z"
+}
 ```
 
 ## Important

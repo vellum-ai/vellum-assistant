@@ -43,12 +43,11 @@ import type {
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
-import { setTranscriptScrollControllerEnabled } from "@/domains/chat/transcript/transcript-scroll-flag";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
 import {
   classifyScrollPosition,
   type TranscriptHandle,
-} from "@/domains/chat/transcript/use-deprecated-transcript-scroll";
+} from "@/domains/chat/transcript/use-transcript-scroll";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   type TerminalReason,
@@ -696,15 +695,10 @@ const API_NS = "api";
 /**
  * Dev-only toggle surface. Each function is a single-purpose imperative
  * flip — call from the console to flip a localStorage-persisted flag.
- * Toggles that change React hook ordering (e.g. swapping which scroll
- * coordinator runs) reload the page so the new value takes effect
- * cleanly. See `transcript-scroll-flag.ts` for the storage layer.
+ * Toggles that change React hook ordering or module-load constants
+ * reload the page so the new value takes effect cleanly.
  */
 export interface VellumDebugFlagsApi {
-  /** Flip the parallel `useTranscriptScrollController` path on or off.
-   *  Persists to localStorage and reloads the page. Pass `true`/`false`
-   *  to force a specific value; omit to flip the current value. */
-  toggleTranscriptScrollController(value?: boolean): boolean;
   /** Override the assistant's reported version for every version-gated
    *  code path in the web client (the wire-field cutover, the
    *  server-mint gate, `useAssistantSupports`, …). Persists to
@@ -832,7 +826,6 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     };
     const api = createChatDebugApi(stableRefs);
     const flagsApi: VellumDebugFlagsApi = {
-      toggleTranscriptScrollController: setTranscriptScrollControllerEnabled,
       impersonateVersion: setImpersonatedAssistantVersion,
     };
     const uninstall = installVellumDebugApi(api, flagsApi);

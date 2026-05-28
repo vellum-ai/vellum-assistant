@@ -1,7 +1,7 @@
 import { Bell, Fingerprint, Smartphone, Vibrate } from "lucide-react";
 
 import { NudgeSettingsCard } from "@/domains/settings/components/nudge-settings-card";
-import { useIsIOSWeb } from "@/utils/platform-detection";
+import { useIsIOSWeb } from "@/runtime/platform-detection";
 import {
   openIOSAppStore,
   writeIOSAppDownloaded,

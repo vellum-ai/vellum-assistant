@@ -91,6 +91,12 @@ The preload script exposes a typed `window.vellum` API to the renderer:
   backed by `electron-store` in the main process. Writes are validated against
   a JSON schema (`hotkeys`, `theme`, `featureFlags`); a schema violation
   surfaces as a rejected `Promise`.
+- `commands.on(callback)` — subscribe to main-process commands dispatched
+  by the application menu (and, eventually, global hotkeys). Returns an
+  unsubscribe function. The renderer-side wrapper is
+  [`apps/web/src/runtime/vellum-commands.ts`](../web/src/runtime/vellum-commands.ts);
+  feature code mounts the `useVellumCommands` hook with a partial handler
+  map at whichever component owns the relevant state.
 - `auth.*` and `helper.*` — typed stubs that reject with "not implemented yet"
   until the corresponding feature tickets land.
 

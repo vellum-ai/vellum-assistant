@@ -21,6 +21,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 interface MockProviderRow {
   provider: string;
+  authorizeUrl: string;
   managedServiceConfigKey: string | null;
   baseUrl: string | null;
   injectionTemplates: string | null;
@@ -32,6 +33,7 @@ interface MockProviderRow {
 
 const baseProvider: MockProviderRow = {
   provider: "google",
+  authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
   managedServiceConfigKey: "google-oauth",
   baseUrl: "https://api.google.com",
   injectionTemplates: null,
@@ -69,6 +71,7 @@ let mockResolveResponse: {
   body: unknown;
 } = { status: 200, headers: {}, body: { ok: true } };
 let mockResolveRequests: unknown[] = [];
+let mockSyncManualTokenCalls: string[] = [];
 
 const mockDisconnectOAuthProvider = mock(() => Promise.resolve());
 const mockSaveRawConfig = mock(() => undefined);
@@ -115,6 +118,12 @@ mock.module("../oauth/connection-resolver.js", () => ({
       return mockResolveResponse;
     },
   }),
+}));
+
+mock.module("../oauth/manual-token-connection.js", () => ({
+  syncManualTokenConnection: async (provider: string) => {
+    mockSyncManualTokenCalls.push(provider);
+  },
 }));
 
 mock.module("../platform/client.js", () => ({
@@ -212,6 +221,7 @@ beforeEach(() => {
   });
   mockResolveResponse = { status: 200, headers: {}, body: { ok: true } };
   mockResolveRequests = [];
+  mockSyncManualTokenCalls = [];
   mockDisconnectOAuthProvider.mockClear();
   mockSaveRawConfig.mockClear();
 });
@@ -473,6 +483,33 @@ describe("GET oauth/status", () => {
       makeArgs({ queryParams: { provider: "google" } }),
     )) as { connections: Array<{ grantedScopes: string[] }> };
     expect(result.connections[0]!.grantedScopes).toEqual([]);
+  });
+
+  test("BYO mode reconciles manual-token providers before listing status", async () => {
+    mockProviders.telegram = {
+      ...baseProvider,
+      provider: "telegram",
+      authorizeUrl: "urn:manual-token",
+      managedServiceConfigKey: null,
+      baseUrl: "https://api.telegram.org",
+    };
+    mockAllConnections.telegram = [
+      {
+        id: "conn-telegram",
+        accountInfo: "@example_bot",
+        grantedScopes: "[]",
+        status: "active",
+        hasRefreshToken: 0,
+        expiresAt: null,
+      },
+    ];
+
+    const result = (await getRoute("GET", "oauth/status").handler(
+      makeArgs({ queryParams: { provider: "telegram" } }),
+    )) as { connections: Array<{ account: string | null }> };
+
+    expect(mockSyncManualTokenCalls).toEqual(["telegram"]);
+    expect(result.connections[0]!.account).toBe("@example_bot");
   });
 
   test("managed mode surfaces platform connections", async () => {

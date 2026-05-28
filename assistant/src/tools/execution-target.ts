@@ -11,9 +11,8 @@ export interface ManifestOverride {
  *
  * Resolution order:
  *   1. Declared `executionTarget` on the tool wins.
- *   2. `executionMode === "proxy"` ⇒ host (proxied tools run on the client).
- *   3. Name prefix heuristic — `host_*` / `computer_use_*` ⇒ host.
- *   4. Default sandbox.
+ *   2. Name prefix heuristic — `host_*` / `computer_use_*` ⇒ host.
+ *   3. Default sandbox.
  *
  * Called once per tool at load/construction time. The returned value is
  * stamped onto every `LoadedTool`, so runtime reads are just a field read.
@@ -21,10 +20,8 @@ export interface ManifestOverride {
 export function resolveExecutionTarget(tool: {
   name: string;
   executionTarget?: ExecutionTarget;
-  executionMode?: "local" | "proxy";
 }): ExecutionTarget {
   if (tool.executionTarget) return tool.executionTarget;
-  if (tool.executionMode === "proxy") return "host";
   if (tool.name.startsWith("host_") || tool.name.startsWith("computer_use_")) {
     return "host";
   }

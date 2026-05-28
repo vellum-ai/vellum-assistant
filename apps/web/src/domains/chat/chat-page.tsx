@@ -27,6 +27,10 @@ import { useAssistantContext } from "@/components/layout/assistant-context";
 import { useShallow } from "zustand/shallow";
 import { useConversationStore } from "@/domains/conversations/conversation-store";
 import {
+  COMPOSER_FOCUS_EVENT,
+  consumePendingComposerFocus,
+} from "./composer-focus";
+import {
   useConversationGroupsQuery,
   useConversationListQuery,
 } from "@/domains/conversations/conversation-queries";
@@ -278,6 +282,22 @@ export function ChatPage() {
   // the actual `<Transcript />` instance there.
   const transcriptRef = useRef<TranscriptHandle | null>(null);
 
+  // Composer focus from the Electron host's File > Current Conversation
+  // command. The command is dispatched in `chat-layout.tsx` via the
+  // `useVellumCommands` hook; the textarea ref lives here, so we listen
+  // for a window event rather than threading the ref upward through
+  // props/context just for this one cross-cutting capability. On mount,
+  // also drain any pending focus request that fired before we mounted
+  // (e.g. when the command was invoked from `/assistant/home` and
+  // chat-layout navigated us here) — see `./composer-focus.ts`.
+  useEffect(() => {
+    const focusInput = () => inputRef.current?.focus();
+    window.addEventListener(COMPOSER_FOCUS_EVENT, focusInput);
+    if (consumePendingComposerFocus()) {
+      queueMicrotask(focusInput);
+    }
+    return () => window.removeEventListener(COMPOSER_FOCUS_EVENT, focusInput);
+  }, []);
 
   const activeConversationIdRef = useRef<string | null>(activeConversationId);
   useEffect(() => { activeConversationIdRef.current = activeConversationId; }, [activeConversationId]);

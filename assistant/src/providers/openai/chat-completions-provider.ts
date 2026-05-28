@@ -150,6 +150,10 @@ export interface OpenAIChatCompletionsProviderOptions {
    *  blocks. MiniMax and similar providers embed reasoning inside XML-style
    *  tags in the regular content field rather than using `reasoning_content`. */
   parseThinkTags?: boolean;
+  /** Wire field used to replay prior assistant thinking on multi-turn requests.
+   *  DeepSeek/Fireworks use `"reasoning_content"`; OpenRouter uses `"reasoning"`.
+   *  When unset, thinking blocks are dropped from outbound assistant messages. */
+  assistantReasoningField?: "reasoning" | "reasoning_content";
 }
 
 /** Wire-level reasoning_effort values. The OpenAI SDK type doesn't include
@@ -221,6 +225,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
   private maxReasoningEffort: "high" | "xhigh" | "max";
   private requestHeaders: Record<string, string>;
   private parseThinkTags: boolean;
+  private assistantReasoningField:
+    | "reasoning"
+    | "reasoning_content"
+    | undefined;
 
   constructor(
     apiKey: string,
@@ -243,6 +251,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     this.maxReasoningEffort = options.maxReasoningEffort ?? "xhigh";
     this.requestHeaders = options.requestHeaders ?? {};
     this.parseThinkTags = options.parseThinkTags ?? false;
+    this.assistantReasoningField = options.assistantReasoningField;
   }
 
   async sendMessage(
@@ -736,6 +745,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
     msg: Message,
   ): OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam {
     const textParts: string[] = [];
+    const reasoningParts: string[] = [];
     const toolCalls: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] =
       [];
 
@@ -743,6 +753,10 @@ export class OpenAIChatCompletionsProvider implements Provider {
       switch (block.type) {
         case "text":
           textParts.push(block.text);
+          break;
+        case "thinking":
+          // Anthropic thinking blocks carry signatures — skip those.
+          if (!block.signature) reasoningParts.push(block.thinking);
           break;
         case "tool_use":
           toolCalls.push({
@@ -760,7 +774,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         case "web_search_tool_result":
           textParts.push("[Web search results]");
           break;
-        // thinking, redacted_thinking, image — not applicable for OpenAI assistant messages
+        // redacted_thinking, image — not applicable for OpenAI assistant messages
       }
     }
 
@@ -769,6 +783,15 @@ export class OpenAIChatCompletionsProvider implements Provider {
         role: "assistant",
         content: textParts.length > 0 ? textParts.join("") : null,
       };
+
+    if (reasoningParts.length > 0 && this.assistantReasoningField) {
+      (
+        result as OpenAI.Chat.Completions.ChatCompletionAssistantMessageParam & {
+          reasoning?: string;
+          reasoning_content?: string;
+        }
+      )[this.assistantReasoningField] = reasoningParts.join("");
+    }
 
     if (toolCalls.length > 0) {
       result.tool_calls = toolCalls;

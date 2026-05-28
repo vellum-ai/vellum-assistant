@@ -26,6 +26,13 @@ import {
 
 export type SyncLogger = (message: string) => void;
 
+function isTimeoutError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err.name === "AbortError" || err.message.includes("timed out"))
+  );
+}
+
 export interface SyncResult {
   added: number;
   removed: number;
@@ -68,6 +75,11 @@ export async function syncCloudAssistants(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log?.(`Failed to fetch current user: ${msg}`);
+    if (isTimeoutError(err)) {
+      console.warn(
+        "Warning: platform user lookup timed out — skipping cloud sync",
+      );
+    }
   }
 
   let platformAssistants: { id: string; name: string; status: string }[];
@@ -80,6 +92,11 @@ export async function syncCloudAssistants(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     log?.(`fetchPlatformAssistants failed: ${msg}`);
+    if (isTimeoutError(err)) {
+      console.warn(
+        "Warning: platform assistant fetch timed out — using cached data",
+      );
+    }
     return null;
   }
 

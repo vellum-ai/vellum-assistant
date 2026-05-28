@@ -36,7 +36,7 @@ import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
-import { useDeprecatedTranscriptScroll } from "@/domains/chat/transcript/use-deprecated-transcript-scroll";
+import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils";
 import type { ChatError } from "@/domains/chat/types";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
@@ -857,7 +857,7 @@ export function ChatRouteContent({
   // Scroll coordination
   // -------------------------------------------------------------------------
 
-  const scrollCoordinator = useDeprecatedTranscriptScroll({
+  const scrollCoordinator = useTranscriptScroll({
     transcriptRef: refs.transcriptRef,
     items: transcriptItems,
     conversationId: activeConversationId,

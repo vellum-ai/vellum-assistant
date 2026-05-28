@@ -7,7 +7,11 @@
  */
 
 import type {
+  AssistantTextDeltaEvent,
   AssistantTurnStartEvent,
+  GenerationCancelledEvent,
+  GenerationHandoffEvent,
+  MessageCompleteEvent,
   OpenUrlEvent,
   RelationshipStateUpdatedEvent,
   ToolUseStartEvent,
@@ -112,41 +116,6 @@ export interface ChatMessage {
 // ---------------------------------------------------------------------------
 // Runtime event types
 // ---------------------------------------------------------------------------
-
-export interface AssistantTextDeltaEvent {
-  type: "assistant_text_delta";
-  text: string;
-  messageId?: string;
-  conversationId?: string;
-}
-
-/** An attachment emitted by the assistant alongside a completed message. */
-export interface AssistantOutboundAttachment {
-  id?: string;
-  filename: string;
-  mimeType: string;
-  /** Base64-encoded file data. May be empty when `fileBacked` is true. */
-  data: string;
-  sourceType?: "sandbox_file" | "host_file" | "tool_block";
-  sizeBytes?: number;
-  thumbnailData?: string;
-  fileBacked?: boolean;
-}
-
-export interface MessageCompleteEvent {
-  type: "message_complete";
-  messageId?: string;
-  content?: string;
-  conversationId?: string;
-  attachments?: AssistantOutboundAttachment[];
-}
-
-export interface GenerationHandoffEvent {
-  type: "generation_handoff";
-  messageId?: string;
-  conversationId?: string;
-  attachments?: AssistantOutboundAttachment[];
-}
 
 export interface StreamErrorEvent {
   type: "error";
@@ -356,11 +325,6 @@ export interface UsageUpdateEvent {
   cacheCreationInputTokens?: number;
   contextWindowTokens?: number;
   contextWindowMaxTokens?: number;
-  conversationId?: string;
-}
-
-export interface GenerationCancelledEvent {
-  type: "generation_cancelled";
   conversationId?: string;
 }
 

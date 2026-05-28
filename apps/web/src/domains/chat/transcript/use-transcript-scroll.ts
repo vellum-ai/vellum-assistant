@@ -34,7 +34,6 @@ import {
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
-import { TRANSCRIPT_SCROLL_CONTROLLER_ENABLED } from "@/domains/chat/transcript/transcript-scroll-flag";
 
 export type { TranscriptHandle };
 
@@ -60,7 +59,7 @@ export const LOAD_OLDER_THRESHOLD_PX = 200;
 // Public hook API
 // ---------------------------------------------------------------------------
 
-export interface UseDeprecatedTranscriptScrollArgs {
+export interface UseTranscriptScrollArgs {
   transcriptRef: RefObject<TranscriptHandle | null>;
   items: TranscriptItem[];
   conversationId: string | null;
@@ -69,7 +68,7 @@ export interface UseDeprecatedTranscriptScrollArgs {
   onLoadOlder: () => void;
 }
 
-export interface UseDeprecatedTranscriptScrollReturn {
+export interface UseTranscriptScrollReturn {
   showScrollToLatest: boolean;
   scrollToLatest: (opts?: { behavior?: "auto" | "smooth" }) => void;
 }
@@ -225,29 +224,9 @@ export function decideItemsChangeAction(
 // Hook implementation
 // ---------------------------------------------------------------------------
 
-/** Returned when the dev flag has turned this hook off. The transcript
- *  then runs with no JavaScript scroll coordination at all — the
- *  defaults below match "nothing is happening". */
-const DISABLED_RESULT: UseDeprecatedTranscriptScrollReturn = {
-  showScrollToLatest: false,
-  scrollToLatest: () => {},
-};
-
-export function useDeprecatedTranscriptScroll(
-  args: UseDeprecatedTranscriptScrollArgs,
-): UseDeprecatedTranscriptScrollReturn {
-  // `TRANSCRIPT_SCROLL_CONTROLLER_ENABLED` is a module-load constant
-  // resolved once from localStorage at page load. It does NOT change
-  // across renders within a page lifetime (toggling the flag reloads
-  // the page). That means this early return is taken consistently for
-  // every render of every instance of this hook on a given page —
-  // either the no-op path runs forever or the full hook runs forever
-  // — which keeps React's hook-order rules satisfied even though no
-  // hooks are called on the no-op path.
-  if (TRANSCRIPT_SCROLL_CONTROLLER_ENABLED) {
-    return DISABLED_RESULT;
-  }
-
+export function useTranscriptScroll(
+  args: UseTranscriptScrollArgs,
+): UseTranscriptScrollReturn {
   const {
     transcriptRef,
     items,

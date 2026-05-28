@@ -212,3 +212,43 @@ export function discoverCes(): DiscoveryResult {
   }
   return discoverLocalCes();
 }
+
+/** How long to poll for the managed bootstrap socket before giving up. */
+const MANAGED_DISCOVERY_TIMEOUT_MS = 3_000;
+
+/** Delay between managed bootstrap-socket discovery attempts. */
+const MANAGED_DISCOVERY_INTERVAL_MS = 100;
+
+/**
+ * Discover CES, polling for the managed bootstrap socket with a short
+ * backoff before failing.
+ *
+ * The managed CES sidecar re-binds its bootstrap socket after each assistant
+ * session ends — it outlives any single assistant and accepts the next
+ * connection (see `credential-executor/src/managed-main.ts`). A reconnecting
+ * assistant (e.g. after a container restart) can therefore probe during the
+ * brief window before the socket is re-bound. A single existence check would
+ * race that window and incorrectly report the sidecar as unavailable; polling
+ * absorbs the gap.
+ *
+ * Local discovery is returned immediately — a missing binary will not appear
+ * by waiting, so there is nothing to poll for.
+ */
+export async function discoverCesWithRetry({
+  timeoutMs = MANAGED_DISCOVERY_TIMEOUT_MS,
+  intervalMs = MANAGED_DISCOVERY_INTERVAL_MS,
+}: { timeoutMs?: number; intervalMs?: number } = {}): Promise<DiscoveryResult> {
+  // Only the managed bootstrap socket is worth polling for; a missing local
+  // binary will not appear by waiting.
+  if (!getIsContainerized()) {
+    return discoverCes();
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  let result = discoverCes();
+  while (result.mode === "unavailable" && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    result = discoverCes();
+  }
+  return result;
+}

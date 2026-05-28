@@ -8,7 +8,15 @@
  * 4. The CES RPC client correctly frames requests and validates responses.
  */
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
@@ -22,6 +30,7 @@ import {
   createCesClient,
 } from "../credential-execution/client.js";
 import {
+  discoverCesWithRetry,
   discoverLocalCes,
   discoverManagedCes,
 } from "../credential-execution/executable-discovery.js";
@@ -143,6 +152,68 @@ describe("managed CES discovery", () => {
       } else {
         delete process.env["CES_BOOTSTRAP_SOCKET"];
       }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Managed discovery retry — absorbs the sidecar's socket re-bind window
+// ---------------------------------------------------------------------------
+
+describe("discoverCesWithRetry", () => {
+  function withManagedEnv(socketPath: string): () => void {
+    const savedSocket = process.env["CES_BOOTSTRAP_SOCKET"];
+    const savedSocketDir = process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+    const savedContainerized = process.env["IS_CONTAINERIZED"];
+    delete process.env["CES_BOOTSTRAP_SOCKET_DIR"];
+    process.env["CES_BOOTSTRAP_SOCKET"] = socketPath;
+    process.env["IS_CONTAINERIZED"] = "true";
+    return () => {
+      const restore = (key: string, value: string | undefined) => {
+        if (value !== undefined) process.env[key] = value;
+        else delete process.env[key];
+      };
+      restore("CES_BOOTSTRAP_SOCKET", savedSocket);
+      restore("CES_BOOTSTRAP_SOCKET_DIR", savedSocketDir);
+      restore("IS_CONTAINERIZED", savedContainerized);
+    };
+  }
+
+  test("returns unavailable after polling when the socket never appears", async () => {
+    const socketPath = join(tmpdir(), `ces-retry-missing-${Date.now()}.sock`);
+    const restore = withManagedEnv(socketPath);
+    try {
+      const start = Date.now();
+      const result = await discoverCesWithRetry({
+        timeoutMs: 200,
+        intervalMs: 20,
+      });
+      expect(result.mode).toBe("unavailable");
+      // It must actually have waited rather than failing on the first probe.
+      expect(Date.now() - start).toBeGreaterThanOrEqual(150);
+    } finally {
+      restore();
+    }
+  });
+
+  test("resolves to managed once the socket is re-bound mid-poll", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ces-retry-"));
+    const socketPath = join(dir, "ces.sock");
+    const restore = withManagedEnv(socketPath);
+    try {
+      // Simulate the sidecar re-binding its bootstrap socket shortly after
+      // the assistant begins probing.
+      setTimeout(() => writeFileSync(socketPath, ""), 80);
+
+      const result = await discoverCesWithRetry({
+        timeoutMs: 2_000,
+        intervalMs: 20,
+      });
+      expect(result.mode).toBe("managed");
+      expect((result as { socketPath: string }).socketPath).toBe(socketPath);
+    } finally {
+      restore();
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 });

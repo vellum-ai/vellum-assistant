@@ -8,16 +8,31 @@
  */
 
 import { RiskLevel } from "../../permissions/types.js";
-import type { Tool, ToolExecutionResult } from "../types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function proxyExecute(): Promise<ToolExecutionResult> {
-  throw new Error(
-    "Proxy tool: execution must be forwarded to the connected client",
-  );
+/**
+ * Forward execution to the connected macOS client via the request-bound
+ * `proxyToolResolver`. Returns a structured error when no resolver is
+ * configured (e.g. no client connected) so callers see a normal tool
+ * failure rather than an unhandled throw.
+ */
+function proxyExecute(toolName: string) {
+  return async (
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolExecutionResult> => {
+    if (!context.proxyToolResolver) {
+      return {
+        content: `No proxy resolver configured for proxy tool "${toolName}". This tool requires an external resolver (e.g. a connected macOS client).`,
+        isError: true,
+      };
+    }
+    return context.proxyToolResolver(toolName, input);
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -40,73 +55,72 @@ export const uiShowTool: Tool = {
     "Proactively show a task_progress card before multi-step or long-running work (web searches, file operations, research). Show it before your first tool call, then update steps as work progresses.",
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
-  executionMode: "proxy",
   executionTarget: "host",
 
   input_schema: {
-        type: "object",
-        properties: {
-          surface_type: {
-            type: "string",
-            enum: [
-              "card",
-              "form",
-              "list",
-              "table",
-              "confirmation",
-              "dynamic_page",
-              "file_upload",
-              "task_preferences",
-            ],
-            description: "The type of surface to display",
-          },
-          title: {
-            type: "string",
-            description: "Optional title for the surface window",
-          },
-          data: {
-            type: "object",
-            description:
-              "Surface data; structure depends on surface_type (see tool description)",
-          },
-          actions: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                id: { type: "string", description: "Unique action identifier" },
-                label: { type: "string", description: "Button label text" },
-                style: {
-                  type: "string",
-                  enum: ["primary", "secondary", "destructive"],
-                  description: "Visual style of the button",
-                },
-              },
-              required: ["id", "label"],
-            },
-            description: "Optional action buttons to display on the surface",
-          },
-          display: {
-            type: "string",
-            enum: ["inline", "panel"],
-            description:
-              'Where to render the surface. "inline" embeds it in the chat message. "panel" shows a floating window. Defaults to "inline". Prefer inline — only use panel when a separate window is explicitly requested.',
-          },
-          await_action: {
-            type: "boolean",
-            description:
-              "Whether to block until an action is selected. Defaults to true when actions are provided.",
-          },
-          persistent: {
-            type: "boolean",
-            description:
-              "When true, clicking an action does not dismiss the surface — the card stays visible and only the clicked action is marked as spent. Use for launcher or menu-style cards where multiple buttons may be clicked. Defaults to false.",
-          },
-        },
-        required: ["surface_type", "data"],
+    type: "object",
+    properties: {
+      surface_type: {
+        type: "string",
+        enum: [
+          "card",
+          "form",
+          "list",
+          "table",
+          "confirmation",
+          "dynamic_page",
+          "file_upload",
+          "task_preferences",
+        ],
+        description: "The type of surface to display",
       },
+      title: {
+        type: "string",
+        description: "Optional title for the surface window",
+      },
+      data: {
+        type: "object",
+        description:
+          "Surface data; structure depends on surface_type (see tool description)",
+      },
+      actions: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string", description: "Unique action identifier" },
+            label: { type: "string", description: "Button label text" },
+            style: {
+              type: "string",
+              enum: ["primary", "secondary", "destructive"],
+              description: "Visual style of the button",
+            },
+          },
+          required: ["id", "label"],
+        },
+        description: "Optional action buttons to display on the surface",
+      },
+      display: {
+        type: "string",
+        enum: ["inline", "panel"],
+        description:
+          'Where to render the surface. "inline" embeds it in the chat message. "panel" shows a floating window. Defaults to "inline". Prefer inline — only use panel when a separate window is explicitly requested.',
+      },
+      await_action: {
+        type: "boolean",
+        description:
+          "Whether to block until an action is selected. Defaults to true when actions are provided.",
+      },
+      persistent: {
+        type: "boolean",
+        description:
+          "When true, clicking an action does not dismiss the surface — the card stays visible and only the clicked action is marked as spent. Use for launcher or menu-style cards where multiple buttons may be clicked. Defaults to false.",
+      },
+    },
+    required: ["surface_type", "data"],
+  },
 
-  execute: proxyExecute,
+  execute: proxyExecute("ui_show"),
 };
 
 // ---------------------------------------------------------------------------
@@ -120,25 +134,24 @@ const uiUpdateTool: Tool = {
     "For card templates (for example `task_progress`), update nested fields under `data.templateData` rather than sending template fields at the top level.",
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
-  executionMode: "proxy",
   executionTarget: "host",
 
   input_schema: {
-        type: "object",
-        properties: {
-          surface_id: {
-            type: "string",
-            description: "The ID of the surface to update",
-          },
-          data: {
-            type: "object",
-            description: "Partial data to merge into the existing surface data",
-          },
-        },
-        required: ["surface_id", "data"],
+    type: "object",
+    properties: {
+      surface_id: {
+        type: "string",
+        description: "The ID of the surface to update",
       },
+      data: {
+        type: "object",
+        description: "Partial data to merge into the existing surface data",
+      },
+    },
+    required: ["surface_id", "data"],
+  },
 
-  execute: proxyExecute,
+  execute: proxyExecute("ui_update"),
 };
 
 // ---------------------------------------------------------------------------
@@ -150,21 +163,20 @@ const uiDismissTool: Tool = {
   description: "Dismiss a currently displayed surface.",
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
-  executionMode: "proxy",
   executionTarget: "host",
 
   input_schema: {
-        type: "object",
-        properties: {
-          surface_id: {
-            type: "string",
-            description: "The ID of the surface to dismiss",
-          },
-        },
-        required: ["surface_id"],
+    type: "object",
+    properties: {
+      surface_id: {
+        type: "string",
+        description: "The ID of the surface to dismiss",
       },
+    },
+    required: ["surface_id"],
+  },
 
-  execute: proxyExecute,
+  execute: proxyExecute("ui_dismiss"),
 };
 
 export const allUiSurfaceTools: Tool[] = [
