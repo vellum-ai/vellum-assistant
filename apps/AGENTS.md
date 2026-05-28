@@ -9,11 +9,11 @@ Applies to all code under `apps/`. Subordinate to root [`AGENTS.md`](../AGENTS.m
 - No workspaces, no Turborepo. Per-package `bun install`. Exact version
   pinning is enforced repo-wide; see root `AGENTS.md` for the dependency,
   license, and tool-version rules.
-- Default module resolution is NodeNext with `.js` extensions on all
-  imports. Apps that ship with a bundler (`apps/web/` via Vite,
-  `apps/macos/` via electron-vite) use `moduleResolution: "Bundler"`
-  with `module: "ESNext"`. Bundler-mode apps omit `.js` extensions;
-  NodeNext apps require them.
+- All current apps use bundlers (`apps/web/` via Vite, `apps/macos/`
+  via electron-vite) and therefore use `moduleResolution: "Bundler"`
+  with `module: "ESNext"`. Bundler-mode apps omit `.js` extensions on
+  imports. If a future app compiles without a bundler, use NodeNext
+  with `.js` extensions (matching `assistant/`, `gateway/`, `cli/`).
 
 ## Adding a new app
 
