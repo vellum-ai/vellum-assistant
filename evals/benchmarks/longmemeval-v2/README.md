@@ -48,15 +48,48 @@ interface BenchmarkItem {
   questionId: string; // V2 questions.jsonl `id` (stable question id)
   ability: string; // V2 questions.jsonl `question_type` (one of the five abilities)
   question: string;
-  answer: string; // reference answer, used by the GPT-4o judge
+  answer: string; // reference answer, used by the dispatched evaluator
   trajectoryIds: string[]; // ordered haystack from haystacks/lme_v2_<tier>.json
 }
 ```
 
 The V2 schema also ships `domain`, `environment`, `image`, and
 `eval_function` fields (see `SCHEMA.md` in the published dataset). The
-loader's zod schema preserves these via `.passthrough()`; the runner /
-judge will consume them in subsequent PRs without the loader having to
-grow first.
+loader's zod schema preserves these via `.passthrough()`; the judge and
+the runner consume them.
 
-This PR ships the loader and its fixture tests only. The two-conversation runner (`run-ingest-ask`), GPT-4o paper-faithful judge, and Phase 1 wiring land in subsequent PRs against the contract established here.
+## Judge
+
+`src/judge/index.ts` exports `evalFromSpec(spec, inputs, overrides?)` — a
+TypeScript port of V2's `evaluation/qa_eval_metrics.py`. Each V2 question
+carries an `eval_function` spec string of the form `"name|key=value|..."`
+that dispatches to one of six implementations:
+
+**Deterministic (no LLM):**
+
+- `norm_phrase_set_match` — phrase-set membership (unordered)
+- `norm_phrase_set_match_ordered` — phrase-set membership (ordered)
+- `mc_choice_match` — single multiple-choice letter
+- `mc_choice_set_match` — multi-select multiple-choice letters
+
+**LLM judges** (default `gpt-5.2` with `reasoning_effort=medium`, per V2's
+`run_eval.py` defaults):
+
+- `llm_abstention_checker` — flawed-premise (abstention) questions
+- `llm_gotchas_checker` — insight-style gotcha questions
+
+Both LLM judges issue an OpenAI-shape chat completion with a strict
+system prompt + rubric, expect `{"label": 0|1, "reason": "..."}` JSON
+output, and tolerate Markdown code fences + regex-fallback parsing.
+Transport is a direct `fetch` to the chat completions endpoint — tests
+swap `globalThis.fetch`, no production wrapper.
+
+`evalFromSpec` returns `{ label: boolean, reason: string, function: string }`.
+`reason` is empty for deterministic evaluators; the function name is
+echoed for audit/logging.
+
+## Next
+
+The two-conversation runner (`run-ingest-ask`, shipped in PR #32356) and
+this judge unblock Phase 1 wiring (5-item smoke against
+`vellum-simple-memory`), which lands in a follow-up PR.
