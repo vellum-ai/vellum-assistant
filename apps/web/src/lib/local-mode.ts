@@ -104,7 +104,7 @@ export interface LocalHatchResult {
  * Trigger a local assistant hatch via the dev server middleware.
  *
  * Transport: fetch to Vite dev middleware endpoint.
- * In Electron, replace with: window.electronAPI.hatchAssistant(species)
+ * In Electron, replace with: window.electronAPI.hatchAssistant(species) (LUM-1997)
  */
 export async function hatchLocalAssistant(
   species: string = "vellum",
@@ -121,7 +121,7 @@ export async function hatchLocalAssistant(
  * Write an assistant entry to the lockfile on disk and refresh the cache.
  *
  * Transport: fetch to Vite dev middleware endpoint.
- * In Electron, replace with: window.electronAPI.saveLockfileAssistant(entry)
+ * In Electron, replace with: window.electronAPI.saveLockfileAssistant(entry) (LUM-1998)
  */
 export async function saveLockfileAssistant(
   assistant: { assistantId: string; cloud: string; runtimeUrl: string; hatchedAt: string },
@@ -142,7 +142,7 @@ export async function saveLockfileAssistant(
 // Assistant queries
 // ---------------------------------------------------------------------------
 
-/** In Electron, replace with: window.electronAPI.hasAssistants() */
+/** In Electron, replace with: window.electronAPI.hasAssistants() (LUM-1998) */
 export function hasAssistants(): boolean {
   return getLockfile().assistants.length > 0;
 }
@@ -216,7 +216,7 @@ export function getLocalGatewayUrl(): string | undefined {
  * selected local assistant.
  *
  * Transport: fetch to Vite dev middleware gateway proxy.
- * In Electron, replace with direct IPC token acquisition.
+ * In Electron, replace with direct IPC token acquisition. (LUM-1999)
  */
 export async function primeLocalGatewayConnection(): Promise<void> {
   const tokenUrl = getLocalTokenUrl();

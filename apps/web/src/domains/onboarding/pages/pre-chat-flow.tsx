@@ -169,7 +169,7 @@ export function PreChatFlow() {
       setRecipeLoadState("loading");
       return;
     }
-    // In local mode, the gateway doesn't serve the recipe endpoint.
+    // In local mode, the gateway doesn't serve the recipe endpoint. (LUM-2000)
     if (isNative || localMode) {
       setRecipe(null);
       setRecipeLoadState("ready");
@@ -416,7 +416,7 @@ export function PreChatFlow() {
 
   // In local mode, platform-only screens (PriorAssistants, GoogleOAuth, GetApp) are
   // skipped. The recipe fetch is also disabled since the gateway doesn't serve it.
-  // In Electron, the recipe could be fetched from the daemon directly if needed.
+  // In Electron, the recipe could be fetched from the daemon directly if needed. (LUM-2000)
   const advancePastToolSelection = () => {
     if (localMode) {
       void finish();

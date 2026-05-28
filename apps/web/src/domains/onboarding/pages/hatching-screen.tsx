@@ -226,7 +226,7 @@ export function HatchingScreen() {
       // 4. Navigate to pre-chat flow
       //
       // Transport: fetch to Vite dev middleware.
-      // In Electron: window.electronAPI.hatchAssistant() → direct IPC to main process.
+      // In Electron: window.electronAPI.hatchAssistant() → direct IPC to main process. (LUM-1997)
       if (useLocalHatch) {
         try {
           if (!localHatchPromise) {

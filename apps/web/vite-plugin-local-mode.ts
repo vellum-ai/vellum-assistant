@@ -140,7 +140,7 @@ function handleGetLockfile(
  * Merge an assistant entry into the lockfile on disk.
  *
  * Transport: Vite dev middleware (fs read/write).
- * In Electron, replace with IPC call to main process: window.electronAPI.saveLockfileAssistant(entry).
+ * In Electron, replace with IPC call to main process: window.electronAPI.saveLockfileAssistant(entry). (LUM-1998)
  */
 function handlePostLockfile(
   lockfilePaths: string[],
@@ -223,7 +223,7 @@ const HATCH_TIMEOUT_MS = 120_000;
  * Connect middleware for the hatch endpoint.
  *
  * Transport: Vite dev middleware (child_process.spawn → CLI binary).
- * In Electron, replace with IPC call to main process: window.electronAPI.hatchAssistant(species).
+ * In Electron, replace with IPC call to main process: window.electronAPI.hatchAssistant(species). (LUM-1997)
  * The main process has direct access to the hatch-local module without spawning a subprocess.
  */
 function hatchMiddleware(): Connect.NextHandleFunction {
