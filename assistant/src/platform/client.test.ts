@@ -10,6 +10,7 @@ let mockManagedProxyCtx = {
   assistantApiKey: "",
 };
 let mockAssistantId = "";
+let mockSecureKeys: Record<string, string | null | undefined> = {};
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -26,7 +27,7 @@ mock.module("../config/env.js", () => ({
 // Stub the credential-store fallback so tests stay hermetic and do not
 // read real values from the host credential backend.
 mock.module("../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async () => null,
+  getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
 }));
 
 mock.module("../security/credential-key.js", () => ({
@@ -54,6 +55,7 @@ describe("VellumPlatformClient", () => {
       assistantApiKey: "sk-test-key",
     };
     mockAssistantId = "asst-123";
+    mockSecureKeys = {};
   });
 
   afterEach(() => {
@@ -93,6 +95,27 @@ describe("VellumPlatformClient", () => {
 
       const client = await VellumPlatformClient.create();
       expect(client!.baseUrl).toBe("https://platform.example.com");
+    });
+
+    test("falls back to credential store values when managed context is not rehydrated", async () => {
+      mockManagedProxyCtx = {
+        enabled: false,
+        platformBaseUrl: "",
+        assistantApiKey: "",
+      };
+      mockAssistantId = "";
+      mockSecureKeys = {
+        "vellum:platform_base_url": "https://stored-platform.example.com/",
+        "vellum:assistant_api_key": "stored-api-key",
+        "vellum:platform_assistant_id": " stored-assistant-id ",
+      };
+
+      const client = await VellumPlatformClient.create();
+
+      expect(client).not.toBeNull();
+      expect(client!.baseUrl).toBe("https://stored-platform.example.com");
+      expect(client!.assistantApiKey).toBe("stored-api-key");
+      expect(client!.platformAssistantId).toBe("stored-assistant-id");
     });
   });
 
