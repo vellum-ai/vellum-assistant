@@ -17,7 +17,10 @@ Code signing, notarization, and auto-update wiring live in follow-up tickets.
 ## Prerequisites
 
 - Bun (see `.tool-versions` at the repo root)
-- One-time: `bun install` in both `apps/web/` and `apps/macos/`
+
+That's it — `bun run dev` and `bun run dev:electron-only` both run
+`bun install` for you on first launch (and verify on subsequent runs,
+which is a fast no-op when the lockfile already matches).
 
 ## How it runs
 
@@ -84,11 +87,11 @@ need a distributable artifact.
 ## Scripts
 
 ```sh
-bun install
-bun run dev                # concurrently runs dev:web + dev:electron
-bun run dev:web            # apps/web Vite dev server (port 5173, strict)
-bun run dev:electron       # wait-on http://localhost:5173 then electron-vite dev
-bun run dev:electron-only  # electron-vite only (when web server is already running)
+bun run dev                # auto-installs both apps, then concurrently runs dev:web + dev:electron
+bun run dev:electron-only  # auto-installs apps/macos, then electron-vite dev (web server elsewhere)
+bun run install:all        # bun install in apps/macos and apps/web (called automatically by dev)
+bun run dev:web            # apps/web Vite dev server (port 5173, strict) — invoked by concurrently
+bun run dev:electron       # wait-on http://localhost:5173 then electron-vite dev — invoked by concurrently
 bun run build              # electron-vite build — bundles main + preload to out/
 bun run typecheck          # tsc --noEmit
 ```
