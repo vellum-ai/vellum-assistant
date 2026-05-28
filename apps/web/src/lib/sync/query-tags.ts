@@ -45,6 +45,27 @@ export function assistantScheduleRunsQueryKey(
     : (["schedule-runs", assistantId] as const);
 }
 
+export const CLIENT_FLAG_QUERY_KEY = ["client-feature-flag-values"] as const;
+
+export const ASSISTANT_FLAG_VALUES_QUERY_KEY =
+  "assistant-feature-flag-values" as const;
+
+export function assistantFlagValuesQueryKey(assistantId: string | null) {
+  return [ASSISTANT_FLAG_VALUES_QUERY_KEY, assistantId] as const;
+}
+
+export const ASSISTANT_IDENTITY_QUERY_KEY = "assistant-identity" as const;
+
+export function assistantIdentityQueryKey(assistantId: string | null) {
+  return [ASSISTANT_IDENTITY_QUERY_KEY, assistantId ?? ""] as const;
+}
+
+export const HOME_FEED_QUERY_KEY_PREFIX = "home-feed" as const;
+
+export function homeFeedQueryKey(assistantId: string) {
+  return [HOME_FEED_QUERY_KEY_PREFIX, assistantId] as const;
+}
+
 export function invalidateAssistantConfigQueries(
   queryClient: QueryClient,
   assistantId: string | null | undefined,

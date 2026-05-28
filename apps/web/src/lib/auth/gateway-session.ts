@@ -1,4 +1,3 @@
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import {
   isLocalMode,
   getLocalGatewayUrl,
@@ -13,10 +12,7 @@ let cachedExpiresAt: number = 0;
 let cachedTokenSource: string | null = null;
 
 export function isGatewayAuthEnabled(): boolean {
-  if (isLocalMode()) {
-    return getLocalGatewayUrl() != null;
-  }
-  return useClientFeatureFlagStore.getState().gatewayWebAuth === true;
+  return isLocalMode() && getLocalGatewayUrl() != null;
 }
 
 export function isGatewayAuthMode(): boolean {
