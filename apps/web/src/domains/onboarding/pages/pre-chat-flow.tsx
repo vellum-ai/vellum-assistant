@@ -118,7 +118,7 @@ export function PreChatFlow() {
     () => new Set(),
   );
   const { value: userName, onChange: handleUserNameChange } =
-    usePrefilledInput(firstName || lastName);
+    usePrefilledInput(localMode ? "" : (firstName || lastName));
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [displayedAssistantNames] = useState<string[]>(
     () => sampleSuggestionNames(),
