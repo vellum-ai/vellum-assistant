@@ -18,7 +18,7 @@ import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
-import { useElectronDockSync } from "@/hooks/use-electron-dock-sync";
+import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
 import type { AssistantContextValue } from "@/components/layout/assistant-context";
 
 import { useVellumCommands } from "@/runtime/vellum-commands";
