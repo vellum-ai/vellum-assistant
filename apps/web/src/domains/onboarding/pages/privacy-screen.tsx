@@ -64,10 +64,10 @@ export function PrivacyScreen() {
   const [aiDataConsent, setAiDataConsent] = useAiDataConsent();
 
   useEffect(() => {
-    if (readOnboardingCompleted()) {
+    if (readOnboardingCompleted() && !isReplay) {
       void navigate(routes.assistant, { replace: true });
     }
-  }, [navigate]);
+  }, [isReplay, navigate]);
 
   const onStart = useCallback(() => {
     try {

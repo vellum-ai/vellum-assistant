@@ -84,6 +84,7 @@ export function decideHatchGate(input: {
   isAuthLoading: boolean;
   isLoggedIn: boolean;
   isLocalMode: boolean;
+  isReplay: boolean;
   onboardingCompleted: boolean;
   tosAccepted: boolean;
   aiDataConsentAccepted: boolean;
@@ -91,7 +92,9 @@ export function decideHatchGate(input: {
 }): HatchGateDecision {
   if (input.isAuthLoading) return { kind: "wait" };
   if (!input.isLoggedIn) return { kind: "redirect", to: routes.account.login };
-  if (input.onboardingCompleted) return { kind: "redirect", to: routes.assistant };
+  if (input.onboardingCompleted && !input.isReplay) {
+    return { kind: "redirect", to: routes.assistant };
+  }
   if (input.isLocalMode) return { kind: "proceed" };
   const persistedConsent = input.tosAccepted && input.aiDataConsentAccepted;
   if (!input.cameFromPrivacyScreen && !persistedConsent) {
@@ -153,6 +156,7 @@ export function HatchingScreen() {
       isAuthLoading,
       isLoggedIn,
       isLocalMode: isLocalMode(),
+      isReplay,
       onboardingCompleted: readOnboardingCompleted(),
       tosAccepted: readTosAccepted(),
       aiDataConsentAccepted: readAiDataConsent(),
@@ -208,7 +212,12 @@ export function HatchingScreen() {
             });
             return;
           }
-          void navigate(routes.onboarding.prechat, { replace: true });
+          void navigate(
+            isReplay
+              ? `${routes.onboarding.prechat}?replay=1`
+              : routes.onboarding.prechat,
+            { replace: true },
+          );
         })();
       }, COMPLETION_NAVIGATE_DELAY_MS);
     };

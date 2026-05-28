@@ -1,23 +1,21 @@
 import * as Sentry from "@sentry/browser";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
-import { useIsIOSWeb, useIsMacOSWeb } from "@/runtime/platform-detection";
-import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
-import { readMacOsAppDownloaded } from "@/hooks/use-macos-app-nudge";
 import {
   fetchOnboardingRecipe,
   type OnboardingRecipe,
 } from "@/domains/onboarding/recipe-client.js";
-import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen.js";
-import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen.js";
 import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen.js";
 import { NameExchangeScreen } from "@/domains/onboarding/screens/name-exchange-screen.js";
-import { PriorAssistantSelectionScreen } from "@/domains/onboarding/screens/prior-assistant-selection-screen.js";
 import { NameStepScreen } from "@/domains/onboarding/screens/name-step-screen.js";
-import { TaskToneSelectionScreen } from "@/domains/onboarding/screens/task-tone-selection-screen.js";
-import { ToolSelectionScreen } from "@/domains/onboarding/screens/tool-selection-screen.js";
 import { VibeStepScreen } from "@/domains/onboarding/screens/vibe-step-screen.js";
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import { usePrefilledInput } from "@/hooks/use-prefilled-input.js";
@@ -31,10 +29,6 @@ import {
   sampleSuggestionNames,
 } from "@/domains/onboarding/prechat-names";
 import {
-  GOOGLE_TOOL_IDS,
-  stripOtherPrefix,
-} from "@/domains/onboarding/prechat-tools";
-import {
   readOnboardingCompleted,
   readTosAccepted,
   useOnboardingCompleted,
@@ -43,7 +37,11 @@ import {
   clearPrivacyConsent,
   hasRecentPrivacyConsent,
 } from "@/domains/onboarding/signals.js";
-import { isLocalMode } from "@/lib/local-mode";
+import {
+  getPlatformAssistants,
+  getSelectedAssistant,
+  isLocalMode,
+} from "@/lib/local-mode";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useRootOutletContext } from "@/root-layout";
@@ -51,19 +49,25 @@ import { routes } from "@/utils/routes.js";
 
 /**
  * Screen indices for the PreChat flow:
- *   0 = NameExchange
- *   1 = TaskTone
- *   2 = ToolSelection
- *   3 = PriorAssistants
- *   4 = GoogleOAuth
- *   5 = GetApp (conditional — shown only on iOS/macOS web)
+ *   0 = NameExchange (web) / NameStep (native)
+ *   1 = GoogleOAuth (web) / VibeStep (native)
  */
-type Screen = 0 | 1 | 2 | 3 | 4 | 5;
+type Screen = 0 | 1;
 
 const IOS_TOTAL_STEPS = 3;
+const GOOGLE_TOOL_IDS = ["gmail", "google-calendar", "google-drive"];
+
+function readLocalPlatformAssistantId(): string | null {
+  const selected = getSelectedAssistant();
+  if (selected?.cloud === "vellum") {
+    return selected.assistantId;
+  }
+  return getPlatformAssistants()[0]?.assistantId ?? null;
+}
 
 export function PreChatFlow() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const user = useAuthStore.use.user();
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isAuthLoading = useAuthStore.use.isLoading();
@@ -71,9 +75,8 @@ export function PreChatFlow() {
   const firstName = user?.firstName ?? "";
   const lastName = user?.lastName ?? "";
   const isNative = useIsNativePlatform();
-  const {
-    lifecycle: { checkAssistant },
-  } = useRootOutletContext();
+  const { lifecycle } = useRootOutletContext();
+  const { assistantId: lifecycleAssistantId, checkAssistant } = lifecycle;
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [recipe, setRecipe] = useState<OnboardingRecipe | null>(null);
   const [recipeLoadState, setRecipeLoadState] = useState<"loading" | "ready">(
@@ -81,11 +84,10 @@ export function PreChatFlow() {
   );
 
   const localMode = isLocalMode();
-  const isMacOSWeb = useIsMacOSWeb();
-  const isIOSWeb = useIsIOSWeb();
-  const showAppStep =
-    (isIOSWeb && !readIOSAppDownloaded()) ||
-    (isMacOSWeb && !readMacOsAppDownloaded());
+  const isReplay = searchParams.get("replay") === "1";
+  const localPlatformAssistantId = localMode
+    ? readLocalPlatformAssistantId()
+    : null;
 
   // Native pre-chat restores its position across reloads via sessionStorage
   // — without this, an iOS user who's tapped through to the vibe step and
@@ -108,30 +110,25 @@ export function PreChatFlow() {
     // Intentionally omitting `screen` from deps so we don't re-restore mid-flow.
   }, [screenStorageKey]);
 
-  const [selectedTools, setSelectedTools] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [selectedTasks, setSelectedTasks] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [selectedPriorAssistants, setSelectedPriorAssistants] = useState<Set<string>>(
-    () => new Set(),
-  );
   const hasPlatformSession = useAuthStore.use.hasPlatformSession();
-  const { value: userName, onChange: handleUserNameChange } =
-    usePrefilledInput(localMode && !hasPlatformSession ? "" : (firstName || lastName));
+  const { value: userName, onChange: handleUserNameChange } = usePrefilledInput(
+    localMode && !hasPlatformSession ? "" : firstName || lastName,
+  );
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [displayedAssistantNames] = useState<string[]>(
     () => sampleSuggestionNames(),
   );
   const [assistantName, setAssistantName] = useState<string>("");
-  const [googleConnected, setGoogleConnected] = useState(false);
-  const [googleScopes, setGoogleScopes] = useState<string[]>([]);
 
   const { data: activeAssistant } = useQuery({
     ...assistantsActiveRetrieveOptions(),
-    enabled: !isAuthLoading && isLoggedIn && !localMode,
+    enabled:
+      !isAuthLoading && isLoggedIn && (!localMode || hasPlatformSession),
   });
+  const googleAssistantId =
+    activeAssistant?.id ?? lifecycleAssistantId ?? localPlatformAssistantId;
+  const canOfferGoogleStep =
+    !localMode || hasPlatformSession || localPlatformAssistantId !== null;
 
   const navigateToChatAfterLifecycleRefresh = useCallback(async () => {
     await checkAssistant();
@@ -188,7 +185,9 @@ export function PreChatFlow() {
       .finally(() => {
         if (!cancelled) setRecipeLoadState("ready");
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [isAuthLoading, isLoggedIn, isNative, localMode, userId]);
 
   useEffect(() => {
@@ -197,7 +196,7 @@ export function PreChatFlow() {
       void navigate(routes.account.login, { replace: true });
       return;
     }
-    if (readOnboardingCompleted()) {
+    if (readOnboardingCompleted() && !isReplay) {
       void navigateToChatAfterLifecycleRefresh();
       return;
     }
@@ -211,6 +210,7 @@ export function PreChatFlow() {
     isAuthLoading,
     isLoggedIn,
     isNative,
+    isReplay,
     navigate,
     navigateToChatAfterLifecycleRefresh,
     setOnboardingCompleted,
@@ -220,6 +220,7 @@ export function PreChatFlow() {
   // ── Recipe-driven auto-skip: skip all pre-chat screens (web only) ──
   const autoSkippedRef = useRef(false);
   useEffect(() => {
+    if (isReplay) return;
     if (!recipe?.skipPrechat || isNative) return;
     if (isAuthLoading || !isLoggedIn || consentDecision !== "ok") return;
     if (readOnboardingCompleted()) return;
@@ -246,29 +247,31 @@ export function PreChatFlow() {
     }
     clearPrivacyConsent();
     void navigateToChatAfterLifecycleRefresh();
-  }, [recipe, isNative, isAuthLoading, isLoggedIn, consentDecision, navigateToChatAfterLifecycleRefresh, setOnboardingCompleted]);
+  }, [
+    recipe,
+    isNative,
+    isReplay,
+    isAuthLoading,
+    isLoggedIn,
+    consentDecision,
+    navigateToChatAfterLifecycleRefresh,
+    setOnboardingCompleted,
+  ]);
 
   async function finish(connectedScopes?: string[]): Promise<void> {
+    const googleConnected = connectedScopes !== undefined;
     const context: PreChatOnboardingContext = {
-      tools: stripOtherPrefix([...selectedTools]),
-      tasks: [...selectedTasks].sort(),
+      tools: googleConnected ? [...GOOGLE_TOOL_IDS] : [],
+      tasks: [],
       tone: selectedGroupId ?? DEFAULT_GROUP_ID,
+      googleConnected,
     };
     const trimmedUser = userName.trim();
     if (trimmedUser) context.userName = trimmedUser;
     const trimmedAssistant = assistantName.trim();
     if (trimmedAssistant) context.assistantName = trimmedAssistant;
-    if (connectedScopes) {
-      context.googleConnected = true;
+    if (googleConnected) {
       context.googleScopes = connectedScopes;
-    } else if (googleConnected) {
-      context.googleConnected = true;
-      context.googleScopes = googleScopes;
-    } else {
-      context.googleConnected = false;
-    }
-    if (selectedPriorAssistants.size > 0) {
-      context.priorAssistants = stripOtherPrefix([...selectedPriorAssistants]);
     }
     context.initialMessage = "Wake up, my friend!";
 
@@ -292,12 +295,12 @@ export function PreChatFlow() {
     !isLoggedIn ||
     !consentReady ||
     !recipeReady ||
-    readOnboardingCompleted()
+    (readOnboardingCompleted() && !isReplay)
   ) {
     return null;
   }
 
-  if (recipe?.skipPrechat && !isNative) {
+  if (recipe?.skipPrechat && !isNative && !isReplay) {
     return null;
   }
 
@@ -382,9 +385,16 @@ export function PreChatFlow() {
     );
   }
 
-  // ── Web flow: NameExchange → TaskTone → Tools → PriorAssistants → Google → App ──
+  // ── Web flow: NameExchange → Google → Chat ──
 
   if (screen === 0) {
+    const advance = () => {
+      if (!canOfferGoogleStep) {
+        void finish();
+        return;
+      }
+      setScreen(1);
+    };
     return (
       <NameExchangeScreen
         userName={userName}
@@ -394,119 +404,27 @@ export function PreChatFlow() {
         onUserNameChange={handleUserNameChange}
         onAssistantNameChange={setAssistantName}
         onGroupChange={setSelectedGroupId}
-        onComplete={() => setScreen(1)}
-        onSkip={() => setScreen(1)}
+        onComplete={advance}
+        onSkip={advance}
       />
     );
   }
 
   if (screen === 1) {
-    return (
-      <TaskToneSelectionScreen
-        selectedTasks={selectedTasks}
-        onChange={setSelectedTasks}
-        onBack={() => setScreen(0)}
-        onContinue={() => setScreen(2)}
-        onSkip={() => setScreen(2)}
-      />
-    );
-  }
-
-  const hasGoogleTool = [...selectedTools].some((id) => GOOGLE_TOOL_IDS.has(id));
-
-  // In local mode, platform-only screens (PriorAssistants, GoogleOAuth, GetApp) are
-  // skipped. The recipe fetch is also disabled since the gateway doesn't serve it.
-  // In Electron, the recipe could be fetched from the daemon directly if needed. (LUM-2000)
-  const advancePastToolSelection = () => {
-    if (localMode) {
-      void finish();
-      return;
-    }
-    setScreen(3);
-  };
-
-  const advancePastPriorAssistants = () => {
-    if (hasGoogleTool) {
-      setScreen(4);
-    } else if (showAppStep) {
-      setScreen(5);
-    } else {
-      void finish();
-    }
-  };
-
-  if (screen === 2) {
-    return (
-      <ToolSelectionScreen
-        selectedTools={selectedTools}
-        onChange={setSelectedTools}
-        onBack={() => setScreen(1)}
-        onContinue={advancePastToolSelection}
-        onSkip={advancePastToolSelection}
-      />
-    );
-  }
-
-  if (screen === 3) {
-    return (
-      <PriorAssistantSelectionScreen
-        selectedAssistants={selectedPriorAssistants}
-        onChange={setSelectedPriorAssistants}
-        onBack={() => setScreen(2)}
-        onContinue={advancePastPriorAssistants}
-        onSkip={() => {
-          setSelectedPriorAssistants(new Set());
-          advancePastPriorAssistants();
-        }}
-      />
-    );
-  }
-
-  if (screen === 4) {
-    if (!activeAssistant) {
+    if (!googleAssistantId) {
       return null;
     }
     return (
       <GoogleConnectScreen
-        assistantId={activeAssistant.id}
+        assistantId={googleAssistantId}
         assistantName={assistantName}
-        selectedGoogleToolIds={[...selectedTools].filter((id) => GOOGLE_TOOL_IDS.has(id))}
         onConnect={(scopes) => {
-          setGoogleConnected(true);
-          setGoogleScopes(scopes);
-          if (showAppStep) {
-            setScreen(5);
-          } else {
-            void finish(scopes);
-          }
+          void finish(scopes);
         }}
-        onSkip={
-          showAppStep
-            ? () => setScreen(5)
-            : () => {
-                void finish();
-              }
-        }
-        onBack={() => setScreen(3)}
-      />
-    );
-  }
-
-  if (screen === 5) {
-    if (isIOSWeb) {
-      return (
-        <GetIOSAppScreen
-          onComplete={() => {
-            void finish();
-          }}
-        />
-      );
-    }
-    return (
-      <GetMacOSAppScreen
-        onComplete={() => {
+        onSkip={() => {
           void finish();
         }}
+        onBack={() => setScreen(0)}
       />
     );
   }

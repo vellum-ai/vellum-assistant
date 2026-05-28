@@ -96,7 +96,7 @@ describe("first-greeting", () => {
         assistantName: "Pax",
       });
       expect(greeting).toBe(
-        "Hey Alice, I'm Pax.\n\nWe can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
+        "Hey Alice, I'm Pax.\n\nWe can get into whatever you've got, or just talk first — that tends to go better. Up to you. If you have context or workflows from another assistant or harness, bring them over early and I'll help port them.",
       );
     });
 
@@ -108,7 +108,7 @@ describe("first-greeting", () => {
         assistantName: "Remy",
       });
       expect(greeting).toBe(
-        "Hey Alice, I'm Remy. Good to meet you.\n\nWe can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here.",
+        "Hey Alice, I'm Remy. Good to meet you.\n\nWe can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here. If you have context or workflows from another assistant or harness, bring them over early and I can help port them.",
       );
     });
 
@@ -119,7 +119,7 @@ describe("first-greeting", () => {
         assistantName: "Pax",
       });
       expect(greeting).toBe(
-        "Hey, I'm Pax. Let's see what you've got.\n\nWe can jump straight into whatever you've got, or take a few minutes to just talk first. What sounds right?",
+        "Hey, I'm Pax. Let's see what you've got.\n\nWe can jump straight into whatever you've got, or take a few minutes to just talk first. If you've got context or workflows from another assistant or harness, bring them over early and I'll port them with you. What sounds right?",
       );
     });
 
@@ -131,7 +131,7 @@ describe("first-greeting", () => {
         assistantName: "Pax",
       });
       expect(greeting).toBe(
-        "Hey Alice, I'm Pax.\n\nWe can start with whatever's in front of you, or just talk for a bit first. Either way.",
+        "Hey Alice, I'm Pax.\n\nWe can start with whatever's in front of you, or just talk for a bit first. Either way. If there's old context or workflows from another assistant or harness, bring them over early and I'll help port them.",
       );
     });
 
@@ -142,7 +142,7 @@ describe("first-greeting", () => {
         userName: "Alice",
       });
       expect(greeting).toBe(
-        "Hey Alice,\n\nWe can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
+        "Hey Alice,\n\nWe can get into whatever you've got, or just talk first — that tends to go better. Up to you. If you have context or workflows from another assistant or harness, bring them over early and I'll help port them.",
       );
     });
 
@@ -153,7 +153,7 @@ describe("first-greeting", () => {
         assistantName: "Pax",
       });
       expect(greeting).toBe(
-        "Hey, I'm Pax.\n\nWe can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
+        "Hey, I'm Pax.\n\nWe can get into whatever you've got, or just talk first — that tends to go better. Up to you. If you have context or workflows from another assistant or harness, bring them over early and I'll help port them.",
       );
     });
 
@@ -173,7 +173,7 @@ describe("first-greeting", () => {
         tone: "warm",
       });
       expect(greeting).toBe(
-        "Hey,\n\nWe can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here.",
+        "Hey,\n\nWe can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here. If you have context or workflows from another assistant or harness, bring them over early and I can help port them.",
       );
     });
 
@@ -185,6 +185,17 @@ describe("first-greeting", () => {
       expect(unique.size).toBe(4);
     });
 
+    it("google-connected greeting points to Gmail only", () => {
+      const greeting = getCannedFirstGreeting({
+        ...base,
+        tone: "grounded",
+        googleConnected: true,
+      });
+      expect(greeting).toContain("scan Gmail");
+      expect(greeting).not.toContain("calendar");
+      expect(greeting).not.toContain("drive");
+    });
+
     it("unknown tone falls back to grounded defaults", () => {
       const greeting = getCannedFirstGreeting({
         ...base,
@@ -193,7 +204,7 @@ describe("first-greeting", () => {
         assistantName: "Pax",
       });
       expect(greeting).toBe(
-        "Hey Alice, I'm Pax.\n\nWe can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
+        "Hey Alice, I'm Pax.\n\nWe can get into whatever you've got, or just talk first — that tends to go better. Up to you. If you have context or workflows from another assistant or harness, bring them over early and I'll help port them.",
       );
     });
 
@@ -223,7 +234,7 @@ describe("first-greeting", () => {
       const [intro, invite] = greeting.split("\n\n");
       expect(intro).toBe("Hey Bob, I'm Pax.");
       expect(invite).toBe(
-        "We can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
+        "We can get into whatever you've got, or just talk first — that tends to go better. Up to you. If you have context or workflows from another assistant or harness, bring them over early and I'll help port them.",
       );
     });
 
@@ -232,7 +243,7 @@ describe("first-greeting", () => {
       const [intro, invite] = greeting.split("\n\n");
       expect(intro).toBe("Hey Bob, I'm Pax. Good to meet you.");
       expect(invite).toBe(
-        "We can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here.",
+        "We can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here. If you have context or workflows from another assistant or harness, bring them over early and I can help port them.",
       );
     });
 
@@ -241,7 +252,7 @@ describe("first-greeting", () => {
       const [intro, invite] = greeting.split("\n\n");
       expect(intro).toBe("Hey Bob, I'm Pax. Let's see what you've got.");
       expect(invite).toBe(
-        "We can jump straight into whatever you've got, or take a few minutes to just talk first. What sounds right?",
+        "We can jump straight into whatever you've got, or take a few minutes to just talk first. If you've got context or workflows from another assistant or harness, bring them over early and I'll port them with you. What sounds right?",
       );
     });
 
@@ -250,7 +261,7 @@ describe("first-greeting", () => {
       const [intro, invite] = greeting.split("\n\n");
       expect(intro).toBe("Hey Bob, I'm Pax.");
       expect(invite).toBe(
-        "We can start with whatever's in front of you, or just talk for a bit first. Either way.",
+        "We can start with whatever's in front of you, or just talk for a bit first. Either way. If there's old context or workflows from another assistant or harness, bring them over early and I'll help port them.",
       );
     });
 
