@@ -620,6 +620,157 @@ Examples:
             }
           },
         );
+
+      // -------------------------------------------------------------------------
+      // edit
+      // -------------------------------------------------------------------------
+
+      notifications
+        .command("edit")
+        .description(
+          "Edit an already-sent notification. Patches the home-feed entry and updates the delivered channel message in place where supported (Slack today).",
+        )
+        .requiredOption(
+          "--id <id>",
+          "Feed item id (notif:<uuid>) from `notifications list --json`. Bare uuids without the `notif:` prefix are also accepted.",
+        )
+        .option(
+          "--message <message>",
+          "New notification body. Updates the home-feed summary and the delivered channel message text where supported.",
+        )
+        .option("--title <title>", "New short headline (≤ 8 words).")
+        .option(
+          "--urgency <urgency>",
+          "Set urgency (low|medium|high|critical). Feed-only — does not re-push channel messages.",
+        )
+        .option(
+          "--status <status>",
+          "Set lifecycle status (new|seen|acted_on|dismissed). Feed-only.",
+        )
+        .addHelpText(
+          "after",
+          `
+At least one of --message, --title, --urgency, or --status must be
+supplied. --urgency and --status only update the home-feed entry —
+they never re-push channel messages.
+
+Channel updates are best-effort: Slack messages get updated via
+chat.update; other channels (push, email, SMS) cannot be edited and
+are reported as "unsupported".
+
+Examples:
+  $ assistant notifications edit --id notif:abc12345-... --message "Fixed body"
+  $ assistant notifications edit --id abc12345-... --title "Backup complete"
+  $ assistant notifications edit --id notif:abc12345-... --urgency low
+  $ assistant notifications edit --id notif:abc12345-... --status dismissed`,
+        )
+        .action(
+          async (
+            opts: {
+              id: string;
+              message?: string;
+              title?: string;
+              urgency?: string;
+              status?: string;
+            },
+            cmd: Command,
+          ) => {
+            try {
+              const id = opts.id.trim();
+              if (!id) {
+                writeOutput(cmd, {
+                  ok: false,
+                  error: "--id must be a non-empty string",
+                });
+                process.exitCode = 1;
+                return;
+              }
+
+              if (
+                opts.message === undefined &&
+                opts.title === undefined &&
+                opts.urgency === undefined &&
+                opts.status === undefined
+              ) {
+                writeOutput(cmd, {
+                  ok: false,
+                  error:
+                    "At least one of --message, --title, --urgency, or --status must be supplied",
+                });
+                process.exitCode = 1;
+                return;
+              }
+
+              if (
+                opts.urgency != null &&
+                !["low", "medium", "high", "critical"].includes(opts.urgency)
+              ) {
+                writeOutput(cmd, {
+                  ok: false,
+                  error: `Invalid urgency "${opts.urgency}". Must be one of: low, medium, high, critical`,
+                });
+                process.exitCode = 1;
+                return;
+              }
+              if (
+                opts.status != null &&
+                !["new", "seen", "acted_on", "dismissed"].includes(opts.status)
+              ) {
+                writeOutput(cmd, {
+                  ok: false,
+                  error: `Invalid status "${opts.status}". Must be one of: new, seen, acted_on, dismissed`,
+                });
+                process.exitCode = 1;
+                return;
+              }
+
+              const body: Record<string, unknown> = { id };
+              if (opts.message !== undefined) body.body = opts.message;
+              if (opts.title !== undefined) body.title = opts.title;
+              if (opts.urgency !== undefined) body.urgency = opts.urgency;
+              if (opts.status !== undefined) body.status = opts.status;
+
+              const result = await cliIpcCall<{
+                feedItem: FeedItem;
+                channels: Array<{
+                  channel: string;
+                  deliveryId: string;
+                  outcome: "updated" | "unsupported" | "skipped" | "failed";
+                  reason?: string;
+                }>;
+              }>("edit_notification", { body });
+
+              if (!result.ok) {
+                writeOutput(cmd, { ok: false, error: result.error });
+                process.exitCode = exitCodeFromIpcResult(result);
+                return;
+              }
+
+              const payload = result.result!;
+              writeOutput(cmd, { ok: true, ...payload });
+
+              if (!shouldOutputJson(cmd)) {
+                const item = payload.feedItem;
+                log.info(`Updated ${item.id}`);
+                const headline = item.title ?? item.summary;
+                log.info(`  ${headline}`);
+                if (payload.channels.length === 0) {
+                  log.info("  No channel deliveries to update.");
+                } else {
+                  log.info("  Channels:");
+                  for (const ch of payload.channels) {
+                    const reason = ch.reason ? ` — ${ch.reason}` : "";
+                    log.info(`    ${ch.channel}: ${ch.outcome}${reason}`);
+                  }
+                }
+              }
+            } catch (err) {
+              const message = err instanceof Error ? err.message : String(err);
+              writeOutput(cmd, { ok: false, error: message });
+              process.exitCode = 1;
+            }
+          },
+        );
     },
   });
 }

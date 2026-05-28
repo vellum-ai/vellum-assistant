@@ -51,7 +51,7 @@ const log = getLogger("emit-signal");
 
 let broadcasterInstance: NotificationBroadcaster | null = null;
 
-function getBroadcaster(): NotificationBroadcaster {
+export function getBroadcaster(): NotificationBroadcaster {
   if (!broadcasterInstance) {
     broadcasterInstance = new NotificationBroadcaster([
       new VellumAdapter(broadcastMessage),

@@ -137,6 +137,7 @@ export function updateDeliveryStatus(
   id: string,
   status: NotificationDeliveryStatus,
   error?: { code?: string; message?: string },
+  patch?: { messageId?: string },
 ): boolean {
   const db = getDb();
   const now = Date.now();
@@ -151,8 +152,39 @@ export function updateDeliveryStatus(
   if (error?.message) {
     updates.errorMessage = error.message;
   }
+  if (patch?.messageId !== undefined) {
+    updates.messageId = patch.messageId;
+  }
 
   db.update(notificationDeliveries)
+    .set(updates)
+    .where(eq(notificationDeliveries.id, id))
+    .run();
+
+  return rawChanges() > 0;
+}
+
+/**
+ * Update the rendered copy on an existing delivery row.
+ *
+ * Used by the edit pipeline so the delivery audit reflects the latest
+ * title/body shown to the user, not just the original send.
+ */
+export function updateDeliveryRenderedCopy(
+  id: string,
+  patch: { renderedTitle?: string; renderedBody?: string },
+): boolean {
+  const updates: Record<string, unknown> = { updatedAt: Date.now() };
+  if (patch.renderedTitle !== undefined) {
+    updates.renderedTitle = patch.renderedTitle;
+  }
+  if (patch.renderedBody !== undefined) {
+    updates.renderedBody = patch.renderedBody;
+  }
+  if (Object.keys(updates).length === 1) return false;
+
+  getDb()
+    .update(notificationDeliveries)
     .set(updates)
     .where(eq(notificationDeliveries.id, id))
     .run();
@@ -177,4 +209,17 @@ export function findDeliveryByDecisionAndChannel(
     )
     .get();
   return row ? rowToDelivery(row) : undefined;
+}
+
+/** Return every delivery row for a given decision. */
+export function findDeliveriesByDecisionId(
+  decisionId: string,
+): NotificationDeliveryRow[] {
+  const db = getDb();
+  const rows = db
+    .select()
+    .from(notificationDeliveries)
+    .where(eq(notificationDeliveries.notificationDecisionId, decisionId))
+    .all();
+  return rows.map(rowToDelivery);
 }

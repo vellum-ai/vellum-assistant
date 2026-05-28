@@ -73,6 +73,11 @@ export class NotificationBroadcaster {
     this.onConversationCreated = fn;
   }
 
+  /** Return the registered adapter for a channel, if any. */
+  getAdapter(channel: NotificationChannel): ChannelAdapter | undefined {
+    return this.adapters.get(channel);
+  }
+
   /**
    * Broadcast a notification decision to all selected channels.
    *
@@ -370,8 +375,21 @@ export class NotificationBroadcaster {
         const adapterResult = await adapter.send(payload, destination);
 
         if (adapterResult.success) {
+          // Prefer the channel-native id the adapter just captured (e.g.
+          // Slack `ts`) so later edits can target the same message; fall
+          // back to the pairing-supplied id for channels that surface it
+          // through conversation pairing instead.
+          const resolvedMessageId =
+            adapterResult.messageId ?? pairing.messageId ?? undefined;
           if (hasPersistedDecision) {
-            updateDeliveryStatus(deliveryId, "sent");
+            updateDeliveryStatus(
+              deliveryId,
+              "sent",
+              undefined,
+              adapterResult.messageId
+                ? { messageId: adapterResult.messageId }
+                : undefined,
+            );
           }
           results.push({
             channel,
@@ -379,7 +397,7 @@ export class NotificationBroadcaster {
             status: "sent",
             sentAt: Date.now(),
             conversationId: pairing.conversationId ?? undefined,
-            messageId: pairing.messageId ?? undefined,
+            messageId: resolvedMessageId,
             conversationStrategy: pairing.strategy,
           });
         } else {

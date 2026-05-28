@@ -142,6 +142,73 @@ assistant notifications list --limit 20 --offset 20 --json
 }
 ```
 
+## Editing Notifications
+
+Use `edit` when an already-sent notification needs revising — a typo in the body, a status update on something you previously surfaced (e.g. "in progress" → "done"), or de-escalating the urgency of a stale alert. **Prefer editing over re-sending**: a fresh notification with the corrected text creates duplicate noise in the user's inbox and pings them twice.
+
+```bash
+assistant notifications edit --id <notif:uuid> --message "Corrected body"
+```
+
+### Finding the id
+
+The `id` field is the full `notif:<uuid>` printed by `notifications list --json` under `items[].id`. Bare uuids (without the `notif:` prefix) are also accepted.
+
+```bash
+assistant notifications list --json | jq '.items[] | {id, title, summary}'
+```
+
+### Command Reference
+
+| Flag                | Required | Description                                                                                       |
+| ------------------- | -------- | ------------------------------------------------------------------------------------------------- |
+| `--id <id>`         | Yes      | Feed item id (`notif:<uuid>`) or bare uuid                                                        |
+| `--message <text>`  | No*      | New body — updates the home-feed summary AND the delivered channel message where supported       |
+| `--title <text>`    | No*      | New short headline (≤ 8 words)                                                                    |
+| `--urgency <level>` | No*      | Change urgency (`low`/`medium`/`high`/`critical`). **Feed-only** — does not re-push channel messages |
+| `--status <state>`  | No*      | Lifecycle transition (`new`/`seen`/`acted_on`/`dismissed`). **Feed-only**                         |
+| `--json`            | No       | Machine-readable JSON                                                                             |
+
+*At least one of `--message`, `--title`, `--urgency`, or `--status` must be supplied.
+
+### Channel behavior
+
+| Channel | Edit behavior |
+| --- | --- |
+| Home feed (macOS/iOS inbox) | Always updated when the item exists. |
+| Slack | Updated in-place via `chat.update` when the original delivery captured a Slack `ts`. Deliveries older than this feature returned `messageId: null` and report `outcome: "unsupported"`. |
+| Push, email, SMS | Cannot be edited — reported as `outcome: "unsupported"` in the result. |
+
+### Response shape
+
+```json
+{
+  "ok": true,
+  "feedItem": { "id": "notif:...", "title": "...", "summary": "...", "status": "new", "urgency": "low" },
+  "channels": [
+    { "channel": "slack", "deliveryId": "...", "outcome": "updated" },
+    { "channel": "platform", "deliveryId": "...", "outcome": "unsupported", "reason": "platform adapter does not support in-place edits" }
+  ]
+}
+```
+
+`outcome` values: `"updated"` (channel message edited successfully), `"unsupported"` (channel cannot edit at all), `"skipped"` (delivery wasn't in `sent` status), `"failed"` (channel-side error — see `reason`).
+
+### Examples
+
+```bash
+# Fix a typo in the body
+assistant notifications edit \
+  --id notif:abc12345-... \
+  --message "Backup completed — 12.4 GB archived to cold storage."
+
+# De-escalate an urgent alert that resolved itself
+assistant notifications edit --id notif:abc12345-... --urgency low
+
+# Dismiss a notification you previously surfaced
+assistant notifications edit --id notif:abc12345-... --status dismissed
+```
+
 ## Important
 
 - Do **NOT** use AppleScript `display notification` or other OS-level notification commands for assistant-managed alerts. Always use `assistant notifications send`.
