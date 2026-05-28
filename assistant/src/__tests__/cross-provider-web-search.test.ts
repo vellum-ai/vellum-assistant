@@ -128,7 +128,7 @@ mock.module("openai", () => {
         },
       };
       responses = {
-        stream: (params: Record<string, unknown>) => {
+        create: async (params: Record<string, unknown>) => {
           lastOpenAIResponsesParams = JSON.parse(JSON.stringify(params));
           return (async function* () {
             yield {
