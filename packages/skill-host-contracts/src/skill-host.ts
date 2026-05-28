@@ -194,6 +194,9 @@ export interface ProvidersFacet {
 // Memory
 // ---------------------------------------------------------------------------
 
+/** Valid message roles for `memory.addMessage`. */
+export type MessageRole = "user" | "assistant" | "system";
+
 /**
  * Callable signature for `memory.addMessage`. Mirrors the daemon's
  * `addMessage()` (in `assistant/src/memory/conversation-crud.ts`) shape.
@@ -202,7 +205,7 @@ export interface ProvidersFacet {
  */
 export type InsertMessageFn = (
   conversationId: string,
-  role: string,
+  role: MessageRole,
   content: string,
   metadata?: Record<string, unknown>,
   opts?: { skipIndexing?: boolean },
