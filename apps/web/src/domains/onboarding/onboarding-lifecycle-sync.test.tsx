@@ -51,7 +51,7 @@ type TestOnboardingRecipe = {
 };
 
 let onboardingCompleted = false;
-let prechatOnboardingTosGoogleOnly = true;
+let prechatOnboardingCondensedFlow = true;
 let fetchOnboardingRecipeImpl: () => Promise<TestOnboardingRecipe | null> =
   async () => null;
 const fetchOnboardingRecipeMock = mock(() => fetchOnboardingRecipeImpl());
@@ -167,7 +167,7 @@ mock.module("@/lib/local-mode", () => ({
 mock.module("@/lib/feature-flags/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
-      prechatOnboardingTosGoogleOnly: () => prechatOnboardingTosGoogleOnly,
+      prechatOnboardingCondensedFlow: () => prechatOnboardingCondensedFlow,
     },
   },
 }));
@@ -286,7 +286,7 @@ beforeEach(() => {
   searchParams = new URLSearchParams();
   checkAssistantImpl = async () => {};
   onboardingCompleted = false;
-  prechatOnboardingTosGoogleOnly = true;
+  prechatOnboardingCondensedFlow = true;
   fetchOnboardingRecipeImpl = async () => null;
   sessionStorage.clear();
   localStorage.clear();
@@ -388,7 +388,7 @@ describe("onboarding lifecycle sync", () => {
   });
 
   test("pre-chat keeps the existing full funnel when the v3 flag is off", async () => {
-    prechatOnboardingTosGoogleOnly = false;
+    prechatOnboardingCondensedFlow = false;
 
     render(<PreChatFlow />);
 

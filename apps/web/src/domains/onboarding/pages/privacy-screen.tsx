@@ -66,9 +66,9 @@ export function PrivacyScreen() {
   const isReplay = searchParams.get("replay") === "1";
   const userId = useAuthStore.use.user()?.id ?? null;
   const isNative = useIsNativePlatform();
-  const tosGoogleOnlyPrechatFlag =
-    useClientFeatureFlagStore.use.prechatOnboardingTosGoogleOnly();
-  const preferredFunnelVariant = tosGoogleOnlyPrechatFlag
+  const condensedPrechatFlag =
+    useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
+  const preferredFunnelVariant = condensedPrechatFlag
     ? ONBOARDING_FUNNEL_VARIANTS.paredDown
     : ONBOARDING_FUNNEL_VARIANTS.control;
   const [shareAnalytics, setShareAnalytics] = useShareAnalytics();
