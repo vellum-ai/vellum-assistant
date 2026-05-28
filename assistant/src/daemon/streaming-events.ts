@@ -3,12 +3,17 @@
  *
  * The streaming architecture (see `.private/plans/streaming-message-architecture.md`)
  * tags every event the daemon emits for a conversation with a monotonically
- * increasing `seq`. The sequence persists for the lifetime of the daemon
- * process — it is keyed by `conversationId`, initialized to `0` on first
- * access, and bumped on every `nextSeq()` call. PR 2 in the plan will
- * persist these sequences to durable storage and reseed from the max
- * persisted value at daemon startup; for now we only need monotonic
- * in-memory uniqueness so reconnecting clients can detect replays.
+ * increasing `seq`. The sequence persists across daemon restarts and
+ * conversation evictions via the durable `conversation_events` table:
+ * `nextSeq` lazily reseeds the in-memory counter from the max persisted
+ * `seq` the first time a conversation surfaces (after boot, or after an
+ * eviction that called {@link resetSeq}). Subsequent calls bump the
+ * in-memory counter without touching the DB.
+ *
+ * Reseeding from durable state is required so post-eviction emits cannot
+ * collide with rows the previous incarnation already wrote — replay
+ * relies on `(conversation_id, seq)` being globally unique within the
+ * retention window.
  *
  * The counter is intentionally a module-level map keyed by conversationId
  * (rather than living on `Conversation` / `AgentLoopConversationContext`)
@@ -17,11 +22,22 @@
  * conversation context through every call site.
  */
 
+import { maxSeqForConversation } from "./event-log.js";
+
 const seqCounters = new Map<string, number>();
 
-/** Return the next monotonic `seq` for the given conversation. */
+/**
+ * Return the next monotonic `seq` for the given conversation.
+ *
+ * On first access for a conversation, the counter is seeded from the max
+ * persisted `seq` in `conversation_events` so a daemon restart or a
+ * post-eviction re-entry cannot replay an existing seq value.
+ */
 export function nextSeq(conversationId: string): number {
-  const current = seqCounters.get(conversationId) ?? 0;
+  let current = seqCounters.get(conversationId);
+  if (current === undefined) {
+    current = maxSeqForConversation(conversationId);
+  }
   const next = current + 1;
   seqCounters.set(conversationId, next);
   return next;
@@ -33,7 +49,8 @@ export function peekSeq(conversationId: string): number {
 }
 
 /** Drop the seq counter for a conversation. Used when a conversation is
- *  evicted/destroyed so process memory does not grow unbounded. */
+ *  evicted/destroyed so process memory does not grow unbounded. The next
+ *  `nextSeq` for this conversation will reseed from durable storage. */
 export function resetSeq(conversationId: string): void {
   seqCounters.delete(conversationId);
 }

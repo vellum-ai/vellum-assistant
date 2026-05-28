@@ -938,6 +938,17 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
+    // Trim the durable streaming-event log to the configured retention window
+    // so the table cannot grow unbounded across daemon restarts. Single
+    // sweep at startup is intentional — the next boot catches up anything
+    // accumulated since.
+    try {
+      const { runEventLogCleanup } = await import("./event-log.js");
+      runEventLogCleanup();
+    } catch (err) {
+      log.warn({ err }, "Conversation event-log cleanup failed — continuing");
+    }
+
     registerWatcherProviders();
     registerMessagingProviders();
 

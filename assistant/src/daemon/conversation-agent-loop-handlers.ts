@@ -71,7 +71,7 @@ import {
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
-import { nextSeq } from "./streaming-events.js";
+import { appendEvent } from "./event-log.js";
 import type {
   CardSurfaceData,
   ServerMessage,
@@ -82,6 +82,7 @@ import type {
   WebSearchMetadata,
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
+import { nextSeq } from "./streaming-events.js";
 
 const log = getLogger("agent-loop-handlers");
 
@@ -440,6 +441,24 @@ function resolveAssistantReplyTimestampTimezone(
 // and order events deterministically.
 
 /**
+ * Emit a streaming event over the live SSE channel and append it to the
+ * durable event log so `Last-Event-Id` reconnect replay can resume from
+ * any point in the turn. Caller is responsible for stamping `seq`
+ * (typically via {@link nextSeq}) before invocation — `appendEvent`
+ * filters out events without a `seq` and is a no-op for non-streaming
+ * event types.
+ *
+ * The publish-then-log order matches the priority of the two paths:
+ * the live consumer sees the event as soon as possible, and a DB
+ * failure during the durable write is logged inside `appendEvent` but
+ * never tears down the in-flight turn.
+ */
+function emitWithLog(deps: EventHandlerDeps, event: ServerMessage): void {
+  deps.onEvent(event);
+  appendEvent(deps.ctx.conversationId, event);
+}
+
+/**
  * Ensure the turn's assistant message id is allocated and `message_open`
  * has been emitted. Called from the first text-delta and tool-use entry
  * points. Idempotent — subsequent calls in the same turn are no-ops.
@@ -451,7 +470,7 @@ function ensureMessageOpen(
   if (state.currentMessageId) return state.currentMessageId;
   const messageId = uuidv7();
   state.currentMessageId = messageId;
-  deps.onEvent({
+  emitWithLog(deps, {
     type: "message_open",
     conversationId: deps.ctx.conversationId,
     messageId,
@@ -474,7 +493,7 @@ function closeCurrentBlock(
     return;
   const messageId = state.currentMessageId;
   if (!messageId) return;
-  deps.onEvent({
+  emitWithLog(deps, {
     type: "block_close",
     conversationId: deps.ctx.conversationId,
     messageId,
@@ -504,7 +523,7 @@ function openBlock(
   if (blockType === "tool_use" && toolInfo) {
     state.toolUseIdToBlockIndex.set(toolInfo.toolUseId, nextIndex);
   }
-  deps.onEvent({
+  emitWithLog(deps, {
     type: "block_open",
     conversationId: deps.ctx.conversationId,
     messageId,
@@ -568,7 +587,7 @@ function handleTextDelta(
     }
     const messageId = ensureMessageOpen(state, deps);
     const blockIndex = ensureBlockForKind(state, deps, "text");
-    deps.onEvent({
+    emitWithLog(deps, {
       type: "assistant_text_delta",
       text: drained.emitText,
       conversationId: deps.ctx.conversationId,
@@ -641,7 +660,7 @@ export function handleToolUse(
     toolName: event.name,
     toolUseId: event.id,
   });
-  deps.onEvent({
+  emitWithLog(deps, {
     type: "tool_use_start",
     toolName: event.name,
     input: event.input,
@@ -759,7 +778,7 @@ export function handleInputJsonDelta(
   // cumulative JSON on every delta with no benefit.
   if (!APP_TOOL_NAMES.has(event.toolName)) return;
   const blockIndex = state.toolUseIdToBlockIndex.get(event.toolUseId);
-  deps.onEvent({
+  emitWithLog(deps, {
     type: "tool_input_delta",
     toolName: event.toolName,
     content: event.accumulatedJson,
@@ -887,7 +906,7 @@ export function handleToolResult(
 
   // Send to client last so state is consistent even if onEvent throws.
   const toolBlockIndex = state.toolUseIdToBlockIndex.get(event.toolUseId);
-  deps.onEvent({
+  emitWithLog(deps, {
     type: "tool_result",
     toolName: "",
     result: event.content,
@@ -1164,7 +1183,7 @@ export async function handleMessageComplete(
   if (state.pendingDirectiveDisplayBuffer.length > 0) {
     const flushMessageId = ensureMessageOpen(state, deps);
     const flushBlockIndex = ensureBlockForKind(state, deps, "text");
-    deps.onEvent({
+    emitWithLog(deps, {
       type: "assistant_text_delta",
       text: state.pendingDirectiveDisplayBuffer,
       conversationId: deps.ctx.conversationId,
@@ -1374,7 +1393,7 @@ export async function handleMessageComplete(
   // for every persisted assistant row.
   if (!state.currentMessageId) {
     state.currentMessageId = assistantMsg.id;
-    deps.onEvent({
+    emitWithLog(deps, {
       type: "message_open",
       conversationId: deps.ctx.conversationId,
       messageId: assistantMsg.id,
@@ -1385,7 +1404,7 @@ export async function handleMessageComplete(
   if (state.currentBlockType !== null) {
     closeCurrentBlock(state, deps);
   }
-  deps.onEvent({
+  emitWithLog(deps, {
     type: "message_close",
     conversationId: deps.ctx.conversationId,
     messageId: state.currentMessageId,
@@ -1660,7 +1679,7 @@ export async function dispatchAgentEvent(
           toolName: event.name,
           toolUseId: event.toolUseId,
         });
-        deps.onEvent({
+        emitWithLog(deps, {
           type: "tool_use_start",
           toolName: event.name,
           input: event.input,
@@ -1744,7 +1763,7 @@ export async function dispatchAgentEvent(
         const serverToolBlockIndex = state.toolUseIdToBlockIndex.get(
           event.toolUseId,
         );
-        deps.onEvent({
+        emitWithLog(deps, {
           type: "tool_result",
           toolName: "web_search",
           result: resultText,
