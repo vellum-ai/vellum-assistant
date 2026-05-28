@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { Typography } from "@vellum/design-library";
 import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
 import { useAssistantContext } from "@/components/layout/assistant-context";
+import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationListQuery } from "@/domains/conversations/conversation-queries";
 import { useConversationStore } from "@/domains/conversations/conversation-store";
@@ -37,7 +38,10 @@ export function HomePageRoute() {
     <HomePage
       assistantId={assistantId}
       validConversationIds={validConversationIds}
-      onStartNewChat={() => navigate(routes.assistant)}
+      onStartNewChat={() => {
+        navigate(routes.assistant);
+        requestComposerFocus();
+      }}
       onOpenConversation={(conversationId) =>
         navigate(routes.conversation(conversationId))
       }

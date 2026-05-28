@@ -276,6 +276,7 @@ export function ChatLayout() {
     const draftConversationId = createDraftConversationId();
     useConversationStore.getState().setActiveConversationId(draftConversationId);
     void navigate(routes.conversation(draftConversationId));
+    requestComposerFocus();
   }, [navigate]);
 
   const handleOpenHome = useCallback(() => {
@@ -487,6 +488,7 @@ export function ChatLayout() {
       const draftConversationId = createDraftConversationId();
       useConversationStore.getState().setActiveConversationId(draftConversationId);
       void navigate(routes.conversation(draftConversationId));
+      requestComposerFocus();
     },
     [navigate],
   );
