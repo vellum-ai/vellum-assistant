@@ -122,9 +122,8 @@ jobs:
   # Runs only after every CI check passes (a `needs` dependency on a failed job
   # skips this job automatically). One matrix leg per GitHub environment, all in
   # parallel (fail-fast: false). Each leg builds under its own `environment:` so
-  # the env-scoped secrets — the public VITE_* config baked into the bundle, the
-  # workload-identity creds, and the project id that names the bucket — resolve
-  # to that environment. `production` gates here if it has required reviewers.
+  # the env-scoped secrets and variables resolve to that environment.
+  # `production` gates here if it has required reviewers.
   deploy:
     name: Deploy SPA (${{ matrix.environment }})
     needs: [checks]
@@ -135,7 +134,19 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        environment: [dev, staging, production]
+        include:
+          - environment: dev
+            gcp_project_id: vellum-nonprod
+            gcp_workload_identity_provider: projects/304030683664/locations/global/workloadIdentityPools/github-pool-dev/providers/github-actions-provider-0
+            gcp_service_account: gha-assistant-deploy@vellum-nonprod.iam.gserviceaccount.com
+          - environment: staging
+            gcp_project_id: vellum-staging
+            gcp_workload_identity_provider: projects/363794608366/locations/global/workloadIdentityPools/github-actions/providers/github-provider
+            gcp_service_account: gha-assistant-deploy@vellum-staging.iam.gserviceaccount.com
+          - environment: production
+            gcp_project_id: vellum-ai-prod
+            gcp_workload_identity_provider: projects/620844561845/locations/global/workloadIdentityPools/github-actions/providers/github-provider
+            gcp_service_account: gha-assistant-deploy@vellum-ai-prod.iam.gserviceaccount.com
     environment: ${{ matrix.environment }}
     permissions:
       contents: read
@@ -186,12 +197,12 @@ jobs:
       - name: Authenticate to GCP
         uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ matrix.gcp_workload_identity_provider }}
+          service_account: ${{ matrix.gcp_service_account }}
 
       - name: Publish SPA to GCS
         env:
-          PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          PROJECT_ID: ${{ matrix.gcp_project_id }}
           TARGET_ENV: ${{ matrix.environment }}
         run: |
           set -euo pipefail
