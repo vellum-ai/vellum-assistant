@@ -24,6 +24,28 @@ export interface VisibleViewport {
   offsetLeft: number;
 }
 
+// Stable reference for the viewport height when no keyboard is present.
+//
+// In Safari, `window.innerHeight` stays at the layout viewport height when the
+// keyboard opens and only `visualViewport.height` shrinks, so
+// `innerHeight - vv.height` directly yields the keyboard height.
+//
+// In WKWebView (Capacitor iOS without `@capacitor/keyboard`), the web view
+// frame itself is resized to fit above the keyboard. Both `innerHeight` and
+// `vv.height` shrink together, making `innerHeight - vv.height ≈ 0` even when
+// the keyboard is visible. By comparing against the maximum observed
+// `innerHeight` — which corresponds to the keyboard-dismissed state — keyboard
+// detection works correctly across both runtimes.
+//
+// Orientation changes are tracked so the reference resets when the viewport
+// dimensions change due to rotation rather than a keyboard event.
+let referenceInnerHeight =
+  typeof window !== "undefined" ? window.innerHeight : 0;
+let lastOrientationType: string =
+  typeof window !== "undefined"
+    ? (window.screen.orientation?.type ?? "portrait-primary")
+    : "portrait-primary";
+
 /**
  * Read the current visual-viewport state.
  *
@@ -35,13 +57,32 @@ export function readVisibleViewport(): VisibleViewport | null {
     return null;
   }
   const vv = window.visualViewport;
+
+  // Reset the reference when the device orientation changes — a rotation
+  // legitimately changes the viewport dimensions and would otherwise look
+  // like a keyboard event.
+  const orientation =
+    window.screen.orientation?.type ?? "portrait-primary";
+  if (orientation !== lastOrientationType) {
+    lastOrientationType = orientation;
+    referenceInnerHeight = window.innerHeight;
+  }
+
+  // Update the reference whenever the viewport grows (keyboard dismissed,
+  // or first observation after an orientation change that settled).
+  if (window.innerHeight > referenceInnerHeight) {
+    referenceInnerHeight = window.innerHeight;
+  }
+
   // When pinch-zoomed (scale > 1) the visual viewport height shrinks in CSS
   // pixels, which would otherwise inflate keyboardHeight and falsely trigger
   // keyboard-open detection. Only derive keyboardHeight at ~1.0 scale.
   const isZoomed = Math.abs(vv.scale - 1) > 0.05;
   return {
     height: vv.height,
-    keyboardHeight: isZoomed ? 0 : Math.max(0, window.innerHeight - vv.height),
+    keyboardHeight: isZoomed
+      ? 0
+      : Math.max(0, referenceInnerHeight - vv.height),
     offsetTop: isZoomed ? 0 : vv.offsetTop,
     offsetLeft: isZoomed ? 0 : vv.offsetLeft,
   };
@@ -51,9 +92,12 @@ export function readVisibleViewport(): VisibleViewport | null {
  * Tracks the VisualViewport API so callers can size and position containers
  * to the area actually visible to the user.
  *
- * On iOS the soft keyboard shrinks `visualViewport.height` while
- * `window.innerHeight` (and `100dvh`) stays at the full layout viewport.
- * Sizing a container to `height` keeps the layout inside the visible region.
+ * In Safari, the soft keyboard shrinks `visualViewport.height` while
+ * `window.innerHeight` stays at the full layout viewport. In Capacitor's
+ * WKWebView (without `@capacitor/keyboard`), the web view frame itself
+ * resizes, shrinking both values together. The `referenceInnerHeight`
+ * approach in `readVisibleViewport` handles both cases — see the module-level
+ * comment above it.
  *
  * Returns `null` in browsers that lack the API; callers should fall back to
  * `100dvh` (and no transform) in that case.
