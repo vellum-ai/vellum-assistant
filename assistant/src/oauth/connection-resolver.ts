@@ -9,6 +9,7 @@ import { getLogger } from "../util/logger.js";
 import { BYOOAuthConnection } from "./byo-connection.js";
 import type { OAuthConnection } from "./connection.js";
 import { getConnectionAccessTokenResult } from "./credential-token-resolver.js";
+import { syncManualTokenConnection } from "./manual-token-connection.js";
 import { getActiveConnection, getProvider } from "./oauth-store.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
 
@@ -82,6 +83,10 @@ export async function resolveOAuthConnection(
   }
 
   // BYO path — requires a local connection row, access token, and base URL.
+  if (providerRow?.authorizeUrl === "urn:manual-token") {
+    await syncManualTokenConnection(provider);
+  }
+
   const conn = getActiveConnection(provider, { clientId, account });
   if (!conn) {
     const filters = [

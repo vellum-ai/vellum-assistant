@@ -13,6 +13,8 @@ let connectionStore: Record<
 > = {};
 let deletedConnectionIds: string[] = [];
 let createdConnections: Array<{ provider: string; accountInfo?: string }> = [];
+let updatedConnections: Array<{ id: string; accountInfo?: string | null }> = [];
+let telegramBotUsername: string | undefined;
 const warnings: string[] = [];
 
 // ---------------------------------------------------------------------------
@@ -39,6 +41,10 @@ mock.module("../security/secure-keys.js", () => ({
     };
     return result.value;
   },
+}));
+
+mock.module("../telegram/bot-username.js", () => ({
+  getTelegramBotUsername: () => telegramBotUsername,
 }));
 
 mock.module("../oauth/oauth-store.js", () => ({
@@ -72,7 +78,16 @@ mock.module("../oauth/oauth-store.js", () => ({
     };
     return { id: `conn-${params.provider}` };
   },
-  updateConnection: () => {},
+  updateConnection: (id: string, updates: { accountInfo?: string | null }) => {
+    updatedConnections.push({ id, accountInfo: updates.accountInfo });
+    for (const conn of Object.values(connectionStore)) {
+      if (conn.id === id) {
+        conn.accountInfo = updates.accountInfo;
+        return true;
+      }
+    }
+    return false;
+  },
   upsertApp: async (_provider: string, _clientId: string) => ({
     id: "app-1",
   }),
@@ -119,6 +134,8 @@ describe("syncManualTokenConnection", () => {
     connectionStore = {};
     deletedConnectionIds = [];
     createdConnections = [];
+    updatedConnections = [];
+    telegramBotUsername = undefined;
     warnings.length = 0;
   });
 
@@ -291,6 +308,62 @@ describe("syncManualTokenConnection", () => {
       { provider: "telegram", accountInfo: undefined },
     ]);
   });
+
+  test("creates telegram connection with configured bot username when account is omitted", async () => {
+    telegramBotUsername = "example_bot";
+    setCredentialResult("telegram", "bot_token", {
+      value: "bot-token",
+      unreachable: false,
+    });
+    setCredentialResult("telegram", "webhook_secret", {
+      value: "webhook-secret",
+      unreachable: false,
+    });
+
+    await syncManualTokenConnection("telegram");
+
+    expect(createdConnections).toEqual([
+      { provider: "telegram", accountInfo: "@example_bot" },
+    ]);
+  });
+
+  test("updates existing telegram connection with configured bot username when account is omitted", async () => {
+    telegramBotUsername = "@example_bot";
+    seedConnection("telegram");
+    setCredentialResult("telegram", "bot_token", {
+      value: "bot-token",
+      unreachable: false,
+    });
+    setCredentialResult("telegram", "webhook_secret", {
+      value: "webhook-secret",
+      unreachable: false,
+    });
+
+    await syncManualTokenConnection("telegram");
+
+    expect(updatedConnections).toEqual([
+      { id: "conn-telegram", accountInfo: "@example_bot" },
+    ]);
+    expect(connectionStore["telegram"]?.accountInfo).toBe("@example_bot");
+  });
+
+  test("preserves existing telegram account label when deriving bot username lazily", async () => {
+    telegramBotUsername = "@example_bot";
+    seedConnection("telegram", { accountInfo: "@existing_bot" });
+    setCredentialResult("telegram", "bot_token", {
+      value: "bot-token",
+      unreachable: false,
+    });
+    setCredentialResult("telegram", "webhook_secret", {
+      value: "webhook-secret",
+      unreachable: false,
+    });
+
+    await syncManualTokenConnection("telegram");
+
+    expect(updatedConnections).toEqual([]);
+    expect(connectionStore["telegram"]?.accountInfo).toBe("@existing_bot");
+  });
 });
 
 describe("backfillManualTokenConnections", () => {
@@ -299,6 +372,8 @@ describe("backfillManualTokenConnections", () => {
     connectionStore = {};
     deletedConnectionIds = [];
     createdConnections = [];
+    updatedConnections = [];
+    telegramBotUsername = undefined;
     warnings.length = 0;
   });
 

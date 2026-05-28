@@ -9,6 +9,7 @@ let mockConnection: Record<string, unknown> | undefined;
 let mockAccessToken: string | undefined;
 let mockConfig: Record<string, unknown> = {};
 let mockPlatformClient: Record<string, unknown> | null = null;
+let syncManualTokenCalls: string[] = [];
 
 // ---------------------------------------------------------------------------
 // Module mocks (must precede imports of the module under test)
@@ -45,6 +46,15 @@ mock.module("./credential-token-resolver.js", () => ({
     unreachable: false,
     key: "mock-key",
   }),
+}));
+
+mock.module("./manual-token-connection.js", () => ({
+  syncManualTokenConnection: async (provider: string) => {
+    syncManualTokenCalls.push(provider);
+    if (provider === "telegram" && mockConnection?.provider === "telegram") {
+      mockConnection.accountInfo = "@example_bot";
+    }
+  },
 }));
 
 mock.module("../config/loader.js", () => ({
@@ -92,6 +102,7 @@ function setupDefaults(): void {
   mockProvider = {
     provider: "google",
     baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
+    authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
     managedServiceConfigKey: null,
   };
   mockConnection = {
@@ -121,6 +132,7 @@ function setupDefaults(): void {
     },
   };
   mockPlatformClient = makeMockClient();
+  syncManualTokenCalls = [];
 }
 
 // ---------------------------------------------------------------------------
@@ -251,6 +263,34 @@ describe("resolveOAuthConnection", () => {
         clientId: "wrong-client",
       }),
     ).rejects.toThrow(/No active OAuth connection found/);
+  });
+
+  test("BYO path reconciles manual-token providers before exact account lookup", async () => {
+    mockProvider = {
+      provider: "telegram",
+      baseUrl: "https://api.telegram.org",
+      authorizeUrl: "urn:manual-token",
+      managedServiceConfigKey: null,
+    };
+    mockConnection = {
+      id: "conn-telegram",
+      provider: "telegram",
+      oauthAppId: "app-telegram",
+      accountInfo: null,
+      grantedScopes: JSON.stringify([]),
+      status: "active",
+      clientId: "manual-config",
+    };
+    mockAccessToken = "telegram-test-token";
+
+    const result = await resolveOAuthConnection("telegram", {
+      account: "@example_bot",
+    });
+
+    expect(syncManualTokenCalls).toEqual(["telegram"]);
+    expect(mockConnection.accountInfo).toBe("@example_bot");
+    expect(result).toBeInstanceOf(BYOOAuthConnection);
+    expect(result.id).toBe("conn-telegram");
   });
 });
 

@@ -130,6 +130,7 @@ mock.module("./oauth-store.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
+import { credentialKey } from "../security/credential-key.js";
 import { setSecureKeyAsync } from "../security/secure-keys.js";
 import {
   _resetInflightRefreshes,
@@ -251,9 +252,20 @@ function createConnection(service = "google"): BYOOAuthConnection {
   return new BYOOAuthConnection({
     id: `conn-${service}`,
     provider: service,
-    baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
+    baseUrl:
+      service === "telegram"
+        ? "https://api.telegram.org"
+        : "https://gmail.googleapis.com/gmail/v1/users/me",
     accountInfo: null,
   });
+}
+
+async function setupTelegramCredential() {
+  await setupCredential("telegram");
+  await setSecureKeyAsync(
+    credentialKey("telegram", "bot_token"),
+    "telegram-test-token",
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +448,58 @@ describe("BYOOAuthConnection", () => {
       const headers = (init as RequestInit).headers as Headers;
       expect(headers.get("X-Custom-Header")).toBe("custom-value");
       expect(headers.get("Authorization")).toBe("Bearer test-access-token");
+    });
+
+    test("uses Telegram Bot API token URL format without Bearer auth", async () => {
+      await setupTelegramCredential();
+      const conn = createConnection("telegram");
+
+      const result = await conn.request({
+        method: "GET",
+        path: "/getMe",
+      });
+
+      expect(result.status).toBe(200);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toBe("https://api.telegram.org/bottelegram-test-token/getMe");
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.has("Authorization")).toBe(false);
+    });
+
+    test("does not double-prefix Telegram paths that already include bot token", async () => {
+      await setupTelegramCredential();
+      const conn = createConnection("telegram");
+
+      await conn.request({
+        method: "GET",
+        path: "/bottelegram-test-token/getMe",
+      });
+
+      const [url, init] = mockFetch.mock.calls[0];
+      expect(url).toBe("https://api.telegram.org/bottelegram-test-token/getMe");
+      const headers = (init as RequestInit).headers as Headers;
+      expect(headers.has("Authorization")).toBe(false);
+    });
+
+    test("returns Telegram 401 responses without OAuth refresh", async () => {
+      await setupTelegramCredential();
+      const conn = createConnection("telegram");
+      const refreshCallsBefore = mockRefreshOAuth2Token.mock.calls.length;
+
+      globalThis.fetch = mock(() =>
+        Promise.resolve(new Response("Unauthorized", { status: 401 })),
+      ) as unknown as typeof fetch;
+
+      const result = await conn.request({
+        method: "GET",
+        path: "/getMe",
+      });
+
+      expect(result.status).toBe(401);
+      expect(result.body).toBe("Unauthorized");
+      expect(mockRefreshOAuth2Token.mock.calls.length).toBe(refreshCallsBefore);
     });
   });
 
