@@ -108,7 +108,12 @@ describe("validateInputAgainstSchema — type checks", () => {
     ["array", { 0: 1 }, false],
     ["object", { a: 1 }, true],
     ["object", [1, 2], false],
-    ["object", null, true], // null is skipped (treated as absent)
+    ["object", null, false], // null is a present value and fails single-type check
+    ["string", null, false],
+    ["number", null, false],
+    ["integer", null, false],
+    ["boolean", null, false],
+    ["array", null, false],
   ] as const)("type=%s, value=%p, valid=%p", (type, value, valid) => {
     const result = validateInputAgainstSchema(
       "t",
@@ -154,8 +159,10 @@ describe("validateInputAgainstSchema — nullable / union types", () => {
     expect(stringResult).toEqual({ ok: true });
   });
 
-  test("still rejects null when the declared single `type` doesn't allow it", () => {
-    // `type: "string"` does NOT allow null — the type check should fire.
+  test("rejects null for single non-null type but presence-check still passes", () => {
+    // `type: "string"` does NOT allow null — the type check fires. Only
+    // union types (`["string","null"]`) bypass the single-type check. The
+    // `required` check is presence-only, so it does NOT fire for null.
     const schema = {
       type: "object",
       properties: {
@@ -164,11 +171,33 @@ describe("validateInputAgainstSchema — nullable / union types", () => {
       required: ["note"],
     };
     const result = validateInputAgainstSchema("t", { note: null }, schema);
-    // Per current step-2 behaviour, null is treated as absent so the type
-    // check is skipped. The presence-only `required` check sees the key, so
-    // there's no `required` error either. This matches the pre-PR lenient
-    // behaviour and avoids breaking nullable plugin schemas.
-    expect(result).toEqual({ ok: true });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toContain("note must be a string");
+    expect(result.errors).not.toContain("note is required");
+  });
+
+  test("document_update({ content: null }) is rejected at the factory layer", () => {
+    // Codex's example: a tool call supplying `null` for a non-nullable string
+    // field should be rejected by the central validator, not passed through
+    // to the downstream tool/proxy.
+    const schema = {
+      type: "object",
+      properties: {
+        surface_id: { type: "string" },
+        content: { type: "string" },
+        mode: { type: "string" },
+      },
+      required: ["surface_id", "content"],
+    };
+    const result = validateInputAgainstSchema(
+      "document_update",
+      { surface_id: "x", content: null },
+      schema,
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toContain("content must be a string");
   });
 });
 

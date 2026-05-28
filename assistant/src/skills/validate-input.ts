@@ -106,11 +106,12 @@ export function validateInputAgainstSchema(
   for (const [key, rawSubSchema] of Object.entries(properties)) {
     if (!(key in input)) continue;
     const value = input[key];
-    // `undefined` / `null` are treated as absent for type-checking purposes
-    // so we never reject a schema that legitimately permits null (e.g. a
-    // plugin schema with `type: ["string","null"]`). Combined with the
-    // presence-only `required` check above, this preserves nullable inputs.
-    if (value === undefined || value === null) continue;
+    // Skip type-checking for absent values; presence is enforced by the
+    // `required` check above. Note: `null` IS a present value and is
+    // type-checked below — only schemas that explicitly opt in to null via
+    // a union type (`type: ["string","null"]`) bypass the check, handled
+    // by the `Array.isArray(declaredType)` skip immediately below.
+    if (value === undefined) continue;
     if (!isPlainObject(rawSubSchema)) continue;
 
     const declaredType = rawSubSchema.type;
