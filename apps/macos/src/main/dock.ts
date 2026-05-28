@@ -121,8 +121,19 @@ export const installDock = (): void => {
   // Renderer-published signed-in flag. Becomes redundant once main
   // owns the auth state directly — at that point the source of truth
   // flips and this handler can be replaced with a subscription.
+  //
+  // On a flip to signed-out we also clear the badge synchronously
+  // (here, ahead of the debounced policy refresh). Otherwise a logout
+  // that destroys the renderer's JS context (hard navigate) can leave
+  // a stale count on the Dock — the renderer never gets to publish
+  // `setDockBadge(0)` because the layout unmounts first.
   ipcMain.handle("vellum:dock:setSignedIn", (_event, signedIn: unknown) => {
-    state.signedIn = Boolean(signedIn);
+    const next = Boolean(signedIn);
+    if (state.signedIn && !next) {
+      state.badgeCount = 0;
+      applyBadge();
+    }
+    state.signedIn = next;
     scheduleRefresh();
   });
 

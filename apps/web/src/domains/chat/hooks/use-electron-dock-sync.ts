@@ -3,6 +3,7 @@ import { useEffect, useMemo } from "react";
 import { setDockBadge, setDockSignedIn } from "@/runtime/dock";
 import { useAuthStore } from "@/stores/auth-store";
 import type { Conversation } from "@/types/conversation-types";
+import { contributesToUnreadCount } from "@/utils/conversation-predicates";
 
 /**
  * Publish the data the Electron Dock cares about — unread conversation
@@ -14,13 +15,16 @@ import type { Conversation } from "@/types/conversation-types";
  * Mount the hook once at a layout that already has the conversation
  * list in hand (currently `ChatLayout`, which subscribes to
  * `useConversationListQuery` at the route root). The count is derived
- * locally from `hasUnseenLatestAssistantMessage` — same predicate Swift
- * Vellum's `unseenVisibleConversationCount` uses — so we don't fetch
- * twice.
+ * locally via `contributesToUnreadCount` (the same predicate that
+ * drives sidebar attention indicators) so we don't fetch twice and
+ * automated background / scheduled / archived threads don't contribute
+ * to the badge.
  *
  * The signed-in input is temporary: once main owns auth state
  * directly, main becomes the source of truth and this side of the
- * bridge becomes a no-op.
+ * bridge becomes a no-op. (Main also clears the badge when signed-in
+ * flips to false so a logout-driven remount of this layout can't leave
+ * a stale count on the Dock.)
  */
 export function useElectronDockSync(conversations: Conversation[]): void {
   const isLoggedIn = useAuthStore.use.isLoggedIn();
@@ -28,7 +32,7 @@ export function useElectronDockSync(conversations: Conversation[]): void {
   const unreadCount = useMemo(
     () =>
       conversations.reduce(
-        (n, c) => (c.hasUnseenLatestAssistantMessage ? n + 1 : n),
+        (n, c) => (contributesToUnreadCount(c) ? n + 1 : n),
         0,
       ),
     [conversations],

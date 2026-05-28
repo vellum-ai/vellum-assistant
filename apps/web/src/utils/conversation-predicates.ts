@@ -32,3 +32,18 @@ export function canMarkRead(conversation: Conversation): boolean {
     conversation.conversationId != null
   );
 }
+
+/**
+ * Whether this conversation should be reflected in user-visible unread
+ * counters (sidebar attention, Dock badge, etc.). Excludes archived
+ * threads and automated background / scheduled threads — those have
+ * their own surfaces and don't represent attention the user is
+ * expected to clear.
+ */
+export function contributesToUnreadCount(conversation: Conversation): boolean {
+  return (
+    conversation.hasUnseenLatestAssistantMessage === true &&
+    !isBackgroundConversation(conversation) &&
+    conversation.archivedAt == null
+  );
+}
