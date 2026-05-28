@@ -396,17 +396,23 @@ export function ChatComposer({
 
   return (
     <Popover.Root open={emoji.show || slash.show}>
-      <Popover.Anchor asChild>
-        {/* `relative` wrapper anchors the live voice overlay's
-            `absolute bottom-full` directly above the composer's notices
-            + form stack. Because `noticesAboveFormSlot` is rendered as
-            an in-flow sibling of the form inside this wrapper, the
-            overlay's `bottom: 100%` clears both notices and form rather
-            than clipping into the notices region (billing banner,
-            maintenance banner, voice errors, etc.). */}
-        <div className="relative">
-          {showLiveVoiceOverlay && <LiveVoiceOverlay />}
-          {noticesAboveFormSlot}
+      {/* `relative` wrapper anchors the live voice overlay's
+          `absolute bottom-full` directly above the composer's notices
+          + form stack. Because `noticesAboveFormSlot` is rendered as
+          an in-flow sibling of the form inside this wrapper, the
+          overlay's `bottom: 100%` clears both notices and form rather
+          than clipping into the notices region (billing banner,
+          maintenance banner, voice errors, etc.).
+
+          `Popover.Anchor` is scoped to the form only — not the whole
+          wrapper — so the slash/emoji popup's `side="top"` positioning
+          stays anchored at the textarea instead of floating above any
+          visible notice banner with the banner sandwiched between the
+          popup and the textarea. */}
+      <div className="relative">
+        {showLiveVoiceOverlay && <LiveVoiceOverlay />}
+        {noticesAboveFormSlot}
+        <Popover.Anchor asChild>
           <form
             onSubmit={onSubmit}
             className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${
@@ -740,8 +746,8 @@ export function ChatComposer({
               </div>
             </div>
           </form>
-        </div>
-      </Popover.Anchor>
+        </Popover.Anchor>
+      </div>
       <Popover.Content
         side="top"
         align="start"
