@@ -17,7 +17,7 @@ import {
 } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
-import { stopProcessByPidFile } from "./process.js";
+import { resolveProcessState, stopProcessByPidFile } from "./process.js";
 import { openLogFile, pipeToLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
@@ -333,55 +333,19 @@ async function startDaemonFromSource(
   mkdirSync(dirname(pidFile), { recursive: true });
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
-  if (existsSync(pidFile)) {
-    try {
-      const content = readFileSync(pidFile, "utf-8").trim();
+  if (await awaitStartingSentinel(pidFile, resources.daemonPort)) return;
 
-      // Another caller is already spawning the daemon — wait for it
-      // instead of racing to spawn a duplicate.
-      if (content === "starting") {
-        console.log(
-          "   Assistant is starting — waiting for it to become ready...",
-        );
-        if (await waitForDaemonReady(resources.daemonPort, 60000)) {
-          console.log("   Assistant is ready\n");
-          return;
-        }
-        // The other spawn may have failed; clean up and proceed to spawn.
-        try {
-          unlinkSync(pidFile);
-        } catch {}
-      }
-
-      const pid = parseInt(content, 10);
-      if (!isNaN(pid)) {
-        try {
-          process.kill(pid, 0);
-          console.log(`   Assistant already running (pid ${pid})\n`);
-          return;
-        } catch {
-          try {
-            unlinkSync(pidFile);
-          } catch {}
-        }
-      }
-    } catch {}
-  }
-
-  // PID file was stale or missing — check if daemon is responding via HTTP
-  if (await isDaemonResponsive(resources.daemonPort)) {
-    // Recover PID tracking so lifecycle commands (sleep, retire,
-    // stopLocalProcesses) can manage this daemon process.
-    const recoveredPid = recoverPidFile(pidFile, resources.daemonPort);
-    if (recoveredPid) {
-      console.log(
-        `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
-      );
-    } else {
-      console.log("   Assistant is responsive — skipping restart\n");
-    }
+  const daemonState = await resolveProcessState(
+    pidFile,
+    resources.daemonPort,
+    "Assistant",
+  );
+  if (daemonState.status === "healthy") {
+    console.log(`   Assistant already running (pid ${daemonState.pid})\n`);
     return;
   }
+
+  if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return;
 
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -469,57 +433,19 @@ async function startDaemonWatchFromSource(
   mkdirSync(dirname(pidFile), { recursive: true });
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
-  // If a daemon is already running, skip spawning a new one.
-  if (existsSync(pidFile)) {
-    try {
-      const content = readFileSync(pidFile, "utf-8").trim();
+  if (await awaitStartingSentinel(pidFile, resources.daemonPort)) return;
 
-      // Another caller is already spawning the daemon — wait for it
-      // instead of racing to spawn a duplicate.
-      if (content === "starting") {
-        console.log(
-          "   Assistant is starting — waiting for it to become ready...",
-        );
-        if (await waitForDaemonReady(resources.daemonPort, 60000)) {
-          console.log("   Assistant is ready\n");
-          return;
-        }
-        // The other spawn may have failed; clean up and proceed to spawn.
-        try {
-          unlinkSync(pidFile);
-        } catch {}
-      }
-
-      const pid = parseInt(content, 10);
-      if (!isNaN(pid)) {
-        try {
-          process.kill(pid, 0); // Check if alive
-          console.log(`   Assistant already running (pid ${pid})\n`);
-          return;
-        } catch {
-          // Process doesn't exist, clean up stale PID file
-          try {
-            unlinkSync(pidFile);
-          } catch {}
-        }
-      }
-    } catch {}
-  }
-
-  // PID file was stale or missing — check if daemon is responding via HTTP
-  if (await isDaemonResponsive(resources.daemonPort)) {
-    // Recover PID tracking so lifecycle commands (sleep, retire,
-    // stopLocalProcesses) can manage this daemon process.
-    const recoveredPid = recoverPidFile(pidFile, resources.daemonPort);
-    if (recoveredPid) {
-      console.log(
-        `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
-      );
-    } else {
-      console.log("   Assistant is responsive — skipping restart\n");
-    }
+  const daemonState = await resolveProcessState(
+    pidFile,
+    resources.daemonPort,
+    "Assistant",
+  );
+  if (daemonState.status === "healthy") {
+    console.log(`   Assistant already running (pid ${daemonState.pid})\n`);
     return;
   }
+
+  if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return;
 
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -658,6 +584,63 @@ function recoverPidFile(
     writeFileSync(pidFile, String(pid), "utf-8");
   }
   return pid;
+}
+
+/**
+ * Handle the "starting" sentinel in a PID file. When another caller is
+ * already spawning the daemon, wait for it to become ready instead of
+ * racing to spawn a duplicate.
+ *
+ * Returns `true` if the daemon became ready (caller should return early),
+ * `false` if the spawn failed or the sentinel wasn't present (caller
+ * should proceed). Cleans up the PID file on failure.
+ */
+async function awaitStartingSentinel(
+  pidFile: string,
+  daemonPort: number,
+): Promise<boolean> {
+  if (!existsSync(pidFile)) return false;
+  try {
+    const content = readFileSync(pidFile, "utf-8").trim();
+    if (content !== "starting") return false;
+  } catch {
+    return false;
+  }
+
+  console.log("   Assistant is starting — waiting for it to become ready...");
+  if (await waitForDaemonReady(daemonPort, 60000)) {
+    console.log("   Assistant is ready\n");
+    return true;
+  }
+  try {
+    unlinkSync(pidFile);
+  } catch {}
+  return false;
+}
+
+/**
+ * Check if a daemon without a valid PID file is still reachable on its
+ * HTTP port (orphaned process). If so, recover its PID file so lifecycle
+ * commands can manage it.
+ *
+ * Returns `true` if an orphaned daemon was found (caller should skip
+ * starting a new one), `false` otherwise.
+ */
+async function checkOrphanedDaemon(
+  pidFile: string,
+  daemonPort: number,
+): Promise<boolean> {
+  if (!(await isDaemonResponsive(daemonPort))) return false;
+
+  const recoveredPid = recoverPidFile(pidFile, daemonPort);
+  if (recoveredPid) {
+    console.log(
+      `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
+    );
+  } else {
+    console.log("   Assistant is responsive — skipping restart\n");
+  }
+  return true;
 }
 
 export async function discoverPublicUrl(
@@ -900,64 +883,24 @@ export async function startLocalDaemon(
 
     const pidFile = getDaemonPidPath(resources);
 
-    // If a daemon is already running, skip spawning a new one.
-    // This prevents cascading kill→restart cycles when multiple callers
-    // invoke hatch() concurrently (setupDaemonClient + ensureDaemonConnected).
-    let daemonAlive = false;
-    if (existsSync(pidFile)) {
-      try {
-        const content = readFileSync(pidFile, "utf-8").trim();
+    // --- Lifecycle guard: prevent split-brain daemon state ---
+    if (await awaitStartingSentinel(pidFile, resources.daemonPort)) {
+      ensureBunInstalled();
+      return;
+    }
 
-        // Another caller is already spawning the daemon — wait for it
-        // instead of racing to spawn a duplicate.
-        if (content === "starting") {
-          console.log(
-            "   Assistant is starting — waiting for it to become ready...",
-          );
-          if (await waitForDaemonReady(resources.daemonPort, 60000)) {
-            console.log("   Assistant is ready\n");
-            ensureBunInstalled();
-            return;
-          }
-          // The other spawn may have failed; clean up and proceed to spawn.
-          try {
-            unlinkSync(pidFile);
-          } catch {}
-        }
-
-        const pid = parseInt(content, 10);
-        if (!isNaN(pid)) {
-          try {
-            process.kill(pid, 0); // Check if alive
-            daemonAlive = true;
-            console.log(`   Assistant already running (pid ${pid})\n`);
-          } catch {
-            // Process doesn't exist, clean up stale PID file
-            try {
-              unlinkSync(pidFile);
-            } catch {}
-          }
-        }
-      } catch {}
+    const daemonState = await resolveProcessState(
+      pidFile,
+      resources.daemonPort,
+      "Assistant",
+    );
+    const daemonAlive = daemonState.status === "healthy";
+    if (daemonAlive) {
+      console.log(`   Assistant already running (pid ${daemonState.pid})\n`);
     }
 
     if (!daemonAlive) {
-      // The PID file was stale or missing, but a daemon with a different PID
-      // may still be listening on the HTTP port (e.g. if the PID file was
-      // overwritten by a crashed restart attempt). Check before starting a new one.
-      if (await isDaemonResponsive(resources.daemonPort)) {
-        // Restore PID tracking so lifecycle commands (sleep, retire,
-        // stopLocalProcesses) can manage this daemon process.
-        const recoveredPid = recoverPidFile(pidFile, resources.daemonPort);
-        if (recoveredPid) {
-          console.log(
-            `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
-          );
-        } else {
-          console.log("   Assistant is responsive — skipping restart\n");
-        }
-        // Ensure bun is available for runtime features (browser, skills install)
-        // even when reusing an existing daemon.
+      if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) {
         ensureBunInstalled();
         return;
       }

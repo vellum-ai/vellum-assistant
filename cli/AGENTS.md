@@ -63,6 +63,12 @@ The CLI must **never** read from or write to the `.vellum/` directory (e.g. `~/.
 
 For example, the signing key used for JWT auth between the daemon and gateway is persisted in the lockfile (`resources.signingKey`) so that client actor tokens survive daemon/gateway restarts. On first start (or when the key is missing), the CLI generates a new key via `generateLocalSigningKey()` in `lib/local.ts`, saves it to the lockfile entry, and passes it to both `startLocalDaemon` and `startGateway` as the `ACTOR_TOKEN_SIGNING_KEY` env var. The CLI does **not** read or write to the `.vellum/` directory for signing keys — it uses the lockfile instead.
 
+## Process liveness
+
+Use `resolveProcessState()` from `lib/process.ts` when checking whether a daemon or gateway should be (re)started. It combines PID existence with an HTTP `/healthz` probe, a readiness grace period, and a [`isVellumProcess()`](https://man7.org/linux/man-pages/man1/ps.1.html) guard against PID reuse — see the function's JSDoc for the full flow.
+
+Reserve `isProcessAlive()` for teardown paths (`sleep`, `retire`) where you need to kill a process regardless of its health.
+
 ## Docker Volume Management
 
 The CLI creates and manages six per-instance Docker volumes with strict per-service access boundaries (least-privilege at the container level).

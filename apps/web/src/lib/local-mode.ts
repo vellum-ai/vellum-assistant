@@ -242,6 +242,28 @@ export function getLocalGatewayUrl(): string | undefined {
 }
 
 // ---------------------------------------------------------------------------
+// Guardian token
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch the guardian access token for a local assistant from the Vite dev
+ * middleware. The middleware reads the token from disk and handles refresh
+ * via the CLI if the access token is expired.
+ *
+ * Transport: fetch to Vite dev middleware endpoint.
+ * In Electron, replace with IPC call to main process.
+ */
+export async function fetchGuardianToken(assistantId: string): Promise<string> {
+  const res = await fetch(`/assistant/__local/guardian-token/${encodeURIComponent(assistantId)}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? `Guardian token request failed: ${res.status}`);
+  }
+  const { accessToken } = (await res.json()) as { accessToken: string };
+  return accessToken;
+}
+
+// ---------------------------------------------------------------------------
 // Gateway connection setup
 // ---------------------------------------------------------------------------
 
@@ -255,7 +277,9 @@ export function getLocalGatewayUrl(): string | undefined {
 export async function primeLocalGatewayConnection(): Promise<void> {
   const tokenUrl = getLocalTokenUrl();
   if (!tokenUrl) return;
-  await ensureGatewayToken(tokenUrl);
+  const assistant = getSelectedAssistant();
+  const guardianToken = assistant ? await fetchGuardianToken(assistant.assistantId) : undefined;
+  await ensureGatewayToken(tokenUrl, guardianToken);
   const localGateway = getLocalGatewayUrl();
   if (!localGateway) return;
   setSelfHostedConnection({

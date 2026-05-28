@@ -5,6 +5,12 @@ import tailwindcss from "@tailwindcss/vite";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import { localModePlugin } from "./vite-plugin-local-mode";
 
+// Keep in sync with PLATFORM_MODE_TRUTHY in src/lib/local-mode.ts
+const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
+function isPlatformMode(raw: string | undefined): boolean {
+  return !!raw && PLATFORM_MODE_TRUTHY.has(raw.toLowerCase());
+}
+
 // Reference: https://vite.dev/config/#using-environment-variables-in-config
 export default defineConfig(({ mode }) => {
   // loadEnv with empty prefix loads all .env variables, not just VITE_-prefixed ones.
@@ -45,7 +51,7 @@ export default defineConfig(({ mode }) => {
           filesToDeleteAfterUpload: ["./dist/**/*.map"],
         },
       }),
-      !env.VITE_PLATFORM_MODE ? localModePlugin(env) : null,
+      isPlatformMode(env.VITE_PLATFORM_MODE) ? null : localModePlugin(env),
     ].filter(Boolean),
     resolve: {
       alias: [
