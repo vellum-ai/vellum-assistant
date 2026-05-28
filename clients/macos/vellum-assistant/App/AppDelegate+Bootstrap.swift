@@ -384,8 +384,8 @@ extension AppDelegate {
         // sibling-env cleanup). `bootstrapActorToken` is itself an HTTP POST
         // — it will surface gateway-down errors via its return value, and the
         // retry loop handles transient failures.
-        let bootstrapSecret = LockfileAssistant.loadByName(assistantId)?.guardianBootstrapSecret
         while !Task.isCancelled {
+            let bootstrapSecret = LockfileAssistant.loadByName(assistantId)?.guardianBootstrapSecret
             let success = await GuardianClient().bootstrapActorToken(
                 platform: "macos",
                 deviceId: deviceId,
