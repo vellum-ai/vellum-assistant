@@ -438,14 +438,13 @@ parent directory is wrong.
 
 ### Utility file naming within domains
 
-Prefix standalone utility files with `utils-` so they sort together
-in the file tree. When a domain has enough utilities to justify a
-directory, group them under `utils/` — files inside the directory
-drop the prefix since the directory already provides context:
+When a domain has a single utility file, name it `utils.ts`. When a
+domain accumulates enough utilities to justify grouping, move them
+into a `utils/` directory with descriptive names:
 
 ```
 domains/home/
-  utils-feed.ts          # single utility at domain level
+  utils.ts               # single utility file
   home-page.tsx
 
 domains/chat/
