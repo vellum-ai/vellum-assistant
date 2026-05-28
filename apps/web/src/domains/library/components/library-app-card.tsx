@@ -21,7 +21,7 @@ import {
 } from "@vellum/design-library";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { cn } from "@/utils/misc";
-import { formatLibraryDate } from "@/components/apps/library-date";
+import { formatLibraryDate } from "@/domains/library/utils/library-date";
 
 interface LibraryAppCardProps {
   app: AppSummary;
@@ -31,7 +31,6 @@ interface LibraryAppCardProps {
   onPin: (app: AppSummary) => void;
   onDelete?: (app: AppSummary) => void;
   onDeploy?: () => void;
-  isOpening?: boolean;
   justImported?: boolean;
   onAnimationEnd?: () => void;
 }
@@ -44,7 +43,6 @@ export function LibraryAppCard({
   onPin,
   onDelete,
   onDeploy,
-  isOpening,
   justImported,
   onAnimationEnd,
 }: LibraryAppCardProps) {
@@ -91,7 +89,6 @@ export function LibraryAppCard({
           name={app.name}
           icon={app.icon}
           loadHtml={loadHtml}
-          isLoading={isOpening}
         />
       </button>
 

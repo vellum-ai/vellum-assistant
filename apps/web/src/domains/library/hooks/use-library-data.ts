@@ -67,7 +67,6 @@ export function useLibraryData(assistantId: string) {
     pinnedApps,
     recentApps,
     filteredDocuments,
-    pinnedAppIds,
     searchText,
     setSearchText,
     loading,

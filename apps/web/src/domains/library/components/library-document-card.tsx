@@ -2,7 +2,7 @@ import { FileText } from "lucide-react";
 
 import type { DocumentSummary } from "@/types/document-types";
 import { cn } from "@/utils/misc";
-import { formatLibraryDate } from "@/components/apps/library-date";
+import { formatLibraryDate } from "@/domains/library/utils/library-date";
 
 function formatWordCount(count: number): string {
   return count === 1 ? "1 word" : `${count} words`;

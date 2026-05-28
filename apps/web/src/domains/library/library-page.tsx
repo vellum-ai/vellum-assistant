@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 
 import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
 import { PageShell } from "@/components/page-shell";
-import { LibraryView } from "@/components/apps/library-view";
+import { LibraryView } from "@/domains/library/library-view";
 import { routes } from "@/utils/routes";
 
 export function LibraryPage() {

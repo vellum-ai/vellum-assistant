@@ -4,14 +4,13 @@
  */
 
 import type { AppSummary } from "@/types/app-types";
-import { LibraryAppCard } from "@/components/apps/library-app-card";
+import { LibraryAppCard } from "@/domains/library/components/library-app-card";
 
 interface LibraryGridSectionProps {
   title: string;
   apps: AppSummary[];
   assistantId: string;
   pinnedAppIds: Set<string>;
-  openingAppId: string | null;
   lastImportedAppId: string | null;
   onOpen: (appId: string) => void;
   onPin: (app: AppSummary) => void;
@@ -25,7 +24,6 @@ export function LibraryGridSection({
   apps,
   assistantId,
   pinnedAppIds,
-  openingAppId,
   lastImportedAppId,
   onOpen,
   onPin,
@@ -50,7 +48,6 @@ export function LibraryGridSection({
             onOpen={onOpen}
             onPin={onPin}
             onDelete={onDelete}
-            isOpening={openingAppId === app.id}
             justImported={app.id === lastImportedAppId}
             onAnimationEnd={onAnimationEnd}
             onDeploy={onDeploy ? () => onDeploy(app.id) : undefined}

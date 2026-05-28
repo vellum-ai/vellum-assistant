@@ -2,30 +2,32 @@
  * Library view — renders the user's apps and documents with search,
  * filtering, pinning, deploy, import, and delete capabilities.
  *
- * This component is a thin orchestrator: it composes domain hooks for
- * data, actions, and side effects, then delegates rendering to focused
- * sub-components.
+ * Thin orchestrator: composes the data-fetching hook, delegates rendering
+ * to focused sub-components, and owns action callbacks inline (per the
+ * domains/home/ pattern — callbacks stay inline when they are single-consumer
+ * and don't involve data-fetching composition).
  */
 
-import { type ChangeEvent, useCallback } from "react";
+import { type ChangeEvent, useCallback, useRef, useState } from "react";
 import { Search, Upload } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import type { AppSummary } from "@/types/app-types";
 import { getCachedAppHtml } from "@/utils/app-html-cache";
+import { clearAppHtmlCache } from "@/utils/app-html-cache";
+import { importBundle } from "@/utils/import-bundle";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
-import { Button, Input } from "@vellum/design-library";
-import { AppViewerContainer } from "@/components/apps/app-viewer-container";
+import { appsByIdDeletePost } from "@/generated/daemon/sdk.gen";
+import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import { Button, Input, toast } from "@vellum/design-library";
 import { DeployDialogs } from "@/components/deploy-dialogs";
-import { LibraryDocumentCard } from "@/components/apps/library-document-card";
-import { LibraryEmptyState } from "@/components/apps/library-empty-state";
-import { LibraryGridSection } from "@/components/apps/library-grid-section";
-import { DeleteAppDialog } from "@/components/apps/delete-app-dialog";
-import { useLibraryData } from "@/components/apps/use-library-data";
-import { useAppViewer } from "@/components/apps/use-app-viewer";
-import { useAppDelete } from "@/components/apps/use-app-delete";
-import { useAppImport } from "@/components/apps/use-app-import";
+import { LibraryDocumentCard } from "@/domains/library/components/library-document-card";
+import { LibraryEmptyState } from "@/domains/library/components/library-empty-state";
+import { LibraryGridSection } from "@/domains/library/components/library-grid-section";
+import { DeleteAppDialog } from "@/domains/library/components/delete-app-dialog";
+import { useLibraryData } from "@/domains/library/hooks/use-library-data";
 
 export interface LibraryViewProps {
   assistantId: string;
@@ -33,8 +35,7 @@ export interface LibraryViewProps {
   title?: string;
   onNewConversation?: (initialMessage?: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
-  onEditApp?: (app: { appId: string; dirName?: string; name: string; html: string }) => void;
-  onOpenApp?: (appId: string) => void;
+  onOpenApp: (appId: string) => void;
 }
 
 export function LibraryView({
@@ -43,13 +44,13 @@ export function LibraryView({
   title,
   onNewConversation,
   onOpenDocument,
-  onEditApp,
   onOpenApp,
 }: LibraryViewProps) {
+  const queryClient = useQueryClient();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const togglePin = usePinnedAppsStore.use.togglePin();
+  const pinnedAppIds = usePinnedAppsStore.use.pinnedAppIds();
   const isDeploying = useDeployStore.use.isDeploying();
-  const isSharing = useDeployStore.use.isSharing();
 
   const {
     apps,
@@ -58,38 +59,73 @@ export function LibraryView({
     pinnedApps,
     recentApps,
     filteredDocuments,
-    pinnedAppIds,
     searchText,
     setSearchText,
     loading,
     error,
   } = useLibraryData(assistantId);
 
-  const {
-    openedApp,
-    setOpenedApp,
-    openingAppId,
-    handleOpenApp,
-    handleClose,
-    handleShareOpenedApp,
-  } = useAppViewer(assistantId, onOpenApp);
+  // --- Delete state ---
+  const [appPendingDelete, setAppPendingDelete] = useState<AppSummary | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
-  const {
-    appPendingDelete,
-    setAppPendingDelete,
-    isDeleting,
-    handleConfirmDelete,
-    handleCancelDelete,
-  } = useAppDelete(assistantId);
+  const handleConfirmDelete = useCallback(async () => {
+    const target = appPendingDelete;
+    if (!target || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      await appsByIdDeletePost({
+        path: { assistant_id: assistantId, id: target.id },
+        throwOnError: true,
+      });
+      clearAppHtmlCache(assistantId, target.id);
+      void queryClient.invalidateQueries({
+        queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }),
+      });
+      if (pinnedAppIds.has(target.id)) {
+        togglePin(target);
+      }
+      setAppPendingDelete(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete app");
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [appPendingDelete, isDeleting, assistantId, pinnedAppIds, togglePin, queryClient]);
 
-  const {
-    fileInputRef,
-    isImporting,
-    lastImportedAppId,
-    clearLastImported,
-    handleImportBundle,
-  } = useAppImport(assistantId, setOpenedApp);
+  const handleCancelDelete = useCallback(() => {
+    if (!isDeleting) setAppPendingDelete(null);
+  }, [isDeleting]);
 
+  // --- Import state ---
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [lastImportedAppId, setLastImportedAppId] = useState<string | null>(null);
+
+  const handleImportBundle = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || isImporting) return;
+    setIsImporting(true);
+    try {
+      const result = await importBundle(assistantId, file);
+      await queryClient.invalidateQueries({
+        queryKey: appsGetQueryKey({ path: { assistant_id: assistantId } }),
+      });
+      setLastImportedAppId(result.appId);
+      toast.success(result.name + " imported");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to import app");
+    } finally {
+      setIsImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }, [assistantId, isImporting, queryClient]);
+
+  const clearLastImported = useCallback(() => {
+    setLastImportedAppId(null);
+  }, []);
+
+  // --- Deploy ---
   const handleDeploy = useCallback(async (appId: string) => {
     if (isDeploying) return;
     const app = apps.find((a) => a.id === appId);
@@ -106,31 +142,6 @@ export function LibraryView({
     (app: AppSummary) => togglePin(app),
     [togglePin],
   );
-
-  // --- Render: opened app viewer ---
-  if (openedApp) {
-    return (
-      <>
-        <AppViewerContainer
-          appId={openedApp.appId}
-          appName={openedApp.name}
-          html={openedApp.html}
-          assistantId={assistantId}
-          onClose={handleClose}
-          onEdit={onEditApp ? () => onEditApp(openedApp) : undefined}
-          onShare={handleShareOpenedApp}
-          isSharing={isSharing}
-          onDeploy={deployToVercel ? () => handleDeploy(openedApp.appId) : undefined}
-          isDeploying={isDeploying}
-        />
-        <DeployDialogs
-          assistantId={assistantId}
-          assistantName={assistantName}
-          onStartConversation={onNewConversation}
-        />
-      </>
-    );
-  }
 
   // --- Render: loading ---
   if (loading) {
@@ -236,9 +247,8 @@ export function LibraryView({
               apps={pinnedApps}
               assistantId={assistantId}
               pinnedAppIds={pinnedAppIds}
-              openingAppId={openingAppId}
               lastImportedAppId={lastImportedAppId}
-              onOpen={handleOpenApp}
+              onOpen={onOpenApp}
               onPin={handlePinToggle}
               onDelete={setAppPendingDelete}
               onDeploy={deployToVercel ? handleDeploy : undefined}
@@ -249,9 +259,8 @@ export function LibraryView({
               apps={recentApps}
               assistantId={assistantId}
               pinnedAppIds={pinnedAppIds}
-              openingAppId={openingAppId}
               lastImportedAppId={lastImportedAppId}
-              onOpen={handleOpenApp}
+              onOpen={onOpenApp}
               onPin={handlePinToggle}
               onDelete={setAppPendingDelete}
               onDeploy={deployToVercel ? handleDeploy : undefined}
