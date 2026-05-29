@@ -175,7 +175,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     _convId: string,
     role: string,
     content: string,
-    metadata?: Record<string, unknown>,
+    options?: { metadata?: Record<string, unknown> },
   ) => {
     // Simulate a persist failure for tests that need to exercise the
     // tail-persist-failed path in drainBatch. Triggered by matching any
@@ -186,7 +186,12 @@ mock.module("../memory/conversation-crud.js", () => ({
       }
     }
     const id = `msg-${Date.now()}-${capturedAddMessages.length}`;
-    capturedAddMessages.push({ id, role, content, metadata });
+    capturedAddMessages.push({
+      id,
+      role,
+      content,
+      metadata: options?.metadata,
+    });
     return { id };
   },
   updateConversationUsage: () => {},
