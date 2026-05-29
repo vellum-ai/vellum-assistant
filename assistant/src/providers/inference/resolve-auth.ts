@@ -20,8 +20,6 @@ import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "./connections.js";
 
 const log = getLogger("resolve-auth");
 
-const CHATGPT_ACCOUNT_ID_HEADER = "ChatGPT-Account-ID";
-
 export type ResolveAuthError =
   | { code: "credential_not_found"; credential: string }
   | { code: "platform_unavailable" }
@@ -101,18 +99,11 @@ export async function resolveAuth(
           error: { code: "credential_not_found", credential: auth.credential },
         };
       }
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${token}`,
-      };
-      const accountId = extractChatgptAccountId(token);
-      if (accountId) {
-        headers[CHATGPT_ACCOUNT_ID_HEADER] = accountId;
-      }
       return {
         ok: true,
         resolved: {
           kind: "header",
-          headers,
+          headers: { Authorization: `Bearer ${token}` },
         },
       };
     }
@@ -122,24 +113,5 @@ export async function resolveAuth(
         ok: false,
         error: { code: "not_implemented", authType: auth.type },
       };
-  }
-}
-
-function extractChatgptAccountId(token: string): string | null {
-  const claims = decodeJwtPayload(token);
-  const accountId = claims?.chatgpt_account_id;
-  return typeof accountId === "string" && accountId.length > 0
-    ? accountId
-    : null;
-}
-
-function decodeJwtPayload(token: string): Record<string, unknown> | null {
-  const [, payload] = token.split(".");
-  if (!payload) return null;
-  try {
-    const json = Buffer.from(payload, "base64url").toString("utf8");
-    return JSON.parse(json) as Record<string, unknown>;
-  } catch {
-    return null;
   }
 }

@@ -64,7 +64,12 @@ struct InferenceProfileEditor: View {
     /// model picker is filtered to this set so the user doesn't select a
     /// model the subscription can't dispatch. Mirrors the web app's
     /// `CODEX_SUBSCRIPTION_MODEL_IDS` in `profile-editor-modal.tsx`.
-    static let codexSubscriptionModelIds: Set<String> = ["gpt-5.4", "gpt-5.3-codex"]
+    static let codexSubscriptionModelIds: Set<String> = [
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.3-codex"
+    ]
 
     /// Temperature seeded when the user toggles the Set switch on. Also used
     /// as the slider's display fallback when the binding's value is nil so

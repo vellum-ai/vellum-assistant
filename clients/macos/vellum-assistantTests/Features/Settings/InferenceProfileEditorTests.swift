@@ -95,9 +95,10 @@ final class InferenceProfileEditorTests: XCTestCase {
                 displayName: "OpenAI",
                 models: [
                     CatalogModel(id: "gpt-5", displayName: "GPT-5"),
-                    CatalogModel(id: "gpt-5.4", displayName: "GPT-5.4"),
-                    CatalogModel(id: "gpt-5.3-codex", displayName: "GPT-5.3 Codex"),
                     CatalogModel(id: "gpt-5.5", displayName: "GPT-5.5"),
+                    CatalogModel(id: "gpt-5.4", displayName: "GPT-5.4"),
+                    CatalogModel(id: "gpt-5.4-mini", displayName: "GPT-5.4 Mini"),
+                    CatalogModel(id: "gpt-5.3-codex", displayName: "GPT-5.3 Codex"),
                 ],
                 defaultModel: "gpt-5"
             ),
@@ -1249,7 +1250,7 @@ final class InferenceProfileEditorTests: XCTestCase {
     func testCodexSubscriptionModelIdsMatchesExpectedSet() {
         XCTAssertEqual(
             InferenceProfileEditor.codexSubscriptionModelIds,
-            Set(["gpt-5.4", "gpt-5.3-codex"])
+            Set(["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex"])
         )
     }
 
@@ -1271,7 +1272,7 @@ final class InferenceProfileEditorTests: XCTestCase {
                 name: "chatgpt",
                 provider: "openai",
                 providerConnection: "chatgpt-sub",
-                model: "gpt-5.4"
+                model: "gpt-5.4-mini"
             )),
             connections: connections,
             onSave: {},

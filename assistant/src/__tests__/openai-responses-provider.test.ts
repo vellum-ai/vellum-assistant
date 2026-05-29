@@ -1783,22 +1783,6 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
     ]);
   });
 
-  test("codexSubscription: forwards configured auth headers", async () => {
-    const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
-      codexSubscription: true,
-      extraHeaders: { "ChatGPT-Account-ID": "account-123" },
-    });
-    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
-
-    await codexProvider.sendMessage([
-      { role: "user", content: [{ type: "text", text: "Hi" }] },
-    ]);
-
-    expect(lastStreamOptions!.headers).toEqual({
-      "ChatGPT-Account-ID": "account-123",
-    });
-  });
-
   test("codexSubscription: still sends model, input, and instructions", async () => {
     const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
       codexSubscription: true,
