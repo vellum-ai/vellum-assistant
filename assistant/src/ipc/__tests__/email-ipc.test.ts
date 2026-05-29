@@ -13,7 +13,6 @@ delete process.env.ASSISTANT_IPC_SOCKET_DIR;
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 
 import { runAssistantCommandFull } from "../../cli/__tests__/run-assistant-command.js";
