@@ -13,6 +13,10 @@ import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feat
 import { type ProfileEntry } from "@/domains/settings/ai/ai-page";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import {
+  AUTO_PROFILE_NAME,
+  gateAutoProfile,
+} from "@/domains/settings/ai/profile-pickers";
+import {
   listConnections,
   type ProviderConnection,
 } from "@/domains/settings/ai/provider-connections-client";
@@ -495,7 +499,10 @@ function ManageProfilesModalInner({
       contextWindow: entry.contextWindow,
     }));
 
-  const allOrderedProfiles = [...orderedProfiles, ...extraProfiles];
+  const allOrderedProfiles = gateAutoProfile(
+    [...orderedProfiles, ...extraProfiles],
+    useAssistantFeatureFlagStore.use.queryComplexityRouting(),
+  );
 
   async function handleDelete(name: string) {
     setDeleting((prev) => ({ ...prev, [name]: true }));
@@ -686,7 +693,7 @@ function ManageProfilesModalInner({
 
                 const isActive = profile.status !== "disabled";
                 const isToggling = togglingNames.has(profile.name);
-                const isAutoProfile = profile.name === "auto";
+                const isAutoProfile = profile.name === AUTO_PROFILE_NAME;
 
                 return (
                   <div key={profile.name} className="relative">
@@ -755,7 +762,7 @@ function ManageProfilesModalInner({
                           >
                             {profile.label ?? profile.name}
                           </Typography>
-                          {isManaged && profile.name !== "auto" && (
+                          {isManaged && profile.name !== AUTO_PROFILE_NAME && (
                             <Tag
                               tone="positive"
                               title="Managed by Platform — auth is locked, but you can rename or disable this profile."
@@ -842,7 +849,7 @@ function ManageProfilesModalInner({
                         {deleteError}
                       </Typography>
                     ) : null}
-                    {profile.name === "auto" && (
+                    {profile.name === AUTO_PROFILE_NAME && (
                       <div className="mx-2 mt-1 border-b border-[var(--border-subtle)]" />
                     )}
                   </div>

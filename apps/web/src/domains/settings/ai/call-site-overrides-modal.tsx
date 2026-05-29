@@ -19,6 +19,8 @@ import { INFERENCE_PROVIDER_DISPLAY_NAMES, INFERENCE_PROVIDERS } from "@/domains
 import {
   profilePickerLabel,
   visibleProfilesForPicker,
+  gateAutoProfile,
+  selectSeedProfileForOverride,
   type ProfilePickerEntry,
 } from "@/domains/settings/ai/profile-pickers";
 
@@ -268,22 +270,21 @@ function CallSiteOverridesModalInner({
   // show empty when an override targets a now-disabled profile. New
   // selections of *other* disabled profiles are still blocked by the
   // filter (they simply don't appear).
+  const queryComplexityRoutingEnabled =
+    useAssistantFeatureFlagStore.use.queryComplexityRouting();
+
   const buildProfileOptionsForRow = useCallback(
     (selectedProfile: string | null) => {
-      const visible = visibleProfilesForPicker(orderedProfiles, [selectedProfile]);
+      const visible = gateAutoProfile(
+        visibleProfilesForPicker(orderedProfiles, [selectedProfile]),
+        queryComplexityRoutingEnabled,
+      );
       return [
         ...visible.map((p) => ({ value: p.name, label: profilePickerLabel(p) })),
         { value: CUSTOM_SENTINEL, label: "Custom" },
       ];
     },
-    [orderedProfiles],
-  );
-
-  // First active profile — used when toggling an override on without a draft,
-  // so we never seed a freshly-toggled override with a disabled profile name.
-  const firstActiveProfileName = useMemo(
-    () => orderedProfiles.find((p) => p.status !== "disabled")?.name,
-    [orderedProfiles],
+    [orderedProfiles, queryComplexityRoutingEnabled],
   );
 
   const filteredCallSites = useMemo(() => {
@@ -340,10 +341,11 @@ function CallSiteOverridesModalInner({
       setDrafts((prev) => ({ ...prev, [id]: null }));
       return;
     }
-    const seedProfile =
-      defaultProfile && orderedProfiles.some((p) => p.name === defaultProfile && p.status !== "disabled")
-        ? defaultProfile
-        : firstActiveProfileName;
+    const seedProfile = selectSeedProfileForOverride(
+      orderedProfiles,
+      defaultProfile,
+      queryComplexityRoutingEnabled,
+    );
     if (seedProfile) {
       setDrafts((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
     } else {
