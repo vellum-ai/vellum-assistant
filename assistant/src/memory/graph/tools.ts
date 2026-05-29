@@ -63,6 +63,60 @@ const REMEMBER_DESCRIPTION =
   "Remember anything concrete shared in conversation: corrections, plans, decisions, felt moments, names, dates, commitments, preferences. Corrections are the highest priority — call `remember` the same turn the correction lands. You don't have to call this on every turn; a retrospective pass reviews the conversation after each message-count / time interval and saves what you didn't capture. Use judgment: pause and remember when something feels worth marking, not because the volume is required.";
 
 /**
+ * Delete a memory node by matching its content.
+ */
+export const graphDeleteMemoryDefinition: ToolDefinition = {
+  name: "delete_memory",
+  description:
+    "Remove an incorrect, outdated, or unwanted memory. Use recall first to confirm the exact content, then pass it here. Only use this when explicitly asked to forget something, or when correcting a fact that requires removing the old version entirely. Prefer update_memory when the fact is being corrected rather than fully discarded.",
+  input_schema: {
+    type: "object",
+    properties: {
+      content: {
+        type: "string",
+        description:
+          "The content of the memory to delete, as returned by recall. Must closely match the stored text.",
+      },
+      finish_turn: {
+        type: "boolean",
+        description:
+          "When you have nothing else to say and want to yield the turn you MUST set this to true.",
+      },
+    },
+    required: ["content"],
+  },
+};
+
+/**
+ * Update (correct) an existing memory node in place.
+ */
+export const graphUpdateMemoryDefinition: ToolDefinition = {
+  name: "update_memory",
+  description:
+    "Correct or update an existing memory. Use recall first to find the exact current content, then supply the old text and the replacement. Prefer this over delete_memory + remember when the fact is being corrected, not discarded — it preserves earned trust scores and the full edit history.",
+  input_schema: {
+    type: "object",
+    properties: {
+      old_content: {
+        type: "string",
+        description:
+          "The current memory content to replace, as returned by recall.",
+      },
+      new_content: {
+        type: "string",
+        description: "The corrected or updated memory content.",
+      },
+      finish_turn: {
+        type: "boolean",
+        description:
+          "When you have nothing else to say and want to yield the turn you MUST set this to true.",
+      },
+    },
+    required: ["old_content", "new_content"],
+  },
+};
+
+/**
  * Save a fact to the assistant's knowledge base. The fact is appended to
  * `buffer.md` (immediately available in the next conversation) and the daily
  * archive (permanent date-indexed record). When `memory.v2.enabled` is true,
