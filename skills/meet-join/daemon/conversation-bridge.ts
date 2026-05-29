@@ -323,7 +323,9 @@ export class MeetConversationBridge {
       metadata.meetSpeakerId = event.speakerId;
     }
 
-    await this.insertMessage(this.conversationId, "user", content, { metadata });
+    await this.insertMessage(this.conversationId, "user", content, {
+      metadata,
+    });
   }
 
   private async handleInterimTranscript(
