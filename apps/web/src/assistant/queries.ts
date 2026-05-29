@@ -48,6 +48,15 @@ export const POLL_INTERVAL_MS = 3000;
  * (typically within a few poll cycles). Other phases are stable; we
  * stop polling once we land in one of them so the tab isn't fetching
  * forever in the background.
+ *
+ * These are **lifecycle kinds** (the discriminator on
+ * `ResolvedAssistantLifecycleState`), not raw server status strings.
+ * Raw → kind mappings happen in `resolveAssistantLifecycleState`:
+ *   - server `status: "initializing"`  → kind `initializing`
+ *   - server `status: "to_be_deleted"` → kind `cleaning_up`
+ *   - server `status: "active"`        → kind `active` / `self_hosted`
+ *   - 404                              → kind `auto_hatch`
+ *   - other non-OK                     → kind `error`
  */
 const TRANSIENT_PHASES: ReadonlySet<ResolvedAssistantLifecycleState["kind"]> =
   new Set(["initializing", "cleaning_up"]);
