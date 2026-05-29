@@ -16,6 +16,9 @@ import { useViewerStore } from "@/stores/viewer-store";
 /**
  * Subscribes to `document_editor_update` SSE events via the event bus
  * and forwards content updates to the viewer store.
+ *
+ * Unlike other bus subscribers, this takes no `assistantId` — the viewer
+ * store is global and document surface ids are globally unique.
  */
 export function useDocumentEditorSync(): void {
   useBusSubscription("sse.event", (event) => {
