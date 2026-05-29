@@ -625,12 +625,9 @@ async function drainSingleMessage(
         next.attachments,
         next.displayContent,
       );
-      await addMessage(
-        conversation.conversationId,
-        "user",
-        contentToPersist,
-        drainChannelMeta,
-      );
+      await addMessage(conversation.conversationId, "user", contentToPersist, {
+        metadata: drainChannelMeta,
+      });
       conversation.messages.push(llmUserMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
@@ -638,7 +635,7 @@ async function drainSingleMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        { ...drainChannelMeta, sentAt: Date.now() },
+        { metadata: { ...drainChannelMeta, sentAt: Date.now() } },
       );
       conversation.messages.push(assistantMsg);
 
@@ -741,7 +738,7 @@ async function drainSingleMessage(
           next.attachments,
           next.displayContent,
         ),
-        drainChannelMeta,
+        { metadata: drainChannelMeta },
       );
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -762,7 +759,7 @@ async function drainSingleMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        { ...drainChannelMeta, sentAt: Date.now() },
+        { metadata: { ...drainChannelMeta, sentAt: Date.now() } },
       );
       conversation.messages.push(assistantMsg);
 
@@ -837,7 +834,7 @@ async function drainSingleMessage(
           next.attachments,
           next.displayContent,
         ),
-        drainChannelMeta,
+        { metadata: drainChannelMeta },
       );
       persistedCleanMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -850,7 +847,7 @@ async function drainSingleMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        { ...drainChannelMeta, sentAt: Date.now() },
+        { metadata: { ...drainChannelMeta, sentAt: Date.now() } },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1578,7 +1575,7 @@ export async function processMessage(
           attachments,
           displayContent,
         ),
-        routerChannelMeta,
+        { metadata: routerChannelMeta },
       );
       conversation.messages.push(llmUserMsg);
 
@@ -1592,7 +1589,7 @@ export async function processMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        routerChannelMeta,
+        { metadata: routerChannelMeta },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1671,7 +1668,7 @@ export async function processMessage(
       conversation.conversationId,
       "user",
       contentToPersist,
-      pmChannelMeta,
+      { metadata: pmChannelMeta },
     );
     conversation.messages.push(llmUserMsg);
 
@@ -1680,7 +1677,7 @@ export async function processMessage(
       conversation.conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
-      pmChannelMeta,
+      { metadata: pmChannelMeta },
     );
     conversation.messages.push(assistantMsg);
 
@@ -1758,7 +1755,7 @@ export async function processMessage(
           attachments,
           displayContent,
         ),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -1779,7 +1776,7 @@ export async function processMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1845,7 +1842,7 @@ export async function processMessage(
           attachments,
           displayContent,
         ),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       persistedCleanMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -1858,7 +1855,7 @@ export async function processMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       conversation.messages.push(assistantMsg);
 

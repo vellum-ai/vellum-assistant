@@ -18,8 +18,11 @@ const addMessageSpy = mock(
     _conversationId: string,
     _role: string,
     _content: string,
-    _metadata?: Record<string, unknown>,
-    _opts?: { skipIndexing?: boolean },
+    _options?: {
+      metadata?: Record<string, unknown>;
+      skipIndexing?: boolean;
+      clientMessageId?: string;
+    },
   ) => ({ id: "msg-xyz", createdAt: 123 }),
 );
 mock.module("../../../memory/conversation-crud.js", () => ({
@@ -63,13 +66,13 @@ describe("memorySkillRoutes registry", () => {
 });
 
 describe("host.memory.addMessage", () => {
-  test("forwards all positional args to addMessage and returns its result", async () => {
+  test("forwards all fields to addMessage as options object and returns its result", async () => {
     const result = await memoryAddMessageRoute.handler({
       conversationId: "conv-1",
       role: "user",
       content: "hello",
       metadata: { foo: "bar" },
-      opts: { skipIndexing: true },
+      skipIndexing: true,
     });
 
     expect(addMessageSpy).toHaveBeenCalledTimes(1);
@@ -77,12 +80,15 @@ describe("host.memory.addMessage", () => {
     expect(call[0]).toBe("conv-1");
     expect(call[1]).toBe("user");
     expect(call[2]).toBe("hello");
-    expect(call[3]).toEqual({ foo: "bar" });
-    expect(call[4]).toEqual({ skipIndexing: true });
+    expect(call[3]).toEqual({
+      metadata: { foo: "bar" },
+      skipIndexing: true,
+      clientMessageId: undefined,
+    });
     expect(result).toEqual({ id: "msg-xyz", createdAt: 123 });
   });
 
-  test("accepts omitted metadata + opts", async () => {
+  test("accepts omitted optional fields", async () => {
     await memoryAddMessageRoute.handler({
       conversationId: "conv-2",
       role: "assistant",
@@ -91,8 +97,11 @@ describe("host.memory.addMessage", () => {
 
     expect(addMessageSpy).toHaveBeenCalledTimes(1);
     const call = addMessageSpy.mock.calls[0];
-    expect(call[3]).toBeUndefined();
-    expect(call[4]).toBeUndefined();
+    expect(call[3]).toEqual({
+      metadata: undefined,
+      skipIndexing: undefined,
+      clientMessageId: undefined,
+    });
   });
 
   test("rejects missing conversationId", async () => {

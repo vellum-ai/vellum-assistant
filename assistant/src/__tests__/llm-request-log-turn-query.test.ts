@@ -65,10 +65,10 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
 
   test("single message, single log: backward compat — returns 1 log", async () => {
     const conv = createConversation("single-msg");
-    await addMessage(conv.id, "user", "Hello", undefined, {
+    await addMessage(conv.id, "user", "Hello", {
       skipIndexing: true,
     });
-    const a1 = await addMessage(conv.id, "assistant", "Hi!", undefined, {
+    const a1 = await addMessage(conv.id, "assistant", "Hi!", {
       skipIndexing: true,
     });
 
@@ -86,33 +86,25 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     const conv = createConversation("multi-step");
 
     // user → A1 (+ log1) → tool_result → A2 (+ log2)
-    await addMessage(conv.id, "user", "Do the task", undefined, {
+    await addMessage(conv.id, "user", "Do the task", {
       skipIndexing: true,
     });
 
     // First LLM call → A1
     recordRequestLog(conv.id, '{"step":1}', '{"tool_use":"bash"}');
-    const a1 = await addMessage(
-      conv.id,
-      "assistant",
-      "Using tool...",
-      undefined,
-      { skipIndexing: true },
-    );
+    const a1 = await addMessage(conv.id, "assistant", "Using tool...", {
+      skipIndexing: true,
+    });
     backfillMessageIdOnLogs(conv.id, a1.id);
 
     // tool_result user message
-    await addMessage(
-      conv.id,
-      "user",
-      toolResultContent(["tool-1"]),
-      undefined,
-      { skipIndexing: true },
-    );
+    await addMessage(conv.id, "user", toolResultContent(["tool-1"]), {
+      skipIndexing: true,
+    });
 
     // Second LLM call → A2
     recordRequestLog(conv.id, '{"step":2}', '{"result":"done"}');
-    const a2 = await addMessage(conv.id, "assistant", "All done!", undefined, {
+    const a2 = await addMessage(conv.id, "assistant", "All done!", {
       skipIndexing: true,
     });
     backfillMessageIdOnLogs(conv.id, a2.id);
@@ -130,36 +122,24 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     const source = createConversation("source-conv");
 
     // Build a multi-step turn in the source conversation
-    await addMessage(source.id, "user", "Original task", undefined, {
+    await addMessage(source.id, "user", "Original task", {
       skipIndexing: true,
     });
 
     recordRequestLog(source.id, '{"step":1}', '{"tool":"bash"}');
-    const a1 = await addMessage(
-      source.id,
-      "assistant",
-      "Using tool...",
-      undefined,
-      { skipIndexing: true },
-    );
+    const a1 = await addMessage(source.id, "assistant", "Using tool...", {
+      skipIndexing: true,
+    });
     backfillMessageIdOnLogs(source.id, a1.id);
 
-    await addMessage(
-      source.id,
-      "user",
-      toolResultContent(["tool-1"]),
-      undefined,
-      { skipIndexing: true },
-    );
+    await addMessage(source.id, "user", toolResultContent(["tool-1"]), {
+      skipIndexing: true,
+    });
 
     recordRequestLog(source.id, '{"step":2}', '{"result":"ok"}');
-    const a2 = await addMessage(
-      source.id,
-      "assistant",
-      "Done with source!",
-      undefined,
-      { skipIndexing: true },
-    );
+    const a2 = await addMessage(source.id, "assistant", "Done with source!", {
+      skipIndexing: true,
+    });
     backfillMessageIdOnLogs(source.id, a2.id);
 
     // Fork the conversation
@@ -183,49 +163,33 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     const conv = createConversation("two-turns");
 
     // First turn: user → A1 (+ log1)
-    await addMessage(conv.id, "user", "First question", undefined, {
+    await addMessage(conv.id, "user", "First question", {
       skipIndexing: true,
     });
     recordRequestLog(conv.id, '{"turn":1}', '{"answer":"first"}');
-    const a1 = await addMessage(
-      conv.id,
-      "assistant",
-      "First answer",
-      undefined,
-      { skipIndexing: true },
-    );
+    const a1 = await addMessage(conv.id, "assistant", "First answer", {
+      skipIndexing: true,
+    });
     backfillMessageIdOnLogs(conv.id, a1.id);
 
     // Second turn: user → A2 (+ log2) → tool_result → A3 (+ log3)
-    await addMessage(conv.id, "user", "Second question", undefined, {
+    await addMessage(conv.id, "user", "Second question", {
       skipIndexing: true,
     });
     recordRequestLog(conv.id, '{"turn":2,"step":1}', '{"tool":"bash"}');
-    const a2 = await addMessage(
-      conv.id,
-      "assistant",
-      "Using tool...",
-      undefined,
-      { skipIndexing: true },
-    );
+    const a2 = await addMessage(conv.id, "assistant", "Using tool...", {
+      skipIndexing: true,
+    });
     backfillMessageIdOnLogs(conv.id, a2.id);
 
-    await addMessage(
-      conv.id,
-      "user",
-      toolResultContent(["tool-2"]),
-      undefined,
-      { skipIndexing: true },
-    );
+    await addMessage(conv.id, "user", toolResultContent(["tool-2"]), {
+      skipIndexing: true,
+    });
 
     recordRequestLog(conv.id, '{"turn":2,"step":2}', '{"result":"done"}');
-    const a3 = await addMessage(
-      conv.id,
-      "assistant",
-      "Second done!",
-      undefined,
-      { skipIndexing: true },
-    );
+    const a3 = await addMessage(conv.id, "assistant", "Second done!", {
+      skipIndexing: true,
+    });
     backfillMessageIdOnLogs(conv.id, a3.id);
 
     // Query second turn → should only return logs for A2 and A3, NOT A1
@@ -468,33 +432,25 @@ describe("getRequestLogsByMessageId — turn-aware query", () => {
     const conv = createConversation("relink-test");
 
     // Simulate multi-step turn: user → A1 (+ log1) → tool_result → A2 (+ log2)
-    await addMessage(conv.id, "user", "Do the task", undefined, {
+    await addMessage(conv.id, "user", "Do the task", {
       skipIndexing: true,
     });
 
     // First LLM call → A1 (tool_use response)
     recordRequestLog(conv.id, '{"step":1}', '{"tool_use":"bash"}');
-    const a1 = await addMessage(
-      conv.id,
-      "assistant",
-      "Using tool...",
-      undefined,
-      { skipIndexing: true },
-    );
+    const a1 = await addMessage(conv.id, "assistant", "Using tool...", {
+      skipIndexing: true,
+    });
     backfillMessageIdOnLogs(conv.id, a1.id);
 
     // tool_result user message
-    await addMessage(
-      conv.id,
-      "user",
-      toolResultContent(["tool-1"]),
-      undefined,
-      { skipIndexing: true },
-    );
+    await addMessage(conv.id, "user", toolResultContent(["tool-1"]), {
+      skipIndexing: true,
+    });
 
     // Second LLM call → A2 (text response)
     recordRequestLog(conv.id, '{"step":2}', '{"result":"done"}');
-    const a2 = await addMessage(conv.id, "assistant", "All done!", undefined, {
+    const a2 = await addMessage(conv.id, "assistant", "All done!", {
       skipIndexing: true,
     });
     backfillMessageIdOnLogs(conv.id, a2.id);

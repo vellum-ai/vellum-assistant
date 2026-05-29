@@ -238,8 +238,13 @@ export async function run(
             binding.conversationId,
             "assistant",
             JSON.stringify([{ type: "text", text }]),
-            { automated: true, crossPostedFrom: context.conversationId },
-            { skipIndexing: true },
+            {
+              metadata: {
+                automated: true,
+                crossPostedFrom: context.conversationId,
+              },
+              skipIndexing: true,
+            },
           );
           syncMessageToDisk(
             binding.conversationId,

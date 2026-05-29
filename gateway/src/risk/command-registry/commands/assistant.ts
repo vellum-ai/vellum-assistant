@@ -124,6 +124,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "credentials inspect",
   "credentials reveal",
   "credentials status",
+  "db",
+  "db status",
   "gateway",
   "gateway logs",
   "gateway logs tail",

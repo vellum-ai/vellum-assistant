@@ -94,26 +94,21 @@ describe("forkConversation", () => {
 
   test("forks a full transcript with copied history and lineage", async () => {
     const source = createConversation("Planning thread");
-    await addMessage(
-      source.id,
-      "user",
-      "Can you draft a launch plan?",
-      { branch: 1, source: "user" },
-      { skipIndexing: true },
-    );
+    await addMessage(source.id, "user", "Can you draft a launch plan?", {
+      metadata: { branch: 1, source: "user" },
+      skipIndexing: true,
+    });
     await addMessage(
       source.id,
       "assistant",
       "Absolutely. Here is a first pass.",
-      { automated: true },
-      { skipIndexing: true },
+      { metadata: { automated: true }, skipIndexing: true },
     );
     const finalSourceMessage = await addMessage(
       source.id,
       "user",
       "Fork from here",
-      { nested: { keep: true } },
-      { skipIndexing: true },
+      { metadata: { nested: { keep: true } }, skipIndexing: true },
     );
 
     const sourceMessages = getMessages(source.id);
@@ -184,20 +179,16 @@ describe("forkConversation", () => {
 
   test("forks only through the requested branch point", async () => {
     const source = createConversation("Branchable thread");
-    await addMessage(source.id, "user", "Message 1", undefined, {
+    await addMessage(source.id, "user", "Message 1", {
       skipIndexing: true,
     });
-    const branchPoint = await addMessage(
-      source.id,
-      "assistant",
-      "Message 2",
-      undefined,
-      { skipIndexing: true },
-    );
-    await addMessage(source.id, "user", "Message 3", undefined, {
+    const branchPoint = await addMessage(source.id, "assistant", "Message 2", {
       skipIndexing: true,
     });
-    await addMessage(source.id, "assistant", "Message 4", undefined, {
+    await addMessage(source.id, "user", "Message 3", {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "assistant", "Message 4", {
       skipIndexing: true,
     });
 
@@ -253,31 +244,25 @@ describe("forkConversation", () => {
     // display row, the client only addresses the anchor id. Forking through
     // the anchor must still include the merged tail rows that follow.
     const source = createConversation("Multi-row turn thread");
-    await addMessage(source.id, "user", "Message 1", undefined, {
+    await addMessage(source.id, "user", "Message 1", {
       skipIndexing: true,
     });
     const anchor = await addMessage(
       source.id,
       "assistant",
       "Assistant text segment",
-      undefined,
       { skipIndexing: true },
     );
-    const toolRow = await addMessage(
-      source.id,
-      "assistant",
-      "Tool turn row",
-      undefined,
-      { skipIndexing: true },
-    );
+    const toolRow = await addMessage(source.id, "assistant", "Tool turn row", {
+      skipIndexing: true,
+    });
     const tailRow = await addMessage(
       source.id,
       "assistant",
       "Final assistant segment",
-      undefined,
       { skipIndexing: true },
     );
-    await addMessage(source.id, "user", "Next user turn", undefined, {
+    await addMessage(source.id, "user", "Next user turn", {
       skipIndexing: true,
     });
 
@@ -307,15 +292,9 @@ describe("forkConversation", () => {
     // between — otherwise the fork loses tool_use ↔ tool_result pairing
     // and produces an invalid LLM history.
     const source = createConversation("Tool-result gap thread");
-    await addMessage(
-      source.id,
-      "user",
-      "Find the latest sales numbers",
-      undefined,
-      {
-        skipIndexing: true,
-      },
-    );
+    await addMessage(source.id, "user", "Find the latest sales numbers", {
+      skipIndexing: true,
+    });
     const anchor = await addMessage(
       source.id,
       "assistant",
@@ -323,7 +302,6 @@ describe("forkConversation", () => {
         { type: "text", text: "Looking up the data." },
         { type: "tool_use", id: "tool_1", name: "lookup", input: {} },
       ]),
-      undefined,
       { skipIndexing: true },
     );
     const toolResultUserRow = await addMessage(
@@ -332,17 +310,15 @@ describe("forkConversation", () => {
       JSON.stringify([
         { type: "tool_result", tool_use_id: "tool_1", content: "data" },
       ]),
-      undefined,
       { skipIndexing: true },
     );
     const tailAssistantRow = await addMessage(
       source.id,
       "assistant",
       "Here are the numbers.",
-      undefined,
       { skipIndexing: true },
     );
-    await addMessage(source.id, "user", "Thanks", undefined, {
+    await addMessage(source.id, "user", "Thanks", {
       skipIndexing: true,
     });
 
@@ -365,20 +341,16 @@ describe("forkConversation", () => {
 
   test("preserves compacted context when forking from the visible window", async () => {
     const source = createConversation("Compacted thread");
-    await addMessage(source.id, "user", "Message 1", undefined, {
+    await addMessage(source.id, "user", "Message 1", {
       skipIndexing: true,
     });
-    await addMessage(source.id, "assistant", "Message 2", undefined, {
+    await addMessage(source.id, "assistant", "Message 2", {
       skipIndexing: true,
     });
-    const branchPoint = await addMessage(
-      source.id,
-      "user",
-      "Message 3",
-      undefined,
-      { skipIndexing: true },
-    );
-    await addMessage(source.id, "assistant", "Message 4", undefined, {
+    const branchPoint = await addMessage(source.id, "user", "Message 3", {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "assistant", "Message 4", {
       skipIndexing: true,
     });
 
@@ -411,13 +383,12 @@ describe("forkConversation", () => {
       source.id,
       "user",
       "Message 1",
-      undefined,
       { skipIndexing: true },
     );
-    await addMessage(source.id, "assistant", "Message 2", undefined, {
+    await addMessage(source.id, "assistant", "Message 2", {
       skipIndexing: true,
     });
-    await addMessage(source.id, "user", "Message 3", undefined, {
+    await addMessage(source.id, "user", "Message 3", {
       skipIndexing: true,
     });
 
@@ -448,16 +419,12 @@ describe("forkConversation", () => {
 
   test("inherits historyStrippedAt when forking past the clean event", async () => {
     const source = createConversation("Clean thread");
-    await addMessage(source.id, "user", "Message 1", undefined, {
+    await addMessage(source.id, "user", "Message 1", {
       skipIndexing: true,
     });
-    const preClean = await addMessage(
-      source.id,
-      "assistant",
-      "Message 2",
-      undefined,
-      { skipIndexing: true },
-    );
+    const preClean = await addMessage(source.id, "assistant", "Message 2", {
+      skipIndexing: true,
+    });
 
     const historyStrippedAt = preClean.createdAt + 1;
     getDb()
@@ -466,13 +433,9 @@ describe("forkConversation", () => {
       .where(eq(conversations.id, source.id))
       .run();
 
-    const postClean = await addMessage(
-      source.id,
-      "user",
-      "Message 3",
-      undefined,
-      { skipIndexing: true },
-    );
+    const postClean = await addMessage(source.id, "user", "Message 3", {
+      skipIndexing: true,
+    });
     expect(postClean.createdAt).toBeGreaterThanOrEqual(historyStrippedAt);
 
     const fork = forkConversation({
@@ -485,16 +448,12 @@ describe("forkConversation", () => {
 
   test("does not inherit historyStrippedAt when forking before the clean event", async () => {
     const source = createConversation("Clean thread");
-    await addMessage(source.id, "user", "Message 1", undefined, {
+    await addMessage(source.id, "user", "Message 1", {
       skipIndexing: true,
     });
-    const preClean = await addMessage(
-      source.id,
-      "assistant",
-      "Message 2",
-      undefined,
-      { skipIndexing: true },
-    );
+    const preClean = await addMessage(source.id, "assistant", "Message 2", {
+      skipIndexing: true,
+    });
 
     const historyStrippedAt = preClean.createdAt + 1;
     getDb()
@@ -503,7 +462,7 @@ describe("forkConversation", () => {
       .where(eq(conversations.id, source.id))
       .run();
 
-    await addMessage(source.id, "user", "Message 3", undefined, {
+    await addMessage(source.id, "user", "Message 3", {
       skipIndexing: true,
     });
 
@@ -517,16 +476,12 @@ describe("forkConversation", () => {
 
   test("inherits historyStrippedAt on a full-history fork", async () => {
     const source = createConversation("Clean thread");
-    await addMessage(source.id, "user", "Message 1", undefined, {
+    await addMessage(source.id, "user", "Message 1", {
       skipIndexing: true,
     });
-    const last = await addMessage(
-      source.id,
-      "assistant",
-      "Message 2",
-      undefined,
-      { skipIndexing: true },
-    );
+    const last = await addMessage(source.id, "assistant", "Message 2", {
+      skipIndexing: true,
+    });
 
     const historyStrippedAt = last.createdAt - 1;
     getDb()
@@ -542,10 +497,10 @@ describe("forkConversation", () => {
 
   test("leaves historyStrippedAt null when the source has no clean event", async () => {
     const source = createConversation("Unclean thread");
-    await addMessage(source.id, "user", "Message 1", undefined, {
+    await addMessage(source.id, "user", "Message 1", {
       skipIndexing: true,
     });
-    await addMessage(source.id, "assistant", "Message 2", undefined, {
+    await addMessage(source.id, "assistant", "Message 2", {
       skipIndexing: true,
     });
 
@@ -556,27 +511,18 @@ describe("forkConversation", () => {
 
   test("fork from a pre-compaction message preserves historical injection metadata", async () => {
     const source = createConversation("Compacted thread");
-    const m1 = await addMessage(
-      source.id,
-      "user",
-      "Historical question",
-      {
+    const m1 = await addMessage(source.id, "user", "Historical question", {
+      metadata: {
         pkbContextBlock: "<knowledge_base>\nstale\n</knowledge_base>",
         nowScratchpadBlock:
           "<NOW.md Always keep this up to date>\nstale\n</NOW.md>",
       },
-      { skipIndexing: true },
-    );
-    const reply1 = await addMessage(
-      source.id,
-      "assistant",
-      "Reply 1",
-      undefined,
-      {
-        skipIndexing: true,
-      },
-    );
-    const tail = await addMessage(source.id, "user", "Tail turn", undefined, {
+      skipIndexing: true,
+    });
+    const reply1 = await addMessage(source.id, "assistant", "Reply 1", {
+      skipIndexing: true,
+    });
+    const tail = await addMessage(source.id, "user", "Tail turn", {
       skipIndexing: true,
     });
     // Pin strictly-increasing timestamps so the pinned fork boundary is
@@ -639,14 +585,13 @@ describe("forkConversation", () => {
 
   test("relinks copied attachments into the fork and syncs disk view", async () => {
     const source = createConversation("Attachment thread");
-    await addMessage(source.id, "user", "Please review this image", undefined, {
+    await addMessage(source.id, "user", "Please review this image", {
       skipIndexing: true,
     });
     const sourceAssistant = await addMessage(
       source.id,
       "assistant",
       "Attached the updated mock.",
-      undefined,
       { skipIndexing: true },
     );
     const uploaded = uploadAttachment("wireframe.png", "image/png", "iVBORw0K");
@@ -687,7 +632,7 @@ describe("forkConversation", () => {
 
   test("inherits the source conversation's inference profile", async () => {
     const source = createConversation("Pinned profile thread");
-    await addMessage(source.id, "user", "Use the balanced profile", undefined, {
+    await addMessage(source.id, "user", "Use the balanced profile", {
       skipIndexing: true,
     });
     getDb()
@@ -703,7 +648,7 @@ describe("forkConversation", () => {
 
   test("leaves inference profile null when source has no override", async () => {
     const source = createConversation("Default profile thread");
-    await addMessage(source.id, "user", "No pinned profile", undefined, {
+    await addMessage(source.id, "user", "No pinned profile", {
       skipIndexing: true,
     });
 
@@ -718,14 +663,12 @@ describe("forkConversation", () => {
       source.id,
       "user",
       "The deploy is failing.",
-      undefined,
       { skipIndexing: true },
     );
     const sourceAssistant = await addMessage(
       source.id,
       "assistant",
       "I found the failing migration.",
-      undefined,
       { skipIndexing: true },
     );
     markConversationUnread(source.id);
@@ -855,7 +798,6 @@ describe("forkConversation", () => {
       source.id,
       "user",
       "Tell me about the Q3 launch plan",
-      undefined,
       { skipIndexing: true },
     );
 
@@ -901,15 +843,9 @@ describe("forkConversation", () => {
 
   test("copies the parent's v1 graph memory state into the fork", async () => {
     const source = createConversation("Graph tracker thread");
-    await addMessage(
-      source.id,
-      "user",
-      "Look up alice's preferences",
-      undefined,
-      {
-        skipIndexing: true,
-      },
-    );
+    await addMessage(source.id, "user", "Look up alice's preferences", {
+      skipIndexing: true,
+    });
 
     const trackerSnapshot = JSON.stringify({
       initialized: true,
@@ -932,7 +868,7 @@ describe("forkConversation", () => {
 
   test("leaves both memory state tables empty when the parent has none", async () => {
     const source = createConversation("Pristine thread");
-    await addMessage(source.id, "user", "first message", undefined, {
+    await addMessage(source.id, "user", "first message", {
       skipIndexing: true,
     });
 
@@ -945,23 +881,15 @@ describe("forkConversation", () => {
 
   test("does not copy memory state when the fork is truncated mid-history", async () => {
     const source = createConversation("Truncated thread");
-    const firstMessage = await addMessage(
-      source.id,
-      "user",
-      "first turn",
-      undefined,
-      { skipIndexing: true },
-    );
-    await addMessage(source.id, "assistant", "first reply", undefined, {
+    const firstMessage = await addMessage(source.id, "user", "first turn", {
       skipIndexing: true,
     });
-    const lastMessage = await addMessage(
-      source.id,
-      "user",
-      "second turn",
-      undefined,
-      { skipIndexing: true },
-    );
+    await addMessage(source.id, "assistant", "first reply", {
+      skipIndexing: true,
+    });
+    const lastMessage = await addMessage(source.id, "user", "second turn", {
+      skipIndexing: true,
+    });
 
     const db = getDb();
     db.insert(activationState)
@@ -996,7 +924,7 @@ describe("forkConversation", () => {
 
   test("defaults conversationType to standard and inherits the parent's group", async () => {
     const source = createConversation("Default inheritance thread");
-    await addMessage(source.id, "user", "first message", undefined, {
+    await addMessage(source.id, "user", "first message", {
       skipIndexing: true,
     });
     rawRun(
@@ -1022,7 +950,7 @@ describe("forkConversation", () => {
 
   test("honors conversationType and groupId overrides on the fork", async () => {
     const source = createConversation("Override thread");
-    await addMessage(source.id, "user", "first message", undefined, {
+    await addMessage(source.id, "user", "first message", {
       skipIndexing: true,
     });
 
@@ -1048,13 +976,9 @@ describe("forkConversation", () => {
 
   test("copies memory state when throughMessageId points at the last message", async () => {
     const source = createConversation("Through-last thread");
-    const lastMessage = await addMessage(
-      source.id,
-      "user",
-      "only turn",
-      undefined,
-      { skipIndexing: true },
-    );
+    const lastMessage = await addMessage(source.id, "user", "only turn", {
+      skipIndexing: true,
+    });
 
     const db = getDb();
     db.insert(activationState)
@@ -1085,7 +1009,7 @@ describe("forkConversation + memory_retrospective_state", () => {
 
   test("does not seed state when the source has none", async () => {
     const source = createConversation("Untouched thread");
-    await addMessage(source.id, "user", "Message 1", undefined, {
+    await addMessage(source.id, "user", "Message 1", {
       skipIndexing: true,
     });
 
@@ -1096,17 +1020,16 @@ describe("forkConversation + memory_retrospective_state", () => {
 
   test("maps the source pointer when it falls within the copied range", async () => {
     const source = createConversation("In-range thread");
-    await addMessage(source.id, "user", "Message 1", undefined, {
+    await addMessage(source.id, "user", "Message 1", {
       skipIndexing: true,
     });
     const processedMessage = await addMessage(
       source.id,
       "assistant",
       "Message 2",
-      undefined,
       { skipIndexing: true },
     );
-    await addMessage(source.id, "user", "Message 3", undefined, {
+    await addMessage(source.id, "user", "Message 3", {
       skipIndexing: true,
     });
 
@@ -1134,24 +1057,19 @@ describe("forkConversation + memory_retrospective_state", () => {
 
   test("clamps to the last copied message when the source pointer is past the fork boundary", async () => {
     const source = createConversation("Past-boundary thread");
-    await addMessage(source.id, "user", "Message 1", undefined, {
+    await addMessage(source.id, "user", "Message 1", {
       skipIndexing: true,
     });
-    const branchPoint = await addMessage(
-      source.id,
-      "assistant",
-      "Message 2",
-      undefined,
-      { skipIndexing: true },
-    );
+    const branchPoint = await addMessage(source.id, "assistant", "Message 2", {
+      skipIndexing: true,
+    });
     const pastBoundaryMessage = await addMessage(
       source.id,
       "user",
       "Message 3",
-      undefined,
       { skipIndexing: true },
     );
-    await addMessage(source.id, "assistant", "Message 4", undefined, {
+    await addMessage(source.id, "assistant", "Message 4", {
       skipIndexing: true,
     });
 
@@ -1176,7 +1094,7 @@ describe("forkConversation + memory_retrospective_state", () => {
 
   test("preserves the empty-string sentinel from a failure-only source", async () => {
     const source = createConversation("Failure-only thread");
-    await addMessage(source.id, "user", "Message 1", undefined, {
+    await addMessage(source.id, "user", "Message 1", {
       skipIndexing: true,
     });
     bumpRetrospectiveLastRunAt(source.id, 1_700_000_000_000);
@@ -1190,13 +1108,9 @@ describe("forkConversation + memory_retrospective_state", () => {
 
   test("copies lastRunAt so the cooldown gate inherits from the source", async () => {
     const source = createConversation("Cooldown thread");
-    const message = await addMessage(
-      source.id,
-      "user",
-      "Message 1",
-      undefined,
-      { skipIndexing: true },
-    );
+    const message = await addMessage(source.id, "user", "Message 1", {
+      skipIndexing: true,
+    });
     upsertRetrospectiveState({
       conversationId: source.id,
       lastProcessedMessageId: message.id,

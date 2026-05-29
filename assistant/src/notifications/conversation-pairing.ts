@@ -173,7 +173,6 @@ export async function pairDeliveryWithConversation(
           existing.id,
           "assistant",
           messageContent,
-          undefined,
           { skipIndexing: true },
         );
 
@@ -232,7 +231,6 @@ export async function pairDeliveryWithConversation(
         conversation.id,
         "assistant",
         messageContent,
-        undefined,
         { skipIndexing: true },
       );
 
@@ -290,7 +288,6 @@ export async function pairDeliveryWithConversation(
             inboundConversation.id,
             "assistant",
             messageContent,
-            undefined,
             { skipIndexing: true },
           );
 
@@ -339,7 +336,6 @@ export async function pairDeliveryWithConversation(
             boundConversation.id,
             "assistant",
             messageContent,
-            undefined,
             { skipIndexing: true },
           );
 
@@ -403,7 +399,6 @@ export async function pairDeliveryWithConversation(
       conversation.id,
       "assistant",
       messageContent,
-      undefined,
       { skipIndexing: true },
     );
 

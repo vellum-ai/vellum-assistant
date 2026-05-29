@@ -1431,8 +1431,10 @@ async function persistSlackReactionAsMessage(params: {
     params.conversationId,
     "user",
     "[reaction]",
-    { slackMeta: writeSlackMetadata(slackMeta) },
-    { skipIndexing: true },
+    {
+      metadata: { slackMeta: writeSlackMetadata(slackMeta) },
+      skipIndexing: true,
+    },
   );
   linkMessage(params.eventId, persisted.id);
   markProcessed(params.eventId);
@@ -1668,15 +1670,17 @@ async function persistBackfilledSlackMessage(params: {
   const rawText = message.text ?? "";
 
   const persisted = await addMessage(params.conversationId, role, rawText, {
-    slackMeta: writeSlackMetadata(slackMeta),
-    provenanceTrustClass: isGuardian ? "guardian" : "unknown",
-    provenanceSourceChannel: "slack",
-    ...(params.guardianExternalUserId
-      ? { provenanceGuardianExternalUserId: params.guardianExternalUserId }
-      : {}),
-    ...(actorExternalUserId
-      ? { provenanceRequesterIdentifier: actorExternalUserId }
-      : {}),
+    metadata: {
+      slackMeta: writeSlackMetadata(slackMeta),
+      provenanceTrustClass: isGuardian ? "guardian" : "unknown",
+      provenanceSourceChannel: "slack",
+      ...(params.guardianExternalUserId
+        ? { provenanceGuardianExternalUserId: params.guardianExternalUserId }
+        : {}),
+      ...(actorExternalUserId
+        ? { provenanceRequesterIdentifier: actorExternalUserId }
+        : {}),
+    },
   });
 
   // Hydrate image attachments inline, then rewrite the saved row to include

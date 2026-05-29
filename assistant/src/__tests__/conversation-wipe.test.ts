@@ -94,7 +94,7 @@ describe("wipeConversation", () => {
 
   test("cancels pending memory jobs", async () => {
     const conv = createConversation("test");
-    await addMessage(conv.id, "user", "hello", undefined, {
+    await addMessage(conv.id, "user", "hello", {
       skipIndexing: true,
     });
 

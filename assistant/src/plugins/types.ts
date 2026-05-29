@@ -441,7 +441,7 @@ export interface OverflowReduceResult {
  * message-CRUD operations plugins may observe, redirect, or short-circuit:
  *
  * - `add`           — append a new message (`addMessage`). Mirrors
- *                     `addMessage(conversationId, role, content, metadata?, opts?)`.
+ *                     `addMessage(conversationId, role, content, options?)`.
  *                     When `syncToDisk` is set, the default plugin also runs
  *                     {@link syncMessageToDisk} against the just-persisted row
  *                     so the JSONL disk view stays consistent. The
