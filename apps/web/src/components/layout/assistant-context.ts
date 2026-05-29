@@ -21,10 +21,8 @@
 import type { ReactNode } from "react";
 import { useOutletContext } from "react-router";
 
-import type {
-  AssistantState,
-  UseAssistantLifecycleReturn,
-} from "@/domains/chat/hooks/use-assistant-lifecycle";
+import type { AssistantState } from "@/assistant/types";
+import type { UseAssistantLifecycleReturn } from "@/assistant/use-lifecycle";
 
 export interface AssistantContextValue {
   assistantId: string | null;

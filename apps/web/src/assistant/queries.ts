@@ -36,10 +36,10 @@ import {
 export const ASSISTANT_QUERY_KEY = ["assistant", "current"] as const;
 
 /**
- * How often to refetch while the assistant is in a transient state.
- * Matches the legacy 3-second polling cadence — the daemon's startup
- * sequence is sub-second on healthy machines, but 3s gives us margin
- * on slow disks and keeps mobile data costs reasonable.
+ * Polling cadence while the assistant is in a transient lifecycle
+ * phase. The daemon's startup is sub-second on healthy machines, so
+ * 3 seconds gives margin on slow disks while keeping mobile data
+ * costs reasonable.
  */
 export const POLL_INTERVAL_MS = 3000;
 

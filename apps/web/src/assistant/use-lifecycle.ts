@@ -1,10 +1,15 @@
 
 import * as Sentry from "@sentry/react";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { extractErrorMessage } from "@/utils/api-errors";
-import { getAssistant, type GetAssistantResult } from "@/assistant/api";
+import {
+  getAssistant,
+  hatchAssistant,
+  retireAssistantById,
+  type GetAssistantResult,
+} from "@/assistant/api";
 import {
   buildInitializingTimeoutError,
   INITIALIZING_TIMEOUT_MS,
@@ -18,10 +23,7 @@ import {
   POLL_INTERVAL_MS,
   useAssistantQuery,
 } from "@/assistant/queries";
-import {
-  useHatchAssistant,
-  useRetireAssistant,
-} from "@/assistant/mutations";
+import type { AssistantState } from "@/assistant/types";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import { getSelectedAssistant, getLocalGatewayUrl, isLocalMode } from "@/lib/local-mode";
@@ -30,26 +32,6 @@ import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 
 const MAX_HATCH_RETRIES = 3;
 const MAX_INITIALIZING_RECOVERIES = 3;
-
-export type MaintenanceModeInfo = {
-  enabled?: boolean;
-};
-
-/**
- * Discriminated union describing every phase the assistant can be in, from
- * initial load through active use and error states. Drives top-level
- * conditional rendering in the chat page.
- */
-export type AssistantState =
-  | { kind: "loading" }
-  | { kind: "initializing" }
-  | { kind: "cleaning_up" }
-  | { kind: "retired" }
-  | { kind: "platform_hosted" }
-  | { kind: "self_hosted" }
-  | { kind: "awaiting_version_selection" }
-  | { kind: "active"; isLocal: boolean; maintenanceMode?: MaintenanceModeInfo }
-  | { kind: "error"; message: string };
 
 interface UseAssistantLifecycleOptions {
   isLoggedIn: boolean;
@@ -136,8 +118,13 @@ export function useAssistantLifecycle({
   onRedirectRef.current = onRedirect;
 
   const queryClient = useQueryClient();
-  const hatchMutation = useHatchAssistant();
-  const retireMutation = useRetireAssistant();
+  // Dumb mutation wrappers — no implicit retry, no Sentry capture.
+  // The recovery state machine below owns retry budgets
+  // (`MAX_HATCH_RETRIES`, `MAX_INITIALIZING_RECOVERIES`) and stacks
+  // hatch + retire across recovery cycles. TanStack Query retrying
+  // on top would burn the budget twice as fast and double-log.
+  const hatchMutation = useMutation({ mutationFn: hatchAssistant });
+  const retireMutation = useMutation({ mutationFn: retireAssistantById });
 
   // `useMutation` returns a new object reference every render, but the
   // bound `mutateAsync` methods on the underlying observer don't.
@@ -160,14 +147,13 @@ export function useAssistantLifecycle({
     !isGatewayAuthMode() &&
     (hasPlatformSession || !isLocalMode());
 
-  // Invoked for its background polling + cache-write side effects only.
-  // The state-machine consumes the cached value via `queryClient.fetchQuery`
-  // in `checkAssistant` and via `getQueryData` in the cache subscription
-  // below — going through the hook return would mean projecting React
-  // state into the state machine, which is the inversion this PR exists
-  // to fix. A future PR (LUM-2038) can collapse the orchestrator onto
-  // the query result directly.
-  useAssistantQuery({ enabled: shouldQueryServer });
+  // Background poll + cache writes. Side effects run from the
+  // `assistantResult` effect below, not from the query's return
+  // shape itself, so the recovery state machine controls when
+  // projections fire (only while the lifecycle is transient).
+  const { data: assistantResult } = useAssistantQuery({
+    enabled: shouldQueryServer,
+  });
 
   /**
    * Imperative re-check. Today the TanStack Query polls in the
@@ -597,54 +583,25 @@ export function useAssistantLifecycle({
     checkAssistant();
   }, [isLoggedIn, isLoading, hasPlatformSession, checkAssistant, applyGatewayAuthShortCircuit]);
 
-  // The query polls automatically while `kind` is transient
-  // (`initializing` / `cleaning_up`). Each poll lands in the cache;
-  // we observe and project it into `AssistantState` here.
+  // While the lifecycle is transient (`initializing` / `cleaning_up`),
+  // project each new query result into local state. The query polls
+  // on the 3-second cadence defined by `pollIntervalFor`; `data`
+  // updates as each successful poll (or hatch-time `setQueryData`
+  // seed, or `invalidateQueries` refetch) lands in cache. When the
+  // lifecycle is stable, the query stops polling, this effect's
+  // dependencies stop changing, and nothing projects — preserving
+  // the original "stop reacting once we land somewhere stable"
+  // contract that the old polling loop had via its early return.
   useEffect(() => {
-    if (assistantState.kind !== "initializing" && assistantState.kind !== "cleaning_up") {
+    if (
+      assistantState.kind !== "initializing" &&
+      assistantState.kind !== "cleaning_up"
+    ) {
       return;
     }
-    const unsubscribe = queryClient
-      .getQueryCache()
-      .subscribe((event) => {
-        if (event.type !== "updated") return;
-        // `updated` events fire for every state transition — fetch
-        // start, invalidation marker, pause/continue, observer
-        // changes — not just successful data writes. Filtering on the
-        // `success` action ensures we only project the cache when
-        // there is actually new data behind it; without this guard, a
-        // scheduled `invalidateQueries()` would immediately fire an
-        // `invalidate` action, the subscriber would read the still-
-        // stale cached value, and the hatch-retry backoff would
-        // collapse into back-to-back attempts. `setQueryData` (used
-        // to seed the cache after a successful hatch) also dispatches
-        // `success`, so the seed-driven path still fires here.
-        if (event.action.type !== "success") return;
-        // Match on the exact query-key shape so a future scope prefix
-        // (e.g. `["org", orgId, "assistant", "current"]`) doesn't
-        // silently start firing this branch.
-        const key = event.query.queryKey;
-        if (
-          key.length !== ASSISTANT_QUERY_KEY.length ||
-          !ASSISTANT_QUERY_KEY.every((k, i) => k === key[i])
-        ) {
-          return;
-        }
-        // Read the just-written cache value and re-apply the full set
-        // of side-effects (self-hosted connection, redirects,
-        // assistant-id sync). Going through `checkAssistant` here
-        // would call `fetchQuery` and trigger another network
-        // round-trip whose cache update would fire this subscription
-        // again, collapsing the intended poll cadence into a request
-        // loop.
-        const cached = queryClient.getQueryData<
-          Awaited<ReturnType<typeof getAssistant>>
-        >(ASSISTANT_QUERY_KEY);
-        if (!cached) return;
-        void applyServerStateUpdate(cached);
-      });
-    return unsubscribe;
-  }, [assistantState.kind, applyServerStateUpdate, queryClient]);
+    if (!assistantResult) return;
+    void applyServerStateUpdate(assistantResult);
+  }, [assistantResult, assistantState.kind, applyServerStateUpdate]);
 
   // If the backend assigns an assistant but never promotes it to "active",
   // retire that stuck row and hatch a replacement.

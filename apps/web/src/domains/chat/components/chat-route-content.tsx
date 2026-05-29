@@ -39,7 +39,7 @@ import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcrip
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
+import type { AssistantState } from "@/assistant/types";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";

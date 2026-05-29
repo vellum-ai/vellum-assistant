@@ -7,7 +7,7 @@ import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import {
   useAssistantLifecycle,
   type UseAssistantLifecycleReturn,
-} from "@/domains/chat/hooks/use-assistant-lifecycle";
+} from "@/assistant/use-lifecycle";
 import { useAuthStore } from "@/stores/auth-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";

@@ -11,7 +11,7 @@ import {
 import { conversationsSeenPost } from "@/generated/daemon/sdk.gen";
 import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions";
 import { USER_FACING_INTERACTION_KINDS } from "@/types/event-types";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
+import type { AssistantState } from "@/assistant/types";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 
 interface UseAttentionTrackingParams {
