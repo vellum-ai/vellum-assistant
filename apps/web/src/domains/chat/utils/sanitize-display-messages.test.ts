@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -661,6 +661,21 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
   // call becomes stale.
   const PAST_DEFAULT_TIMEOUT_MS = DEFAULT_TIMEOUT_MS + GRACE_MS + 1_000;
 
+  // The sanitizer reads `Date.now()` once per call to produce a stable
+  // `nowMs` for Hack #5. Tests pin that clock via spyOn so the
+  // stale-detection window is deterministic. Each test sets up its own
+  // spy with `mockNow(...)`; the afterEach restores the real clock so
+  // unrelated tests in the file (and adjacent test files in the same
+  // worker) keep seeing real time.
+  let nowSpy: ReturnType<typeof spyOn> | null = null;
+  function mockNow(nowMs: number): void {
+    nowSpy = spyOn(Date, "now").mockReturnValue(nowMs);
+  }
+  afterEach(() => {
+    nowSpy?.mockRestore();
+    nowSpy = null;
+  });
+
   test("marks a running tool call stale once default timeout + grace elapses", () => {
     const started = 1_000;
     const now = started + PAST_DEFAULT_TIMEOUT_MS;
@@ -677,7 +692,8 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
         }),
       ],
     });
-    const [patched] = sanitizeDisplayMessages([m], { nowMs: now });
+    mockNow(now);
+    const [patched] = sanitizeDisplayMessages([m]);
     expect(patched!.toolCalls![0]!.status).toBe("error");
     expect(patched!.toolCalls![0]!.isError).toBe(true);
     expect(patched!.toolCalls![0]!.result).toContain(STALE_PREFIX);
@@ -700,7 +716,8 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
         }),
       ],
     });
-    const result = sanitizeDisplayMessages([m], { nowMs: now });
+    mockNow(now);
+    const result = sanitizeDisplayMessages([m]);
     expect(result[0]).toBe(m);
     expect(result[0]!.toolCalls![0]!.status).toBe("running");
   });
@@ -726,7 +743,8 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
         }),
       ],
     });
-    const result = sanitizeDisplayMessages([m], { nowMs: now });
+    mockNow(now);
+    const result = sanitizeDisplayMessages([m]);
     expect(result[0]).toBe(m);
     expect(result[0]!.toolCalls![0]!.status).toBe("running");
   });
@@ -752,7 +770,8 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
         }),
       ],
     });
-    const result = sanitizeDisplayMessages([m], { nowMs: now });
+    mockNow(now);
+    const result = sanitizeDisplayMessages([m]);
     expect(result[0]).toBe(m);
     expect(result[0]!.toolCalls![0]!.status).toBe("running");
   });
@@ -777,7 +796,8 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
         }),
       ],
     });
-    const [patched] = sanitizeDisplayMessages([m], { nowMs: now });
+    mockNow(now);
+    const [patched] = sanitizeDisplayMessages([m]);
     expect(patched!.toolCalls![0]!.status).toBe("error");
     expect(patched!.toolCalls![0]!.result).toContain(STALE_PREFIX);
   });
@@ -806,7 +826,8 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
         }),
       ],
     });
-    const result = sanitizeDisplayMessages([m], { nowMs: now });
+    mockNow(now);
+    const result = sanitizeDisplayMessages([m]);
     expect(result[0]).toBe(m);
     expect(result[0]!.toolCalls![0]!.status).toBe("running");
   });
@@ -825,7 +846,8 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
         }),
       ],
     });
-    const result = sanitizeDisplayMessages([m], { nowMs: 1_000_000_000 });
+    mockNow(1_000_000_000);
+    const result = sanitizeDisplayMessages([m]);
     expect(result[0]).toBe(m);
     expect(result[0]!.toolCalls![0]!.status).toBe("running");
   });
@@ -854,7 +876,8 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
         }),
       ],
     });
-    const result = sanitizeDisplayMessages([u, lastAssistant], { nowMs: now });
+    mockNow(now);
+    const result = sanitizeDisplayMessages([u, lastAssistant]);
     expect(result[1]!.toolCalls![0]!.status).toBe("error");
     expect(result[1]!.toolCalls![0]!.result).toContain(STALE_PREFIX);
   });
@@ -889,7 +912,8 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
         }),
       ],
     });
-    const [patched] = sanitizeDisplayMessages([m], { nowMs: now });
+    mockNow(now);
+    const [patched] = sanitizeDisplayMessages([m]);
     expect(patched!.toolCalls![0]!.result).toBe("first ok");
     expect(patched!.toolCalls![1]!.status).toBe("error");
     expect(patched!.toolCalls![1]!.isError).toBe(true);
@@ -912,7 +936,8 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       timestamp: started,
       toolCalls: [tc],
     });
-    sanitizeDisplayMessages([m], { nowMs: now });
+    mockNow(now);
+    sanitizeDisplayMessages([m]);
     expect(tc.status).toBe("running");
     expect(tc.result).toBeUndefined();
     expect(m.toolCalls![0]).toBe(tc);
@@ -942,7 +967,8 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
       content: "done",
       timestamp: 200,
     });
-    const result = sanitizeDisplayMessages([m1, m2], { nowMs: 10_000_000 });
+    mockNow(10_000_000);
+    const result = sanitizeDisplayMessages([m1, m2]);
     expect(result[0]).toBe(m1);
     expect(result[1]).toBe(m2);
   });

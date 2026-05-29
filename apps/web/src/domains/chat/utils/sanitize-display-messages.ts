@@ -16,21 +16,14 @@ import { sortedByTimestamp } from "@/domains/chat/utils/message-sorting";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 
-export interface SanitizeDisplayMessagesOptions {
-  /**
-   * Wall-clock used by time-sensitive sub-steps (currently Hack #5 — fail
-   * stale tool calls). Defaults to `Date.now()`; injected in tests so
-   * stale-detection windows are deterministic. A single value is read at
-   * the pipeline boundary so every sub-step sees the same instant.
-   */
-  nowMs?: number;
-}
-
 export function sanitizeDisplayMessages(
   messages: DisplayMessage[],
-  options: SanitizeDisplayMessagesOptions = {},
 ): DisplayMessage[] {
-  const nowMs = options.nowMs ?? Date.now();
+  // Read the wall clock once at the pipeline boundary so every
+  // time-sensitive sub-step (currently Hack #5) sees the same instant.
+  // Tests mock `Date.now` via `spyOn(Date, "now")` to get deterministic
+  // stale-detection windows.
+  const nowMs = Date.now();
   const pipeline: Array<(msgs: DisplayMessage[]) => DisplayMessage[]> = [
     sortByTimestamp,
     removeInvalidMessages,
