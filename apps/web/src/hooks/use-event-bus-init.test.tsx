@@ -34,7 +34,7 @@ const subscribeChatEventsMock = mock(
   },
 );
 
-mock.module("@/domains/streaming/stream-transport", () => ({
+mock.module("@/lib/streaming/stream-transport", () => ({
   subscribeChatEvents: subscribeChatEventsMock,
 }));
 

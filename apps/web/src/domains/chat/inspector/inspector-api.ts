@@ -1,7 +1,7 @@
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
 import { client } from "@/generated/api/client.gen";
-import { assertHasResponse, extractErrorMessage } from "@/lib/api-errors";
+import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 import {
   fetchConversationMessages,
   type RuntimeMessage,

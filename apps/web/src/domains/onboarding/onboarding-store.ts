@@ -53,13 +53,13 @@ import {
   getLocalBool,
   setLocalBool,
   watchSetting,
-} from "@/lib/local-settings";
-import { deviceKey } from "@/lib/device-settings";
+} from "@/utils/local-settings";
+import { deviceKey } from "@/utils/device-settings";
 import {
   KEY_TOS_ACCEPTED,
   KEY_AI_DATA_CONSENT,
   KEY_COMPLETED,
-} from "@/lib/onboarding-cleanup";
+} from "@/utils/onboarding-cleanup";
 
 // ---------------------------------------------------------------------------
 // Storage keys — shared with other surfaces

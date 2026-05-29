@@ -52,8 +52,8 @@ import {
   turnReducer,
   isSending,
 } from "@/domains/chat/turn-store";
-import { parseAssistantEvent } from "@/domains/streaming/event-parser";
-import { subscribeChatEvents, type ChatStreamReconnectCause } from "@/domains/streaming/stream-transport";
+import { parseAssistantEvent } from "@/lib/streaming/event-parser";
+import { subscribeChatEvents, type ChatStreamReconnectCause } from "@/lib/streaming/stream-transport";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 describe("polling reconciliation with state machine", () => {

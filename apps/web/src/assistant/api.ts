@@ -15,7 +15,7 @@ import type {
   Assistant as GeneratedAssistant,
   HatchAssistantRequest,
 } from "@/generated/api/types.gen";
-import { assertHasResponse, toErrorObject } from "@/lib/api-errors";
+import { assertHasResponse, toErrorObject } from "@/utils/api-errors";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { getSelectedAssistant } from "@/lib/local-mode";
 

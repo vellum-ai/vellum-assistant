@@ -20,7 +20,7 @@
  */
 
 import { client } from "@/generated/api/client.gen";
-import { assertHasResponse, SDK_BASE_OPTIONS } from "@/lib/api-errors";
+import { assertHasResponse, SDK_BASE_OPTIONS } from "@/utils/api-errors";
 
 import type { CompactionTrailResponse } from "./compaction-trail-types";
 

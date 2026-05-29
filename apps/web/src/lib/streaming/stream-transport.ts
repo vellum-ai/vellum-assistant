@@ -9,9 +9,9 @@
 import * as Sentry from "@sentry/browser";
 
 import { client } from "@/generated/api/client.gen";
-import { SDK_BASE_OPTIONS } from "@/lib/api-errors";
+import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 import { recordDiagnostic, resolvePlatformTag } from "@/utils/diagnostics";
-import { parseAssistantEvent } from "@/domains/streaming/event-parser";
+import { parseAssistantEvent } from "@/lib/streaming/event-parser";
 import type { AssistantEvent } from "@/types/event-types";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
@@ -20,7 +20,7 @@ import {
   pushSseEvent,
   registerSseClient,
   unregisterSseClient,
-} from "@/domains/streaming/stream-debug";
+} from "@/lib/streaming/stream-debug";
 
 // ---------------------------------------------------------------------------
 // SSE stream transport

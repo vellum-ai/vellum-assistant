@@ -113,7 +113,29 @@ bun run dev:web            # apps/web Vite (port 5173, strict) — invoked by de
 bun run dev:electron       # wait-on :5173 then electron-vite dev — invoked by dev:standalone
 bun run build              # electron-vite build — bundles main + preload to out/
 bun run typecheck          # tsc --noEmit
+bun run test               # bun test — single Bun process (fastest for local iteration)
+bun run test:ci            # bun scripts/run-tests.ts — each file in its own subprocess (mock-safe; what CI runs)
 ```
+
+## Testing
+
+Pure functions under `src/main/` and `src/preload/` are unit-tested with
+[Bun's built-in test runner](https://bun.sh/docs/test/writing). Tests
+colocate next to source files (`commands.ts` → `commands.test.ts`).
+
+The real `electron` module isn't loadable off-Electron, so
+[`test-setup.ts`](./test-setup.ts) is preloaded by
+[`bunfig.toml`](./bunfig.toml) and mocks the surface every `src/main/`
+file imports at the top level. Tests that exercise a specific Electron
+API (e.g. `screen.getDisplayMatching`) re-mock it locally via
+`mock.module("electron", …)` inside the test file.
+
+`scripts/run-tests.ts` runs each test file in its own Bun subprocess —
+[`mock.module()` mutates a process-global registry](https://bun.sh/docs/test/mocking#mock-module),
+so mocks set in one file would leak into the next. Use `bun run test`
+for fast local iteration on a single file and `bun run test:ci` (or a
+single targeted file: `bun scripts/run-tests.ts src/main/foo.test.ts`)
+when running the full suite.
 
 ## Layout
 

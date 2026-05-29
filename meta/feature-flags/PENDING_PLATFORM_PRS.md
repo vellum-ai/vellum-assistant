@@ -15,4 +15,3 @@ Remove an entry from this file once its companion platform PR is merged.
 | Flag key | Registry declaration date | Owner | Status | Required platform work |
 |---|---|---|---|---|
 | `meet` | 2026-04-19 | sidd@vellum.ai | Platform PR not yet opened (as of 2026-04-19) | Terraform entry in `../vellum-assistant-platform/terraform/launchdarkly.tf` (or equivalent) with `defaultEnabled: false` and a description pointing at `skills/meet-join/SKILL.md`. |
-| `self-intro-greeting` | 2026-05-29 | alex@vellum.ai | Platform PR not yet opened (as of 2026-05-29) | Terraform entry in `../vellum-assistant-platform/terraform/launchdarkly.tf` (or equivalent) with `defaultEnabled: false` and a description pointing at `assistant/src/daemon/first-greeting.ts` (`buildSelfIntroMessage`). Needed so the flag can be toggled on in dev to test the self-intro first message. |

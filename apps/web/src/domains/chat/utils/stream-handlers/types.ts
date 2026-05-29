@@ -10,7 +10,7 @@ import type { TurnActions, TurnState } from "@/domains/chat/turn-store";
 import type { EndTurnArgs } from "@/domains/chat/turn-coordinator";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
 import type { ChatError, PendingQuestionState } from "@/domains/chat/types";
-import type { ChatEventStream } from "@/domains/streaming/stream-transport";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 
 export type { PendingQuestionState };
 

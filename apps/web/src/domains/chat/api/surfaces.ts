@@ -7,7 +7,7 @@ import {
   assertHasResponse,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/lib/api-errors";
+} from "@/utils/api-errors";
 
 export async function submitSurfaceAction(
   assistantId: string,

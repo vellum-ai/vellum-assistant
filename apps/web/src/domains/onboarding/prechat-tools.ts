@@ -14,7 +14,7 @@
  * dark-on-light by default).
  */
 
-import { publicAsset } from "@/lib/public-asset";
+import { publicAsset } from "@/utils/public-asset";
 
 export interface PreChatToolItem {
   id: string;

@@ -23,7 +23,7 @@ This document owns assistant-runtime architecture details. The repo-level archit
 
 ### Safe Storage Limits
 
-Safe storage limits are gated by the assistant feature flag `safe-storage-limits`, default off. When the flag is off, the disk pressure guard reports a disabled status and no runtime path blocks work, injects cleanup guidance, or changes tool access.
+Safe storage limits protect the workspace volume from running out of disk. The disk pressure guard samples storage continuously and blocks work, injects cleanup guidance, and narrows tool access while the workspace is critically full.
 
 **Disk pressure state:** `src/daemon/disk-pressure-guard.ts` samples workspace storage usage every 60 seconds through `src/util/disk-usage.ts`. At or above the 95% critical threshold it creates an in-memory lock with `lockId`, usage snapshot, `acknowledged`, `overrideActive`, `effectivelyLocked`, and the blocked capabilities `agent-turns`, `background-work`, and `remote-ingress`. The lock clears when usage drops below the threshold or the process restarts. `acknowledgeDiskPressureLock()` only lets the guardian enter cleanup mode; `overrideDiskPressureLock()` requires the exact phrase `I understand the risks` and disables the effective lock while usage remains critical.
 

@@ -1,6 +1,10 @@
 
+import { Brain } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+
+import { BottomSheet, Button } from "@vellum/design-library";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 export interface ContextWindowUsage {
   tokens: number;
@@ -10,6 +14,7 @@ export interface ContextWindowUsage {
 
 interface ContextWindowIndicatorProps {
   usage: ContextWindowUsage | null;
+  onClearContext?: () => void;
 }
 
 const RING_SIZE = 16;
@@ -36,7 +41,170 @@ function formatTokens(count: number): string {
   return `${count}`;
 }
 
-export function ContextWindowIndicator({ usage }: ContextWindowIndicatorProps) {
+function CircularRing({
+  ringColor,
+  dashOffset,
+  percentage,
+}: {
+  ringColor: string;
+  dashOffset: number;
+  percentage: number;
+}) {
+  return (
+    <svg
+      width={RING_SIZE}
+      height={RING_SIZE}
+      viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
+      role="img"
+      aria-label={`Context window ${percentage}% full`}
+      tabIndex={0}
+      className="block outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary-base)] rounded-full"
+    >
+      <circle
+        cx={RING_SIZE / 2}
+        cy={RING_SIZE / 2}
+        r={RING_RADIUS}
+        fill="none"
+        stroke="var(--content-tertiary)"
+        strokeWidth={RING_STROKE}
+        opacity={0.2}
+      />
+      <circle
+        cx={RING_SIZE / 2}
+        cy={RING_SIZE / 2}
+        r={RING_RADIUS}
+        fill="none"
+        stroke={ringColor}
+        strokeWidth={RING_STROKE}
+        strokeLinecap="round"
+        strokeDasharray={RING_CIRCUMFERENCE}
+        strokeDashoffset={dashOffset}
+        transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
+        style={{ transition: "stroke-dashoffset 250ms ease-out, stroke 250ms ease-out" }}
+      />
+    </svg>
+  );
+}
+
+function DesktopTooltipContent({
+  percentage,
+  ringColor,
+  tokens,
+  maxTokens,
+}: {
+  percentage: number;
+  ringColor: string;
+  tokens: number;
+  maxTokens: number | null;
+}) {
+  return (
+    <>
+      <div className="text-body-small-default text-[var(--content-secondary)]">
+        Context window:
+      </div>
+      <div
+        className="text-body-medium-default"
+        style={{ color: ringColor }}
+      >
+        {percentage}% full
+      </div>
+      {maxTokens != null && (
+        <div className="text-body-small-default text-[var(--content-secondary)]">
+          {formatTokens(tokens)} / {formatTokens(maxTokens)} tokens used
+        </div>
+      )}
+      <div className="text-label-medium-default leading-tight text-[var(--content-tertiary)]">
+        Vellum automatically
+        <br />
+        compacts its context.
+      </div>
+    </>
+  );
+}
+
+function MobileSheetContent({
+  percentage,
+  ringColor,
+  ratio,
+  tokens,
+  maxTokens,
+  onClearContext,
+  onClose,
+}: {
+  percentage: number;
+  ringColor: string;
+  ratio: number;
+  tokens: number;
+  maxTokens: number | null;
+  onClearContext?: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div className="flex flex-col items-center gap-4">
+        <span
+          aria-hidden="true"
+          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full"
+          style={{
+            backgroundColor:
+              "color-mix(in oklab, var(--primary-base) 16%, transparent)",
+          }}
+        >
+          <Brain className="h-7 w-7 text-[var(--primary-base)]" />
+        </span>
+
+        <BottomSheet.Title className="justify-center">Context Window</BottomSheet.Title>
+
+        <div className="w-full px-4">
+          <div className="relative h-2 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--content-tertiary)_20%,transparent)]">
+            <div
+              className="h-full rounded-full transition-[width] duration-250 ease-out"
+              style={{
+                width: `${Math.round(ratio * 100)}%`,
+                backgroundColor: ringColor,
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-col items-center gap-1">
+          <span className="text-body-medium-emphasised text-[var(--content-default)]">
+            {percentage}% full
+            {maxTokens != null && (
+              <>
+                {" "}
+                <span className="text-[var(--content-secondary)]">•</span>{" "}
+                {formatTokens(tokens)} / {formatTokens(maxTokens)} tokens used
+              </>
+            )}
+          </span>
+          <span className="text-body-small-default text-[var(--content-tertiary)]">
+            Vellum automatically compacts its context
+          </span>
+        </div>
+      </div>
+
+      {onClearContext && (
+        <BottomSheet.Footer className="justify-center pt-4">
+          <Button
+            variant="outlined"
+            fullWidth
+            onClick={() => {
+              onClearContext();
+              onClose();
+            }}
+          >
+            Clear Context
+          </Button>
+        </BottomSheet.Footer>
+      )}
+    </>
+  );
+}
+
+export function ContextWindowIndicator({ usage, onClearContext }: ContextWindowIndicatorProps) {
+  const isMobile = useIsMobile();
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number } | null>(
     null,
@@ -80,6 +248,9 @@ export function ContextWindowIndicator({ usage }: ContextWindowIndicatorProps) {
   const { tokens, maxTokens } = usage;
 
   const handleMouseEnter = () => {
+    if (isMobile) {
+      return;
+    }
     if (hoverTimerRef.current != null) {
       clearTimeout(hoverTimerRef.current);
     }
@@ -97,6 +268,42 @@ export function ContextWindowIndicator({ usage }: ContextWindowIndicatorProps) {
     setTooltipPosition(null);
   };
 
+  if (isMobile) {
+    return (
+      <BottomSheet.Root open={sheetOpen} onOpenChange={setSheetOpen}>
+        <BottomSheet.Trigger asChild>
+          <button
+            type="button"
+            className="relative flex items-center"
+            aria-label={`Context window ${percentage}% full`}
+          >
+            <CircularRing
+              ringColor={ringColor}
+              dashOffset={dashOffset}
+              percentage={percentage}
+            />
+          </button>
+        </BottomSheet.Trigger>
+        <BottomSheet.Content aria-describedby={undefined}>
+          <BottomSheet.Header className="sr-only">
+            <BottomSheet.Title>Context Window</BottomSheet.Title>
+          </BottomSheet.Header>
+          <BottomSheet.Body className="pt-0">
+            <MobileSheetContent
+              percentage={percentage}
+              ringColor={ringColor}
+              ratio={ratio}
+              tokens={tokens}
+              maxTokens={maxTokens}
+              onClearContext={onClearContext}
+              onClose={() => setSheetOpen(false)}
+            />
+          </BottomSheet.Body>
+        </BottomSheet.Content>
+      </BottomSheet.Root>
+    );
+  }
+
   return (
     <div
       ref={triggerRef}
@@ -106,38 +313,11 @@ export function ContextWindowIndicator({ usage }: ContextWindowIndicatorProps) {
       onFocus={handleMouseEnter}
       onBlur={handleMouseLeave}
     >
-      <svg
-        width={RING_SIZE}
-        height={RING_SIZE}
-        viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}
-        role="img"
-        aria-label={`Context window ${percentage}% full`}
-        tabIndex={0}
-        className="block outline-none focus-visible:ring-1 focus-visible:ring-[var(--primary-base)] rounded-full"
-      >
-        <circle
-          cx={RING_SIZE / 2}
-          cy={RING_SIZE / 2}
-          r={RING_RADIUS}
-          fill="none"
-          stroke="var(--content-tertiary)"
-          strokeWidth={RING_STROKE}
-          opacity={0.2}
-        />
-        <circle
-          cx={RING_SIZE / 2}
-          cy={RING_SIZE / 2}
-          r={RING_RADIUS}
-          fill="none"
-          stroke={ringColor}
-          strokeWidth={RING_STROKE}
-          strokeLinecap="round"
-          strokeDasharray={RING_CIRCUMFERENCE}
-          strokeDashoffset={dashOffset}
-          transform={`rotate(-90 ${RING_SIZE / 2} ${RING_SIZE / 2})`}
-          style={{ transition: "stroke-dashoffset 250ms ease-out, stroke 250ms ease-out" }}
-        />
-      </svg>
+      <CircularRing
+        ringColor={ringColor}
+        dashOffset={dashOffset}
+        percentage={percentage}
+      />
       {isHovered &&
         createPortal(
           <div
@@ -150,25 +330,12 @@ export function ContextWindowIndicator({ usage }: ContextWindowIndicatorProps) {
               opacity: tooltipPosition ? 1 : 0,
             }}
           >
-            <div className="text-body-small-default text-[var(--content-secondary)]">
-              Context window:
-            </div>
-            <div
-              className="text-body-medium-default"
-              style={{ color: ringColor }}
-            >
-              {percentage}% full
-            </div>
-            {maxTokens != null && (
-              <div className="text-body-small-default text-[var(--content-secondary)]">
-                {formatTokens(tokens)} / {formatTokens(maxTokens)} tokens used
-              </div>
-            )}
-            <div className="text-label-medium-default leading-tight text-[var(--content-tertiary)]">
-              Vellum automatically
-              <br />
-              compacts its context.
-            </div>
+            <DesktopTooltipContent
+              percentage={percentage}
+              ringColor={ringColor}
+              tokens={tokens}
+              maxTokens={maxTokens}
+            />
           </div>,
           document.body,
         )}

@@ -7,25 +7,19 @@ import { TranscriptRow } from "@/domains/chat/transcript/transcript-row";
 import type { ConfirmationDecision } from "@/types/event-types";
 
 /**
- * Renders the newest user message (the "anchor") plus any response items that
- * have streamed in since it was sent. Sized to at least the scroll viewport
- * height so the anchor stays pinned to the top of the viewport at the latest
- * edge while short replies grow downward without hugging the bottom.
+ * Renders the newest user message (the "anchor") plus any response items
+ * that have streamed in since it was sent.
  *
- * Layout:
- *   1. Anchor user message row
- *   2. Response items
- *   3. Avatar slot
- *   4. flex-1 spacer (fills remaining viewport height below content)
- *   5. data-latest-edge sentinel
+ * The viewport-min-height wrapper that pins the anchor to the top of the
+ * viewport — and the assistant avatar that pins to the bottom of the
+ * viewport — both live in `Transcript`. This component is just the
+ * anchor + response cluster; it has no awareness of where it sits inside
+ * the latest-edge region.
  */
 export interface LatestTurnRowProps {
   anchorMessage: MessageItem;
   responseItems: TranscriptItem[];
   assistantDisplayName?: string | null;
-  /** Current scroll container height — drives `minHeight`. Provided by the
-   *  parent `Transcript` via `useViewportMinHeight`. */
-  viewportMinHeight: number;
   expandedToolCallIds: Set<string>;
   expandedCardIds: Map<string, boolean>;
   onSurfaceAction: (
@@ -69,18 +63,12 @@ export interface LatestTurnRowProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
-  /** Slot rendered after the latest assistant response inside the
-   *  latest-turn cluster. Used by AssistantPageClient (PR 3) to mount
-   *  the chat avatar at the bottom of the latest assistant message
-   *  rather than at the bottom of the entire chat. */
-  avatarSlot?: ReactNode;
 }
 
 export const LatestTurnRow = memo(function LatestTurnRow({
   anchorMessage,
   responseItems,
   assistantDisplayName,
-  viewportMinHeight,
   expandedToolCallIds,
   expandedCardIds,
   onSurfaceAction,
@@ -105,14 +93,9 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   assistantId,
   onSubagentClick,
   onStopSubagent,
-  avatarSlot,
 }: LatestTurnRowProps) {
   return (
-    <div
-      className="flex flex-col"
-      style={{ minHeight: viewportMinHeight }}
-      data-latest-turn="true"
-    >
+    <div className="flex flex-col" data-latest-turn="true">
       <TranscriptRow
         item={anchorMessage}
         assistantDisplayName={assistantDisplayName}
@@ -173,24 +156,6 @@ export const LatestTurnRow = memo(function LatestTurnRow({
           />
         </Fragment>
       ))}
-      {avatarSlot && (
-        // Render whenever a slot is provided — including the "user just
-        // sent, response hasn't streamed yet" gap. Gating on
-        // `responseItems.length > 0` here causes the avatar to unmount
-        // and remount across the turn boundary, replaying the
-        // ChatAvatar entrance spring as a visible flicker. Keeping the
-        // slot mounted preserves DOM identity; the avatar's already-
-        // wired `isStreaming` prop drives the "thinking" beat while V
-        // composes a reply.
-        <div
-          data-latest-assistant-avatar="true"
-          className="flex justify-start pl-1 pt-3 pb-2"
-        >
-          {avatarSlot}
-        </div>
-      )}
-      <div className="flex-1" />
-      <div aria-hidden data-latest-edge="true" />
     </div>
   );
 });

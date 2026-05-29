@@ -6,6 +6,32 @@ export interface TelemetryEventBase {
   type: string;
   daemon_event_id: string;
   recorded_at: number;
+  /**
+   * Version of the assistant binary at the moment THIS event was
+   * RECORDED (not when the batch was uploaded). Distinct from the
+   * envelope's `assistant_version` field, which still ships for
+   * back-compat with platforms that haven't deployed the per-event
+   * handling.
+   *
+   * The platform's `TelemetryIngestView` prefers per-event over
+   * envelope: when a per-event value is present (including explicit
+   * `null`) it wins. When the field is omitted on the event entirely
+   * (old assistant), the envelope value is the back-compat fallback.
+   *
+   * Daemon-side, this field is always non-null — the reporter stamps
+   * the running binary's `APP_VERSION` when the underlying SQLite row
+   * has no record-time value. In this PR only `llm_usage` events
+   * carry a true record-time value (legacy llm_usage rows from before
+   * migration 267 fall back to `APP_VERSION`); turn, lifecycle, and
+   * onboarding events all stamp `APP_VERSION` directly until the
+   * follow-ups that add the column to `messages` / `lifecycle_events`
+   * (#18112) / `onboarding_events` (#30733) land. Stamping
+   * `APP_VERSION` instead of emitting explicit `null` preserves
+   * envelope-equivalent behavior under the per-event-wins contract.
+   * The type allows `null` for parity with the platform contract;
+   * in practice the daemon never sends it.
+   */
+  assistant_version: string | null;
 }
 
 /** LLM usage event — one per provider API call. */

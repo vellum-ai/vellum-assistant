@@ -8,7 +8,7 @@ import {
   registerSseClient,
   resetSseDebugStateForTests,
   unregisterSseClient,
-} from "@/domains/streaming/stream-debug";
+} from "@/lib/streaming/stream-debug";
 import type { AssistantEvent } from "@/types/event-types";
 
 beforeEach(() => {

@@ -1,5 +1,5 @@
 import { client } from "@/generated/api/client.gen";
-import { SDK_BASE_OPTIONS } from "@/lib/api-errors";
+import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 
 export interface SlackChannelNameResolution {
   channelId: string;

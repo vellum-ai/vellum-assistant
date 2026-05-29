@@ -17,7 +17,7 @@ import { randomCharacterTraits } from "@/utils/avatar-random";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
 import type { CharacterTraits } from "@/types/avatar";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import { extractErrorMessage } from "@/lib/api-errors";
+import { extractErrorMessage } from "@/utils/api-errors";
 import { isLocalMode, hatchLocalAssistant, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection, getLocalGatewayUrl } from "@/lib/local-mode";
 import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
 import { useRootOutletContext } from "@/root-layout";

@@ -241,6 +241,13 @@ export class UsageTelemetryReporter {
             inference_profile_source: e.inferenceProfileSource,
             cost: e.estimatedCostUsd ?? null,
             recorded_at: e.createdAt,
+            // Record-time version when present; otherwise the running
+            // binary's `APP_VERSION` (a legacy row from before
+            // migration 267 ran). We deliberately don't emit explicit
+            // `null` — under the platform contract a present-but-null
+            // per-event value would override the envelope, and we'd
+            // rather have a concrete version than no version.
+            assistant_version: e.assistantVersion ?? APP_VERSION,
           }),
         ),
         ...turnEvents.map((e): TelemetryEvent => {
@@ -278,6 +285,18 @@ export class UsageTelemetryReporter {
             interface_id: e.interfaceId,
             channel_id: e.channelId,
             client,
+            // Turn events derive from `messages` + `conversations`
+            // rather than a dedicated table. Adding `assistant_version`
+            // to `messages` is a separate (larger) migration; until
+            // then we stamp the running binary's `APP_VERSION` so the
+            // wire value is concrete (matches what the envelope would
+            // have provided, but per-event so it survives the platform
+            // contract that treats present per-event values as winning
+            // over the envelope). Same upload-time attribution risk
+            // for turn events as before this PR — lifecycle, onboarding
+            // and turn events all still rely on the envelope; only
+            // llm_usage is record-time accurate in this PR.
+            assistant_version: APP_VERSION,
           };
         }),
         ...lifecycleEvents.map(
@@ -286,6 +305,12 @@ export class UsageTelemetryReporter {
             daemon_event_id: e.id,
             event_name: e.eventName,
             recorded_at: e.createdAt,
+            // Lifecycle events fall back to the envelope `assistant_version`
+            // — same upload-time attribution risk as before this PR. Adding
+            // the record-time column to `lifecycle_events` (#18112) is a
+            // separate follow-up that mirrors what this PR does for
+            // `llm_usage_events`.
+            assistant_version: APP_VERSION,
           }),
         ),
         ...onboardingEvents.map(
@@ -304,6 +329,12 @@ export class UsageTelemetryReporter {
               ? { google_scopes: JSON.parse(e.googleScopesJson) }
               : {}),
             ...(e.abVariant ? { ab_variant: e.abVariant } : {}),
+            // Onboarding events fall back to the envelope `assistant_version`
+            // — same upload-time attribution risk as before this PR. Adding
+            // the record-time column to `onboarding_events` (#30733) is a
+            // separate follow-up that mirrors what this PR does for
+            // `llm_usage_events`.
+            assistant_version: APP_VERSION,
           }),
         ),
       ];

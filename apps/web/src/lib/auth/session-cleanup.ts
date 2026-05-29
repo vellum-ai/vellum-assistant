@@ -3,7 +3,7 @@
  *
  * Any localStorage key starting with `device:` is automatically
  * preserved — these are device-scoped settings managed by
- * `lib/device-settings.ts`. All other keys matching app prefixes are
+ * `utils/device-settings.ts`. All other keys matching app prefixes are
  * removed. Third-party keys (analytics SDKs, Sentry, etc.) are
  * untouched because they don't match app prefixes.
  *
@@ -21,7 +21,7 @@
  * - https://web.dev/articles/sign-out-best-practices
  */
 
-import { DEVICE_PREFIX } from "@/lib/device-settings";
+import { DEVICE_PREFIX } from "@/utils/device-settings";
 
 /** Prefixes that identify keys owned by this app. */
 const APP_KEY_PREFIXES = [

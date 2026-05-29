@@ -28,7 +28,7 @@ import { routes } from "@/utils/routes";
 import {
   getLocalSetting,
   setLocalSetting,
-} from "@/lib/local-settings";
+} from "@/utils/local-settings";
 
 const BANNER_STORAGE_KEY = "integrations.bannerDismissed";
 

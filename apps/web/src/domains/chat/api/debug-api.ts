@@ -20,7 +20,7 @@ import {
   type SseDebugEventEntry,
   getSseClients,
   getSseEvents,
-} from "@/domains/streaming/stream-debug";
+} from "@/lib/streaming/stream-debug";
 
 export interface ChatDebugEventsApi {
   /** Snapshot of currently-live SSE clients. */

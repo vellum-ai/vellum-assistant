@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 import { useRef, type MutableRefObject } from "react";
 
-import type { ChatEventStream } from "@/domains/streaming/stream-transport";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
   __resetEventBusForTesting,
   useEventBusStore,

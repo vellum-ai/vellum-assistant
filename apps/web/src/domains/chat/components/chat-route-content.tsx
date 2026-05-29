@@ -121,7 +121,7 @@ import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import type { Conversation } from "@/types/conversation-types";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
-import type { ChatEventStream } from "@/domains/streaming/stream-transport";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1309,7 +1309,14 @@ export function ChatRouteContent({
       />
     ) : undefined,
     contextWindowIndicatorSlot: (
-      <ContextWindowIndicator usage={contextWindowUsage} />
+      <ContextWindowIndicator
+        usage={contextWindowUsage}
+        onClearContext={
+          activeConversation?.conversationId && !sendDisabled
+            ? () => void sendMessage("/clean")
+            : undefined
+        }
+      />
     ),
     noticesAboveFormSlot: (
       <ComposerNotices

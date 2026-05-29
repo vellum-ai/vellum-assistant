@@ -12,7 +12,7 @@ import {
   assertHasResponse,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/lib/api-errors";
+} from "@/utils/api-errors";
 
 export interface GlobalThresholds {
   interactive: string;

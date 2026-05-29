@@ -181,15 +181,6 @@ src/
       conversation-queries.ts
       use-conversation-loader.ts
       types.ts
-    streaming/                     # SSE transport, event parsing
-      stream-store.ts
-      stream-transport.ts
-      event-parser.ts
-      event-types.ts
-      handlers/
-        message-handlers.ts
-        interaction-handlers.ts
-        types.ts
     chat/                          # chat feature module
       turn-store.ts                #   turn-level state machine
       turn-coordinator.ts          #   atomic turn-store + conversation-store transitions
@@ -207,6 +198,7 @@ src/
     auth/                          #   allauth client, CSRF, auth middleware
     feature-flags/                 #   feature flag provider
     sync/                          #   server state sync (tag registry, router)
+    streaming/                     #   SSE transport, event parsing, debug tracking
     api-client.ts                  #   HeyAPI configured client + interceptors
     telemetry/                     #   client identity for daemon registration
   runtime/                         # framework adapters, platform bridges
@@ -220,7 +212,7 @@ src/
 This app uses `domains/` over the more common `features/` because
 "features" implies product-level concepts (like "chat" or
 "settings") that contain multiple domains. `messages`,
-`conversations`, and `streaming` are business domains with distinct
+`conversations`, and `voice` are business domains with distinct
 data models and lifecycles — not features. `domains/` is more precise
 for a DDD-influenced architecture and signals that each folder
 represents a bounded context.

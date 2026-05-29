@@ -23,8 +23,8 @@ import { useEffect } from "react";
 import * as Sentry from "@sentry/browser";
 import type { PluginListenerHandle } from "@capacitor/core";
 
-import { subscribeChatEvents } from "@/domains/streaming/stream-transport";
-import type { ChatEventStream } from "@/domains/streaming/stream-transport";
+import { subscribeChatEvents } from "@/lib/streaming/stream-transport";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import { useEventBusStore } from "@/stores/event-bus-store";
 import { isNativePlatform } from "@/runtime/native-auth";
 

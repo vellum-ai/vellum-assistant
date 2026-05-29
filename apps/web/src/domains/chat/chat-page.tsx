@@ -134,7 +134,7 @@ import {
 import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
-import type { ChatEventStream } from "@/domains/streaming/stream-transport";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
   ChatRouteContent,
   type ChatRouteContentProps,

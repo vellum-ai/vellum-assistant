@@ -3,7 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
-} from "@/lib/last-viewed-conversation-storage";
+} from "@/utils/last-viewed-conversation-storage";
 
 const ASSISTANT_ID = "asst_123";
 const STORAGE_KEY = `vellum:lastViewedConversation:${ASSISTANT_ID}`;

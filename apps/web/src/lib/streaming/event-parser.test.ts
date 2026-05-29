@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   parseAssistantEvent,
   toDisplayAttachments,
-} from "@/domains/streaming/event-parser";
+} from "@/lib/streaming/event-parser";
 import { SYNC_TAGS } from "@/lib/sync/types";
 
 describe("parseAssistantEvent", () => {

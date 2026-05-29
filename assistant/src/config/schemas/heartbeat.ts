@@ -5,13 +5,13 @@ export const HeartbeatConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "heartbeat.enabled must be a boolean" })
-      .default(false)
+      .default(true)
       .describe("Whether periodic heartbeat checks are enabled"),
     intervalMs: z
       .number({ error: "heartbeat.intervalMs must be a number" })
       .int("heartbeat.intervalMs must be an integer")
       .positive("heartbeat.intervalMs must be a positive integer")
-      .default(30 * 60_000)
+      .default(60 * 60_000)
       .describe("Time between heartbeat checks in milliseconds"),
     cronExpression: z
       .string()

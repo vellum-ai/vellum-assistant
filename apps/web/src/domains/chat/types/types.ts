@@ -53,6 +53,11 @@ export interface DisplayMessage {
    * a subsequent SSE event or history fetch resolves them.
    */
   isOptimistic?: boolean;
+  /**
+   * Server message ids folded into this canonical display row. Reconcile treats
+   * these as aliases so a live SSE row can merge into its collapsed history row.
+   */
+  mergedMessageIds?: string[];
   role: "user" | "assistant";
   content: string;
   isStreaming?: boolean;
