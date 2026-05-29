@@ -2,6 +2,10 @@
 
 import type { AssistantTextDeltaEvent } from "../../api/events/assistant-text-delta.js";
 import type { AssistantTurnStartEvent } from "../../api/events/assistant-turn-start.js";
+import type {
+  InteractionResolutionState as CanonicalInteractionResolutionState,
+  InteractionResolvedEvent,
+} from "../../api/events/interaction-resolved.js";
 import type { MessageCompleteEvent } from "../../api/events/message-complete.js";
 import type { MessageDequeuedEvent } from "../../api/events/message-dequeued.js";
 import type { MessageQueuedEvent } from "../../api/events/message-queued.js";
@@ -371,27 +375,9 @@ export interface ConfirmationStateChanged {
  *  - `"superseded"` — invalidated by a newer event (auto-deny on enqueue, a
  *    fresh user message arriving while a confirmation was outstanding).
  */
-export type InteractionResolutionState =
-  | "approved"
-  | "rejected"
-  | "answered"
-  | "cancelled"
-  | "superseded";
+export type InteractionResolutionState = CanonicalInteractionResolutionState;
 
-/**
- * Broadcast when a pending interaction (confirmation, secret, question,
- * host-proxy request) transitions to a resolved state. Clients use this to
- * drop attention/processing indicators without polling.
- */
-export interface InteractionResolved {
-  type: "interaction_resolved";
-  requestId: string;
-  /** Conversation id the interaction belongs to. */
-  conversationId: string;
-  state: InteractionResolutionState;
-  /** Kind of the resolved interaction (e.g. "confirmation", "secret", "host_bash"). */
-  kind: string;
-}
+export type InteractionResolved = InteractionResolvedEvent;
 
 /**
  * Server-side assistant activity lifecycle for thinking indicator placement.

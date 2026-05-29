@@ -20,7 +20,6 @@ import type {
   AssistantEvent,
   ConversationListInvalidatedReason,
   DirectoryScopeOption,
-  InteractionKind,
   QuestionEntry,
   QuestionOption,
   ScopeOption,
@@ -650,22 +649,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
             : undefined,
       };
 
-    case "compaction_circuit_open":
-      return {
-        type: "compaction_circuit_open",
-        conversationId:
-          typeof data.conversationId === "string" ? data.conversationId : "",
-        reason: typeof data.reason === "string" ? data.reason : "",
-        openUntil: typeof data.openUntil === "number" ? data.openUntil : 0,
-      };
-
-    case "compaction_circuit_closed":
-      return {
-        type: "compaction_circuit_closed",
-        conversationId:
-          typeof data.conversationId === "string" ? data.conversationId : "",
-      };
-
     case "disk_pressure_status_changed":
       return {
         type: "disk_pressure_status_changed",
@@ -678,14 +661,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
           typeof data.conversationId === "string"
             ? data.conversationId
             : undefined,
-      };
-
-    case "home_feed_updated":
-      return {
-        type: "home_feed_updated",
-        updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : "",
-        newItemCount:
-          typeof data.newItemCount === "number" ? data.newItemCount : 0,
       };
 
     case "subagent_spawned": {
@@ -773,37 +748,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
             ? data.conversationId
             : undefined,
         event: event as SubagentInnerEvent,
-      };
-    }
-
-    case "interaction_resolved": {
-      const requestId =
-        typeof data.requestId === "string" ? data.requestId : "";
-      const stateRaw = typeof data.state === "string" ? data.state : "";
-      const validStates = new Set([
-        "approved",
-        "rejected",
-        "answered",
-        "cancelled",
-        "superseded",
-      ]);
-      if (!requestId || !validStates.has(stateRaw)) {
-        return unknownEvent(rawType, data);
-      }
-      const conversationId =
-        typeof data.conversationId === "string" ? data.conversationId : "";
-      const kind = typeof data.kind === "string" ? data.kind : "";
-      return {
-        type: "interaction_resolved",
-        requestId,
-        conversationId,
-        state: stateRaw as
-          | "approved"
-          | "rejected"
-          | "answered"
-          | "cancelled"
-          | "superseded",
-        kind: kind as InteractionKind,
       };
     }
 

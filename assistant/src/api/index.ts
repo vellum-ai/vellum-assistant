@@ -2,12 +2,16 @@ import { z } from "zod";
 
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
+import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-closed.js";
+import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
 import { DocumentCommentCreatedEventSchema } from "./events/document-comment-created.js";
 import { DocumentCommentDeletedEventSchema } from "./events/document-comment-deleted.js";
 import { DocumentCommentReopenedEventSchema } from "./events/document-comment-reopened.js";
 import { DocumentCommentResolvedEventSchema } from "./events/document-comment-resolved.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
+import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
+import { InteractionResolvedEventSchema } from "./events/interaction-resolved.js";
 import { MessageCompleteEventSchema } from "./events/message-complete.js";
 import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
 import { MessageQueuedEventSchema } from "./events/message-queued.js";
@@ -30,6 +34,14 @@ export {
   type AssistantTurnStartEvent,
   AssistantTurnStartEventSchema,
 } from "./events/assistant-turn-start.js";
+export {
+  type CompactionCircuitClosedEvent,
+  CompactionCircuitClosedEventSchema,
+} from "./events/compaction-circuit-closed.js";
+export {
+  type CompactionCircuitOpenEvent,
+  CompactionCircuitOpenEventSchema,
+} from "./events/compaction-circuit-open.js";
 export {
   type DocumentCommentCreatedEvent,
   DocumentCommentCreatedEventSchema,
@@ -54,6 +66,16 @@ export {
   type GenerationHandoffEvent,
   GenerationHandoffEventSchema,
 } from "./events/generation-handoff.js";
+export {
+  type HomeFeedUpdatedEvent,
+  HomeFeedUpdatedEventSchema,
+} from "./events/home-feed-updated.js";
+export {
+  type InteractionResolutionState,
+  InteractionResolutionStateSchema,
+  type InteractionResolvedEvent,
+  InteractionResolvedEventSchema,
+} from "./events/interaction-resolved.js";
 export {
   type MessageCompleteEvent,
   MessageCompleteEventSchema,
@@ -128,12 +150,16 @@ export {
 export const AssistantEventSchema = z.discriminatedUnion("type", [
   AssistantTextDeltaEventSchema,
   AssistantTurnStartEventSchema,
+  CompactionCircuitClosedEventSchema,
+  CompactionCircuitOpenEventSchema,
   DocumentCommentCreatedEventSchema,
   DocumentCommentDeletedEventSchema,
   DocumentCommentReopenedEventSchema,
   DocumentCommentResolvedEventSchema,
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
+  HomeFeedUpdatedEventSchema,
+  InteractionResolvedEventSchema,
   MessageCompleteEventSchema,
   MessageDequeuedEventSchema,
   MessageQueuedEventSchema,
