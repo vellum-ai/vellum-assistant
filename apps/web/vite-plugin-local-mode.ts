@@ -1,11 +1,55 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import type { Plugin, Connect } from "vite";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
+const CLI_PACKAGE_NAME = "@vellumai/cli";
+
+let _resolvedCliPath: string | undefined;
+
+/**
+ * Resolve the CLI entry point via two strategies:
+ *
+ * 1. **Source tree** — `<repoRoot>/cli/src/index.ts` exists (dev mode in monorepo).
+ * 2. **Installed package** — `require.resolve("@vellumai/cli/package.json")` then
+ *    derive the entry point from the resolved package directory.
+ *
+ * The result is cached for the lifetime of the Vite server process.
+ */
+function resolveCliPath(): string {
+  if (_resolvedCliPath) return _resolvedCliPath;
+
+  const repoRoot = path.resolve(import.meta.dirname, "..", "..");
+  const sourceTreePath = path.join(repoRoot, "cli", "src", "index.ts");
+  if (fs.existsSync(sourceTreePath)) {
+    _resolvedCliPath = sourceTreePath;
+    return _resolvedCliPath;
+  }
+
+  const _require = createRequire(import.meta.url);
+  try {
+    const pkgPath = _require.resolve(`${CLI_PACKAGE_NAME}/package.json`);
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as { bin?: Record<string, string> };
+    const binEntry = pkg.bin?.["vellum"];
+    if (binEntry) {
+      const entryPoint = path.resolve(path.dirname(pkgPath), binEntry);
+      if (fs.existsSync(entryPoint)) {
+        _resolvedCliPath = entryPoint;
+        return _resolvedCliPath;
+      }
+    }
+  } catch {
+    // Not found in node_modules
+  }
+
+  throw new Error(
+    `Vellum CLI not found. Looked for source tree at ${sourceTreePath} and npm package ${CLI_PACKAGE_NAME}.`,
+  );
+}
 
 /**
  * Sensitive lockfile fields that must never be served to the browser.
@@ -269,17 +313,16 @@ function hatchMiddleware(): Connect.NextHandleFunction {
 }
 
 function handleHatch(species: string, res: http.ServerResponse): void {
-  // Resolve CLI entry point in dev mode (Vite runs in Node inside the repo).
-  const repoRoot = path.resolve(import.meta.dirname, "..", "..");
-  const cliPath = path.join(repoRoot, "cli", "src", "index.ts");
-
-  if (!fs.existsSync(cliPath)) {
+  let cliPath: string;
+  try {
+    cliPath = resolveCliPath();
+  } catch (err) {
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
         ok: false,
-        error: `CLI binary not found at ${cliPath}`,
+        error: err instanceof Error ? err.message : String(err),
       }),
     );
     return;
@@ -384,16 +427,16 @@ function retireMiddleware(): Connect.NextHandleFunction {
 const RETIRE_TIMEOUT_MS = 60_000;
 
 function handleRetire(assistantId: string, res: http.ServerResponse): void {
-  const repoRoot = path.resolve(import.meta.dirname, "..", "..");
-  const cliPath = path.join(repoRoot, "cli", "src", "index.ts");
-
-  if (!fs.existsSync(cliPath)) {
+  let cliPath: string;
+  try {
+    cliPath = resolveCliPath();
+  } catch (err) {
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
         ok: false,
-        error: `CLI binary not found at ${cliPath}`,
+        error: err instanceof Error ? err.message : String(err),
       }),
     );
     return;
@@ -565,13 +608,13 @@ function guardianTokenMiddleware(
     }
 
     // Refresh via CLI in a child process
-    const repoRoot = path.resolve(import.meta.dirname, "..", "..");
-    const cliPath = path.join(repoRoot, "cli", "src", "index.ts");
-
-    if (!fs.existsSync(cliPath)) {
+    let cliPath: string;
+    try {
+      cliPath = resolveCliPath();
+    } catch (err) {
       res.statusCode = 500;
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "CLI not found" }));
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
       return;
     }
 
