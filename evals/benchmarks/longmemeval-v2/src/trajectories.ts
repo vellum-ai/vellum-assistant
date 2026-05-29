@@ -1,19 +1,24 @@
 /**
- * Trajectory loader + materializer for the LongMemEval-V2 benchmark.
+ * Trajectory schema + materializer for the LongMemEval-V2 benchmark.
  *
  * The loader (`loadLongMemEvalV2`) stops at the question/haystack join —
  * it produces `BenchmarkItem`s whose `trajectoryIds` reference rows in
  * V2's `trajectories.jsonl`. The runner needs the *content* of those
  * rows to stage as workspace files before the ingest turn.
  *
- * This module:
+ * This module owns:
  *
- *  - parses `trajectories.jsonl` into a `TrajectoryRecord` map keyed by id
- *  - selects the slice referenced by a single `BenchmarkItem` (or any
- *    string[] of ids), preserving haystack order
- *  - serializes the slice into `WorkspaceFileWrite[]` records ready for
- *    `runIngestAsk` to push into the agent's workspace via the adapter's
- *    `writeWorkspaceFile` capability
+ *  - the canonical Zod schema for a trajectory row
+ *    (`TrajectoryRecordSchema`), shared with `trajectory-reader.ts`
+ *  - the in-workspace path conventions
+ *    (`WORKSPACE_TRAJECTORY_DIR`, `WORKSPACE_MANIFEST_PATH`)
+ *  - the synchronous slice / serialize step
+ *    (`materializeWorkspaceFiles(item, reader)`), which calls into a
+ *    `TrajectoryReader` for the per-id payloads
+ *
+ * The I/O strategy (eager Map vs. positional reads against an indexed
+ * file) lives next door in `trajectory-reader.ts`. This module stays
+ * dumb about how the bytes get off disk.
  *
  * File layout convention (per the PR-6 design call):
  *
@@ -26,14 +31,12 @@
  * `states[]` records (which carry action+observation pairs from web /
  * enterprise environments and are *not* chat logs).
  */
-import { readFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
-
 import { z } from "zod";
 
 import type { WorkspaceFileWrite } from "../../../src/lib/adapter";
 
 import type { BenchmarkItem } from "./loader";
+import type { TrajectoryReader } from "./trajectory-reader";
 
 /**
  * Minimum shape we validate. V2 trajectories carry `id` + `domain` plus
@@ -41,7 +44,7 @@ import type { BenchmarkItem } from "./loader";
  * full shape so a hotfix release that adds fields doesn't take the
  * harness down — `.passthrough()` preserves everything we serialize.
  */
-const TrajectoryRecordSchema = z
+export const TrajectoryRecordSchema = z
   .object({
     id: z.string().min(1),
   })
@@ -49,74 +52,11 @@ const TrajectoryRecordSchema = z
 
 export type TrajectoryRecord = z.infer<typeof TrajectoryRecordSchema>;
 
-const TRAJECTORIES_FILENAME = "trajectories.jsonl";
-
 /** Path inside the agent's workspace where staged trajectories land. */
 export const WORKSPACE_TRAJECTORY_DIR = "longmemeval/trajectories";
 
 /** Path inside the agent's workspace where the per-item manifest lives. */
 export const WORKSPACE_MANIFEST_PATH = "longmemeval/manifest.json";
-
-/**
- * Streams `trajectories.jsonl` from disk into an id-keyed map.
- *
- * Performance note: the V2 small-tier `trajectories.jsonl` is on the
- * order of ~1 GB. For Phase 1 (5 items) we can tolerate a full read
- * into memory; Phase 2's full 451-Q small-tier run wants an indexed
- * lookup (a sibling `trajectories.idx` or a streaming JSONL reader)
- * and will land in the cache PR (PR-7). For now the contract is
- * "load once, reuse across items in the same run."
- */
-export async function loadTrajectories(
-  dataRoot: string,
-): Promise<Map<string, TrajectoryRecord>> {
-  const path = join(resolve(dataRoot), TRAJECTORIES_FILENAME);
-  let raw: string;
-  try {
-    raw = await readFile(path, "utf8");
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") {
-      throw new Error(
-        `LongMemEval-V2 trajectories.jsonl not found at ${path}. ` +
-          "Run `bash data/download.sh` from the benchmark directory.",
-      );
-    }
-    throw err;
-  }
-
-  const out = new Map<string, TrajectoryRecord>();
-  const lines = raw.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!;
-    if (line.trim() === "") continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch (err) {
-      throw new Error(
-        `Failed to parse trajectories.jsonl at line ${i + 1}: ${(err as Error).message}`,
-      );
-    }
-    const result = TrajectoryRecordSchema.safeParse(parsed);
-    if (!result.success) {
-      const issues = result.error.issues
-        .map((issue) => `${issue.path.join(".") || "<root>"}: ${issue.message}`)
-        .join("; ");
-      throw new Error(
-        `trajectories.jsonl line ${i + 1} failed schema validation: ${issues}`,
-      );
-    }
-    const record = result.data;
-    if (out.has(record.id)) {
-      throw new Error(
-        `Duplicate trajectory id "${record.id}" at line ${i + 1} of trajectories.jsonl`,
-      );
-    }
-    out.set(record.id, record);
-  }
-  return out;
-}
 
 export interface MaterializeOptions {
   /** Optional override for the in-workspace directory. */
@@ -133,14 +73,21 @@ export interface MaterializeOptions {
  * same order so the agent can stream the haystack deterministically.
  *
  * Throws if any trajectory id referenced by the item is missing from
- * the map — V2's published data passes `validate_data.py` so this is
- * an upstream-corruption signal rather than something to recover from.
+ * the reader — V2's published data passes `validate_data.py` so this
+ * is an upstream-corruption signal rather than something to recover
+ * from. Missing ids are reported in bulk (cheap `reader.has` checks
+ * up front) so the operator sees the full diff, not just the first
+ * broken id.
+ *
+ * Reads are issued concurrently via `Promise.all`. The reader's
+ * positional `pread` semantics mean concurrent reads against a shared
+ * file handle don't race on a shared cursor.
  */
-export function materializeWorkspaceFiles(
+export async function materializeWorkspaceFiles(
   item: BenchmarkItem,
-  trajectories: Map<string, TrajectoryRecord>,
+  reader: TrajectoryReader,
   opts: MaterializeOptions = {},
-): WorkspaceFileWrite[] {
+): Promise<WorkspaceFileWrite[]> {
   if (item.trajectoryIds.length === 0) {
     throw new Error(
       `BenchmarkItem ${item.questionId} has no trajectory ids; ` +
@@ -150,19 +97,10 @@ export function materializeWorkspaceFiles(
   const trajectoryDir = opts.trajectoryDir ?? WORKSPACE_TRAJECTORY_DIR;
   const manifestPath = opts.manifestPath ?? WORKSPACE_MANIFEST_PATH;
 
-  const writes: WorkspaceFileWrite[] = [];
-  const missing: string[] = [];
-  for (const trajectoryId of item.trajectoryIds) {
-    const record = trajectories.get(trajectoryId);
-    if (!record) {
-      missing.push(trajectoryId);
-      continue;
-    }
-    writes.push({
-      path: `${trajectoryDir}/${trajectoryId}.json`,
-      content: `${JSON.stringify(record, null, 2)}\n`,
-    });
-  }
+  // Bulk-check presence before issuing any reads so the failure mode
+  // for missing ids is the same it used to be: surface every absent
+  // id at once, not just the first.
+  const missing = item.trajectoryIds.filter((id) => !reader.has(id));
   if (missing.length > 0) {
     throw new Error(
       `Trajectory ids referenced by ${item.questionId} are missing from ` +
@@ -170,6 +108,15 @@ export function materializeWorkspaceFiles(
         (missing.length > 10 ? ` … (+${missing.length - 10} more)` : ""),
     );
   }
+
+  const records = await Promise.all(
+    item.trajectoryIds.map((id) => reader.get(id)),
+  );
+
+  const writes: WorkspaceFileWrite[] = records.map((record) => ({
+    path: `${trajectoryDir}/${record.id}.json`,
+    content: `${JSON.stringify(record, null, 2)}\n`,
+  }));
 
   const manifest = {
     questionId: item.questionId,

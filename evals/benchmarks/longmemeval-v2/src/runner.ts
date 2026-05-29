@@ -5,7 +5,7 @@
  * `EvalRunResult`-shaped execution:
  *
  *   - `loadLongMemEvalV2`        — `BenchmarkItem`s with eval_function strings
- *   - `loadTrajectories` +       — per-question workspace file writes
+ *   - `openTrajectories` +       — per-question workspace file writes
  *      `materializeWorkspaceFiles`
  *   - `runIngestAsk`             — two-conversation runner (ingest → ask)
  *   - `evalFromSpec`             — dispatched evaluator (deterministic or LLM)
@@ -56,11 +56,11 @@ import { writeFile } from "node:fs/promises";
 import { type EvalOverrides, type EvalResult, evalFromSpec } from "./judge";
 import type { BenchmarkItem } from "./loader";
 import {
-  type TrajectoryRecord,
   WORKSPACE_MANIFEST_PATH,
   WORKSPACE_TRAJECTORY_DIR,
   materializeWorkspaceFiles,
 } from "./trajectories";
+import type { TrajectoryReader } from "./trajectory-reader";
 
 export interface RunLongMemEvalV2UnitInput {
   /** Profile to hatch. */
@@ -68,11 +68,12 @@ export interface RunLongMemEvalV2UnitInput {
   /** The V2 question to run, already joined to its haystack. */
   item: BenchmarkItem;
   /**
-   * The full `trajectories.jsonl` map. Loaded once per `evals run`
-   * invocation by the caller and passed in here so we don't re-read
-   * a ~1 GB file per question.
+   * Open handle over `trajectories.jsonl`. The caller opens it once
+   * per `evals run` invocation and passes it through here so we
+   * neither re-scan the ~1 GB file per question nor hold a gigabyte
+   * of records resident across the whole run.
    */
-  trajectories: Map<string, TrajectoryRecord>;
+  trajectoryReader: TrajectoryReader;
   /** Logical run id; namespaced as `<benchmark>-<profile>-<questionId>-<ts>`. */
   runId: string;
   /** Logical session id for the originating `evals run` invocation. */
@@ -218,7 +219,10 @@ export async function runLongMemEvalV2Unit(
       message: "Materializing trajectory files",
       detail: `${input.item.trajectoryIds.length} trajectories`,
     });
-    const inputs = materializeWorkspaceFiles(input.item, input.trajectories);
+    const inputs = await materializeWorkspaceFiles(
+      input.item,
+      input.trajectoryReader,
+    );
     progress({
       step: "setup",
       status: "done",
