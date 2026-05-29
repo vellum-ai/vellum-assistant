@@ -257,6 +257,54 @@ describe("isVisibleAndFocused", () => {
   });
 });
 
+describe("ensureVisible readiness gate", () => {
+  test("the returned promise waits for BOTH did-finish-load AND ready-to-show", async () => {
+    let resolved = false;
+    const promise = ensureVisible().then(() => {
+      resolved = true;
+    });
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+
+    // Only `did-finish-load` fired — promise should still be pending.
+    win.stub.webContents.emit("did-finish-load");
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    // Now `ready-to-show` fires, gating the resolution.
+    win.stub.emit("ready-to-show");
+    await promise;
+    expect(resolved).toBe(true);
+  });
+
+  test("resolves regardless of which event arrives first", async () => {
+    let resolved = false;
+    const promise = ensureVisible().then(() => {
+      resolved = true;
+    });
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+
+    win.stub.emit("ready-to-show");
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+
+    win.stub.webContents.emit("did-finish-load");
+    await promise;
+    expect(resolved).toBe(true);
+  });
+
+  test("ready-to-show shows AND focuses the window so dispatchToFocused targets it", () => {
+    void ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+
+    win.stub.emit("ready-to-show");
+    expect(win.stub.show).toHaveBeenCalled();
+    expect(win.stub.focus).toHaveBeenCalled();
+  });
+});
+
 describe("installMainWindow", () => {
   test("creates the initial window on first call, no-op on subsequent calls", () => {
     installMainWindow();

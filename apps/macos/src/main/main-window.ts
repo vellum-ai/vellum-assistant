@@ -124,14 +124,33 @@ const createWindow = (): BrowserWindow => {
 
   trackWindowState("main", win);
 
+  // `renderReady` resolves only after BOTH the renderer has loaded
+  // AND the window has shown + focused. Without the latter, a tray
+  // dispatch fired right after the await would still go to whichever
+  // auxiliary window (e.g. About) held focus at the time, because
+  // `ready-to-show` typically fires after `did-finish-load` and our
+  // show/focus calls live in that handler. `dispatchToFocused` picks
+  // by `getFocusedWindow`, so we need the focus transfer to land
+  // before the await resolves.
   armRenderReady();
+  let didFinishLoad = false;
+  let didShow = false;
+  const maybeResolveReady = (): void => {
+    if (didFinishLoad && didShow) {
+      resolveRenderReady?.();
+      resolveRenderReady = null;
+    }
+  };
   win.webContents.once("did-finish-load", () => {
-    resolveRenderReady?.();
-    resolveRenderReady = null;
+    didFinishLoad = true;
+    maybeResolveReady();
   });
 
   win.once("ready-to-show", () => {
     win.show();
+    win.focus();
+    didShow = true;
+    maybeResolveReady();
   });
 
   win.on("closed", () => {
@@ -150,15 +169,18 @@ const createWindow = (): BrowserWindow => {
 
 /**
  * Recreate if destroyed, restore from minimize, show, focus. Returns
- * a Promise that resolves once the renderer has finished loading, so
- * callers that immediately dispatch IPC commands (the tray) can await
- * before the dispatch. Callers that don't need the renderer (the
- * `activate` handler, `second-instance`) can `void` the return.
+ * a Promise that resolves once the new (or re-shown) main window is
+ * visible AND focused AND its renderer has finished loading, so a
+ * caller that immediately dispatches an IPC command via
+ * `dispatchToFocused` (the tray) lands the command on the right
+ * window. Callers that don't need the renderer (the `activate`
+ * handler, `second-instance`) can `void` the return.
  *
  * Residual race: `did-finish-load` fires after the bundle parses but
- * before React mounts. In practice the gap is small (~ms) and bigger
- * tickets land an explicit "renderer ready for commands" IPC handshake;
- * for the tray's clicks this is good enough.
+ * before React's effect for `useVellumCommands` mounts. In practice
+ * the gap is small (~ms) — a proper renderer→main "ready for
+ * commands" IPC handshake is a separate ticket; for the tray's click
+ * rate this is good enough.
  */
 export const ensureVisible = (): Promise<void> => {
   if (!mainWindow || mainWindow.isDestroyed()) {
