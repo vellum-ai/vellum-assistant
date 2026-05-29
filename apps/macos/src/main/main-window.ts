@@ -102,9 +102,17 @@ const createWindow = (): BrowserWindow => {
   // Resolve the dev URL once per window construction so the loader
   // and the navigation guard see a consistent string even if
   // `VELLUM_DEV_URL` is mutated mid-process.
+  //
+  // The prod load target is the renderer base itself (no `/index.html`
+  // suffix). The `app://` protocol handler in `index.ts` falls back
+  // to `index.html` for paths without a file extension, so this
+  // serves the SPA — but with the browser URL staying at `/assistant`,
+  // which is where React Router's app-root route matches. Appending
+  // `/index.html` would land us at the NotFound route under
+  // `/assistant/*`.
   const isDev = !app.isPackaged;
   const devBase = isDev ? getDevRendererBase() : null;
-  const loadTarget = devBase ?? `${RENDERER_BASE_PROD}/index.html`;
+  const loadTarget = devBase ?? RENDERER_BASE_PROD;
   const devOrigin = devBase ? new URL(devBase).origin : "";
 
   const win = new BrowserWindow({
