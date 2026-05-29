@@ -194,7 +194,7 @@ export async function runNarrativeRefinement(
     ],
     {
       tools: [NARRATIVE_TOOL_SCHEMA],
-      systemPrompt: systemPrompt,
+      systemPrompt,
       config: {
         callSite: "narrativeRefinement" as const,
         tool_choice: { type: "tool" as const, name: "refine_narratives" },

@@ -281,7 +281,7 @@ async function identifyDuplicateGroups(
 
   const response = await provider.sendMessage([userMessage(listing)], {
     tools: [DUPE_DETECT_TOOL],
-    systemPrompt: systemPrompt,
+    systemPrompt,
     config: {
       callSite: "memoryConsolidation" as const,
       tool_choice: { type: "tool" as const, name: "report_duplicate_groups" },
@@ -457,7 +457,7 @@ async function consolidateChunk(
     ],
     {
       tools: [CONSOLIDATE_TOOL_SCHEMA],
-      systemPrompt: systemPrompt,
+      systemPrompt,
       config: {
         callSite: "memoryConsolidation" as const,
         tool_choice: { type: "tool" as const, name: "consolidate_diff" },

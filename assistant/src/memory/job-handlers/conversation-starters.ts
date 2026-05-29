@@ -332,7 +332,7 @@ Bad → Good (incomplete phrase → complete):
             },
           },
         ],
-        systemPrompt: systemPrompt,
+        systemPrompt,
         config: {
           callSite: "conversationStarters" as const,
           max_tokens: 2048,

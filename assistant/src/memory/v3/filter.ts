@@ -229,7 +229,7 @@ export async function filterDenseHits(
   try {
     response = await provider.sendMessage([userMsg], {
       tools: [filterTool],
-      systemPrompt: systemPrompt,
+      systemPrompt,
       config: {
         callSite: "memoryV3Filter" as const,
         tool_choice: { type: "tool" as const, name: FILTER_TOOL_NAME },

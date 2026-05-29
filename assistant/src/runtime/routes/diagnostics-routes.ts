@@ -294,7 +294,7 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
               },
             },
           ],
-          systemPrompt: systemPrompt,
+          systemPrompt,
           config: {
             callSite: "interactionClassifier",
             max_tokens: maxTokens,
@@ -407,7 +407,7 @@ async function handleCommandMode(
       [userMessage(body.transcription)],
       {
         tools: [],
-        systemPrompt: systemPrompt,
+        systemPrompt,
         config: { callSite: "interactionClassifier", max_tokens: maxTokens },
       },
     );

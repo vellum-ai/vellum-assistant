@@ -163,7 +163,7 @@ export async function runPatternScan(
     ],
     {
       tools: [PATTERN_TOOL_SCHEMA],
-      systemPrompt: systemPrompt,
+      systemPrompt,
       config: {
         callSite: "patternScan" as const,
         tool_choice: { type: "tool" as const, name: "detect_patterns" },

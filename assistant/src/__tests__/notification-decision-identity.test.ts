@@ -107,12 +107,9 @@ describe("identity context in notification decision engine", () => {
     mockIdentityContext = "I am Jarvis, a helpful assistant";
 
     configuredProvider = {
-      sendMessage: async (
-        _messages: unknown,
-        _tools: unknown,
-        systemPrompt: unknown,
-      ) => {
-        capturedSystemPrompt = systemPrompt as string;
+      sendMessage: async (...args: unknown[]) => {
+        const options = args[1] as { systemPrompt?: string } | undefined;
+        capturedSystemPrompt = options?.systemPrompt;
         return { content: [] };
       },
     };
@@ -146,12 +143,9 @@ describe("identity context in notification decision engine", () => {
     mockIdentityContext = null;
 
     configuredProvider = {
-      sendMessage: async (
-        _messages: unknown,
-        _tools: unknown,
-        systemPrompt: unknown,
-      ) => {
-        capturedSystemPrompt = systemPrompt as string;
+      sendMessage: async (...args: unknown[]) => {
+        const options = args[1] as { systemPrompt?: string } | undefined;
+        capturedSystemPrompt = options?.systemPrompt;
         return { content: [] };
       },
     };
@@ -185,12 +179,9 @@ describe("identity context in notification decision engine", () => {
     mockIdentityContext = "A".repeat(3000);
 
     configuredProvider = {
-      sendMessage: async (
-        _messages: unknown,
-        _tools: unknown,
-        systemPrompt: unknown,
-      ) => {
-        capturedSystemPrompt = systemPrompt as string;
+      sendMessage: async (...args: unknown[]) => {
+        const options = args[1] as { systemPrompt?: string } | undefined;
+        capturedSystemPrompt = options?.systemPrompt;
         return { content: [] };
       },
     };

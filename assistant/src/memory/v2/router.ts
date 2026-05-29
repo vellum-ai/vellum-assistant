@@ -455,7 +455,7 @@ async function runRouterBatch(
   try {
     response = await provider.sendMessage([userMsg], {
       tools: [routerTool],
-      systemPrompt: systemPrompt,
+      systemPrompt,
       config: {
         callSite: "memoryRouter" as const,
         tool_choice: { type: "tool" as const, name: ROUTER_TOOL_NAME },

@@ -114,15 +114,16 @@ describe("RateLimitProvider", () => {
       const options = { config: { max_tokens: 100 } };
 
       await provider.sendMessage(messages, {
-        tools: tools,
-        systemPrompt: systemPrompt,
+        tools,
+        systemPrompt,
         ...options,
       });
 
       expect(receivedArgs[0]).toBe(messages);
-      expect(receivedArgs[1]).toBe(tools);
-      expect(receivedArgs[2]).toBe(systemPrompt);
-      expect(receivedArgs[3]).toBe(options);
+      const receivedOptions = receivedArgs[1] as Record<string, unknown>;
+      expect(receivedOptions.tools).toBe(tools);
+      expect(receivedOptions.systemPrompt).toBe(systemPrompt);
+      expect(receivedOptions.config).toEqual(options.config);
     });
   });
 

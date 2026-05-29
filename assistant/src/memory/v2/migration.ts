@@ -339,7 +339,7 @@ export async function synthesizeConceptPage(
     ],
     {
       tools: [],
-      systemPrompt: systemPrompt,
+      systemPrompt,
       config: { callSite: "memoryV2Migration" as const },
     },
   );

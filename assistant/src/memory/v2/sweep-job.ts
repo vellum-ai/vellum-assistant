@@ -156,7 +156,7 @@ export async function memoryV2SweepJob(
 
     const response = await provider.sendMessage([userMessage(userText)], {
       tools: [SWEEP_TOOL],
-      systemPrompt: systemPrompt,
+      systemPrompt,
       config: {
         callSite: "memoryV2Sweep" as const,
         tool_choice: { type: "tool" as const, name: SWEEP_TOOL_NAME },

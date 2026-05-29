@@ -959,7 +959,7 @@ async function classifyWithLLM(
   try {
     const response = await provider.sendMessage([userMessage(prompt)], {
       tools: [tool],
-      systemPrompt: systemPrompt,
+      systemPrompt,
       config: {
         callSite: "notificationDecision",
         max_tokens: 2048,

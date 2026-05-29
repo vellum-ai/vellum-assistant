@@ -267,7 +267,7 @@ export function createDescender(args: CreateDescenderArgs): DescendDecision {
     try {
       response = await provider.sendMessage([userMsg], {
         tools: [descendTool],
-        systemPrompt: systemPrompt,
+        systemPrompt,
         config: {
           callSite: "memoryV3Descent" as const,
           tool_choice: { type: "tool" as const, name: DESCEND_TOOL_NAME },

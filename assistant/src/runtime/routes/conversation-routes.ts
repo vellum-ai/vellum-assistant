@@ -2147,7 +2147,7 @@ async function generateLlmSuggestion(
     {
       tools: [],
       // no tools
-      systemPrompt: systemPrompt,
+      systemPrompt,
       config: {
         callSite: "replySuggestion",
         max_tokens: 60,

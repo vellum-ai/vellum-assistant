@@ -367,7 +367,7 @@ describe("Cross-Provider Web Search — OpenAI (Responses API, native mode)", ()
     ];
 
     await provider.sendMessage([userMsg("Search for something")], {
-      tools: tools,
+      tools,
     });
 
     const sentTools = lastOpenAIResponsesParams!.tools as Array<
