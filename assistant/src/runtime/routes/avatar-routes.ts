@@ -172,22 +172,19 @@ function handleUploadAvatarImage({ body, headers }: RouteHandlerArgs) {
   // Strictly validate the base64 BEFORE decoding. `Buffer.from(.., "base64")`
   // silently drops characters outside the alphabet, so a valid image prefix
   // followed by garbage would decode to a truncated/corrupt buffer that still
-  // passes the magic-byte sniff below — accepting a corrupt avatar. Reject
-  // anything that isn't well-formed standard base64 (tolerating surrounding
-  // whitespace) up front.
+  // passes the magic-byte sniff below — accepting a corrupt avatar. Same strict
+  // pattern used by stt-routes / live-voice (tolerating surrounding whitespace).
   const normalized = content.replace(/\s+/g, "");
   if (
     normalized.length === 0 ||
-    normalized.length % 4 !== 0 ||
-    !/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)
+    !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(
+      normalized,
+    )
   ) {
     throw new BadRequestError("content is not valid base64-encoded image data");
   }
 
   const buffer = Buffer.from(normalized, "base64");
-  if (buffer.length === 0) {
-    throw new BadRequestError("content is not valid base64-encoded image data");
-  }
   if (detectMediaType(buffer) === null) {
     throw new BadRequestError(
       "content must be a PNG, JPEG, GIF, or WEBP image",
