@@ -271,6 +271,40 @@ test("status --json displays address and usage", async () => {
   expect(process.exitCode).toBe(0);
 });
 
+test("status converges an already-registered inbox into local config", async () => {
+  // Simulate an inbox that exists on the platform but was never mirrored
+  // locally (e.g. registered before this change). A status check should
+  // converge email.address without requiring a fresh register.
+  mockFetchFn = async (path) => {
+    if (path.includes("/status/")) {
+      return new Response(
+        JSON.stringify({
+          address: "legacy@example.com",
+          status: "active",
+          created_at: "2026-04-05T12:00:00Z",
+          usage: {
+            sent_today: 0,
+            daily_limit: 100,
+            received_today: 0,
+            sent_this_month: 0,
+            received_this_month: 0,
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        results: [{ id: "addr-1", address: "legacy@example.com" }],
+      }),
+      { status: 200 },
+    );
+  };
+
+  await runAssistantCommandFull("email", "status");
+  expect(readConfiguredEmailAddress()).toBe("legacy@example.com");
+});
+
 // ---------------------------------------------------------------------------
 // email list
 // ---------------------------------------------------------------------------

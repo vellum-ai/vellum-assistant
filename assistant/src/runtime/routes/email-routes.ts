@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import {
+  getNestedValue,
   loadRawConfig,
   saveRawConfig,
   setNestedValue,
@@ -44,9 +45,15 @@ async function requireClient(): Promise<VellumPlatformClient> {
  * settings card (`/integrations/status`) and the email readiness probe —
  * which both read `email.address` — reflect the registered inbox. Pass
  * `undefined` to clear it on unregister.
+ *
+ * Change-guarded so the read-path callers (e.g. the `email status` GET
+ * handler, which converges already-registered inboxes) don't rewrite config
+ * on every poll — mirrors the cache-population pattern in `handleDomainStatus`.
  */
 function persistLocalInboxAddress(address: string | undefined): void {
   const raw = loadRawConfig();
+  const current = getNestedValue(raw, "email.address");
+  if (current === address) return;
   setNestedValue(raw, "email.address", address);
   saveRawConfig(raw);
 }
@@ -195,6 +202,12 @@ async function handleEmailStatus(_args: RouteHandlerArgs) {
       received_this_month: number;
     };
   };
+
+  // Converge already-registered inboxes: mirror the authoritative platform
+  // address into local config so the settings card / readiness probe reflect
+  // it without requiring a fresh `register`. Change-guarded, so repeated
+  // status polls don't rewrite config.
+  persistLocalInboxAddress(statusData.address);
 
   return statusData;
 }

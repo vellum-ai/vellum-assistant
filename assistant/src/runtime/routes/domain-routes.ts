@@ -88,14 +88,19 @@ async function handleDomainRegister({ body = {} }: RouteHandlerArgs) {
     email_error?: { detail: string; code: string };
   };
 
-  // Persist the subdomain to config so getAssistantDomain() can use it
+  // Persist the subdomain to config so getAssistantDomain() can use it.
+  // When an email address is registered alongside the domain, mirror it into
+  // local config too, so the settings card and email readiness probe — which
+  // read `email.address` — reflect the inbox without a manual config edit.
   const registeredSubdomain =
-    data.subdomain ??
-    data.domain?.replace(`.${apexDomain}`, "") ??
-    subdomain;
+    data.subdomain ?? data.domain?.replace(`.${apexDomain}`, "") ?? subdomain;
   if (registeredSubdomain) {
     const raw = loadRawConfig();
     setNestedValue(raw, "platform.subdomain", registeredSubdomain);
+    if (email_username && !data.email_error) {
+      const domain = data.domain ?? `${registeredSubdomain}.${apexDomain}`;
+      setNestedValue(raw, "email.address", `${email_username}@${domain}`);
+    }
     saveRawConfig(raw);
   }
 
@@ -116,11 +121,7 @@ async function handleDomainStatus(_args: RouteHandlerArgs) {
       unknown
     >;
     const detail = respBody.detail ?? `HTTP ${response.status}`;
-    throw new RouteError(
-      String(detail),
-      "LIST_FAILED",
-      response.status,
-    );
+    throw new RouteError(String(detail), "LIST_FAILED", response.status);
   }
 
   const data = (await response.json()) as {
@@ -138,12 +139,11 @@ async function handleDomainStatus(_args: RouteHandlerArgs) {
   // Sync subdomain to config if not already cached
   if (domains.length > 0) {
     const first = domains[0];
-    const sub =
-      first.subdomain ?? first.domain?.replace(`.${apexDomain}`, "");
+    const sub = first.subdomain ?? first.domain?.replace(`.${apexDomain}`, "");
     if (sub) {
       const raw = loadRawConfig();
-      const existing = (raw as Record<string, Record<string, unknown>>)
-        .platform?.subdomain;
+      const existing = (raw as Record<string, Record<string, unknown>>).platform
+        ?.subdomain;
       if (existing !== sub) {
         setNestedValue(raw, "platform.subdomain", sub);
         saveRawConfig(raw);
@@ -154,9 +154,7 @@ async function handleDomainStatus(_args: RouteHandlerArgs) {
   return data;
 }
 
-async function handleDomainVerificationStatus({
-  body = {},
-}: RouteHandlerArgs) {
+async function handleDomainVerificationStatus({ body = {} }: RouteHandlerArgs) {
   const { domain_id } = body as { domain_id?: string };
   if (!domain_id) {
     throw new BadRequestError("domain_id is required");
