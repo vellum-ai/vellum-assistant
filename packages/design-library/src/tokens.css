@@ -206,6 +206,7 @@
 
   /* Surface (extras beyond the base/overlay/active/lift/hover ramp) */
   --surface-sunken: #F6F5F4;    /* = surface-base in light; recessed in dark */
+  --surface-code: #F2F0EE;      /* code block / inline code chip background */
 
   /* Border (extras beyond base/disabled/element/hover/active/overlay) */
   --border-subtle: #E9E6E2;     /* = border-disabled in light; soft in dark */
@@ -286,6 +287,7 @@
 
   /* Surface (extras) */
   --surface-sunken: #1C2024;
+  --surface-code: #1C2024;
 
   /* Border (extras) */
   --border-subtle: #2D3339;
@@ -370,6 +372,7 @@
   /* Surface (extras). Sunken inherits dark — design to refine if velvet
    * wants its own subdued surface. */
   --surface-sunken: #1C2024;
+  --surface-code: #211D22;
 
   /* Border (extras) */
   --border-subtle: #2D3339;
