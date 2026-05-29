@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
+import { installAbout } from "./about";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { installDock } from "./dock";
 import { installApplicationMenu } from "./menu";
@@ -329,6 +330,7 @@ app
     }
     installPermissionHandler();
     installSettingsIpc();
+    installAbout();
     installApplicationMenu();
     installDock();
     spawnDaemon();
