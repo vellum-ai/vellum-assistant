@@ -75,6 +75,9 @@
   "src/domains/conversations/use-conversation-loader.ts": [
     "chat"
   ],
+  "src/domains/streaming/event-parser.test.ts": [
+    "chat"
+  ],
   "src/domains/streaming/stream-transport.test.ts": [
     "chat"
   ]
