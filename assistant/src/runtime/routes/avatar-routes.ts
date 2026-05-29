@@ -1,11 +1,5 @@
-import {
-  copyFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  unlinkSync,
-} from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 import { z } from "zod";
 
@@ -14,6 +8,11 @@ import {
   deriveStateFromLegacyFiles,
   readManifest,
 } from "../../avatar/avatar-manifest.js";
+import {
+  clearAvatar,
+  setCharacter,
+  setImage,
+} from "../../avatar/avatar-store.js";
 import { getCharacterComponents } from "../../avatar/character-components.js";
 import { updateIdentityAvatarSection } from "../../avatar/identity-avatar.js";
 import {
@@ -23,7 +22,7 @@ import {
 import { setPlatformBaseUrl } from "../../config/env.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
-import { generateAndSaveAvatar } from "../../tools/system/avatar-generator.js";
+import { generateAvatarImage } from "../../tools/system/avatar-generator.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getAvatarDir,
@@ -76,7 +75,7 @@ function handleRenderFromTraits({ body, headers }: RouteHandlerArgs) {
     );
   }
 
-  const result = writeTraitsAndRenderAvatar(traits);
+  const result = setCharacter(traits);
 
   if (!result.ok) {
     switch (result.reason) {
@@ -113,21 +112,14 @@ async function handleGenerateAvatar({ body, headers }: RouteHandlerArgs) {
     // Non-fatal
   }
 
-  const result = await generateAndSaveAvatar(description);
-  if (result.isError) {
+  const result = await generateAvatarImage(description);
+  if (result.isError || !result.pngBuffer) {
     throw new ServiceUnavailableError(result.content);
   }
 
-  // Remove native character files since AI-generated image takes precedence
-  const avatarDir = getAvatarDir();
-  const traitsPath = join(avatarDir, "character-traits.json");
-  const asciiPath = join(avatarDir, "character-ascii.txt");
-  try {
-    if (existsSync(traitsPath)) unlinkSync(traitsPath);
-    if (existsSync(asciiPath)) unlinkSync(asciiPath);
-  } catch {
-    // Best-effort
-  }
+  // Route through the store: atomically writes the PNG, removes the now-stale
+  // character sidecars (traits + ASCII), and records an AI-sourced manifest.
+  setImage(result.pngBuffer, "ai");
 
   updateIdentityAvatarSection(null, log);
   publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
@@ -158,9 +150,9 @@ function handleSetAvatar({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError(`Image file not found: ${normalized}`);
   }
 
-  const avatarPath = getAvatarImagePath();
-  mkdirSync(dirname(avatarPath), { recursive: true });
-  copyFileSync(normalized, avatarPath);
+  // Route through the store so traits sidecars are cleared and the manifest is
+  // recorded as an uploaded image atomically (no more stale both-files state).
+  setImage(readFileSync(normalized), "upload");
 
   updateIdentityAvatarSection(null, log);
   publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
@@ -168,33 +160,21 @@ function handleSetAvatar({ body, headers }: RouteHandlerArgs) {
 }
 
 function handleRemoveAvatar({ headers }: RouteHandlerArgs) {
-  const avatarPath = getAvatarImagePath();
+  const hadAvatar = existsSync(getAvatarImagePath());
 
-  if (!existsSync(avatarPath)) {
-    return { ok: true, hadAvatar: false };
-  }
-
-  unlinkSync(avatarPath);
-
-  // Regenerate character PNG from traits if available
-  const traitsPath = join(getAvatarDir(), "character-traits.json");
-  if (existsSync(traitsPath)) {
-    try {
-      const traits = JSON.parse(
-        readFileSync(traitsPath, "utf-8"),
-      ) as CharacterTraits;
-      writeTraitsAndRenderAvatar(traits);
-    } catch {
-      // Best-effort
-    }
-  }
+  // Clear everything to a manifest-consistent kind:"none". Semantic change
+  // (intentional): traits no longer persist alongside an image, so there is
+  // nothing to revert to — the legacy "re-render character from traits" branch
+  // has been removed. avatar/remove is now a plain clear, reachable only via
+  // CLI/host.
+  clearAvatar();
 
   updateIdentityAvatarSection(
     "Default character avatar (no custom image set)",
     log,
   );
   publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
-  return { ok: true, hadAvatar: true };
+  return { ok: true, hadAvatar };
 }
 
 function handleGetAvatar({ queryParams, body }: RouteHandlerArgs) {
