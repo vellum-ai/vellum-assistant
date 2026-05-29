@@ -735,11 +735,17 @@ function shortType(event: { message?: { type?: unknown } }): string {
 
 function ContainerLogs({
   events,
+  emptyLabel = "No container events recorded.",
 }: {
   events: ReportRunDetail["assistantEvents"];
+  /**
+   * Override the "no events" copy so the ingest section can read as
+   * "no memory-formation events" instead of the question-turn default.
+   */
+  emptyLabel?: string;
 }) {
   if (events.length === 0) {
-    return <p className="muted">No container events recorded.</p>;
+    return <p className="muted">{emptyLabel}</p>;
   }
   return (
     <pre className="log">
@@ -1045,9 +1051,25 @@ function ExecutionPage({ run }: { run: ReportRunDetail }) {
       </section>
 
       <section className="section">
+        <h2>Memory-formation events</h2>
+        <p className="section-subtle">
+          V2 only: typed event stream from the agent&apos;s ingest turn —
+          consuming the haystack sessions to form memory before the question is
+          asked. Empty for V1 runs and for V2 runs whose adapter doesn&apos;t
+          expose ingest-side events.
+        </p>
+        <ContainerLogs
+          events={run.ingestAssistantEvents}
+          emptyLabel="No memory-formation events recorded."
+        />
+      </section>
+
+      <section className="section">
         <h2>Container logs</h2>
         <p className="section-subtle">
-          Typed event stream emitted by the assistant inside the container.
+          Typed event stream emitted by the assistant inside the container
+          during the question turn — what the agent said in response to the
+          question.
         </p>
         <ContainerLogs events={run.assistantEvents} />
       </section>

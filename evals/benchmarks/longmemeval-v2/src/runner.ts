@@ -15,7 +15,8 @@
  *     don't need a second branch to consume V2 results)
  *   - same artifact layout under `.runs/<runId>/` via the existing
  *     `runArtifacts` helpers (`run.json`, `metrics.json`, `transcript.json`,
- *     `assistant-events.json`, `progress.ndjson`)
+ *     `assistant-events.json`, `ingest-assistant-events.json`,
+ *     `progress.ndjson`)
  *   - same wrapped progress reporter + heartbeat ticker, shared with
  *     `runEvalOnce` via `createRunProgressLifecycle` (the PR-8 extract
  *     that replaced the inlined `// PR-6 follow-up` blocks)
@@ -41,6 +42,7 @@ import {
   ensureRunArtifacts,
   type MetricResult,
   updateRunMetadata,
+  writeIngestAssistantEvents,
   writeRunMetadata,
   writeTranscript,
   writeUsage,
@@ -276,15 +278,16 @@ export async function runLongMemEvalV2Unit(
     ];
     await writeTranscript(input.runId, transcript);
 
-    // Persist the question-turn events. We deliberately drop the
-    // ingest-turn events on the floor for now — they're the agent's
-    // private memory-formation work, and surfacing them in the same
-    // file as the question-turn events would confuse the report
-    // server's "assistant said this in response to the question" view.
+    // Persist the question-turn events as the run's `assistant-events.json`
+    // (what the agent said in response to the question), and the ingest-turn
+    // events as `ingest-assistant-events.json` (the agent's memory-formation
+    // work consuming the haystack sessions). The report surfaces them as two
+    // separate sections so the question-turn view doesn't get diluted.
     await writeFile(
       artifacts.assistantEventsPath,
       JSON.stringify(ingestAskResult.questionEvents, null, 2),
     );
+    await writeIngestAssistantEvents(input.runId, ingestAskResult.ingestEvents);
 
     progress({
       step: "metrics",

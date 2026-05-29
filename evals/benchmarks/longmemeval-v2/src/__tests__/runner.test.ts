@@ -242,6 +242,71 @@ describe("runLongMemEvalV2Unit", () => {
     expect(steps).toContain("result:done");
   });
 
+  test("happy path: writes ingest-turn events to ingest-assistant-events.json, question-turn events to assistant-events.json", async () => {
+    // V2 contract: the agent's memory-formation work (ingest turn —
+    // "Ready.") lands in the sibling artifact so the report can render
+    // it separately from the question-turn answer. Both arrays must be
+    // non-empty and disjoint.
+    const runId = `lme-v2-runner-events-${Date.now()}`;
+    runIdsToCleanup.push(runId);
+    const harness = makeFakeAgent([
+      [textEvent("Indexing haystack…")],
+      [textEvent("The laptop was blue.")],
+    ]);
+    nextAgent = harness.agent;
+
+    await runLongMemEvalV2Unit({
+      profile: profileFor("p1"),
+      item: makeItem(),
+      trajectoryReader: trajectoryReader(),
+      runId,
+      progress: () => {},
+      quietMs: 50,
+    });
+
+    const artifacts = runArtifacts(runId);
+    const questionEvents = JSON.parse(
+      await readFile(artifacts.assistantEventsPath, "utf8"),
+    ) as AgentEvent[];
+    const ingestEvents = JSON.parse(
+      await readFile(artifacts.ingestAssistantEventsPath, "utf8"),
+    ) as AgentEvent[];
+
+    // Question-turn event made it to assistant-events.json
+    expect(questionEvents.length).toBeGreaterThan(0);
+    expect(
+      questionEvents.some(
+        (e) =>
+          (e.message as { type?: string; text?: string }).type ===
+            "assistant_text_delta" &&
+          (e.message as { text?: string }).text === "The laptop was blue.",
+      ),
+    ).toBe(true);
+
+    // Ingest-turn event made it to the new sibling artifact
+    expect(ingestEvents.length).toBeGreaterThan(0);
+    expect(
+      ingestEvents.some(
+        (e) =>
+          (e.message as { type?: string; text?: string }).type ===
+            "assistant_text_delta" &&
+          (e.message as { text?: string }).text === "Indexing haystack…",
+      ),
+    ).toBe(true);
+
+    // The two arrays don't leak — each is exclusive to its turn.
+    expect(
+      ingestEvents.some(
+        (e) => (e.message as { text?: string }).text === "The laptop was blue.",
+      ),
+    ).toBe(false);
+    expect(
+      questionEvents.some(
+        (e) => (e.message as { text?: string }).text === "Indexing haystack…",
+      ),
+    ).toBe(false);
+  });
+
   test("scores 0 when hypothesis misses the answer", async () => {
     const runId = `lme-v2-runner-miss-${Date.now()}`;
     runIdsToCleanup.push(runId);

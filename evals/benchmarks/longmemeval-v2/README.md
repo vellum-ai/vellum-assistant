@@ -189,13 +189,18 @@ A judge model that isn't in the local pricing table surfaces as an
 runner handles unknown agent models. Adding a new row in
 `evals/src/lib/pricing.ts` is the one-line fix.
 
-Still deferred (no PR-9 successor blocked on this — Phase 2 can land
-without it):
+### Ingest-turn events (PR-10b)
 
-- per-event transcript reconstruction. `assistant-events.json` still
-  captures only the question-turn events; a follow-up will surface the
-  ingest-turn events too once the report server can render them as a
-  distinct "agent's memory-formation work" section.
+The agent's ingest-turn AgentEvents (memory-formation work consuming
+the haystack sessions) are persisted to `ingest-assistant-events.json`
+in the run directory — sibling to `assistant-events.json`, which now
+strictly carries the question-turn events. The report surfaces them in
+a separate "Memory-formation events" section so the question-turn view
+isn't diluted by the agent's bookkeeping.
+
+V1 runs (no ingest phase) and V2 runs whose adapter doesn't emit
+ingest-side events leave the file as `[]` and the section renders an
+empty placeholder.
 
 ## Running the benchmark
 
