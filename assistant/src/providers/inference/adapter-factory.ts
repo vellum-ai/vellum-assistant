@@ -42,6 +42,8 @@ export interface AdapterCreateOpts {
   baseURL?: string;
   /** Forwarded to providers that wire native provider-side web search. */
   useNativeWebSearch: boolean;
+  /** Non-Authorization request headers resolved from auth. */
+  extraHeaders?: Record<string, string>;
   /** When true, the OpenAI adapter targets the Codex subscription endpoint. */
   codexSubscription?: boolean;
 }
@@ -74,11 +76,13 @@ const ADAPTER_FACTORIES: Record<string, AdapterFactory> = {
     streamTimeoutMs,
     baseURL,
     useNativeWebSearch,
+    extraHeaders,
     codexSubscription,
   }) =>
     new OpenAIResponsesProvider(apiKey, model, {
       useNativeWebSearch,
       streamTimeoutMs,
+      ...(extraHeaders ? { extraHeaders } : {}),
       codexSubscription,
       ...(baseURL ? { baseURL } : {}),
     }),
@@ -188,6 +192,10 @@ export function createAdapterFromConnection(
       : "";
   const baseURL =
     resolvedAuth.kind === "header" ? resolvedAuth.baseUrl : undefined;
+  const extraHeaders =
+    resolvedAuth.kind === "header"
+      ? stripAuthorizationHeader(resolvedAuth.headers)
+      : undefined;
 
   const codexSubscription =
     connection.auth.type === "oauth_subscription" && provider === "openai";
@@ -198,6 +206,9 @@ export function createAdapterFromConnection(
     streamTimeoutMs: opts.streamTimeoutMs ?? 1_800_000,
     baseURL,
     useNativeWebSearch: opts.useNativeWebSearch ?? false,
+    ...(extraHeaders && Object.keys(extraHeaders).length > 0
+      ? { extraHeaders }
+      : {}),
     codexSubscription,
   });
   if (!adapter) return null;
@@ -212,5 +223,15 @@ export function createAdapterFromConnection(
     new RetryProvider(adapter, {
       forwardUsageAttributionHeaders: isManagedProxy,
     }),
+  );
+}
+
+function stripAuthorizationHeader(
+  headers: Record<string, string>,
+): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).filter(
+      ([name]) => name.toLowerCase() !== "authorization",
+    ),
   );
 }

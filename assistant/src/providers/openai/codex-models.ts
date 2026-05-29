@@ -8,7 +8,9 @@
  * resolution of an "Any active OpenAI connection" profile.
  */
 export const CODEX_SUBSCRIPTION_MODEL_IDS: ReadonlySet<string> = new Set([
+  "gpt-5.5",
   "gpt-5.4",
+  "gpt-5.4-mini",
   "gpt-5.3-codex",
 ]);
 

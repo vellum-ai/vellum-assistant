@@ -25,8 +25,10 @@ export interface OpenAIResponsesProviderOptions {
   providerLabel?: string;
   streamTimeoutMs?: number;
   useNativeWebSearch?: boolean;
+  /** Additional request headers to send with Responses API calls. */
+  extraHeaders?: Record<string, string>;
   /** When true, target the Codex subscription endpoint and strip fields it
-   *  rejects (`max_output_tokens`, `reasoning`, `text`, `tools`). */
+   *  rejects (`max_output_tokens`). */
   codexSubscription?: boolean;
 }
 
@@ -111,6 +113,7 @@ export class OpenAIResponsesProvider implements Provider {
   private model: string;
   private streamTimeoutMs: number;
   private useNativeWebSearch: boolean;
+  private extraHeaders: Record<string, string>;
   private codexSubscription: boolean;
   private lastCodexErrorBody: string | undefined;
 
@@ -123,6 +126,7 @@ export class OpenAIResponsesProvider implements Provider {
     this.providerLabel = options.providerLabel ?? "OpenAI";
     this.codexSubscription = options.codexSubscription ?? false;
     this.streamTimeoutMs = options.streamTimeoutMs ?? 1_800_000;
+    this.extraHeaders = options.extraHeaders ?? {};
     // Keep the SDK deadline behind our provider stream timeout so
     // createStreamTimeout owns the user-facing timeout error.
     const sdkTimeoutMs = this.streamTimeoutMs + 60_000;
@@ -191,24 +195,22 @@ export class OpenAIResponsesProvider implements Provider {
         params.max_output_tokens = maxTokens;
       }
 
-      if (!this.codexSubscription) {
-        const reasoningEffort = effort
-          ? EFFORT_TO_REASONING_EFFORT[effort]
-          : undefined;
-        if (reasoningEffort) {
-          params.reasoning = { effort: reasoningEffort };
-        }
-
-        if (
-          verbosity &&
-          VALID_VERBOSITIES.has(verbosity) &&
-          modelSupportsVerbosity(modelOverride ?? this.model)
-        ) {
-          params.text = { verbosity };
-        }
+      const reasoningEffort = effort
+        ? EFFORT_TO_REASONING_EFFORT[effort]
+        : undefined;
+      if (reasoningEffort) {
+        params.reasoning = { effort: reasoningEffort };
       }
 
-      if (tools && tools.length > 0 && !this.codexSubscription) {
+      if (
+        verbosity &&
+        VALID_VERBOSITIES.has(verbosity) &&
+        modelSupportsVerbosity(modelOverride ?? this.model)
+      ) {
+        params.text = { verbosity };
+      }
+
+      if (tools && tools.length > 0) {
         if (
           this.useNativeWebSearch &&
           tools.some((t) => t.name === "web_search")
@@ -270,12 +272,16 @@ export class OpenAIResponsesProvider implements Provider {
             o?: { signal?: AbortSignal; headers?: Record<string, string> },
           ): Promise<AsyncIterable<ResponsesStreamEvent>>;
         };
+        const streamHeaders = {
+          ...this.extraHeaders,
+          ...(usageAttributionHeaders ?? {}),
+        };
         const stream = await responsesApi.create(
           { ...params, stream: true },
           {
             signal: timeoutSignal,
-            ...(usageAttributionHeaders
-              ? { headers: usageAttributionHeaders }
+            ...(Object.keys(streamHeaders).length > 0
+              ? { headers: streamHeaders }
               : {}),
           },
         );

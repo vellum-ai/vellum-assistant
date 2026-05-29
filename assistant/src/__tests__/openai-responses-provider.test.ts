@@ -1714,7 +1714,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
     expect(lastStreamParams!.max_output_tokens).toBeUndefined();
   });
 
-  test("codexSubscription: strips reasoning param even when effort is set", async () => {
+  test("codexSubscription: forwards reasoning param when effort is set", async () => {
     const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
       codexSubscription: true,
     });
@@ -1727,10 +1727,10 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
       { config: { effort: "high" } },
     );
 
-    expect(lastStreamParams!.reasoning).toBeUndefined();
+    expect(lastStreamParams!.reasoning).toEqual({ effort: "high" });
   });
 
-  test("codexSubscription: strips text.verbosity param", async () => {
+  test("codexSubscription: forwards text.verbosity param", async () => {
     const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
       codexSubscription: true,
     });
@@ -1743,7 +1743,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
       { config: { verbosity: "low" } },
     );
 
-    expect(lastStreamParams!.text).toBeUndefined();
+    expect(lastStreamParams!.text).toEqual({ verbosity: "low" });
   });
 
   test("codexSubscription: uses Codex baseURL", async () => {
@@ -1756,7 +1756,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
     );
   });
 
-  test("codexSubscription: strips tools param", async () => {
+  test("codexSubscription: forwards tools param", async () => {
     const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
       codexSubscription: true,
     });
@@ -1772,7 +1772,31 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
       [sampleTool],
     );
 
-    expect(lastStreamParams!.tools).toBeUndefined();
+    expect(lastStreamParams!.tools).toEqual([
+      {
+        type: "function",
+        name: "test_tool",
+        description: "A test tool",
+        parameters: { type: "object", properties: {} },
+        strict: null,
+      },
+    ]);
+  });
+
+  test("codexSubscription: forwards configured auth headers", async () => {
+    const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
+      codexSubscription: true,
+      extraHeaders: { "ChatGPT-Account-ID": "account-123" },
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await codexProvider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(lastStreamOptions!.headers).toEqual({
+      "ChatGPT-Account-ID": "account-123",
+    });
   });
 
   test("codexSubscription: still sends model, input, and instructions", async () => {
@@ -1791,7 +1815,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
     expect(lastStreamParams!.model).toBe("gpt-5.4");
     expect(lastStreamParams!.instructions).toBe("You are helpful.");
     expect(lastStreamParams!.max_output_tokens).toBeUndefined();
-    expect(lastStreamParams!.reasoning).toBeUndefined();
-    expect(lastStreamParams!.text).toBeUndefined();
+    expect(lastStreamParams!.reasoning).toEqual({ effort: "xhigh" });
+    expect(lastStreamParams!.text).toEqual({ verbosity: "high" });
   });
 });
