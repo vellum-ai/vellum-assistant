@@ -45,11 +45,14 @@ export function DocumentViewerPage() {
   const viewerRef = useRef<DocumentViewerContainerHandle>(null);
 
   useEffect(() => {
-    if (!surfaceId || !assistantId) {
-      setError(!surfaceId ? "No document ID provided." : "No assistant loaded.");
+    if (!surfaceId) {
+      setError("No document ID provided.");
       setLoading(false);
       return;
     }
+    // Wait for the selection store to resolve before fetching — on cold nav
+    // assistantId starts null and the lifecycle hook fills it asynchronously.
+    if (!assistantId) return;
 
     let cancelled = false;
     void (async () => {
@@ -73,7 +76,7 @@ export function DocumentViewerPage() {
     return () => {
       cancelled = true;
     };
-  }, [surfaceId]);
+  }, [surfaceId, assistantId]);
 
   // -------------------------------------------------------------------------
   // SSE subscription for real-time comment events
