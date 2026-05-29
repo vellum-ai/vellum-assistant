@@ -50,7 +50,6 @@ export async function injectAuxAssistantMessage(params: {
     params.conversationId,
     "assistant",
     JSON.stringify([{ type: "text", text: params.text }]),
-    undefined,
     { skipIndexing: true },
   );
 

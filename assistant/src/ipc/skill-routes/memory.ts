@@ -16,22 +16,18 @@ import type { SkillIpcRoute } from "../skill-ipc-types.js";
 // -- Param schemas --------------------------------------------------------
 
 /**
- * Shape mirrors the daemon's `addMessage()` positional signature:
- * `(conversationId, role, content, metadata?, opts?)`. `role` is
- * constrained to the `MessageRole` union. Metadata is a free-form
- * record (validated downstream by `messageMetadataSchema` with a
- * warn-and-store fallback). Only `skipIndexing` is recognised in `opts`.
+ * IPC params for `addMessage()`. `role` is constrained to the
+ * `MessageRole` union. `metadata` is a free-form record (validated
+ * downstream by `messageMetadataSchema` with a warn-and-store fallback).
+ * `skipIndexing` and `clientMessageId` mirror `AddMessageOptions`.
  */
 const MemoryAddMessageParams = z.object({
   conversationId: z.string().min(1),
   role: z.enum(["user", "assistant", "system"]),
   content: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
-  opts: z
-    .object({
-      skipIndexing: z.boolean().optional(),
-    })
-    .optional(),
+  skipIndexing: z.boolean().optional(),
+  clientMessageId: z.string().optional(),
 });
 
 /** Mirrors `WakeOptions` from `runtime/agent-wake.ts`. */
@@ -44,9 +40,19 @@ const MemoryWakeOpportunityParams = z.object({
 // -- Handlers -------------------------------------------------------------
 
 async function handleAddMessage(params?: Record<string, unknown>) {
-  const { conversationId, role, content, metadata, opts } =
-    MemoryAddMessageParams.parse(params);
-  return addMessage(conversationId, role, content, metadata, opts);
+  const {
+    conversationId,
+    role,
+    content,
+    metadata,
+    skipIndexing,
+    clientMessageId,
+  } = MemoryAddMessageParams.parse(params);
+  return addMessage(conversationId, role, content, {
+    metadata,
+    skipIndexing,
+    clientMessageId,
+  });
 }
 
 async function handleWakeAgentForOpportunity(

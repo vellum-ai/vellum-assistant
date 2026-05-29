@@ -78,7 +78,6 @@ async function handleCreateCli({ body = {} }: RouteHandlerArgs) {
       conversation.id,
       message.role,
       textContentJson(message.content),
-      undefined,
       { skipIndexing: true },
     );
   }

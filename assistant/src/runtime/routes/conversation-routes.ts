@@ -414,7 +414,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       conversationId,
       "user",
       JSON.stringify(cleanUserMessage.content),
-      channelMeta,
+      { metadata: channelMeta },
     );
     messageId = persistedUser.id;
 
@@ -428,7 +428,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       conversationId,
       "assistant",
       JSON.stringify(assistantMessage.content),
-      channelMeta,
+      { metadata: channelMeta },
     );
 
     // Avoid mutating in-memory history / emitting stream deltas while a run is active.
@@ -1453,7 +1453,7 @@ export async function handleSendMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        channelMeta,
+        { metadata: channelMeta },
       );
       conversation.getMessages().push(assistantMsg);
 
@@ -1762,7 +1762,7 @@ export async function handleSendMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        channelMeta,
+        { metadata: channelMeta },
       );
       conversation.getMessages().push(assistantMsg);
 
@@ -1895,7 +1895,7 @@ export async function handleSendMessage(
           conversationId,
           "assistant",
           JSON.stringify(assistantMsg.content),
-          channelMeta,
+          { metadata: channelMeta },
         );
         assistantMessagePersisted = true;
         conversation.getMessages().push(assistantMsg);
@@ -1990,7 +1990,7 @@ export async function handleSendMessage(
           conversationId,
           "assistant",
           JSON.stringify(assistantMsg.content),
-          channelMeta,
+          { metadata: channelMeta },
         );
         assistantMessagePersisted = true;
         conversation.getMessages().push(assistantMsg);
