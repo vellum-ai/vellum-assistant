@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRe
 import { useQueryClient } from "@tanstack/react-query";
 
 import { extractErrorMessage } from "@/utils/api-errors";
-import { getAssistant } from "@/assistant/api";
+import { getAssistant, type GetAssistantResult } from "@/assistant/api";
 import {
   buildInitializingTimeoutError,
   INITIALIZING_TIMEOUT_MS,
@@ -202,6 +202,19 @@ export function useAssistantLifecycle({
       if (generation !== initializingGenerationRef.current) return;
       if (result.ok) {
         initializingAssistantIdRef.current = result.data.id;
+        // Seed the assistant-query cache with the hatch response so
+        // post-hatch polling actually begins. The initial /assistant/
+        // read for a fresh user caches a 404; without this seed,
+        // `pollIntervalFor(404)` keeps the query idle and newly-hatched
+        // users sit on the initializing screen until the 5-minute
+        // stuck-assistant recovery timer fires. The hatch response is
+        // shape-compatible with `GetAssistantResult`, so projecting it
+        // directly avoids an extra round-trip we don't need.
+        queryClient.setQueryData<GetAssistantResult>(ASSISTANT_QUERY_KEY, {
+          ok: true,
+          status: result.status,
+          data: result.data,
+        });
       }
       if (!result.ok) {
         hatchRetryCountRef.current += 1;
@@ -222,6 +235,15 @@ export function useAssistantLifecycle({
         }
         if (shouldRecoverFromHatchFailure(result.status)) {
           setAssistantState({ kind: "initializing" });
+          // The hatch didn't take, so the cache is still a 404 — the
+          // query won't poll on its own. Fire-and-forget invalidate
+          // schedules a refetch; when it lands (still 404 in the
+          // recoverable case), the cache subscription re-runs
+          // `applyServerStateUpdate`, hits the `auto_hatch` branch,
+          // and drives the next hatch attempt against the retry
+          // budget. The original poll-loop did this implicitly; we
+          // re-create the loop explicitly here.
+          void queryClient.invalidateQueries({ queryKey: ASSISTANT_QUERY_KEY });
           return;
         }
 
@@ -243,6 +265,11 @@ export function useAssistantLifecycle({
       });
       if (generation !== initializingGenerationRef.current) return;
       setAssistantState({ kind: "initializing" });
+      // See the recoverable-failure branch above — the network error
+      // here is the same shape: the hatch didn't take, the cache is
+      // still 404, polling won't restart on its own. Invalidate so
+      // the subscription drives the next attempt.
+      void queryClient.invalidateQueries({ queryKey: ASSISTANT_QUERY_KEY });
       return;
     } finally {
       hatchingRef.current = false;
@@ -252,7 +279,7 @@ export function useAssistantLifecycle({
     // early poll returned 404 and switched state to "initializing"
     // while the hatch request was still in-flight.
     setAssistantState({ kind: "initializing" });
-  }, []);
+  }, [queryClient]);
 
   /**
    * Project a server result onto local lifecycle state + side effects.

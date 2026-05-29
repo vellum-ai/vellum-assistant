@@ -38,6 +38,11 @@ describe("useAssistantQuery polling cadence", () => {
   });
 
   test("polls every 3s while the assistant is cleaning up", () => {
+    // Raw server status `to_be_deleted` maps to lifecycle `kind:
+    // "cleaning_up"` via `resolveAssistantLifecycleState`. Calling
+    // out the raw → kind mapping here saves a future reader from
+    // grepping for the `to_be_deleted` literal and wondering why a
+    // "cleaning up" test fixture uses the wrong word.
     expect(pollIntervalFor(okResult("to_be_deleted"))).toBe(POLL_INTERVAL_MS);
   });
 
