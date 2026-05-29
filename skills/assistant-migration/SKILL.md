@@ -6,6 +6,7 @@ metadata:
   emoji: "🧳"
   vellum:
     display-name: "Assistant Migration"
+    includes: ["chatgpt-import"]
     activation-hints:
       - "User wants to migrate from ChatGPT, Claude, OpenClaw, Hermes, Manus, or another AI assistant into Vellum"
       - "User wants to migrate from ChatGPT or Claude into Vellum"
