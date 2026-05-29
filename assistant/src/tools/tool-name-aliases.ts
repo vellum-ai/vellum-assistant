@@ -16,23 +16,6 @@ const TOOL_NAME_ALIASES = new Map<
   ],
 ]);
 
-/**
- * Resolve high-confidence compatibility aliases before active-tool gating.
- * Keep this list narrow: aliases should only cover observed model drift where
- * the canonical target is active for the turn.
- */
-export function resolveToolNameAlias(
-  name: string,
-  allowedToolNames?: ReadonlySet<string>,
-): string {
-  if (allowedToolNames?.has(name)) return name;
-  const alias = TOOL_NAME_ALIASES.get(name);
-  if (!alias) return name;
-  if (allowedToolNames && !allowedToolNames.has(alias.canonicalName))
-    return name;
-  return alias.canonicalName;
-}
-
 export function resolveToolInvocationAlias(
   name: string,
   input: Record<string, unknown>,
@@ -67,6 +50,8 @@ function normalizeLegacyComputerUsePressKeyInput(
 
   if (key && modifiers.length > 0 && !key.includes("+")) {
     normalized.key = [...new Set(modifiers), key.toLowerCase()].join("+");
+  } else if (key && !key.includes("+")) {
+    normalized.key = key.toLowerCase();
   }
 
   return normalized;

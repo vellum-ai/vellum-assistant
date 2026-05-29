@@ -256,6 +256,26 @@ describe("ToolExecutor allowedToolNames gating", () => {
     });
   });
 
+  test("lowercases legacy computer_use_press_key key-only input", async () => {
+    const executor = new ToolExecutor(makePrompter());
+    const allowed = new Set(["computer_use_key"]);
+    const result = await executor.execute(
+      "computer_use_press_key",
+      {
+        key: "Space",
+        reasoning: "Pause media",
+      },
+      makeContext({ allowedToolNames: allowed }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(lastCheckArgs?.toolName).toBe("computer_use_key");
+    expect(lastCheckArgs?.input).toEqual({
+      key: "space",
+      reasoning: "Pause media",
+    });
+  });
+
   test("preserves exact active create_app tool before applying compatibility aliases", async () => {
     const executor = new ToolExecutor(makePrompter());
     const allowed = new Set(["create_app", "app_create"]);
