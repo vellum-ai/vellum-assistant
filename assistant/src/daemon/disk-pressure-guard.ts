@@ -258,6 +258,16 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
   // stepping down below its clear threshold lands here as a fresh warning
   // (state is still "critical" at this point, so the full 80% threshold
   // applies) and then holds with hysteresis on subsequent samples.
+  //
+  // Note on dismissal after a critical episode (intended behavior): the in-chat
+  // warning banner's dismissal is scoped to the live warning state, so a spike
+  // into critical clears it. When usage then steps back down into the warning
+  // band the banner re-shows and holds (down to the clear threshold) even
+  // though the user had dismissed an earlier warning. That is deliberate — the
+  // situation materially escalated (it reached the critical lock), so surfacing
+  // the warning again is correct, matching the client's existing
+  // escalation-resets-dismissal semantics. The hysteresis hold is what prevents
+  // the re-shown banner from flapping; the user can dismiss the current warning.
   const warningThreshold =
     state.status.state === "warning"
       ? DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT
