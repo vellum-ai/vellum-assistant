@@ -20,6 +20,10 @@ import type { SkillIpcRoute } from "../skill-ipc-types.js";
  * `MessageRole` union. `metadata` is a free-form record (validated
  * downstream by `messageMetadataSchema` with a warn-and-store fallback).
  * `skipIndexing` and `clientMessageId` mirror `AddMessageOptions`.
+ *
+ * Also accepts the legacy `opts: { skipIndexing }` shape sent by older
+ * skill-host-contracts builds — `opts.skipIndexing` is flattened into the
+ * top-level `skipIndexing` field in the handler.
  */
 const MemoryAddMessageParams = z.object({
   conversationId: z.string().min(1),
@@ -28,6 +32,7 @@ const MemoryAddMessageParams = z.object({
   metadata: z.record(z.string(), z.unknown()).optional(),
   skipIndexing: z.boolean().optional(),
   clientMessageId: z.string().optional(),
+  opts: z.object({ skipIndexing: z.boolean().optional() }).optional(),
 });
 
 /** Mirrors `WakeOptions` from `runtime/agent-wake.ts`. */
@@ -47,10 +52,11 @@ async function handleAddMessage(params?: Record<string, unknown>) {
     metadata,
     skipIndexing,
     clientMessageId,
+    opts,
   } = MemoryAddMessageParams.parse(params);
   return addMessage(conversationId, role, content, {
     metadata,
-    skipIndexing,
+    skipIndexing: skipIndexing ?? opts?.skipIndexing,
     clientMessageId,
   });
 }

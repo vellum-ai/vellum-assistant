@@ -80,12 +80,16 @@ type MessageRole = "user" | "assistant" | "system";
  * insert path actually accepts. Declared locally so tests can supply a
  * recording shim without importing the full database module.
  */
+export interface InsertMessageOptions {
+  metadata?: Record<string, unknown>;
+  skipIndexing?: boolean;
+}
+
 export type InsertMessageFn = (
   conversationId: string,
   role: MessageRole,
   content: string,
-  metadata?: Record<string, unknown>,
-  opts?: { skipIndexing?: boolean },
+  options?: InsertMessageOptions,
 ) => Promise<{ id: string } & Record<string, unknown>>;
 
 /** Minimal hub surface the bridge depends on — matches `host.events`. */
@@ -319,7 +323,7 @@ export class MeetConversationBridge {
       metadata.meetSpeakerId = event.speakerId;
     }
 
-    await this.insertMessage(this.conversationId, "user", content, metadata);
+    await this.insertMessage(this.conversationId, "user", content, { metadata });
   }
 
   private async handleInterimTranscript(
@@ -357,12 +361,13 @@ export class MeetConversationBridge {
     const content = JSON.stringify([{ type: "text", text: prefixed }]);
 
     await this.insertMessage(this.conversationId, "user", content, {
-      meetingId: this.meetingId,
-      meetTimestamp: event.timestamp,
-      meetChatFromId: event.fromId,
-      meetChatFromName: event.fromName,
-      /** Marks the message as automated-source so memory indexing can downweight. */
-      automated: true,
+      metadata: {
+        meetingId: this.meetingId,
+        meetTimestamp: event.timestamp,
+        meetChatFromId: event.fromId,
+        meetChatFromName: event.fromName,
+        automated: true,
+      },
     });
   }
 
@@ -381,13 +386,15 @@ export class MeetConversationBridge {
         "user",
         JSON.stringify([{ type: "text", text: line }]),
         {
-          meetingId: this.meetingId,
-          meetTimestamp: event.timestamp,
-          meetParticipantId: participant.id,
-          meetParticipantChange: "joined",
-          automated: true,
+          metadata: {
+            meetingId: this.meetingId,
+            meetTimestamp: event.timestamp,
+            meetParticipantId: participant.id,
+            meetParticipantChange: "joined",
+            automated: true,
+          },
+          skipIndexing: true,
         },
-        { skipIndexing: true },
       );
     }
 
@@ -399,13 +406,15 @@ export class MeetConversationBridge {
         "user",
         JSON.stringify([{ type: "text", text: line }]),
         {
-          meetingId: this.meetingId,
-          meetTimestamp: event.timestamp,
-          meetParticipantId: participant.id,
-          meetParticipantChange: "left",
-          automated: true,
+          metadata: {
+            meetingId: this.meetingId,
+            meetTimestamp: event.timestamp,
+            meetParticipantId: participant.id,
+            meetParticipantChange: "left",
+            automated: true,
+          },
+          skipIndexing: true,
         },
-        { skipIndexing: true },
       );
     }
   }
