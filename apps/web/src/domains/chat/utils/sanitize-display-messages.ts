@@ -19,17 +19,12 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 export function sanitizeDisplayMessages(
   messages: DisplayMessage[],
 ): DisplayMessage[] {
-  // Read the wall clock once at the pipeline boundary so every
-  // time-sensitive sub-step (currently Hack #5) sees the same instant.
-  // Tests mock `Date.now` via `spyOn(Date, "now")` to get deterministic
-  // stale-detection windows.
-  const nowMs = Date.now();
-  const pipeline: Array<(msgs: DisplayMessage[]) => DisplayMessage[]> = [
+  const pipeline = [
     sortByTimestamp,
     removeInvalidMessages,
     removeDuplicateTrailingAssistant,
     repairDanglingToolCalls,
-    (msgs) => failStaleToolCalls(msgs, nowMs),
+    failStaleToolCalls,
   ];
   return pipeline.reduce((msgs, step) => step(msgs), messages);
 }
@@ -348,10 +343,12 @@ const SYNTHETIC_STALE_RESULT =
  */
 const STALE_GRACE_MS = 30_000;
 
-function failStaleToolCalls(
-  messages: DisplayMessage[],
-  nowMs: number,
-): DisplayMessage[] {
+function failStaleToolCalls(messages: DisplayMessage[]): DisplayMessage[] {
+  // Read the wall clock once at the top of this step so every tool
+  // call in this pass is evaluated against the same instant. Tests
+  // mock `Date.now` via `spyOn(Date, "now")` for deterministic
+  // stale-detection windows.
+  const nowMs = Date.now();
   let result: DisplayMessage[] | null = null;
   for (let i = 0; i < messages.length; i++) {
     const m = messages[i]!;
