@@ -23,12 +23,9 @@ import {
   AVATAR_MANIFEST_FILENAME,
   getAvatarDir,
 } from "../util/platform.js";
-import type { CharacterTraits } from "./traits-png-sync.js";
+import { type CharacterTraits, TRAITS_FILENAME } from "./traits-png-sync.js";
 
 const log = getLogger("avatar-manifest");
-
-/** Legacy traits sidecar filename, mirrored from traits-png-sync.ts writes. */
-const TRAITS_FILENAME = "character-traits.json";
 
 export type AvatarKind = "character" | "image" | "none";
 export type AvatarSource = "builder" | "upload" | "ai";
@@ -140,6 +137,20 @@ function computeImageEtag(sizeBytes: number, mtimeMs: number): string {
 }
 
 /**
+ * Computes {@link AvatarImageMeta} for an avatar PNG already on disk. The etag
+ * is derived from the file's size and mtime and `updatedAt` is the mtime in ISO
+ * form, so both the legacy-derivation path and the store's write path agree on
+ * the same meta shape for the same file. Caller must ensure the file exists.
+ */
+export function computeImageMeta(imagePath: string): AvatarImageMeta {
+  const stats = statSync(imagePath);
+  return {
+    updatedAt: new Date(stats.mtimeMs).toISOString(),
+    etag: computeImageEtag(stats.size, stats.mtimeMs),
+  };
+}
+
+/**
  * Derives avatar state from the legacy sidecar files (traits JSON + PNG).
  * Used both by the one-time migration and as a temporary read fallback.
  *
@@ -171,15 +182,11 @@ export function deriveStateFromLegacyFiles(
 
   const imagePath = join(avatarDir, AVATAR_IMAGE_FILENAME);
   if (existsSync(imagePath)) {
-    const stats = statSync(imagePath);
     return {
       kind: "image",
       traits: null,
       source: null,
-      image: {
-        updatedAt: new Date(stats.mtimeMs).toISOString(),
-        etag: computeImageEtag(stats.size, stats.mtimeMs),
-      },
+      image: computeImageMeta(imagePath),
     };
   }
 
