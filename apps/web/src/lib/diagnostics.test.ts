@@ -1,18 +1,18 @@
 import { describe, expect, test } from "bun:test";
 
-import { bucketMessagesAdded } from "@/domains/chat/utils/diagnostics";
+import { bucketMessagesAdded } from "@/lib/diagnostics";
 
 describe("bucketMessagesAdded", () => {
   // Buckets must stay low-cardinality so the values are aggregable
   // as Sentry tags. Bands are chosen so 0 (no rescue) and 1 (single
-  // missed message — the LUM-1431 shape) are distinguishable, and
+  // missed message — the iOS watchdog shape) are distinguishable, and
   // larger rescues collapse into coarser buckets where the exact
   // count matters less than "this happened."
   test("returns '0' for no rescue", () => {
     expect(bucketMessagesAdded(0)).toBe("0");
   });
 
-  test("returns '1' for the single-missed-message LUM-1431 shape", () => {
+  test("returns '1' for the single-missed-message iOS watchdog shape", () => {
     expect(bucketMessagesAdded(1)).toBe("1");
   });
 

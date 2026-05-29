@@ -1,4 +1,4 @@
-import type { DisplayAttachment } from "@/domains/chat/types/types";
+import type { DisplayAttachment } from "@/types/attachment-types";
 
 // Single attachment summary line emitted by the runtime daemon when echoing
 // history (see vellum-assistant `daemon/handlers/shared.ts`

@@ -1,7 +1,7 @@
 /**
  * Module-level SSE stream debugging tracker.
  *
- * Records every SSE event that flows through {@link subscribeChatEvents}
+ * Records every SSE event that flows through the stream transport layer
  * and maintains a lightweight registry of active/past stream clients.
  *
  * Data is stored outside React state so it survives component unmounts and

@@ -1,25 +1,12 @@
 /**
  * Shared types for the chat/surface system.
- * Lives here (rather than in a Next.js route file) so both the main app
- * and the CDN build can import them.
  */
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { DisplayAttachment } from "@/types/attachment-types";
 import type { SlackMessageLink } from "@/utils/slack-message-link";
 
-/** Display metadata for a file attachment (user-uploaded or assistant-generated),
- *  used to render the chip inside a message bubble. For live sessions, populated
- *  from SSE event data via `toDisplayAttachments`. For history reload, populated
- *  from the daemon's structured attachment metadata (real UUIDs that resolve
- *  against the content endpoint) or, as a fallback, reverse-parsed from
- *  `[File attachment] …` summary lines in the message text. */
-export interface DisplayAttachment {
-  id: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  previewUrl: string | null;
-}
+export type { DisplayAttachment } from "@/types/attachment-types";
 
 export type { SlackMessageLink } from "@/utils/slack-message-link";
 export { parseSlackMessageLink, getSlackLinkUrl } from "@/utils/slack-message-link";

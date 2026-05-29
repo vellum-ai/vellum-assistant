@@ -26,7 +26,7 @@ import {
   test,
 } from "bun:test";
 
-import { client } from "@/domains/chat/api/client";
+import { client } from "@/generated/api/client.gen";
 
 import {
   CompactionTrailRequestError,

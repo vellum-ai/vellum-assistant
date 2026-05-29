@@ -8,34 +8,32 @@ mock.module("@capacitor/core", () => ({
   },
 }));
 
-import {
-  getChatDiagnosticsEvents,
-  recordChatDiagnostic,
-} from "@/domains/chat/utils/diagnostics";
+import { getDiagnosticsEvents, recordDiagnostic } from "@/lib/diagnostics";
 
 // ---------------------------------------------------------------------------
-// recordChatDiagnostic — centralized platform tag injection
+// recordDiagnostic — centralized platform tag injection
 //
-// The L2/L3 watchdog decision is platform-conditioned: LUM-1431 was
-// iOS-only, so a platform breakdown of watchdog fires is the data we
-// actually need. The diagnostics module injects `platform` once at the
-// SDK boundary (per the OpenTelemetry resource-attribute convention
-// — https://opentelemetry.io/docs/specs/otel/resource/sdk/) so every
+// The idle-watchdog decision is platform-conditioned: iOS WKWebView
+// silently stalls SSE connections, so a platform breakdown of watchdog
+// fires is the data we actually need. The diagnostics module injects
+// `platform` once at the SDK boundary (per the OpenTelemetry
+// resource-attribute convention —
+// https://opentelemetry.io/docs/specs/otel/resource/sdk/) so every
 // caller gets it for free without per-call-site plumbing. These tests
 // pin that contract and exercise the happy path under the mocked
 // Capacitor module rather than the diagnostics module's defensive
 // fallback.
 // ---------------------------------------------------------------------------
 
-describe("recordChatDiagnostic platform tag", () => {
+describe("recordDiagnostic platform tag", () => {
   test("injects platform from Capacitor.getPlatform on every recorded event", () => {
     mockedPlatform = "ios";
-    const eventCountBefore = getChatDiagnosticsEvents().length;
+    const eventCountBefore = getDiagnosticsEvents().length;
 
-    recordChatDiagnostic("test_kind_a", { foo: "bar" });
-    recordChatDiagnostic("test_kind_b", { baz: 1 });
+    recordDiagnostic("test_kind_a", { foo: "bar" });
+    recordDiagnostic("test_kind_b", { baz: 1 });
 
-    const newEvents = getChatDiagnosticsEvents().slice(eventCountBefore);
+    const newEvents = getDiagnosticsEvents().slice(eventCountBefore);
     expect(newEvents).toHaveLength(2);
     expect(newEvents[0]!.kind).toBe("test_kind_a");
     expect(newEvents[0]!.details.platform).toBe("ios");
@@ -48,26 +46,26 @@ describe("recordChatDiagnostic platform tag", () => {
   });
 
   test("call-site keys win over the injected platform tag", () => {
-    const eventCountBefore = getChatDiagnosticsEvents().length;
+    const eventCountBefore = getDiagnosticsEvents().length;
 
-    recordChatDiagnostic("test_kind_override", {
+    recordDiagnostic("test_kind_override", {
       platform: "explicit-override",
     });
 
-    const newEvents = getChatDiagnosticsEvents().slice(eventCountBefore);
+    const newEvents = getDiagnosticsEvents().slice(eventCountBefore);
     expect(newEvents).toHaveLength(1);
     expect(newEvents[0]!.details.platform).toBe("explicit-override");
   });
 
   test("injects different platform values when Capacitor reports different surfaces", () => {
-    const eventCountBefore = getChatDiagnosticsEvents().length;
+    const eventCountBefore = getDiagnosticsEvents().length;
 
     mockedPlatform = "android";
-    recordChatDiagnostic("test_kind_android");
+    recordDiagnostic("test_kind_android");
     mockedPlatform = "web";
-    recordChatDiagnostic("test_kind_web");
+    recordDiagnostic("test_kind_web");
 
-    const newEvents = getChatDiagnosticsEvents().slice(eventCountBefore);
+    const newEvents = getDiagnosticsEvents().slice(eventCountBefore);
     expect(newEvents).toHaveLength(2);
     expect(newEvents[0]!.details.platform).toBe("android");
     expect(newEvents[1]!.details.platform).toBe("web");

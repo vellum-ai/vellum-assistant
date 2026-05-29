@@ -154,7 +154,7 @@ References:
 
 ### Organize by domain, not technical layer
 
-Group code by what it does (messages, conversations, streaming,
+Group code by what it does (messages, conversations, voice,
 interactions), not by what it is (hooks, utils, components). The
 top-level folder for domain modules is called **`domains/`**.
 
@@ -181,15 +181,6 @@ src/
       conversation-queries.ts
       use-conversation-loader.ts
       types.ts
-    streaming/                     # SSE transport, event parsing
-      stream-store.ts
-      stream-transport.ts
-      event-parser.ts
-      event-types.ts
-      handlers/
-        message-handlers.ts
-        interaction-handlers.ts
-        types.ts
     chat/                          # chat feature module
       turn-store.ts                #   turn-level state machine
       turn-coordinator.ts          #   atomic turn-store + conversation-store transitions
@@ -207,6 +198,7 @@ src/
     auth/                          #   allauth client, CSRF, auth middleware
     feature-flags/                 #   feature flag provider
     sync/                          #   server state sync (tag registry, router)
+    streaming/                     #   SSE transport, event parsing, debug tracking
     api-client.ts                  #   HeyAPI configured client + interceptors
     telemetry/                     #   client identity for daemon registration
   runtime/                         # framework adapters, platform bridges
@@ -220,7 +212,7 @@ src/
 This app uses `domains/` over the more common `features/` because
 "features" implies product-level concepts (like "chat" or
 "settings") that contain multiple domains. `messages`,
-`conversations`, and `streaming` are business domains with distinct
+`conversations`, and `voice` are business domains with distinct
 data models and lifecycles — not features. `domains/` is more precise
 for a DDD-influenced architecture and signals that each folder
 represents a bounded context.
@@ -306,7 +298,7 @@ Examples of correct splits:
 - `messages/` vs `conversations/`: messages are created, streamed,
   delta-updated, and compacted — different lifecycle from conversation
   CRUD and grouping.
-- `streaming/` vs `messages/`: SSE transport and reconnection logic
+- `lib/streaming/` vs `messages/`: SSE transport and reconnection logic
   changes for different reasons than message state management.
 - `chat/interaction-store` vs `chat/turn-store`: user-facing prompts
   (secrets, confirmations) have their own state machine, independent
@@ -384,7 +376,7 @@ owns it.
 | `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-feature-flag-bus-sync.ts` |
 | `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
 | `types/` | Shared type definitions | `window.d.ts`, `api-types.ts` |
-| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `api-client.ts` (HeyAPI) |
+| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `streaming/` (SSE transport), `diagnostics.ts` (session ring buffer), `api-client.ts` (HeyAPI) |
 | `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 

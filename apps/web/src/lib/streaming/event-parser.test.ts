@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   parseAssistantEvent,
   toDisplayAttachments,
-} from "@/domains/chat/api/event-parser";
+} from "@/lib/streaming/event-parser";
 import { SYNC_TAGS } from "@/lib/sync/types";
 
 describe("parseAssistantEvent", () => {
@@ -2011,7 +2011,7 @@ describe("envelope format parsing", () => {
 describe("RuntimeMessage metadata types", () => {
   test("RuntimeMessage interface accepts optional metadata fields", () => {
     // Type-level test: ensure RuntimeMessage can carry metadata
-    const msg: import("./messages").RuntimeMessage = {
+    const msg: import("@/domains/chat/api/messages").RuntimeMessage = {
       id: "msg-1",
       role: "assistant",
       content: "Hello",
@@ -2036,7 +2036,7 @@ describe("RuntimeMessage metadata types", () => {
   });
 
   test("RuntimeMessage works without metadata fields", () => {
-    const msg: import("./messages").RuntimeMessage = {
+    const msg: import("@/domains/chat/api/messages").RuntimeMessage = {
       id: "msg-2",
       role: "user",
       content: "Hi",
@@ -2048,7 +2048,7 @@ describe("RuntimeMessage metadata types", () => {
   });
 
   test("ChatMessage interface accepts optional metadata fields", () => {
-    const msg: import("./event-types").ChatMessage = {
+    const msg: import("@/domains/chat/api/event-types").ChatMessage = {
       id: "msg-3",
       role: "assistant",
       content: "With metadata",

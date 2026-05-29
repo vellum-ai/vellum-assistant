@@ -16,10 +16,7 @@ import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
-import {
-  recordChatDiagnostic,
-  summarizeAssistantEvent,
-} from "@/domains/chat/utils/diagnostics";
+import { recordDiagnostic, summarizeAssistantEvent } from "@/lib/diagnostics";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import {
   handleHomeFeedUpdated,
@@ -93,7 +90,7 @@ export type {
 
 import type { ChatError } from "@/domains/chat/types";
 import type { AssistantEvent, AssistantSyncChangedEvent } from "@/types/event-types";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 
 // ---------------------------------------------------------------------------
 // Params & return types
@@ -231,7 +228,7 @@ export function useStreamEventHandler(
       // Discard events from stale/previous streams
       const eventSummary = summarizeAssistantEvent(event);
       if (epoch !== streamEpochRef.current) {
-        recordChatDiagnostic("sse_event_stale", {
+        recordDiagnostic("sse_event_stale", {
           epoch,
           currentEpoch: streamEpochRef.current,
           activeConversationId: useConversationStore.getState().activeConversationId,
@@ -250,7 +247,7 @@ export function useStreamEventHandler(
       // through unconditionally.
       if (isConversationScopedStreamEvent(event)) {
         if (!event.conversationId || !streamConversationId) {
-          recordChatDiagnostic("sse_event_wrong_conversation", {
+          recordDiagnostic("sse_event_wrong_conversation", {
             epoch,
             activeConversationId: useConversationStore.getState().activeConversationId,
             streamContext: streamContextRef.current,
@@ -260,7 +257,7 @@ export function useStreamEventHandler(
           return;
         }
         if (event.conversationId !== streamConversationId) {
-          recordChatDiagnostic("sse_event_wrong_conversation", {
+          recordDiagnostic("sse_event_wrong_conversation", {
             epoch,
             activeConversationId: useConversationStore.getState().activeConversationId,
             streamContext: streamContextRef.current,
@@ -278,7 +275,7 @@ export function useStreamEventHandler(
         event.type !== "assistant_text_delta" ||
         !tailIsStreamingAssistant(messagesRef.current)
       ) {
-        recordChatDiagnostic(
+        recordDiagnostic(
           event.type === "assistant_text_delta"
             ? "sse_assistant_text_delta_start"
             : "sse_event",

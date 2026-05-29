@@ -8,9 +8,10 @@
 
 import * as Sentry from "@sentry/browser";
 
-import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client";
-import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/utils/diagnostics";
-import { parseAssistantEvent } from "@/domains/chat/api/event-parser";
+import { client } from "@/generated/api/client.gen";
+import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
+import { recordDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
+import { parseAssistantEvent } from "@/lib/streaming/event-parser";
 import type { AssistantEvent } from "@/types/event-types";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
@@ -19,7 +20,7 @@ import {
   pushSseEvent,
   registerSseClient,
   unregisterSseClient,
-} from "@/domains/chat/api/stream-debug";
+} from "@/lib/streaming/stream-debug";
 
 // ---------------------------------------------------------------------------
 // SSE stream transport
@@ -201,7 +202,7 @@ export function subscribeChatEvents(
       // Record before aborting so the diagnostic captures the
       // attempt that actually stalled, even if the abort cascade
       // tears state down before the next reconnect runs.
-      recordChatDiagnostic("sse_watchdog_fired", {
+      recordDiagnostic("sse_watchdog_fired", {
         assistantId,
         conversationId: requestedConversationId ?? null,
         attempt: reconnectCount,
@@ -239,7 +240,7 @@ export function subscribeChatEvents(
         level: "warning",
         // platform is the only fleet-wide signal that distinguishes
         // Capacitor iOS from Safari iOS — Sentry's auto-detected
-        // os.name does not, but LUM-1431 is iOS-only so the L2/L3
+        // os.name does not, but the idle-watchdog is iOS-only so the L2/L3
         // decision needs the breakdown. tags are aggregable in
         // Discover; extras are not. wasTurnSending is promoted to a
         // tag so the user-harming vs benign split can be queried in
