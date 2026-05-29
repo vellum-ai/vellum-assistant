@@ -60,6 +60,12 @@ export interface StorageAccessor<T> {
   useValue: () => T;
 }
 
+/**
+ * Config for per-entity keyed storage. Intentionally has no `useValue`
+ * hook — if you need React subscription for per-entity data, prefer
+ * `createRecordStorageAccessor` or compose with `useSyncExternalStore`
+ * at the call site.
+ */
 export interface KeyedStorageAccessorConfig<T> {
   /** Builds the localStorage key from an entity ID (e.g., assistantId). */
   keyFn: (id: string) => string;
@@ -106,9 +112,13 @@ function readRaw(key: string): string | null {
 /**
  * Create a type-safe localStorage accessor for a single key.
  *
+ * Export one accessor per key from a shared module; don't re-create at
+ * the call site (snapshot caching is per-instance).
+ *
  * @example
  * ```ts
- * const pinnedApps = createStorageAccessor<PinnedAppEntry[]>({
+ * // utils/pinned-apps-storage.ts
+ * export const pinnedApps = createStorageAccessor<PinnedAppEntry[]>({
  *   key: "vellum:pinnedApps",
  *   scope: "user",
  *   parse: parsePinnedApps,
@@ -249,7 +259,11 @@ export interface RecordStorageAccessorConfig<V> {
   parseValue: (raw: unknown) => V | null;
   /** Value returned when the key is absent or unparseable. */
   fallback: Record<string, V>;
-  /** Max entries to retain. Oldest are dropped on save. */
+  /**
+   * Max entries to retain. Oldest are dropped on save by Object insertion
+   * order. Only works correctly with non-numeric string keys (numeric keys
+   * sort first per ES2015 spec, breaking oldest-first semantics).
+   */
   maxEntries?: number;
 }
 
