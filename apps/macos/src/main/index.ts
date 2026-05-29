@@ -74,6 +74,13 @@ protocol.registerSchemesAsPrivileged([
 // missing static assets return 404 so a stale or partial deploy surfaces as
 // a load error rather than silently serving HTML with a wrong Content-Type.
 // Reference: https://www.electronjs.org/docs/latest/api/protocol#protocolhandlescheme-handler
+// `apps/web/vite.config.ts` sets `base: "/assistant/"`, so the built
+// HTML emits asset URLs like `/assistant/assets/index.js`. The
+// renderer files on disk live directly under `rendererRoot`, NOT
+// under `rendererRoot/assistant/`. Pass the mount as a separate
+// parameter so the protocol handler strips it before path resolution.
+const RENDERER_MOUNT = "/assistant";
+
 const registerAppProtocol = (): void => {
   // The packaged renderer bundle lives next to the main bundle. When this app
   // is built into an .asar/Resources/app/ tree, apps/web/dist/ is copied to
@@ -82,7 +89,11 @@ const registerAppProtocol = (): void => {
   const indexHtml = path.join(rendererRoot, "index.html");
 
   protocol.handle(APP_PROTOCOL, async (request) => {
-    const result = resolveAppProtocolPath(rendererRoot, request.url);
+    const result = resolveAppProtocolPath(
+      rendererRoot,
+      request.url,
+      RENDERER_MOUNT,
+    );
     if (result.kind === "forbidden") {
       return new Response("Forbidden", { status: 403 });
     }
