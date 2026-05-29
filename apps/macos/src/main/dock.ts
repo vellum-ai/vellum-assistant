@@ -37,7 +37,7 @@ import { app, BrowserWindow, ipcMain } from "electron";
 // `> 999 → "999+"` is what we'd want if we ever exposed a triple-digit
 // counter, but macOS truncates very long strings and Swift caps at 99
 // today; we match Swift.
-const formatBadge = (count: number): string => {
+export const formatBadge = (count: number): string => {
   if (!Number.isFinite(count) || count <= 0) return "";
   if (count > 99) return "99+";
   return String(Math.floor(count));
@@ -68,10 +68,19 @@ let refreshTimer: NodeJS.Timeout | null = null;
 const visibleWindowCount = (): number =>
   BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed()).length;
 
-const computePolicy = (): DockState["policy"] => {
-  if (visibleWindowCount() > 0) return "regular";
-  if (state.signedIn) return "regular";
-  return ALLOW_ACCESSORY_MODE ? "accessory" : "regular";
+// Pure function of (visible window count, signed-in flag, accessory-mode
+// gate). Factored out of the caller so tests can exercise the matrix
+// without standing up a full Electron `BrowserWindow` registry — the
+// caller passes `visibleWindowCount()` + `state.signedIn` +
+// `ALLOW_ACCESSORY_MODE` at the seam.
+export const computePolicy = (
+  visibleWindows: number,
+  signedIn: boolean,
+  allowAccessoryMode: boolean,
+): DockState["policy"] => {
+  if (visibleWindows > 0) return "regular";
+  if (signedIn) return "regular";
+  return allowAccessoryMode ? "accessory" : "regular";
 };
 
 // `app.dock.show()` returns a Promise that resolves once the Dock has
@@ -96,7 +105,9 @@ const scheduleRefresh = (): void => {
   if (refreshTimer) clearTimeout(refreshTimer);
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
-    void applyPolicy(computePolicy());
+    void applyPolicy(
+      computePolicy(visibleWindowCount(), state.signedIn, ALLOW_ACCESSORY_MODE),
+    );
   }, POLICY_DEBOUNCE_MS);
 };
 
@@ -165,6 +176,8 @@ export const installDock = (): void => {
   // fire-and-forget — its `dock.show()` Promise just sequences the
   // following `setActivationPolicy` call inside `applyPolicy`; the
   // caller has nothing to await on.
-  void applyPolicy(computePolicy());
+  void applyPolicy(
+    computePolicy(visibleWindowCount(), state.signedIn, ALLOW_ACCESSORY_MODE),
+  );
   applyBadge();
 };

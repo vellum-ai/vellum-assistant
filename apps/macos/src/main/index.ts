@@ -4,10 +4,11 @@ import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
+import { resolveAppProtocolPath } from "./app-protocol";
+import { installDock } from "./dock";
 import { installApplicationMenu } from "./menu";
 import { readSetting, writeSetting } from "./settings";
 import { restoreBounds, track as trackWindowState } from "./window-state";
-import { installDock } from "./dock";
 
 // Dev-mode renderer URL. Honors `VELLUM_DEV_URL` so the launcher can
 // point the BrowserWindow at whichever Vite-or-equivalent is actually
@@ -171,16 +172,14 @@ const registerAppProtocol = (): void => {
   // is built into an .asar/Resources/app/ tree, apps/web/dist/ is copied to
   // ../renderer relative to the main process bundle.
   const rendererRoot = path.join(__dirname, "../renderer");
-  const rendererRootWithSep = rendererRoot + path.sep;
   const indexHtml = path.join(rendererRoot, "index.html");
 
   protocol.handle(APP_PROTOCOL, async (request) => {
-    const url = new URL(request.url);
-    const relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, "");
-    const resolved = path.normalize(path.join(rendererRoot, relativePath));
-    if (resolved !== rendererRoot && !resolved.startsWith(rendererRootWithSep)) {
+    const result = resolveAppProtocolPath(rendererRoot, request.url);
+    if (result.kind === "forbidden") {
       return new Response("Forbidden", { status: 403 });
     }
+    const { resolved } = result;
     if (await fileExists(resolved)) {
       return net.fetch(pathToFileURL(resolved).toString());
     }
