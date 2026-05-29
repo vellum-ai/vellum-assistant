@@ -10,7 +10,7 @@ import {
 } from "@/domains/conversations/conversation-queries";
 import { conversationsSeenPost } from "@/generated/daemon/sdk.gen";
 import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions";
-import { USER_FACING_INTERACTION_KINDS } from "@/domains/chat/api/event-types";
+import { USER_FACING_INTERACTION_KINDS } from "@/types/event-types";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 

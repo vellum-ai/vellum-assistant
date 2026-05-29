@@ -21,7 +21,7 @@ import {
   usePullToRefresh,
 } from "@/domains/chat/transcript/use-pull-to-refresh";
 import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height";
-import type { ConfirmationDecision } from "@/domains/chat/api/event-types";
+import type { ConfirmationDecision } from "@/types/event-types";
 
 /** Distance from the bottom (in px) at or below which the transcript is
  *  considered pinned to the latest message. Surfaced through
@@ -75,9 +75,9 @@ export interface TranscriptProps {
     riskLevel?: string;
     riskReason?: string;
     input?: Record<string, unknown>;
-    allowlistOptions: import("@/domains/chat/api/event-types").AllowlistOption[];
-    scopeOptions: import("@/domains/chat/api/event-types").ScopeOption[];
-    directoryScopeOptions: import("@/domains/chat/api/event-types").DirectoryScopeOption[];
+    allowlistOptions: import("@/types/interaction-ui-types").AllowlistOption[];
+    scopeOptions: import("@/types/interaction-ui-types").ScopeOption[];
+    directoryScopeOptions: import("@/types/interaction-ui-types").DirectoryScopeOption[];
   }) => void;
   /** Set of tool-call ids that should display the "command not recognized"
    *  nudge below their chip. */

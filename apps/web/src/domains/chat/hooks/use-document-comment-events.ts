@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 
 // ---------------------------------------------------------------------------
 // Types

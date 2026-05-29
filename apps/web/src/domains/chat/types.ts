@@ -8,7 +8,7 @@
 
 
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
-import type { AllowlistOption, DirectoryScopeOption, QuestionEntry, ScopeOption } from "@/domains/chat/api/event-types";
+import type { AllowlistOption, DirectoryScopeOption, QuestionEntry, ScopeOption } from "@/types/interaction-ui-types";
 
 // ---------------------------------------------------------------------------
 // Assistant state

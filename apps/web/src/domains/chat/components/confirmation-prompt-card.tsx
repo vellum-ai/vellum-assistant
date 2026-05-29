@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { Card } from "@vellum/design-library";
 import { getRiskBadgeStyle } from "@/domains/chat/utils/risk";
-import type { AllowlistOption, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 
 export interface ConfirmationPromptCardProps {
   confirmation: {

@@ -42,7 +42,7 @@ import type { ContextWindowUsage } from "@/domains/chat/components/context-windo
 import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";
 import { useSubagentStore } from "@/domains/subagents/subagent-store";
-import type { SubagentStatus } from "@/domains/chat/api/event-types";
+import type { SubagentStatus } from "@/types/interaction-ui-types";
 
 import {
   parsePendingSecretState,

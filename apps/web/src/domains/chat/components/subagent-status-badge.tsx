@@ -1,4 +1,4 @@
-import type { SubagentStatus } from "@/domains/chat/api/event-types";
+import type { SubagentStatus } from "@/types/interaction-ui-types";
 import {
   statusColor,
   statusLabel,

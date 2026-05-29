@@ -6,7 +6,7 @@ import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
-import type { ConfirmationDecision } from "@/domains/chat/api/event-types";
+import type { ConfirmationDecision } from "@/types/event-types";
 
 /**
  * Thin dispatcher: render one `TranscriptItem` using the matching existing
@@ -48,9 +48,9 @@ export interface TranscriptRowProps {
     riskLevel?: string;
     riskReason?: string;
     input?: Record<string, unknown>;
-    allowlistOptions: import("@/domains/chat/api/event-types").AllowlistOption[];
-    scopeOptions: import("@/domains/chat/api/event-types").ScopeOption[];
-    directoryScopeOptions: import("@/domains/chat/api/event-types").DirectoryScopeOption[];
+    allowlistOptions: import("@/types/interaction-ui-types").AllowlistOption[];
+    scopeOptions: import("@/types/interaction-ui-types").ScopeOption[];
+    directoryScopeOptions: import("@/types/interaction-ui-types").DirectoryScopeOption[];
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
