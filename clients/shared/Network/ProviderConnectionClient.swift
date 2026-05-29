@@ -39,10 +39,10 @@ public struct ChatgptAuthStartResult: Sendable {
 public protocol ProviderConnectionClientProtocol {
     func listProviderConnections(provider: String?) async -> [ProviderConnection]?
     func getProviderConnection(name: String) async -> ProviderConnection?
-    /// `label` and `status` are optional extras; pass `nil` to omit from the request body.
-    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth, label: String?, status: ConnectionStatus?, baseUrl: String?, models: [ConnectionModel]?) async -> ProviderConnectionCreateResult
-    /// `status`: nil = omit from body (no change). `label`: nil outer = omit; `.some(nil)` = send null (clear); `.some("v")` = set.
-    func updateProviderConnection(name: String, auth: ProviderConnectionAuth, status: ConnectionStatus?, label: String??, baseUrl: String??, models: [ConnectionModel]??) async -> ProviderConnection?
+    /// `label` is optional; pass `nil` to omit from the request body.
+    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth, label: String?, baseUrl: String?, models: [ConnectionModel]?) async -> ProviderConnectionCreateResult
+    /// `label`: nil outer = omit; `.some(nil)` = send null (clear); `.some("v")` = set.
+    func updateProviderConnection(name: String, auth: ProviderConnectionAuth, label: String??, baseUrl: String??, models: [ConnectionModel]??) async -> ProviderConnection?
     func deleteProviderConnection(name: String) async -> ProviderConnectionDeleteResult
     /// Start a ChatGPT subscription OAuth flow. Returns the authorize URL and state token.
     func startChatgptSubscriptionAuth() async -> ChatgptAuthStartResult?
@@ -110,7 +110,6 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
         provider: String,
         auth: ProviderConnectionAuth,
         label: String? = nil,
-        status: ConnectionStatus? = nil,
         baseUrl: String? = nil,
         models: [ConnectionModel]? = nil
     ) async -> ProviderConnectionCreateResult {
@@ -120,7 +119,6 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
             "auth": Self.authDict(for: auth),
         ]
         if let label { body["label"] = label }
-        if let status { body["status"] = status.rawValue }
         if let baseUrl { body["base_url"] = baseUrl }
         if let models { body["models"] = models.map { model -> [String: Any] in var d: [String: Any] = ["id": model.id]; if let dn = model.displayName { d["displayName"] = dn }; return d } }
         do {
@@ -166,14 +164,12 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
     public func updateProviderConnection(
         name: String,
         auth: ProviderConnectionAuth,
-        status: ConnectionStatus? = nil,
         label: String?? = nil,
         baseUrl: String?? = nil,
         models: [ConnectionModel]?? = nil
     ) async -> ProviderConnection? {
         let encoded = Self.encodePath(name)
         var body: [String: Any] = ["auth": Self.authDict(for: auth)]
-        if let status { body["status"] = status.rawValue }
         if let outerLabel = label {
             body["label"] = outerLabel ?? NSNull()
         }
@@ -289,24 +285,3 @@ public struct ProviderConnectionClient: ProviderConnectionClientProtocol {
     }
 }
 
-// MARK: - ProviderConnection helpers
-
-extension ProviderConnection {
-    /// Return a copy of this connection with `status` replaced. Used by the
-    /// inline list-row toggle for optimistic + rollback updates without
-    /// needing the auto-generated struct's properties to be mutable.
-    public func withStatus(_ newStatus: ConnectionStatus) -> ProviderConnection {
-        ProviderConnection(
-            name: name,
-            provider: provider,
-            auth: auth,
-            status: newStatus,
-            label: label,
-            createdAt: createdAt,
-            updatedAt: updatedAt,
-            isManaged: isManaged,
-            baseUrl: baseUrl,
-            models: models
-        )
-    }
-}
