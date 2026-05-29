@@ -9,8 +9,6 @@ import {
   isNull,
   lt,
   lte,
-  ne,
-  or,
   sql,
 } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
@@ -454,45 +452,6 @@ export function getCompactionLogsBetween(
     .where(and(...predicates))
     .orderBy(asc(llmRequestLogs.createdAt), asc(llmRequestLogs.id))
     .all();
-}
-
-/**
- * Find the `createdAt` of the most recent non-`compactionAgent` LLM
- * call in the conversation strictly before `beforeCreatedAt`, or `null`
- * when no such call exists (i.e. the cutoff is the first real call).
- *
- * Pairs with `getCompactionLogsBetween` to bound the compaction trail
- * to the window between the prior real call and the selected call.
- *
- * "Non-compactionAgent" means `callSite IS NULL OR callSite !=
- * 'compactionAgent'`. NULL rows are pre-migration-264 (no backfill) and
- * are treated as real agent calls — they were `mainAgent` in practice.
- * The OR-with-IS NULL is required because SQL's three-valued logic
- * makes `callSite != 'compactionAgent'` return UNKNOWN (not TRUE) for
- * NULL rows, which would otherwise filter them out.
- */
-export function getPreviousNonCompactionCallCreatedAt(
-  conversationId: string,
-  beforeCreatedAt: number,
-): number | null {
-  const db = getDb();
-  const row = db
-    .select({ createdAt: llmRequestLogs.createdAt })
-    .from(llmRequestLogs)
-    .where(
-      and(
-        eq(llmRequestLogs.conversationId, conversationId),
-        lt(llmRequestLogs.createdAt, beforeCreatedAt),
-        or(
-          isNull(llmRequestLogs.callSite),
-          ne(llmRequestLogs.callSite, "compactionAgent"),
-        ),
-      ),
-    )
-    .orderBy(desc(llmRequestLogs.createdAt), desc(llmRequestLogs.id))
-    .limit(1)
-    .get();
-  return row?.createdAt ?? null;
 }
 
 export function getRequestLogById(logId: string): LogRow | null {
