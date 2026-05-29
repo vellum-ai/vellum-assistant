@@ -234,6 +234,28 @@ describe("ToolExecutor allowedToolNames gating", () => {
     expect(result.content).toBe("ok");
   });
 
+  test("canonicalizes legacy computer_use_press_key alias before active-tool gating", async () => {
+    const executor = new ToolExecutor(makePrompter());
+    const allowed = new Set(["computer_use_key"]);
+    const result = await executor.execute(
+      "computer_use_press_key",
+      {
+        key: "Space",
+        modifiers: ["Command"],
+        reasoning: "Open Spotlight",
+      },
+      makeContext({ allowedToolNames: allowed }),
+    );
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toBe("ok");
+    expect(lastCheckArgs?.toolName).toBe("computer_use_key");
+    expect(lastCheckArgs?.input).toEqual({
+      key: "cmd+space",
+      reasoning: "Open Spotlight",
+    });
+  });
+
   test("preserves exact active create_app tool before applying compatibility aliases", async () => {
     const executor = new ToolExecutor(makePrompter());
     const allowed = new Set(["create_app", "app_create"]);
