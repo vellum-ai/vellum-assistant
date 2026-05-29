@@ -61,12 +61,16 @@ mock.module("react-router", () => ({
   useSearchParams: () => [searchParams],
 }));
 
-mock.module("@/root-layout", () => ({
-  useRootOutletContext: () => ({
-    lifecycle: {
-      checkAssistant: checkAssistantMock,
+mock.module("@/assistant/lifecycle-store", () => ({
+  useAssistantLifecycleStore: Object.assign(
+    () => ({ checkAssistant: checkAssistantMock }),
+    {
+      use: {
+        checkAssistant: () => checkAssistantMock,
+      },
+      getState: () => ({ checkAssistant: checkAssistantMock }),
     },
-  }),
+  ),
 }));
 
 mock.module("@/assistant/api", () => ({

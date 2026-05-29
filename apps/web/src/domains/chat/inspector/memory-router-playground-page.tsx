@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import { Card } from "@vellum/design-library";
 
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
   useCurrentNowText,
@@ -76,7 +76,7 @@ const EMPTY_OVERRIDES: PaneOverrides = {
 };
 
 function PlaygroundView(): ReactNode {
-  const { assistantId } = useActiveAssistantContext();
+  const assistantId = useActiveAssistantId();
   const mutationA = useSimulateMemoryRouter(assistantId);
   const mutationB = useSimulateMemoryRouter(assistantId);
   const profilesQuery = useLlmProfiles(assistantId);

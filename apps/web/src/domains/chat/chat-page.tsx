@@ -22,8 +22,9 @@ import * as Sentry from "@sentry/react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAuthStore } from "@/stores/auth-store";
-import { useAssistantContext } from "@/components/layout/assistant-context";
-import { useAssistantSelectionStore } from "@/stores/assistant-selection-store";
+import { useChatLayoutContext } from "@/components/layout/chat-layout-context";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
   COMPOSER_FOCUS_EVENT,
@@ -154,16 +155,15 @@ export function ChatPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
-  const {
-    assistantState,
-    checkAssistant,
-    retryAssistant,
-    hatchVersion,
-    setTopBarCenter,
-    setTopBarRightSlot,
-    setOnSearchClick,
-  } = useAssistantContext();
+  const { setTopBarCenter, setTopBarRightSlot, setOnSearchClick } =
+    useChatLayoutContext();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantState = useAssistantLifecycleStore.use.assistantState();
+  // Imperative callbacks are stable refs registered by `useAssistantLifecycle`
+  // on mount; read once at the top of the render body via atomic selector.
+  const checkAssistant = useAssistantLifecycleStore.use.checkAssistant();
+  const retryAssistant = useAssistantLifecycleStore.use.retryAssistant();
+  const hatchVersion = useAssistantLifecycleStore.use.hatchVersion();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const doctor = useClientFeatureFlagStore.use.doctor();

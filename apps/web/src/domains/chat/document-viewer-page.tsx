@@ -12,7 +12,7 @@ import { useNavigate, useParams } from "react-router";
 import { Loader2 } from "lucide-react";
 import { Typography } from "@vellum/design-library";
 
-import { useAssistantSelectionStore } from "@/stores/assistant-selection-store";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";

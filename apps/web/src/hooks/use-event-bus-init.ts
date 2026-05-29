@@ -23,6 +23,7 @@ import { useEffect } from "react";
 import * as Sentry from "@sentry/browser";
 import type { PluginListenerHandle } from "@capacitor/core";
 
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { subscribeChatEvents } from "@/lib/streaming/stream-transport";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import { useEventBusStore } from "@/stores/event-bus-store";
@@ -33,13 +34,6 @@ interface UseEventBusInitParams {
   assistantId: string | null;
   /** `true` once the assistant lifecycle reports `kind === "active"`. */
   isAssistantActive: boolean;
-  /**
-   * Called on `app.resume`. Today this triggers a daemon health check
-   * so assistant-state recovers after a long background pause. Pulled
-   * in as a callback so the hook stays decoupled from
-   * `useAssistantLifecycle`'s shape.
-   */
-  checkAssistant: () => void;
 }
 
 const RESUME_DEDUP_WINDOW_MS = 1000;
@@ -47,7 +41,6 @@ const RESUME_DEDUP_WINDOW_MS = 1000;
 export function useEventBusInit({
   assistantId,
   isAssistantActive,
-  checkAssistant,
 }: UseEventBusInitParams): void {
   // -------------------------------------------------------------------------
   // Effect 1: DOM + Capacitor lifecycle event sources
@@ -193,7 +186,11 @@ export function useEventBusInit({
       const now = Date.now();
       if (now - lastResumeAt < RESUME_DEDUP_WINDOW_MS) return;
       lastResumeAt = now;
-      checkAssistant();
+      // Daemon health check via the lifecycle store. Registered by
+      // `useAssistantLifecycle` on mount; the no-op default covers
+      // the pre-registration window but no foreground resume event
+      // can fire before `RootLayout` has mounted.
+      void useAssistantLifecycleStore.getState().checkAssistant();
       if (current) return;
       open();
     });
@@ -217,5 +214,5 @@ export function useEventBusInit({
       current?.cancel();
       current = null;
     };
-  }, [assistantId, isAssistantActive, checkAssistant]);
+  }, [assistantId, isAssistantActive]);
 }

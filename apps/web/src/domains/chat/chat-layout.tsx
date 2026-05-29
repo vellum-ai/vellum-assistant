@@ -13,14 +13,14 @@ import { useQueryClient } from "@tanstack/react-query";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
-import { useRootOutletContext } from "@/root-layout";
-import { useAssistantSelectionStore } from "@/stores/assistant-selection-store";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
-import type { AssistantContextValue } from "@/components/layout/assistant-context";
+import type { ChatLayoutContextValue } from "@/components/layout/chat-layout-context";
 
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -140,10 +140,12 @@ interface SideMenuRenderArgs {
 }
 
 /**
- * Chat-specific layout route providing sidebar rail, mobile drawer, keyboard
- * shortcuts (Ctrl+\, Ctrl+K, Ctrl+[/]), and the chat header bar. Owns the
- * assistant lifecycle and passes the resolved state to child routes via
- * outlet context.
+ * Chat-specific layout route providing sidebar rail, mobile drawer,
+ * keyboard shortcuts (Ctrl+\, Ctrl+K, Ctrl+[/]), and the chat header
+ * bar. Reads the resolved assistant from `useAssistantSelectionStore`
+ * and the lifecycle phase from `useAssistantLifecycleStore`. Exposes
+ * its header-slot setters to child routes via outlet context (the
+ * remaining role of `ChatLayoutContextValue`).
  *
  * References:
  * - React Router nested layouts: https://reactrouter.com/start/data/routing
@@ -152,8 +154,10 @@ interface SideMenuRenderArgs {
 export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { lifecycle } = useRootOutletContext();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantStateKind =
+    useAssistantLifecycleStore.use.assistantState().kind;
+  const isAssistantActive = assistantStateKind === "active";
 
   // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
@@ -161,7 +165,6 @@ export function ChatLayout() {
   // TanStack Query handles dedup with any other consumer using the same key.
   const conversationGroupsUI = useAssistantFeatureFlagStore.use.conversationGroupsUI();
   const homePageEnabled = useClientFeatureFlagStore.use.homePage();
-  const isAssistantActive = lifecycle.assistantState.kind === "active";
   const { conversations } = useConversationListQuery(
     assistantId,
     isAssistantActive,
@@ -177,8 +180,8 @@ export function ChatLayout() {
   // post-reconnect reconcile sweep stay live across home, library,
   // contacts, identity, and chat — not only inside `/assistant`.
   useAttentionTracking({
-    assistantId: assistantId,
-    assistantStateKind: lifecycle.assistantState.kind,
+    assistantId,
+    assistantStateKind,
   });
 
   // Group CRUD handlers live at the layout level since the sidebar's
@@ -187,7 +190,7 @@ export function ChatLayout() {
   // it can live wherever the sidebar lives.
   const { handleRenameGroup, handleDeleteGroup } =
     useConversationGroupActions({
-      assistantId: assistantId,
+      assistantId,
       conversationGroups,
     });
 
@@ -196,8 +199,8 @@ export function ChatLayout() {
   // route — not only inside a conversation where ChatPage owns the
   // fetch.
   useAssistantIdentityInit({
-    assistantId: assistantId,
-    assistantStateKind: lifecycle.assistantState.kind,
+    assistantId,
+    assistantStateKind,
   });
 
   // Sync the browser favicon to the assistant's avatar across every
@@ -237,25 +240,13 @@ export function ChatLayout() {
   const assistantName = useAssistantIdentityStore.use.name();
   const assistantVersion = useAssistantIdentityStore.use.version();
 
-  const assistantContext = useMemo<AssistantContextValue>(
+  const chatLayoutContext = useMemo<ChatLayoutContextValue>(
     () => ({
-      assistantState: lifecycle.assistantState,
-      checkAssistant: lifecycle.checkAssistant,
-      retryAssistant: lifecycle.retryAssistant,
-      hatchVersion: lifecycle.hatchVersion,
-      autoGreetRef: lifecycle.autoGreetRef,
       setTopBarCenter,
       setTopBarRightSlot,
       setOnSearchClick,
     }),
-    [
-      lifecycle.assistantState,
-      lifecycle.checkAssistant,
-      lifecycle.retryAssistant,
-      lifecycle.hatchVersion,
-      lifecycle.autoGreetRef,
-      setOnSearchClick,
-    ],
+    [setOnSearchClick],
   );
 
   // --- History tracking for back/forward nav ---
@@ -665,7 +656,7 @@ export function ChatLayout() {
 
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
-          <Outlet context={assistantContext} />
+          <Outlet context={chatLayoutContext} />
           {drawerVisible ? (
             <div
               ref={drawerRef}
@@ -710,7 +701,7 @@ export function ChatLayout() {
             {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange, onSearch: () => onSearchClickRef.current?.() })}
           </aside>
           <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
-            <Outlet context={assistantContext} />
+            <Outlet context={chatLayoutContext} />
           </main>
         </div>
       )}

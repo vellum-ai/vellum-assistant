@@ -1,6 +1,6 @@
 
 import * as Sentry from "@sentry/react";
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { extractErrorMessage } from "@/utils/api-errors";
@@ -18,13 +18,13 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import {
   ASSISTANT_QUERY_KEY,
   POLL_INTERVAL_MS,
   useAssistantQuery,
 } from "@/assistant/queries";
-import type { AssistantState } from "@/assistant/types";
-import { useAssistantSelectionStore } from "@/stores/assistant-selection-store";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import { getSelectedAssistant, getLocalGatewayUrl, isLocalMode } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
@@ -53,26 +53,19 @@ interface UseAssistantLifecycleOptions {
   }) => string | null;
 }
 
-export interface UseAssistantLifecycleReturn {
-  assistantState: AssistantState;
-  /** Re-check the assistant status from the server. Exposed for the
-   *  visibility-change handler and other external effects. */
-  checkAssistant: () => Promise<void>;
-  /** Reset all retry/recovery counters and re-check. For the error
-   *  screen "Try again" button. */
-  retryAssistant: () => void;
-  /** Reset hatch retries, arm auto-greet, and hatch with the given
-   *  version. For the version-selection screen. */
-  hatchVersion: (version?: string) => void;
-  /** Shared ref — set to `true` when the first post-hatch message
-   *  should be an auto-greet. Read by the send-message and
-   *  conversation-loader domains. */
-  autoGreetRef: MutableRefObject<boolean>;
-}
-
 /**
- * Owns the assistant lifecycle state machine: hatching, recovery, and
- * the derived `AssistantState` that drives top-level page rendering.
+ * Drives the assistant lifecycle state machine: hatching, recovery,
+ * and the derived `AssistantState` that drives top-level page
+ * rendering.
+ *
+ * Returns `void` — all output flows through Zustand stores:
+ *   - `useAssistantLifecycleStore` for `assistantState`,
+ *     `autoGreetPending`, and the imperative actions
+ *     (`checkAssistant` / `retryAssistant` / `hatchVersion`).
+ *   - `useAssistantSelectionStore` for the active assistant id.
+ *
+ * Cross-domain consumers subscribe to those stores via atomic
+ * selectors. No outlet context, no prop drilling.
  *
  * The server-side resource (`/assistant/`) is owned by the
  * `useAssistantQuery` TanStack Query — this hook subscribes to its
@@ -91,6 +84,9 @@ export interface UseAssistantLifecycleReturn {
  *
  * Framework-agnostic — no Next.js or React Router imports. Routing is
  * delegated to the caller via the `onRedirect` callback.
+ *
+ * Mount this once at the application root (`RootLayout`). Mounting
+ * multiple instances would race on the store writes.
  */
 export function useAssistantLifecycle({
   isLoggedIn,
@@ -100,15 +96,20 @@ export function useAssistantLifecycle({
   hasPlatformSession,
   onRedirect,
   resolveOnboardingRedirect,
-}: UseAssistantLifecycleOptions): UseAssistantLifecycleReturn {
-  const [assistantState, setAssistantState] = useState<AssistantState>({
-    kind: "loading",
-  });
+}: UseAssistantLifecycleOptions): void {
+  // All client lifecycle state lives in `useAssistantLifecycleStore`
+  // so cross-domain readers can subscribe with atomic selectors. The
+  // hook only holds private bookkeeping (retry counters, generation
+  // ids, in-flight guards) that no other component should see.
+  const setAssistantState =
+    useAssistantLifecycleStore.use.setAssistantState();
+  const registerImperativeActions =
+    useAssistantLifecycleStore.use.registerImperativeActions();
+  const assistantStateKind = useAssistantLifecycleStore.use.assistantState().kind;
   // The active assistant id lives in `useAssistantSelectionStore` so
-  // cross-domain consumers (RootLayout sync hooks, chat-layout, page
-  // routes) can subscribe via atomic selectors. The hook drives the
-  // writes; readers go through the store, not through this hook's
-  // return.
+  // cross-domain consumers (RootLayout sync hooks, page routes)
+  // subscribe via atomic selectors. The hook drives the writes; readers
+  // go through the store.
   const setAssistantId =
     useAssistantSelectionStore.use.setActiveAssistantId();
 
@@ -122,7 +123,6 @@ export function useAssistantLifecycle({
   // prior value compares against this and drops its response, so stale
   // "initializing" answers can't revive the spinner after timeout -> error.
   const initializingGenerationRef = useRef(0);
-  const autoGreetRef = useRef(false);
 
   // Stabilize external values with refs so useCallback identities stay stable.
   const isRetiredRef = useRef(isRetired);
@@ -333,8 +333,7 @@ export function useAssistantLifecycle({
           setAssistantState({ kind: "awaiting_version_selection" });
           return;
         }
-        // No assistant exists — auto-hatch using managed credentials
-        autoGreetRef.current = true;
+        // No assistant exists — auto-hatch using managed credentials.
         await hatchAndCheck();
         return;
       }
@@ -573,6 +572,20 @@ export function useAssistantLifecycle({
   // Local-mode: gateway token and connection are primed during onboarding hatch.
   useEffect(() => {
     if (!isLoggedIn || isLoading) {
+      // Logout (or pre-auth boot) — drop any lingering selection and
+      // lifecycle state so a returning login doesn't observe the
+      // previous user's assistant id. The stores are module-level
+      // singletons; if we don't reset here, any store subscriber that
+      // runs before `checkAssistant()` resolves (e.g. feature-flag
+      // sync, notification ack) will fire against the previous
+      // session's id. Guarded reads avoid spurious subscriber
+      // wake-ups when the stores are already at defaults.
+      if (useAssistantSelectionStore.getState().activeAssistantId !== null) {
+        setAssistantId(null);
+      }
+      if (useAssistantLifecycleStore.getState().assistantState.kind !== "loading") {
+        setAssistantState({ kind: "loading" });
+      }
       return;
     }
     // Gateway auth takes priority over the platform session path below.
@@ -612,19 +625,19 @@ export function useAssistantLifecycle({
   // late-arriving query result.
   useEffect(() => {
     if (
-      assistantState.kind !== "initializing" &&
-      assistantState.kind !== "cleaning_up"
+      assistantStateKind !== "initializing" &&
+      assistantStateKind !== "cleaning_up"
     ) {
       return;
     }
     if (!assistantResult) return;
     void applyServerStateUpdate(assistantResult);
-  }, [assistantResult, assistantState.kind, applyServerStateUpdate]);
+  }, [assistantResult, assistantStateKind, applyServerStateUpdate]);
 
   // If the backend assigns an assistant but never promotes it to "active",
   // retire that stuck row and hatch a replacement.
   useEffect(() => {
-    if (assistantState.kind !== "initializing") {
+    if (assistantStateKind !== "initializing") {
       return;
     }
     const timeout = setTimeout(() => {
@@ -635,7 +648,7 @@ export function useAssistantLifecycle({
       void recoverStuckInitializingAssistant();
     }, INITIALIZING_TIMEOUT_MS);
     return () => clearTimeout(timeout);
-  }, [assistantState.kind, initializingCycle, recoverStuckInitializingAssistant]);
+  }, [assistantStateKind, initializingCycle, recoverStuckInitializingAssistant]);
 
   const retryAssistant = useCallback(() => {
     hatchRetryCountRef.current = 0;
@@ -645,15 +658,17 @@ export function useAssistantLifecycle({
 
   const hatchVersion = useCallback((version?: string) => {
     hatchRetryCountRef.current = 0;
-    autoGreetRef.current = true;
     hatchAndCheck(version);
   }, [hatchAndCheck]);
 
-  return {
-    assistantState,
-    checkAssistant,
-    retryAssistant,
-    hatchVersion,
-    autoGreetRef,
-  };
+  // Register the imperative callbacks into the store once they're
+  // stable. Consumers (visibility-change handler, error retry button,
+  // version-selection screen, maintenance-mode exit) call them via
+  // `useAssistantLifecycleStore.getState().checkAssistant?.()` so they
+  // never have to be passed as props through layout layers. The
+  // identities only flip when their `useCallback` deps change (e.g.
+  // `queryClient` swap) which never happens after mount.
+  useEffect(() => {
+    registerImperativeActions({ checkAssistant, retryAssistant, hatchVersion });
+  }, [checkAssistant, retryAssistant, hatchVersion, registerImperativeActions]);
 }
