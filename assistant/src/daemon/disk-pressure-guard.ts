@@ -8,6 +8,12 @@ import { getLogger } from "../util/logger.js";
 
 export const DISK_PRESSURE_WARNING_THRESHOLD_PERCENT = 80;
 export const DISK_PRESSURE_THRESHOLD_PERCENT = 95;
+// Hysteresis lower bound: once locked, the guard stays locked until usage
+// falls below this clear threshold. The deadband between this and the
+// critical threshold stops the lock from flapping when usage hovers near
+// 95% — otherwise clearing the lock immediately resumes background work,
+// which can refill the disk and re-trip the lock on the next sample.
+export const DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT = 90;
 export const DISK_PRESSURE_CHECK_INTERVAL_MS = 60_000;
 export const DISK_PRESSURE_OVERRIDE_CONFIRMATION = "I understand the risks";
 export const DISK_PRESSURE_BLOCKED_CAPABILITIES = [
@@ -16,7 +22,12 @@ export const DISK_PRESSURE_BLOCKED_CAPABILITIES = [
   "remote-ingress",
 ] as const;
 
-export type DiskPressureState = "disabled" | "ok" | "warning" | "critical" | "unknown";
+export type DiskPressureState =
+  | "disabled"
+  | "ok"
+  | "warning"
+  | "critical"
+  | "unknown";
 
 export type DiskPressureBlockedCapability =
   (typeof DISK_PRESSURE_BLOCKED_CAPABILITIES)[number];
@@ -229,8 +240,14 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
   const usagePercent = roundPercent(
     (usageInfo.usedMb / usageInfo.totalMb) * 100,
   );
-  const isCritical = usagePercent >= DISK_PRESSURE_THRESHOLD_PERCENT;
-  const isWarning = !isCritical && usagePercent >= DISK_PRESSURE_WARNING_THRESHOLD_PERCENT;
+  // Hysteresis: while locked, hold until usage drops below the lower clear
+  // threshold; otherwise lock at the critical threshold.
+  const criticalThreshold = state.status.locked
+    ? DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT
+    : DISK_PRESSURE_THRESHOLD_PERCENT;
+  const isCritical = usagePercent >= criticalThreshold;
+  const isWarning =
+    !isCritical && usagePercent >= DISK_PRESSURE_WARNING_THRESHOLD_PERCENT;
   const lastCheckedAt = new Date().toISOString();
 
   if (!isCritical && !isWarning) {

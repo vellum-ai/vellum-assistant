@@ -38,10 +38,10 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
-const { setOverridesForTesting } = await import(
-  "./feature-flag-test-helpers.js"
-);
+const { setOverridesForTesting } =
+  await import("./feature-flag-test-helpers.js");
 const {
+  DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT,
   DISK_PRESSURE_OVERRIDE_CONFIRMATION,
   DISK_PRESSURE_THRESHOLD_PERCENT,
   __getDiskPressureGuardTimerForTests,
@@ -154,6 +154,63 @@ describe("disk pressure guard", () => {
     expect(status.locked).toBe(false);
     expect(status.acknowledged).toBe(false);
     expect(status.overrideActive).toBe(false);
+    expect(status.effectivelyLocked).toBe(false);
+    expect(status.lockId).toBeNull();
+    expect(status.blockedCapabilities).toEqual([]);
+  });
+
+  test("does not lock within the deadband until usage reaches the critical threshold", () => {
+    setDiskUsage(DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT + 2);
+
+    const status = evaluateDiskPressureNow();
+
+    expect(status.state).toBe("warning");
+    expect(status.locked).toBe(false);
+    expect(status.effectivelyLocked).toBe(false);
+  });
+
+  test("stays locked while usage stays within the hysteresis deadband", () => {
+    setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT + 1);
+    const locked = evaluateDiskPressureNow();
+    expect(locked.locked).toBe(true);
+    const { lockId } = locked;
+
+    // Below critical (95) but above clear (90): must hold, not flap.
+    setDiskUsage(DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT + 2);
+    const status = evaluateDiskPressureNow();
+
+    expect(status.state).toBe("critical");
+    expect(status.locked).toBe(true);
+    expect(status.effectivelyLocked).toBe(true);
+    // Same lock id — the dip did not mint a fresh lock.
+    expect(status.lockId).toBe(lockId);
+  });
+
+  test("preserves acknowledgement across a dip within the deadband", () => {
+    setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT + 1);
+    evaluateDiskPressureNow();
+    acknowledgeDiskPressureLock();
+
+    setDiskUsage(DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT + 2);
+    const status = evaluateDiskPressureNow();
+
+    expect(status.locked).toBe(true);
+    expect(status.acknowledged).toBe(true);
+  });
+
+  test("clears the lock only once usage falls below the clear threshold", () => {
+    setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT + 1);
+    evaluateDiskPressureNow();
+
+    // Still within the deadband: locked.
+    setDiskUsage(DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT + 2);
+    expect(evaluateDiskPressureNow().locked).toBe(true);
+
+    // Below the clear threshold: released.
+    setDiskUsage(DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT - 2);
+    const status = evaluateDiskPressureNow();
+
+    expect(status.locked).toBe(false);
     expect(status.effectivelyLocked).toBe(false);
     expect(status.lockId).toBeNull();
     expect(status.blockedCapabilities).toEqual([]);
