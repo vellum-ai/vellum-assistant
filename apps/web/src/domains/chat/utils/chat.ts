@@ -1,7 +1,9 @@
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { AssistantIdentity } from "@/assistant/identity";
 import type { Conversation } from "@/types/conversation-types";
-import type { AllowlistOption, AssistantEvent, DirectoryScopeOption, PendingToolConfirmation, ScopeOption } from "@/domains/chat/api/event-types";
+import type { AssistantEvent } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { PendingToolConfirmation } from "@/domains/chat/api/event-types";
 
 export const ERROR_MESSAGES: Record<string, string> = {
   rate_limit_exceeded:

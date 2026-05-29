@@ -113,7 +113,9 @@ import { isChannelConversation as _isChannelConversation } from "@/domains/chat/
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
 import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
-import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";

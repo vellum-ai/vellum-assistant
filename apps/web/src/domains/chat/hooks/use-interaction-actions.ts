@@ -24,7 +24,9 @@ import { endTurn } from "@/domains/chat/turn-coordinator";
 import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils";
 import { deriveCommandText } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
-import type { AllowlistOption, ConfirmationDecision, DirectoryScopeOption, QuestionResponseEntry, ScopeOption } from "@/domains/chat/api/event-types";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { submitConfirmation, submitContactPrompt, submitQuestionResponse, submitSecretResponse } from "@/domains/chat/api/interactions";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
 

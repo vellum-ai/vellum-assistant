@@ -23,7 +23,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { getRiskBadgeStyle, getProvenanceText, wasExpected, getEffectiveRiskDisplay } from "@/domains/chat/utils/risk";
 import { formatStartTime, useElapsedTime } from "@/domains/chat/hooks/use-elapsed-time";
 
-import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import {
   extractInputSummary,
   friendlyRunningLabel,

@@ -92,7 +92,7 @@ export type {
 } from "@/domains/chat/types";
 
 import type { ChatError } from "@/domains/chat/types";
-import type { AssistantEvent, AssistantSyncChangedEvent } from "@/domains/chat/api/event-types";
+import type { AssistantEvent, AssistantSyncChangedEvent } from "@/types/event-types";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
 
 // ---------------------------------------------------------------------------

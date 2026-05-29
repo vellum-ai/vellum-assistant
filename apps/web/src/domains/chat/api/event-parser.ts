@@ -13,20 +13,22 @@ import type {
   DiskPressureStatus,
 } from "@/assistant/types";
 import type {
-  AllowlistOption,
   AssistantActivityPhase,
   AssistantActivityReason,
   AssistantActivityStateEvent,
   AssistantEvent,
   ConversationListInvalidatedReason,
+  UISurfaceShowEvent,
+} from "@/types/event-types";
+import type {
+  AllowlistOption,
   DirectoryScopeOption,
   QuestionEntry,
   QuestionOption,
   ScopeOption,
   SubagentInnerEvent,
   SubagentStatus,
-  UISurfaceShowEvent,
-} from "@/domains/chat/api/event-types";
+} from "@/types/interaction-ui-types";
 import type { AssistantOutboundAttachment } from "@vellumai/assistant-api";
 import { AssistantEventSchema } from "@vellumai/assistant-api";
 import type { DisplayAttachment } from "@/domains/chat/types/types";

@@ -38,7 +38,7 @@ import {
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/chat/subagent-store";
-import type { SubagentStatus } from "@/domains/chat/api/event-types";
+import type { SubagentStatus } from "@/types/interaction-ui-types";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";

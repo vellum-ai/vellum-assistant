@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 import { useRef, type MutableRefObject } from "react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
 import {
   __resetEventBusForTesting,

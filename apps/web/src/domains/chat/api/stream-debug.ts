@@ -8,7 +8,7 @@
  * can be inspected from the console via `window._vellumDebug.chat.events`.
  */
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -191,3 +191,100 @@ describe("Transcript", () => {
     expect(firstMsgIdx).toBeLessThan(latestTurnIdx);
   });
 });
+
+describe("Transcript avatar slot", () => {
+  test("renderAvatar with no anchor (assistant-only history) still mounts the avatar at the bottom", () => {
+    // No user message → no anchor. Avatar must still appear so the
+    // bottom-of-conversation slot is conversation-agnostic.
+    const items: TranscriptItem[] = [
+      assistantMessage("a1", "only assistant"),
+    ];
+    const html = renderToStaticMarkup(
+      <Transcript
+        items={items}
+        conversationId={null}
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+        renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
+      />,
+    );
+
+    expect(html).not.toContain('data-latest-turn="true"');
+    expect(html).toContain('data-latest-assistant-avatar="true"');
+    expect(html).toContain("AVATAR_SLOT_MARKER");
+    expect(html).toContain('data-latest-edge="true"');
+  });
+
+  test("renderAvatar with anchor: avatar appears AFTER the latest-turn cluster but BEFORE the latest-edge sentinel", () => {
+    const items: TranscriptItem[] = [
+      assistantMessage("a1", "history"),
+      userMessage("u1", "ANCHOR_MARKER"),
+      assistantMessage("a2", "RESPONSE_MARKER"),
+    ];
+    const html = renderToStaticMarkup(
+      <Transcript
+        items={items}
+        conversationId={null}
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+        renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
+      />,
+    );
+
+    const anchorIdx = html.indexOf("ANCHOR_MARKER");
+    const responseIdx = html.indexOf("RESPONSE_MARKER");
+    const avatarIdx = html.indexOf('data-latest-assistant-avatar="true"');
+    const edgeIdx = html.indexOf('data-latest-edge="true"');
+
+    expect(anchorIdx).toBeGreaterThanOrEqual(0);
+    expect(responseIdx).toBeGreaterThanOrEqual(0);
+    expect(avatarIdx).toBeGreaterThanOrEqual(0);
+    expect(edgeIdx).toBeGreaterThanOrEqual(0);
+
+    // anchor → response → avatar → edge sentinel
+    expect(anchorIdx).toBeLessThan(responseIdx);
+    expect(responseIdx).toBeLessThan(avatarIdx);
+    expect(avatarIdx).toBeLessThan(edgeIdx);
+  });
+
+  test("renderAvatar omitted → no avatar slot rendered", () => {
+    const items: TranscriptItem[] = [
+      userMessage("u1", "question"),
+      assistantMessage("a1", "reply"),
+    ];
+    const html = renderToStaticMarkup(
+      <Transcript
+        items={items}
+        conversationId={null}
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+      />,
+    );
+
+    expect(html).not.toContain('data-latest-assistant-avatar="true"');
+    // Latest-edge sentinel still renders because the anchor exists.
+    expect(html).toContain('data-latest-edge="true"');
+  });
+
+  test("renderAvatar with neither anchor nor history → avatar still renders (empty conversation w/ avatar)", () => {
+    const html = renderToStaticMarkup(
+      <Transcript
+        items={[]}
+        conversationId={null}
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+        renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
+      />,
+    );
+    expect(html).toContain('data-latest-assistant-avatar="true"');
+    expect(html).toContain("AVATAR_SLOT_MARKER");
+  });
+});

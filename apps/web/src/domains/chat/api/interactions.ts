@@ -5,10 +5,8 @@
  * confirmations, contact lookups, user questions, and trust rules.
  */
 
-import type {
-  ConfirmationDecision,
-  QuestionSubmission,
-} from "@/domains/chat/api/event-types";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { QuestionSubmission } from "@/domains/chat/api/event-types";
 import {
   assertHasResponse,
   client,

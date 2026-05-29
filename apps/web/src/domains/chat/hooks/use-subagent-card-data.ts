@@ -35,7 +35,7 @@ import {
   type SubagentEntry,
   type SubagentTimelineEvent,
 } from "@/domains/chat/subagent-store";
-import type { SubagentStatus } from "@/domains/chat/api/event-types";
+import type { SubagentStatus } from "@/types/interaction-ui-types";
 import type { ToolProgressCardState } from "@/domains/chat/components/tool-progress-card/tool-progress-card-shell";
 import { deriveStepLabelFromName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { titleCaseToolName } from "@/domains/chat/components/tool-call-chip/utils";

@@ -6,7 +6,7 @@ import {
   stopStreaming,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { AssistantActivityStateEvent } from "@/domains/chat/api/event-types";
+import type { AssistantActivityStateEvent } from "@/types/event-types";
 import type {
   AssistantTextDeltaEvent,
   GenerationCancelledEvent,

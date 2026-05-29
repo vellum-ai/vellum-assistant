@@ -5,7 +5,6 @@ import type { DiskUsageInfo } from "../util/disk-usage.js";
 
 let diskSample: DiskUsageInfo | null = null;
 let diskSampleError: unknown = null;
-let diskSampleCalls = 0;
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({}),
@@ -13,7 +12,6 @@ mock.module("../config/loader.js", () => ({
 
 mock.module("../util/disk-usage.js", () => ({
   getDiskUsageInfo: () => {
-    diskSampleCalls += 1;
     if (diskSampleError) throw diskSampleError;
     return diskSample;
   },
@@ -38,8 +36,6 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
-const { setOverridesForTesting } =
-  await import("./feature-flag-test-helpers.js");
 const {
   DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT,
   DISK_PRESSURE_OVERRIDE_CONFIRMATION,
@@ -55,10 +51,6 @@ const {
   startDiskPressureGuard,
   stopDiskPressureGuard,
 } = await import("../daemon/disk-pressure-guard.js");
-
-function setFeatureFlag(enabled: boolean): void {
-  setOverridesForTesting({ "safe-storage-limits": enabled });
-}
 
 function setDiskUsage(usedMb: number, totalMb = 100): void {
   diskSample = {
@@ -83,35 +75,16 @@ function expectRejected(
 
 beforeEach(() => {
   __resetDiskPressureGuardForTests();
-  setFeatureFlag(true);
   setDiskUsage(10);
-  diskSampleCalls = 0;
 });
 
 afterEach(() => {
   __resetDiskPressureGuardForTests();
-  setOverridesForTesting({});
   diskSample = null;
   diskSampleError = null;
-  diskSampleCalls = 0;
 });
 
 describe("disk pressure guard", () => {
-  test("returns a stable disabled status without sampling when the flag is disabled", () => {
-    setDiskUsage(99);
-    setFeatureFlag(false);
-
-    const status = evaluateDiskPressureNow();
-
-    expect(status.enabled).toBe(false);
-    expect(status.state).toBe("disabled");
-    expect(status.locked).toBe(false);
-    expect(status.effectivelyLocked).toBe(false);
-    expect(status.usagePercent).toBeNull();
-    expect(diskSampleCalls).toBe(0);
-    expect(getDiskPressureStatus()).toEqual(status);
-  });
-
   test("locks when sampled usage reaches the threshold", () => {
     setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT);
 
@@ -303,20 +276,6 @@ describe("disk pressure guard", () => {
     expect(__getDiskPressureGuardTimerForTests()).toBeNull();
 
     stopDiskPressureGuard();
-    expect(__getDiskPressureGuardTimerForTests()).toBeNull();
-  });
-
-  test("disabling the flag clears an active timer and lock", () => {
-    setDiskUsage(99);
-    evaluateDiskPressureNow();
-    startDiskPressureGuard();
-    expect(__getDiskPressureGuardTimerForTests()).toBeTruthy();
-
-    setFeatureFlag(false);
-    const status = evaluateDiskPressureNow();
-
-    expect(status.enabled).toBe(false);
-    expect(status.locked).toBe(false);
     expect(__getDiskPressureGuardTimerForTests()).toBeNull();
   });
 

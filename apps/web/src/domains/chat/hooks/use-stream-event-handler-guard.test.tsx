@@ -4,7 +4,7 @@ import type { MutableRefObject } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 
 const handlerCalls: Array<{ kind: string; conversationId?: string }> = [];
 

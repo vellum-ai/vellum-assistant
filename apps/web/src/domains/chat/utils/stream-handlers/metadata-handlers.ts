@@ -19,7 +19,7 @@ import type {
   NotificationIntentEvent,
   TurnProfileAutoRoutedEvent,
   UsageUpdateEvent,
-} from "@/domains/chat/api/event-types";
+} from "@/types/event-types";
 import { useConversationStore } from "@/stores/conversation-store";
 
 export function handleUsageUpdate(
