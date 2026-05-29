@@ -1312,7 +1312,7 @@ export function ChatRouteContent({
       <ContextWindowIndicator
         usage={contextWindowUsage}
         onClearContext={
-          activeConversation?.conversationId
+          activeConversation?.conversationId && !sendDisabled
             ? () => void sendMessage("/clean")
             : undefined
         }
