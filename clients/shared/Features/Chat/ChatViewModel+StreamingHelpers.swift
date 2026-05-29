@@ -27,6 +27,26 @@ extension ChatViewModel {
         appendThinkingToCurrentMessage(buffered)
     }
 
+    /// Decide whether a streaming delta that would fork a *brand-new* assistant
+    /// bubble is actually a stray replay/race artifact that should be dropped.
+    ///
+    /// Bandaid for the duplicate-streaming-message bug: a delta from a superseded
+    /// subscriber or an SSE reconnect can arrive after the turn has already ended,
+    /// hit the lazy bubble-creation path with no `currentAssistantMessageId`, and
+    /// fork a second copy of a message the daemon only persisted once (hence the
+    /// duplicate collapses on reload). We only suppress the narrow signature of
+    /// that bug: the turn is fully terminal (not sending, thinking, or cancelling)
+    /// *and* the previous bubble is already an assistant message — i.e. we'd be
+    /// appending a back-to-back duplicate. Legitimate new bubbles (first delta of
+    /// a turn, handoff to a queued turn, slash-command responses) all run while
+    /// `isSending`/`isThinking` is true, so they are never affected.
+    func shouldDropStrayStreamingDelta(_ count: Int, kind: String) -> Bool {
+        let turnIsTerminal = !isSending && !isThinking && !isCancelling
+        guard turnIsTerminal, messages.last?.role == .assistant else { return false }
+        log.warning("Dropping stray \(kind) delta (\(count) chars): turn already terminal with no active message — would fork a duplicate assistant bubble")
+        return true
+    }
+
     /// Append a chunk of thinking text to the current assistant message.
     func appendThinkingToCurrentMessage(_ text: String) {
         guard !text.isEmpty else { return }
@@ -43,6 +63,7 @@ extension ChatViewModel {
                 messages[index].contentOrder.append(.thinking(segIdx))
             }
         } else {
+            if shouldDropStrayStreamingDelta(text.count, kind: "thinking") { return }
             if let staleId = currentAssistantMessageId {
                 log.warning("Stale currentAssistantMessageId \(staleId.uuidString) — promoting buffered \(text.count) thinking chars to new message")
                 currentAssistantMessageId = nil
@@ -109,6 +130,7 @@ extension ChatViewModel {
                 messages[index].textSegments[messages[index].textSegments.count - 1] += text
             }
         } else {
+            if shouldDropStrayStreamingDelta(text.count, kind: "text") { return }
             if let staleId = currentAssistantMessageId {
                 log.warning("Stale currentAssistantMessageId \(staleId.uuidString) — promoting buffered \(text.count) chars to new message")
                 currentAssistantMessageId = nil
