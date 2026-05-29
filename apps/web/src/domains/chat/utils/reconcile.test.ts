@@ -340,6 +340,58 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     expect(result[0]!.toolCalls).toEqual(liveToolCalls);
   });
 
+  test("backfills finalized history state into alias-linked live tool calls", () => {
+    const liveAssistant = makeLocal({
+      id: "assistant-final",
+      role: "assistant",
+      content: "Loading the GEO writing skill",
+      timestamp: 1010,
+      toolCalls: [
+        {
+          id: "toolu_load_skill",
+          toolName: "bash",
+          input: { command: "find geo-writing skill" },
+          status: "running",
+        },
+      ],
+      contentOrder: [{ type: "toolCall", id: "toolu_load_skill" }],
+    });
+    const latestAssistant = makeLocal({
+      id: "assistant-anchor",
+      mergedMessageIds: ["assistant-final"],
+      role: "assistant",
+      content: "Everything is set up.",
+      timestamp: 1010,
+      toolCalls: [
+        {
+          id: "tool-history-assistant-anchor-0",
+          toolName: "bash",
+          input: { command: "find geo-writing skill" },
+          status: "completed",
+          result: "source copied",
+        },
+      ],
+    });
+
+    const result = reconcileDisplayMessagesWithLatestHistory(
+      [liveAssistant],
+      [latestAssistant],
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.toolCalls).toHaveLength(1);
+    expect(result[0]!.toolCalls?.[0]).toMatchObject({
+      id: "toolu_load_skill",
+      toolName: "bash",
+      input: { command: "find geo-writing skill" },
+      status: "completed",
+      result: "source copied",
+    });
+    expect(result[0]!.contentOrder).toEqual([
+      { type: "toolCall", id: "toolu_load_skill" },
+    ]);
+  });
+
   test("clears queued state when latest history confirms the user row", () => {
     const queuedUser = makeLocal({
       id: "queued-user",

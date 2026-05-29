@@ -125,6 +125,23 @@ function toolCallIdsOverlap(
   return incoming.some((toolCall) => currentIds.has(toolCall.id));
 }
 
+function mergeToolCallsByPosition(
+  current: ChatMessageToolCall[],
+  incoming: ChatMessageToolCall[],
+): ChatMessageToolCall[] {
+  const base = current.length >= incoming.length ? current : incoming;
+  return base.map((toolCall, idx) => {
+    const currentToolCall = current[idx];
+    const incomingToolCall = incoming[idx];
+    if (!currentToolCall || !incomingToolCall) return toolCall;
+
+    return {
+      ...mergeToolCall(currentToolCall, incomingToolCall),
+      id: toolCall.id,
+    };
+  });
+}
+
 function mergeToolCallsForMessage(
   current: DisplayMessage,
   incoming: DisplayMessage,
@@ -135,9 +152,7 @@ function mergeToolCallsForMessage(
     incoming.toolCalls?.length &&
     !toolCallIdsOverlap(current.toolCalls, incoming.toolCalls)
   ) {
-    return current.toolCalls.length >= incoming.toolCalls.length
-      ? current.toolCalls
-      : incoming.toolCalls;
+    return mergeToolCallsByPosition(current.toolCalls, incoming.toolCalls);
   }
 
   return mergeByKey(
