@@ -20,17 +20,18 @@ Only proceed if the user explicitly asks you to create or set up **your own** (t
 assistant email status --json
 ```
 
-If this shows an active email address, the domain and email are already set up — tell the user the existing address and stop.
+If an active email address exists, compare its domain to your intended custom subdomain — your assistant name from `IDENTITY.md`, lowercased (see Step 2), e.g. `mybot.vellum.me`:
 
-If no email address is configured, determine your intended subdomain — your assistant name from `IDENTITY.md`, lowercased (see Step 2) — and check whether the domain already exists (the `status` subcommand requires the subdomain):
+- If the address is already on that custom subdomain, the domain and email are set up — tell the user the existing address and stop.
+- If the address is on the legacy shared domain (not your custom subdomain), it still works. Ask the user whether to keep it or migrate to the custom subdomain before doing anything else.
+
+If no email address is configured, determine your intended subdomain and check whether the domain already exists (the `status` subcommand requires the subdomain):
 
 ```bash
 assistant domain status <subdomain> --json
 ```
 
 If the domain exists but no email, skip to Step 3. If neither exists, continue to Step 2.
-
-If an email exists but no domain, the email was set up under the legacy shared domain — it still works. Ask the user if they want to keep it or migrate to a custom subdomain.
 
 ## Step 2: Register Your Domain
 
