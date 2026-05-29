@@ -28,7 +28,7 @@ import {
   EMPTY_SUBAGENT_ENTRIES,
   useSubagentStore,
   type SubagentEntry,
-} from "@/domains/subagents/subagent-store";
+} from "@/domains/chat/subagent-store";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";

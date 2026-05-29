@@ -104,6 +104,7 @@ import type {
   NotificationChannel,
   RenderedChannelCopy,
 } from "../notifications/types.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 // ── Test helpers ────────────────────────────────────────────────────────
 
@@ -155,6 +156,10 @@ describe("pairDeliveryWithConversation", () => {
     addMessageShouldThrow = false;
     mockExistingConversations = {};
     mockBindings = {};
+    // The passive-suppression gate requires the home-page flag; default it on
+    // so the existing creation/suppression expectations hold. The dedicated
+    // flag-off test below overrides this to assert the create fallback.
+    setOverridesForTesting({ "home-page": true });
   });
 
   // ── start_new_conversation (vellum) ─────────────────────────────────
@@ -840,6 +845,29 @@ describe("pairDeliveryWithConversation", () => {
     expect(result.conversationFallbackUsed).toBe(false);
     expect(createConversationMock).not.toHaveBeenCalled();
     expect(addMessageMock).not.toHaveBeenCalled();
+  });
+
+  test("passive vellum signal creates a conversation when home-page flag is off", async () => {
+    // Without the home feed there is no surface for passive notifications, so
+    // the suppression is gated off and pairing falls back to creating a
+    // conversation (the pre-home-feed behavior).
+    setOverridesForTesting({ "home-page": false });
+    const signal = makeSignal({ requiresConversation: undefined });
+    const copy = makeCopy();
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      copy,
+    );
+
+    expect(result.conversationId).toBe("conv-001");
+    expect(result.messageId).toBe("msg-001");
+    expect(result.strategy).toBe("start_new_conversation");
+    expect(result.createdNewConversation).toBe(true);
+    expect(result.conversationFallbackUsed).toBe(false);
+    expect(createConversationMock).toHaveBeenCalledTimes(1);
+    expect(addMessageMock).toHaveBeenCalledTimes(1);
   });
 
   test("passive vellum signal still honors explicit reuse_existing action", async () => {

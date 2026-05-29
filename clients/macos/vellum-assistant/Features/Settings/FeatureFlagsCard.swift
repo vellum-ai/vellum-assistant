@@ -158,7 +158,11 @@ struct FeatureFlagsCard: View {
         let flagBinding = Binding<Bool>(
             get: {
                 switch flag.scope {
-                case .assistant:
+                // `.both`-scoped flags are consumed by the assistant backend, which owns
+                // their persisted state, so they read/write through the assistant path.
+                // (In practice `buildUnifiedFlags` only tags entries `.assistant`/`.client`,
+                // so `.both` is unreachable here — this keeps the switch exhaustive.)
+                case .assistant, .both:
                     return assistantFlags.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
                 case .client:
                     return macOSFlagStates.first(where: { $0.key == flag.key })?.enabled ?? flag.enabled
@@ -166,7 +170,7 @@ struct FeatureFlagsCard: View {
             },
             set: { newValue in
                 switch flag.scope {
-                case .assistant:
+                case .assistant, .both:
                     setAssistantFlag(key: flag.key, enabled: newValue, flag: flag)
                 case .client:
                     setMacOSFlag(key: flag.key, enabled: newValue)

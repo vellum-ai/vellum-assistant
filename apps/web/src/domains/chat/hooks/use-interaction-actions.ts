@@ -14,9 +14,9 @@
 import * as Sentry from "@sentry/react";
 import { type Dispatch, type MutableRefObject, type SetStateAction, useCallback, useState } from "react";
 
-import { addTrustRule } from "@/domains/trust-rules/api";
+import { addTrustRule } from "@/lib/trust-rules-api";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
