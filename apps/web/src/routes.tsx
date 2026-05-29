@@ -79,6 +79,14 @@ export const router = createBrowserRouter(
     // Logout — standalone page, no app chrome
     { path: "/logout", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/account/pages/logout-page").then((m) => m.LogoutPage) } },
 
+    // About — standalone metadata page rendered inside the Electron
+    // About BrowserWindow. Declared as a sibling of `/assistant` (not
+    // a child) so React Router's most-specific matcher picks it for
+    // `/assistant/about` BEFORE falling into the auth-protected app
+    // tree below. URL sits under `/assistant/*` so it's served by
+    // Vite's SPA fallback in dev (which is scoped to the `base`).
+    { path: "/assistant/about", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/about-page").then((m) => m.AboutPage) } },
+
     // Assistant routes — auth-protected app with layout
     {
       path: "/assistant",

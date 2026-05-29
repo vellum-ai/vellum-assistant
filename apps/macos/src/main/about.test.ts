@@ -159,13 +159,14 @@ describe("installAbout", () => {
 });
 
 describe("openAboutWindow", () => {
-  test("constructs a new BrowserWindow on first call", () => {
+  test("constructs a new BrowserWindow loading the /about route", () => {
     openAboutWindow();
     expect(constructed).toHaveLength(1);
     expect(loadURLMock).toHaveBeenCalledTimes(1);
-    expect(loadURLMock.mock.calls[0]?.[0]).toMatch(
-      /^data:text\/html;charset=utf-8,/,
-    );
+    // Dev URL pattern — the test env doesn't set `app.isPackaged` true,
+    // so the dev branch runs. URL must end with the renderer-side
+    // route path so the React route in apps/web mounts.
+    expect(loadURLMock.mock.calls[0]?.[0]).toMatch(/\/about$/);
   });
 
   test("focuses the existing window instead of constructing a second one", () => {
