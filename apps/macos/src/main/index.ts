@@ -4,11 +4,12 @@ import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
-import { installAbout } from "./about";
+import { installAbout, openAboutWindow } from "./about";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { installDock } from "./dock";
 import { installApplicationMenu } from "./menu";
 import { readSetting, writeSetting } from "./settings";
+import { installTray } from "./tray";
 import { restoreBounds, track as trackWindowState } from "./window-state";
 
 // Dev-mode renderer URL. Honors `VELLUM_DEV_URL` so the launcher can
@@ -160,6 +161,23 @@ const focusMainWindow = (): void => {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+};
+
+// Click target for the tray's left-click and the "Show / Hide Main
+// Window" tray menu item. If the user closed the main window since the
+// last interaction, recreate it; if it's visible and focused, hide it;
+// otherwise bring it back up. Lives in `index.ts` (not `tray.ts`)
+// because the main window's lifecycle is owned here.
+const toggleMainWindowVisibility = (): void => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow();
+    return;
+  }
+  if (mainWindow.isVisible() && mainWindow.isFocused()) {
+    mainWindow.hide();
+    return;
+  }
+  focusMainWindow();
 };
 
 // Serve apps/web/dist/ as static files via `app://vellum.ai/...`. Route-like
@@ -333,6 +351,10 @@ app
     installAbout();
     installApplicationMenu();
     installDock();
+    installTray({
+      toggleMainWindow: toggleMainWindowVisibility,
+      openAbout: openAboutWindow,
+    });
     spawnDaemon();
     createWindow();
 
