@@ -1,6 +1,6 @@
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import type { PendingConfirmationState } from "@/domains/chat/types";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import { type ConfirmationRequestEvent, type ContactRequestEvent, type QuestionRequestEvent, type SecretRequestEvent, normalizeQuestionRequest } from "@/domains/chat/api/event-types";
 

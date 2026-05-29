@@ -1,8 +1,9 @@
-// Hand-written fetch wrappers intentionally — these endpoints are served by the
-// gateway sidecar directly (routed via Django's _GATEWAY_ROUTED_PREFIXES under
-// /v1/assistants/{id}/trust-rules/*) and are not part of the Django OpenAPI
-// schema, so no generated HeyAPI hooks exist for them. Mirrors the pattern used
-// by web/src/lib/memories/api.ts.
+/**
+ * Hand-written fetch wrappers for the assistant daemon's trust-rules endpoints.
+ * These endpoints are served via the gateway sidecar under
+ * /v1/assistants/{id}/trust-rules/* and are not part of the Django OpenAPI
+ * schema.
+ */
 import { client } from "@/generated/api/client.gen";
 import {
   ApiError,
@@ -16,30 +17,14 @@ import type {
   TrustRuleOrigin,
   TrustRulesListResponse,
   UpdateTrustRuleBody,
-} from "@/domains/trust-rules/types";
+} from "@/types/trust-rules";
 
 export { ApiError };
 
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
-
 export interface FetchTrustRulesParams {
-  /**
-   * When set to `"default"`, returns every default rule (including unmodified
-   * ones); when omitted, the gateway returns only user-relevant rules
-   * (user-defined plus modified defaults).
-   */
   origin?: TrustRuleOrigin;
-  /** Restrict results to a single tool. */
   tool?: string;
-  /** Include soft-deleted rules. */
   includeDeleted?: boolean;
-  /**
-   * Force the gateway to return every rule regardless of origin/userModified
-   * state. Mutually exclusive with `origin`.
-   */
   includeAll?: boolean;
 }
 
@@ -62,7 +47,6 @@ export async function fetchTrustRules(
     TrustRulesListResponse,
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/trust-rules/",
     path: { assistant_id: assistantId },
     query: buildFetchQuery(params),
@@ -83,7 +67,6 @@ export async function addTrustRule(
   body: AddTrustRuleBody,
 ): Promise<void> {
   const { error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/trust-rules/",
     path: { assistant_id: assistantId },
     body,
@@ -105,7 +88,6 @@ export async function updateTrustRule(
   body: UpdateTrustRuleBody,
 ): Promise<void> {
   const { error, response } = await client.patch<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/trust-rules/{rule_id}/",
     path: { assistant_id: assistantId, rule_id: ruleId },
     body,
@@ -126,7 +108,6 @@ export async function deleteTrustRule(
   ruleId: string,
 ): Promise<void> {
   const { error, response } = await client.delete<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/trust-rules/{rule_id}/",
     path: { assistant_id: assistantId, rule_id: ruleId },
     throwOnError: false,

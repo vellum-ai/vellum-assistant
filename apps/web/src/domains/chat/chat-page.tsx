@@ -37,9 +37,9 @@ import {
 } from "@/domains/conversations/conversation-queries";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
-import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/subagents/subagent-store";
+import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/chat/subagent-store";
 import type { SubagentStatus } from "@/domains/chat/api/event-types";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";

@@ -233,9 +233,8 @@ References:
 
 Domains are **business capabilities**, not URL segments. A route
 composes one or more domains; a domain may be used by zero or more
-routes. `conversations/`, `interactions/`, and `subagents/` have no
-routes of their own — they are composed by page-level domains
-(`chat/`, `home/`) that do map to routes.
+routes. `conversations/` has no routes of its own — it is composed by
+page-level domains (`chat/`, `home/`) that do map to routes.
 
 The dependency direction is one-way:
 `shared → domains → page domains → routes`.
@@ -309,9 +308,9 @@ Examples of correct splits:
   CRUD and grouping.
 - `streaming/` vs `messages/`: SSE transport and reconnection logic
   changes for different reasons than message state management.
-- `interactions/` vs `turn/`: user-facing prompts (secrets,
-  confirmations) have their own state machine, independent from the
-  turn lifecycle (idle → sending → receiving → complete).
+- `chat/interaction-store` vs `chat/turn-store`: user-facing prompts
+  (secrets, confirmations) have their own state machine, independent
+  from the turn lifecycle (idle → sending → receiving → complete).
 
 ### Conversation identifiers: `conversationId` vs `conversationKey`
 

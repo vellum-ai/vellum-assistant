@@ -13,7 +13,7 @@ import type {
   GenerationHandoffEvent,
   MessageCompleteEvent,
 } from "@vellumai/assistant-api";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 
 
 export function handleAssistantTextDelta(

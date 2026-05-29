@@ -3,7 +3,7 @@ import {
   getSameOriginRoutePath,
   openOAuthUrlInPopup,
 } from "@/domains/chat/utils/oauth-popup-links";
-import { getSettingsRouteForClientTab } from "@/domains/settings/navigation";
+import { getSettingsRouteForClientTab } from "@/utils/settings-navigation";
 import { openUrl } from "@/runtime/browser";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { OpenUrlEvent } from "@vellumai/assistant-api";
