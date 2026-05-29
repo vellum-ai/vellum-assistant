@@ -15,6 +15,7 @@ import {
 } from "@/assistant/lifecycle";
 import {
   ASSISTANT_QUERY_KEY,
+  POLL_INTERVAL_MS,
   useAssistantQuery,
 } from "@/assistant/queries";
 import {
@@ -235,15 +236,18 @@ export function useAssistantLifecycle({
         }
         if (shouldRecoverFromHatchFailure(result.status)) {
           setAssistantState({ kind: "initializing" });
-          // The hatch didn't take, so the cache is still a 404 — the
-          // query won't poll on its own. Fire-and-forget invalidate
-          // schedules a refetch; when it lands (still 404 in the
-          // recoverable case), the cache subscription re-runs
-          // `applyServerStateUpdate`, hits the `auto_hatch` branch,
-          // and drives the next hatch attempt against the retry
-          // budget. The original poll-loop did this implicitly; we
-          // re-create the loop explicitly here.
-          void queryClient.invalidateQueries({ queryKey: ASSISTANT_QUERY_KEY });
+          // Cache is still 404 → `pollIntervalFor` keeps the query
+          // idle → no automatic retry. Space the next attempt by
+          // `POLL_INTERVAL_MS` to preserve the 3-second backoff
+          // between hatch retries: rapid back-to-back invalidations
+          // burn the `MAX_HATCH_RETRIES` budget in milliseconds and
+          // hammer the server. The invalidation refetch lands the
+          // 404 in cache; the cache subscriber re-enters
+          // `applyServerStateUpdate` → `auto_hatch` → `hatchAndCheck`
+          // against the next retry slot.
+          setTimeout(() => {
+            void queryClient.invalidateQueries({ queryKey: ASSISTANT_QUERY_KEY });
+          }, POLL_INTERVAL_MS);
           return;
         }
 
@@ -265,11 +269,12 @@ export function useAssistantLifecycle({
       });
       if (generation !== initializingGenerationRef.current) return;
       setAssistantState({ kind: "initializing" });
-      // See the recoverable-failure branch above — the network error
-      // here is the same shape: the hatch didn't take, the cache is
-      // still 404, polling won't restart on its own. Invalidate so
-      // the subscription drives the next attempt.
-      void queryClient.invalidateQueries({ queryKey: ASSISTANT_QUERY_KEY });
+      // Network error during hatch behaves like a recoverable failure
+      // (cache still 404, no automatic poll). Apply the same
+      // 3-second backoff before driving the next attempt.
+      setTimeout(() => {
+        void queryClient.invalidateQueries({ queryKey: ASSISTANT_QUERY_KEY });
+      }, POLL_INTERVAL_MS);
       return;
     } finally {
       hatchingRef.current = false;
@@ -397,22 +402,35 @@ export function useAssistantLifecycle({
     [hatchAndCheck],
   );
 
+  /**
+   * Resolve gateway-auth mode locally and write the active state.
+   *
+   * Gateway-auth bypasses `/assistant/` entirely — the gateway issues
+   * the session token directly and the local assistant resolution
+   * lives in `lib/local-mode`. The mount-time init effect and the
+   * imperative `checkAssistant` both short-circuit through this
+   * helper, so keep them in lockstep.
+   */
+  const applyGatewayAuthShortCircuit = useCallback(() => {
+    let ingressUrl = window.location.origin;
+    let resolvedAssistantId = "self";
+    const localGateway = getLocalGatewayUrl();
+    if (localGateway) {
+      const assistant = getSelectedAssistant();
+      ingressUrl = `${window.location.origin}${localGateway}`;
+      resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
+    }
+    setSelfHostedConnection({
+      url: ingressUrl,
+      token: getGatewayToken(),
+    });
+    setAssistantId(resolvedAssistantId);
+    setAssistantState({ kind: "active", isLocal: true });
+  }, []);
+
   const checkAssistant = useCallback(async () => {
     if (isGatewayAuthMode()) {
-      let ingressUrl = window.location.origin;
-      let resolvedAssistantId = "self";
-      const localGateway = getLocalGatewayUrl();
-      if (localGateway) {
-        const assistant = getSelectedAssistant();
-        ingressUrl = `${window.location.origin}${localGateway}`;
-        resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
-      }
-      setSelfHostedConnection({
-        url: ingressUrl,
-        token: getGatewayToken(),
-      });
-      setAssistantId(resolvedAssistantId);
-      setAssistantState({ kind: "active", isLocal: true });
+      applyGatewayAuthShortCircuit();
       return;
     }
     const generation = initializingGenerationRef.current;
@@ -550,22 +568,7 @@ export function useAssistantLifecycle({
     // Gateway auth takes priority over the platform session path below.
     // In local mode after hatch, this branch is the entry point.
     if (isGatewayAuthMode()) {
-      let ingressUrl = window.location.origin;
-      let assistantId = "self";
-
-      const localGateway = getLocalGatewayUrl();
-      if (localGateway) {
-        const assistant = getSelectedAssistant();
-        ingressUrl = `${window.location.origin}${localGateway}`;
-        assistantId = assistant?.assistantId ?? assistantId;
-      }
-
-      setSelfHostedConnection({
-        url: ingressUrl,
-        token: getGatewayToken(),
-      });
-      setAssistantId(assistantId);
-      setAssistantState({ kind: "active", isLocal: true });
+      applyGatewayAuthShortCircuit();
       return;
     }
     // In local mode without a gateway token AND no platform session,
@@ -585,7 +588,7 @@ export function useAssistantLifecycle({
       return;
     }
     checkAssistant();
-  }, [isLoggedIn, isLoading, hasPlatformSession, checkAssistant]);
+  }, [isLoggedIn, isLoading, hasPlatformSession, checkAssistant, applyGatewayAuthShortCircuit]);
 
   // The query polls automatically while `kind` is transient
   // (`initializing` / `cleaning_up`). Each poll lands in the cache;
