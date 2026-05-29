@@ -74,6 +74,8 @@ const ToolDetailPanel = lazy(() =>
 );
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
+import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
+import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 
 import { Link, useNavigate } from "react-router";
@@ -599,6 +601,12 @@ export function ChatRouteContent({
   });
 
   // -------------------------------------------------------------------------
+  // Edit-message recall (up-arrow)
+  // -------------------------------------------------------------------------
+
+  const { editingMessageId, isEditing, startEditing, cancelEditing } = useEditMessage(messages);
+
+  // -------------------------------------------------------------------------
   // Derived values
   // -------------------------------------------------------------------------
 
@@ -936,8 +944,18 @@ export function ChatRouteContent({
     // initial response render (which expands LatestTurnRow via
     // useViewportMinHeight) stays anchored at the latest message.
     scrollCoordinator.scrollToLatest({ behavior: "auto" });
+    if (isEditing && editingMessageId && assistantId && activeConversationId) {
+      cancelEditing();
+      try {
+        await conversationsByIdUndoPost({
+          path: { assistant_id: assistantId, id: activeConversationId },
+        });
+      } catch {
+        // If undo fails, still send the message as a new one
+      }
+    }
     await sendMessage(trimmed, attachmentsToSend);
-  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationId, chatAttachments, resetChatAttachments, sendMessage, setInput, clearDraft, inputRef, scrollCoordinator]);
+  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationId, chatAttachments, resetChatAttachments, sendMessage, setInput, clearDraft, inputRef, scrollCoordinator, isEditing, editingMessageId, assistantId, cancelEditing]);
 
   const handleSelectStarter = (starter: { prompt: string }) => {
     setInput(starter.prompt);
@@ -1274,6 +1292,16 @@ export function ChatRouteContent({
     onStopGenerating: handleStopGenerating,
     assistantId,
     modelSupportsVision: activeModelSupportsVision,
+    onRecallLastMessage: phase === "idle" ? () => {
+      const content = startEditing();
+      if (content !== null) {
+        setInput(content);
+      }
+    } : undefined,
+    onCancelEdit: isEditing ? () => {
+      cancelEditing();
+      setInput("");
+    } : undefined,
     textareaMaxHeightPx: isEmptyConversation ? 320 : undefined,
     thresholdPickerSlot: assistantId ? (
       <ComposerSettingsMenu
