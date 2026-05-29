@@ -148,6 +148,11 @@ export interface RuntimeAttachmentMetadata {
 
 export interface RuntimeMessagePayload {
   id: string;
+  /**
+   * Server message ids that were folded into this display row when consecutive
+   * assistant messages were consolidated for history rendering.
+   */
+  mergedMessageIds?: string[];
   role: string;
   content: string;
   timestamp: string;
