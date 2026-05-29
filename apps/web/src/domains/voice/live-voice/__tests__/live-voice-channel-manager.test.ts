@@ -607,6 +607,46 @@ describe("LiveVoiceChannelManager", () => {
       expect(client.endCalls).toBe(0);
       expect(client.closeCalls).toBe(0);
     });
+
+    test("ends the session if ready arrives after stopListening fired during connecting", async () => {
+      const harness = makeHarness();
+      const { manager, store } = harness;
+
+      // Begin connecting. The user has not received a `ready` frame yet,
+      // so the client cannot send `ptt_release` and the capture has not
+      // started — `stopListening()` is essentially a "cancel" press.
+      await manager.start("conv-1");
+      const client = harness.client();
+      const capture = harness.capture();
+      const playback = harness.playback();
+      expect(store.getState().state).toBe("connecting");
+
+      await manager.stopListening();
+      // Both calls are no-ops on the wire (client connecting, capture
+      // not started) but they DO flip `isUserMuted` on the manager.
+      expect(client.releasePushToTalkCalls).toBe(1);
+      expect(capture.stopCalls).toBe(1);
+
+      // Ready finally arrives. The manager must NOT open the mic — the
+      // user already asked to cancel. Instead it tears the session down.
+      client.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+
+      // The cancellation path runs `end()`: capture shutdown, playback
+      // end, client end, store reset.
+      expect(capture.startCalls.length).toBe(0);
+      expect(capture.shutdownCalls).toBe(1);
+      expect(playback.handleEndCalls).toBe(1);
+      expect(client.endCalls).toBe(1);
+      expect(store.getState().state).toBe("off");
+      // Session info from the ready frame must not leak into the store
+      // since the user already cancelled.
+      expect(store.getState().sessionId).toBe(null);
+    });
   });
 
   describe("barge-in playback gate", () => {

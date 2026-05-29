@@ -274,6 +274,18 @@ export class LiveVoiceChannelManager {
     const actions = this.actions();
     switch (event.type) {
       case "ready":
+        // If the user tapped the button while the WebSocket was still
+        // connecting, `stopListening()` set `isUserMuted = true` but the
+        // `ptt_release` frame was dropped (client not yet ready) and the
+        // capture stop was a no-op (capture not yet started). Without
+        // this guard the ready handler would open the mic and the UI
+        // would snap to `listening` after the user explicitly asked to
+        // cancel. Honor the cancellation by ending the now-connected
+        // session instead.
+        if (this.isUserMuted) {
+          void this.end();
+          return;
+        }
         actions.setSessionInfo({
           sessionId: event.sessionId,
           conversationId: event.conversationId,
