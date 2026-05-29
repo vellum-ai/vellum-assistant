@@ -31,6 +31,7 @@ import {
 } from "@/domains/chat/utils/stream-handlers/navigation-handlers";
 import {
   handleAssistantTextDelta,
+  handleAssistantTurnStart,
   handleAssistantActivityState,
   handleMessageComplete,
   handleGenerationHandoff,
@@ -336,12 +337,7 @@ export function useStreamEventHandler(
           handleNavigateSettings(event, ctx);
           break;
         case "assistant_turn_start":
-          // No-op until the daemon adopts pre-allocation. Types and parser
-          // are in place so a stream stamped with the pre-allocated anchor
-          // id does not fall through to the `unknown` branch. A follow-up
-          // will wire this case to seed `currentAssistantMessageIdRef` so
-          // subsequent deltas anchor to the reserved row from the first
-          // event of the turn.
+          handleAssistantTurnStart(event, ctx);
           break;
         case "assistant_text_delta":
           handleAssistantTextDelta(event, ctx);

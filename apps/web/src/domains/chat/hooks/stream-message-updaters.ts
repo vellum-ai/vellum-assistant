@@ -83,18 +83,21 @@ export function createStreamingBubble(
  * (or the tail is no longer an assistant row), so this updater branches
  * to `createStreamingBubble` without needing a shared latch.
  */
-export function appendTextDelta(
+/**
+ * Append `text` into the message at `prev[idx]`, extending its trailing
+ * text segment if the last `contentOrder` entry is text, otherwise opening
+ * a new text segment. Stamps `isStreaming: true` because every caller of
+ * this helper is mid-turn — including the reconcile-pulled reserved-row
+ * case where the existing row arrived without the streaming flag.
+ */
+function appendTextIntoRow(
   prev: DisplayMessage[],
+  idx: number,
   text: string,
-  messageId?: string,
 ): DisplayMessage[] {
-  if (!tailIsStreamingAssistant(prev)) {
-    return createStreamingBubble(prev, text, messageId);
-  }
-
-  const last = prev[prev.length - 1]!;
-  const segments = [...(last.textSegments ?? [])];
-  const order = [...(last.contentOrder ?? [])];
+  const row = prev[idx]!;
+  const segments = [...(row.textSegments ?? [])];
+  const order = [...(row.contentOrder ?? [])];
   const lastOrderEntry = order[order.length - 1];
 
   if (lastOrderEntry?.type === "text" && segments.length > 0) {
@@ -111,17 +114,48 @@ export function appendTextDelta(
     order.push({ type: "text", id: String(newIndex) });
   }
 
-  // First-id-wins: keep the original anchor even if a later delta carries
-  // a different `messageId`. The id is locked from bubble creation.
-  return [
-    ...prev.slice(0, -1),
-    {
-      ...last,
-      content: last.content + text,
-      textSegments: segments,
-      contentOrder: order,
-    },
-  ];
+  const next = [...prev];
+  next[idx] = {
+    ...row,
+    content: row.content + text,
+    isStreaming: true,
+    textSegments: segments,
+    contentOrder: order,
+  };
+  return next;
+}
+
+/**
+ * Apply an `assistant_text_delta` to the message array.
+ *
+ * **Id-keyed when `messageId` is present** (B2/B3 onward — stamped on
+ * every event from event zero of the turn). Looks up the matching
+ * assistant row and appends into it regardless of position. Covers the
+ * case where reconcile (or `assistant_turn_start`) landed the reserved
+ * row in the array ahead of the first delta — without id matching,
+ * `tailIsStreamingAssistant(prev)` returns false for that snapshot row
+ * and a duplicate streaming bubble opens with the same id.
+ *
+ * Falls back to tail-based decisioning when `messageId` is absent, for
+ * pre-B2 daemons not pinned by the B4 floor bump.
+ */
+export function appendTextDelta(
+  prev: DisplayMessage[],
+  text: string,
+  messageId?: string,
+): DisplayMessage[] {
+  if (messageId) {
+    const idx = prev.findIndex(
+      (m) => m.role === "assistant" && m.id === messageId,
+    );
+    if (idx >= 0) return appendTextIntoRow(prev, idx, text);
+    return createStreamingBubble(prev, text, messageId);
+  }
+
+  if (!tailIsStreamingAssistant(prev)) {
+    return createStreamingBubble(prev, text, messageId);
+  }
+  return appendTextIntoRow(prev, prev.length - 1, text);
 }
 
 // ---------------------------------------------------------------------------

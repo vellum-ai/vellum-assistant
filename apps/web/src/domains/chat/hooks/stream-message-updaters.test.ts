@@ -125,17 +125,69 @@ describe("appendTextDelta", () => {
     expect(prev[0]!.content).toBe("a");
   });
 
-  it("locks bubble.id to the first id seen — later text_deltas don't overwrite", () => {
-    // Multi-LLM-call turn: call 1's first text_delta opens the bubble with
-    // id=A, call 2's text_delta arrives with id=B. The bubble's id must
-    // stay A (anchor preservation) — the daemon's server-side merge will
-    // collapse the rows to the first row's id, and the live view must
-    // match.
-    const start = createStreamingBubble([userMsg], "Hello", "row-A");
-    expect(start[1]!.id).toBe("row-A");
-    const result = appendTextDelta(start, " world", "row-B");
+  it("extends the matching row when messageId matches, regardless of tail position", () => {
+    // B3 invariant — every event in an LLM call carries the same
+    // `messageId`. The handler must land deltas in the row keyed by id,
+    // not the tail. This covers the reconcile race that produced the
+    // duplicate-row screenshot: a poll fetched the daemon's reserved row
+    // (empty content, no `isStreaming` flag) into local state ahead of
+    // the first delta. Before B5 the tail check returned false on the
+    // snapshot row and `createStreamingBubble` pushed a NEW row with the
+    // same id — two siblings, both with id=row-X.
+    const reservedFromReconcile = makeAssistantMsg({
+      id: "row-X",
+      content: "",
+      textSegments: [],
+      contentOrder: [],
+      isStreaming: false,
+    });
+    const result = appendTextDelta(
+      [userMsg, reservedFromReconcile],
+      "Hello",
+      "row-X",
+    );
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-X");
+    expect(result[1]!.content).toBe("Hello");
+    expect(result[1]!.isStreaming).toBe(true);
+    expect(result[1]!.textSegments).toEqual([{ type: "text", content: "Hello" }]);
+  });
+
+  it("opens a new bubble when messageId is provided but no row matches", () => {
+    // Boundary between LLM calls in the same turn: call 1 was finalized
+    // by `message_complete` (`isStreaming: false`), call 2's first delta
+    // arrives with a new messageId. The fresh delta MUST open a new
+    // bubble, not extend the finalized one.
+    const call1Final = makeAssistantMsg({
+      id: "row-A",
+      content: "Hello",
+      textSegments: [{ type: "text", content: "Hello" }],
+      contentOrder: [{ type: "text", id: "0" }],
+      isStreaming: false,
+    });
+    const result = appendTextDelta([userMsg, call1Final], " world", "row-B");
+
+    expect(result).toHaveLength(3);
+    expect(result[2]!.id).toBe("row-B");
+    expect(result[2]!.content).toBe(" world");
+    expect(result[2]!.isStreaming).toBe(true);
+    // Original row untouched.
     expect(result[1]!.id).toBe("row-A");
-    expect(result[1]!.content).toBe("Hello world");
+    expect(result[1]!.content).toBe("Hello");
+  });
+
+  it("extends consecutive same-id deltas into a single row", () => {
+    // The common case: a single LLM call emits N deltas, all carrying
+    // the same `messageId`. They accumulate into one row.
+    let state: DisplayMessage[] = [userMsg];
+    state = appendTextDelta(state, "Hello", "row-A");
+    state = appendTextDelta(state, " ", "row-A");
+    state = appendTextDelta(state, "world", "row-A");
+
+    expect(state).toHaveLength(2);
+    expect(state[1]!.id).toBe("row-A");
+    expect(state[1]!.content).toBe("Hello world");
   });
 
 });
