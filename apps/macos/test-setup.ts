@@ -62,7 +62,11 @@ mock.module("electron", () => ({
   session: {
     defaultSession: {
       webRequest: { onHeadersReceived: () => undefined },
+      setPermissionRequestHandler: () => undefined,
     },
+  },
+  net: {
+    fetch: () => Promise.resolve(new Response("")),
   },
   screen: {
     getDisplayMatching: () => ({
