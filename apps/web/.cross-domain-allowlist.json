@@ -25,12 +25,6 @@
   "src/domains/chat/hooks/use-voice-input.ts": [
     "voice"
   ],
-  "src/domains/chat/utils/stream-handlers/metadata-handlers.test.ts": [
-    "conversations"
-  ],
-  "src/domains/chat/utils/stream-handlers/metadata-handlers.ts": [
-    "conversations"
-  ],
   "src/domains/conversations/use-attention-tracking.ts": [
     "chat"
   ],
