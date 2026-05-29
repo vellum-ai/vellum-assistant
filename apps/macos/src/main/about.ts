@@ -61,9 +61,12 @@ const ABOUT_PATH = "/about";
 
 const aboutWindowUrl = (): string => {
   if (app.isPackaged) return `app://vellum.ai/assistant${ABOUT_PATH}`;
-  // Dev: build atop the same env-var the main window honors.
-  const devBase =
-    process.env.VELLUM_DEV_URL ?? "http://localhost:5173/assistant";
+  // Dev: build atop the same env-var the main window honors. Strip any
+  // trailing slash so a `VELLUM_DEV_URL=http://localhost:5173/assistant/`
+  // override doesn't produce `/assistant//about`.
+  const devBase = (
+    process.env.VELLUM_DEV_URL ?? "http://localhost:5173/assistant"
+  ).replace(/\/+$/, "");
   return `${devBase}${ABOUT_PATH}`;
 };
 
