@@ -215,7 +215,7 @@ export const router = createBrowserRouter(
             // Everything below requires a resolved assistantId AND an
             // active daemon. The gate defers child rendering until the
             // lifecycle resolves so route components can rely on a
-            // non-null assistantId via useActiveAssistantContext().
+            // non-null assistantId via useActiveAssistantId().
             {
               Component: ActiveAssistantGate,
               children: [

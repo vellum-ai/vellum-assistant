@@ -66,11 +66,13 @@ context provider mounted in `<App />`.
 `ChatLayout` owns a shared `ChatLayoutHeader` that renders on every
 child route (home, chat, library, identity, etc.). Child routes
 populate the header's center and right sections via
-`setTopBarCenter` / `setTopBarRightSlot` from `useAssistantContext()`.
-Register content in a `useEffect` and clear it on unmount:
+`setTopBarCenter` / `setTopBarRightSlot` from
+`useChatLayoutContext()` (the chat-layout outlet context — its
+sole remaining job after assistant lifecycle moved to Zustand
+stores). Register content in a `useEffect` and clear it on unmount:
 
 ```ts
-const { setTopBarCenter } = useAssistantContext();
+const { setTopBarCenter } = useChatLayoutContext();
 useEffect(() => {
   setTopBarCenter(<span>Page Title</span>);
   return () => { setTopBarCenter(null); };

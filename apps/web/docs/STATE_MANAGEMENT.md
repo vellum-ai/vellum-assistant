@@ -280,6 +280,18 @@ Each load-bearing call site has an inline comment explaining the
 invariant it preserves and the failure mode it prevents. Read those
 files as the source of truth — they update with the code.
 
+The same trio also demonstrates the **hook-as-side-effect +
+Zustand-as-state** pattern: `use-lifecycle.ts` returns `void` and
+publishes everything it produces (the `assistantState` discriminated
+union, the stable imperative actions) into
+[`src/assistant/lifecycle-store.ts`](../src/assistant/lifecycle-store.ts)
+and [`src/assistant/selection-store.ts`](../src/assistant/selection-store.ts).
+Consumers read via atomic selectors; nothing flows through outlet
+context. This is the shape to copy when a side-effect orchestrator
+needs to expose its state to the whole tree — not a `useReducer`,
+not a Context provider, not a custom-hook return threaded through
+layouts.
+
 ## useReducer is not used for client state
 
 **Do not use `useReducer` in `apps/web/`.** All client state — including
