@@ -20,7 +20,7 @@
 import * as Sentry from "@sentry/browser";
 
 import { recordDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
-import type { ChatStreamReconnectCause } from "@/lib/streaming/stream-transport-types";
+import type { ChatStreamReconnectCause } from "@/lib/streaming/stream-transport";
 
 // ---------------------------------------------------------------------------
 // Config

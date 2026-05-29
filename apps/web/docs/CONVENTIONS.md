@@ -287,7 +287,10 @@ Think of domains like database tables, not nested documents. Split by
 
 - **No circular dependencies.** If A imports from B AND B imports
   from A, either merge them or hoist the shared code to a
-  top-level directory.
+  top-level directory. **Exception:** `import type` is erased at
+  compile time and never creates a runtime cycle — use it when a
+  sub-module only needs types from its parent
+  ([TypeScript docs](https://www.typescriptlang.org/docs/handbook/modules/reference.html#type-only-imports-and-exports)).
 
 For further reading, [bulletproof-react's project structure
 docs](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md#cross-feature-access)
