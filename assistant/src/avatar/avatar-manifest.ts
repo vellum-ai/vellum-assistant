@@ -152,7 +152,8 @@ export function computeImageMeta(imagePath: string): AvatarImageMeta {
 
 /**
  * Derives avatar state from the legacy sidecar files (traits JSON + PNG).
- * Used both by the one-time migration and as a temporary read fallback.
+ * Used by the read handlers to self-heal once on a manifest-miss: the derived
+ * state is persisted via `writeManifest` so subsequent reads are manifest-only.
  *
  * Inference is **traits-first**: whenever a valid `character-traits.json`
  * exists, the result is `character` regardless of whether a PNG is also
