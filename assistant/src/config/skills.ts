@@ -1056,6 +1056,68 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   return { skill: loaded };
 }
 
+/**
+ * When a skill selector doesn't match any catalog entry, check whether a
+ * matching directory exists on disk and report why it was excluded from the
+ * catalog. Returns a human-readable reason, or null if no matching directory
+ * exists.
+ */
+export function diagnoseSkillNotFound(selector: string): string | null {
+  const skillsDir = getSkillsDir();
+  const candidateDir = join(skillsDir, selector);
+
+  if (!existsSync(candidateDir)) return null;
+
+  const skillFilePath = join(candidateDir, "SKILL.md");
+  if (!existsSync(skillFilePath)) {
+    return `Directory "${selector}" exists under ${getWorkspaceDirDisplay()}/skills/ but does not contain a SKILL.md file.`;
+  }
+
+  try {
+    const stat = statSync(skillFilePath);
+    if (!stat.isFile()) {
+      return `"${selector}/SKILL.md" exists but is not a regular file.`;
+    }
+  } catch {
+    return `"${selector}/SKILL.md" exists but could not be read.`;
+  }
+
+  let content: string;
+  try {
+    content = readFileSync(skillFilePath, "utf-8");
+  } catch {
+    return `"${selector}/SKILL.md" exists but could not be read.`;
+  }
+
+  const frontmatter = parseFrontmatterFields(content);
+  if (!frontmatter) {
+    return `"${selector}/SKILL.md" is missing YAML frontmatter. Add a --- delimited block at the top with "name" and "description" fields.`;
+  }
+
+  const { fields } = frontmatter;
+  const name = typeof fields.name === "string" ? fields.name.trim() : undefined;
+  const description =
+    typeof fields.description === "string"
+      ? fields.description.trim()
+      : undefined;
+
+  if (!name && !description) {
+    return `"${selector}/SKILL.md" frontmatter is missing both "name" and "description" fields. Both are required.`;
+  }
+  if (!name) {
+    return `"${selector}/SKILL.md" frontmatter is missing the required "name" field.`;
+  }
+  if (!description) {
+    return `"${selector}/SKILL.md" frontmatter is missing the required "description" field.`;
+  }
+
+  if (isOutsideSkillsRoot(skillsDir, candidateDir)) {
+    return `"${selector}" resolves outside the skills root (possible symlink escape).`;
+  }
+
+  return `"${selector}/SKILL.md" exists with valid frontmatter but was not loaded. Check daemon logs for details.`;
+}
+
 export function resolveSkillSelector(
   selector: string,
   workspaceSkillsDir?: string,
@@ -1111,9 +1173,11 @@ export function resolveSkillSelector(
     };
   }
 
+  const diagnostic = diagnoseSkillNotFound(needle);
   const knownSkills = catalog.map((skill) => skill.id).join(", ");
+  const base = `No skill matched "${needle}". Available skills: ${knownSkills}`;
   return {
-    error: `No skill matched "${needle}". Available skills: ${knownSkills}`,
+    error: diagnostic ? `${base}\n\nDiagnostic: ${diagnostic}` : base,
     errorCode: "not_found",
   };
 }

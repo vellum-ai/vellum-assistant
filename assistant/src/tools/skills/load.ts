@@ -123,21 +123,21 @@ function formatToolSchemas(
 export class SkillLoadTool implements Tool {
   name = "skill_load";
   description =
-    "Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills.";
+    "Load full instructions for a skill. Works for bundled skills (shipped with the assistant) and managed skills (installed or user-created under ~/.vellum/workspace/skills/).";
   category = "skills";
   executionTarget = "sandbox" as const;
   defaultRiskLevel = RiskLevel.Low;
 
   input_schema = {
-        type: "object",
-        properties: {
-          skill: {
-            type: "string",
-            description: "The skill id or skill name to load.",
-          },
-        },
-        required: ["skill"],
-      };
+    type: "object",
+    properties: {
+      skill: {
+        type: "string",
+        description: "The skill id or skill name to load.",
+      },
+    },
+    required: ["skill"],
+  };
 
   async execute(
     input: Record<string, unknown>,

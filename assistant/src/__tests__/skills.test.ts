@@ -34,8 +34,12 @@ mock.module("../util/logger.js", () => ({
   pruneOldLogFiles: () => 0,
 }));
 
-const { loadSkillCatalog, loadSkillBySelector, resolveSkillSelector } =
-  await import("../config/skills.js");
+const {
+  loadSkillCatalog,
+  loadSkillBySelector,
+  resolveSkillSelector,
+  diagnoseSkillNotFound,
+} = await import("../config/skills.js");
 
 /** Return only user-installed skills (filters out bundled skills that ship with the source tree). */
 function loadUserSkillCatalog() {
@@ -152,6 +156,83 @@ describe("skills catalog loading", () => {
 
     const catalog = loadUserSkillCatalog();
     expect(catalog).toHaveLength(0);
+  });
+});
+
+describe("diagnoseSkillNotFound", () => {
+  beforeEach(() => {
+    mkdirSync(join(TEST_DIR, "skills"), { recursive: true });
+  });
+
+  afterEach(() => {
+    const skillsDir = join(TEST_DIR, "skills");
+    if (existsSync(skillsDir))
+      rmSync(skillsDir, { recursive: true, force: true });
+  });
+
+  test("returns null when no matching directory exists", () => {
+    expect(diagnoseSkillNotFound("nonexistent")).toBeNull();
+  });
+
+  test("reports missing SKILL.md when directory exists but file does not", () => {
+    mkdirSync(join(TEST_DIR, "skills", "empty-dir"), { recursive: true });
+
+    const result = diagnoseSkillNotFound("empty-dir");
+    expect(result).toContain("does not contain a SKILL.md file");
+  });
+
+  test("reports missing frontmatter when SKILL.md has no --- delimiters", () => {
+    const skillDir = join(TEST_DIR, "skills", "no-frontmatter");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "Just plain markdown content.\n");
+
+    const result = diagnoseSkillNotFound("no-frontmatter");
+    expect(result).toContain("missing YAML frontmatter");
+  });
+
+  test("reports missing name field", () => {
+    const skillDir = join(TEST_DIR, "skills", "no-name");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      '---\ndescription: "Has description"\n---\n\nBody.\n',
+    );
+
+    const result = diagnoseSkillNotFound("no-name");
+    expect(result).toContain('missing the required "name" field');
+  });
+
+  test("reports missing description field", () => {
+    const skillDir = join(TEST_DIR, "skills", "no-desc");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(
+      join(skillDir, "SKILL.md"),
+      '---\nname: "Has name"\n---\n\nBody.\n',
+    );
+
+    const result = diagnoseSkillNotFound("no-desc");
+    expect(result).toContain('missing the required "description" field');
+  });
+
+  test("reports missing both name and description", () => {
+    const skillDir = join(TEST_DIR, "skills", "empty-fm");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "---\nfoo: bar\n---\n\nBody.\n");
+
+    const result = diagnoseSkillNotFound("empty-fm");
+    expect(result).toContain('missing both "name" and "description"');
+  });
+
+  test("resolveSkillSelector includes diagnostic in not_found error", () => {
+    const skillDir = join(TEST_DIR, "skills", "bad-skill");
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(join(skillDir, "SKILL.md"), "No frontmatter here.\n");
+
+    const result = resolveSkillSelector("bad-skill");
+    expect(result.skill).toBeUndefined();
+    expect(result.errorCode).toBe("not_found");
+    expect(result.error).toContain("Diagnostic:");
+    expect(result.error).toContain("missing YAML frontmatter");
   });
 });
 
