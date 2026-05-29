@@ -149,8 +149,14 @@ export class CallSiteRoutingProvider implements Provider {
     if (!callSite) return this.defaultProvider;
 
     const overrideProfile = options?.config?.overrideProfile;
+    // Forward the per-conversation mix seed so transport selection picks the
+    // same mix arm as wire-param normalization in `retry.ts` — otherwise a mix
+    // spanning providers could route the transport to a different arm than the
+    // request params.
+    const selectionSeed = options?.config?.selectionSeed;
     const resolved = resolveCallSiteConfig(callSite, getConfig().llm, {
       overrideProfile,
+      selectionSeed,
     });
 
     let connectionName = resolved.provider_connection;
@@ -159,7 +165,9 @@ export class CallSiteRoutingProvider implements Provider {
     // auto-resolve a connection for the provider (handles the case where the
     // profile set provider but not provider_connection, and the merge didn't
     // inherit one).
-    let autoResolveCandidates: import("./inference/auth.js").ProviderConnection[] | undefined;
+    let autoResolveCandidates:
+      | import("./inference/auth.js").ProviderConnection[]
+      | undefined;
     if (!connectionName && resolved.provider !== this.defaultProvider.name) {
       try {
         autoResolveCandidates = listConnections(getDb(), {

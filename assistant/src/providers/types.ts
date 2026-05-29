@@ -183,6 +183,15 @@ export interface SendMessageConfig {
    */
   overrideProfile?: string;
   /**
+   * Per-conversation seed for deterministic `mix`-profile expansion. The agent
+   * loop sets this to the conversation id so every resolver call this send
+   * triggers — provider/transport selection, wire-param normalization, usage
+   * attribution — picks the same mix constituent, stable across the
+   * conversation's turns and retries. A resolution/routing-time concern only;
+   * stripped before any provider wire request.
+   */
+  selectionSeed?: string;
+  /**
    * Internal per-request HTTP headers for managed-proxy usage attribution.
    * Provider clients may pass these through SDK request options only when the
    * transport is Vellum-managed, and must never include this object in provider
