@@ -1292,16 +1292,16 @@ export function ChatRouteContent({
     onStopGenerating: handleStopGenerating,
     assistantId,
     modelSupportsVision: activeModelSupportsVision,
-    onRecallLastMessage: () => {
+    onRecallLastMessage: phase === "idle" ? () => {
       const content = startEditing();
       if (content !== null) {
         setInput(content);
       }
-    },
-    onCancelEdit: () => {
+    } : undefined,
+    onCancelEdit: isEditing ? () => {
       cancelEditing();
       setInput("");
-    },
+    } : undefined,
     textareaMaxHeightPx: isEmptyConversation ? 320 : undefined,
     thresholdPickerSlot: assistantId ? (
       <ComposerSettingsMenu

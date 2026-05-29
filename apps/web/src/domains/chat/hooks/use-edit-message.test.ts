@@ -17,7 +17,7 @@ describe("useEditMessage", () => {
     ];
     const { result } = renderHook(() => useEditMessage(messages));
 
-    let content: string | null = null;
+    let content: string | null | undefined;
     act(() => {
       content = result.current.startEditing();
     });
@@ -36,7 +36,7 @@ describe("useEditMessage", () => {
     ];
     const { result } = renderHook(() => useEditMessage(messages));
 
-    let content: string | null = null;
+    let content: string | null | undefined;
     act(() => {
       content = result.current.startEditing();
     });
@@ -51,7 +51,7 @@ describe("useEditMessage", () => {
     ];
     const { result } = renderHook(() => useEditMessage(messages));
 
-    let content: string | null = null;
+    let content: string | null | undefined;
     act(() => {
       content = result.current.startEditing();
     });
