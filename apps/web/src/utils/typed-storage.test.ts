@@ -57,6 +57,22 @@ describe("createStorageAccessor", () => {
     expect(accessor.load()).toEqual([]);
   });
 
+  test("returns same reference when raw value unchanged (snapshot stability)", () => {
+    accessor.save(["x", "y"]);
+    const first = accessor.load();
+    const second = accessor.load();
+    expect(first).toBe(second);
+  });
+
+  test("returns new reference after value changes", () => {
+    accessor.save(["x"]);
+    const first = accessor.load();
+    accessor.save(["x", "y"]);
+    const second = accessor.load();
+    expect(first).not.toBe(second);
+    expect(second).toEqual(["x", "y"]);
+  });
+
   test("exposes key and scope", () => {
     expect(accessor.key).toBe("vellum:test-items");
     expect(accessor.scope).toBe("user");

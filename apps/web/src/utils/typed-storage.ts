@@ -71,8 +71,6 @@ export interface KeyedStorageAccessorConfig<T> {
   serialize: (value: T) => string;
   /** Value returned when the key is absent, unreadable, or fails validation. */
   fallback: T;
-  /** Max entries to retain when the stored value is a Record. Oldest entries are dropped. */
-  maxEntries?: number;
 }
 
 export interface KeyedStorageAccessor<T> {
@@ -134,15 +132,29 @@ export function createStorageAccessor<T>(
 ): StorageAccessor<T> {
   const { key, scope, parse, serialize, fallback } = config;
 
+  // Cache the last raw string and parsed result so that `getSnapshot`
+  // returns the same object reference when the underlying data hasn't
+  // changed. Without this, `useSyncExternalStore` would see a new
+  // reference on every render call for non-primitive T (arrays, objects)
+  // and re-render indefinitely.
+  let cachedRaw: string | null | undefined;
+  let cachedValue: T = fallback;
+
   function load(): T {
     const raw = readRaw(key);
-    if (raw === null) return fallback;
-    try {
-      const parsed = parse(raw);
-      return parsed !== null ? parsed : fallback;
-    } catch {
+    if (raw === cachedRaw) return cachedValue;
+    cachedRaw = raw;
+    if (raw === null) {
+      cachedValue = fallback;
       return fallback;
     }
+    try {
+      const parsed = parse(raw);
+      cachedValue = parsed !== null ? parsed : fallback;
+    } catch {
+      cachedValue = fallback;
+    }
+    return cachedValue;
   }
 
   function save(value: T): void {
@@ -179,10 +191,9 @@ export function createStorageAccessor<T>(
 /**
  * Create a type-safe localStorage accessor for per-entity keyed storage.
  *
- * Each entity ID maps to its own localStorage key via `keyFn`. If
- * `maxEntries` is set and the stored value is a Record, excess entries
- * are trimmed oldest-first (relies on insertion-order preservation in
- * `JSON.stringify`, which holds for all supported browsers).
+ * Each entity ID maps to its own localStorage key via `keyFn`. For
+ * record-based storage with entry-level CRUD and `maxEntries` trimming,
+ * use `createRecordStorageAccessor` instead.
  *
  * @example
  * ```ts
