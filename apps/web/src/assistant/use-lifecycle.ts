@@ -240,7 +240,7 @@ export function useAssistantLifecycle({
           // between hatch retries: rapid back-to-back invalidations
           // burn the `MAX_HATCH_RETRIES` budget in milliseconds and
           // hammer the server. The invalidation refetch lands the
-          // 404 in cache; the cache subscriber re-enters
+          // 404 in cache; the data-watcher effect below re-enters
           // `applyServerStateUpdate` → `auto_hatch` → `hatchAndCheck`
           // against the next retry slot.
           setTimeout(() => {
@@ -599,11 +599,12 @@ export function useAssistantLifecycle({
   // project each new query result into local state. The query polls
   // on the 3-second cadence defined by `pollIntervalFor`; `data`
   // updates as each successful poll (or hatch-time `setQueryData`
-  // seed, or `invalidateQueries` refetch) lands in cache. When the
-  // lifecycle is stable, the query stops polling, this effect's
-  // dependencies stop changing, and nothing projects — preserving
-  // the original "stop reacting once we land somewhere stable"
-  // contract that the old polling loop had via its early return.
+  // seed, or `invalidateQueries` refetch) lands in cache. Once the
+  // lifecycle reaches a stable phase (`active`, `self_hosted`,
+  // `error`, etc.), the kind-gate short-circuits and nothing
+  // projects — which is the right contract, because once we know
+  // where we landed the user shouldn't be silently re-routed by a
+  // late-arriving query result.
   useEffect(() => {
     if (
       assistantState.kind !== "initializing" &&
