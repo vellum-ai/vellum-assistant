@@ -8,6 +8,7 @@ import type {
   CharacterComponents,
   CharacterTraits,
 } from "@/types/avatar";
+import { avatarQueryKey } from "@/lib/sync/query-tags";
 
 const components: CharacterComponents = {
   bodyShapes: [
@@ -144,5 +145,39 @@ describe("useAssistantAvatar", () => {
     expect(fetchCharacterComponents).toHaveBeenCalledTimes(1);
     expect(fetchAvatarState).toHaveBeenCalledTimes(1);
     expect(fetchAvatarImageUrl).not.toHaveBeenCalled();
+  });
+
+  test("null state (transport failure) preserves the cached avatar instead of blanking", async () => {
+    // First render: a real character avatar is fetched and cached.
+    fetchAvatarState.mockResolvedValueOnce(characterState);
+
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const first = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+    await waitFor(() => {
+      expect(first.result.current.traits).toEqual(traits);
+    });
+    first.unmount();
+
+    // Now the daemon goes away / version-skews: `/avatar/state` returns null.
+    // Refetching must NOT blank the avatar — the queryFn throws so React
+    // Query retains the previously cached data.
+    fetchAvatarState.mockResolvedValue(null);
+    await queryClient.invalidateQueries({ queryKey: avatarQueryKey("asst-1") });
+
+    const second = renderHook(() => useAssistantAvatar("asst-1"), { wrapper });
+    await waitFor(() => {
+      expect(fetchAvatarState).toHaveBeenCalledTimes(2);
+    });
+
+    // Cached character avatar is preserved; it did not fall back to "V".
+    expect(second.result.current.traits).toEqual(traits);
+    expect(second.result.current.customImageUrl).toBeNull();
+    second.unmount();
   });
 });
