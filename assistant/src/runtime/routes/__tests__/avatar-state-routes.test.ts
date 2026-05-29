@@ -342,6 +342,20 @@ describe("avatar write/remove handlers", () => {
       ).toThrow(/encoding/);
       expect(readManifestFile()).toBeNull();
     });
+
+    test("rejects malformed base64 (valid image prefix + illegal chars) with 400", () => {
+      const handler = getHandler("avatar_upload_image");
+      // A valid PNG prefix followed by characters outside the base64 alphabet.
+      // Without strict validation, Buffer.from(.., "base64") would silently
+      // drop the illegal suffix and decode a truncated-but-PNG-magic buffer,
+      // accepting a corrupt avatar. Strict validation must reject it up front.
+      const malformed = `${PNG_BYTES.toString("base64")}!!!@@@***`;
+      expect(() => handler({ body: { content: malformed } })).toThrow(
+        /valid base64/,
+      );
+      expect(existsSync(path(IMAGE_FILENAME))).toBe(false);
+      expect(readManifestFile()).toBeNull();
+    });
   });
 
   describe("POST /avatar/remove", () => {

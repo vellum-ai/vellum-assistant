@@ -169,9 +169,22 @@ function handleUploadAvatarImage({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError('encoding must be "base64"');
   }
 
-  const buffer = Buffer.from(content, "base64");
-  // Buffer.from silently drops invalid characters, so guard against an empty
-  // decode (e.g. whitespace-only / non-base64 input).
+  // Strictly validate the base64 BEFORE decoding. `Buffer.from(.., "base64")`
+  // silently drops characters outside the alphabet, so a valid image prefix
+  // followed by garbage would decode to a truncated/corrupt buffer that still
+  // passes the magic-byte sniff below — accepting a corrupt avatar. Reject
+  // anything that isn't well-formed standard base64 (tolerating surrounding
+  // whitespace) up front.
+  const normalized = content.replace(/\s+/g, "");
+  if (
+    normalized.length === 0 ||
+    normalized.length % 4 !== 0 ||
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(normalized)
+  ) {
+    throw new BadRequestError("content is not valid base64-encoded image data");
+  }
+
+  const buffer = Buffer.from(normalized, "base64");
   if (buffer.length === 0) {
     throw new BadRequestError("content is not valid base64-encoded image data");
   }
