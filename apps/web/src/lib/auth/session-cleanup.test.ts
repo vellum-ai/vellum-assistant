@@ -130,4 +130,54 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("vellum:ff:my-flag")).toBeNull();
     expect(localStorage.getItem("vellum:onboarding:completed")).toBeNull();
   });
+
+  test("clears legacy prefixed keys if startup migration failed", () => {
+    // eslint-disable-next-line no-restricted-syntax -- test: verifying cleanup of legacy auth token
+    localStorage.setItem("gw:token", "legacy-jwt-token");
+    // generic-examples:ignore-next-line — reason: epoch timestamp for token expiry, not a phone number
+    localStorage.setItem("gw:expiresAt", "9999999999");
+    localStorage.setItem("voice:ttsProvider", "elevenlabs");
+    localStorage.setItem("onboarding.completed", "true");
+    localStorage.setItem("ff:client:darkMode", "true");
+    localStorage.setItem("local:lockfile", "{}");
+    localStorage.setItem("integrations.bannerDismissed", "true");
+    localStorage.setItem("vellumDebug.flags.impersonateAssistantVersion", "0.8.6");
+    localStorage.setItem("vellum_image_gen_mode", "enabled");
+
+    clearUserScopedStorage();
+
+    expect(localStorage.getItem("gw:token")).toBeNull();
+    expect(localStorage.getItem("gw:expiresAt")).toBeNull();
+    expect(localStorage.getItem("voice:ttsProvider")).toBeNull();
+    expect(localStorage.getItem("onboarding.completed")).toBeNull();
+    expect(localStorage.getItem("ff:client:darkMode")).toBeNull();
+    expect(localStorage.getItem("local:lockfile")).toBeNull();
+    expect(localStorage.getItem("integrations.bannerDismissed")).toBeNull();
+    expect(localStorage.getItem("vellumDebug.flags.impersonateAssistantVersion")).toBeNull();
+    expect(localStorage.getItem("vellum_image_gen_mode")).toBeNull();
+  });
+
+  test("preserves legacy device-level keys from cleanup", () => {
+    localStorage.setItem("vellum_theme", "dark");
+    localStorage.setItem("vellum_share_analytics", "true");
+    localStorage.setItem("vellum_share_diagnostics", "false");
+    localStorage.setItem("vellum_biometric_enabled", "false");
+    localStorage.setItem("vellum_llm_log_retention", "dontRetain");
+    localStorage.setItem("vellum_timezone", "America/New_York");
+    localStorage.setItem("vellum_media_embeds_enabled", "false");
+    localStorage.setItem("vellum_media_embed_domains", '["youtube.com"]');
+    localStorage.setItem("onboarding.lastUserId", "user-123");
+
+    clearUserScopedStorage();
+
+    expect(localStorage.getItem("vellum_theme")).toBe("dark");
+    expect(localStorage.getItem("vellum_share_analytics")).toBe("true");
+    expect(localStorage.getItem("vellum_share_diagnostics")).toBe("false");
+    expect(localStorage.getItem("vellum_biometric_enabled")).toBe("false");
+    expect(localStorage.getItem("vellum_llm_log_retention")).toBe("dontRetain");
+    expect(localStorage.getItem("vellum_timezone")).toBe("America/New_York");
+    expect(localStorage.getItem("vellum_media_embeds_enabled")).toBe("false");
+    expect(localStorage.getItem("vellum_media_embed_domains")).toBe('["youtube.com"]');
+    expect(localStorage.getItem("onboarding.lastUserId")).toBe("user-123");
+  });
 });
