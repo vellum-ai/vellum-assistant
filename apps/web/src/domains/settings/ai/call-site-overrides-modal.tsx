@@ -20,6 +20,7 @@ import {
   profilePickerLabel,
   visibleProfilesForPicker,
   gateAutoProfile,
+  selectSeedProfileForOverride,
   type ProfilePickerEntry,
 } from "@/domains/settings/ai/profile-pickers";
 
@@ -286,13 +287,6 @@ function CallSiteOverridesModalInner({
     [orderedProfiles, queryComplexityRoutingEnabled],
   );
 
-  // First active profile — used when toggling an override on without a draft,
-  // so we never seed a freshly-toggled override with a disabled profile name.
-  const firstActiveProfileName = useMemo(
-    () => orderedProfiles.find((p) => p.status !== "disabled")?.name,
-    [orderedProfiles],
-  );
-
   const filteredCallSites = useMemo(() => {
     if (!search.trim()) return gatedCallSites;
     const q = search.toLowerCase();
@@ -347,10 +341,11 @@ function CallSiteOverridesModalInner({
       setDrafts((prev) => ({ ...prev, [id]: null }));
       return;
     }
-    const seedProfile =
-      defaultProfile && orderedProfiles.some((p) => p.name === defaultProfile && p.status !== "disabled")
-        ? defaultProfile
-        : firstActiveProfileName;
+    const seedProfile = selectSeedProfileForOverride(
+      orderedProfiles,
+      defaultProfile,
+      queryComplexityRoutingEnabled,
+    );
     if (seedProfile) {
       setDrafts((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
     } else {

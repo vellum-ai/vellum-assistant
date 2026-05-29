@@ -693,7 +693,7 @@ function ManageProfilesModalInner({
 
                 const isActive = profile.status !== "disabled";
                 const isToggling = togglingNames.has(profile.name);
-                const isAutoProfile = profile.name === "auto";
+                const isAutoProfile = profile.name === AUTO_PROFILE_NAME;
 
                 return (
                   <div key={profile.name} className="relative">
@@ -762,7 +762,7 @@ function ManageProfilesModalInner({
                           >
                             {profile.label ?? profile.name}
                           </Typography>
-                          {isManaged && profile.name !== "auto" && (
+                          {isManaged && profile.name !== AUTO_PROFILE_NAME && (
                             <Tag
                               tone="positive"
                               title="Managed by Platform — auth is locked, but you can rename or disable this profile."
@@ -849,7 +849,7 @@ function ManageProfilesModalInner({
                         {deleteError}
                       </Typography>
                     ) : null}
-                    {profile.name === "auto" && (
+                    {profile.name === AUTO_PROFILE_NAME && (
                       <div className="mx-2 mt-1 border-b border-[var(--border-subtle)]" />
                     )}
                   </div>

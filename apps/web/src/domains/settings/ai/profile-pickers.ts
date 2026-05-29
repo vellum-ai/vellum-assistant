@@ -35,6 +35,30 @@ export function gateAutoProfile<T extends ProfilePickerEntry>(
 }
 
 /**
+ * Chooses the profile used when a call-site override is toggled on.
+ * The optional preferred profile is used only when it is active and visible
+ * under the current feature-flag gate; otherwise the first active visible
+ * profile is used.
+ */
+export function selectSeedProfileForOverride<T extends ProfilePickerEntry>(
+  profiles: ReadonlyArray<T>,
+  preferredProfile: string | null | undefined,
+  queryComplexityRoutingEnabled: boolean,
+): string | undefined {
+  const candidates = gateAutoProfile(
+    profiles.filter((p) => p.status !== "disabled"),
+    queryComplexityRoutingEnabled,
+  );
+  if (
+    preferredProfile &&
+    candidates.some((p) => p.name === preferredProfile)
+  ) {
+    return preferredProfile;
+  }
+  return candidates[0]?.name;
+}
+
+/**
  * Returns the subset of `profiles` to render in a picker.
  *
  * Drops `status === "disabled"` entries, EXCEPT for any entry whose
