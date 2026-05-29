@@ -1,0 +1,75 @@
+/**
+ * Bus consumer for `notification_intent` SSE events.
+ *
+ * Turns daemon-pushed notification intents into local browser or
+ * Capacitor notifications. Skips guardian-scoped notifications
+ * (the web client does not participate in guardian binding) and
+ * notifications targeting the currently focused conversation
+ * (the user is already looking at it).
+ *
+ * Acks every notification back to the daemon so delivery audit
+ * trails stay consistent with the macOS client.
+ *
+ * References:
+ * - EVENT_BUS.md — bus subscription contract
+ * - runtime/notifications.ts — notification scheduling and ack API
+ */
+
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import {
+  extractConversationId,
+  postLocalNotification,
+  sendNotificationIntentAck,
+} from "@/runtime/notifications";
+import { useConversationStore } from "@/stores/conversation-store";
+
+/**
+ * Subscribes to `notification_intent` SSE events via the event bus
+ * and schedules local notifications.
+ *
+ * @param assistantId — current assistant; `null` disables the subscription
+ */
+export function useNotificationIntentSync(
+  assistantId: string | null,
+): void {
+  useBusSubscription("sse.event", (event) => {
+    if (event.type !== "notification_intent") return;
+
+    const ackAssistantId = assistantId;
+
+    // Guardian-scoped notifications are for devices bound to that
+    // guardian identity. The web/Capacitor client does not participate
+    // in guardian binding — skip to avoid leaking to unintended devices.
+    if (event.targetGuardianPrincipalId) {
+      if (ackAssistantId && event.deliveryId) {
+        void sendNotificationIntentAck(ackAssistantId, event.deliveryId, true);
+      }
+      return;
+    }
+
+    // If the notification targets the conversation the user is already
+    // viewing, suppress the banner and ack silently.
+    const metadataConversationId = extractConversationId(
+      event.deepLinkMetadata,
+    );
+    if (
+      metadataConversationId &&
+      metadataConversationId ===
+        useConversationStore.getState().activeConversationId
+    ) {
+      if (ackAssistantId && event.deliveryId) {
+        void sendNotificationIntentAck(ackAssistantId, event.deliveryId, true);
+      }
+      return;
+    }
+
+    void postLocalNotification({
+      title: event.title,
+      body: event.body,
+      sourceEventName: event.sourceEventName,
+      deliveryId: event.deliveryId,
+      deepLinkMetadata: event.deepLinkMetadata,
+      assistantId: ackAssistantId ?? undefined,
+    });
+  });
+}

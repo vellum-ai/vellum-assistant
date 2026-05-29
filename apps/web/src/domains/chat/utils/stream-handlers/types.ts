@@ -8,7 +8,6 @@ import type { ContextWindowUsage } from "@/domains/chat/components/context-windo
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { TurnActions, TurnState } from "@/domains/chat/turn-store";
 import type { EndTurnArgs } from "@/domains/chat/turn-coordinator";
-import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
 import type { ChatError, PendingQuestionState } from "@/domains/chat/types";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 
@@ -84,13 +83,6 @@ export interface StreamHandlerContext {
 
   // --- Compaction ---
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
-
-  // --- External callbacks ---
-  applyDiskPressureStatusEvent: (
-    payload: DiskPressureStatusEventPayload,
-  ) => void;
-  refreshAssistantIdentity: (force?: boolean) => Promise<void>;
-  invalidateAvatar: () => void;
 
   // --- Queue management ---
   pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
