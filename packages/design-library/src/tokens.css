@@ -25,7 +25,7 @@
  * when data-theme="dark" is set on an ancestor element.
  * https://tailwindcss.com/docs/dark-mode#using-a-data-attribute
  * --------------------------------------------------------------------------- */
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, [data-theme=velvet], [data-theme=velvet] *, [data-theme=velvetist], [data-theme=velvetist] *));
 
 /* ---------------------------------------------------------------------------
  * @theme bridge — registers CSS variables as Tailwind theme variables so
