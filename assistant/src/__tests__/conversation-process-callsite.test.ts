@@ -4,11 +4,11 @@
  * user-initiated turns default to `'mainAgent'` when no caller-supplied
  * `callSite` is set.
  *
- * The test mocks `AgentLoop.run()` so it can capture the `callSite` parameter
- * the conversation passes after `processMessage` runs the slash-resolver and
- * runtime-injection pipeline. Adapter callers (heartbeat, filing, scheduler)
- * pass an explicit `callSite` so `RetryProvider` resolves their per-call
- * config from `llm.callSites.<id>`.
+ * The test mocks `AgentLoop.run()` so it can capture the `callSite` option
+ * the conversation passes via `AgentLoopRunOptions` after `processMessage`
+ * runs the slash-resolver and runtime-injection pipeline. Adapter callers
+ * (heartbeat, filing, scheduler) pass an explicit `callSite` so
+ * `RetryProvider` resolves their per-call config from `llm.callSites.<id>`.
  */
 import { describe, expect, mock, test } from "bun:test";
 

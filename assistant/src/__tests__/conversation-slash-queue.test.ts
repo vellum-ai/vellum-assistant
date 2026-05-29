@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  AgentEvent,
-  CheckpointDecision,
-  CheckpointInfo,
-} from "../agent/loop.js";
+import type { AgentEvent } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
   conversationMessagesSyncTag,
@@ -226,11 +222,6 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void | Promise<void>,
-      _signal?: AbortSignal,
-      _requestId?: string,
-      _onCheckpoint?: (
-        checkpoint: CheckpointInfo,
-      ) => CheckpointDecision | Promise<CheckpointDecision>,
     ): Promise<Message[]> {
       return new Promise<Message[]>((resolve) => {
         pendingRuns.push({ resolve, messages, onEvent });
