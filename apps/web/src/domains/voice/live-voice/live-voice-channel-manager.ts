@@ -422,12 +422,24 @@ export class LiveVoiceChannelManager {
     // gone and we must not clobber the resulting `off` / `failed` state.
     if (this.capture !== capture) return;
     if (!started) {
-      // Capture failed to start (mic permission denied, suspended-
-      // context resume rejection, worklet load failure, etc.).
-      // Without audio frames the WS would dangle in `connecting`
-      // forever — its 10s timeout was already cleared by the `ready`
-      // frame. Surface as a connection failure so the overlay shows the
-      // error and the button enters retry mode.
+      // The user can press stop after `ready` but before `capture.start()`
+      // resolves (e.g. while the mic permission prompt or AudioWorklet
+      // load is still pending). `stopListening()` sets `isUserMuted` and
+      // calls `capture.stop()`, which bumps the capture's generation —
+      // the in-flight `start()` continuation then returns `false`. That
+      // is a cancellation, not a mic failure, so end the session cleanly
+      // instead of leaving the UI in `failed` with a misleading
+      // "Microphone permission denied" message.
+      if (this.isUserMuted) {
+        void this.end();
+        return;
+      }
+      // Real capture failure (mic permission denied, suspended-context
+      // resume rejection, worklet load failure, etc.). Without audio
+      // frames the WS would dangle in `connecting` forever — its 10s
+      // timeout was already cleared by the `ready` frame. Surface as a
+      // connection failure so the overlay shows the error and the
+      // button enters retry mode.
       this.handleFailure({
         type: "connectionFailed",
         message: "Microphone permission denied or unavailable",

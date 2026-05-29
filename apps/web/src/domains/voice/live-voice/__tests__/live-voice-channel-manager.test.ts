@@ -608,6 +608,41 @@ describe("LiveVoiceChannelManager", () => {
       expect(client.closeCalls).toBe(0);
     });
 
+    test("ends the session if capture returns false because stopListening fired during capture start", async () => {
+      const harness = makeHarness();
+      const { manager, store } = harness;
+
+      // The real `LiveVoicePcmCapture.start()` returns false if `stop()`
+      // races it (e.g. user pressed cancel while the mic permission
+      // prompt was still up). Simulate that here.
+      await manager.start("conv-1");
+      const client = harness.client();
+      const capture = harness.capture();
+      const playback = harness.playback();
+      capture.startResult = false;
+
+      // ready → manager begins capture.start(); we model the race by
+      // calling stopListening before letting the start() microtask
+      // resolve, then yielding so the false continuation runs.
+      client.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await manager.stopListening();
+      await flushMicrotasks();
+
+      // The cancellation path must run `end()`, not `handleFailure()`.
+      // The store should NOT surface the "Microphone permission denied"
+      // message and the state should not be `failed`.
+      expect(client.endCalls).toBe(1);
+      expect(client.closeCalls).toBe(0);
+      expect(capture.shutdownCalls).toBe(1);
+      expect(playback.handleEndCalls).toBe(1);
+      expect(store.getState().state).toBe("off");
+      expect(store.getState().errorMessage).toBe("");
+    });
+
     test("ends the session if ready arrives after stopListening fired during connecting", async () => {
       const harness = makeHarness();
       const { manager, store } = harness;
