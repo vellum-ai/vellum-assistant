@@ -10,10 +10,10 @@ import {
   summarizeRuntimeMessages,
 } from "@/domains/chat/utils/diagnostics";
 import { type DisplayMessage, reconcileMessages } from "@/domains/chat/utils/reconcile";
-import { isSending, useTurnStore } from "@/stores/turn-store";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages";
 import { useConversationStore } from "@/stores/conversation-store";
-import { endTurn } from "@/stores/turn-coordinator";
+import { endTurn } from "@/domains/chat/turn-coordinator";
 
 const RECONCILE_DELAY_MS = 5000;
 const RECONCILE_MAX_MS = 60_000;

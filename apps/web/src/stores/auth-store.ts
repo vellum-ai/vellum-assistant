@@ -33,7 +33,7 @@ import {
   primeLocalGatewayConnection,
 } from "@/lib/local-mode";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
-import { syncOnboardingUser, clearOnboardingFlags } from "@/lib/onboarding-cleanup";
+import { syncOnboardingUser, clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import { clearOrganization } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
 import { useEventBusStore } from "@/stores/event-bus-store";

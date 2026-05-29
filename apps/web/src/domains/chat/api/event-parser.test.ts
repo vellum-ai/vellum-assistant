@@ -515,6 +515,349 @@ describe("parseAssistantEvent", () => {
     });
   });
 
+  // ---------------------------------------------------------------------
+  // message_queued (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses message_queued with all required fields", () => {
+    const event = parseAssistantEvent({
+      type: "message_queued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 2,
+    });
+    expect(event).toEqual({
+      type: "message_queued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 2,
+    });
+  });
+
+  test("returns unknown message_queued event when position is missing", () => {
+    const data = {
+      type: "message_queued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "message_queued",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown message_queued event when an unknown field is present", () => {
+    const data = {
+      type: "message_queued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      position: 0,
+      legacyField: "x",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "message_queued",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // message_dequeued (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses message_dequeued with all required fields", () => {
+    const event = parseAssistantEvent({
+      type: "message_dequeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+    });
+    expect(event).toEqual({
+      type: "message_dequeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+    });
+  });
+
+  test("returns unknown message_dequeued event when conversationId is missing", () => {
+    const data = {
+      type: "message_dequeued",
+      requestId: "req-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "message_dequeued",
+      data,
+      conversationId: undefined,
+    });
+  });
+
+  test("returns unknown message_dequeued event when an unknown field is present", () => {
+    const data = {
+      type: "message_dequeued",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      stale: true,
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "message_dequeued",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // message_queued_deleted (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses message_queued_deleted with all required fields", () => {
+    const event = parseAssistantEvent({
+      type: "message_queued_deleted",
+      conversationId: "conv-1",
+      requestId: "req-1",
+    });
+    expect(event).toEqual({
+      type: "message_queued_deleted",
+      conversationId: "conv-1",
+      requestId: "req-1",
+    });
+  });
+
+  test("returns unknown message_queued_deleted event when requestId is missing", () => {
+    const data = {
+      type: "message_queued_deleted",
+      conversationId: "conv-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "message_queued_deleted",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown message_queued_deleted event when an unknown field is present", () => {
+    const data = {
+      type: "message_queued_deleted",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      legacyReason: "user_cancel",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "message_queued_deleted",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // message_request_complete (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses message_request_complete with required fields and runStillActive", () => {
+    const event = parseAssistantEvent({
+      type: "message_request_complete",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      runStillActive: true,
+    });
+    expect(event).toEqual({
+      type: "message_request_complete",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      runStillActive: true,
+    });
+  });
+
+  test("parses message_request_complete without optional runStillActive", () => {
+    const event = parseAssistantEvent({
+      type: "message_request_complete",
+      conversationId: "conv-1",
+      requestId: "req-1",
+    });
+    expect(event).toEqual({
+      type: "message_request_complete",
+      conversationId: "conv-1",
+      requestId: "req-1",
+    });
+  });
+
+  test("returns unknown message_request_complete event when requestId is missing", () => {
+    const data = {
+      type: "message_request_complete",
+      conversationId: "conv-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "message_request_complete",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown message_request_complete event when an unknown field is present", () => {
+    const data = {
+      type: "message_request_complete",
+      conversationId: "conv-1",
+      requestId: "req-1",
+      runStillActive: false,
+      legacyField: "x",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "message_request_complete",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // compaction_circuit_open / compaction_circuit_closed (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses compaction_circuit_open with all required fields", () => {
+    const event = parseAssistantEvent({
+      type: "compaction_circuit_open",
+      conversationId: "conv-1",
+      reason: "3_consecutive_failures",
+      openUntil: 1_700_000_000_000,
+    });
+    expect(event).toEqual({
+      type: "compaction_circuit_open",
+      conversationId: "conv-1",
+      reason: "3_consecutive_failures",
+      openUntil: 1_700_000_000_000,
+    });
+  });
+
+  test("returns unknown compaction_circuit_open when reason is not the recognized literal", () => {
+    const data = {
+      type: "compaction_circuit_open",
+      conversationId: "conv-1",
+      reason: "unexplained",
+      openUntil: 1_700_000_000_000,
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "compaction_circuit_open",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown compaction_circuit_open when openUntil is missing", () => {
+    const data = {
+      type: "compaction_circuit_open",
+      conversationId: "conv-1",
+      reason: "3_consecutive_failures",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "compaction_circuit_open",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("parses compaction_circuit_closed with required fields", () => {
+    const event = parseAssistantEvent({
+      type: "compaction_circuit_closed",
+      conversationId: "conv-1",
+    });
+    expect(event).toEqual({
+      type: "compaction_circuit_closed",
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown compaction_circuit_closed when conversationId is missing", () => {
+    const data = { type: "compaction_circuit_closed" };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "compaction_circuit_closed",
+      data,
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // home_feed_updated (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses home_feed_updated with all required fields", () => {
+    const event = parseAssistantEvent({
+      type: "home_feed_updated",
+      updatedAt: "2026-05-29T15:00:00.000Z",
+      newItemCount: 3,
+    });
+    expect(event).toEqual({
+      type: "home_feed_updated",
+      updatedAt: "2026-05-29T15:00:00.000Z",
+      newItemCount: 3,
+    });
+  });
+
+  test("returns unknown home_feed_updated when updatedAt is missing", () => {
+    const data = { type: "home_feed_updated", newItemCount: 3 };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "home_feed_updated",
+      data,
+    });
+  });
+
+  test("returns unknown home_feed_updated when newItemCount has wrong type", () => {
+    const data = {
+      type: "home_feed_updated",
+      updatedAt: "2026-05-29T15:00:00.000Z",
+      newItemCount: "many",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "home_feed_updated",
+      data,
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // interaction_resolved (schema-validated; legacy tests above still cover
+  // happy path + invalid state + missing requestId)
+  // ---------------------------------------------------------------------
+
+  test("returns unknown interaction_resolved when conversationId is missing", () => {
+    const data = {
+      type: "interaction_resolved",
+      requestId: "req-1",
+      state: "approved",
+      kind: "confirmation",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "interaction_resolved",
+      data,
+    });
+  });
+
+  test("returns unknown interaction_resolved when an unknown field is present", () => {
+    const data = {
+      type: "interaction_resolved",
+      requestId: "req-1",
+      conversationId: "conv-1",
+      state: "approved",
+      kind: "confirmation",
+      legacyField: "x",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "interaction_resolved",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
   test("parses error with code and message", () => {
     const event = parseAssistantEvent({
       type: "error",

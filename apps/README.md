@@ -15,8 +15,6 @@ follow-up PRs.
 - Shared libraries — these live in `packages/` or `clients/shared/`.
 - Native Swift clients — `clients/macos/` remains the source of truth for the
   macOS app.
-- The local-daemon web interface — `clients/web/` is an internal control plane
-  served by `vellum client --interface web`, not an end-user surface.
 - Backend services — `assistant/`, `gateway/`, `credential-executor/`, `cli/`
   stay at the repo root.
 

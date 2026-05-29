@@ -36,10 +36,7 @@ public final class AppServices {
         self.featureFlagStore = featureFlagStore
         self.bookmarkStore = bookmarkStore
         diskPressureStatusStore = DiskPressureStatusStore(
-            eventStreamClient: connectionManager.eventStreamClient,
-            featureFlagEnabled: { key in
-                featureFlagStore.isEnabled(key)
-            }
+            eventStreamClient: connectionManager.eventStreamClient
         )
         // Bookmark hydration is deferred until the gateway is connected
         // (see ``AppDelegate+ConnectionSetup``) so it doesn't race auth

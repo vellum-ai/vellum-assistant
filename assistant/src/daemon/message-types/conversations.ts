@@ -1,5 +1,7 @@
 // Conversation lifecycle, auth, model config, and history types.
 
+import type { CompactionCircuitClosedEvent } from "../../api/events/compaction-circuit-closed.js";
+import type { CompactionCircuitOpenEvent } from "../../api/events/compaction-circuit-open.js";
 import type { GenerationCancelledEvent } from "../../api/events/generation-cancelled.js";
 import type { GenerationHandoffEvent } from "../../api/events/generation-handoff.js";
 import type {
@@ -509,30 +511,9 @@ export interface ContextCompacted {
  * conversation would set the "auto-compaction paused" banner on every open
  * `ChatViewModel`.
  */
-export interface CompactionCircuitOpen {
-  type: "compaction_circuit_open";
-  conversationId: string;
-  reason: "3_consecutive_failures";
-  /** Timestamp (ms since epoch) when the breaker will allow auto-compaction again. */
-  openUntil: number;
-}
+export type CompactionCircuitOpen = CompactionCircuitOpenEvent;
 
-/**
- * Emitted when the compaction circuit breaker transitions from open → closed
- * because a successful compaction reset
- * `ctx.compactionCircuitOpenUntil`. The Swift client clears its banner state
- * on receipt so the "auto-compaction paused" indicator dismisses immediately
- * instead of lingering until the original `openUntil` deadline (up to 1h).
- *
- * Only fires on the open→closed transition — successful compactions while
- * the breaker was already closed would be noise.
- *
- * Scoped per-conversation — see `CompactionCircuitOpen` doc for why.
- */
-export interface CompactionCircuitClosed {
-  type: "compaction_circuit_closed";
-  conversationId: string;
-}
+export type CompactionCircuitClosed = CompactionCircuitClosedEvent;
 
 export type ConversationErrorCode =
   | "PROVIDER_NETWORK"

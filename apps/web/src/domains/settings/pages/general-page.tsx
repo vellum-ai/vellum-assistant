@@ -21,8 +21,8 @@ import {
 } from "@/domains/settings/components/assistant-status-panel";
 
 import { useAuthStore } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { isLocalMode } from "@/lib/local-mode";
 import {
   applyThemePreference,
@@ -34,7 +34,7 @@ import {
   getDeviceSetting,
   setDeviceSetting,
   watchDeviceSetting,
-} from "@/lib/device-settings";
+} from "@/utils/device-settings";
 
 function ThemeCard() {
   const velvet = useClientFeatureFlagStore.use.velvet();

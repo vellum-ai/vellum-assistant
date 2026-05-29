@@ -33,10 +33,10 @@ import { useAttentionTracking } from "@/domains/conversations/use-attention-trac
 import { useConversationActions } from "@/domains/conversations/use-conversation-actions";
 import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions";
 import { RenameConversationDialog } from "@/domains/conversations/rename-conversation-dialog";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useViewerStore } from "@/stores/viewer-store";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import type { Conversation } from "@/types/conversation-types";

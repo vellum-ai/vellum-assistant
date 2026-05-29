@@ -3,8 +3,9 @@ import { ChevronDown, ChevronRight, Loader2, Shield } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Card } from "@vellum/design-library";
-import { getRiskBadgeStyle } from "@/domains/chat/utils/risk-utils";
-import type { AllowlistOption, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
+import { getRiskBadgeStyle } from "@/domains/chat/utils/risk";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 
 export interface ConfirmationPromptCardProps {
   confirmation: {

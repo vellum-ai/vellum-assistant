@@ -18,7 +18,8 @@
     "@vellumai/assistant": "0.8.5",
     "@vellumai/cli": "0.8.5",
     "@vellumai/credential-executor": "0.8.5",
-    "@vellumai/vellum-gateway": "0.8.5"
+    "@vellumai/vellum-gateway": "0.8.5",
+    "@vellumai/web": "0.8.5"
   },
   "overrides": {
     "drizzle-orm": "0.45.2",

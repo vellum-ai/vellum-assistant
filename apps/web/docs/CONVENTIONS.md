@@ -168,8 +168,6 @@ src/
     viewer-store.ts
     sse-connected-store.ts
     conversation-store.ts
-    turn-store.ts
-    turn-coordinator.ts            #   atomic turn-store + conversation-store transitions
   domains/                         # feature modules
     messages/                      # message lifecycle
       message-store.ts
@@ -192,10 +190,10 @@ src/
         message-handlers.ts
         interaction-handlers.ts
         types.ts
-    interactions/                   # user-facing prompts
-      interaction-store.ts
-      interaction-store.test.ts
-      types.ts
+    chat/                          # chat feature module
+      turn-store.ts                #   turn-level state machine
+      turn-coordinator.ts          #   atomic turn-store + conversation-store transitions
+      turn-selectors.ts            #   render-decision selectors from TurnState
   hooks/                           # cross-domain shared hooks
     use-is-mobile.ts
     use-visible-viewport.ts
@@ -235,9 +233,8 @@ References:
 
 Domains are **business capabilities**, not URL segments. A route
 composes one or more domains; a domain may be used by zero or more
-routes. `conversations/`, `interactions/`, and `subagents/` have no
-routes of their own — they are composed by page-level domains
-(`chat/`, `home/`) that do map to routes.
+routes. `conversations/` has no routes of its own — it is composed by
+page-level domains (`chat/`, `home/`) that do map to routes.
 
 The dependency direction is one-way:
 `shared → domains → page domains → routes`.
@@ -311,9 +308,9 @@ Examples of correct splits:
   CRUD and grouping.
 - `streaming/` vs `messages/`: SSE transport and reconnection logic
   changes for different reasons than message state management.
-- `interactions/` vs `turn/`: user-facing prompts (secrets,
-  confirmations) have their own state machine, independent from the
-  turn lifecycle (idle → sending → receiving → complete).
+- `chat/interaction-store` vs `chat/turn-store`: user-facing prompts
+  (secrets, confirmations) have their own state machine, independent
+  from the turn lifecycle (idle → sending → receiving → complete).
 
 ### Conversation identifiers: `conversationId` vs `conversationKey`
 
@@ -383,11 +380,11 @@ owns it.
 | Folder | Purpose | Example contents |
 |---|---|---|
 | `assistant/` | Core business-domain code for the assistant itself — the central concept every feature composes around. Every domain may depend on it; it depends on no domain. New top-level business-concept folders require explicit team approval. | `api.ts`, `lifecycle.ts`, `types.ts`, `llm-model-catalog.ts` |
-| `stores/` | App-level Zustand stores (cross-domain state) | `viewer-store.ts`, `sse-connected-store.ts` |
-| `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-keyboard-shortcuts.ts` |
+| `stores/` | App-level Zustand stores (cross-domain state) | `viewer-store.ts`, `sse-connected-store.ts`, `assistant-feature-flag-store.ts` |
+| `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-feature-flag-bus-sync.ts` |
 | `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
 | `types/` | Shared type definitions | `window.d.ts`, `api-types.ts` |
-| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/, `sync/` (state sync), `api-client.ts` (HeyAPI) |
+| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `api-client.ts` (HeyAPI) |
 | `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 

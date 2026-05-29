@@ -45,10 +45,7 @@ describe("handleUsageUpdate", () => {
 
   it("sets fillRatio to null when maxTokens is missing", () => {
     const ctx = makeCtx();
-    handleUsageUpdate(
-      { type: "usage_update", contextWindowTokens: 5000 },
-      ctx,
-    );
+    handleUsageUpdate({ type: "usage_update", contextWindowTokens: 5000 }, ctx);
     expect(
       ctx.contextWindowUsageByConversationRef.current.get("conv-1"),
     ).toEqual({
@@ -69,8 +66,7 @@ describe("handleUsageUpdate", () => {
       ctx,
     );
     expect(
-      ctx.contextWindowUsageByConversationRef.current.get("conv-1")
-        ?.fillRatio,
+      ctx.contextWindowUsageByConversationRef.current.get("conv-1")?.fillRatio,
     ).toBe(1);
   });
 });
@@ -80,9 +76,7 @@ describe("handleConversationTitleUpdated", () => {
     const ctx = makeCtx();
     ctx.queryClient.setQueryData<Conversation[]>(
       conversationsQueryKey(ctx.assistantIdRef.current),
-      [
-        { conversationId: "conv-1", title: "Old Title" } as Conversation,
-      ],
+      [{ conversationId: "conv-1", title: "Old Title" } as Conversation],
     );
 
     handleConversationTitleUpdated(
@@ -97,9 +91,7 @@ describe("handleConversationTitleUpdated", () => {
     const cached = ctx.queryClient.getQueryData<Conversation[]>(
       conversationsQueryKey(ctx.assistantIdRef.current),
     );
-    const conv = cached?.find(
-      (c) => c.conversationId === "conv-1",
-    );
+    const conv = cached?.find((c) => c.conversationId === "conv-1");
     expect(conv?.title).toBe("New Title");
   });
 });
@@ -111,7 +103,7 @@ describe("handleCompactionCircuitOpen", () => {
       {
         type: "compaction_circuit_open",
         conversationId: "conv-1",
-        reason: "test",
+        reason: "3_consecutive_failures",
         openUntil: Date.now() + 60000,
       },
       ctx,

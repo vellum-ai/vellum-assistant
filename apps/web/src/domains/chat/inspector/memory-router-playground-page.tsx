@@ -17,7 +17,7 @@ import type {
   RecentTurnPair,
   RouterSource,
 } from "@/domains/chat/inspector/memory-router-simulator-api";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAuthStore } from "@/stores/auth-store";
 
 /**

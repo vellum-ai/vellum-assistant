@@ -69,18 +69,6 @@ export function getDiskPressureMonitorMode(
   return "inactive";
 }
 
-export function shouldEnableDiskPressureMonitor({
-  safeStorageLimits,
-  assistantStateKind,
-  assistantId,
-}: {
-  safeStorageLimits: boolean;
-  assistantStateKind: string;
-  assistantId: string | null;
-}): boolean {
-  return safeStorageLimits && assistantStateKind === "active" && !!assistantId;
-}
-
 export function isChatInputDisabledByDiskPressure({
   monitorEnabled,
   hasResolvedStatus,

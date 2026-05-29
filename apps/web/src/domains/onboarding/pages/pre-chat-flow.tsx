@@ -62,7 +62,7 @@ import {
   getSelectedAssistant,
   isLocalMode,
 } from "@/lib/local-mode";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useRootOutletContext } from "@/root-layout";

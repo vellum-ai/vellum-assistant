@@ -50,27 +50,6 @@ final class DiskPressureStatusStoreTests: XCTestCase {
         XCTAssertEqual(store.status?.lockId, "disk-pressure-test")
     }
 
-    func testFeatureFlagDisabledMakesStoreInert() async throws {
-        let client = MockDiskPressureClient(getStatuses: [
-            Self.status(),
-        ])
-        let eventStreamClient = EventStreamClient()
-        let store = makeStore(client: client, eventStreamClient: eventStreamClient, featureEnabled: false)
-
-        store.start()
-        eventStreamClient.broadcastMessage(.diskPressureStatusChanged(DiskPressureStatusChanged(
-            type: "disk_pressure_status_changed",
-            status: Self.status()
-        )))
-
-        try await Task.sleep(nanoseconds: 50_000_000)
-        XCTAssertEqual(client.getStatusCallCount, 0)
-        XCTAssertFalse(store.requiresAcknowledgement)
-        XCTAssertFalse(store.isCleanupModeActive)
-        XCTAssertEqual(store.blockedCapabilities, [])
-        XCTAssertNil(store.status)
-    }
-
     func testDisabledStatusClearsViewState() async throws {
         let client = MockDiskPressureClient(getStatuses: [
             Self.status(),
@@ -168,16 +147,12 @@ final class DiskPressureStatusStoreTests: XCTestCase {
     private func makeStore(
         client: MockDiskPressureClient,
         eventStreamClient: EventStreamClient,
-        featureEnabled: Bool = true,
         activeAssistantIdProvider: @escaping @MainActor @Sendable () -> String? = { "assistant-a" },
         notificationCenter: NotificationCenter = NotificationCenter()
     ) -> DiskPressureStatusStore {
         DiskPressureStatusStore(
             client: client,
             eventStreamClient: eventStreamClient,
-            featureFlagEnabled: { key in
-                key == "safe-storage-limits" ? featureEnabled : true
-            },
             activeAssistantIdProvider: activeAssistantIdProvider,
             notificationCenter: notificationCenter
         )

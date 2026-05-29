@@ -6,6 +6,7 @@ import type {
   UsageEvent,
   UsageEventInput,
 } from "../usage/types.js";
+import { APP_VERSION } from "../version.js";
 import { getDb } from "./db-connection.js";
 import { rawAll } from "./raw-query.js";
 import { conversations, llmUsageEvents } from "./schema.js";
@@ -39,6 +40,7 @@ export function recordUsageEvent(
     inferenceProfileSource: input.inferenceProfileSource ?? null,
     estimatedCostUsd: pricing.estimatedCostUsd,
     pricingStatus: pricing.pricingStatus,
+    assistantVersion: APP_VERSION,
   };
   db.insert(llmUsageEvents)
     .values({
@@ -62,6 +64,11 @@ export function recordUsageEvent(
       pricingStatus: event.pricingStatus,
       llmCallCount: event.llmCallCount ?? 1,
       metadataJson: null,
+      // Capture the assistant's version at RECORD time so a batch flush
+      // days later doesn't mis-attribute this row to whatever version
+      // the assistant happens to be running on at upload time. See
+      // migration 267 + `TelemetryEventBase.assistant_version` (wire).
+      assistantVersion: event.assistantVersion,
     })
     .run();
   return event;
@@ -91,6 +98,7 @@ function rowToUsageEvent(row: {
   rawUsage: string | null;
   estimatedCostUsd: number | null;
   pricingStatus: string;
+  assistantVersion: string | null;
 }): UsageEvent {
   return {
     id: row.id,
@@ -112,6 +120,7 @@ function rowToUsageEvent(row: {
     rawUsage: parseRawUsage(row.rawUsage),
     estimatedCostUsd: row.estimatedCostUsd,
     pricingStatus: row.pricingStatus as "priced" | "unpriced",
+    assistantVersion: row.assistantVersion,
   };
 }
 
@@ -213,6 +222,7 @@ export function queryUnreportedUsageEvents(
       rawUsage: llmUsageEvents.rawUsage,
       estimatedCostUsd: llmUsageEvents.estimatedCostUsd,
       pricingStatus: llmUsageEvents.pricingStatus,
+      assistantVersion: llmUsageEvents.assistantVersion,
       conversationType: conversations.conversationType,
       // Null when conversationId is null (no parent conversation).
       // Otherwise the count of eligible user turns up to and including

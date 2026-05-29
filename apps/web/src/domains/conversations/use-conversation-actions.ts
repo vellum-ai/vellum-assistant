@@ -16,7 +16,7 @@ import {
 
 import { haptic } from "@/utils/haptics";
 
-import { shouldReturnToBackground } from "@/domains/chat/utils/chat-utils";
+import { shouldReturnToBackground } from "@/domains/chat/utils/chat";
 import type { Conversation } from "@/types/conversation-types";
 import { isBackgroundConversation } from "@/utils/conversation-predicates";
 

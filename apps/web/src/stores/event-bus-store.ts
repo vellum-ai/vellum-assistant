@@ -21,7 +21,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 
 /**
  * Source of a synthetic `"app.resume"` event.

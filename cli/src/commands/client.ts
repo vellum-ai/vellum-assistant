@@ -278,18 +278,29 @@ async function maybeHydratePlatformAssistantName(
   }
 }
 
+const SPA_BASE = "/assistant/";
+
 /**
- * Walk up from this file's location to find a sibling `clients/web` package.
+ * Locate the pre-built @vellumai/web dist directory.
  *
- * Returns the absolute path to its directory, or null when not found —
- * e.g. when the CLI is installed via npm/bunx, where the `clients/web`
- * source isn't shipped alongside `@vellumai/cli`. For now we treat the
- * `--interface web` path as source-checkout-only.
+ * Resolution order:
+ *   1. npm-installed package — require.resolve('@vellumai/web/package.json')
+ *   2. Source checkout — walk up from cli/ to find apps/web/dist/
  */
-function findClientsWebDir(): string | null {
+function findWebDistDir(): string | null {
+  try {
+    const pkgPath = require.resolve("@vellumai/web/package.json");
+    const distDir = path.join(path.dirname(pkgPath), "dist");
+    if (existsSync(path.join(distDir, "index.html"))) {
+      return distDir;
+    }
+  } catch {
+    // Package not installed; try source checkout.
+  }
+
   let dir = import.meta.dir;
   for (let depth = 0; depth < 8; depth++) {
-    const candidate = path.join(dir, "clients", "web", "package.json");
+    const candidate = path.join(dir, "apps", "web", "dist", "index.html");
     if (existsSync(candidate)) {
       return path.dirname(candidate);
     }
@@ -300,42 +311,61 @@ function findClientsWebDir(): string | null {
   return null;
 }
 
-/**
- * Spawn the `clients/web` package's `local` script and proxy its lifecycle.
- *
- * The web client is deliberately not declared as a dependency of `@vellumai/cli`:
- * the CLI is published, the web package is not. Locating it on disk and
- * shelling out keeps the two packages independent.
- */
 async function runWebInterface(): Promise<void> {
-  const webDir = findClientsWebDir();
-  if (!webDir) {
+  const distDir = findWebDistDir();
+  if (!distDir) {
     console.error(
       `${ANSI.bold}--interface web${ANSI.reset}: unable to locate ` +
-        `clients/web. This interface currently requires running ` +
-        `vellum from a source checkout of vellum-assistant.`,
+        `@vellumai/web assets.\n\n` +
+        `  npm/bunx install:   npm install @vellumai/web\n` +
+        `  source checkout:    cd apps/web && VITE_PLATFORM_MODE=false bun run build`,
     );
     process.exit(1);
   }
 
-  const child = Bun.spawn({
-    cmd: ["bun", "run", "local"],
-    cwd: webDir,
-    stdio: ["inherit", "inherit", "inherit"],
+  const indexHtml = await Bun.file(path.join(distDir, "index.html")).text();
+
+  const server = Bun.serve({
+    port: 3000,
+    hostname: "127.0.0.1",
+    fetch: async (req) => {
+      const url = new URL(req.url);
+      const { pathname } = url;
+
+      if (pathname === "/") {
+        return Response.redirect(SPA_BASE, 302);
+      }
+
+      if (pathname.startsWith(SPA_BASE)) {
+        const relPath = pathname.slice(SPA_BASE.length);
+        if (relPath) {
+          const filePath = path.join(distDir, relPath);
+          const file = Bun.file(filePath);
+          if (await file.exists()) {
+            return new Response(file);
+          }
+        }
+        return new Response(indexHtml, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
+
+      return new Response("Not Found", { status: 404 });
+    },
   });
 
-  const forward = (signal: "SIGINT" | "SIGTERM"): void => {
-    try {
-      child.kill(signal);
-    } catch {
-      // Child already exited; nothing to forward.
-    }
-  };
-  process.on("SIGINT", () => forward("SIGINT"));
-  process.on("SIGTERM", () => forward("SIGTERM"));
+  console.log(
+    `Vellum web interface: http://${server.hostname}:${server.port}${SPA_BASE}`,
+  );
 
-  const exitCode = await child.exited;
-  process.exit(typeof exitCode === "number" ? exitCode : 0);
+  const shutdown = (): void => {
+    server.stop();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  await new Promise(() => {});
 }
 
 export async function client(): Promise<void> {

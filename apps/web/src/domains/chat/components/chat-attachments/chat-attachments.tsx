@@ -134,12 +134,12 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
   );
 
   return (
-    <>
+    <div className="relative">
       <input
         ref={inputRef}
         type="file"
         multiple
-        className="hidden"
+        className="absolute inset-0 opacity-0 pointer-events-none"
         onChange={handleChange}
         aria-hidden="true"
         tabIndex={-1}
@@ -153,6 +153,6 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
         title={title}
         className="[--vbtn-fg:var(--content-secondary)]"
       />
-    </>
+    </div>
   );
 };

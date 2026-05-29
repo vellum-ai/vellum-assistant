@@ -26,7 +26,7 @@ mock.module("@/domains/chat/components/subagent-timeline", () => ({
 }));
 
 import { SubagentDetailPanel } from "@/domains/chat/components/subagent-detail-panel";
-import type { SubagentEntry } from "@/domains/subagents/subagent-store";
+import type { SubagentEntry } from "@/domains/chat/subagent-store";
 
 const noop = () => {};
 

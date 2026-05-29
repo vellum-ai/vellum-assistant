@@ -259,36 +259,6 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
     return rows.map((r) => this.toLogRow(r));
   }
 
-  async getPreviousNonCompactionCallCreatedAt(
-    conversationId: string,
-    beforeCreatedAt: number,
-  ): Promise<number | null> {
-    const aid = await this.assistantId();
-    // "Non-compactionAgent" includes empty-string `call_site`, which is
-    // what the CH mirror writes for pre-migration-264 rows whose SQLite
-    // value was NULL (CH columns are `DEFAULT ''`, not Nullable — see
-    // `toLogRow`). The local store treats NULL `callSite` the same way,
-    // so the predicate stays in sync.
-    const sql = `SELECT
-        toUnixTimestamp64Milli(created_at) AS created_at
-      FROM ${this.tableRef()}
-      WHERE assistant_id = {assistant_id:String}
-        AND conversation_id = {conversation_id:String}
-        AND created_at < fromUnixTimestamp64Milli({before_created_at:Int64})
-        AND call_site != {call_site:String}
-      ORDER BY created_at DESC, id DESC
-      LIMIT 1
-      FORMAT JSONEachRow`;
-    const rows = await this.exec(sql, {
-      assistant_id: aid,
-      conversation_id: conversationId,
-      call_site: "compactionAgent",
-      before_created_at: String(beforeCreatedAt),
-    });
-    const value = rows[0]?.created_at;
-    return value === undefined ? null : Number(value);
-  }
-
   private async selectByMessageIds(ids: string[]): Promise<LogRow[]> {
     if (ids.length === 0) return [];
     const aid = await this.assistantId();
@@ -367,7 +337,11 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       log.error(
-        { status: res.status, table: this.config.table, bodySnippet: body.slice(0, 200) },
+        {
+          status: res.status,
+          table: this.config.table,
+          bodySnippet: body.slice(0, 200),
+        },
         "ClickHouse query failed",
       );
       throw new Error(

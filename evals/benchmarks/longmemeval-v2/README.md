@@ -151,11 +151,16 @@ index file and rerun.
    and the single `longmemeval-v2-judge` metric
 6. flip `run.json` to `status: "completed"` (or `"failed"` on throw)
 
-Still deferred (tracked as PR-8 / PR-9 candidates):
+The wrapped progress reporter + heartbeat ticker that both
+`runEvalOnce` and `runLongMemEvalV2Unit` install at the top of their
+try/finally now come from a shared
+`evals/src/lib/runner/progress-lifecycle.ts` helper — the PR-8
+extract that replaced the inlined `// PR-6 follow-up` blocks. Both
+runners call `createRunProgressLifecycle({ runId, userProgress })`
+and `dispose()` from their `finally`.
 
-- extracting the artifact-lifecycle boilerplate (progress wrapper +
-  heartbeat ticker) into a helper shared with `runEvalOnce` — flagged
-  with `// PR-6 follow-up` markers in the source
+Still deferred (tracked as PR-9 candidate):
+
 - per-event transcript reconstruction + usage/cost telemetry —
   `runIngestAsk` doesn't currently surface per-call usage, and the V2
   judges call OpenAI directly outside the provider wrapper
@@ -199,10 +204,6 @@ read per `evals run` invocation.
 
 ## Next
 
-- **PR-8 candidate** — extract the progress-wrap / heartbeat ticker
-  boilerplate that `runLongMemEvalV2Unit` and `runEvalOnce` both
-  duplicate (see the `// PR-6 follow-up` markers in
-  `src/runner.ts`).
 - **PR-9 candidate** — usage / cost telemetry. `runIngestAsk` doesn't
   return per-call usage today, and the V2 judges hit OpenAI's REST API
   directly without going through the provider wrapper that the

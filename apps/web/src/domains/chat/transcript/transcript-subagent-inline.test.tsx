@@ -51,7 +51,7 @@ mock.module(
 // ---------------------------------------------------------------------------
 
 import { Transcript } from "@/domains/chat/transcript/transcript";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 

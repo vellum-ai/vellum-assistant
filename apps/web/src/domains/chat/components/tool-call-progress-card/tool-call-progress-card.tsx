@@ -26,13 +26,9 @@ import {
   type ToolCallCardData,
   type ToolCallCardStep,
 } from "@/domains/chat/hooks/use-tool-call-card-data";
-import type {
-  AllowlistOption,
-  ChatMessageToolCall,
-  ConfirmationDecision,
-  DirectoryScopeOption,
-  ScopeOption,
-} from "@/domains/chat/api/event-types";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 export interface ToolCallProgressCardProps {
   toolCalls: ChatMessageToolCall[];

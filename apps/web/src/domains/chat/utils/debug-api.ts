@@ -55,11 +55,11 @@ import {
   type TurnState,
   isSending,
   isThinking,
-} from "@/stores/turn-store";
+} from "@/domains/chat/turn-store";
 import {
   type UIContext,
   shouldShowThinkingIndicator,
-} from "@/stores/turn-selectors";
+} from "@/domains/chat/turn-selectors";
 import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------
