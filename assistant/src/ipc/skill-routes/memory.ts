@@ -21,9 +21,10 @@ import type { SkillIpcRoute } from "../skill-ipc-types.js";
  * downstream by `messageMetadataSchema` with a warn-and-store fallback).
  * `skipIndexing` and `clientMessageId` mirror `AddMessageOptions`.
  *
- * Also accepts the legacy `opts: { skipIndexing }` shape sent by older
- * skill-host-contracts builds — `opts.skipIndexing` is flattened into the
- * top-level `skipIndexing` field in the handler.
+ * The `opts` field is a backward-compat shim: the macOS app and platform
+ * do not release together, so a skill-host built against an older contract
+ * may still send `{ opts: { skipIndexing } }` instead of the flat shape.
+ * The handler flattens it via `skipIndexing ?? opts?.skipIndexing`.
  */
 const MemoryAddMessageParams = z.object({
   conversationId: z.string().min(1),

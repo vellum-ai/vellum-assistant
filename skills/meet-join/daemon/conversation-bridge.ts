@@ -51,7 +51,10 @@
 
 import type {
   AssistantEvent,
+  InsertMessageFn,
+  InsertMessageOptions,
   Logger,
+  MessageRole,
   ServerMessage,
   SkillHost,
 } from "@vellumai/skill-host-contracts";
@@ -67,30 +70,7 @@ import {
 import { registerSubModule } from "./modules-registry.js";
 import { MeetSpeakerResolver } from "./speaker-resolver.js";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-/** Valid message roles — mirrors `MessageRole` from skill-host-contracts. */
-type MessageRole = "user" | "assistant" | "system";
-
-/**
- * Narrow shape of `addMessage` from the assistant's memory module — the
- * bridge only needs the subset of fields that the conversation message
- * insert path actually accepts. Declared locally so tests can supply a
- * recording shim without importing the full database module.
- */
-export interface InsertMessageOptions {
-  metadata?: Record<string, unknown>;
-  skipIndexing?: boolean;
-}
-
-export type InsertMessageFn = (
-  conversationId: string,
-  role: MessageRole,
-  content: string,
-  options?: InsertMessageOptions,
-) => Promise<{ id: string } & Record<string, unknown>>;
+export type { InsertMessageFn, InsertMessageOptions };
 
 /** Minimal hub surface the bridge depends on — matches `host.events`. */
 export interface AssistantEventPublisher {
