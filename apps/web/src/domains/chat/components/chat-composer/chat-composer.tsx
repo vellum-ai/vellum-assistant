@@ -25,6 +25,7 @@ import {
 } from "@/domains/chat/components/voice-input-button";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude";
 import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store";
@@ -281,6 +282,7 @@ export function ChatComposer({
     voiceInputRef !== undefined && onVoiceTranscript !== undefined;
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   const isMobile = useIsMobile();
+  const isNative = useIsNativePlatform();
 
   // Stable ref so handleSlashCommandSelect's autoSend path always calls the
   // latest onSubmit even after flushSync triggers a synchronous re-render.
@@ -351,6 +353,7 @@ export function ChatComposer({
   const phase: TurnPhase = useTurnStore.use.phase();
   const isGenerating =
     phase === "queued" || phase === "thinking" || phase === "streaming";
+  const hideTextareaForVoice = isNative && isVoiceActive && !isGenerating;
 
   const ghostSuffix = useMemo(
     () =>
@@ -385,7 +388,7 @@ export function ChatComposer({
             This avoids the iOS WKWebView re-dispatch bug entirely: no DOM
             geometry mutation means no re-fired input events.
             Reference: https://css-tricks.com/the-cleanest-trick-for-autogrowing-textareas/ */}
-            <div className="grid">
+            <div className={hideTextareaForVoice ? "hidden" : "grid"}>
               <div
                 aria-hidden
                 className="pointer-events-none col-start-1 row-start-1 overflow-hidden whitespace-pre-wrap break-words px-4 pt-3 pb-2 text-chat"
