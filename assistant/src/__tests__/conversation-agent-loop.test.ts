@@ -3612,9 +3612,9 @@ describe("session-agent-loop", () => {
         // Tool result + message_complete so the loop exits cleanly.
         onEvent({
           type: "tool_result",
-          tool_use_id: "tu-eager-flush",
+          toolUseId: "tu-eager-flush",
           content: "ok",
-          is_error: false,
+          isError: false,
         });
         await onEvent({
           type: "message_complete",
@@ -3668,6 +3668,7 @@ describe("session-agent-loop", () => {
         text?: string;
         name?: string;
         id?: string;
+        input?: Record<string, unknown>;
       }>;
       // The eager flush captures everything to date: the accumulated text
       // block AND the freshly-pushed tool_use block.
