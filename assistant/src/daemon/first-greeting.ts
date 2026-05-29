@@ -79,12 +79,12 @@ const TONE_INVITE_OPENER: Record<Tone, string> = {
 
 const TONE_MIGRATION_OFFER: Record<Tone, string> = {
   grounded:
-    "If you have context or workflows from another assistant or harness, bring them over early and I'll help port them.",
-  warm: "If you have context or workflows from another assistant or harness, bring them over early and I can help port them.",
+    "And you don't have to start me from scratch — if you've built up a ChatGPT or Claude, bring it over and I'll learn from it fast. Best head start you can give me.",
+  warm: "And you don't have to start me from scratch — if there's a ChatGPT or Claude that already knows you, bring it over and I'll get up to speed fast. Honestly, it's the best head start you could give me.",
   energetic:
-    "If you've got context or workflows from another assistant or harness, bring them over early and I'll port them with you. What sounds right?",
+    "And you don't have to start me from scratch — if you've built up a ChatGPT or Claude, bring it over and I'll get up to speed fast. Best head start you can give me — want to start there?",
   poetic:
-    "If there's old context or workflows from another assistant or harness, bring them over early and I'll help port them.",
+    "And you don't have to start me from nothing — if there's a ChatGPT or Claude that already knows you, bring it over and I'll learn from it. The best head start you could give me.",
 };
 
 const TONE_GOOGLE_SCAN: Record<Tone, string> = {
