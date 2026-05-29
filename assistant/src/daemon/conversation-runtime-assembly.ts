@@ -1647,10 +1647,9 @@ function buildActiveThreadBlockFromRenderable(
 
   if (members.length === 0) return null;
 
-  // The active-thread block is flattened to plain text below, which discards
-  // `Message.role`. Assistant rows that render content-only are relabeled in
-  // the post-render step. Timezone-aware assistant rows are already
-  // bracket-tagged by the renderer and must not receive another prefix.
+  // The active-thread block is flattened to plain text below. User rows keep
+  // explicit Slack attribution through the renderer; assistant rows pass
+  // through unchanged so the model does not learn a synthetic reply prefix.
   // Unnamed user rows (no real Slack displayName) get a `@user` senderLabel
   // here so their tag line carries attribution through the renderer. Labeled
   // user rows and assistant rows pass through unchanged.
@@ -1662,18 +1661,8 @@ function buildActiveThreadBlockFromRenderable(
 
   const rendered = renderSlackTranscriptWithProvenance(labeledMembers);
   if (rendered.renderedMessages.length === 0) return null;
-  // Reaction / overflow-trailer lines are renderer-owned Slack event lines,
-  // and timezone-aware assistant rows already carry metadata-backed compact
-  // attribution. Regular assistant content and the `[deleted]` sentinel get
-  // the prefix so attribution survives flattening.
   const lines = rendered.renderedMessages
-    .map((entry) => {
-      const text = extractTagLineTexts([entry.message])[0] ?? "";
-      return entry.message.role === "assistant" &&
-        entry.tagLineProvenance === "none"
-        ? `@assistant: ${text}`
-        : text;
-    })
+    .map((entry) => extractTagLineTexts([entry.message])[0] ?? "")
     .join("\n");
   return `<active_thread>\n${lines}\n</active_thread>`;
 }

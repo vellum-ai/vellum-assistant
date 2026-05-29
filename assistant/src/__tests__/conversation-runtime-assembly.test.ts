@@ -3990,11 +3990,11 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
     expect(result!).not.toContain("Sibling top-level");
   });
 
-  test("preserves speaker attribution when flattening to plain text", () => {
+  test("preserves user attribution while leaving assistant text unchanged", () => {
     // The `<active_thread>` block is rendered as newline-joined plain text,
-    // discarding `Message.role`. Assistant rows and unnamed user rows must
-    // therefore carry an explicit `@assistant` / `@user` label so the model
-    // can still tell turns apart inside the flattened block.
+    // discarding `Message.role`. User rows keep explicit Slack attribution,
+    // while assistant rows remain raw to avoid teaching the model a synthetic
+    // reply prefix.
     const rows: SlackTranscriptInputRow[] = [
       buildRow(
         "user",
@@ -4021,17 +4021,16 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
     const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
     expect(result).not.toBeNull();
     expect(result!).toContain("@alice");
-    expect(result!).toContain("@assistant");
+    expect(result!).toContain("Assistant reply");
+    expect(result!).not.toContain("@assistant: Assistant reply");
     expect(result!).toContain("@user");
   });
 
   test("assistant reactions are not double-attributed (`@assistant: [... @assistant reacted ...]`)", () => {
     // `renderReaction` bakes `@assistant` into the reaction tag line
     // (`[11/14/23 14:28 @assistant reacted 👍 to Mxxxxxx]`). The
-    // post-render step that prepends `@assistant: ` to assistant content
-    // lines must skip reaction lines, otherwise the flattened block
-    // produces `@assistant: [... @assistant reacted ...]` — two
-    // attributions for one event.
+    // flattened block should preserve that renderer-owned attribution without
+    // adding any extra assistant-message prefix.
     const rows: SlackTranscriptInputRow[] = [
       buildRow(
         "user",
@@ -4039,7 +4038,7 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
         1_000,
         buildMeta({ channelTs: PARENT_TS, displayName: "@alice" }),
       ),
-      // Assistant reply in the thread — gets an `@assistant:` prefix.
+      // Assistant reply in the thread — stays unchanged.
       buildRow(
         "assistant",
         "Assistant reply",
@@ -4081,12 +4080,13 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
     expect(result).not.toBeNull();
     // Double-attribution anti-pattern must NOT appear anywhere.
     expect(result!).not.toContain("@assistant: [");
-    // Both the reaction attribution and the reply prefix are still present.
+    // Reaction attribution remains, and the assistant reply stays raw.
     expect(result!).toContain("@assistant reacted 👍");
-    expect(result!).toContain("@assistant: Assistant reply");
+    expect(result!).toContain("Assistant reply");
+    expect(result!).not.toContain("@assistant: Assistant reply");
   });
 
-  test("timezone-aware assistant rows keep renderer attribution in active-thread focus block", () => {
+  test("timezone-aware assistant rows stay unchanged in active-thread focus block", () => {
     const rows: SlackTranscriptInputRow[] = [
       buildRow(
         "user",
@@ -4127,15 +4127,12 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
 
     const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
     expect(result).not.toBeNull();
-    expect(result!).toContain(
-      "[nov 14 2023 3:13 PM MT assistant] Assistant reply",
-    );
-    expect(result!).not.toContain(
-      "@assistant: [nov 14 2023 3:13 PM MT assistant]",
-    );
+    expect(result!).toContain("\nAssistant reply\n");
+    expect(result!).not.toContain("[nov 14 2023 3:13 PM MT assistant]");
+    expect(result!).not.toContain("@assistant: Assistant reply");
   });
 
-  test("assistant content that only looks like a compact tag still gets active-thread attribution", () => {
+  test("assistant content that only looks like a compact tag stays unchanged", () => {
     const compactLookingContent =
       "[nov 14 2023 3:13 PM MT assistant] Assistant reply";
     const rows: SlackTranscriptInputRow[] = [
@@ -4168,7 +4165,8 @@ describe("assembleSlackActiveThreadFocusBlock", () => {
 
     const result = assembleSlackActiveThreadFocusBlock(rows, SLACK_CAPS);
     expect(result).not.toBeNull();
-    expect(result!).toContain(`@assistant: ${compactLookingContent}`);
+    expect(result!).toContain(`\n${compactLookingContent}\n`);
+    expect(result!).not.toContain(`@assistant: ${compactLookingContent}`);
   });
 
   test("assistant reaction overflow trailer is not double-attributed", () => {
