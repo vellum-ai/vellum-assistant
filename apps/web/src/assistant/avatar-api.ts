@@ -7,7 +7,7 @@
  * and workspace routes flat (`/v1/avatar/...`, `/v1/workspace/...`).
  */
 import { client } from "@/generated/api/client.gen";
-import { assertHasResponse } from "@/lib/api-errors";
+import { assertHasResponse } from "@/utils/api-errors";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { isCharacterTraits } from "@/types/avatar";
 

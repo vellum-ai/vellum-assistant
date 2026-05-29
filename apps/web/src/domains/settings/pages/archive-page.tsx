@@ -5,10 +5,8 @@ import { useCallback, useMemo, useState } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
-import {
-  conversationsQueryKey,
-  useConversationListQuery,
-} from "@/lib/conversations";
+import { useConversationListQuery } from "@/domains/conversations/conversation-queries";
+import { conversationsQueryKey } from "@/lib/sync/query-tags";
 import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdUnarchivePost } from "@/generated/daemon/sdk.gen";
 import { reportError } from "@/utils/error-report";

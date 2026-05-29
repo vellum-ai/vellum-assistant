@@ -19,8 +19,8 @@ import {
   getLocalSetting,
   removeLocalSetting,
   setLocalSetting,
-} from "@/lib/local-settings";
-import { getDeviceSetting } from "@/lib/device-settings";
+} from "@/utils/local-settings";
+import { getDeviceSetting } from "@/utils/device-settings";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
 // ---------------------------------------------------------------------------

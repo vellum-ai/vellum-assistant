@@ -13,7 +13,7 @@ import {
   setLocalBool,
   getLocalNumber,
   setLocalNumber,
-} from "@/lib/local-settings";
+} from "@/utils/local-settings";
 
 // ---------------------------------------------------------------------------
 // Constants

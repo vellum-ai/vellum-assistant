@@ -20,7 +20,7 @@ import {
   setLocalBool,
   setLocalSetting,
   watchSetting,
-} from "@/lib/local-settings";
+} from "@/utils/local-settings";
 
 /** Prefix for all device-scoped localStorage keys. */
 export const DEVICE_PREFIX = "device:";

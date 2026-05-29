@@ -7,7 +7,7 @@ import {
   pinApp,
   savePinnedApps,
   unpinApp,
-} from "@/lib/app-pin-storage";
+} from "@/utils/app-pin-storage";
 
 const STORAGE_KEY = "vellum:pinnedApps";
 

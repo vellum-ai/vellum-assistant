@@ -20,7 +20,7 @@
  */
 
 import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client";
-import { assertHasResponse } from "@/lib/api-errors";
+import { assertHasResponse } from "@/utils/api-errors";
 
 import type { CompactionTrailResponse } from "./compaction-trail-types";
 
