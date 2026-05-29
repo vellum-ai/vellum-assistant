@@ -55,7 +55,7 @@ const LEGACY_DEVICE_KEYS = new Set([
   "vellum_timezone",
   "vellum_media_embeds_enabled",
   "vellum_media_embed_domains",
-  "onboarding.lastUserId",
+  "onboarding.lastUserId", // matches "onboarding." prefix but is device-scoped
 ]);
 
 function isUserScopedKey(key: string): boolean {
