@@ -256,7 +256,7 @@ describe("skill_load inline command expansion", () => {
   // We verify the rejection logic exists by importing the tool class directly
   // and confirming the code path rejects extra sources when inline commands
   // are present. The actual source-level guard is tested by checking that
-  // workspace-source skills *do* expand (above) while the code explicitly
+  // managed-source skills *do* expand (above) while the code explicitly
   // gates on INLINE_COMMAND_ELIGIBLE_SOURCES which excludes "extra".
 
   describe("extra source rejection (code-level verification)", () => {
@@ -274,10 +274,10 @@ describe("skill_load inline command expansion", () => {
         ),
         "utf-8",
       );
-      // The eligible sources set must include bundled, managed, workspace but NOT extra
+      // The eligible sources set must include bundled and managed but NOT extra
       expect(loadSrc).toContain('"bundled"');
       expect(loadSrc).toContain('"managed"');
-      expect(loadSrc).toContain('"workspace"');
+      expect(loadSrc).not.toContain('"workspace"');
       expect(loadSrc).toContain('skill.source === "extra"');
     });
   });
