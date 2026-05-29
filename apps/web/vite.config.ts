@@ -5,6 +5,11 @@ import tailwindcss from "@tailwindcss/vite";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import { localModePlugin } from "./vite-plugin-local-mode";
 
+const DESIGN_LIBRARY_SRC = path.resolve(
+  import.meta.dirname,
+  "../../packages/design-library/src",
+);
+
 // Keep in sync with PLATFORM_MODE_TRUTHY in src/lib/local-mode.ts
 const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
 function isPlatformMode(raw: string | undefined): boolean {
@@ -52,6 +57,14 @@ export default defineConfig(({ mode }) => {
         },
       }),
       isPlatformMode(env.VITE_PLATFORM_MODE) ? null : localModePlugin(env),
+      {
+        // Chokidar won't follow the file: symlink when preserveSymlinks
+        // is true, so manually add the design-library source tree.
+        name: "watch-design-library",
+        configureServer(server) {
+          server.watcher.add(DESIGN_LIBRARY_SRC);
+        },
+      },
     ].filter(Boolean),
     resolve: {
       alias: [
@@ -66,12 +79,6 @@ export default defineConfig(({ mode }) => {
       port: parseInt(env.PORT || "3000"),
       strictPort: true,
       host: true,
-      watch: {
-        // Include the design-library source so edits trigger HMR via the
-        // file: dependency link (chokidar won't follow it automatically
-        // when preserveSymlinks is true).
-        paths: [path.resolve(import.meta.dirname, "../../packages/design-library/src")],
-      },
       proxy: {
         "/v1": { target: apiProxyTarget, changeOrigin: true },
         "/_allauth": { target: apiProxyTarget, changeOrigin: true },
