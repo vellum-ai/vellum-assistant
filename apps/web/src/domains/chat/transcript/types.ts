@@ -14,7 +14,6 @@ export type TranscriptItemKind =
   | "pendingConfirmation"
   | "pendingContactRequest"
   | "surface"
-  | "queuedMarker"
   | "error"
   | "onboardingChoice";
 
@@ -61,11 +60,6 @@ export interface SurfaceItem extends TranscriptItemBase {
   surface: Surface;
 }
 
-export interface QueuedMarkerItem extends TranscriptItemBase {
-  kind: "queuedMarker";
-  count: number;
-}
-
 export interface ErrorItem extends TranscriptItemBase {
   kind: "error";
   message: string;
@@ -88,7 +82,6 @@ export type TranscriptItem =
   | PendingConfirmationItem
   | PendingContactRequestItem
   | SurfaceItem
-  | QueuedMarkerItem
   | ErrorItem
   | OnboardingChoiceItem;
 

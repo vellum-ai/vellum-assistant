@@ -84,7 +84,7 @@ function removeInvalidMessages(messages: DisplayMessage[]): DisplayMessage[] {
 }
 
 function isInvalidMessage(message: DisplayMessage): boolean {
-  // Assistant rows always render; queued user rows collapse into a marker upstream.
+  // Assistant rows always render; queued user rows render in the queue drawer.
   if (message.role !== "user") return false;
   if (message.queueStatus === "queued") return false;
 

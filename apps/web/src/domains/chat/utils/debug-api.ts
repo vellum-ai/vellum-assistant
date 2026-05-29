@@ -226,14 +226,14 @@ export interface ChatDebugApi {
    * `transcript-message-body.tsx`).
    *
    * For the full virtualized row list — including non-message rows like
-   * the thinking indicator, pending prompts, and the queued-marker —
-   * use {@link getTranscriptItems}.
+   * the thinking indicator and pending prompts — use
+   * {@link getTranscriptItems}.
    */
   getClientMessages(limit?: number): DisplayMessage[];
   /**
    * Return the full transcript-item array the virtualized list iterates
-   * — messages, the thinking indicator, pending-interaction rows, the
-   * queued-marker, error notices, the onboarding-choice row.
+   * — messages, the thinking indicator, pending-interaction rows, error
+   * notices, the onboarding-choice row.
    *
    * `getClientMessages()` returns only the `DisplayMessage[]` slice;
    * `getTranscriptItems()` returns the discriminated union of every
@@ -657,7 +657,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "window._vellumDebug.chat — surgical chat debug API",
       "",
       "  .getClientMessages(n?)     last N DisplayMessage[] the UI is rendering (post-sanitize)",
-      "  .getTranscriptItems()      full virtualized row list — messages + thinking + pending prompts + markers",
+      "  .getTranscriptItems()      full virtualized row list — messages + thinking + pending prompts",
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
