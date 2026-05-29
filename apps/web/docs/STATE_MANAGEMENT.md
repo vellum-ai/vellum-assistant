@@ -30,10 +30,10 @@ useReducer because:
 
 ```ts
 // Good — component only re-renders when its slice changes
-const messages = useChatStore((s) => s.messages);
+const phase = useTurnStore((s) => s.phase);
 
 // Avoid — every consumer re-renders on any context change
-const { messages } = useContext(ChatContext);
+const { phase } = useContext(TurnContext);
 ```
 
 References:
@@ -178,14 +178,14 @@ References:
 - [web.dev — Sign-out best practices](https://web.dev/articles/sign-out-best-practices)
 - [React — Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state)
 
-## Turn state lives in `stores/turn-store.ts`
+## Turn state lives in `domains/chat/turn-store.ts`
 
 Turn lifecycle (sending, thinking, streaming, idle, errored), queue
 depth, active tool-call count, and current turn identity are managed
-by the turn store at `src/stores/turn-store.ts`. It sits at the top
-level because the same store is read by chat handlers, send-message
-flow, error handlers, and reconciliation — per the
-"two-or-more domains → top-level" rule above.
+by the turn store at `src/domains/chat/turn-store.ts`. All consumers
+are within the chat domain (stream handlers, send-message flow, error
+handlers, reconciliation) so the store is colocated per the
+"single-domain → inside that domain" rule.
 
 Use `useTurnStore(selector)` in React components and
 `useTurnStore.getState()` in non-React code (stream handlers,
@@ -209,7 +209,7 @@ event.
 Production callers do **not** call `turnStore.completeTurn()` /
 `cancelGeneration()` / `onStreamError()` / `onSessionError()` /
 `onPollReconciled()` directly. They call `endTurn` from
-[`stores/turn-coordinator.ts`](../src/stores/turn-coordinator.ts) — a
+[`domains/chat/turn-coordinator.ts`](../src/domains/chat/turn-coordinator.ts) — a
 single atomic two-store transition that takes the `conversationId` and
 a terminal `reason`. This prevents the "forget to clear the processing
 key" class of bug from re-appearing in every new terminal-event path.
@@ -233,18 +233,18 @@ migrate them — new code uses atomic selectors instead.
 
 ```ts
 // 1. Primitive selector — works without useShallow
-const assistantId = useChatStore((s) => s.assistantId);
+const phase = useTurnStore((s) => s.phase);
 
 // 2. Object/array slice — required useShallow to suppress the
 //    new-reference-per-render re-render storm.
 //    Replace in new code with two atomic selectors side-by-side.
-const { messages, assistantId } = useChatStore(
-  useShallow((s) => ({ messages: s.messages, assistantId: s.assistantId })),
+const { phase, statusText } = useTurnStore(
+  useShallow((s) => ({ phase: s.phase, statusText: s.statusText })),
 );
 
 // 3. Derived/transformed state — useShallow doesn't help.
 //    Replace in new code with an atomic selector + useMemo in the consumer.
-const unread = useChatStore((s) => s.messages.filter((m) => !m.read));
+const isActive = useTurnStore((s) => s.phase !== "idle");
 ```
 
 References:

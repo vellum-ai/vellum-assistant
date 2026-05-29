@@ -259,13 +259,6 @@ export interface NavigateSettingsEvent {
   conversationId?: string;
 }
 
-export interface HomeFeedUpdatedEvent {
-  type: "home_feed_updated";
-  updatedAt: string;
-  newItemCount: number;
-  conversationId?: string;
-}
-
 // ---------------------------------------------------------------------------
 // Subagent event types
 // ---------------------------------------------------------------------------
@@ -420,18 +413,6 @@ export interface ConversationErrorEvent {
   errorCategory?: string;
 }
 
-export interface CompactionCircuitOpenEvent {
-  type: "compaction_circuit_open";
-  conversationId: string;
-  reason: string;
-  openUntil: number;
-}
-
-export interface CompactionCircuitClosedEvent {
-  type: "compaction_circuit_closed";
-  conversationId: string;
-}
-
 export interface DiskPressureStatusChangedEvent {
   type: "disk_pressure_status_changed";
   status: DiskPressureStatus | null;
@@ -441,21 +422,6 @@ export interface DiskPressureStatusChangedEvent {
 export interface AssistantSyncChangedEvent extends SyncChangedEvent {
   conversationId?: string;
 }
-
-// ---------------------------------------------------------------------------
-// Interaction resolution
-// ---------------------------------------------------------------------------
-
-/**
- * Lifecycle outcome reported alongside `interaction_resolved`. Mirrors the
- * daemon-side `InteractionResolutionState` union.
- */
-export type InteractionResolutionState =
-  | "approved"
-  | "rejected"
-  | "answered"
-  | "cancelled"
-  | "superseded";
 
 /**
  * Mirrors the daemon's `PendingInteraction["kind"]` union
@@ -504,16 +470,6 @@ export const USER_FACING_INTERACTION_KINDS: ReadonlySet<string> =
  * question, host-proxy request) transitions to a resolved state. Drives
  * push-based attention reconciliation in the sidebar.
  */
-export interface InteractionResolvedEvent {
-  type: "interaction_resolved";
-  requestId: string;
-  /** Conversation id the resolved interaction was registered against. */
-  conversationId: string;
-  state: InteractionResolutionState;
-  /** Kind of the resolved interaction (e.g. `"confirmation"`, `"secret"`). */
-  kind: InteractionKind;
-}
-
 // ---------------------------------------------------------------------------
 // AssistantEvent union
 // ---------------------------------------------------------------------------
@@ -548,15 +504,11 @@ export type AssistantEvent =
   | IdentityChangedEvent
   | AvatarUpdatedEvent
   | ConversationErrorEvent
-  | CompactionCircuitOpenEvent
-  | CompactionCircuitClosedEvent
   | DiskPressureStatusChangedEvent
   | AssistantSyncChangedEvent
-  | HomeFeedUpdatedEvent
   | SubagentSpawnedEvent
   | SubagentStatusChangedEvent
   | SubagentEventWrapperEvent
   | DocumentEditorUpdateEvent
   | TurnProfileAutoRoutedEvent
-  | InteractionResolvedEvent
   | UnknownEvent;

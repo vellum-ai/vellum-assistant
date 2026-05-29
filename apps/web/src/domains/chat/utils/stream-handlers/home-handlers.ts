@@ -1,6 +1,8 @@
 import type { QueryClient } from "@tanstack/react-query";
-import type { RelationshipStateUpdatedEvent } from "@vellumai/assistant-api";
-import type { HomeFeedUpdatedEvent } from "@/types/event-types";
+import type {
+  HomeFeedUpdatedEvent,
+  RelationshipStateUpdatedEvent,
+} from "@vellumai/assistant-api";
 import { HOME_FEED_QUERY_KEY_PREFIX } from "@/lib/sync/query-tags";
 
 export function handleHomeFeedUpdated(

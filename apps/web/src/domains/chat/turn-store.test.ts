@@ -7,7 +7,7 @@ import {
   canStopGeneration,
   isSendDisabled,
   type UIContext,
-} from "@/stores/turn-selectors";
+} from "@/domains/chat/turn-selectors";
 import {
   type TurnState,
   type DomainEvent,
@@ -15,7 +15,7 @@ import {
   turnReducer,
   isSending,
   isThinking,
-} from "@/stores/turn-store";
+} from "@/domains/chat/turn-store";
 
 // ---------------------------------------------------------------------------
 // Helpers

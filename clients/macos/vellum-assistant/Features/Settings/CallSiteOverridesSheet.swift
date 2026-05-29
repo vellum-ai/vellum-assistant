@@ -10,6 +10,22 @@ struct CallSiteOverridesSheet: View {
     @ObservedObject var store: SettingsStore
     @Binding var isPresented: Bool
 
+    /// Feature flag store used to gate the meta-"auto" profile behind the
+    /// `query-complexity-routing` flag. Optional so existing tests and
+    /// previews compile without rewiring; when nil, the auto profile is
+    /// hidden (the safe default). Production callers must pass the live
+    /// store so the auto profile shows when the flag is enabled.
+    var assistantFeatureFlagStore: AssistantFeatureFlagStore? = nil
+
+    /// Profiles surfaced to each row's inline picker, with the meta-"auto"
+    /// profile filtered out when `query-complexity-routing` is disabled.
+    /// Filtered at the parent so every row sees the same gated set
+    /// without each one re-reading the flag.
+    private var visibleProfiles: [InferenceProfile] {
+        let enabled = assistantFeatureFlagStore?.isEnabled("query-complexity-routing") ?? false
+        return InferenceProfile.gateAutoProfile(store.profiles, queryComplexityRoutingEnabled: enabled)
+    }
+
     /// Working copies keyed by call-site ID. Edits live here until the user
     /// hits Save in the footer. Drafts are seeded from
     /// `store.callSiteOverrides` on appear and re-synced when the store
@@ -259,7 +275,7 @@ struct CallSiteOverridesSheet: View {
                                 let models = store.dynamicProviderModels(provider)
                                 return models.first { $0.id == modelId }?.displayName ?? modelId
                             },
-                            profiles: store.profiles
+                            profiles: visibleProfiles
                         )
                         .padding(.horizontal, VSpacing.lg)
 

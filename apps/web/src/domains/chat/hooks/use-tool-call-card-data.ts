@@ -24,7 +24,7 @@ import {
   extractDomain,
   parseWebSearchResultText,
 } from "@/domains/chat/utils/web-search-result-text";
-import { useTurnStore } from "@/stores/turn-store";
+import { useTurnStore } from "@/domains/chat/turn-store";
 
 /** Max favicon chips to render inside a single `web_search` step row. */
 const MAX_VISIBLE_RESULTS = 5;

@@ -18,8 +18,8 @@ import { addTrustRule } from "@/domains/trust-rules/api";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useTurnStore } from "@/stores/turn-store";
-import { endTurn } from "@/stores/turn-coordinator";
+import { useTurnStore } from "@/domains/chat/turn-store";
+import { endTurn } from "@/domains/chat/turn-coordinator";
 
 import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils";
 import { deriveCommandText } from "@/domains/chat/utils/chat";

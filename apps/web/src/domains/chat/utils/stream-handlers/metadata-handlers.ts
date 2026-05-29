@@ -7,7 +7,19 @@ import {
 } from "@/runtime/notifications";
 import { patchConversation } from "@/domains/conversations/conversation-queries";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { AvatarUpdatedEvent, CompactionCircuitClosedEvent, CompactionCircuitOpenEvent, ConversationTitleUpdatedEvent, DiskPressureStatusChangedEvent, IdentityChangedEvent, NotificationIntentEvent, TurnProfileAutoRoutedEvent, UsageUpdateEvent } from "@/types/event-types";
+import type {
+  CompactionCircuitClosedEvent,
+  CompactionCircuitOpenEvent,
+} from "@vellumai/assistant-api";
+import type {
+  AvatarUpdatedEvent,
+  ConversationTitleUpdatedEvent,
+  DiskPressureStatusChangedEvent,
+  IdentityChangedEvent,
+  NotificationIntentEvent,
+  TurnProfileAutoRoutedEvent,
+  UsageUpdateEvent,
+} from "@/types/event-types";
 import { useConversationStore } from "@/stores/conversation-store";
 
 export function handleUsageUpdate(
@@ -19,15 +31,11 @@ export function handleUsageUpdate(
   if (typeof tokens !== "number" || !Number.isFinite(tokens)) return;
 
   const resolvedMax =
-    typeof maxTokens === "number" &&
-    Number.isFinite(maxTokens) &&
-    maxTokens > 0
+    typeof maxTokens === "number" && Number.isFinite(maxTokens) && maxTokens > 0
       ? maxTokens
       : null;
   const fillRatio =
-    resolvedMax != null
-      ? Math.min(1, Math.max(0, tokens / resolvedMax))
-      : null;
+    resolvedMax != null ? Math.min(1, Math.max(0, tokens / resolvedMax)) : null;
   const usage: ContextWindowUsage = {
     tokens,
     maxTokens: resolvedMax,
@@ -74,28 +82,19 @@ export function handleNotificationIntent(
 
   if (event.targetGuardianPrincipalId) {
     if (ackAssistantId && event.deliveryId) {
-      void sendNotificationIntentAck(
-        ackAssistantId,
-        event.deliveryId,
-        true,
-      );
+      void sendNotificationIntentAck(ackAssistantId, event.deliveryId, true);
     }
     return;
   }
 
-  const metadataConversationId = extractConversationId(
-    event.deepLinkMetadata,
-  );
+  const metadataConversationId = extractConversationId(event.deepLinkMetadata);
   if (
     metadataConversationId &&
-    metadataConversationId === useConversationStore.getState().activeConversationId
+    metadataConversationId ===
+      useConversationStore.getState().activeConversationId
   ) {
     if (ackAssistantId && event.deliveryId) {
-      void sendNotificationIntentAck(
-        ackAssistantId,
-        event.deliveryId,
-        true,
-      );
+      void sendNotificationIntentAck(ackAssistantId, event.deliveryId, true);
     }
     return;
   }

@@ -12,8 +12,10 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   profilePickerLabel,
   visibleProfilesForPicker,
+  gateAutoProfile,
   type ProfilePickerEntry,
 } from "@/assistant/profile-pickers";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   deleteConversationOverride,
   getConversationOverride,
@@ -288,9 +290,16 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     return [...ordered, ...extras];
   }, [profileMap, profileOrder]);
 
+  const queryComplexityRoutingEnabled =
+    useAssistantFeatureFlagStore.use.queryComplexityRouting();
+
   const visibleProfileEntries = useMemo(
-    () => visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey]),
-    [orderedProfileEntries, profileActiveKey],
+    () =>
+      gateAutoProfile(
+        visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey]),
+        queryComplexityRoutingEnabled,
+      ),
+    [orderedProfileEntries, profileActiveKey, queryComplexityRoutingEnabled],
   );
 
   const trigger = (

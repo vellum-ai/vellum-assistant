@@ -98,7 +98,10 @@ import {
 } from "./conversation-messaging.js";
 // Extracted modules
 import { registerConversationNotifiers } from "./conversation-notifiers.js";
-import type { ProcessConversationContext } from "./conversation-process.js";
+import type {
+  ProcessConversationContext,
+  ProcessMessageOptions,
+} from "./conversation-process.js";
 import {
   drainQueue as drainQueueImpl,
   processMessage as processMessageImpl,
@@ -135,7 +138,6 @@ import type {
   SurfaceData,
   SurfaceType,
   UsageStats,
-  UserMessageAttachment,
 } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
@@ -1312,29 +1314,13 @@ export class Conversation {
     return drainQueueImpl(this as ProcessConversationContext, reason);
   }
 
-  async processMessage(
-    content: string,
-    attachments: UserMessageAttachment[],
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
-    activeSurfaceId?: string,
-    currentPage?: string,
-    options?: { isInteractive?: boolean; callSite?: LLMCallSite },
-    displayContent?: string,
-  ): Promise<string> {
+  async processMessage(options: ProcessMessageOptions): Promise<string> {
     this.cacheWarmAbort?.abort();
     this.cacheWarmAbort = undefined;
-    return processMessageImpl(
-      this as ProcessConversationContext,
-      content,
-      attachments,
-      onEvent ?? this.sendToClient,
-      requestId,
-      activeSurfaceId,
-      currentPage,
-      options,
-      displayContent,
-    );
+    return processMessageImpl(this as ProcessConversationContext, {
+      ...options,
+      onEvent: options.onEvent ?? this.sendToClient,
+    });
   }
 
   // ── History ──────────────────────────────────────────────────────

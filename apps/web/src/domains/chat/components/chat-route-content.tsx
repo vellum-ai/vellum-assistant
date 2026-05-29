@@ -101,7 +101,7 @@ import {
   isSendDisabled,
   shouldShowThinkingIndicator,
   type UIContext,
-} from "@/stores/turn-selectors";
+} from "@/domains/chat/turn-selectors";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
 
 import { useViewerStore, type MainView, type OpenedAppState, type OpenedDocumentState } from "@/stores/viewer-store";
@@ -112,7 +112,7 @@ import { haptic } from "@/utils/haptics";
 import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
-import { type TurnState, useTurnStore } from "@/stores/turn-store";
+import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
@@ -1057,24 +1057,21 @@ export function ChatRouteContent({
   // Billing composer banner
   // -------------------------------------------------------------------------
 
+  const billingBannerDecision = getChatBillingBannerDecision(error);
+
   const renderBillingComposerBanner = (): ReactNode => {
-    const decision = getChatBillingBannerDecision(error);
-    if (decision === "managed_credits") {
+    if (billingBannerDecision === "managed_credits") {
       return (
-        <div className="mb-2">
-          <CreditsExhaustedBanner
-            onAddFunds={() => setShowAddCreditsModal(true)}
-          />
-        </div>
+        <CreditsExhaustedBanner
+          onAddFunds={() => setShowAddCreditsModal(true)}
+        />
       );
     }
-    if (decision === "provider_billing") {
+    if (billingBannerDecision === "provider_billing") {
       return (
-        <div className="mb-2">
-          <ProviderBillingBanner
-            onOpenSettings={pushToAiSettings}
-          />
-        </div>
+        <ProviderBillingBanner
+          onOpenSettings={pushToAiSettings}
+        />
       );
     }
     return null;
@@ -1326,6 +1323,7 @@ export function ChatRouteContent({
       />
     ),
     suggestion,
+    hasBillingBanner: billingBannerDecision !== null,
   };
 
   const chatBodyScrollAreaPropsBase = {

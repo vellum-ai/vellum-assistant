@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { cn } from "../utils/cn";
+import { Tooltip } from "./tooltip";
 
 /**
  * Standardized button for the web platform. Visual parity with the macOS
@@ -262,7 +263,7 @@ export function Button({
     event.stopPropagation();
   };
 
-  return (
+  const buttonElement = (
     <Comp
       {...rest}
       ref={ref}
@@ -273,7 +274,7 @@ export function Button({
       data-slot="button"
       tabIndex={isSlotDisabled ? -1 : rest.tabIndex}
       onClick={isSlotDisabled ? handleBlockedClick : onClick}
-      title={title ?? tooltip}
+      title={title}
       className={cn(
         buttonVariants({ variant, size, iconOnly: isIconOnly, fullWidth, active }),
         className,
@@ -311,4 +312,10 @@ export function Button({
       )}
     </Comp>
   );
+
+  if (tooltip) {
+    return <Tooltip content={tooltip}>{buttonElement}</Tooltip>;
+  }
+
+  return buttonElement;
 }
