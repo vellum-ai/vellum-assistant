@@ -163,6 +163,7 @@ mock.module("@/lib/local-mode", () => ({
   setSelectedAssistantId: () => {},
   saveLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
+  getLocalGatewayUrl: () => undefined,
 }));
 
 mock.module("@/lib/feature-flags/client-feature-flag-store", () => ({
