@@ -44,6 +44,8 @@ const {
   DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT,
   DISK_PRESSURE_OVERRIDE_CONFIRMATION,
   DISK_PRESSURE_THRESHOLD_PERCENT,
+  DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT,
+  DISK_PRESSURE_WARNING_THRESHOLD_PERCENT,
   __getDiskPressureGuardTimerForTests,
   __resetDiskPressureGuardForTests,
   acknowledgeDiskPressureLock,
@@ -316,5 +318,46 @@ describe("disk pressure guard", () => {
     expect(status.enabled).toBe(false);
     expect(status.locked).toBe(false);
     expect(__getDiskPressureGuardTimerForTests()).toBeNull();
+  });
+
+  test("does not enter warning until usage reaches the warning threshold", () => {
+    // Below 80% and never previously in a pressure state.
+    setDiskUsage(DISK_PRESSURE_WARNING_THRESHOLD_PERCENT - 2);
+
+    const status = evaluateDiskPressureNow();
+
+    expect(status.state).toBe("ok");
+  });
+
+  test("holds the warning state across a dip within the warning clear deadband", () => {
+    setDiskUsage(DISK_PRESSURE_WARNING_THRESHOLD_PERCENT + 2);
+    expect(evaluateDiskPressureNow().state).toBe("warning");
+
+    // Below the 80% warning threshold but at/above the 77% clear threshold.
+    setDiskUsage(DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT + 1);
+    expect(evaluateDiskPressureNow().state).toBe("warning");
+  });
+
+  test("clears the warning state once usage falls below the warning clear threshold", () => {
+    setDiskUsage(DISK_PRESSURE_WARNING_THRESHOLD_PERCENT + 2);
+    expect(evaluateDiskPressureNow().state).toBe("warning");
+
+    setDiskUsage(DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT - 1);
+    expect(evaluateDiskPressureNow().state).toBe("ok");
+  });
+
+  test("steps a critical lock down into a held warning state", () => {
+    setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT + 1);
+    expect(evaluateDiskPressureNow().state).toBe("critical");
+
+    // Below the 90% critical clear but above the 80% warning threshold.
+    setDiskUsage(DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT - 2);
+    const stepped = evaluateDiskPressureNow();
+    expect(stepped.state).toBe("warning");
+    expect(stepped.locked).toBe(false);
+
+    // Now within the warning clear deadband — warning must hold, not flap to ok.
+    setDiskUsage(DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT + 1);
+    expect(evaluateDiskPressureNow().state).toBe("warning");
   });
 });
