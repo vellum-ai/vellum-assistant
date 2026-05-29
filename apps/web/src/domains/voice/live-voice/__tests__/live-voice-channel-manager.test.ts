@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type {
   LiveVoiceChannelClientLike,
+  LiveVoiceManagerScheduler,
   LiveVoicePcmCaptureLike,
   LiveVoicePcmPlaybackLike,
   LiveVoiceStoreLike,
@@ -241,6 +242,33 @@ class FakePlayback implements LiveVoicePcmPlaybackLike {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Records `setTimeout`/`clearTimeout` calls so tests can fire pending
+ * timers deterministically. bun:test does not ship a fake-timer
+ * implementation, so the manager exposes the scheduler boundary as a
+ * dependency that tests can replace with this fake.
+ */
+class FakeScheduler implements LiveVoiceManagerScheduler {
+  private nextHandle = 0;
+  pending = new Map<number, () => void>();
+
+  setTimeout(handler: () => void): unknown {
+    this.nextHandle += 1;
+    this.pending.set(this.nextHandle, handler);
+    return this.nextHandle;
+  }
+
+  clearTimeout(handle: unknown): void {
+    if (typeof handle === "number") this.pending.delete(handle);
+  }
+
+  /** Fire every currently pending timer (FIFO). */
+  fireAll(): void {
+    for (const handler of [...this.pending.values()]) handler();
+    this.pending.clear();
+  }
+}
+
 interface Harness {
   manager: LiveVoiceChannelManager;
   /**
@@ -272,6 +300,7 @@ interface Harness {
   /** Every playback the factory has handed out, oldest-first. */
   playbacks: FakePlayback[];
   store: LiveVoiceStoreLike;
+  scheduler: FakeScheduler;
 }
 
 function makeHarness(): Harness {
@@ -279,6 +308,7 @@ function makeHarness(): Harness {
   const captures: FakeCapture[] = [];
   const playbacks: FakePlayback[] = [];
   const store = createFakeStore();
+  const scheduler = new FakeScheduler();
   const manager = new LiveVoiceChannelManager({
     clientFactory: () => {
       const next = new FakeClient();
@@ -296,6 +326,7 @@ function makeHarness(): Harness {
       return next;
     },
     store,
+    scheduler,
   });
   return {
     manager,
@@ -303,6 +334,7 @@ function makeHarness(): Harness {
     captures,
     playbacks,
     store,
+    scheduler,
     client: () => {
       const latest = clients[clients.length - 1];
       if (!latest) {
@@ -643,7 +675,71 @@ describe("LiveVoiceChannelManager", () => {
       expect(store.getState().errorMessage).toBe("");
     });
 
-    test("ends the session if ready arrives after stopListening fired during connecting", async () => {
+    test("fires the no-response watchdog if the server stays silent after stopListening", async () => {
+      const harness = makeHarness();
+      const { manager, store, scheduler } = harness;
+
+      await manager.start("conv-1");
+      const client = harness.client();
+      const capture = harness.capture();
+      const playback = harness.playback();
+      client.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+      expect(store.getState().state).toBe("listening");
+
+      // User releases PTT after silence: ptt_release is sent but the
+      // server never produces a response (empty STT). The watchdog
+      // should be armed.
+      await manager.stopListening();
+      expect(client.releasePushToTalkCalls).toBe(1);
+      expect(scheduler.pending.size).toBe(1);
+
+      // Fire the watchdog — manager should tear the session down.
+      scheduler.fireAll();
+      await flushMicrotasks();
+
+      expect(client.endCalls).toBe(1);
+      expect(capture.shutdownCalls).toBe(1);
+      expect(playback.handleEndCalls).toBe(1);
+      expect(store.getState().state).toBe("off");
+    });
+
+    test("server activity disarms the watchdog so a normal response is not interrupted", async () => {
+      const harness = makeHarness();
+      const { manager, scheduler } = harness;
+
+      await manager.start("conv-1");
+      const client = harness.client();
+      client.emit({
+        type: "ready",
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+      });
+      await flushMicrotasks();
+
+      // STT events stream in BEFORE stopListening — user spoke, then
+      // released PTT. Watchdog should arm on stopListening, then
+      // disarm as soon as the server emits `thinking`.
+      client.emit({ type: "sttPartial", text: "hi", seq: 1 });
+      await manager.stopListening();
+      expect(scheduler.pending.size).toBe(1);
+
+      client.emit({ type: "sttFinal", text: "hi", seq: 2 });
+      // sttFinal alone does not disarm — STT can finalize even when
+      // the server decides not to respond.
+      expect(scheduler.pending.size).toBe(1);
+
+      client.emit({ type: "thinking", turnId: "turn-1" });
+      // `thinking` means the server is producing a response — disarm.
+      expect(scheduler.pending.size).toBe(0);
+      expect(client.endCalls).toBe(0);
+    });
+
+    test("ends the session if capture returns false because stopListening fired during capture start", async () => {
       const harness = makeHarness();
       const { manager, store } = harness;
 

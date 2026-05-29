@@ -82,6 +82,17 @@ export interface LiveVoiceStoreLike {
   getState(): LiveVoiceStore;
 }
 
+/**
+ * Wraps `setTimeout` / `clearTimeout` so tests can drive the
+ * no-response watchdog without `vi.useFakeTimers()` (unavailable in
+ * bun:test). The handle is intentionally opaque — production uses the
+ * value returned by `globalThis.setTimeout`, tests use a numeric id.
+ */
+export interface LiveVoiceManagerScheduler {
+  setTimeout(handler: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
 export interface LiveVoiceChannelManagerDeps {
   /**
    * Factory invoked once per `start()` to create a fresh
@@ -111,6 +122,12 @@ export interface LiveVoiceChannelManagerDeps {
    */
   playbackFactory?: () => LiveVoicePcmPlaybackLike;
   store?: LiveVoiceStoreLike;
+  /**
+   * Wrapper for the no-response watchdog timer. Defaults to the global
+   * `setTimeout` / `clearTimeout`. Tests inject a fake so they can
+   * trigger the timeout deterministically.
+   */
+  scheduler?: LiveVoiceManagerScheduler;
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +135,23 @@ export interface LiveVoiceChannelManagerDeps {
 // ---------------------------------------------------------------------------
 
 const DEFAULT_FAILURE_MESSAGE = "Live voice session failed";
+
+/**
+ * After `stopListening()`, the server sometimes finalizes the turn
+ * silently — empty STT, only-noise audio — without emitting any
+ * `thinking` / `ttsAudio` / `ttsDone` frame. Without a fallback the
+ * session would dangle in `listening`/`transcribing` with the mic
+ * stopped and no recovery affordance. 10 s is long enough that a
+ * normal server response (thinking takes ~1 s in practice) is never
+ * starved, and short enough that the user is not stuck for long.
+ */
+const NO_RESPONSE_WATCHDOG_MS = 10_000;
+
+const DEFAULT_SCHEDULER: LiveVoiceManagerScheduler = {
+  setTimeout: (handler, ms) => globalThis.setTimeout(handler, ms),
+  clearTimeout: (handle) =>
+    globalThis.clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
 
 export class LiveVoiceChannelManager {
   /**
@@ -177,6 +211,16 @@ export class LiveVoiceChannelManager {
    */
   private isUserMuted = false;
 
+  private readonly scheduler: LiveVoiceManagerScheduler;
+  /**
+   * Handle for the watchdog timer armed by `stopListening()`. The timer
+   * tears the session down via `end()` if no `thinking` / `ttsAudio` /
+   * `ttsDone` frame arrives within `NO_RESPONSE_WATCHDOG_MS` — the
+   * "released PTT after silence" case where the server finalizes the
+   * pending turn without emitting any terminal frame.
+   */
+  private noResponseWatchdogHandle: unknown = null;
+
   constructor(deps: LiveVoiceChannelManagerDeps = {}) {
     this.clientFactory =
       deps.clientFactory ?? (() => new LiveVoiceChannelClient());
@@ -185,6 +229,7 @@ export class LiveVoiceChannelManager {
     this.playbackFactory =
       deps.playbackFactory ?? (() => new LiveVoicePcmPlayback());
     this.store = deps.store ?? useLiveVoiceStore;
+    this.scheduler = deps.scheduler ?? DEFAULT_SCHEDULER;
   }
 
   // -------------------------------------------------------------------------
@@ -203,6 +248,7 @@ export class LiveVoiceChannelManager {
     const sessionGen = this.sessionGeneration;
     this.playbackReadyForResponse = false;
     this.isUserMuted = false;
+    this.clearNoResponseWatchdog();
 
     const actions = this.actions();
     actions.setState("connecting");
@@ -247,6 +293,14 @@ export class LiveVoiceChannelManager {
     this.isUserMuted = true;
     this.client?.releasePushToTalk();
     this.capture?.stop();
+    // Arm the no-response watchdog: if the server finalizes the turn
+    // silently (empty STT, only-noise audio) and never emits a
+    // `thinking` / `ttsAudio` / `ttsDone` frame, we'd otherwise be stuck
+    // with the mic stopped and the UI dangling in
+    // `listening`/`transcribing` with no recovery. The first sign of
+    // server activity disarms the watchdog; otherwise it tears the
+    // session down via `end()`.
+    this.armNoResponseWatchdog();
   }
 
   async end(): Promise<void> {
@@ -254,6 +308,7 @@ export class LiveVoiceChannelManager {
     // resumes after this teardown bails before touching state.
     this.sessionGeneration += 1;
     this.playbackReadyForResponse = false;
+    this.clearNoResponseWatchdog();
 
     this.capture?.shutdown();
     this.playback?.handleEnd();
@@ -301,6 +356,9 @@ export class LiveVoiceChannelManager {
         actions.setPartialTranscript("");
         return;
       case "thinking":
+        // The server is producing a response — disarm the post-stop
+        // watchdog (which only fires if the server falls silent).
+        this.clearNoResponseWatchdog();
         actions.setState("thinking");
         // Reset the rolling assistant transcript at the start of each
         // response — mirrors `prepareForAssistantResponse()` in
@@ -308,12 +366,14 @@ export class LiveVoiceChannelManager {
         actions.clearAssistantTranscript();
         return;
       case "assistantTextDelta":
+        this.clearNoResponseWatchdog();
         if (this.currentState() !== "speaking") {
           actions.setState("speaking");
         }
         actions.appendAssistantTranscript(event.text);
         return;
       case "ttsAudio":
+        this.clearNoResponseWatchdog();
         // The PCM playback's `acceptsAudio` gate is flipped closed by
         // any prior `handleInterrupt` / `handleEnd` / `ttsDone`. The
         // first audio chunk of a new response must re-open the gate
@@ -352,6 +412,7 @@ export class LiveVoiceChannelManager {
     // resumes after this teardown bails before touching state.
     this.sessionGeneration += 1;
     this.playbackReadyForResponse = false;
+    this.clearNoResponseWatchdog();
 
     const message = this.failureMessage(failure);
     const actions = this.actions();
@@ -448,6 +509,30 @@ export class LiveVoiceChannelManager {
     }
     if (this.currentState() !== "failed") {
       this.actions().setState("listening");
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // No-response watchdog
+  // -------------------------------------------------------------------------
+
+  private armNoResponseWatchdog(): void {
+    this.clearNoResponseWatchdog();
+    const myGeneration = this.sessionGeneration;
+    this.noResponseWatchdogHandle = this.scheduler.setTimeout(() => {
+      // A concurrent `start()` / `end()` / failure may have moved on
+      // while the timer was pending. Bail without touching state.
+      if (myGeneration !== this.sessionGeneration) return;
+      // `end()` clears its own watchdog handle as part of teardown, so
+      // we don't need to null it out here.
+      void this.end();
+    }, NO_RESPONSE_WATCHDOG_MS);
+  }
+
+  private clearNoResponseWatchdog(): void {
+    if (this.noResponseWatchdogHandle !== null) {
+      this.scheduler.clearTimeout(this.noResponseWatchdogHandle);
+      this.noResponseWatchdogHandle = null;
     }
   }
 
