@@ -1,34 +1,21 @@
 /**
  * Step framework for `assistant db repair`.
  *
- * `repair` is conceptually a sequence of discrete remediation passes:
+ * `repair` runs a sequence of discrete remediation passes. Each step is a
+ * `RepairStep` with a `name`, a one-line `description`, and a `run(ctx)`
+ * that returns a `StepResult`.
  *
- *   1. integrity check       (this PR)
- *   2. conversation backfill (next PR — replay /workspace/conversations
- *      into SQLite)
- *   3. … more to come (memory consolidation, lost-and-found triage, etc.)
+ * The runner:
+ *   - executes steps sequentially in the order supplied
+ *   - continues past non-halting failures (a corrupt DB doesn't preclude
+ *     re-deriving conversations from disk)
+ *   - stops only when a step returns `halt: true`
+ *   - never throws — uncaught errors from a step body are captured as a
+ *     synthetic `error` result so a bug in one step can't crash the run
  *
- * Each step is a small unit that:
- *   - logs a "starting" line when it begins
- *   - produces a `StepResult` describing what happened
- *   - logs a single "success" or "error" summary line with details
- *
- * The runner is intentionally not clever:
- *   - steps run sequentially (later steps may depend on earlier ones; in
- *     particular, a step that mutates the DB needs preceding integrity-check
- *     results to be visible)
- *   - a failed step does NOT halt the sequence by default. Repair is a
- *     best-effort surface — a corrupted DB doesn't mean we should skip
- *     re-deriving conversations from disk. Steps that genuinely cannot
- *     continue on failure mark themselves `halt: true`.
- *   - the runner never throws; every error is captured into a `StepResult`
- *     so callers can render a coherent summary
- *
- * `RepairContext` holds the per-run state every step shares — the DB path
- * and any opened handles. Steps may open their own bun:sqlite connections
- * (e.g. integrity check opens read-only) rather than holding one open at
- * the context level; future write-side steps will need to open RW
- * themselves anyway.
+ * `RepairContext` holds the per-run state every step shares — currently
+ * just the DB path. Steps open their own bun:sqlite connections (read-only
+ * or read-write as needed) rather than sharing a handle through the context.
  */
 
 import type { Database } from "bun:sqlite";

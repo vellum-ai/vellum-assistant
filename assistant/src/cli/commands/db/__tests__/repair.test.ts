@@ -19,6 +19,7 @@ import {
   mkdtempSync,
   openSync,
   rmSync,
+  writeFileSync,
   writeSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -169,21 +170,24 @@ describe("assistant db repair — healthy DB", () => {
     expect(stdout).toContain("integrity-check");
     expect(stdout).toContain("ok");
     expect(stdout).toContain("no corruption detected");
-    expect(stdout).toMatch(/Done\. 1 step ran: 1 ok, 0 failed/);
+    expect(stdout).toContain("conversation-backfill");
+    expect(stdout).toMatch(/Done\. 2 steps ran: 2 ok, 0 failed/);
   });
 
-  test("--json emits a structured report with the step result", async () => {
+  test("--json emits a structured report with all step results", async () => {
     seedHealthyDb();
     const { stdout, exitCode } = await runRepair(["--json", "repair"]);
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed.dbPath).toBe(dbPath);
-    expect(parsed.steps).toHaveLength(1);
+    expect(parsed.steps).toHaveLength(2);
     expect(parsed.steps[0].name).toBe("integrity-check");
     expect(parsed.steps[0].result.status).toBe("ok");
     expect(parsed.steps[0].result.data.errorCount).toBe(0);
     expect(typeof parsed.steps[0].result.durationMs).toBe("number");
-    expect(parsed.okCount).toBe(1);
+    expect(parsed.steps[1].name).toBe("conversation-backfill");
+    expect(parsed.steps[1].result.status).toBe("ok");
+    expect(parsed.okCount).toBe(2);
     expect(parsed.errorCount).toBe(0);
   });
 });
@@ -203,14 +207,19 @@ describe("assistant db repair — corrupt DB", () => {
       /(integrity violation|database is too corrupt|database disk image is malformed)/,
     );
     expect(stdout).not.toContain("this is a bug");
-    expect(stdout).toMatch(/Done\. 1 step ran: 0 ok, 1 failed/);
+    // Backfill still attempts to run after integrity check fails (continue
+    // on non-halting error). On the rollback-journal-mode corrupt seed
+    // backfill itself runs against an empty conversations dir and reports
+    // "nothing to backfill", so the summary is `1 ok, 1 failed`.
+    expect(stdout).toMatch(/Done\. 2 steps ran: 1 ok, 1 failed/);
   });
 
-  test("--json carries the full error list", async () => {
+  test("--json carries the full error list from integrity-check", async () => {
     seedCorruptDb();
     const { stdout, exitCode } = await runRepair(["--json", "repair"]);
     expect(exitCode).toBe(1);
     const parsed = JSON.parse(stdout);
+    expect(parsed.steps[0].name).toBe("integrity-check");
     expect(parsed.steps[0].result.status).toBe("error");
     expect(parsed.steps[0].result.data).toBeDefined();
     expect(Array.isArray(parsed.steps[0].result.data.errors)).toBe(true);
@@ -351,5 +360,181 @@ describe("repair step runner", () => {
     ];
     const report = await runRepairSteps({ dbPath }, steps);
     expect(report.steps[0].result.durationMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Integrity step — open failures
+// ---------------------------------------------------------------------------
+
+describe("integrity-check step — open failures", () => {
+  test("file-is-a-directory surfaces as a structured error", async () => {
+    // Make the db path itself a directory, so SQLite can't open it as a
+    // file. The constructor throws; without our explicit catch the runner
+    // would mark this as "this is a bug".
+    rmSync(dbPath, { force: true });
+    mkdirSync(dbPath, { recursive: true });
+
+    const { stdout, exitCode } = await runRepair(["--json", "repair"]);
+    expect(exitCode).toBe(1);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.steps[0].name).toBe("integrity-check");
+    expect(parsed.steps[0].result.status).toBe("error");
+    expect(parsed.steps[0].result.data.openFailed).toBe(true);
+    expect(parsed.steps[0].result.summary).toContain("could not open");
+    // Crucially: not flagged as a bug.
+    const allDetail = JSON.stringify(parsed);
+    expect(allDetail).not.toContain("this is a bug");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Conversation-backfill step
+// ---------------------------------------------------------------------------
+
+/**
+ * Seed a `<workspace>/conversations/<id>/` directory pair on disk for the
+ * backfill step to discover. Returns the conversation id used.
+ */
+function seedDiskConversation(
+  opts: {
+    id?: string;
+    title?: string;
+    messages?: Array<{ role: string; content: string; ts?: string }>;
+  } = {},
+): string {
+  const id = opts.id ?? "conv-disk-1";
+  const dir = join(workspaceDir, "conversations", id);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "meta.json"),
+    JSON.stringify({
+      id,
+      title: opts.title ?? "Backfilled",
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:01:00.000Z",
+    }),
+  );
+  if (opts.messages) {
+    const lines = opts.messages
+      .map((m) =>
+        JSON.stringify({ role: m.role, content: m.content, ts: m.ts }),
+      )
+      .join("\n");
+    writeFileSync(join(dir, "messages.jsonl"), lines + "\n");
+  }
+  return id;
+}
+
+/** Apply the schema to the test DB so backfill has tables to insert into. */
+async function initSchema(): Promise<void> {
+  // The repair step opens its own bun:sqlite handle but expects the schema
+  // to already exist (production-wise, the daemon creates it). Touching the
+  // global init triggers schema creation against the env-isolated path.
+  const { initializeDb } = await import("../../../../memory/db-init.js");
+  initializeDb();
+  // Close the singleton so backfill can open its own handle without
+  // collision. WAL allows concurrent handles but cleaner ownership avoids
+  // test cross-talk through the in-process cache.
+  const { getDb, getSqliteFrom } =
+    await import("../../../../memory/db-connection.js");
+  const { clearStoredDb } = await import("../../../../memory/db-singleton.js");
+  try {
+    getSqliteFrom(getDb()).close();
+  } catch {
+    /* already closed */
+  }
+  clearStoredDb();
+}
+
+describe("assistant db repair — conversation-backfill step", () => {
+  test("backfills a disk-only conversation into SQLite", async () => {
+    await initSchema();
+    seedDiskConversation({
+      id: "conv-recover-1",
+      title: "Recover me",
+      messages: [
+        { role: "user", content: "hi", ts: "2025-01-01T00:00:30.000Z" },
+        { role: "assistant", content: "hello", ts: "2025-01-01T00:00:31.000Z" },
+      ],
+    });
+
+    const { stdout, exitCode } = await runRepair(["--json", "repair"]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    const backfill = parsed.steps[1];
+    expect(backfill.name).toBe("conversation-backfill");
+    expect(backfill.result.status).toBe("ok");
+    expect(backfill.result.data.recovered).toBe(1);
+    expect(backfill.result.data.errors).toBe(0);
+    expect(backfill.result.data.skipped).toBe(0);
+
+    // And confirm it actually landed in SQLite.
+    const verify = new Database(dbPath, { readonly: true });
+    try {
+      const row = verify
+        .query<
+          { id: string; title: string },
+          []
+        >("SELECT id, title FROM conversations WHERE id = 'conv-recover-1'")
+        .get();
+      expect(row?.id).toBe("conv-recover-1");
+      expect(row?.title).toBe("Recover me");
+      const msgCount = verify
+        .query<
+          { n: number },
+          []
+        >("SELECT COUNT(*) AS n FROM messages WHERE conversation_id = 'conv-recover-1'")
+        .get();
+      expect(msgCount?.n).toBe(2);
+    } finally {
+      verify.close();
+    }
+  });
+
+  test("skips conversations already present (idempotent)", async () => {
+    await initSchema();
+    seedDiskConversation({ id: "conv-idempotent-1" });
+
+    // First run: recover.
+    let { stdout } = await runRepair(["--json", "repair"]);
+    let parsed = JSON.parse(stdout);
+    expect(parsed.steps[1].result.data.recovered).toBe(1);
+
+    // Second run: should skip.
+    ({ stdout } = await runRepair(["--json", "repair"]));
+    parsed = JSON.parse(stdout);
+    expect(parsed.steps[1].result.data.recovered).toBe(0);
+    expect(parsed.steps[1].result.data.skipped).toBe(1);
+    expect(parsed.steps[1].result.status).toBe("ok");
+  });
+
+  test("reports nothing-to-backfill on an empty conversations dir", async () => {
+    await initSchema();
+    // No seedDiskConversation call.
+    const { stdout, exitCode } = await runRepair(["--json", "repair"]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.steps[1].result.status).toBe("ok");
+    expect(parsed.steps[1].result.summary).toContain("nothing to backfill");
+    expect(parsed.steps[1].result.data.recovered).toBe(0);
+  });
+
+  test("surfaces warnings for malformed meta.json without erroring the step", async () => {
+    await initSchema();
+    const dir = join(workspaceDir, "conversations", "broken-1");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "meta.json"), "{ not valid json");
+
+    const { stdout, exitCode } = await runRepair(["--json", "repair"]);
+    expect(exitCode).toBe(0);
+    const parsed = JSON.parse(stdout);
+    expect(parsed.steps[1].result.status).toBe("ok");
+    expect(parsed.steps[1].result.data.skipped).toBe(1);
+    expect(
+      parsed.steps[1].result.data.warnings.some((w: string) =>
+        w.includes("malformed meta.json"),
+      ),
+    ).toBe(true);
   });
 });

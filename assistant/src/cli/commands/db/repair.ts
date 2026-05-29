@@ -4,12 +4,10 @@
  * Composes the step framework in `repair-steps.ts` with the concrete steps
  * imported from `repair-step-*.ts` files. Each step logs its own
  * starting/success/error lines; the runner aggregates results into a
- * `RepairReport` that we render either as plain text or as a single JSON
+ * `RepairReport` that renders either as plain text or as a single JSON
  * payload (`--json`).
  *
- * This PR ships exactly one step (integrity-check). Subsequent PRs append
- * more steps to the `STEPS` array — that's the only edit they need to make
- * here.
+ * Adding a new step is a one-line edit to the `STEPS` array.
  *
  * Transport: `local`. The whole point of this surface is that it works when
  * the daemon is down, so it opens the DB file directly and never goes
@@ -23,6 +21,7 @@ import type { Command } from "commander";
 import { getDbPath } from "../../../util/platform.js";
 import { dim, green, red } from "../../lib/cli-colors.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
+import { conversationBackfillStep } from "./repair-step-conversation-backfill.js";
 import { integrityCheckStep } from "./repair-step-integrity.js";
 import type { RepairReport, RepairStep, StepResult } from "./repair-steps.js";
 import { formatDurationMs, runRepairSteps } from "./repair-steps.js";
@@ -32,13 +31,10 @@ import { formatDurationMs, runRepairSteps } from "./repair-steps.js";
 // ---------------------------------------------------------------------------
 
 /**
- * Repair steps run in the order listed here. Order matters:
- *   1. integrity-check FIRST — surfaces structural damage before we attempt
- *      anything that touches the same pages
- *   2. (future) conversation backfill from /workspace/conversations
- *   3. (future) memory consolidation, lost-and-found triage, etc.
+ * Repair steps run in the order listed here. Integrity check runs first so
+ * structural damage surfaces before subsequent steps touch the same pages.
  */
-const STEPS: RepairStep[] = [integrityCheckStep];
+const STEPS: RepairStep[] = [integrityCheckStep, conversationBackfillStep];
 
 // ---------------------------------------------------------------------------
 // Rendering
