@@ -74,7 +74,7 @@ import {
   profilePickerLabel,
   visibleProfilesForPicker,
 } from "@/domains/settings/ai/profile-pickers";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import { readSecret } from "@/domains/settings/ai/provider-connections-client";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 

@@ -15,7 +15,7 @@ import {
   gateAutoProfile,
   type ProfilePickerEntry,
 } from "@/assistant/profile-pickers";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import {
   deleteConversationOverride,
   getConversationOverride,
