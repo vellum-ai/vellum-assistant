@@ -11,8 +11,8 @@
  */
 
 import type {
-  Tool,
   RiskLevel,
+  Tool,
   ToolDefinition,
   ToolExecutionResult,
 } from "./types.js";
