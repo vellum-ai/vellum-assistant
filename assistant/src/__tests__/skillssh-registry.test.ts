@@ -209,6 +209,7 @@ describe("resolveSkillSource", () => {
       owner: "vercel-labs",
       repo: "skills",
       skillSlug: "find-skills",
+      isPackageInstall: false,
     });
   });
 
@@ -218,6 +219,7 @@ describe("resolveSkillSource", () => {
       owner: "vercel-labs",
       repo: "skills",
       skillSlug: "find-skills",
+      isPackageInstall: false,
     });
   });
 
@@ -230,6 +232,7 @@ describe("resolveSkillSource", () => {
       repo: "skills",
       skillSlug: "find-skills",
       ref: "main",
+      isPackageInstall: false,
     });
   });
 
@@ -242,6 +245,7 @@ describe("resolveSkillSource", () => {
       repo: "repo",
       skillSlug: "my-skill",
       ref: "develop",
+      isPackageInstall: false,
     });
   });
 
@@ -254,6 +258,7 @@ describe("resolveSkillSource", () => {
       repo: "repo",
       skillSlug: "skill-name",
       ref: "main",
+      isPackageInstall: false,
     });
   });
 
@@ -273,11 +278,8 @@ describe("resolveSkillSource", () => {
     );
   });
 
-  test("throws on owner/repo without skill", () => {
-    expect(() => resolveSkillSource("vercel-labs/skills")).toThrow(
-      'Invalid skill source "vercel-labs/skills"',
-    );
-  });
+  // "owner/repo without skill" — now valid as a package install format.
+  // moved to cycle 1c tests below.
 
   test("rejects path traversal in @ format slug", () => {
     expect(() => resolveSkillSource("owner/repo@../../malicious")).toThrow(
@@ -290,24 +292,97 @@ describe("resolveSkillSource", () => {
       'Invalid skill source "owner/repo@BadSlug"',
     );
   });
+
+  // ─── cycle 1c: two-segment (package) format ────────────────────────────────
+
+  test("parses owner/repo as a package install (two-segment format)", () => {
+    const result = resolveSkillSource("vercel-labs/skills");
+    expect(result).toEqual({
+      owner: "vercel-labs",
+      repo: "skills",
+      isPackageInstall: true,
+    });
+  });
+
+  test("parses obra/superpowers as a package install", () => {
+    const result = resolveSkillSource("obra/superpowers");
+    expect(result).toEqual({
+      owner: "obra",
+      repo: "superpowers",
+      isPackageInstall: true,
+    });
+  });
+
+  test("distinguishes 2-segment (package) from 3-segment (single-skill)", () => {
+    const pkg = resolveSkillSource("owner/repo");
+    const single = resolveSkillSource("owner/repo/skill");
+    expect(pkg.isPackageInstall).toBe(true);
+    expect(single.isPackageInstall).toBe(false);
+    expect(single.skillSlug).toBe("skill");
+  });
+
+  test("package format ignores skillSlug field", () => {
+    const result = resolveSkillSource("vercel-labs/skills");
+    expect(result.skillSlug).toBeUndefined();
+  });
+
+  test("single-skill format still requires skillSlug", () => {
+    const result = resolveSkillSource("vercel-labs/skills/find-skills");
+    expect(result.skillSlug).toBe("find-skills");
+    expect(result.isPackageInstall).toBe(false);
+  });
 });
 
 // ─── validateSkillSlug ──────────────────────────────────────────────────────
 
 describe("validateSkillSlug", () => {
-  test("accepts valid slugs", () => {
+  test("accepts valid single-segment slugs", () => {
     expect(() => validateSkillSlug("my-skill")).not.toThrow();
     expect(() => validateSkillSlug("skill123")).not.toThrow();
     expect(() => validateSkillSlug("my.skill")).not.toThrow();
     expect(() => validateSkillSlug("my_skill")).not.toThrow();
   });
 
-  test("rejects path traversal characters", () => {
+  test("accepts three-segment namespaced slugs (owner/repo/skill)", () => {
+    expect(() =>
+      validateSkillSlug("obra/superpowers/brainstorming"),
+    ).not.toThrow();
+    expect(() => validateSkillSlug("my-org/my-repo/my-skill")).not.toThrow();
+    expect(() =>
+      validateSkillSlug("a/b/c"),
+    ).not.toThrow();
+  });
+
+  test("rejects two-segment slugs (reserved for package install args)", () => {
+    expect(() => validateSkillSlug("foo/bar")).toThrow();
+    expect(() => validateSkillSlug("owner/repo")).toThrow();
+  });
+
+  test("rejects four-or-more-segment slugs", () => {
+    expect(() => validateSkillSlug("a/b/c/d")).toThrow();
+    expect(() => validateSkillSlug("a/b/c/d/e")).toThrow();
+  });
+
+  test("rejects path traversal in any segment", () => {
     expect(() => validateSkillSlug("../../malicious")).toThrow(
       "path traversal",
     );
-    expect(() => validateSkillSlug("foo/bar")).toThrow("path traversal");
+    expect(() => validateSkillSlug("owner/../escape")).toThrow();
+    expect(() => validateSkillSlug("owner/repo/..")).toThrow("path traversal");
     expect(() => validateSkillSlug("foo\\bar")).toThrow("path traversal");
+  });
+
+  test("rejects invalid characters in any namespaced segment", () => {
+    // Uppercase, leading dot, leading dash, etc. in any segment
+    expect(() => validateSkillSlug("Owner/repo/skill")).toThrow();
+    expect(() => validateSkillSlug("owner/.hidden/skill")).toThrow();
+    expect(() => validateSkillSlug("owner/repo/-leading-dash")).toThrow();
+  });
+
+  test("rejects empty segments", () => {
+    expect(() => validateSkillSlug("//")).toThrow();
+    expect(() => validateSkillSlug("owner//skill")).toThrow();
+    expect(() => validateSkillSlug("/owner/repo/skill")).toThrow();
   });
 
   test("rejects slugs starting with special chars", () => {

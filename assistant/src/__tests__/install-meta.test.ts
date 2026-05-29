@@ -108,6 +108,45 @@ describe("writeInstallMeta", () => {
     expect(parsed.contentHash).toBe("v2:abc123def456");
   });
 
+  test("writes install-meta.json with package + packageContentHash", () => {
+    const dir = makeTempDir();
+    const meta: SkillInstallMeta = {
+      origin: "skillssh",
+      installedAt: "2025-04-01T00:00:00.000Z",
+      slug: "obra/superpowers/brainstorming",
+      sourceRepo: "obra/superpowers",
+      package: "obra/superpowers",
+      packageContentHash: "v2:packagehash789",
+      contentHash: "v2:skillhash456",
+    };
+
+    writeInstallMeta(dir, meta);
+
+    const parsed = JSON.parse(
+      readFileSync(join(dir, "install-meta.json"), "utf-8"),
+    );
+    expect(parsed.package).toBe("obra/superpowers");
+    expect(parsed.packageContentHash).toBe("v2:packagehash789");
+    expect(parsed.slug).toBe("obra/superpowers/brainstorming");
+  });
+
+  test("package + packageContentHash roundtrip through read", () => {
+    const dir = makeTempDir();
+    const meta: SkillInstallMeta = {
+      origin: "skillssh",
+      installedAt: "2025-04-01T00:00:00.000Z",
+      slug: "obra/superpowers/brainstorming",
+      sourceRepo: "obra/superpowers",
+      package: "obra/superpowers",
+      packageContentHash: "v2:packagehash789",
+    };
+
+    writeInstallMeta(dir, meta);
+    const roundtripped = readInstallMeta(dir);
+    expect(roundtripped?.package).toBe("obra/superpowers");
+    expect(roundtripped?.packageContentHash).toBe("v2:packagehash789");
+  });
+
   test("overwrites existing install-meta.json", () => {
     const dir = makeTempDir();
     writeInstallMeta(dir, {

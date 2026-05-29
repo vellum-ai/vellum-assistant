@@ -25,7 +25,10 @@ import {
   SKIP_DIRS,
 } from "./catalog-files.js";
 import type { SkillFileProvider } from "./skill-file-provider.js";
-import type { GitHubContentsEntry } from "./skillssh-registry.js";
+import type {
+  GitHubContentsEntry,
+  ResolvedSkillSource,
+} from "./skillssh-registry.js";
 import {
   findSkillDirInTree,
   githubHeaders,
@@ -228,6 +231,16 @@ async function listGitHubDir(
 
 // ─── Provider implementation ────────────────────────────────────────────────
 
+/**
+ * Narrow a ResolvedSkillSource to its single-skill slug, or null for a
+ * package-install (2-segment owner/repo) source. The skills.sh file provider
+ * only handles individual skills (3+ segments), but the resolver's `skillSlug`
+ * field is optional, so callers need to assert this at each entry point.
+ */
+function singleSkillSlugOf(source: ResolvedSkillSource): string | null {
+  return source.skillSlug ?? null;
+}
+
 export function createSkillsShProvider(): SkillFileProvider {
   return {
     canHandle(skillId: string): boolean {
@@ -241,12 +254,14 @@ export function createSkillsShProvider(): SkillFileProvider {
       } catch {
         return null;
       }
+      const skillSlug = singleSkillSlugOf(source);
+      if (!skillSlug) return null;
 
       try {
         const dirPath = await resolveSkillDir(
           source.owner,
           source.repo,
-          source.skillSlug,
+          skillSlug,
           source.ref,
         );
         if (!dirPath) return null;
@@ -283,12 +298,14 @@ export function createSkillsShProvider(): SkillFileProvider {
       } catch {
         return null;
       }
+      const skillSlug = singleSkillSlugOf(source);
+      if (!skillSlug) return null;
 
       try {
         const dirPath = await resolveSkillDir(
           source.owner,
           source.repo,
-          source.skillSlug,
+          skillSlug,
           source.ref,
         );
         if (!dirPath) return null;
@@ -376,9 +393,11 @@ export function createSkillsShProvider(): SkillFileProvider {
     async toSlimSkill(skillId: string): Promise<SlimSkillResponse | null> {
       try {
         const source = resolveSkillSource(skillId);
+        const skillSlug = singleSkillSlugOf(source);
+        if (!skillSlug) return null;
         return {
           id: skillId,
-          name: source.skillSlug,
+          name: skillSlug,
           description: "",
           kind: "catalog",
           status: "available",

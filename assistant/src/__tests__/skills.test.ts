@@ -153,6 +153,81 @@ describe("skills catalog loading", () => {
     const catalog = loadUserSkillCatalog();
     expect(catalog).toHaveLength(0);
   });
+
+  test("discovers namespaced skill at owner/repo/skill/SKILL.md and uses namespaced id", () => {
+    // Simulate package install layout: skills/obra/superpowers/brainstorming/SKILL.md
+    const dir = join(
+      TEST_DIR,
+      "skills",
+      "obra",
+      "superpowers",
+      "brainstorming",
+    );
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "SKILL.md"),
+      '---\nname: "Brainstorming"\ndescription: "Brainstorm ideas"\n---\n\nbody\n',
+    );
+
+    const catalog = loadUserSkillCatalog();
+    expect(catalog.map((s) => s.id)).toContain(
+      "obra/superpowers/brainstorming",
+    );
+  });
+
+  test("discovers multiple namespaced skills from the same package", () => {
+    for (const slug of ["brainstorming", "planning", "writing-tests"]) {
+      const dir = join(TEST_DIR, "skills", "obra", "superpowers", slug);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(
+        join(dir, "SKILL.md"),
+        `---\nname: "${slug}"\ndescription: "${slug}"\n---\n\nbody\n`,
+      );
+    }
+
+    const catalog = loadUserSkillCatalog();
+    const ids = catalog.map((s) => s.id);
+    expect(ids).toContain("obra/superpowers/brainstorming");
+    expect(ids).toContain("obra/superpowers/planning");
+    expect(ids).toContain("obra/superpowers/writing-tests");
+  });
+
+  test("flat and namespaced skills coexist without collision", () => {
+    writeSkill("brainstorming", "Flat Brainstorm", "Flat");
+    const nsDir = join(
+      TEST_DIR,
+      "skills",
+      "obra",
+      "superpowers",
+      "brainstorming",
+    );
+    mkdirSync(nsDir, { recursive: true });
+    writeFileSync(
+      join(nsDir, "SKILL.md"),
+      '---\nname: "Namespaced Brainstorm"\ndescription: "Namespaced"\n---\n\nbody\n',
+    );
+
+    const catalog = loadUserSkillCatalog();
+    const ids = catalog.map((s) => s.id).sort();
+    expect(ids).toContain("brainstorming");
+    expect(ids).toContain("obra/superpowers/brainstorming");
+  });
+
+  test("intermediate owner/ and owner/repo/ directories without SKILL.md do not produce phantom skills", () => {
+    const dir = join(TEST_DIR, "skills", "obra", "superpowers", "real-skill");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "SKILL.md"),
+      '---\nname: "Real Skill"\ndescription: "real"\n---\n\nbody\n',
+    );
+
+    const catalog = loadUserSkillCatalog();
+    // intermediate "obra" and "obra/superpowers" directories must NOT be discovered as skills
+    const ids = catalog.map((s) => s.id);
+    expect(ids).not.toContain("obra");
+    expect(ids).not.toContain("obra/superpowers");
+    expect(ids).toContain("obra/superpowers/real-skill");
+  });
 });
 
 describe("workspace skills", () => {
