@@ -31,7 +31,7 @@ function loadRegistry(): Record<string, unknown> {
   return JSON.parse(raw);
 }
 
-const VALID_SCOPES = new Set(["assistant", "client"]);
+const VALID_SCOPES = new Set(["assistant", "client", "both"]);
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -169,7 +169,7 @@ describe("unified feature flag registry guard", () => {
       const scope = flag.scope as string;
       if (!VALID_SCOPES.has(scope)) {
         violations.push(
-          `flag '${flag.id}' has invalid scope '${scope}' (expected 'assistant' or 'client')`,
+          `flag '${flag.id}' has invalid scope '${scope}' (expected 'assistant', 'client', or 'both')`,
         );
       }
     }
