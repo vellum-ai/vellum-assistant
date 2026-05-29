@@ -129,7 +129,6 @@ import {
 import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
-import { startZombieSampler } from "./zombie-process-sampler.js";
 
 const log = getLogger("lifecycle");
 let diskPressureStartupSampleTimer: ReturnType<typeof setTimeout> | null = null;
@@ -565,11 +564,6 @@ export async function runDaemon(): Promise<void> {
         log.warn({ err }, "Periodic managed connection cache refresh failed"),
       );
     }, MANAGED_CONNECTION_REFRESH_INTERVAL_MS);
-
-    // Linux-only: surface orphaned subprocesses reparented to the daemon
-    // (the bun-as-PID-1 zombie accumulation reported by Pro-plan users in
-    // containerized deployments). No-op on macOS desktop / dev hosts.
-    startZombieSampler();
 
     // Merge CLI-provided default config (from VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH)
     // into the workspace config file before profile seeding and the first
