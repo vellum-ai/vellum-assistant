@@ -202,8 +202,8 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-// Mock AgentLoop to capture the callSite argument that runAgentLoopImpl passes.
-// The 6th positional parameter is `callSite` (see assistant/src/agent/loop.ts).
+// Mock AgentLoop to capture the callSite argument that runAgentLoopImpl passes
+// via the options object (see assistant/src/agent/loop.ts → AgentLoopRunOptions).
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor(
@@ -231,12 +231,9 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: Record<string, unknown>) => void,
-      _signal?: AbortSignal,
-      _requestId?: string,
-      _onCheckpoint?: unknown,
-      callSite?: string,
+      options?: { callSite?: string },
     ): Promise<Message[]> {
-      captured.callSite = callSite;
+      captured.callSite = options?.callSite;
       onEvent({
         type: "usage",
         inputTokens: 0,

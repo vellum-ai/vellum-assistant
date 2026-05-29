@@ -345,14 +345,20 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void | Promise<void>,
-      _signal?: AbortSignal,
-      _requestId?: string,
-      onCheckpoint?: (
-        checkpoint: CheckpointInfo,
-      ) => CheckpointDecision | Promise<CheckpointDecision>,
+      options?: {
+        onCheckpoint?: (
+          checkpoint: CheckpointInfo,
+        ) => CheckpointDecision | Promise<CheckpointDecision>;
+      },
     ): Promise<Message[]> {
       return new Promise<Message[]>((resolve, reject) => {
-        pendingRuns.push({ resolve, reject, messages, onEvent, onCheckpoint });
+        pendingRuns.push({
+          resolve,
+          reject,
+          messages,
+          onEvent,
+          onCheckpoint: options?.onCheckpoint,
+        });
       });
     }
   },
