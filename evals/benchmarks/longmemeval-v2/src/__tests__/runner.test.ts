@@ -438,16 +438,14 @@ describe("runLongMemEvalV2Unit", () => {
     expect(judgeRow!.model).toBe("gpt-5.2");
     expect(judgeRow!.input_tokens).toBe(200);
     expect(judgeRow!.output_tokens).toBe(15);
-    // costStatus is "partial" because `gpt-5.2` isn't in the evals
-    // pricing table — the report flags it as `unpriced_model` rather
-    // than silently counting as $0. The agent-side rows still price
-    // (anthropic Sonnet 4.6 IS in the table), so totalCostUsd is > 0.
-    expect(usage.costStatus).toBe("partial");
+    // Both `claude-sonnet-4-6` (agent rows) and `gpt-5.2` (judge row)
+    // are in the local pricing table, so usage prices cleanly:
+    //  - agent: 1100 input × $3 + 70 output × $15 per 1M = $0.00435
+    //  - judge: 200 input × $1.75 + 15 output × $14 per 1M = $0.00056
+    // total > 0 and costStatus is "ok" (no diagnostics).
+    expect(usage.costStatus).toBe("ok");
     expect(usage.totalCostUsd).toBeGreaterThan(0);
-    const judgeDiagnostic = (
-      usage.costDiagnostics as Array<{ provider?: string; reason: string }>
-    ).find((d) => d.reason === "unpriced_model" && d.provider === "openai");
-    expect(judgeDiagnostic).toBeDefined();
+    expect(usage.costDiagnostics ?? []).toHaveLength(0);
   });
 
   test("LLM judge with no usage block: usage.json has agent rows only", async () => {
