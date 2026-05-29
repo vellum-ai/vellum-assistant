@@ -422,29 +422,54 @@ final class AvatarAppearanceManager {
             AvatarCache.clearImage()
         }
 
-        // PNG encoding (tiffRepresentation → NSBitmapImageRep → .png) is
-        // CPU-bound. Run off-main so it doesn't block the UI while the
-        // image is persisted to the local cache and the workspace.
+        // Character traits don't need a PNG re-encode for the daemon — the
+        // daemon renders the PNG itself from the traits. Persist them through
+        // the manifest-aware `render-from-traits` endpoint so `avatar.json`
+        // stays authoritative.
+        if isCharacter {
+            if !skipWorkspaceSync, let body = bodyShape, let eyes = eyeStyle, let color = color {
+                Task { [weak self] in
+                    await self?.syncTraitsToDaemon(bodyShape: body, eyeStyle: eyes, color: color)
+                }
+            }
+            return
+        }
+
+        // Custom upload: PNG encoding (tiffRepresentation → NSBitmapImageRep →
+        // .png) is CPU-bound. Run off-main so it doesn't block the UI while the
+        // image is persisted to the local cache and uploaded to the daemon.
         let syncToWorkspace = !skipWorkspaceSync
         Task.detached(priority: .utility) { [weak self] in
             guard let tiffData = image.tiffRepresentation,
                   let bitmap = NSBitmapImageRep(data: tiffData),
                   let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
 
-            if !isCharacter {
-                AvatarCache.saveImage(pngData)
-                AvatarCache.clearTraits()
-            }
+            AvatarCache.saveImage(pngData)
+            AvatarCache.clearTraits()
 
             guard syncToWorkspace else { return }
 
-            let workspaceClient = WorkspaceClient()
-            _ = await workspaceClient.createWorkspaceDirectory(path: "data/avatar")
-            _ = await workspaceClient.writeWorkspaceFile(path: "data/avatar/avatar-image.png", content: pngData)
-            await MainActor.run { [weak self] in
-                self?.saveAvatarComponentsViaGateway()
-            }
+            // Route through the manifest-aware `avatar/image` endpoint: the
+            // daemon writes the PNG, clears any character traits, and updates
+            // `avatar.json` atomically. Replaces the prior direct
+            // `workspace/write` of avatar-image.png + `workspace/delete` of
+            // character-traits.json, which left the manifest stale. Base64 is
+            // encoded here (off-main) so only the HTTP call hops to the actor.
+            let base64 = pngData.base64EncodedString()
+            await self?.uploadCustomImageToDaemon(base64: base64)
         }
+    }
+
+    /// Uploads a base64-encoded custom-image PNG to the daemon via the
+    /// manifest-aware `avatar/image` endpoint. The daemon writes the PNG,
+    /// clears character traits, and records an `image` manifest.
+    private func uploadCustomImageToDaemon(base64: String) async {
+        await postAvatarMutation(
+            label: "uploadCustomImageToDaemon",
+            path: "avatar/image",
+            json: ["content": base64, "encoding": "base64"],
+            timeout: 30
+        )
     }
 
     /// Reloads the avatar by fetching the latest state from the assistant
@@ -487,35 +512,49 @@ final class AvatarAppearanceManager {
     /// Fires `reloadAvatar()` on success so cached state picks up the daemon's
     /// rendered image.
     func syncTraitsToDaemon(bodyShape: AvatarBodyShape, eyeStyle: AvatarEyeStyle, color: AvatarColor) async {
-        let json: [String: Any] = [
-            "bodyShape": bodyShape.rawValue,
-            "eyeStyle": eyeStyle.rawValue,
-            "color": color.rawValue,
-        ]
         log.info("[avatarSync] syncTraitsToDaemon: posting \(bodyShape.rawValue)/\(eyeStyle.rawValue)/\(color.rawValue)")
-        // Retry up to 3 times with a short delay for transient failures
-        // (e.g. 500 from a freshly-hatched assistant that isn't fully ready).
+        await postAvatarMutation(
+            label: "syncTraitsToDaemon",
+            path: "avatar/render-from-traits",
+            json: [
+                "bodyShape": bodyShape.rawValue,
+                "eyeStyle": eyeStyle.rawValue,
+                "color": color.rawValue,
+            ],
+            // Pick up the daemon's rendered image so cached state matches the
+            // authoritative render. The image/remove paths instead rely on the
+            // daemon's `avatar_changed` event to trigger a reload.
+            onSuccess: { [weak self] in self?.reloadAvatar() }
+        )
+    }
+
+    /// Posts a manifest-aware avatar mutation to the daemon, retrying up to 3
+    /// times with an incremental delay on transient 5xx / transport failures
+    /// (e.g. a freshly-hatched assistant that isn't fully ready). The daemon
+    /// owns the workspace write and `avatar.json` update; this is the single
+    /// retry/log policy shared by the traits, image-upload, and remove paths.
+    private func postAvatarMutation(
+        label: String,
+        path: String,
+        json: [String: Any],
+        timeout: TimeInterval = 15,
+        onSuccess: (() -> Void)? = nil
+    ) async {
         for attempt in 1...3 {
             do {
-                let response = try await GatewayHTTPClient.post(
-                    path: "avatar/render-from-traits",
-                    json: json,
-                    timeout: 15
-                )
+                let response = try await GatewayHTTPClient.post(path: path, json: json, timeout: timeout)
                 if response.isSuccess {
-                    log.info("[avatarSync] syncTraitsToDaemon: success on attempt \(attempt)")
-                    reloadAvatar()
+                    onSuccess?()
                     return
                 } else if response.statusCode >= 500 && attempt < 3 {
-                    log.warning("[avatarSync] syncTraitsToDaemon: HTTP \(response.statusCode) on attempt \(attempt), retrying...")
+                    log.warning("[avatarSync] \(label): HTTP \(response.statusCode) on attempt \(attempt), retrying...")
                     try await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000)
-                    continue
                 } else {
-                    log.warning("[avatarSync] syncTraitsToDaemon: HTTP \(response.statusCode) on attempt \(attempt), giving up")
+                    log.warning("[avatarSync] \(label): HTTP \(response.statusCode) on attempt \(attempt), giving up")
                     return
                 }
             } catch {
-                log.warning("[avatarSync] syncTraitsToDaemon: error on attempt \(attempt): \(error.localizedDescription)")
+                log.warning("[avatarSync] \(label): error on attempt \(attempt): \(error.localizedDescription)")
                 if attempt < 3 {
                     try? await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000)
                 }
@@ -589,37 +628,23 @@ final class AvatarAppearanceManager {
         AvatarCache.clearAll()
         updateDockIcon()
 
-        // Remove files from the assistant's workspace via the gateway.
-        Task {
-            let workspaceClient = WorkspaceClient()
-            _ = await workspaceClient.deleteWorkspaceItem(path: "data/avatar/avatar-image.png")
-            _ = await workspaceClient.deleteWorkspaceItem(path: "data/avatar/character-traits.json")
+        // Clear the avatar on the daemon via the manifest-aware `avatar/remove`
+        // endpoint: it deletes all artifacts (image + traits) and records a
+        // `kind:"none"` manifest atomically. Replaces the prior direct
+        // `workspace/delete` calls, which left `avatar.json` stale.
+        Task { [weak self] in
+            await self?.removeAvatarOnDaemon()
         }
     }
 
-    // MARK: - Avatar Components Persistence
-
-    private struct AvatarComponents: Codable {
-        let bodyShape: String
-        let eyeStyle: String
-        let color: String
-    }
-
-    /// Persists character traits to the assistant's workspace via the gateway.
-    private func saveAvatarComponentsViaGateway() {
-        guard let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor else {
-            Task {
-                let workspaceClient = WorkspaceClient()
-                _ = await workspaceClient.deleteWorkspaceItem(path: "data/avatar/character-traits.json")
-            }
-            return
-        }
-        let components = AvatarComponents(bodyShape: body.rawValue, eyeStyle: eyes.rawValue, color: color.rawValue)
-        guard let data = try? JSONEncoder().encode(components) else { return }
-        Task {
-            let workspaceClient = WorkspaceClient()
-            _ = await workspaceClient.writeWorkspaceFile(path: "data/avatar/character-traits.json", content: data)
-        }
+    /// Clears the avatar on the daemon via the manifest-aware `avatar/remove`
+    /// endpoint.
+    private func removeAvatarOnDaemon() async {
+        await postAvatarMutation(
+            label: "removeAvatarOnDaemon",
+            path: "avatar/remove",
+            json: [:]
+        )
     }
 
     // MARK: - Dock Icon
