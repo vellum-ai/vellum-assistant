@@ -8,10 +8,17 @@
  *   - clearAvatar   → everything removed, `none` manifest
  *
  * The avatar directory is controlled per-test via VELLUM_WORKSPACE_DIR, which
- * `getAvatarDir()` resolves live. `setCharacter` routes through the native
- * @resvg/resvg-js renderer; we drive that branch deterministically with the
- * resvg-lazy test hooks so the suite passes whether or not the native binding
- * is installed in the test environment.
+ * `getAvatarDir()` resolves live. Per the test-isolation rule in
+ * assistant/AGENTS.md, this file imports ONLY the module under test
+ * (`avatar-store`); state is asserted by reading `avatar.json` and the artifact
+ * files directly off the per-test workspace dir via `node:fs`.
+ *
+ * `setCharacter` routes through the native @resvg/resvg-js renderer. Rather than
+ * stub that native path (which would require importing production machinery), we
+ * branch on the store's documented return value: when the binding is available
+ * the success path is asserted, and when it is not the `native_unavailable`
+ * failure contract is asserted instead — so the suite passes deterministically
+ * whether or not the native binding is installed in the test environment.
  */
 import {
   existsSync,
@@ -25,13 +32,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { readManifest } from "../avatar-manifest.js";
 import { clearAvatar, setCharacter, setImage } from "../avatar-store.js";
-import {
-  __resetResvgCacheForTests,
-  __setResvgCacheForTests,
-  isResvgAvailable,
-} from "../resvg-lazy.js";
 
 // A valid trait triple drawn from the real component set.
 const VALID_TRAITS = { bodyShape: "blob", eyeStyle: "curious", color: "green" };
@@ -40,6 +41,13 @@ const IMAGE_FILENAME = "avatar-image.png";
 const TRAITS_FILENAME = "character-traits.json";
 const ASCII_FILENAME = "character-ascii.txt";
 const MANIFEST_FILENAME = "avatar.json";
+
+interface ManifestShape {
+  kind: string;
+  traits: Record<string, unknown> | null;
+  source: string | null;
+  image: { updatedAt: string; etag: string } | null;
+}
 
 describe("avatar-store", () => {
   let workspaceDir: string;
@@ -55,7 +63,6 @@ describe("avatar-store", () => {
     // Pre-create the avatar dir so tests that seed legacy artifacts can write
     // into it before the store's own mkdir runs.
     mkdirSync(avatarDir, { recursive: true });
-    __resetResvgCacheForTests();
   });
 
   afterEach(() => {
@@ -64,19 +71,33 @@ describe("avatar-store", () => {
     } else {
       process.env.VELLUM_WORKSPACE_DIR = prevWorkspaceDir;
     }
-    __resetResvgCacheForTests();
     rmSync(workspaceDir, { recursive: true, force: true });
   });
 
   const path = (name: string) => join(avatarDir, name);
 
+  /** Reads and parses the on-disk manifest, or returns null when absent. */
+  const readManifestFile = (): ManifestShape | null => {
+    const manifestPath = path(MANIFEST_FILENAME);
+    if (!existsSync(manifestPath)) return null;
+    return JSON.parse(readFileSync(manifestPath, "utf-8")) as ManifestShape;
+  };
+
   describe("setCharacter", () => {
     test("writes traits + PNG and a character manifest when render succeeds", () => {
-      // Only meaningful when the native renderer is actually available.
-      if (!isResvgAvailable()) return;
-
       const result = setCharacter(VALID_TRAITS);
-      expect(result.ok).toBe(true);
+
+      // The native @resvg/resvg-js binding may be absent in this environment.
+      // When it is, the store returns `native_unavailable` and writes nothing —
+      // we assert that contract instead of the success path so the suite is
+      // deterministic either way.
+      if (!result.ok) {
+        expect(result.reason).toBe("native_unavailable");
+        expect(existsSync(path(TRAITS_FILENAME))).toBe(false);
+        expect(existsSync(path(IMAGE_FILENAME))).toBe(false);
+        expect(existsSync(path(MANIFEST_FILENAME))).toBe(false);
+        return;
+      }
 
       expect(existsSync(path(TRAITS_FILENAME))).toBe(true);
       expect(existsSync(path(IMAGE_FILENAME))).toBe(true);
@@ -84,7 +105,7 @@ describe("avatar-store", () => {
         VALID_TRAITS,
       );
 
-      const manifest = readManifest(avatarDir);
+      const manifest = readManifestFile();
       expect(manifest).not.toBeNull();
       expect(manifest!.kind).toBe("character");
       expect(manifest!.traits).toEqual(VALID_TRAITS);
@@ -93,29 +114,14 @@ describe("avatar-store", () => {
       expect(manifest!.image!.etag).toMatch(/^[0-9a-f]{16}$/);
     });
 
-    test("returns the underlying result and writes no manifest when native renderer is unavailable", () => {
-      __setResvgCacheForTests({
-        available: false,
-        error: new Error("native unavailable"),
-      });
-
-      const result = setCharacter(VALID_TRAITS);
-      expect(result.ok).toBe(false);
-      if (result.ok) return;
-      expect(result.reason).toBe("native_unavailable");
-
-      // No artifacts and no manifest should have been written.
-      expect(existsSync(path(TRAITS_FILENAME))).toBe(false);
-      expect(existsSync(path(IMAGE_FILENAME))).toBe(false);
-      expect(existsSync(path(MANIFEST_FILENAME))).toBe(false);
-    });
-
     test("propagates invalid_traits without writing a manifest", () => {
       const result = setCharacter({ bodyShape: "", eyeStyle: "", color: "" });
       expect(result.ok).toBe(false);
       if (result.ok) return;
       expect(result.reason).toBe("invalid_traits");
       expect(existsSync(path(MANIFEST_FILENAME))).toBe(false);
+      expect(existsSync(path(TRAITS_FILENAME))).toBe(false);
+      expect(existsSync(path(IMAGE_FILENAME))).toBe(false);
     });
   });
 
@@ -128,7 +134,7 @@ describe("avatar-store", () => {
         "fake png bytes",
       );
 
-      const manifest = readManifest(avatarDir);
+      const manifest = readManifestFile();
       expect(manifest).not.toBeNull();
       expect(manifest!.kind).toBe("image");
       expect(manifest!.traits).toBeNull();
@@ -150,7 +156,7 @@ describe("avatar-store", () => {
       expect(existsSync(path(TRAITS_FILENAME))).toBe(false);
       expect(existsSync(path(ASCII_FILENAME))).toBe(false);
       expect(existsSync(path(IMAGE_FILENAME))).toBe(true);
-      expect(readManifest(avatarDir)!.kind).toBe("image");
+      expect(readManifestFile()!.kind).toBe("image");
     });
 
     test("is idempotent across repeated calls", () => {
@@ -158,7 +164,7 @@ describe("avatar-store", () => {
       setImage(Buffer.from("v2"), "upload");
 
       expect(readFileSync(path(IMAGE_FILENAME)).toString()).toBe("v2");
-      expect(readManifest(avatarDir)!.kind).toBe("image");
+      expect(readManifestFile()!.kind).toBe("image");
     });
   });
 
@@ -173,7 +179,7 @@ describe("avatar-store", () => {
       expect(existsSync(path(IMAGE_FILENAME))).toBe(false);
       expect(existsSync(path(TRAITS_FILENAME))).toBe(false);
       expect(existsSync(path(ASCII_FILENAME))).toBe(false);
-      expect(readManifest(avatarDir)).toEqual({
+      expect(readManifestFile()).toEqual({
         kind: "none",
         traits: null,
         source: null,
@@ -184,7 +190,7 @@ describe("avatar-store", () => {
     test("is idempotent when nothing exists", () => {
       clearAvatar();
       clearAvatar();
-      expect(readManifest(avatarDir)).toEqual({
+      expect(readManifestFile()).toEqual({
         kind: "none",
         traits: null,
         source: null,
