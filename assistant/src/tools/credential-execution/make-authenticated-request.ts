@@ -14,11 +14,11 @@ import { GrantProposalSchema, renderProposal } from "@vellumai/service-contracts
 
 import { RiskLevel } from "../../permissions/types.js";
 import { getLogger } from "../../util/logger.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("ces-tool:make-authenticated-request");
 
-class MakeAuthenticatedRequestTool implements Tool {
+class MakeAuthenticatedRequestTool implements ToolDefinition {
   name = "make_authenticated_request";
   description =
     "Execute an authenticated HTTP request through CES. CES injects the credential and returns the response - the assistant never sees raw secrets.";

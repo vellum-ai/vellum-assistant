@@ -27,8 +27,8 @@ import { registerTool } from "../registry.js";
 import { formatShellOutput } from "../shared/shell-output.js";
 import type {
   ProxyEnvVars,
-  Tool,
   ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 import { buildSanitizedEnv } from "./safe-env.js";
@@ -44,7 +44,7 @@ function buildCredentialRefTrace(
 
 const log = getLogger("shell-tool");
 
-class ShellTool implements Tool {
+class ShellTool implements ToolDefinition {
   name = "bash";
   description = "Execute a shell command on the local machine";
   category = "terminal";
@@ -652,5 +652,5 @@ function buildKillTree(
   };
 }
 
-export const shellTool: Tool = new ShellTool();
+export const shellTool: ToolDefinition = new ShellTool();
 registerTool(shellTool);

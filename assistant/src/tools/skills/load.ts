@@ -26,7 +26,7 @@ import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
 import { registerTool } from "../registry.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
 /** Skill sources eligible for inline command expansion in v1. */
 const INLINE_COMMAND_ELIGIBLE_SOURCES = new Set([
@@ -120,7 +120,7 @@ function formatToolSchemas(
   return lines.join("\n").trimEnd();
 }
 
-export class SkillLoadTool implements Tool {
+export class SkillLoadTool implements ToolDefinition {
   name = "skill_load";
   description =
     "Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills.";

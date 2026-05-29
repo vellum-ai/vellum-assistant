@@ -3,9 +3,9 @@ import { registerTool } from "../registry.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatEditDiff } from "../shared/filesystem/format-diff.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
-class FileEditTool implements Tool {
+class FileEditTool implements ToolDefinition {
   name = "file_edit";
   description =
     "Replace an exact string in a file on your own machine with a new string. Use this for surgical edits instead of rewriting entire files. Use host_file_edit for files on your guardian's device instead.";

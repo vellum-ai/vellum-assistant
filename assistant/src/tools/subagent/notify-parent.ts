@@ -1,7 +1,7 @@
 import { RiskLevel } from "../../permissions/types.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { registerTool } from "../registry.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
 export async function executeSubagentNotifyParent(
   input: Record<string, unknown>,
@@ -31,7 +31,7 @@ export async function executeSubagentNotifyParent(
   };
 }
 
-class NotifyParentTool implements Tool {
+class NotifyParentTool implements ToolDefinition {
   name = "notify_parent";
   description =
     "Send a notification to the parent conversation. Use this for important findings, when you're blocked, or when you have preliminary results the parent should know about. Do not overuse — notify for significant findings, not after every tool call.";

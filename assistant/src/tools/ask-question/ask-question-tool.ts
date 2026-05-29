@@ -3,7 +3,7 @@ import { z } from "zod";
 import { QuestionPrompter } from "../../permissions/question-prompter.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
 // ── Input schema ────────────────────────────────────────────────────
 // Runtime validation lives in Zod; the wire-level definition surfaced
@@ -132,7 +132,7 @@ const OPTION_ITEMS_SCHEMA = {
 
 // ── Tool ────────────────────────────────────────────────────────────
 
-export class AskQuestionTool implements Tool {
+export class AskQuestionTool implements ToolDefinition {
   name = "ask_question";
   description = DESCRIPTION;
   category = "interaction";

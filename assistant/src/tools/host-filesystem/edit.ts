@@ -5,9 +5,9 @@ import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatEditDiff } from "../shared/filesystem/format-diff.js";
 import { hostPolicy } from "../shared/filesystem/path-policy.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
-class HostFileEditTool implements Tool {
+class HostFileEditTool implements ToolDefinition {
   name = "host_file_edit";
   description =
     "Replace exact text in a file on your guardian's device with new text. For files on your own machine, use file_edit instead.";
@@ -232,4 +232,4 @@ class HostFileEditTool implements Tool {
   }
 }
 
-export const hostFileEditTool: Tool = new HostFileEditTool();
+export const hostFileEditTool: ToolDefinition = new HostFileEditTool();

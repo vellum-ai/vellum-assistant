@@ -14,11 +14,11 @@ import { GrantProposalSchema, renderProposal } from "@vellumai/service-contracts
 
 import { RiskLevel } from "../../permissions/types.js";
 import { getLogger } from "../../util/logger.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("ces-tool:run-authenticated-command");
 
-class RunAuthenticatedCommandTool implements Tool {
+class RunAuthenticatedCommandTool implements ToolDefinition {
   name = "run_authenticated_command";
   description =
     "Execute a command with credential environment variables injected by CES. The command runs inside the CES sandbox - the assistant never sees raw secrets.";

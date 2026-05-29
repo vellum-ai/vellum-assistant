@@ -24,7 +24,11 @@ import { registerShutdownHook } from "../../daemon/shutdown-registry.js";
 import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
 import { resolveExecutionTarget } from "../../tools/execution-target.js";
 import { registerSkillTools } from "../../tools/registry.js";
-import type { ExecutionTarget, Tool } from "../../tools/types.js";
+import type {
+  ExecutionTarget,
+  Tool,
+  ToolDefinition,
+} from "../../tools/types.js";
 import { RiskLevel } from "../../tools/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { SkillIpcRoute } from "../skill-ipc-types.js";
@@ -35,13 +39,13 @@ const log = getLogger("skill-routes-registries");
 // ── Wire-level schemas ────────────────────────────────────────────────
 
 /**
- * Serialized tool manifest entry sent over IPC. Mirrors the subset of
- * {@link Tool} a skill process can describe without carrying the tool's
- * executable closure across the socket; the closure is synthesized
- * daemon-side (see {@link buildProxyTool}) to forward invocations back
- * over IPC.
+ * Wire form of a {@link ToolDefinition} sent over IPC by a skill process.
+ * Identical structurally to {@link ToolDefinition} except `execute` is
+ * dropped (a closure cannot cross the socket) — the daemon synthesizes
+ * an `execute` that forwards invocations back over IPC; see
+ * {@link buildProxyTool}.
  */
-const ToolManifestSchema = z.object({
+const WireToolDefinitionSchema = z.object({
   name: z.string().min(1),
   description: z.string(),
   input_schema: z.record(z.string(), z.unknown()),
@@ -49,8 +53,6 @@ const ToolManifestSchema = z.object({
   category: z.string().min(1),
   executionTarget: z.enum(["sandbox", "host"]).optional(),
 });
-
-export type ToolManifest = z.infer<typeof ToolManifestSchema>;
 
 // `skillId` lives at the params level rather than per-tool: a single
 // `register_tools` IPC frame is always one skill's batch, ownership flows
@@ -61,7 +63,7 @@ export type ToolManifest = z.infer<typeof ToolManifestSchema>;
 // in-process on the assistant side.
 const RegisterToolsParams = z.object({
   skillId: z.string().min(1),
-  tools: z.array(ToolManifestSchema).min(1),
+  tools: z.array(WireToolDefinitionSchema).min(1),
 });
 
 const RegisterSkillRouteParams = z.object({
@@ -179,25 +181,30 @@ export function __getActiveSessionCountForTesting(): number {
  * proxy in the registry so the rest of the tool-manifest plumbing can be
  * exercised end-to-end.
  */
-function buildProxyTool(manifest: ToolManifest): Tool {
+function buildProxyTool(definition: ToolDefinition): Tool {
+  // The Zod schema (`WireToolDefinitionSchema`) requires name, description,
+  // input_schema, defaultRiskLevel, and category — `definition` arrives via
+  // that parse, so the `!` assertions reflect the runtime invariant while
+  // matching the relaxed `ToolDefinition` type contract.
   // RiskLevel is a string enum whose values are "low" | "medium" | "high",
   // matching the schema above exactly — the cast is a no-op at runtime.
+  const name = definition.name!;
   return {
-    name: manifest.name,
-    description: manifest.description,
-    input_schema: manifest.input_schema as object,
-    category: manifest.category,
-    defaultRiskLevel: manifest.defaultRiskLevel as RiskLevel,
+    name,
+    description: definition.description!,
+    input_schema: definition.input_schema as object,
+    category: definition.category!,
+    defaultRiskLevel: definition.defaultRiskLevel as RiskLevel,
     executionTarget: resolveExecutionTarget({
-      name: manifest.name,
-      executionTarget: manifest.executionTarget as ExecutionTarget | undefined,
+      name,
+      executionTarget: definition.executionTarget as ExecutionTarget | undefined,
     }),
     execute: async () => {
       // Only reached when no supervisor is attached (tests/boot race);
       // the supervisor short-circuit above replaces this with the
-      // manifest's dispatching execute closure on the production path.
+      // definition's dispatching execute closure on the production path.
       throw new Error(
-        `Skill tool "${manifest.name}" invocation requires an attached MeetHostSupervisor`,
+        `Skill tool "${name}" invocation requires an attached MeetHostSupervisor`,
       );
     },
   };

@@ -2,9 +2,9 @@ import { RiskLevel } from "../../permissions/types.js";
 import { registerTool } from "../registry.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
-class FileListTool implements Tool {
+class FileListTool implements ToolDefinition {
   name = "file_list";
   description =
     "List the contents of a directory on your own machine. Returns file and subdirectory names with type indicators and sizes.";

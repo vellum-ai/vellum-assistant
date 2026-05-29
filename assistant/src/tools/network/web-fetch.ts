@@ -12,7 +12,7 @@ import { faviconUrlForDomain } from "../../util/favicon.js";
 import { getLogger } from "../../util/logger.js";
 import { safeStringSlice } from "../../util/unicode.js";
 import { registerTool } from "../registry.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 import { extractDomain } from "./domain-normalize.js";
 import {
   buildHostHeader,
@@ -984,7 +984,7 @@ export async function executeWebFetch(
   }
 }
 
-class WebFetchTool implements Tool {
+class WebFetchTool implements ToolDefinition {
   name = "web_fetch";
   description =
     "Fetch a webpage and return LLM-friendly extracted text with metadata. Use this after web_search when you need to read a specific result. To find pages on a site without guessing slugs, fetch /sitemap.xml first — it has ground-truth paths and works even when pages are JS-rendered.";

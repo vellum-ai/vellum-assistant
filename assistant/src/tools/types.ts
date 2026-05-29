@@ -337,12 +337,17 @@ export interface ToolDefinition {
   ) => Promise<ToolExecutionResult>;
   /** Tool category used for Slack channel `allowedToolCategories` enforcement. */
   category?: string;
+  /**
+   * Name the model sees when calling this tool. Loaders default to the
+   * source file basename (e.g. `tools/read.ts` → `read`) when omitted, so
+   * the literal only needs to set this when overriding the file-derived
+   * name.
+   */
+  name?: string;
 }
 
 /** Tool after the loader has derived its name and filled defaults. */
-export type Tool = Required<ToolDefinition> & {
-  name: string;
-};
+export type Tool = Required<ToolDefinition>;
 
 /** The kind of extension that owns a tool. Core tools have no owner. */
 export type OwnerKind = "skill" | "mcp" | "plugin";

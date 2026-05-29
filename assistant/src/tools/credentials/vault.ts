@@ -17,7 +17,7 @@ import {
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 import { credentialBroker } from "./broker.js";
 import {
   assertMetadataWritable,
@@ -69,7 +69,7 @@ function formatSlackChannelStatus(result: SlackChannelConfigResult): string {
   return "";
 }
 
-class CredentialStoreTool implements Tool {
+class CredentialStoreTool implements ToolDefinition {
   name = "credential_store";
   description =
     "Store, list, delete, or prompt for credentials in the secure vault";

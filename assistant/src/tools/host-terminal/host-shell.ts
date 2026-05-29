@@ -37,7 +37,7 @@ import {
 } from "../background-tool-registry.js";
 import { formatShellOutput } from "../shared/shell-output.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("host-shell-tool");
 
@@ -91,7 +91,7 @@ function buildHostBashProxyEnv(
   return env;
 }
 
-class HostShellTool implements Tool {
+class HostShellTool implements ToolDefinition {
   name = "host_bash";
   description =
     "LAST RESORT — Execute a shell command directly on the host machine. You MUST strongly prefer the regular `bash` tool for all commands. Only use `host_bash` when you are absolutely certain the command MUST run on the host machine and CANNOT run in the workspace (e.g., managing host-level system services, accessing host-only peripherals, or interacting with host paths outside the workspace). If in doubt, use `bash` instead. Approval-gated: each invocation must be explicitly approved. Do not use for commands that require injected credentials or secrets.";
@@ -568,4 +568,4 @@ class HostShellTool implements Tool {
   }
 }
 
-export const hostShellTool: Tool = new HostShellTool();
+export const hostShellTool: ToolDefinition = new HostShellTool();

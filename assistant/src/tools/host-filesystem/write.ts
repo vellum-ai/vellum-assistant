@@ -5,9 +5,9 @@ import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatWriteSummary } from "../shared/filesystem/format-diff.js";
 import { hostPolicy } from "../shared/filesystem/path-policy.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
-class HostFileWriteTool implements Tool {
+class HostFileWriteTool implements ToolDefinition {
   name = "host_file_write";
   description =
     "Write content to a file on your guardian's device, creating it if it does not exist. For files on your own machine, use file_write instead.";
@@ -166,4 +166,4 @@ class HostFileWriteTool implements Tool {
   }
 }
 
-export const hostFileWriteTool: Tool = new HostFileWriteTool();
+export const hostFileWriteTool: ToolDefinition = new HostFileWriteTool();

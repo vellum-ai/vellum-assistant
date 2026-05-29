@@ -1,6 +1,6 @@
 import { RiskLevel } from "../../permissions/types.js";
 import { registerTool } from "../registry.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
 const PERMISSION_TYPES = [
   "full_disk_access",
@@ -49,7 +49,7 @@ const FRIENDLY_NAMES: Record<PermissionType, string> = {
   camera: "Camera",
 };
 
-class RequestSystemPermissionTool implements Tool {
+class RequestSystemPermissionTool implements ToolDefinition {
   name = "request_system_permission";
   description =
     "Request a macOS system permission via System Settings. " +

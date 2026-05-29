@@ -10,9 +10,9 @@ import {
   readImageFile,
 } from "../shared/filesystem/image-read.js";
 import { hostPolicy } from "../shared/filesystem/path-policy.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
-class HostFileReadTool implements Tool {
+class HostFileReadTool implements ToolDefinition {
   name = "host_file_read";
   description =
     "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP). For files on your own machine, use file_read instead.";
@@ -186,4 +186,4 @@ class HostFileReadTool implements Tool {
   }
 }
 
-export const hostFileReadTool: Tool = new HostFileReadTool();
+export const hostFileReadTool: ToolDefinition = new HostFileReadTool();

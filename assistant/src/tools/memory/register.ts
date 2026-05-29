@@ -11,11 +11,11 @@ import {
 } from "../../memory/graph/tools.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
 // ── remember ────────────────────────────────────────────────────────
 
-class RememberTool implements Tool {
+class RememberTool implements ToolDefinition {
   name = "remember";
   description = graphRememberDefinition.description;
   category = "memory";
@@ -44,7 +44,7 @@ class RememberTool implements Tool {
 
 // ── recall ──────────────────────────────────────────────────────────
 
-class RecallTool implements Tool {
+class RecallTool implements ToolDefinition {
   name = "recall";
   description = graphRecallDefinition.description;
   category = "memory";

@@ -15,7 +15,7 @@ import {
   sleep,
 } from "../../util/retry.js";
 import { registerTool } from "../registry.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 import { extractDomain } from "./domain-normalize.js";
 import type { ManagedSearchProxyResult } from "./managed-search-proxy.js";
 
@@ -769,7 +769,7 @@ const WEB_SEARCH_FALLBACK_ORDER: readonly WebSearchProvider[] = Object.values(
   .sort((a, b) => a.fallbackOrder - b.fallbackOrder)
   .map((adapter) => adapter.id);
 
-class WebSearchTool implements Tool {
+class WebSearchTool implements ToolDefinition {
   name = "web_search";
   description =
     "Search the web and return results. Useful for looking up current information, documentation, or anything the assistant doesn't know.";

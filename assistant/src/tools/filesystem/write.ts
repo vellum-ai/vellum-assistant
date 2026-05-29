@@ -9,7 +9,7 @@ import { registerTool } from "../registry.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatWriteSummary } from "../shared/filesystem/format-diff.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
 const logger = getLogger("file-write");
 
@@ -29,7 +29,7 @@ function isInsidePkbRoot(absPath: string, pkbRoot: string): boolean {
   return normalized.startsWith(rootWithSep);
 }
 
-class FileWriteTool implements Tool {
+class FileWriteTool implements ToolDefinition {
   name = "file_write";
   description =
     "Write content to a file on your own machine, creating it if it does not exist. Use host_file_write for files on your guardian's device instead.";

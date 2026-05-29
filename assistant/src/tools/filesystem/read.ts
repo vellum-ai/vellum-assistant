@@ -8,9 +8,9 @@ import {
   readImageFile,
 } from "../shared/filesystem/image-read.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
-class FileReadTool implements Tool {
+class FileReadTool implements ToolDefinition {
   name = "file_read";
   description =
     "Read the contents of a file on your own machine. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. Use host_file_read for files on your guardian's device instead.";

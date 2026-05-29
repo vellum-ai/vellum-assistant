@@ -7,7 +7,7 @@
  * accepts loose `ToolDefinition` objects from authors must run them
  * through `finalizeTool` before handing the result to a `registerXxxTools`
  * call. The registry types make this a hard rule: every registered tool
- * is a `Tool` (`Required<ToolDefinition> & { name }`).
+ * is a `Tool` (`Required<ToolDefinition>`).
  */
 
 import type {
@@ -55,7 +55,8 @@ export const TOOL_DEFAULTS = Object.freeze({
 /**
  * Fill the five normally-required `ToolDefinition` fields with documented
  * defaults when the author omitted them, attach the registration-time
- * `name`, and return a `Tool` that is safe to hand to a
+ * `name` (preferring an explicit override on the literal over the
+ * file-derived default), and return a `Tool` that is safe to hand to a
  * `registerXxxTools` call.
  *
  * The default `execute` returns an error result so the model sees a clear
@@ -65,8 +66,9 @@ export const TOOL_DEFAULTS = Object.freeze({
  */
 export function finalizeTool(
   tool: ToolDefinition,
-  name: string,
+  defaultName: string,
 ): Tool {
+  const name = tool.name ?? defaultName;
   const description =
     typeof tool.description === "string"
       ? tool.description
