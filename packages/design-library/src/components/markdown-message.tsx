@@ -150,7 +150,7 @@ function DefaultLink({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-[var(--system-positive-strong)] underline hover:opacity-80"
+      className="text-[var(--system-positive-strong)] underline decoration-1 hover:decoration-2"
     >
       {children}
     </a>
