@@ -32,9 +32,9 @@ import { resolveEditChatDraftConversationId } from "@/domains/chat/utils/edit-ch
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
-import { isSending, useTurnStore } from "@/stores/turn-store";
-import { endTurn } from "@/stores/turn-coordinator";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
+import { endTurn } from "@/domains/chat/turn-coordinator";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
   findConversation,
@@ -42,7 +42,7 @@ import {
   removeConversation,
   resolveDraftKey,
 } from "@/domains/conversations/conversation-queries";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 import {
   consumePendingPreChatContext,
   type PreChatOnboardingContext,

@@ -43,7 +43,7 @@ whose names start with `use`.
 
 **Zustand store files are not hook files.** A store module's primary
 export is a store — a module-level singleton with both React
-(`useChatStore(selector)`) and non-React (`.getState()`,
+(`useTurnStore(selector)`) and non-React (`.getState()`,
 `.setState()`, `.subscribe()`) APIs. Store files use
 `{domain}-store.ts`. See
 [STATE_MANAGEMENT.md — Zustand store conventions](./STATE_MANAGEMENT.md#zustand-store-conventions).
@@ -66,10 +66,10 @@ src/
   routes.tsx                 # route tree (createBrowserRouter)
   stores/                    # app-level Zustand stores (cross-domain)
   domains/                   # business domain modules
+    chat/                    # chat feature (turn, subagent, interaction stores)
     messages/                # message lifecycle
     conversations/           # conversation CRUD, grouping, selection
     streaming/               # SSE transport, event parsing
-    interactions/            # user-facing prompts
     voice/                   # STT, TTS, PTT
     ...
   hooks/                     # cross-domain shared hooks

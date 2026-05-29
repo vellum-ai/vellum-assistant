@@ -10,7 +10,7 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { PendingConfirmationState, PendingSecretState } from "@/domains/chat/types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 
 // ---------------------------------------------------------------------------
 // Pure updater functions — no React state, fully testable

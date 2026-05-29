@@ -37,9 +37,9 @@ import {
 } from "@/domains/conversations/conversation-queries";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
-import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/subagents/subagent-store";
-import type { SubagentStatus } from "@/domains/chat/api/event-types";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/chat/subagent-store";
+import type { SubagentStatus } from "@/types/interaction-ui-types";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -51,7 +51,7 @@ import type { ContextWindowUsage } from "@/domains/chat/components/context-windo
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
-import { type UIContext } from "@/stores/turn-selectors";
+import { type UIContext } from "@/domains/chat/turn-selectors";
 import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
@@ -59,7 +59,6 @@ import type { SyncChangedEvent } from "@/lib/sync/types";
 
 import { Button } from "@vellum/design-library";
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { useSyncChatStore } from "@/domains/chat/chat-store";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -98,7 +97,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
-import { useTurnStore } from "@/stores/turn-store";
+import { useTurnStore } from "@/domains/chat/turn-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
@@ -993,21 +992,6 @@ export function ChatPage() {
     }),
     reconcileActiveConversation,
   });
-
-  // -------------------------------------------------------------------------
-  // Sync chat store (for deeply-nested components that read via context)
-  // -------------------------------------------------------------------------
-  useSyncChatStore({
-    messages,
-    activeConversationId,
-    assistantId,
-    sendMessage,
-  });
-
-  // (Previously: a useEffect mirrored a local `useState<AssistantIdentity>`
-  // into `useAssistantIdentityStore`. That mirror is gone — chat-page now
-  // reads the store via atomic selectors above and `useAssistantIdentityInit`
-  // at the layout level owns the fetch + write. LUM-1959.)
 
   // -------------------------------------------------------------------------
   // Conversation actions (archive, pin, rename, etc.)

@@ -3,8 +3,8 @@ import { mock } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { TurnActions, TurnState } from "@/stores/turn-store";
-import { INITIAL_TURN_STATE } from "@/stores/turn-store";
+import type { TurnActions, TurnState } from "@/domains/chat/turn-store";
+import { INITIAL_TURN_STATE } from "@/domains/chat/turn-store";
 
 /** Build a minimal mock StreamHandlerContext with spies on every callback. */
 export function makeCtx(

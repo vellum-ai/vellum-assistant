@@ -132,6 +132,8 @@ describe("AssistantConfigSchema", () => {
       allowOneTimeSend: false,
     });
     expect(result.auditLog).toEqual({ retentionDays: 0 });
+    // Heartbeats are opt-in: absent config resolves to disabled.
+    expect(result.heartbeat.enabled).toBe(false);
   });
 
   test("accepts Tavily as a web search provider", () => {
@@ -2291,6 +2293,19 @@ describe("loadConfig with schema validation", () => {
     expect(config.llm.default.maxTokens).toBe(4096);
     expect(config.heartbeat.activeHoursStart).toBe(8);
     expect(config.heartbeat.activeHoursEnd).toBe(22);
+  });
+
+  test("heartbeat is disabled by default when heartbeat.enabled is absent", () => {
+    // Heartbeats are opt-in. A config with no explicit heartbeat.enabled
+    // (including a config with no heartbeat block at all) resolves to off.
+    writeConfig({ heartbeat: { intervalMs: 6000 } });
+    expect(loadConfig().heartbeat.enabled).toBe(false);
+  });
+
+  test("explicit heartbeat.enabled: true on disk keeps heartbeats on", () => {
+    // The "user overrode config.json" case — an explicit true is preserved.
+    writeConfig({ heartbeat: { enabled: true } });
+    expect(loadConfig().heartbeat.enabled).toBe(true);
   });
 
   test("recovers from equal filing.activeHours without wiping unrelated fields", () => {

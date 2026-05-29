@@ -333,15 +333,11 @@ describe("processMessage callSite threading", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage(
-      "Heartbeat tick",
-      [],
-      () => {},
-      undefined, // requestId
-      undefined, // activeSurfaceId
-      undefined, // currentPage
-      { callSite: "heartbeatAgent" },
-    );
+    await conversation.processMessage({
+      content: "Heartbeat tick",
+      attachments: [],
+      callSite: "heartbeatAgent",
+    });
 
     expect(captured.callSite).toBe("heartbeatAgent");
   });
@@ -361,7 +357,10 @@ describe("processMessage callSite threading", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Plain user message", [], () => {});
+    await conversation.processMessage({
+      content: "Plain user message",
+      attachments: [],
+    });
 
     expect(captured.callSite).toBe("mainAgent");
   });

@@ -3,39 +3,14 @@
     "onboarding"
   ],
   "src/domains/chat/chat-layout.tsx": [
-    "conversations",
-    "subagents"
+    "conversations"
   ],
   "src/domains/chat/chat-page.tsx": [
     "conversations",
-    "interactions",
-    "onboarding",
-    "subagents"
+    "onboarding"
   ],
   "src/domains/chat/components/chat-composer/chat-composer.tsx": [
     "voice"
-  ],
-  "src/domains/chat/components/chat-route-content.tsx": [
-    "interactions",
-    "subagents"
-  ],
-  "src/domains/chat/components/mobile-subagent-detail-overlay.tsx": [
-    "subagents"
-  ],
-  "src/domains/chat/components/subagent-detail-panel.test.tsx": [
-    "subagents"
-  ],
-  "src/domains/chat/components/subagent-detail-panel.tsx": [
-    "subagents"
-  ],
-  "src/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card.test.tsx": [
-    "subagents"
-  ],
-  "src/domains/chat/components/subagent-status-badge.tsx": [
-    "subagents"
-  ],
-  "src/domains/chat/components/subagent-timeline.tsx": [
-    "subagents"
   ],
   "src/domains/chat/components/voice-input-button.tsx": [
     "voice"
@@ -43,61 +18,18 @@
   "src/domains/chat/hooks/use-assistant-lifecycle.ts": [
     "onboarding"
   ],
-  "src/domains/chat/hooks/use-conversation-history.ts": [
-    "interactions",
-    "subagents"
-  ],
-  "src/domains/chat/hooks/use-conversation-switch.ts": [
-    "interactions"
-  ],
-  "src/domains/chat/hooks/use-interaction-actions.ts": [
-    "interactions",
-    "trust-rules"
-  ],
   "src/domains/chat/hooks/use-send-message.ts": [
     "conversations",
-    "interactions",
-    "onboarding",
-    "subagents"
-  ],
-  "src/domains/chat/hooks/use-subagent-card-data.test.ts": [
-    "subagents"
-  ],
-  "src/domains/chat/hooks/use-subagent-card-data.ts": [
-    "subagents"
+    "onboarding"
   ],
   "src/domains/chat/hooks/use-voice-input.ts": [
     "voice"
-  ],
-  "src/domains/chat/transcript/transcript-message-body.tsx": [
-    "subagents"
-  ],
-  "src/domains/chat/transcript/transcript-subagent-inline.test.tsx": [
-    "subagents"
-  ],
-  "src/domains/chat/utils/stream-handlers/interaction-handlers.test.ts": [
-    "interactions"
-  ],
-  "src/domains/chat/utils/stream-handlers/interaction-handlers.ts": [
-    "interactions"
-  ],
-  "src/domains/chat/utils/stream-handlers/message-handlers.test.ts": [
-    "subagents"
-  ],
-  "src/domains/chat/utils/stream-handlers/message-handlers.ts": [
-    "subagents"
   ],
   "src/domains/chat/utils/stream-handlers/metadata-handlers.test.ts": [
     "conversations"
   ],
   "src/domains/chat/utils/stream-handlers/metadata-handlers.ts": [
     "conversations"
-  ],
-  "src/domains/chat/utils/stream-handlers/navigation-handlers.ts": [
-    "settings"
-  ],
-  "src/domains/chat/utils/stream-handlers/subagent-handlers.ts": [
-    "subagents"
   ],
   "src/domains/conversations/use-attention-tracking.ts": [
     "chat"

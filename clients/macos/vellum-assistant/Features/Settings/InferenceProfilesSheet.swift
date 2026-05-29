@@ -32,6 +32,24 @@ struct InferenceProfilesSheet: View {
     /// already established by `ProvidersSheet`.
     var connectionClient: ProviderConnectionClientProtocol = ProviderConnectionClient()
 
+    /// Feature flag store used to gate the meta-"auto" profile behind the
+    /// `query-complexity-routing` flag. Optional so existing tests and
+    /// previews compile without rewiring; when nil, the auto profile is
+    /// hidden (the safe default). Production callers must pass the live
+    /// store so the auto profile shows when the flag is enabled.
+    var assistantFeatureFlagStore: AssistantFeatureFlagStore? = nil
+
+    /// Profiles to render in the list, with the meta-"auto" profile
+    /// filtered out when `query-complexity-routing` is disabled. All
+    /// non-list operations (name-uniqueness, edit / duplicate / delete
+    /// lookups) still consult `store.profiles` directly so a hidden
+    /// auto profile keeps its name reserved and is still considered
+    /// when resolving references.
+    private var visibleProfiles: [InferenceProfile] {
+        let enabled = assistantFeatureFlagStore?.isEnabled("query-complexity-routing") ?? false
+        return InferenceProfile.gateAutoProfile(store.profiles, queryComplexityRoutingEnabled: enabled)
+    }
+
     /// Cached active+disabled connection list. The editor reads this via
     /// the `connections:` parameter and filters down to `.active` matches
     /// for the currently-selected provider. Refreshed on appear and after
@@ -184,12 +202,13 @@ struct InferenceProfilesSheet: View {
     // MARK: - Profiles List
 
     private var profilesList: some View {
-        List {
-            if store.profiles.isEmpty {
+        let rows = visibleProfiles
+        return List {
+            if rows.isEmpty {
                 emptyState
                     .listRowSeparator(.hidden)
             } else {
-                ForEach(store.profiles) { profile in
+                ForEach(rows) { profile in
                     profileRow(profile)
                         .overlay(alignment: dropIndicatorAtBottom ? .bottom : .top) {
                             profileDropIndicator(for: profile)
@@ -198,7 +217,7 @@ struct InferenceProfilesSheet: View {
                             of: [.plainText],
                             delegate: InferenceProfileRowDropDelegate(
                                 targetName: profile.name,
-                                profiles: store.profiles,
+                                profiles: rows,
                                 draggingProfileName: $draggingProfileName,
                                 dropTargetProfileName: $dropTargetProfileName,
                                 dropIndicatorAtBottom: $dropIndicatorAtBottom,
@@ -481,9 +500,12 @@ struct InferenceProfilesSheet: View {
         }
     }
 
-    /// Replacement candidates are every profile except the one we're trying
-    /// to delete. Order follows the user-controlled profile presentation
-    /// order so the blocked-delete picker matches the rest of the UI.
+    /// Replacement candidates are every visible profile except the one
+    /// we're trying to delete. Order follows the user-controlled profile
+    /// presentation order so the blocked-delete picker matches the rest
+    /// of the UI. Hidden profiles (the meta-"auto" profile when the
+    /// `query-complexity-routing` flag is off) are excluded so the user
+    /// can't re-target a reference at a profile they can't see.
     private var replacementOptions: [String] {
         let blockedName: String?
         switch blockedState {
@@ -494,7 +516,7 @@ struct InferenceProfilesSheet: View {
         case .none:
             blockedName = nil
         }
-        return store.profiles
+        return visibleProfiles
             .map(\.name)
             .filter { $0 != blockedName }
     }

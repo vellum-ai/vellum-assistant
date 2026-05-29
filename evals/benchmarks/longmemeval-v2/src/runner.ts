@@ -16,34 +16,24 @@
  *   - same artifact layout under `.runs/<runId>/` via the existing
  *     `runArtifacts` helpers (`run.json`, `metrics.json`, `transcript.json`,
  *     `assistant-events.json`, `progress.ndjson`)
- *   - same progress reporter wrapping: caller's reporter → persisted
- *     `progress.ndjson` row + heartbeat tick on every event
+ *   - same wrapped progress reporter + heartbeat ticker, shared with
+ *     `runEvalOnce` via `createRunProgressLifecycle` (the PR-8 extract
+ *     that replaced the inlined `// PR-6 follow-up` blocks)
  *
- * Out of scope for PR-6 (deliberately deferred, not forgotten):
- *   - extracting the progress-wrap / heartbeat boilerplate into a shared
- *     helper used by both `runEvalOnce` and this runner. PR-4 punted the
- *     "unify shared infrastructure" extract to PR-6; doing the extract
- *     here would balloon the diff past the "wire" concern. Tracked for
- *     a follow-up PR — see the `// PR-6 follow-up` markers below.
+ * Out of scope for PR-6 / PR-8 (still deferred):
  *   - usage / cost telemetry. `runIngestAsk` doesn't return per-call
  *     usage and the V2 judges call OpenAI directly (no provider wrapper).
- *     Will be picked up alongside the cache + telemetry PR.
+ *     Tracked as a PR-9 candidate.
  */
-import { setInterval as nodeSetInterval } from "node:timers";
-
 import {
   type EvalRunResult,
   markErrorAsReportedToProgress,
 } from "../../../src/lib/runner/run-once";
+import type { EvalProgressReporter } from "../../../src/lib/runner/progress";
+import { createRunProgressLifecycle } from "../../../src/lib/runner/progress-lifecycle";
 import {
-  type EvalProgressEvent,
-  type EvalProgressReporter,
-} from "../../../src/lib/runner/progress";
-import {
-  appendProgressEvent,
   ensureRunArtifacts,
   type MetricResult,
-  updateHeartbeat,
   updateRunMetadata,
   writeRunMetadata,
   writeTranscript,
@@ -151,35 +141,15 @@ export async function runLongMemEvalV2Unit(
 ): Promise<EvalRunResult> {
   const sessionId = input.sessionId ?? input.runId;
   const sessionLabel = input.sessionLabel;
-  const userProgress = input.progress;
 
-  // PR-6 follow-up: this wrapper duplicates the one in `runEvalOnce`.
-  // The extract was promised by the PR-4 punt comment in `run-ingest-ask.ts`
-  // but moving it now would blow past PR-6's "wire" concern. Tracked.
-  const progress: EvalProgressReporter = (event: EvalProgressEvent) => {
-    if (userProgress) {
-      try {
-        userProgress(event);
-      } catch {
-        // Best-effort reporting — never break the run on a misbehaving
-        // reporter.
-      }
-    }
-    void appendProgressEvent(input.runId, {
-      ...event,
-      emittedAt: new Date().toISOString(),
-    }).catch(() => undefined);
-    void updateHeartbeat(input.runId).catch(() => undefined);
-  };
+  // Shared with `runEvalOnce` — wrapped reporter + 5s heartbeat ticker.
+  // `dispose()` in the `finally` below stops the ticker (idempotent).
+  const { progress, dispose } = createRunProgressLifecycle({
+    runId: input.runId,
+    userProgress: input.progress,
+  });
 
   const startedAt = new Date().toISOString();
-
-  // PR-6 follow-up: heartbeat ticker is also duplicated from
-  // `runEvalOnce`. Same extract target.
-  const heartbeatInterval = nodeSetInterval(() => {
-    void updateHeartbeat(input.runId).catch(() => undefined);
-  }, 5_000);
-  heartbeatInterval.unref();
 
   let artifactDir = "";
   try {
@@ -359,6 +329,6 @@ export async function runLongMemEvalV2Unit(
     ).catch(() => undefined);
     throw err;
   } finally {
-    clearInterval(heartbeatInterval);
+    dispose();
   }
 }

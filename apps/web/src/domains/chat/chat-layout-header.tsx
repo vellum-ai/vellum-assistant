@@ -106,7 +106,7 @@ export function ChatLayoutHeader({
                 variant="ghost"
                 iconOnly={<Search />}
                 aria-label="Search (Ctrl+K)"
-                title="Search (Ctrl+K)"
+                tooltip="Search (Ctrl+K)"
                 onClick={onSearchClick}
               />
             ) : null}
@@ -114,7 +114,7 @@ export function ChatLayoutHeader({
               variant="ghost"
               iconOnly={<ChevronLeft />}
               aria-label="Back (Ctrl+[)"
-              title="Back (Ctrl+[)"
+              tooltip="Back (Ctrl+[)"
               disabled={!canGoBack}
               className={!canGoBack ? "opacity-35" : undefined}
               onClick={onGoBack}
@@ -123,7 +123,7 @@ export function ChatLayoutHeader({
               variant="ghost"
               iconOnly={<ChevronRight />}
               aria-label="Forward (Ctrl+])"
-              title="Forward (Ctrl+])"
+              tooltip="Forward (Ctrl+])"
               disabled={!canGoForward}
               className={!canGoForward ? "opacity-35" : undefined}
               onClick={onGoForward}
@@ -142,7 +142,7 @@ export function ChatLayoutHeader({
             variant="ghost"
             iconOnly={<Search />}
             aria-label="Search (Ctrl+K)"
-            title="Search (Ctrl+K)"
+            tooltip="Search (Ctrl+K)"
             onClick={onSearchClick}
           />
         ) : null}

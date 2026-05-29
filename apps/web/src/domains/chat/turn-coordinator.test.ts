@@ -5,8 +5,8 @@ import {
   INITIAL_TURN_STATE,
   useTurnStore,
   type TurnState,
-} from "@/stores/turn-store";
-import { endTurn } from "@/stores/turn-coordinator";
+} from "@/domains/chat/turn-store";
+import { endTurn } from "@/domains/chat/turn-coordinator";
 
 function seedActiveTurn(overrides?: Partial<TurnState>): void {
   useTurnStore.setState({

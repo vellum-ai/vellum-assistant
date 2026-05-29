@@ -8,6 +8,7 @@ const {
   isWakeUpGreeting,
   getCannedFirstGreeting,
   buildScanFirstMessage,
+  buildSelfIntroMessage,
   CANNED_FIRST_GREETING,
 } = await import("../daemon/first-greeting.js");
 import type { OnboardingGreetingContext } from "../daemon/first-greeting.js";
@@ -373,6 +374,46 @@ describe("first-greeting", () => {
       expect(greeting).not.toContain("Notion");
       expect(greeting).not.toContain("scheduling");
       expect(greeting).not.toContain("personal");
+    });
+  });
+
+  describe("buildSelfIntroMessage", () => {
+    const ctx = (
+      over: Partial<OnboardingGreetingContext> = {},
+    ): OnboardingGreetingContext => ({
+      tools: [],
+      tasks: [],
+      tone: "grounded",
+      ...over,
+    });
+
+    it("uses both names when present", () => {
+      expect(
+        buildSelfIntroMessage(ctx({ assistantName: "Vela", userName: "alex" })),
+      ).toBe("Hi Vela, I'm alex. Nice to meet you.");
+    });
+
+    it("drops the missing user name", () => {
+      expect(buildSelfIntroMessage(ctx({ assistantName: "Vela" }))).toBe(
+        "Hi Vela. Nice to meet you.",
+      );
+    });
+
+    it("drops the missing assistant name", () => {
+      expect(buildSelfIntroMessage(ctx({ userName: "alex" }))).toBe(
+        "Hi, I'm alex. Nice to meet you.",
+      );
+    });
+
+    it("treats whitespace-only names as missing", () => {
+      expect(
+        buildSelfIntroMessage(ctx({ assistantName: "  ", userName: "  " })),
+      ).toBeUndefined();
+    });
+
+    it("returns undefined when neither name is known (caller keeps canned greeting)", () => {
+      expect(buildSelfIntroMessage(ctx())).toBeUndefined();
+      expect(buildSelfIntroMessage(undefined)).toBeUndefined();
     });
   });
 });

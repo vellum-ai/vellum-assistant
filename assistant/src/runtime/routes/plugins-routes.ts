@@ -21,11 +21,11 @@
  * Every route declares `policyKey: "plugins"` + `requirePolicyEnforcement:
  * true`. The HTTP router enforces via `enforcePolicy()` against the
  * `plugins:GET` / `plugins/search:GET` / `plugins:DELETE` registry
- * entries in `runtime/auth/route-policy.ts`. The IPC adapter exposes
- * the same policies to the gateway IPC proxy, whose own policy table
- * (`gateway/src/auth/ipc-route-policy.ts`) holds the matching entries
- * for `plugins_list` / `plugins_search` / `plugins_uninstall`. Reads
- * require `settings.read`; uninstall requires `settings.write`.
+ * entries in `runtime/auth/route-policy.ts`. The same registry is the
+ * source of truth for the IPC path too: the IPC route adapter resolves
+ * each route's policy and ships it in `get_route_schema`, which the
+ * gateway's IPC proxy reads from its in-memory cache. Reads require
+ * `settings.read`; uninstall requires `settings.write`.
  */
 
 import { z } from "zod";
@@ -44,11 +44,7 @@ import {
   PluginNotInstalledError,
   uninstallPlugin,
 } from "../../cli/lib/uninstall-plugin.js";
-import {
-  BadRequestError,
-  InternalError,
-  NotFoundError,
-} from "./errors.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -166,9 +162,9 @@ function matchesQuery(plugin: PluginView, needle: string): boolean {
 // Handler — list installed
 // ---------------------------------------------------------------------------
 
-function handleListPlugins({
-  queryParams = {},
-}: RouteHandlerArgs): { plugins: PluginView[] } {
+function handleListPlugins({ queryParams = {} }: RouteHandlerArgs): {
+  plugins: PluginView[];
+} {
   const q = queryParams.q?.trim();
   const installed = listInstalledPlugins();
   const projected = installed.map(projectPlugin);

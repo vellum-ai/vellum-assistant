@@ -18,7 +18,8 @@ import {
 import { Button, Card, Typography } from "@vellum/design-library";
 import { useOptionHotkeys } from "@/hooks/use-option-hotkeys";
 import { isPointerCoarse } from "@/utils/pointer";
-import type { QuestionEntry, QuestionResponseEntry } from "@/domains/chat/api/event-types";
+import type { QuestionEntry } from "@/types/interaction-ui-types";
+import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 
 export interface QuestionPromptCardProps {
   /** The daemon-supplied request id; needed by the owner for batched POST. */

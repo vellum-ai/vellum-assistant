@@ -6,7 +6,6 @@ import type {
 } from "../adapter";
 import {
   appendAssistantEvents,
-  appendProgressEvent,
   appendSimulatorMessage,
   appendTranscriptTurn,
   ensureRunArtifacts,
@@ -14,7 +13,6 @@ import {
   readTranscript,
   readUsage,
   runMetrics,
-  updateHeartbeat,
   type MetricResult,
   writeMetricResults,
   writeRunMetadata,
@@ -36,6 +34,7 @@ import {
 import { createAgent } from "./create-agent";
 import { AgentEventCollector } from "./event-collector";
 import type { EvalProgressReporter, EvalProgressStep } from "./progress";
+import { createRunProgressLifecycle } from "./progress-lifecycle";
 
 /**
  * Maximum number of stdout/stderr lines from a failed subprocess to
@@ -352,13 +351,17 @@ async function sendAndPersistSimulatorMessage(input: {
 export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
   const sessionId = input.sessionId ?? input.runId;
   const sessionLabel = input.sessionLabel;
-  // Wrap the caller's reporter so a buggy reporter (stream write error,
-  // throwing custom reporter, etc.) can never interrupt the run — most
-  // importantly, it cannot prevent `agent.shutdown()` in the `finally`
-  // block from running and leaking a hatched container.
-  // Also tee every event to disk so the report server can render the
-  // test-runner side of the timeline alongside the container event stream.
-  const userProgress = input.progress;
+  // The shared progress-lifecycle helper owns the
+  //   userProgress tee → progress.ndjson append → heartbeat bump
+  // chain plus the standalone heartbeat ticker (cleared by `dispose`
+  // in the `finally` further down). We wrap it once more here so the
+  // step/turn tracking — which is specific to the simulator-driven
+  // path, not to the LongMemEval-V2 runner — stays on this side of
+  // the seam.
+  const lifecycle = createRunProgressLifecycle({
+    runId: input.runId,
+    userProgress: input.progress,
+  });
   let currentStep: EvalProgressStep | undefined;
   let currentTurn: number | undefined;
   const progress: EvalProgressReporter = (event) => {
@@ -366,22 +369,7 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       currentStep = event.step;
       currentTurn = event.turn;
     }
-    if (userProgress) {
-      try {
-        userProgress(event);
-      } catch {
-        // Progress reporting is best-effort; swallow.
-      }
-    }
-    // Persistence is best-effort; never break a run because the log file
-    // could not be appended to.
-    void appendProgressEvent(input.runId, {
-      ...event,
-      emittedAt: new Date().toISOString(),
-    }).catch(() => undefined);
-    // Update the heartbeat on every progress event to signal that the
-    // process is alive. This is best-effort and never blocks the run.
-    void updateHeartbeat(input.runId).catch(() => undefined);
+    lifecycle.progress(event);
   };
   // Captured up front so it's available to every failed-metadata write
   // below — including from the catch when something throws before the
@@ -399,20 +387,6 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
   // and no run directory.
   let agent: ReturnType<typeof createAgent> | undefined;
   let runDir: string | undefined;
-
-  // Per-run heartbeat ticker. Cleared in the `finally` so the timer never
-  // outlives a return/throw — and so we never accumulate Node listeners
-  // across multiple runs in the same `evals run` invocation (the SIGINT/
-  // SIGTERM handlers live one level up in `commands/run.ts` and only
-  // register once per process, not once per run).
-  const heartbeatInterval = setInterval(() => {
-    void updateHeartbeat(input.runId).catch(() => undefined);
-  }, 5_000);
-  // setInterval would keep the event loop alive past a normal completion
-  // because Node treats every active timer as a reason to stay up. Using
-  // unref() removes that contribution so a successful run still exits
-  // cleanly; clearInterval() in the finally is still the primary stop.
-  heartbeatInterval.unref();
 
   try {
     // Construction first — both can throw at this stage (e.g.
@@ -712,7 +686,7 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
     markErrorAsReportedToProgress(err);
     throw err;
   } finally {
-    clearInterval(heartbeatInterval);
+    lifecycle.dispose();
     // Skip the shutdown lifecycle when construction threw before agent
     // assignment — there's nothing to retire and emitting fake shutdown
     // events would muddy the timeline.

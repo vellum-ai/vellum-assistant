@@ -6,14 +6,14 @@ import {
   stopStreaming,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { AssistantActivityStateEvent } from "@/domains/chat/api/event-types";
+import type { AssistantActivityStateEvent } from "@/types/event-types";
 import type {
   AssistantTextDeltaEvent,
   GenerationCancelledEvent,
   GenerationHandoffEvent,
   MessageCompleteEvent,
 } from "@vellumai/assistant-api";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 
 
 export function handleAssistantTextDelta(

@@ -277,6 +277,7 @@ export function AssistantSideMenu({
       size="compact"
       iconOnly={<SquarePen />}
       aria-label="New conversation"
+      tooltip="New conversation"
       onClick={() => { onStartNewConversation(); onClose?.(); }}
     />
   ) : null;

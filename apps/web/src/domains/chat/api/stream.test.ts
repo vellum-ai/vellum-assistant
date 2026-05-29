@@ -51,7 +51,7 @@ import {
   INITIAL_TURN_STATE,
   turnReducer,
   isSending,
-} from "@/stores/turn-store";
+} from "@/domains/chat/turn-store";
 import { parseAssistantEvent } from "@/domains/chat/api/event-parser";
 import { subscribeChatEvents, type ChatStreamReconnectCause } from "@/domains/chat/api/stream";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";

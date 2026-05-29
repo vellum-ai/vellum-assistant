@@ -896,14 +896,72 @@ export function ProviderEditorContent({
               API key.
             </Typography>
 
-            {chatgptOAuthState === "idle" ? (
-              <Button
-                variant="outlined"
-                size="compact"
-                onClick={() => void handleChatgptSignIn()}
-              >
-                Sign in with ChatGPT
-              </Button>
+            {chatgptOAuthState === "idle" || chatgptOAuthState === "paste_url" ? (
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Typography
+                    variant="body-small-default"
+                    as="p"
+                    className={
+                      chatgptOAuthState === "paste_url"
+                        ? "text-[var(--content-tertiary)] line-through"
+                        : "text-[var(--content-secondary)]"
+                    }
+                  >
+                    1. Click &ldquo;Sign in with ChatGPT&rdquo;
+                    {chatgptOAuthState === "idle" ? " below" : null} to open a
+                    popup
+                  </Typography>
+                  <Typography
+                    variant="body-small-default"
+                    as="p"
+                    className="text-[var(--content-secondary)]"
+                  >
+                    2. Sign in, then you&apos;ll land on an error page &mdash;
+                    that&apos;s expected
+                  </Typography>
+                  <Typography
+                    variant="body-small-default"
+                    as="p"
+                    className="text-[var(--content-secondary)]"
+                  >
+                    3. Copy the full URL from that page&apos;s address bar and
+                    paste it below
+                  </Typography>
+                </div>
+
+                {chatgptOAuthState === "idle" ? (
+                  <Button
+                    variant="outlined"
+                    size="compact"
+                    onClick={() => void handleChatgptSignIn()}
+                  >
+                    Sign in with ChatGPT
+                  </Button>
+                ) : (
+                  <>
+                    <Input
+                      value={chatgptPastedUrl}
+                      onChange={(e) => {
+                        setChatgptPastedUrl(e.target.value);
+                        setChatgptOAuthError(null);
+                      }}
+                      placeholder="Paste callback URL here..."
+                      fullWidth
+                    />
+                    <div className="flex justify-end">
+                      <Button
+                        variant="primary"
+                        size="compact"
+                        disabled={!chatgptPastedUrl.trim()}
+                        onClick={() => void handleChatgptUrlSubmit()}
+                      >
+                        Complete Sign In
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </div>
             ) : null}
 
             {chatgptOAuthState === "starting" ? (
@@ -915,53 +973,6 @@ export function ProviderEditorContent({
                 >
                   Starting sign-in...
                 </Typography>
-              </div>
-            ) : null}
-
-            {chatgptOAuthState === "paste_url" ? (
-              <div className="space-y-3">
-                <div className="space-y-1">
-                  <Typography
-                    variant="body-small-default"
-                    as="p"
-                    className="text-[var(--content-secondary)]"
-                  >
-                    1. Sign in with ChatGPT in the popup
-                  </Typography>
-                  <Typography
-                    variant="body-small-default"
-                    as="p"
-                    className="text-[var(--content-secondary)]"
-                  >
-                    2. After sign-in, you&apos;ll see an error page
-                  </Typography>
-                  <Typography
-                    variant="body-small-default"
-                    as="p"
-                    className="text-[var(--content-secondary)]"
-                  >
-                    3. Copy the URL from the address bar and paste it below
-                  </Typography>
-                </div>
-                <Input
-                  value={chatgptPastedUrl}
-                  onChange={(e) => {
-                    setChatgptPastedUrl(e.target.value);
-                    setChatgptOAuthError(null);
-                  }}
-                  placeholder="Paste callback URL here..."
-                  fullWidth
-                />
-                <div className="flex justify-end">
-                  <Button
-                    variant="primary"
-                    size="compact"
-                    disabled={!chatgptPastedUrl.trim()}
-                    onClick={() => void handleChatgptUrlSubmit()}
-                  >
-                    Complete Sign In
-                  </Button>
-                </div>
               </div>
             ) : null}
 

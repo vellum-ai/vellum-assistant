@@ -1,7 +1,7 @@
 import { Capacitor } from "@capacitor/core";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 import type { RuntimeMessage } from "@/domains/chat/api/messages";
 
 const MAX_EVENTS = 200;
