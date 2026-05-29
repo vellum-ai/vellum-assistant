@@ -50,9 +50,9 @@ const DEV_SERVER_ORIGIN = new URL(DEV_SERVER_URL).origin;
 // binary is `node_modules/electron/dist/Electron.app`, so the Dock
 // says "Electron". That's cosmetic and acceptable for dev runs; the
 // userData split is what actually prevents collision with Swift
-// installs. Packaged builds get a real `productName` via
-// electron-builder (LUM-1987), which writes CFBundleName, at which
-// point Dock / Cmd-Tab pick up the real name too.
+// installs. Packaged builds get a real `productName` from
+// electron-builder, which writes `CFBundleName`, at which point
+// Dock / Cmd-Tab pick up the real name too.
 //
 // Gated on `!app.isPackaged` so a packaged build keeps its
 // electron-builder-derived `CFBundleName` instead of being overridden
