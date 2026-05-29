@@ -34,6 +34,7 @@ const USAGE_ATTRIBUTION_HEADER_NAMES = {
   inferenceProfileSource: "X-Vellum-Inference-Profile-Source",
   resolvedProvider: "X-Vellum-Resolved-Provider",
   resolvedModel: "X-Vellum-Resolved-Model",
+  resolvedMixArm: "X-Vellum-Resolved-Mix-Arm",
 } as const;
 
 /** Providers that support the `effort` config (extended thinking / reasoning). */
@@ -195,19 +196,23 @@ function normalizeSendMessageOptions(
   delete nextConfig.usageAttributionHeaders;
   delete nextConfig.usageTracking;
 
-  // `overrideProfile` is a routing/resolution-time concern (consumed by the
-  // resolver below and `CallSiteRoutingProvider`'s provider selection); it is
-  // not a wire-format field. Strip unconditionally so it never leaks into
-  // provider request bodies even when callers set it without a `callSite`.
+  // `overrideProfile` and `selectionSeed` are routing/resolution-time concerns
+  // (consumed by the resolver below and `CallSiteRoutingProvider`'s provider
+  // selection); neither is a wire-format field. Strip unconditionally so they
+  // never leak into provider request bodies even when callers set them without
+  // a `callSite`.
   delete nextConfig.overrideProfile;
+  delete nextConfig.selectionSeed;
 
   if (config.callSite !== undefined) {
     const resolved = resolveCallSiteConfig(config.callSite, getConfig().llm, {
       overrideProfile: config.overrideProfile,
+      selectionSeed: config.selectionSeed,
     });
     const attribution = resolveUsageAttribution({
       callSite: config.callSite,
       overrideProfile: config.overrideProfile,
+      selectionSeed: config.selectionSeed,
     });
 
     const explicitModel =
@@ -225,6 +230,7 @@ function normalizeSendMessageOptions(
         profileSource: attribution.profileSource,
         resolvedProvider: attribution.resolvedProvider,
         resolvedModel: attribution.resolvedModel,
+        resolvedMixArm: attribution.resolvedMixArm,
       });
       if (Object.keys(usageAttributionHeaders).length > 0) {
         nextConfig.usageAttributionHeaders = usageAttributionHeaders;
@@ -446,6 +452,7 @@ function buildUsageAttributionHeaders(input: {
   profileSource: string;
   resolvedProvider: string;
   resolvedModel: string;
+  resolvedMixArm: string | null;
 }): Record<string, string> {
   const headers: Record<string, string> = {};
   addSanitizedHeader(
@@ -474,6 +481,11 @@ function buildUsageAttributionHeaders(input: {
     headers,
     USAGE_ATTRIBUTION_HEADER_NAMES.resolvedModel,
     input.resolvedModel,
+  );
+  addSanitizedHeader(
+    headers,
+    USAGE_ATTRIBUTION_HEADER_NAMES.resolvedMixArm,
+    input.resolvedMixArm,
   );
   return headers;
 }

@@ -770,12 +770,14 @@ export async function runAgentLoopImpl(
     llm: config.llm,
     callSite: turnCallSite,
     overrideProfile: turnOverrideProfile ?? undefined,
+    selectionSeed: ctx.conversationId,
   });
   let currentEffectiveContextWindow: EffectiveContextWindow =
     effectiveContextWindow;
   let currentContextWindowConfig = contextWindowConfigFromEffective(
     resolveCallSiteConfig(turnCallSite, config.llm, {
       overrideProfile: turnOverrideProfile ?? undefined,
+      selectionSeed: ctx.conversationId,
     }).contextWindow,
     currentEffectiveContextWindow,
   );
@@ -794,10 +796,12 @@ export async function runAgentLoopImpl(
         llm: config.llm,
         callSite: turnCallSite,
         overrideProfile: currentOverrideProfile,
+        selectionSeed: ctx.conversationId,
       });
       currentContextWindowConfig = contextWindowConfigFromEffective(
         resolveCallSiteConfig(turnCallSite, config.llm, {
           overrideProfile: currentOverrideProfile,
+          selectionSeed: ctx.conversationId,
         }).contextWindow,
         currentEffectiveContextWindow,
       );

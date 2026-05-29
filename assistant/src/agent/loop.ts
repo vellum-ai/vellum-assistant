@@ -618,6 +618,16 @@ export class AgentLoop {
         if (callSite) {
           providerConfig.callSite = callSite;
           providerConfig.usageTracking = "manual";
+          // Per-conversation seed for deterministic `mix`-profile expansion.
+          // Sourced from the orchestrator-supplied turn context's
+          // conversationId so every LLM call in a conversation resolves the
+          // same mix arm (stable across turns and retries, and across daemon
+          // restarts since the seed is the durable conversation id). Absent
+          // for standalone `AgentLoop` instances (unit tests / no turnContext)
+          // — those fall back to per-call random mix selection.
+          if (turnContext?.conversationId) {
+            providerConfig.selectionSeed = turnContext.conversationId;
+          }
         }
 
         // Per-call inference-profile override. The resolver layers
