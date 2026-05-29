@@ -40,11 +40,11 @@ async function buildBundle(): Promise<BundleCache> {
   });
   if (!result.success) {
     const messages = result.logs.map((log) => String(log)).join("\n");
-    throw new Error(`@vellumai/web: bundle build failed\n${messages}`);
+    throw new Error(`@vellumai/web-client: bundle build failed\n${messages}`);
   }
   const output = result.outputs[0];
   if (!output) {
-    throw new Error("@vellumai/web: bundle build produced no outputs");
+    throw new Error("@vellumai/web-client: bundle build produced no outputs");
   }
   const js = await output.text();
   bundleCache = { js, builtAt: Date.now() };
@@ -104,6 +104,6 @@ export async function startWebServer(
 if (import.meta.main) {
   const server = await startWebServer();
   console.log(
-    `@vellumai/web listening on http://${server.hostname}:${server.port}`,
+    `@vellumai/web-client listening on http://${server.hostname}:${server.port}`,
   );
 }

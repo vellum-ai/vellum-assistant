@@ -224,13 +224,15 @@ jobs:
           for pkg in assistant cli credential-executor gateway meta; do
             jq --arg v "$VERSION" '.version = $v' $pkg/package.json > tmp && mv tmp $pkg/package.json
           done
+          jq --arg v "$VERSION" '.version = $v' apps/web/package.json > tmp && mv tmp apps/web/package.json
 
           # Bump meta-package dependency versions
           jq --arg v "$VERSION" '
             .dependencies["@vellumai/assistant"] = $v |
             .dependencies["@vellumai/cli"] = $v |
             .dependencies["@vellumai/credential-executor"] = $v |
-            .dependencies["@vellumai/vellum-gateway"] = $v
+            .dependencies["@vellumai/vellum-gateway"] = $v |
+            .dependencies["@vellumai/web"] = $v
           ' meta/package.json > tmp && mv tmp meta/package.json
 
           # Bump macOS app version
