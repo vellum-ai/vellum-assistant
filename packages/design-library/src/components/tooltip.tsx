@@ -11,8 +11,9 @@ import { usePortalContainer } from "../utils/portal-container";
  * element. Content is portaled into the nearest `<PortalContainerProvider>`
  * so design tokens resolve correctly.
  *
- * **Requires `<TooltipProvider>`** at the application root to configure
- * global delay behaviour (`delayDuration`, `skipDelayDuration`).
+ * The convenience `Tooltip` wrapper embeds its own `TooltipProvider` so
+ * it works standalone. For compound usage, wrap the tree in a
+ * `<TooltipProvider>` to configure global delay behaviour.
  *
  * Quick usage (string label wrapping a single trigger):
  *
@@ -93,15 +94,22 @@ export interface TooltipProps {
  * Convenience wrapper that pairs a trigger element with a text tooltip.
  * Wraps the child with `asChild` so the trigger's DOM element is the
  * child itself (no extra wrapper `<button>`).
+ *
+ * Embeds its own `TooltipProvider` so it works standalone (tests,
+ * storybooks) without requiring a provider ancestor. When an app-level
+ * `TooltipProvider` exists, the inner provider scopes its own subtree
+ * with matching defaults so behaviour is consistent.
  */
 function Tooltip({ content, children, side, align, delayDuration }: TooltipProps) {
   return (
-    <Root delayDuration={delayDuration}>
-      <Trigger asChild>{children}</Trigger>
-      <Content side={side} align={align}>
-        {content}
-      </Content>
-    </Root>
+    <RadixTooltip.Provider delayDuration={200} skipDelayDuration={300}>
+      <Root delayDuration={delayDuration}>
+        <Trigger asChild>{children}</Trigger>
+        <Content side={side} align={align}>
+          {content}
+        </Content>
+      </Root>
+    </RadixTooltip.Provider>
   );
 }
 
