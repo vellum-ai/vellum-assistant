@@ -219,10 +219,7 @@ import type {
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
-import {
-  conversationMetadataSyncTag,
-  SYNC_TAGS,
-} from "./message-types/sync.js";
+import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import type { TrustContext } from "./trust-context.js";
@@ -1052,10 +1049,7 @@ export async function runAgentLoopImpl(
           });
           onEvent({
             type: "sync_changed",
-            tags: [
-              SYNC_TAGS.conversationsList,
-              conversationMetadataSyncTag(ctx.conversationId),
-            ],
+            tags: [conversationMetadataSyncTag(ctx.conversationId)],
           });
         },
       };
@@ -3517,10 +3511,7 @@ export async function runAgentLoopImpl(
           });
           onEvent({
             type: "sync_changed",
-            tags: [
-              SYNC_TAGS.conversationsList,
-              conversationMetadataSyncTag(ctx.conversationId),
-            ],
+            tags: [conversationMetadataSyncTag(ctx.conversationId)],
           });
         },
         signal: abortController.signal,
