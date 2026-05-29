@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "../../api/constants/tool-execution.js";
+
 export const TimeoutConfigSchema = z
   .object({
     shellMaxTimeoutSec: z
@@ -30,7 +32,7 @@ export const TimeoutConfigSchema = z
       .number({ error: "timeouts.toolExecutionTimeoutSec must be a number" })
       .finite("timeouts.toolExecutionTimeoutSec must be finite")
       .positive("timeouts.toolExecutionTimeoutSec must be a positive number")
-      .default(120)
+      .default(DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC)
       .describe("Default timeout for tool execution in seconds"),
     providerStreamTimeoutSec: z
       .number({ error: "timeouts.providerStreamTimeoutSec must be a number" })

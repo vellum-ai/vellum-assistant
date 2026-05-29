@@ -22,6 +22,7 @@ import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 
 export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
+export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
 export {
   type AssistantOutboundAttachment,
   AssistantOutboundAttachmentSchema,
