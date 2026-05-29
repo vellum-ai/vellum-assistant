@@ -5,6 +5,7 @@ import {
   openAppWebsite,
   type AppVersionInfo,
 } from "@/runtime/app-info";
+import { isElectron } from "@/runtime/is-electron";
 
 /**
  * Branded About page rendered inside the Electron About BrowserWindow
@@ -47,6 +48,13 @@ export function AboutPage() {
         href={display.website}
         className="text-primary text-sm hover:underline"
         onClick={(event) => {
+          // Off Electron, let the browser navigate via the `href`. In
+          // Electron the renderer is sandboxed, so the only outbound
+          // path is the IPC route through `openAppWebsite()` →
+          // `shell.openExternal` in main; suppressing the default
+          // there keeps the About BrowserWindow from navigating away
+          // from its own route.
+          if (!isElectron()) return;
           event.preventDefault();
           void openAppWebsite();
         }}
