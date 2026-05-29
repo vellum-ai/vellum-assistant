@@ -10,6 +10,10 @@ import { dirname, join, resolve } from "node:path";
 import { z } from "zod";
 
 import { renderCharacterAscii } from "../../avatar/ascii-renderer.js";
+import {
+  deriveStateFromLegacyFiles,
+  readManifest,
+} from "../../avatar/avatar-manifest.js";
 import { getCharacterComponents } from "../../avatar/character-components.js";
 import { updateIdentityAvatarSection } from "../../avatar/identity-avatar.js";
 import {
@@ -38,6 +42,23 @@ const log = getLogger("avatar-routes");
 
 function handleGetCharacterComponents() {
   return getCharacterComponents();
+}
+
+/**
+ * Return the authoritative avatar render state.
+ *
+ * Reads the manifest (`avatar.json`) first. When the manifest is absent or
+ * invalid, `readManifest` returns null and we fall back to deriving state
+ * from the legacy sidecar files. Never 404s — an empty workspace yields
+ * `{ kind: "none", traits: null, source: null, image: null }`.
+ */
+function handleGetAvatarState() {
+  const manifest = readManifest();
+  if (manifest) {
+    return manifest;
+  }
+  // TODO(avatar-manifest): remove after migration ships + clients adopt (PR 13)
+  return deriveStateFromLegacyFiles();
 }
 
 function handleRenderFromTraits({ body, headers }: RouteHandlerArgs) {
@@ -266,6 +287,33 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["avatar"],
   },
   {
+    operationId: "avatar_get_state",
+    endpoint: "avatar/state",
+    method: "GET",
+    handler: handleGetAvatarState,
+    summary: "Get avatar state",
+    description:
+      "Return the authoritative avatar render mode (character, image, or none).",
+    tags: ["avatar"],
+    responseBody: z.object({
+      kind: z.enum(["character", "image", "none"]),
+      traits: z
+        .object({
+          bodyShape: z.string(),
+          eyeStyle: z.string(),
+          color: z.string(),
+        })
+        .nullable(),
+      source: z.enum(["builder", "upload", "ai"]).nullable(),
+      image: z
+        .object({
+          updatedAt: z.string(),
+          etag: z.string(),
+        })
+        .nullable(),
+    }),
+  },
+  {
     operationId: "avatar_render_from_traits",
     endpoint: "avatar/render-from-traits",
     method: "POST",
@@ -287,7 +335,9 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "avatar/notify-updated",
     method: "POST",
     handler: ({ headers }: RouteHandlerArgs) => {
-      publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
+      publishAvatarChanged(
+        headers?.["x-vellum-client-id"]?.trim() || undefined,
+      );
       return { ok: true };
     },
     summary: "Notify avatar updated",
