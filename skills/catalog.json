@@ -55,7 +55,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-29T03:45:08.000Z"
+      "updatedAt": "2026-05-29T12:58:30.000Z"
     },
     {
       "id": "chatgpt-import",
@@ -155,12 +155,11 @@
       "metadata": {
         "emoji": "📧",
         "vellum": {
-          "display-name": "Email Setup",
-          "feature-flag": "email-channel"
+          "display-name": "Email Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-18T11:33:07.000Z"
+      "updatedAt": "2026-05-29T19:11:50.000Z"
     },
     {
       "id": "fish-audio",

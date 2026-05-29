@@ -6,7 +6,6 @@ metadata:
   emoji: "📧"
   vellum:
     display-name: "Email Setup"
-    feature-flag: "email-channel"
 ---
 
 You are setting up your own custom domain and email address. This is a one-time operation — once you have a domain and email, you do not need to run this again.
@@ -18,13 +17,21 @@ Only proceed if the user explicitly asks you to create or set up **your own** (t
 ## Step 1: Check if Domain & Email Already Exist
 
 ```bash
-assistant domain status --json
 assistant email status --json
 ```
 
-If both commands show an active domain and email address, tell the user the existing address and stop.
+If an active email address exists, compare its domain to your intended custom subdomain — your assistant name from `IDENTITY.md`, lowercased (see Step 2), e.g. `mybot.vellum.me`:
 
-If an email exists but no domain, the email was set up under the legacy shared domain — it still works. Ask the user if they want to keep it or migrate to a custom subdomain.
+- If the address is already on that custom subdomain, the domain and email are set up — tell the user the existing address and stop.
+- If the address is on the legacy shared domain (not your custom subdomain), it still works. Ask the user whether to keep it or migrate to the custom subdomain before doing anything else.
+
+If no email address is configured, determine your intended subdomain and check whether the domain already exists (the `status` subcommand requires the subdomain):
+
+```bash
+assistant domain status <subdomain> --json
+```
+
+If the domain exists but no email, skip to Step 3. If neither exists, continue to Step 2.
 
 ## Step 2: Register Your Domain
 

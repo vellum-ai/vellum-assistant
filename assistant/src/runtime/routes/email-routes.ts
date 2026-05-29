@@ -7,6 +7,12 @@
 
 import { z } from "zod";
 
+import {
+  getNestedValue,
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../../config/loader.js";
 import { markdownToEmailHtml } from "../../email/html-renderer.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import {
@@ -32,6 +38,24 @@ async function requireClient(): Promise<VellumPlatformClient> {
     );
   }
   return client;
+}
+
+/**
+ * Mirror the platform-registered inbox address into local config so the
+ * settings card (`/integrations/status`) and the email readiness probe —
+ * which both read `email.address` — reflect the registered inbox. Pass
+ * `undefined` to clear it on unregister.
+ *
+ * Change-guarded so the read-path callers (e.g. the `email status` GET
+ * handler, which converges already-registered inboxes) don't rewrite config
+ * on every poll — mirrors the cache-population pattern in `handleDomainStatus`.
+ */
+function persistLocalInboxAddress(address: string | undefined): void {
+  const raw = loadRawConfig();
+  const current = getNestedValue(raw, "email.address");
+  if (current === address) return;
+  setNestedValue(raw, "email.address", address);
+  saveRawConfig(raw);
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────
@@ -69,6 +93,7 @@ async function handleEmailRegister({ body = {} }: RouteHandlerArgs) {
     address: string;
     created_at: string;
   };
+  persistLocalInboxAddress(data.address);
   return data;
 }
 
@@ -116,6 +141,7 @@ async function handleEmailUnregister(_args: RouteHandlerArgs) {
     );
   }
 
+  persistLocalInboxAddress(undefined);
   return { unregistered: target.address };
 }
 
@@ -140,6 +166,10 @@ async function handleEmailStatus(_args: RouteHandlerArgs) {
 
   const addresses = listData.results ?? [];
   if (addresses.length === 0) {
+    // The platform has no inbox — converge by clearing any stale local
+    // address (e.g. one deleted from the web settings page or platform admin)
+    // so the settings card / readiness probe stop reporting it as configured.
+    persistLocalInboxAddress(undefined);
     throw new NotFoundError(
       "No email address registered for this assistant. Run: assistant email register <username>",
     );
@@ -176,6 +206,12 @@ async function handleEmailStatus(_args: RouteHandlerArgs) {
       received_this_month: number;
     };
   };
+
+  // Converge already-registered inboxes: mirror the authoritative platform
+  // address into local config so the settings card / readiness probe reflect
+  // it without requiring a fresh `register`. Change-guarded, so repeated
+  // status polls don't rewrite config.
+  persistLocalInboxAddress(statusData.address);
 
   return statusData;
 }

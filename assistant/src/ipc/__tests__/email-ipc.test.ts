@@ -11,19 +11,26 @@
 // Must be first — before any imports that resolve socket paths
 delete process.env.ASSISTANT_IPC_SOCKET_DIR;
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 
 import { runAssistantCommandFull } from "../../cli/__tests__/run-assistant-command.js";
 import { AssistantIpcServer } from "../assistant-server.js";
 
-// ---------------------------------------------------------------------------
-// Enable the email-channel feature flag so the email command is registered
-// in the CLI program (defaultEnabled is false in the registry).
-// ---------------------------------------------------------------------------
-
-mock.module("../../email/feature-gate.js", () => ({
-  isEmailEnabled: () => true,
-}));
+/** Read `email.address` from the test workspace config, or null if unset. */
+function readConfiguredEmailAddress(): string | null {
+  const configPath = join(process.env.VELLUM_WORKSPACE_DIR!, "config.json");
+  try {
+    const raw = JSON.parse(readFileSync(configPath, "utf8")) as {
+      email?: { address?: unknown };
+    };
+    const address = raw.email?.address;
+    return typeof address === "string" ? address : null;
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Mock state — set up a controllable VellumPlatformClient at module boundary
@@ -120,6 +127,37 @@ test("register --json outputs structured response", async () => {
   const parsed = JSON.parse(stdout.trim());
   expect(parsed.address).toBe("support@example.com");
   expect(process.exitCode).toBe(0);
+});
+
+test("register persists the inbox address to local config; unregister clears it", async () => {
+  // Register mirrors the platform-returned address into local config so the
+  // settings card and readiness probe (which read email.address) see it.
+  mockFetchFn = async () =>
+    new Response(
+      JSON.stringify({
+        id: "1",
+        address: "mybot@example.com",
+        created_at: "2026-01-01",
+      }),
+      { status: 201 },
+    );
+
+  await runAssistantCommandFull("email", "register", "mybot");
+  expect(readConfiguredEmailAddress()).toBe("mybot@example.com");
+
+  // Unregister (list → DELETE) clears the local address again.
+  mockFetchFn = async (path, init) => {
+    if (path.includes("/email-addresses/") && init?.method === "DELETE") {
+      return new Response(null, { status: 204 });
+    }
+    return new Response(
+      JSON.stringify({ results: [{ id: "1", address: "mybot@example.com" }] }),
+      { status: 200 },
+    );
+  };
+
+  await runAssistantCommandFull("email", "unregister", "--confirm");
+  expect(readConfiguredEmailAddress()).toBeNull();
 });
 
 test("register: platform error surfaces to CLI", async () => {
@@ -231,6 +269,63 @@ test("status --json displays address and usage", async () => {
   expect(parsed.address).toBe("mybot@example.com");
   expect(parsed.usage.sent_today).toBe(5);
   expect(process.exitCode).toBe(0);
+});
+
+test("status converges an already-registered inbox into local config", async () => {
+  // Simulate an inbox that exists on the platform but was never mirrored
+  // locally (e.g. registered before this change). A status check should
+  // converge email.address without requiring a fresh register.
+  mockFetchFn = async (path) => {
+    if (path.includes("/status/")) {
+      return new Response(
+        JSON.stringify({
+          address: "legacy@example.com",
+          status: "active",
+          created_at: "2026-04-05T12:00:00Z",
+          usage: {
+            sent_today: 0,
+            daily_limit: 100,
+            received_today: 0,
+            sent_this_month: 0,
+            received_this_month: 0,
+          },
+        }),
+        { status: 200 },
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        results: [{ id: "addr-1", address: "legacy@example.com" }],
+      }),
+      { status: 200 },
+    );
+  };
+
+  await runAssistantCommandFull("email", "status");
+  expect(readConfiguredEmailAddress()).toBe("legacy@example.com");
+});
+
+test("status clears a stale local address when the platform has no inbox", async () => {
+  // Seed a locally-persisted address via register.
+  mockFetchFn = async () =>
+    new Response(
+      JSON.stringify({
+        id: "1",
+        address: "gone@example.com",
+        created_at: "2026-01-01",
+      }),
+      { status: 201 },
+    );
+  await runAssistantCommandFull("email", "--json", "register", "gone");
+  expect(readConfiguredEmailAddress()).toBe("gone@example.com");
+
+  // The inbox was deleted elsewhere (web/admin): the platform now lists none.
+  mockFetchFn = async () =>
+    new Response(JSON.stringify({ results: [] }), { status: 200 });
+
+  // --json so the NotFound error is surfaced to stdout rather than exiting.
+  await runAssistantCommandFull("email", "--json", "status");
+  expect(readConfiguredEmailAddress()).toBeNull();
 });
 
 // ---------------------------------------------------------------------------

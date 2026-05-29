@@ -26,16 +26,16 @@ import { parseFrontmatterFields } from "../skills/frontmatter.js";
 // Fixtures
 // ---------------------------------------------------------------------------
 
-/** A SKILL.md with `feature-flag: email-channel` declared in its vellum metadata. */
+/** A SKILL.md with `feature-flag: a2a-channel` declared in its vellum metadata. */
 const SKILL_MD_WITH_FLAG = `---
-name: "Email Setup"
-description: "Set up email integration"
+name: "A2A Setup"
+description: "Set up A2A integration"
 metadata:
   vellum:
-    feature-flag: email-channel
+    feature-flag: a2a-channel
 ---
 
-Instructions for the email setup skill.
+Instructions for the a2a setup skill.
 `;
 
 /** A SKILL.md with no feature-flag field at all. */
@@ -126,16 +126,16 @@ describe("frontmatter feature-flag integration", () => {
     expect(metadataObj).toBeTruthy();
 
     const vellum = metadataObj.vellum as Record<string, unknown>;
-    expect(vellum["feature-flag"]).toBe("email-channel");
+    expect(vellum["feature-flag"]).toBe("a2a-channel");
   });
 
   test("skillFlagKey returns correct key for parsed skill", () => {
-    const skill = buildSkillSummary("email-setup", SKILL_MD_WITH_FLAG);
+    const skill = buildSkillSummary("a2a-setup", SKILL_MD_WITH_FLAG);
     expect(skill).not.toBeNull();
-    expect(skill!.featureFlag).toBe("email-channel");
+    expect(skill!.featureFlag).toBe("a2a-channel");
 
     const key = skillFlagKey(skill!);
-    expect(key).toBe("email-channel");
+    expect(key).toBe("a2a-channel");
   });
 
   test("skillFlagKey returns undefined for skill without feature-flag", () => {
@@ -149,19 +149,19 @@ describe("frontmatter feature-flag integration", () => {
 
   test("resolveSkillStates includes skill with featureFlag when flag is ON", () => {
     setOverridesForTesting({
-      "email-channel": true,
+      "a2a-channel": true,
     });
-    const skill = buildSkillSummary("email-setup", SKILL_MD_WITH_FLAG)!;
+    const skill = buildSkillSummary("a2a-setup", SKILL_MD_WITH_FLAG)!;
     const config = makeConfig();
 
     const resolved = resolveSkillStates([skill], config);
     expect(resolved.length).toBe(1);
-    expect(resolved[0].summary.id).toBe("email-setup");
+    expect(resolved[0].summary.id).toBe("a2a-setup");
   });
 
   test("resolveSkillStates excludes skill with featureFlag when flag defaults to OFF", () => {
-    const skill = buildSkillSummary("email-setup", SKILL_MD_WITH_FLAG)!;
-    // "email-channel" is in the registry with defaultEnabled: false
+    const skill = buildSkillSummary("a2a-setup", SKILL_MD_WITH_FLAG)!;
+    // "a2a-channel" is in the registry with defaultEnabled: false
     const config = makeConfig();
 
     const resolved = resolveSkillStates([skill], config);
@@ -189,17 +189,17 @@ describe("frontmatter feature-flag integration", () => {
     const metadataObj = parsed!.fields.metadata as Record<string, unknown>;
     const vellum = metadataObj.vellum as Record<string, unknown>;
     const flagId = vellum["feature-flag"];
-    expect(flagId).toBe("email-channel");
+    expect(flagId).toBe("a2a-channel");
 
     // Step 2: Build SkillSummary (as the catalog loader would)
-    const skill = buildSkillSummary("email-setup", SKILL_MD_WITH_FLAG)!;
-    expect(skill.featureFlag).toBe("email-channel");
+    const skill = buildSkillSummary("a2a-setup", SKILL_MD_WITH_FLAG)!;
+    expect(skill.featureFlag).toBe("a2a-channel");
 
     // Step 3: Derive the flag key
     const key = skillFlagKey(skill);
-    expect(key).toBe("email-channel");
+    expect(key).toBe("a2a-channel");
 
-    // Step 4: Check flag state — "email-channel" has defaultEnabled: false in registry
+    // Step 4: Check flag state — "a2a-channel" has defaultEnabled: false in registry
     const configDefault = makeConfig();
     expect(isAssistantFeatureFlagEnabled(key!, configDefault)).toBe(false);
 
@@ -214,7 +214,7 @@ describe("frontmatter feature-flag integration", () => {
 
     const resolvedOn = resolveSkillStates([skill], configOn);
     expect(resolvedOn.length).toBe(1);
-    expect(resolvedOn[0].summary.id).toBe("email-setup");
+    expect(resolvedOn[0].summary.id).toBe("a2a-setup");
 
     // Step 7: With override disabled, skill is filtered out
     setOverridesForTesting({ [key!]: false });

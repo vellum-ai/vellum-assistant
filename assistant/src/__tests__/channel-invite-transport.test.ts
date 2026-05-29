@@ -7,11 +7,7 @@
  * canonical registry APIs (`createInviteAdapterRegistry`,
  * `getInviteAdapterRegistry`) that replaced the deprecated shims.
  */
-import { describe, expect, mock, test } from "bun:test";
-
-mock.module("../email/feature-gate.js", () => ({
-  isEmailEnabled: () => true,
-}));
+import { describe, expect, test } from "bun:test";
 
 import {
   type ChannelInviteAdapter,
