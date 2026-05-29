@@ -10,13 +10,10 @@
 // can filter them out safely.
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { isStringArray } from "@/domains/chat/utils/storage-validators";
 import { createRecordStorageAccessor } from "@/utils/typed-storage";
 
 const MAX_IDS_PER_CONVERSATION = 500;
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((v) => typeof v === "string");
-}
 
 const storage = createRecordStorageAccessor<string[]>({
   keyFn: (assistantId) => `vellum:dismissed-surfaces:${assistantId}`,

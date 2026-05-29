@@ -7,6 +7,7 @@
 // its own items — sharing a single array across two Radix roots would cause one
 // root's onValueChange to clobber the other.
 
+import { parseStringArray } from "@/domains/chat/utils/storage-validators";
 import { createKeyedStorageAccessor } from "@/utils/typed-storage";
 
 const OPEN_CATEGORY_KEYS = new Set([
@@ -14,15 +15,6 @@ const OPEN_CATEGORY_KEYS = new Set([
   "background",
   "slack",
 ]);
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((v) => typeof v === "string");
-}
-
-function parseStringArray(raw: string): string[] | null {
-  const parsed: unknown = JSON.parse(raw);
-  return isStringArray(parsed) ? parsed : null;
-}
 
 const categoriesStorage = createKeyedStorageAccessor<string[]>({
   keyFn: (assistantId) => `vellum:sidebar-open-categories:${assistantId}`,

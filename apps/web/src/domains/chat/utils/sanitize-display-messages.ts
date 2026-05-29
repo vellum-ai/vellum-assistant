@@ -10,13 +10,11 @@
 // only have to delete one file when the backend is fixed.
 // -----------------------------------------------------------------------------
 
+import { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "@vellumai/assistant-api";
+
 import { sortedByTimestamp } from "@/domains/chat/utils/message-sorting";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-
-// Canonical default from @vellumai/assistant-api (assistant/src/api/constants/tool-execution.ts).
-// Inlined here because the generated package does not yet re-export it.
-const DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC = 120;
 
 export function sanitizeDisplayMessages(
   messages: DisplayMessage[],
