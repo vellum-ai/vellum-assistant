@@ -30,10 +30,10 @@ useReducer because:
 
 ```ts
 // Good — component only re-renders when its slice changes
-const messages = useChatStore((s) => s.messages);
+const phase = useTurnStore((s) => s.phase);
 
 // Avoid — every consumer re-renders on any context change
-const { messages } = useContext(ChatContext);
+const { phase } = useContext(TurnContext);
 ```
 
 References:
@@ -233,18 +233,18 @@ migrate them — new code uses atomic selectors instead.
 
 ```ts
 // 1. Primitive selector — works without useShallow
-const assistantId = useChatStore((s) => s.assistantId);
+const phase = useTurnStore((s) => s.phase);
 
 // 2. Object/array slice — required useShallow to suppress the
 //    new-reference-per-render re-render storm.
 //    Replace in new code with two atomic selectors side-by-side.
-const { messages, assistantId } = useChatStore(
-  useShallow((s) => ({ messages: s.messages, assistantId: s.assistantId })),
+const { phase, statusText } = useTurnStore(
+  useShallow((s) => ({ phase: s.phase, statusText: s.statusText })),
 );
 
 // 3. Derived/transformed state — useShallow doesn't help.
 //    Replace in new code with an atomic selector + useMemo in the consumer.
-const unread = useChatStore((s) => s.messages.filter((m) => !m.read));
+const isActive = useTurnStore((s) => s.phase !== "idle");
 ```
 
 References:
