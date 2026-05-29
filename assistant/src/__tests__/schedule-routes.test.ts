@@ -11,10 +11,10 @@ const getOrCreateCalls: Array<{
   conversationId: string;
   options?: Record<string, unknown>;
 }> = [];
-const processCalls: Array<unknown[]> = [];
+const processCalls: Array<Record<string, unknown>> = [];
 let fakeConversation: {
   taskRunId?: string;
-  processMessage: (...args: unknown[]) => Promise<string>;
+  processMessage: (options: Record<string, unknown>) => Promise<string>;
 };
 
 function resetConversationMock() {
@@ -22,8 +22,8 @@ function resetConversationMock() {
   processCalls.length = 0;
   fakeConversation = {
     taskRunId: "stale-task-run",
-    async processMessage(...args: unknown[]) {
-      processCalls.push(args);
+    async processMessage(options: Record<string, unknown>) {
+      processCalls.push(options);
       return "message-id";
     },
   };
@@ -109,8 +109,8 @@ describe("schedule run-now trust propagation", () => {
       trustClass: "guardian",
     });
     expect(processCalls).toHaveLength(1);
-    expect(processCalls[0][0]).toBe("scan my inbox");
-    expect(processCalls[0][6]).toEqual({ isInteractive: false });
+    expect(processCalls[0].content).toBe("scan my inbox");
+    expect(processCalls[0].isInteractive).toBe(false);
     expect(fakeConversation.taskRunId).toBeUndefined();
   });
 
@@ -128,9 +128,9 @@ describe("schedule run-now trust propagation", () => {
     const observedTaskRunIds: Array<string | undefined> = [];
     fakeConversation = {
       taskRunId: undefined,
-      async processMessage(...args: unknown[]) {
+      async processMessage(options: Record<string, unknown>) {
         observedTaskRunIds.push(fakeConversation.taskRunId);
-        processCalls.push(args);
+        processCalls.push(options);
         return "message-id";
       },
     };
@@ -147,8 +147,8 @@ describe("schedule run-now trust propagation", () => {
       trustClass: "guardian",
     });
     expect(processCalls).toHaveLength(1);
-    expect(processCalls[0][0]).toBe("triage inbox in background");
-    expect(processCalls[0][6]).toEqual({ isInteractive: false });
+    expect(processCalls[0].content).toBe("triage inbox in background");
+    expect(processCalls[0].isInteractive).toBe(false);
     expect(typeof observedTaskRunIds[0]).toBe("string");
     expect(fakeConversation.taskRunId).toBeUndefined();
   });

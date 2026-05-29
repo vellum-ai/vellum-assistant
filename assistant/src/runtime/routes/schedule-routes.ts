@@ -469,15 +469,11 @@ async function handleRunScheduleNow(id: string) {
           });
           conversation.taskRunId = taskRunId;
           try {
-            await conversation.processMessage(
-              message,
-              [],
-              () => {},
-              undefined,
-              undefined,
-              undefined,
-              { isInteractive: false },
-            );
+            await conversation.processMessage({
+              content: message,
+              attachments: [],
+              isInteractive: false,
+            });
           } finally {
             conversation.taskRunId = undefined;
           }
@@ -565,15 +561,11 @@ async function handleRunScheduleNow(id: string) {
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
     });
     activeConversation.taskRunId = undefined;
-    await activeConversation.processMessage(
-      schedule.message,
-      [],
-      () => {},
-      undefined,
-      undefined,
-      undefined,
-      { isInteractive: false },
-    );
+    await activeConversation.processMessage({
+      content: schedule.message,
+      attachments: [],
+      isInteractive: false,
+    });
     completeScheduleRun(runId, { status: "ok" });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
