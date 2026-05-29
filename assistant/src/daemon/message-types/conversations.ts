@@ -467,7 +467,7 @@ export interface UsageResponse {
  * `/compact`). Carries the fresh `estimatedInputTokens` so clients can refresh
  * the context-window indicator without waiting for the next `usage_update`.
  *
- * Scoped per-conversation — see `CompactionCircuitOpen` doc for why.
+ * Scoped per-conversation — see `CompactionCircuitOpenEvent` doc for why.
  */
 export interface ContextCompacted {
   type: "context_compacted";
@@ -511,9 +511,6 @@ export interface ContextCompacted {
  * conversation would set the "auto-compaction paused" banner on every open
  * `ChatViewModel`.
  */
-export type CompactionCircuitOpen = CompactionCircuitOpenEvent;
-
-export type CompactionCircuitClosed = CompactionCircuitClosedEvent;
 
 export type ConversationErrorCode =
   | "PROVIDER_NETWORK"
@@ -632,8 +629,8 @@ export type _ConversationsServerMessages =
   | UsageProgress
   | UsageResponse
   | ContextCompacted
-  | CompactionCircuitOpen
-  | CompactionCircuitClosed
+  | CompactionCircuitOpenEvent
+  | CompactionCircuitClosedEvent
   | ConversationErrorMessage
   | ConversationInfo
   | ConversationTitleUpdated
