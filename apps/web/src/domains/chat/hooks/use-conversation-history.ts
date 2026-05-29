@@ -40,8 +40,8 @@ import {
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useInteractionStore } from "@/stores/interaction-store";
-import { useSubagentStore } from "@/stores/subagent-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 import type { SubagentStatus } from "@/domains/chat/api/event-types";
 
 import {

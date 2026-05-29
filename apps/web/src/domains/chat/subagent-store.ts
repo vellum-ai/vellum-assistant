@@ -99,7 +99,7 @@ export interface SubagentState {
 }
 
 /** Stable empty array returned for parent ids with no spawned subagents.
- *  Sharing the reference keeps `useShallow`/`Object.is` comparisons happy. */
+ *  Sharing the reference keeps `Object.is` comparisons happy for atomic selectors. */
 export const EMPTY_SUBAGENT_ENTRIES: readonly SubagentEntry[] = [];
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import { lazy } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
-import type { SubagentEntry } from "@/stores/subagent-store";
+import type { SubagentEntry } from "@/domains/chat/subagent-store";
 
 const SubagentDetailPanel = lazy(() =>
   import("@/domains/chat/components/subagent-detail-panel").then((m) => ({

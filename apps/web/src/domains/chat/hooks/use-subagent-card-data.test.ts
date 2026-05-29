@@ -14,7 +14,7 @@ import {
 import type {
   SubagentEntry,
   SubagentTimelineEvent,
-} from "@/stores/subagent-store";
+} from "@/domains/chat/subagent-store";
 
 const NOW = 1700000000000;
 

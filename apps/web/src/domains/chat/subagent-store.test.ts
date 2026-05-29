@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "bun:test";
-import { useSubagentStore } from "@/stores/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 
 // ---------------------------------------------------------------------------
 // Helpers

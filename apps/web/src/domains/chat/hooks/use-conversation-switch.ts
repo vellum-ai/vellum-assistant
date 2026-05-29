@@ -19,7 +19,7 @@ import {
 } from "react";
 
 import { useTurnStore } from "@/domains/chat/turn-store";
-import { useInteractionStore } from "@/stores/interaction-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
 import { loadDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";

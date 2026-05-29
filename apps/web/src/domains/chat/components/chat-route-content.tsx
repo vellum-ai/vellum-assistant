@@ -87,8 +87,8 @@ import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "
 
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useDeployStore } from "@/stores/deploy-store";
-import { useInteractionStore } from "@/stores/interaction-store";
-import type { SubagentState } from "@/stores/subagent-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import type { SubagentState } from "@/domains/chat/subagent-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";

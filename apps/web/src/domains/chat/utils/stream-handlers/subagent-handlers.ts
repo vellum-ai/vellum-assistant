@@ -1,4 +1,4 @@
-import { useSubagentStore } from "@/stores/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { SubagentSpawnedEvent, SubagentStatusChangedEvent, SubagentEventWrapperEvent } from "@/domains/chat/api/event-types";
 

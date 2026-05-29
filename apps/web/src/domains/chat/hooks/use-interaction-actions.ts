@@ -16,7 +16,7 @@ import { type Dispatch, type MutableRefObject, type SetStateAction, useCallback,
 
 import { addTrustRule } from "@/lib/trust-rules-api";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import { useInteractionStore } from "@/stores/interaction-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
