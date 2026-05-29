@@ -7,7 +7,10 @@ import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
 import { isRejection, resolveAssistant } from "../routing/resolve-assistant.js";
-import { SLACK_THREAD_MUTE_SUCCESS } from "../webhook-copy.js";
+import {
+  SLACK_THREAD_ALREADY_MUTED,
+  SLACK_THREAD_MUTE_SUCCESS,
+} from "../webhook-copy.js";
 import {
   CatchupAbortSignal,
   fetchChannelHistorySince,
@@ -331,14 +334,17 @@ export class SlackSocketModeClient {
       "Handled Slack mute command without runtime dispatch",
     );
 
-    if (detached) {
-      this.sendSlackMuteConfirmation(channelId, threadTs).catch((err) => {
+    const confirmationText = detached
+      ? SLACK_THREAD_MUTE_SUCCESS
+      : SLACK_THREAD_ALREADY_MUTED;
+    this.sendSlackMuteConfirmation(channelId, threadTs, confirmationText).catch(
+      (err) => {
         log.warn(
           { err, channelId, threadTs },
           "Slack thread muted, but confirmation message failed",
         );
-      });
-    }
+      },
+    );
 
     return true;
   }
@@ -346,8 +352,9 @@ export class SlackSocketModeClient {
   private async sendSlackMuteConfirmation(
     channelId: string,
     threadTs: string,
+    text: string,
   ): Promise<void> {
-    await fetchImpl("https://slack.com/api/chat.postMessage", {
+    const resp = await fetchImpl("https://slack.com/api/chat.postMessage", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${this.config.botToken}`,
@@ -355,10 +362,15 @@ export class SlackSocketModeClient {
       },
       body: JSON.stringify({
         channel: channelId,
-        text: SLACK_THREAD_MUTE_SUCCESS,
+        text,
         thread_ts: threadTs,
       }),
     });
+    const data = (await resp.json()) as { ok?: boolean; error?: string };
+    if (!resp.ok || data.ok === false) {
+      const reason = data.error ?? `HTTP ${resp.status}`;
+      throw new Error(`Slack chat.postMessage failed: ${reason}`);
+    }
   }
 
   /**
