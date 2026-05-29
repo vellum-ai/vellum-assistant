@@ -4,6 +4,7 @@ type StubWebContents = {
   on: ReturnType<typeof mock>;
   once: (event: string, handler: () => void) => void;
   emit: (event: string) => void;
+  send: ReturnType<typeof mock>;
 };
 type StubWindow = {
   show: ReturnType<typeof mock>;
@@ -84,6 +85,7 @@ const makeWindow = (): StubWindow => {
         emit: (event) => {
           for (const h of wcListeners.get(event) ?? []) h();
         },
+        send: mock(() => undefined),
       };
       return wc;
     })(),
@@ -113,7 +115,7 @@ mock.module("./window-state", () => ({
   track: () => undefined,
 }));
 
-const { current, ensureVisible, hide, installMainWindow, isVisibleAndFocused, toggleVisibility } =
+const { current, dispatchToMain, ensureVisible, hide, installMainWindow, isVisibleAndFocused, toggleVisibility } =
   await import("./main-window");
 
 const reset = (): void => {
@@ -294,6 +296,22 @@ describe("ensureVisible readiness gate", () => {
     expect(resolved).toBe(true);
   });
 
+  test("unblocks the awaiter if the window is destroyed before either event fires", async () => {
+    let resolved = false;
+    const promise = ensureVisible().then(() => {
+      resolved = true;
+    });
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+
+    // Simulate the destroyed-before-ready race (network failure during
+    // load, user quit mid-load). Neither did-finish-load nor
+    // ready-to-show ever fire.
+    win.stub.emit("closed");
+    await promise;
+    expect(resolved).toBe(true);
+  });
+
   test("ready-to-show shows AND focuses the window so dispatchToFocused targets it", () => {
     void ensureVisible();
     const win = constructed[0];
@@ -311,6 +329,37 @@ describe("installMainWindow", () => {
     installMainWindow();
     installMainWindow();
     expect(constructed).toHaveLength(1);
+  });
+});
+
+describe("dispatchToMain", () => {
+  test("sends `vellum:command` to the main window's webContents", () => {
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+
+    dispatchToMain({ kind: "newConversation" });
+
+    expect(win.stub.webContents.send).toHaveBeenCalledWith(
+      "vellum:command",
+      { kind: "newConversation" },
+    );
+  });
+
+  test("no-ops when no main window exists", () => {
+    dispatchToMain({ kind: "newConversation" });
+    expect(constructed).toHaveLength(0);
+  });
+
+  test("no-ops when the main window has been destroyed", () => {
+    ensureVisible();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+    win.stub.emit("closed");
+
+    const before = win.stub.webContents.send.mock.calls.length;
+    dispatchToMain({ kind: "newConversation" });
+    expect(win.stub.webContents.send.mock.calls.length).toBe(before);
   });
 });
 

@@ -79,6 +79,14 @@ mock.module("./settings", () => ({
   readSetting: () => null,
 }));
 
+// Mock `./main-window` so `tray.ts`'s `dispatchToMain` import doesn't
+// drag in the full BrowserWindow / window-state / ipc setup. The spy
+// is asserted on below.
+const dispatchToMainMock = mock((_command: unknown) => undefined);
+mock.module("./main-window", () => ({
+  dispatchToMain: dispatchToMainMock,
+}));
+
 const { installTray } = await import("./tray");
 
 describe("installTray", () => {
@@ -148,10 +156,10 @@ describe("installTray", () => {
     expect(quitItem?.role).toBe("quit");
   });
 
-  test("conversation menu items surface the main window before dispatching the renderer command", () => {
+  test("conversation menu items surface the main window before dispatching the renderer command", async () => {
     const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
       label?: string;
-      click?: () => void;
+      click?: () => void | Promise<void>;
     }>;
     const newConversation = template.find(
       (item) => item.label === "New Conversation",
@@ -162,9 +170,19 @@ describe("installTray", () => {
     expect(newConversation?.click).toBeDefined();
     expect(currentConversation?.click).toBeDefined();
 
-    const before = handlers.ensureMainWindow.mock.calls.length;
-    newConversation?.click?.();
-    currentConversation?.click?.();
-    expect(handlers.ensureMainWindow.mock.calls.length).toBe(before + 2);
+    const beforeEnsure = handlers.ensureMainWindow.mock.calls.length;
+    const beforeDispatch = dispatchToMainMock.mock.calls.length;
+
+    await newConversation?.click?.();
+    await currentConversation?.click?.();
+
+    expect(handlers.ensureMainWindow.mock.calls.length).toBe(beforeEnsure + 2);
+    expect(dispatchToMainMock.mock.calls.length).toBe(beforeDispatch + 2);
+    expect(dispatchToMainMock.mock.calls[beforeDispatch]?.[0]).toEqual({
+      kind: "newConversation",
+    });
+    expect(dispatchToMainMock.mock.calls[beforeDispatch + 1]?.[0]).toEqual({
+      kind: "currentConversation",
+    });
   });
 });

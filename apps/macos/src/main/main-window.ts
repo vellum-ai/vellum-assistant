@@ -7,6 +7,7 @@ import {
   RENDERER_BASE_PROD,
   getDevRendererBase,
 } from "./app-config";
+import { type VellumCommand } from "./commands";
 import { restoreBounds, track as trackWindowState } from "./window-state";
 
 /**
@@ -44,22 +45,39 @@ import { restoreBounds, track as trackWindowState } from "./window-state";
 
 let mainWindow: BrowserWindow | null = null;
 
-// Tracks whether the current `mainWindow`'s renderer has finished
-// loading. The tray's command menu items rely on this — `ensureVisible`
-// can return a fresh BrowserWindow whose React tree (and the
-// `useVellumCommands` IPC listener) hasn't subscribed yet, so a bare
-// `dispatchToFocused` would drop the command. `whenReady` is the
-// awaitable seam; the tray composes `await ensureVisible()` before
-// `dispatchToFocused(...)`. Reset on every `createWindow` so the
-// per-window readiness signal stays accurate.
-let renderReady: Promise<void> = Promise.resolve();
-let resolveRenderReady: (() => void) | null = null;
+// Per-window readiness state. The tray's command menu items await
+// `ensureVisible()` before dispatching IPC, so each freshly-created
+// window needs its own promise — keyed by the `BrowserWindow`
+// instance via a `WeakMap` so two near-simultaneous `createWindow`
+// calls can't have the second's `armRenderReady` overwrite the
+// first's resolver (or vice versa).
+interface ReadyState {
+  promise: Promise<void>;
+  resolve: () => void;
+  didFinishLoad: boolean;
+  didShow: boolean;
+}
+const readyStates = new WeakMap<BrowserWindow, ReadyState>();
 
-const armRenderReady = (): void => {
-  renderReady = new Promise<void>((resolve) => {
-    resolveRenderReady = resolve;
+const armReadyState = (win: BrowserWindow): ReadyState => {
+  let resolve: () => void = () => {};
+  const promise = new Promise<void>((res) => {
+    resolve = res;
   });
+  const state: ReadyState = {
+    promise,
+    resolve,
+    didFinishLoad: false,
+    didShow: false,
+  };
+  readyStates.set(win, state);
+  return state;
 };
+
+// Already-resolved sentinel for the "no window exists" path —
+// `ensureVisible` returns a Promise even when there's nothing to
+// wait for, so callers can compose `await` uniformly.
+const ALREADY_READY: Promise<void> = Promise.resolve();
 
 interface NavigationGuardConfig {
   isDev: boolean;
@@ -132,36 +150,35 @@ const createWindow = (): BrowserWindow => {
 
   trackWindowState("main", win);
 
-  // `renderReady` resolves only after BOTH the renderer has loaded
-  // AND the window has shown + focused. Without the latter, a tray
-  // dispatch fired right after the await would still go to whichever
-  // auxiliary window (e.g. About) held focus at the time, because
-  // `ready-to-show` typically fires after `did-finish-load` and our
-  // show/focus calls live in that handler. `dispatchToFocused` picks
-  // by `getFocusedWindow`, so we need the focus transfer to land
-  // before the await resolves.
-  armRenderReady();
-  let didFinishLoad = false;
-  let didShow = false;
+  // Readiness resolves only after BOTH the renderer has loaded AND
+  // the window has shown + focused. Per-window state keyed via
+  // WeakMap so concurrent `createWindow` calls can't cross-resolve
+  // each other's promise (the prior module-scope `resolveRenderReady`
+  // had that race).
+  const ready = armReadyState(win);
   const maybeResolveReady = (): void => {
-    if (didFinishLoad && didShow) {
-      resolveRenderReady?.();
-      resolveRenderReady = null;
-    }
+    if (ready.didFinishLoad && ready.didShow) ready.resolve();
   };
   win.webContents.once("did-finish-load", () => {
-    didFinishLoad = true;
+    ready.didFinishLoad = true;
     maybeResolveReady();
   });
 
   win.once("ready-to-show", () => {
     win.show();
     win.focus();
-    didShow = true;
+    ready.didShow = true;
     maybeResolveReady();
   });
 
   win.on("closed", () => {
+    // Unblock any pending `await ensureVisible()` so callers that hit
+    // the destroyed-before-ready race (network failure during load,
+    // user quit mid-load) don't hang forever. The caller's follow-up
+    // dispatch then sees `current() === null` and no-ops; that's the
+    // right semantics — the user closed the window, nothing should
+    // happen.
+    ready.resolve();
     if (mainWindow === win) mainWindow = null;
   });
 
@@ -192,13 +209,16 @@ const createWindow = (): BrowserWindow => {
  */
 export const ensureVisible = (): Promise<void> => {
   if (!mainWindow || mainWindow.isDestroyed()) {
-    createWindow();
-    return renderReady;
+    const win = createWindow();
+    return readyStates.get(win)?.promise ?? ALREADY_READY;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
-  return renderReady;
+  // Existing window: its readiness was satisfied on the original
+  // load. Re-show + re-focus are synchronous OS calls; nothing to
+  // wait for.
+  return ALREADY_READY;
 };
 
 export const hide = (): void => {
@@ -227,6 +247,23 @@ export const toggleVisibility = (): void => {
  * Most callers should compose from `ensureVisible` / `hide` instead.
  */
 export const current = (): BrowserWindow | null => mainWindow;
+
+/**
+ * Send a `vellum:command` IPC message directly to the main window,
+ * bypassing the application-menu `dispatchToFocused` "find focused
+ * window" lookup. The tray click happens with the app potentially
+ * backgrounded, so `getFocusedWindow()` can disagree with what the
+ * user just clicked on — even after we call `win.focus()`, the OS
+ * doesn't deliver the focus change synchronously. Targeting the
+ * main window by reference sidesteps that entirely.
+ *
+ * No-op if the main window doesn't currently exist; the caller is
+ * expected to have run `ensureVisible()` first.
+ */
+export const dispatchToMain = (command: VellumCommand): void => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send("vellum:command", command);
+};
 
 /**
  * Create the initial main window. Call once from `whenReady`.

@@ -1,6 +1,7 @@
 import { Menu, Tray, app, nativeImage, type NativeImage } from "electron";
 
-import { dispatchToFocused, resolveAccelerator } from "./commands";
+import { resolveAccelerator } from "./commands";
+import { dispatchToMain } from "./main-window";
 
 /**
  * macOS menu-bar (Tray) status item.
@@ -104,7 +105,12 @@ const buildTrayMenu = (handlers: TrayHandlers): Menu =>
       accelerator: resolveAccelerator("newConversation"),
       click: async () => {
         await handlers.ensureMainWindow();
-        dispatchToFocused({ kind: "newConversation" });
+        // Dispatch by reference (not `dispatchToFocused`'s
+        // `getFocusedWindow` lookup) — the tray click happens with
+        // the app potentially backgrounded, so even after our
+        // `win.focus()` the OS may not have delivered focus by the
+        // time this runs. Targeting main directly is unambiguous.
+        dispatchToMain({ kind: "newConversation" });
       },
     },
     {
@@ -112,7 +118,7 @@ const buildTrayMenu = (handlers: TrayHandlers): Menu =>
       accelerator: resolveAccelerator("currentConversation"),
       click: async () => {
         await handlers.ensureMainWindow();
-        dispatchToFocused({ kind: "currentConversation" });
+        dispatchToMain({ kind: "currentConversation" });
       },
     },
     { type: "separator" },
