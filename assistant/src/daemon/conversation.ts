@@ -61,7 +61,7 @@ import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
-import type { Message } from "../providers/types.js";
+import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -74,6 +74,7 @@ import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
+import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   applyCompactionResult,
   runAgentLoopImpl,
@@ -327,20 +328,13 @@ export class Conversation {
     ReturnType<typeof setTimeout>
   >();
   /** @internal */ withSurface = createSurfaceMutex();
-  /** @internal */ currentTurnSurfaces: Array<{
-    surfaceId: string;
-    surfaceType: SurfaceType;
-    title?: string;
-    data: SurfaceData;
-    actions?: Array<{
-      id: string;
-      label: string;
-      style?: string;
-      data?: Record<string, unknown>;
-    }>;
-    display?: string;
-    persistent?: boolean;
-  }> = [];
+  /** @internal */ currentTurnSurfaces: AssistantSurface[] = [];
+  /**
+   * Running mirror of the in-flight assistant message's content (see
+   * {@link AgentLoopConversationContext.currentMessageContent}).
+   * @internal
+   */
+  currentMessageContent: ContentBlock[] = [];
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
   /**

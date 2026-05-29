@@ -613,6 +613,7 @@ function makeCtx(
     pendingSurfaceActions: new Map(),
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
+    currentMessageContent: [],
 
     workingDir: "/tmp",
     workspaceTopLevelContext: null,
@@ -3482,7 +3483,7 @@ describe("session-agent-loop", () => {
         onEvent({ type: "text_delta", text: "Hello, " });
         onEvent({ type: "text_delta", text: "world." });
         // Wait long enough for the 250ms debounce to fire.
-        await new Promise((resolve) => setTimeout(resolve, 350));
+        await new Promise((resolve) => setTimeout(resolve, 1100));
         await onEvent({
           type: "message_complete",
           message: {
@@ -3642,7 +3643,7 @@ describe("session-agent-loop", () => {
         });
         // Wait past the original debounce window to prove a late timer
         // does NOT fire a stray partial flush.
-        await new Promise((resolve) => setTimeout(resolve, 350));
+        await new Promise((resolve) => setTimeout(resolve, 1100));
         return [
           ...messages,
           {
@@ -3676,7 +3677,7 @@ describe("session-agent-loop", () => {
         onEvent({ type: "text_delta", text: "hello world" });
         // Wait past the 250ms debounce so the partial flush definitely
         // lands BEFORE message_complete fires.
-        await new Promise((resolve) => setTimeout(resolve, 350));
+        await new Promise((resolve) => setTimeout(resolve, 1100));
         // Snapshot the indexer/projector call counts AFTER the partial
         // flush has run but BEFORE message_complete. They must be zero.
         const indexerCallsBeforeComplete =
@@ -3752,7 +3753,7 @@ describe("session-agent-loop", () => {
         await onEvent({ type: "llm_call_started" });
         onEvent({ type: "text_delta", text: payload });
         // Wait past the 250ms debounce so the partial flush lands.
-        await new Promise((resolve) => setTimeout(resolve, 350));
+        await new Promise((resolve) => setTimeout(resolve, 1100));
         await onEvent({
           type: "message_complete",
           message: {
@@ -3805,7 +3806,7 @@ describe("session-agent-loop", () => {
         // A debounced delta lands a partial flush BEFORE the provider
         // error fires.
         onEvent({ type: "text_delta", text: "hello world" });
-        await new Promise((resolve) => setTimeout(resolve, 350));
+        await new Promise((resolve) => setTimeout(resolve, 1100));
         onEvent({
           type: "provider_error",
           error: new Error("upstream 500"),

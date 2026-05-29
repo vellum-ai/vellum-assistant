@@ -484,6 +484,26 @@ function buildPluginTurnContext(
 
 // ── Context Interface ────────────────────────────────────────────────
 
+/**
+ * Per-surface entry tracked on the current turn. Inline shape kept stable so
+ * routes and persistence helpers can consume it via a named import instead of
+ * `infer`-extracting from {@link AgentLoopConversationContext}.
+ */
+export interface AssistantSurface {
+  surfaceId: string;
+  surfaceType: SurfaceType;
+  title?: string;
+  data: SurfaceData;
+  actions?: Array<{
+    id: string;
+    label: string;
+    style?: string;
+    data?: Record<string, unknown>;
+  }>;
+  display?: string;
+  persistent?: boolean;
+}
+
 export interface AgentLoopConversationContext {
   readonly conversationId: string;
   messages: Message[];
@@ -533,20 +553,14 @@ export interface AgentLoopConversationContext {
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   surfaceActionRequestIds: Set<string>;
   approvedViaPromptThisTurn?: boolean;
-  currentTurnSurfaces: Array<{
-    surfaceId: string;
-    surfaceType: SurfaceType;
-    title?: string;
-    data: SurfaceData;
-    actions?: Array<{
-      id: string;
-      label: string;
-      style?: string;
-      data?: Record<string, unknown>;
-    }>;
-    display?: string;
-    persistent?: boolean;
-  }>;
+  currentTurnSurfaces: AssistantSurface[];
+  /**
+   * Running mirror of the in-flight assistant message's content, used by
+   * partial-persistence flushes (see `conversation-agent-loop-handlers.ts`).
+   * Mid-turn snapshot of what `event.message.content` will be at
+   * `message_complete`. Reset on llm_call_started and finalize.
+   */
+  currentMessageContent: ContentBlock[];
 
   workingDir: string;
   workspaceTopLevelContext: string | null;
