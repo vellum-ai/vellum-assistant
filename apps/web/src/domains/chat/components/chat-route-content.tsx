@@ -1055,24 +1055,21 @@ export function ChatRouteContent({
   // Billing composer banner
   // -------------------------------------------------------------------------
 
+  const billingBannerDecision = getChatBillingBannerDecision(error);
+
   const renderBillingComposerBanner = (): ReactNode => {
-    const decision = getChatBillingBannerDecision(error);
-    if (decision === "managed_credits") {
+    if (billingBannerDecision === "managed_credits") {
       return (
-        <div className="mb-2">
-          <CreditsExhaustedBanner
-            onAddFunds={() => setShowAddCreditsModal(true)}
-          />
-        </div>
+        <CreditsExhaustedBanner
+          onAddFunds={() => setShowAddCreditsModal(true)}
+        />
       );
     }
-    if (decision === "provider_billing") {
+    if (billingBannerDecision === "provider_billing") {
       return (
-        <div className="mb-2">
-          <ProviderBillingBanner
-            onOpenSettings={pushToAiSettings}
-          />
-        </div>
+        <ProviderBillingBanner
+          onOpenSettings={pushToAiSettings}
+        />
       );
     }
     return null;
@@ -1324,6 +1321,7 @@ export function ChatRouteContent({
       />
     ),
     suggestion,
+    hasBillingBanner: billingBannerDecision !== null,
   };
 
   const chatBodyScrollAreaPropsBase = {

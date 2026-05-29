@@ -212,6 +212,11 @@ export interface ChatComposerProps {
   // notices and the live voice-interim preview. The app-editing variant omits it.
   noticesAboveFormSlot?: ReactNode;
 
+  // When true, the form's top border-radius is removed so the billing banner
+  // (which has only top corners rounded) sits flush against the form,
+  // forming a single continuous card.
+  hasBillingBanner?: boolean;
+
   // Cap for the textarea's auto-grow height in pixels. The empty state passes a
   // larger value so the user can compose long first messages without the box
   // clipping.
@@ -254,6 +259,7 @@ export function ChatComposer({
   thresholdPickerSlot,
   contextWindowIndicatorSlot,
   noticesAboveFormSlot,
+  hasBillingBanner = false,
   textareaMaxHeightPx = 240,
   cmdEnterMode = false,
   suggestion,
@@ -364,7 +370,9 @@ export function ChatComposer({
         <Popover.Anchor asChild>
           <form
             onSubmit={onSubmit}
-            className="overflow-hidden rounded-[10px] bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)]"
+            className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${
+              hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"
+            }`}
           >
             <ChatAttachmentsStrip
               attachments={chatAttachments}
