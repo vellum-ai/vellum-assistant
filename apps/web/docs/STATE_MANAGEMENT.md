@@ -266,6 +266,174 @@ References:
 - [TkDodo — Working with Zustand](https://tkdodo.eu/blog/working-with-zustand) — React Query maintainer's guidance on the boundary between server state (RQ) and client/infrastructure state (Zustand)
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
 
+## TanStack Query migration checklist
+
+Migrating an existing imperative `setTimeout`-driven fetch loop to
+TanStack Query forces explicit reasoning about cache events, retry
+timing, and stale-time semantics that the original code typically
+hid by coincidence. The patterns below are the ones we'd otherwise
+re-discover in PR review.
+
+### Mutation refs
+
+[`useMutation()`](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation)
+returns a new object reference on every render. Including the
+mutation object in a `useCallback`/`useMemo` dependency array makes
+that callback identity-unstable. Effects that depend on the callback
+re-fire on every render, which for a lifecycle hook can become a
+continuous fetch loop.
+
+Capture `mutateAsync` in a ref instead:
+
+```ts
+const fooMutation = useMutation({ mutationFn: foo });
+const fooMutateRef = useRef(fooMutation.mutateAsync);
+fooMutateRef.current = fooMutation.mutateAsync;
+
+const doSomething = useCallback(async () => {
+  await fooMutateRef.current(args); // not fooMutation.mutateAsync
+}, []); // mutation NOT in deps
+```
+
+The bound `mutateAsync` method is stable across renders even when
+the wrapper object isn't; reading it through a ref makes that
+contract explicit at the call site.
+
+References:
+- [React — useCallback: preventing an Effect from firing too often](https://react.dev/reference/react/useCallback#preventing-an-effect-from-firing-too-often)
+
+### Cache subscriber action filter
+
+`queryClient.getQueryCache().subscribe(...)` is the low-level
+imperative API for reacting to cache changes. Prefer the declarative
+path — `const { data } = useFooQuery(...)` plus `useEffect(...,
+[data])` — whenever possible. The query data is stable per render
+and updates only on observer-meaningful changes; the `useEffect`
+gets unmount cleanup for free.
+
+If you genuinely need the cache subscriber (e.g. cross-store
+coordination outside the component tree), remember that
+`event.type === "updated"` fires for **every** state transition —
+not just successful data writes:
+
+```ts
+queryClient.getQueryCache().subscribe((event) => {
+  if (event.type !== "updated") return;
+  if (event.action.type !== "success") return; // ← required
+  // ... read cache and apply
+});
+```
+
+Without the action filter, a scheduled
+`queryClient.invalidateQueries(...)` immediately fires an
+`invalidate` action; if your subscriber reads the cache and reacts
+to it, you'll be projecting the stale pre-invalidation value before
+the refetch completes. `setQueryData` (used to seed the cache from
+mutation responses) also dispatches `success`, so seeded paths still
+fire here.
+
+References:
+- [TanStack Query — `QueryCache`](https://tanstack.com/query/latest/docs/reference/QueryCache)
+
+### Imperative `fetchQuery` and global `staleTime`
+
+The app's `QueryClient` (configured in
+`apps/web/src/components/providers.tsx`) sets a default
+`staleTime` (10 seconds at the time of writing). When you call
+`queryClient.fetchQuery({ queryKey, queryFn })` without passing
+your own `staleTime`, the global default applies — meaning a result
+cached within the last 10 seconds resolves from cache **without
+hitting the network**.
+
+For imperative re-checks where freshness matters (visibility-change
+handlers, retry buttons, post-action verification), pass
+`staleTime: 0`:
+
+```ts
+const result = await queryClient.fetchQuery({
+  queryKey,
+  queryFn,
+  staleTime: 0, // imperative re-checks must hit the network
+});
+```
+
+The global default is the correct policy for ordinary subscribers
+(`useFooQuery()`), but the imperative path has a different contract
+("I need the truth now, not a cached truth from N seconds ago").
+Naming the override at the call site beats relying on a cross-file
+implicit default.
+
+References:
+- [TanStack Query — `staleTime`](https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientfetchquery)
+
+### Post-mutation cache seeding vs invalidation
+
+When a mutation returns server state in the same shape your query
+fetches, prefer `setQueryData` over `invalidateQueries`:
+
+```ts
+const result = await fooMutation.mutateAsync(input);
+if (result.ok) {
+  // Skip a redundant round-trip — the mutation response already
+  // carries what a re-fetch would return.
+  queryClient.setQueryData<QueryResult>(QUERY_KEY, {
+    ok: true,
+    status: result.status,
+    data: result.data,
+  });
+}
+```
+
+Reach for `invalidateQueries` when:
+- The mutation is fire-and-forget (no usable response payload).
+- The mutation's response shape doesn't match the query's, OR
+- You genuinely need to verify against the server's current state.
+
+The seed path is also what makes polling restart correctly after a
+mutation that flips the resource into a transient state — the
+query's `refetchInterval` reads the cached value to decide whether
+to keep polling, and a stale pre-mutation cache (e.g. a 404 that
+the mutation just resolved) would otherwise keep the query idle.
+
+References:
+- [TanStack Query — `setQueryData`](https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientsetquerydata)
+- [TanStack Query — `invalidateQueries`](https://tanstack.com/query/latest/docs/reference/QueryClient#queryclientinvalidatequeries)
+
+### Retry backoff for controlled-budget recovery
+
+`refetchInterval` consults the cached data on every tick to decide
+whether to keep polling. If the cache is a 404 / undefined that
+your `pollIntervalFor` decision function treats as terminal,
+**polling stops**. Replacing a `setTimeout`-driven retry loop that
+relied on polling-as-retry needs explicit handling.
+
+For a controlled budget like "3 attempts spaced 3 seconds apart,
+then give up," don't `invalidateQueries` immediately on failure —
+that triggers an immediate refetch (still 404), which fires the
+cache subscriber (or `useEffect` on data), which re-enters the
+auto-hatch / retry branch. The original 3-second backoff between
+attempts collapses to milliseconds and the retry budget burns
+before the user sees any feedback.
+
+```ts
+if (shouldRetry(result)) {
+  setState({ kind: "initializing" });
+  // Preserve the 3-second backoff between attempts.
+  setTimeout(() => {
+    void queryClient.invalidateQueries({ queryKey });
+  }, POLL_INTERVAL_MS);
+  return;
+}
+```
+
+Clean the `setTimeout` up on unmount — store the handle in a ref,
+clear it in an effect cleanup — so navigation during the backoff
+doesn't trigger a wasted refetch.
+
+References:
+- [React — Synchronizing with Effects: cleanup](https://react.dev/learn/synchronizing-with-effects#how-to-handle-the-effect-firing-twice-in-development)
+- [TanStack Query — Network mode & retries](https://tanstack.com/query/latest/docs/framework/react/guides/network-mode)
+
 ## useReducer is not used for client state
 
 **Do not use `useReducer` in `apps/web/`.** All client state — including

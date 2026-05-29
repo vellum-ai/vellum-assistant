@@ -16,6 +16,7 @@ Read these before making changes:
 ## Common pitfalls
 
 - **`conversationId` vs `conversationKey`**: API queries must send `conversationId` (UUID), never `conversationKey`. See [`docs/CONVENTIONS.md` — Conversation identifiers](./docs/CONVENTIONS.md#conversation-identifiers-conversationid-vs-conversationkey).
+- **Migrating an imperative fetch loop to TanStack Query**: mutation refs, cache subscriber action filters, explicit `staleTime: 0` on imperative re-checks, `setQueryData` vs `invalidateQueries`, and `setTimeout`-based retry backoff are all subtleties that imperative `setTimeout`-driven code typically hides. See [`docs/STATE_MANAGEMENT.md` — TanStack Query migration checklist](./docs/STATE_MANAGEMENT.md#tanstack-query-migration-checklist).
 
 When a topic in `docs/CONVENTIONS.md` grows past ~100 lines and has a
 coherent boundary, extract it into a `docs/TOPIC.md` sibling with a
