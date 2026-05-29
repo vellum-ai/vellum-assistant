@@ -166,6 +166,10 @@ async function handleEmailStatus(_args: RouteHandlerArgs) {
 
   const addresses = listData.results ?? [];
   if (addresses.length === 0) {
+    // The platform has no inbox — converge by clearing any stale local
+    // address (e.g. one deleted from the web settings page or platform admin)
+    // so the settings card / readiness probe stop reporting it as configured.
+    persistLocalInboxAddress(undefined);
     throw new NotFoundError(
       "No email address registered for this assistant. Run: assistant email register <username>",
     );

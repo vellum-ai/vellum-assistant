@@ -17,11 +17,18 @@ Only proceed if the user explicitly asks you to create or set up **your own** (t
 ## Step 1: Check if Domain & Email Already Exist
 
 ```bash
-assistant domain status --json
 assistant email status --json
 ```
 
-If both commands show an active domain and email address, tell the user the existing address and stop.
+If this shows an active email address, the domain and email are already set up — tell the user the existing address and stop.
+
+If no email address is configured, determine your intended subdomain — your assistant name from `IDENTITY.md`, lowercased (see Step 2) — and check whether the domain already exists (the `status` subcommand requires the subdomain):
+
+```bash
+assistant domain status <subdomain> --json
+```
+
+If the domain exists but no email, skip to Step 3. If neither exists, continue to Step 2.
 
 If an email exists but no domain, the email was set up under the legacy shared domain — it still works. Ask the user if they want to keep it or migrate to a custom subdomain.
 

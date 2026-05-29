@@ -305,6 +305,29 @@ test("status converges an already-registered inbox into local config", async () 
   expect(readConfiguredEmailAddress()).toBe("legacy@example.com");
 });
 
+test("status clears a stale local address when the platform has no inbox", async () => {
+  // Seed a locally-persisted address via register.
+  mockFetchFn = async () =>
+    new Response(
+      JSON.stringify({
+        id: "1",
+        address: "gone@example.com",
+        created_at: "2026-01-01",
+      }),
+      { status: 201 },
+    );
+  await runAssistantCommandFull("email", "--json", "register", "gone");
+  expect(readConfiguredEmailAddress()).toBe("gone@example.com");
+
+  // The inbox was deleted elsewhere (web/admin): the platform now lists none.
+  mockFetchFn = async () =>
+    new Response(JSON.stringify({ results: [] }), { status: 200 });
+
+  // --json so the NotFound error is surfaced to stdout rather than exiting.
+  await runAssistantCommandFull("email", "--json", "status");
+  expect(readConfiguredEmailAddress()).toBeNull();
+});
+
 // ---------------------------------------------------------------------------
 // email list
 // ---------------------------------------------------------------------------
