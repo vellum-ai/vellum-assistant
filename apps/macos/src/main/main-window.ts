@@ -45,6 +45,26 @@ import { restoreBounds, track as trackWindowState } from "./window-state";
 
 let mainWindow: BrowserWindow | null = null;
 
+// Visibility-change subscribers. Used by the dock state machine to
+// follow main-window show/hide/closed transitions without having to
+// scan every BrowserWindow and identify "main." `browser-window-created`
+// would fire BEFORE `mainWindow = win` lands (the Electron event is
+// synchronous inside the constructor), so any identity check at that
+// hook is racy. This subscription fires AFTER the assignment so
+// `current()` is correct by the time the listener runs.
+type VisibilityListener = () => void;
+const visibilityListeners: VisibilityListener[] = [];
+
+export const onMainWindowVisibilityChange = (
+  listener: VisibilityListener,
+): void => {
+  visibilityListeners.push(listener);
+};
+
+const fireVisibilityChange = (): void => {
+  for (const listener of visibilityListeners) listener();
+};
+
 // Per-window readiness state. The tray's command menu items await
 // `ensureVisible()` before dispatching IPC, so each freshly-created
 // window needs its own promise — keyed by the `BrowserWindow`
@@ -171,6 +191,12 @@ const createWindow = (): BrowserWindow => {
     maybeResolveReady();
   });
 
+  // Visibility transitions feed the dock state machine (via
+  // `onMainWindowVisibilityChange`). Subscribed here — not in the
+  // listener — so dock doesn't need to know how to identify "main".
+  win.on("show", fireVisibilityChange);
+  win.on("hide", fireVisibilityChange);
+
   win.on("closed", () => {
     // Unblock any pending `await ensureVisible()` so callers that hit
     // the destroyed-before-ready race (network failure during load,
@@ -180,6 +206,9 @@ const createWindow = (): BrowserWindow => {
     // happen.
     ready.resolve();
     if (mainWindow === win) mainWindow = null;
+    // Subscribers (dock) re-read `current()` which is now null →
+    // `isMainWindowVisible()` returns false.
+    fireVisibilityChange();
   });
 
   installSameOriginNavigationGuard(win, { isDev, devOrigin });
@@ -189,6 +218,11 @@ const createWindow = (): BrowserWindow => {
   });
 
   mainWindow = win;
+  // Fire AFTER assignment so subscribers see the new window via
+  // `current()` if they query it. The window itself isn't visible
+  // yet (created with `show: false`); the `show`/`hide` listeners
+  // above will drive subsequent transitions.
+  fireVisibilityChange();
   return win;
 };
 

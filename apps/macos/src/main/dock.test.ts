@@ -1,6 +1,17 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 
-import { computePolicy, formatBadge } from "./dock";
+// `./main-window` (which `./dock` imports `current` /
+// `onMainWindowVisibilityChange` from) transitively pulls in
+// `./window-state`, which depends on the `electron-store` module —
+// stub both so the pure-function tests below don't need a real
+// store. The mocks are no-ops; the `computePolicy` matrix tests
+// only exercise the pure path.
+mock.module("./main-window", () => ({
+  current: () => null,
+  onMainWindowVisibilityChange: () => undefined,
+}));
+
+const { computePolicy, formatBadge } = await import("./dock");
 
 describe("formatBadge", () => {
   test("returns empty string for zero", () => {
@@ -44,26 +55,25 @@ describe("formatBadge", () => {
 });
 
 describe("computePolicy", () => {
-  test("regular while any window is visible (signed out, gate off)", () => {
-    expect(computePolicy(1, false, false)).toBe("regular");
-    expect(computePolicy(3, false, false)).toBe("regular");
+  test("regular while the main window is visible (signed out, gate off)", () => {
+    expect(computePolicy(true, false, false)).toBe("regular");
   });
 
-  test("regular while signed in even with no visible windows", () => {
-    expect(computePolicy(0, true, false)).toBe("regular");
-    expect(computePolicy(0, true, true)).toBe("regular");
+  test("regular while signed in even when the main window is hidden", () => {
+    expect(computePolicy(false, true, false)).toBe("regular");
+    expect(computePolicy(false, true, true)).toBe("regular");
   });
 
-  test("regular when signed out + no windows AND accessory gate off", () => {
-    expect(computePolicy(0, false, false)).toBe("regular");
+  test("regular when signed out + main hidden AND accessory gate off", () => {
+    expect(computePolicy(false, false, false)).toBe("regular");
   });
 
-  test("accessory only when signed out + no windows + gate on", () => {
-    expect(computePolicy(0, false, true)).toBe("accessory");
+  test("accessory only when signed out + main hidden + gate on", () => {
+    expect(computePolicy(false, false, true)).toBe("accessory");
   });
 
-  test("visible windows override every other signal", () => {
-    expect(computePolicy(2, false, true)).toBe("regular");
-    expect(computePolicy(1, true, true)).toBe("regular");
+  test("main-window visibility overrides every other signal", () => {
+    expect(computePolicy(true, false, true)).toBe("regular");
+    expect(computePolicy(true, true, true)).toBe("regular");
   });
 });

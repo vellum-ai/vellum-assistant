@@ -1,4 +1,9 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, ipcMain } from "electron";
+
+import {
+  current as currentMainWindow,
+  onMainWindowVisibilityChange,
+} from "./main-window";
 
 /**
  * Dock integration: unread-count badge + visibility state machine.
@@ -10,8 +15,11 @@ import { app, BrowserWindow, ipcMain } from "electron";
  *
  * The state machine has two inputs:
  *
- *   1. **Visible window count**, observed via the `browser-window-created`
- *      / per-window `closed` events. No renderer involvement.
+ *   1. **Main-window visibility**, subscribed via
+ *      `onMainWindowVisibilityChange` on `./main-window`. Auxiliary
+ *      windows (About, future thread pop-outs) deliberately do NOT
+ *      drive dock policy — opening About while signed out would
+ *      otherwise flicker the dock icon to `regular` and back.
  *   2. **Signed-in flag**, published by the renderer over the
  *      `vellum:dock:setSignedIn` IPC channel. Renderer is the source of
  *      truth today; this side of the bridge becomes a no-op once the
@@ -19,10 +27,10 @@ import { app, BrowserWindow, ipcMain } from "electron";
  *
  * Policy:
  *
- *   - Any visible window OR signed in → `regular` (Dock icon visible).
+ *   - Main visible OR signed in → `regular` (Dock icon visible).
  *     We keep the icon visible while signed in so the user can re-open
  *     the window from the Dock after closing the last one.
- *   - No visible window AND signed out → `accessory` (Dock icon hidden,
+ *   - Main hidden AND signed out → `accessory` (Dock icon hidden,
  *     menu-bar-only).
  *
  * Transitions are debounced ~100ms so a fast close-then-open (e.g.
@@ -67,27 +75,30 @@ const state: DockState = {
 
 let refreshTimer: NodeJS.Timeout | null = null;
 
-// Counts windows the user can actually see. Hiding the main window via
-// the tray (rather than closing it) keeps the `BrowserWindow` instance
-// alive in `getAllWindows()` but `isVisible()` returns `false` — without
-// the filter the policy would think there's still a visible window and
-// stay in `regular` mode instead of dropping to `accessory`.
-const visibleWindowCount = (): number =>
-  BrowserWindow.getAllWindows().filter(
-    (win) => !win.isDestroyed() && win.isVisible(),
-  ).length;
+// True iff the main window is the visible, focusable surface. The dock
+// policy is conceptually about the main window — not about "any window
+// being alive" — so we check by reference via `main-window.current()`
+// rather than scanning every BrowserWindow. Auxiliary windows
+// (About, future thread pop-outs, command palette) should NOT keep
+// the dock icon visible when the user is signed out — that would be
+// a UX bug: opening About would briefly show the dock icon and
+// closing it would hide it again.
+const isMainWindowVisible = (): boolean => {
+  const win = currentMainWindow();
+  return !!win && !win.isDestroyed() && win.isVisible();
+};
 
-// Pure function of (visible window count, signed-in flag, accessory-mode
-// gate). Factored out of the caller so tests can exercise the matrix
-// without standing up a full Electron `BrowserWindow` registry — the
-// caller passes `visibleWindowCount()` + `state.signedIn` +
+// Pure function of (main-window visibility, signed-in flag,
+// accessory-mode gate). Factored out so tests can exercise the
+// 2×2×2 matrix without standing up an Electron BrowserWindow.
+// Caller passes `isMainWindowVisible()` + `state.signedIn` +
 // `ALLOW_ACCESSORY_MODE` at the seam.
 export const computePolicy = (
-  visibleWindows: number,
+  mainVisible: boolean,
   signedIn: boolean,
   allowAccessoryMode: boolean,
 ): DockState["policy"] => {
-  if (visibleWindows > 0) return "regular";
+  if (mainVisible) return "regular";
   if (signedIn) return "regular";
   return allowAccessoryMode ? "accessory" : "regular";
 };
@@ -97,12 +108,23 @@ export const computePolicy = (
 // keeps the two surfaces in sync (await sequencing is the documented
 // pattern). The accessory transition is synchronous on the Electron
 // side — `hide()` returns void — so no await there.
+//
+// Re-check `state.policy` after the awaited `dock.show()`. Between
+// the await and resume, another `applyPolicy("accessory")` may have
+// run synchronously and flipped both the state and the activation
+// policy. Without the re-check, the resuming `regular` call would
+// stomp the newer `accessory` setActivationPolicy, leaving the
+// activation policy and dock visibility out of sync.
 const applyPolicy = async (next: DockState["policy"]): Promise<void> => {
   if (next === state.policy) return;
   state.policy = next;
   if (!app.dock) return;
   if (next === "regular") {
     await app.dock.show();
+    // A concurrent `applyPolicy("accessory")` may have run while we
+    // were awaiting — bail out so we don't override its
+    // `setActivationPolicy("accessory")`.
+    if (state.policy !== "regular") return;
     app.setActivationPolicy("regular");
   } else {
     app.dock.hide();
@@ -115,7 +137,7 @@ const scheduleRefresh = (): void => {
   refreshTimer = setTimeout(() => {
     refreshTimer = null;
     void applyPolicy(
-      computePolicy(visibleWindowCount(), state.signedIn, ALLOW_ACCESSORY_MODE),
+      computePolicy(isMainWindowVisible(), state.signedIn, ALLOW_ACCESSORY_MODE),
     );
   }, POLICY_DEBOUNCE_MS);
 };
@@ -162,20 +184,12 @@ export const installDock = (): void => {
     scheduleRefresh();
   });
 
-  // Observe the visible-window count so closing the last window can
-  // transition us into accessory mode (once `ALLOW_ACCESSORY_MODE` is
-  // flipped), and opening the first one transitions us back to regular.
-  app.on("browser-window-created", (_event, win) => {
-    scheduleRefresh();
-    // The visible-window count drives the accessory-mode transition,
-    // so we refresh on every visibility change — not just on
-    // create/destroy. Without `show`/`hide` listeners, hiding the
-    // main window via the tray would leave the policy thinking a
-    // visible window exists.
-    win.on("show", scheduleRefresh);
-    win.on("hide", scheduleRefresh);
-    win.once("closed", scheduleRefresh);
-  });
+  // Subscribe to main-window visibility transitions (created, shown,
+  // hidden, closed). Auxiliary windows (About, future thread pop-outs,
+  // command palette) don't fire this hook, so they correctly don't
+  // affect dock policy — a signed-out user opening About would
+  // otherwise briefly flicker the dock icon to `regular` and back.
+  onMainWindowVisibilityChange(scheduleRefresh);
 
   // macOS convention: clear the Dock badge before the process exits so
   // a relaunch doesn't briefly show a stale count from the OS's cache.
@@ -193,7 +207,7 @@ export const installDock = (): void => {
   // following `setActivationPolicy` call inside `applyPolicy`; the
   // caller has nothing to await on.
   void applyPolicy(
-    computePolicy(visibleWindowCount(), state.signedIn, ALLOW_ACCESSORY_MODE),
+    computePolicy(isMainWindowVisible(), state.signedIn, ALLOW_ACCESSORY_MODE),
   );
   applyBadge();
 };
