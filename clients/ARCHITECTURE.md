@@ -36,7 +36,7 @@ The main window has three dedicated state objects:
 
 ### Safe Storage Limits UI
 
-The macOS safe-storage UI is active only when the assistant-scoped `safe-storage-limits` flag is enabled. `DiskPressureStatusStore` owns the client-side status snapshot, fetches `/v1/disk-pressure/status` on startup/app activation/active-assistant changes, listens for `disk_pressure_status_changed` SSE events, and clears all UI state when the flag or status is disabled.
+`DiskPressureStatusStore` owns the client-side status snapshot, fetches `/v1/disk-pressure/status` on startup/app activation/active-assistant changes, listens for `disk_pressure_status_changed` SSE events, and clears all UI state when the status is disabled.
 
 When the assistant reports an unacknowledged effective lock, `MainWindowSafeStorageBanner` renders as a blocking acknowledgement surface in both the main window and pop-out thread windows. The guardian can acknowledge and open the workspace cleanup surface, or acknowledge and dismiss the banner. If acknowledgement fails, the store exposes a visible retry message on the banner so the modal does not fail silently.
 

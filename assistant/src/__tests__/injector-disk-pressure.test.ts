@@ -15,7 +15,6 @@ import {
 } from "../plugins/registry.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 function findInjector(name: string): Injector {
   const injector = defaultInjectorsPlugin.injectors?.find(
@@ -54,10 +53,9 @@ describe("disk-pressure-warning injector", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
     registerPlugin(defaultInjectorsPlugin);
-    setOverridesForTesting({ "safe-storage-limits": true });
   });
 
-  test("emits the exact cleanup prompt while safe storage limits are enabled", async () => {
+  test("emits the exact cleanup prompt during disk pressure cleanup mode", async () => {
     const block = await diskPressureInjector.produce(
       makeContext({
         injectionInputs: { diskPressureContext: cleanupContext },
@@ -96,18 +94,6 @@ Do not work on unrelated tasks until enough space is freed to clear the lock or 
           injectionInputs: {
             diskPressureContext: { cleanupModeActive: false },
           },
-        }),
-      ),
-    ).resolves.toBeNull();
-  });
-
-  test("omits the prompt when safe storage limits are disabled", async () => {
-    setOverridesForTesting({ "safe-storage-limits": false });
-
-    await expect(
-      diskPressureInjector.produce(
-        makeContext({
-          injectionInputs: { diskPressureContext: cleanupContext },
         }),
       ),
     ).resolves.toBeNull();
