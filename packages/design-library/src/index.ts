@@ -53,6 +53,13 @@ export {
   type ToggleProps,
 } from "./components/toggle";
 export {
+  Tooltip,
+  TooltipProvider,
+  type TooltipProps,
+  type TooltipProviderProps,
+  type TooltipContentProps,
+} from "./components/tooltip";
+export {
   Checkbox,
   type CheckboxProps,
   type CheckboxState,
