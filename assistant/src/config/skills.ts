@@ -1066,6 +1066,11 @@ export function diagnoseSkillNotFound(selector: string): string | null {
   const skillsDir = getSkillsDir();
   const candidateDir = join(skillsDir, selector);
 
+  // Reject path traversal and symlink escapes before any filesystem reads.
+  if (isOutsideSkillsRoot(skillsDir, candidateDir)) {
+    return `"${selector}" resolves outside the skills root (possible path traversal).`;
+  }
+
   if (!existsSync(candidateDir)) return null;
 
   const skillFilePath = join(candidateDir, "SKILL.md");
@@ -1109,10 +1114,6 @@ export function diagnoseSkillNotFound(selector: string): string | null {
   }
   if (!description) {
     return `"${selector}/SKILL.md" frontmatter is missing the required "description" field.`;
-  }
-
-  if (isOutsideSkillsRoot(skillsDir, candidateDir)) {
-    return `"${selector}" resolves outside the skills root (possible symlink escape).`;
   }
 
   return `"${selector}/SKILL.md" exists with valid frontmatter but was not loaded. Check daemon logs for details.`;
