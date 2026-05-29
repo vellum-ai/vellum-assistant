@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+type StubWebContents = {
+  on: (event: string, listener: (...args: unknown[]) => void) => StubWebContents;
+  setWindowOpenHandler: (
+    handler: (details: { url: string }) => { action: "deny" | "allow" },
+  ) => void;
+  events: Map<string, Array<(...args: unknown[]) => void>>;
+};
+
 type StubWindow = {
   show: () => void;
   focus: () => void;
@@ -7,6 +15,7 @@ type StubWindow = {
   on: (event: string, listener: () => void) => StubWindow;
   once: (event: string, listener: () => void) => StubWindow;
   loadURL: (url: string) => Promise<void>;
+  webContents: StubWebContents;
   emit: (event: string) => void;
 };
 
@@ -17,7 +26,21 @@ const loadURLMock = mock((_url: string) => Promise.resolve());
 
 const makeWindow = (): StubWindow => {
   const listeners = new Map<string, Array<() => void>>();
+  const webContentsListeners = new Map<
+    string,
+    Array<(...args: unknown[]) => void>
+  >();
   let destroyed = false;
+  const webContents: StubWebContents = {
+    on: (event, listener) => {
+      const arr = webContentsListeners.get(event) ?? [];
+      arr.push(listener);
+      webContentsListeners.set(event, arr);
+      return webContents;
+    },
+    setWindowOpenHandler: () => undefined,
+    events: webContentsListeners,
+  };
   const win: StubWindow = {
     show: showMock,
     focus: focusMock,
@@ -35,6 +58,7 @@ const makeWindow = (): StubWindow => {
       return win;
     },
     loadURL: loadURLMock,
+    webContents,
     emit: (event) => {
       if (event === "closed") destroyed = true;
       for (const l of listeners.get(event) ?? []) l();
@@ -158,5 +182,18 @@ describe("openAboutWindow", () => {
     constructed[0]?.emit("closed");
     openAboutWindow();
     expect(constructed).toHaveLength(2);
+  });
+
+  test("blocks top-level navigation and popups so the preload bridge can't be carried elsewhere", () => {
+    openAboutWindow();
+    const win = constructed[0];
+    expect(win).toBeDefined();
+
+    // `will-navigate` handler is registered and calls preventDefault.
+    const willNavigateHandlers = win?.webContents.events.get("will-navigate");
+    expect(willNavigateHandlers?.length).toBe(1);
+    const preventDefault = mock(() => undefined);
+    willNavigateHandlers?.[0]?.({ preventDefault });
+    expect(preventDefault).toHaveBeenCalledTimes(1);
   });
 });

@@ -95,6 +95,19 @@ export const openAboutWindow = (): void => {
     aboutWindow = null;
   });
 
+  // The About window has no legitimate top-level navigations — its
+  // only outbound link routes through `window.vellum.app.openWebsite()`
+  // (which uses `shell.openExternal` in main). Block every other
+  // navigation path so the preload-exposed `window.vellum` surface
+  // can't be carried into a destination we don't control: bare-`<a>`
+  // fallbacks if the script handler fails to attach, dropped URLs or
+  // files onto the window, `window.location` writes from a future
+  // script, etc.
+  aboutWindow.webContents.on("will-navigate", (event) => {
+    event.preventDefault();
+  });
+  aboutWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
   void aboutWindow.loadURL(
     `data:text/html;charset=utf-8,${encodeURIComponent(aboutHtml)}`,
   );
