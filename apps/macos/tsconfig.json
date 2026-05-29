@@ -13,8 +13,13 @@
     "noEmit": true,
     "allowJs": false,
     "isolatedModules": true,
-    "types": ["node"]
+    "types": ["node", "bun"]
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "electron.vite.config.ts"],
+  "include": [
+    "src/**/*.ts",
+    "scripts/**/*.ts",
+    "electron.vite.config.ts",
+    "test-setup.ts"
+  ],
   "exclude": ["out/**", "dist/**", "node_modules/**"]
 }
