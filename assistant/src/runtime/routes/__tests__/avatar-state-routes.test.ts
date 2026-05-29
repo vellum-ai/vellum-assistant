@@ -77,29 +77,43 @@ describe("GET /avatar/state", () => {
     expect(result).toEqual(state);
   });
 
-  test("falls back to derived character state on manifest-miss (traits file)", async () => {
+  test("self-heals derived character state on manifest-miss (traits file) and persists it", async () => {
     writeFileSync(
       join(avatarDir, "character-traits.json"),
       JSON.stringify(VALID_TRAITS),
     );
+    expect(existsSync(join(avatarDir, MANIFEST_FILENAME))).toBe(false);
 
     const result = await getStateHandler()({});
     expect(result.kind).toBe("character");
     expect(result.traits).toEqual(VALID_TRAITS);
     expect(result.image).toBeNull();
+
+    // Self-heal: the derived state is now persisted so subsequent reads hit
+    // the manifest directly rather than re-inferring from legacy files.
+    const persisted = JSON.parse(
+      readFileSync(join(avatarDir, MANIFEST_FILENAME), "utf-8"),
+    ) as AvatarState;
+    expect(persisted).toEqual(result);
   });
 
-  test("falls back to derived image state on manifest-miss (image file)", async () => {
+  test("self-heals derived image state on manifest-miss (image file) and persists it", async () => {
     writeFileSync(join(avatarDir, "avatar-image.png"), Buffer.from("fake png"));
+    expect(existsSync(join(avatarDir, MANIFEST_FILENAME))).toBe(false);
 
     const result = await getStateHandler()({});
     expect(result.kind).toBe("image");
     expect(result.traits).toBeNull();
     expect(result.image).not.toBeNull();
     expect(result.image?.etag).toMatch(/^[0-9a-f]{16}$/);
+
+    const persisted = JSON.parse(
+      readFileSync(join(avatarDir, MANIFEST_FILENAME), "utf-8"),
+    ) as AvatarState;
+    expect(persisted).toEqual(result);
   });
 
-  test("returns kind:none (no throw, no 404) for an empty workspace", async () => {
+  test("self-heals and persists kind:none (no throw, no 404) for an empty workspace", async () => {
     let result: AvatarState | undefined;
     expect(() => {
       result = getStateHandler()({}) as AvatarState;
@@ -110,6 +124,11 @@ describe("GET /avatar/state", () => {
       source: null,
       image: null,
     });
+
+    const persisted = JSON.parse(
+      readFileSync(join(avatarDir, MANIFEST_FILENAME), "utf-8"),
+    ) as AvatarState;
+    expect(persisted).toEqual(result!);
   });
 });
 
@@ -453,12 +472,19 @@ describe("GET /avatar/get (manifest-driven precedence)", () => {
     expect(result.path).toBeUndefined();
   });
 
-  test("falls back to legacy derivation when no manifest exists (image file)", () => {
+  test("self-heals from legacy files when no manifest exists (image file) and persists the manifest", () => {
     writeFileSync(path(IMAGE_FILENAME), Buffer.from("png bytes"));
+    expect(existsSync(path(MANIFEST_FILENAME))).toBe(false);
 
     const result = getHandler("avatar_get")({}) as GetResult;
     expect(result.exists).toBe(true);
     expect(result.path).toBe(path(IMAGE_FILENAME));
+
+    // Self-heal: the manifest is now written so the next read is manifest-only.
+    const persisted = JSON.parse(
+      readFileSync(path(MANIFEST_FILENAME), "utf-8"),
+    ) as AvatarState;
+    expect(persisted.kind).toBe("image");
   });
 
   test("returns exists:false for an empty workspace (no manifest, no files)", () => {

@@ -5,8 +5,10 @@ import { z } from "zod";
 
 import { renderCharacterAscii } from "../../avatar/ascii-renderer.js";
 import {
+  type AvatarState,
   deriveStateFromLegacyFiles,
   readManifest,
+  writeManifest,
 } from "../../avatar/avatar-manifest.js";
 import {
   clearAvatar,
@@ -45,20 +47,34 @@ function handleGetCharacterComponents() {
 }
 
 /**
- * Return the authoritative avatar render state.
+ * Reads the manifest, self-healing once if it is absent.
  *
- * Reads the manifest (`avatar.json`) first. When the manifest is absent or
- * invalid, `readManifest` returns null and we fall back to deriving state
- * from the legacy sidecar files. Never 404s — an empty workspace yields
- * `{ kind: "none", traits: null, source: null, image: null }`.
+ * The migration (092) seeds `avatar.json` for every workspace, so the manifest
+ * is normally present. If it is somehow missing (e.g. a workspace that predates
+ * the manifest and skipped the migration), we derive state from the legacy
+ * sidecar files *once* and persist it via `writeManifest` so subsequent reads
+ * hit the manifest directly — no per-request legacy inference.
  */
-function handleGetAvatarState() {
+function readManifestSelfHealing(): AvatarState {
   const manifest = readManifest();
   if (manifest) {
     return manifest;
   }
-  // TODO(avatar-manifest): remove after migration ships + clients adopt (PR 13)
-  return deriveStateFromLegacyFiles();
+  const derived = deriveStateFromLegacyFiles();
+  writeManifest(derived);
+  return derived;
+}
+
+/**
+ * Return the authoritative avatar render state.
+ *
+ * Reads the manifest (`avatar.json`). When the manifest is absent it is
+ * self-healed once from the legacy sidecar files and persisted. Never 404s —
+ * an empty workspace yields `{ kind: "none", traits: null, source: null,
+ * image: null }`.
+ */
+function handleGetAvatarState() {
+  return readManifestSelfHealing();
 }
 
 function handleRenderFromTraits({ body, headers }: RouteHandlerArgs) {
@@ -231,11 +247,9 @@ function handleGetAvatar({ queryParams, body }: RouteHandlerArgs) {
   // Resolve precedence from the manifest so this raster accessor (CLI / dock /
   // notifications) agrees with macOS/web rather than picking image-first off
   // file existence. For both `character` and `image` the derived raster is the
-  // same on-disk PNG; only the precedence is manifest-driven.
-  const state =
-    readManifest() ??
-    // TODO(avatar-manifest): remove after migration ships + clients adopt (PR 13)
-    deriveStateFromLegacyFiles();
+  // same on-disk PNG; only the precedence is manifest-driven. Self-heals once
+  // on manifest-miss so we never re-infer from legacy files per request.
+  const state = readManifestSelfHealing();
 
   if (state.kind === "none") {
     return { exists: false };
