@@ -24,7 +24,10 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { getDb } from "../memory/db-connection.js";
-import { isConnectionCompatibleWithModel } from "./connection-model-compat.js";
+import {
+  describeSubscriptionModelIncompatibility,
+  isConnectionCompatibleWithModel,
+} from "./connection-model-compat.js";
 import {
   ConnectionResolutionError,
   tryResolveProviderForConnectionName,
@@ -156,12 +159,13 @@ export class CallSiteRoutingProvider implements Provider {
     // auto-resolve a connection for the provider (handles the case where the
     // profile set provider but not provider_connection, and the merge didn't
     // inherit one).
+    let autoResolveCandidates: import("./inference/auth.js").ProviderConnection[] | undefined;
     if (!connectionName && resolved.provider !== this.defaultProvider.name) {
       try {
-        const candidates = listConnections(getDb(), {
+        autoResolveCandidates = listConnections(getDb(), {
           provider: resolved.provider,
         });
-        const active = candidates.find((c) =>
+        const active = autoResolveCandidates.find((c) =>
           isConnectionCompatibleWithModel(c, resolved.model),
         );
         if (active) {
@@ -184,6 +188,20 @@ export class CallSiteRoutingProvider implements Provider {
 
     if (resolved.provider === this.defaultProvider.name) {
       return this.defaultProvider;
+    }
+
+    if (autoResolveCandidates) {
+      const incompatMsg = describeSubscriptionModelIncompatibility(
+        autoResolveCandidates,
+        resolved.model,
+      );
+      if (incompatMsg) {
+        throw new ConnectionResolutionError(
+          "<resolved-callsite>",
+          "model_incompatible",
+          incompatMsg,
+        );
+      }
     }
 
     throw new ConnectionResolutionError(
