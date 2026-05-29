@@ -9,9 +9,9 @@
  * keys and third-party keys (analytics SDKs, Sentry, etc.) untouched.
  * sessionStorage is cleared entirely — all keys are session-scoped.
  *
- * Legacy prefixes (pre-LUM-2045) are also swept as a safety net:
- * if startup migration failed (e.g. QuotaExceededError), the old
- * key names would survive without this fallback. Particularly
+ * Legacy prefixes are also swept as a safety net: if the startup
+ * migration in `storage-migration.ts` failed (e.g. QuotaExceededError),
+ * old key names would survive without this fallback. Particularly
  * important for auth tokens (`gw:*`). This sweep can be removed
  * once we're confident all users have been migrated.
  *
@@ -20,14 +20,13 @@
  *
  * References:
  * - https://web.dev/articles/sign-out-best-practices
- * - LUM-2045 — Standardize key naming
  */
 
 const USER_PREFIX = "vellum:";
 
 /**
- * Pre-LUM-2045 key prefixes that were user-scoped.
- * Swept as a fallback in case startup migration failed.
+ * Legacy key prefixes that were user-scoped before the `vellum:`
+ * standardization. Swept as a fallback in case startup migration failed.
  */
 const LEGACY_USER_PREFIXES = [
   "onboarding.",
@@ -41,7 +40,7 @@ const LEGACY_USER_PREFIXES = [
 ];
 
 /**
- * Pre-LUM-2045 device-level keys that used the `vellum_` prefix.
+ * Legacy device-level keys that used the `vellum_` prefix.
  * Must NOT be cleaned on logout — they are device-scoped settings.
  * Normally these have been migrated to `device:*` by
  * `migrateDeviceSettings()`, but if that migration also failed,

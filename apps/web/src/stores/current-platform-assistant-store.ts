@@ -92,7 +92,7 @@ function removeStoredAssistantId(orgId: string): void {
 /**
  * Translates the single-name view that `persist` expects into per-org
  * reads and writes against the existing
- * `vellum_current_assistant_id__{orgId}` localStorage keys. Writes are
+ * `vellum:currentAssistantId:{orgId}` localStorage keys. Writes are
  * additive — see the file header for why deletions are not handled
  * here.
  */

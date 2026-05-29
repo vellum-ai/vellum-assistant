@@ -11,11 +11,9 @@
  * single prefix check instead of a brittle allowlist.
  *
  * Migrations are idempotent — safe to re-run on every app startup.
- * Called from `boot()` in `main.tsx`, after `migrateDeviceSettings()`.
- *
- * References:
- * - LUM-2045 — Standardize key naming
- * - LUM-2042 — Consolidate localStorage access
+ * Executed synchronously at import time via `run-storage-migrations.ts`,
+ * which must be imported before any Zustand store that reads localStorage
+ * at module level (see the import order comment in `main.tsx`).
  */
 
 /**
@@ -65,9 +63,10 @@ export function migratePrefix(oldPrefix: string, newPrefix: string): void {
 }
 
 /**
- * Run all pending storage key migrations. Called once from `boot()`
- * in `main.tsx`, after `migrateDeviceSettings()` (device keys must
- * already be in `device:` namespace before we migrate user keys).
+ * Run all pending storage key migrations. Called from
+ * `run-storage-migrations.ts` (side-effect import at the top of
+ * `main.tsx`), after `migrateDeviceSettings()` — device keys must
+ * already be in the `device:` namespace before we migrate user keys.
  *
  * Each migration is a one-time rename: read old → write new → remove old.
  * The order within each group doesn't matter since there are no

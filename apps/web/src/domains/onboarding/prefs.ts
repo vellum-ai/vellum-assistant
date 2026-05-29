@@ -21,15 +21,17 @@ import {
   setLocalSetting,
 } from "@/utils/local-settings";
 import { getDeviceSetting } from "@/utils/device-settings";
+import {
+  KEY_TOS_ACCEPTED,
+  KEY_AI_DATA_CONSENT,
+  KEY_COMPLETED,
+} from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
 // ---------------------------------------------------------------------------
 // Storage keys (non-boolean — boolean keys live in onboarding-store.ts)
 // ---------------------------------------------------------------------------
 
-const KEY_TOS_ACCEPTED = "vellum:onboarding:tosAccepted";
-const KEY_AI_DATA_CONSENT = "vellum:onboarding:aiDataConsent";
-const KEY_COMPLETED = "vellum:onboarding:completed";
 /**
  * Onboarding-only, nonprod-only: pinned release version for the hatch.
  * Written by the privacy screen's dev-tools version picker, read by the
