@@ -17,15 +17,17 @@
           window.matchMedia("(prefers-color-scheme: dark)").matches;
         var shouldBeDark =
           theme === "velvet" ||
+          theme === "velvetist" ||
           theme === "dark" ||
           (theme === "system" && prefersDark);
         var root = document.documentElement;
         root.setAttribute(
           "data-theme",
-          shouldBeDark ? "dark" : "light"
+          theme === "velvetist" ? "velvetist" : theme === "velvet" ? "velvet" : shouldBeDark ? "dark" : "light"
         );
         root.classList.toggle("dark", shouldBeDark);
         root.classList.remove("velvet");
+        root.classList.remove("velvetist");
       } catch {
         // Theme startup is best-effort. React will apply the default later.
       }

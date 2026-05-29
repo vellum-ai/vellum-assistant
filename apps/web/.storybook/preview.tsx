@@ -51,10 +51,21 @@ const velvetTheme = create({
   colorSecondary: "#E83F5B",
 });
 
+const velvetistTheme = create({
+  base: "dark",
+  appBg: "#0D0A10",
+  appContentBg: "#0D0A10",
+  textColor: "#F6F5F4",
+  appBorderColor: "#241520",
+  colorPrimary: "#FF1744",
+  colorSecondary: "#FF1744",
+});
+
 const storybookThemeMap: Record<string, typeof themes.light> = {
   light: lightTheme,
   dark: darkTheme,
   velvet: velvetTheme,
+  velvetist: velvetistTheme,
 };
 
 function readInitialTheme(): string {
@@ -103,6 +114,7 @@ export default definePreview({
         light: "light",
         dark: "dark",
         velvet: "velvet",
+        velvetist: "velvetist",
       },
       defaultTheme: "light",
       attributeName: "data-theme",

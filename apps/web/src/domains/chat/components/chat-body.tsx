@@ -209,6 +209,7 @@ export function ChatBody({
 
   return (
     <div
+      data-slot="chat-body"
       className={outerClass}
       onDragEnter={dragHandlers.onDragEnter}
       onDragOver={dragHandlers.onDragOver}

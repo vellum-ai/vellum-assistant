@@ -1,4 +1,4 @@
-import { Heart, Monitor, Moon, Sun } from "lucide-react";
+import { Flame, Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { cn, SegmentControl } from "@vellum/design-library";
@@ -32,6 +32,16 @@ const VELVET_THEME_OPTION = {
   Icon: typeof Monitor;
 };
 
+const VELVETIST_THEME_OPTION = {
+  value: "velvetist",
+  label: "Velvetist",
+  Icon: Flame,
+} satisfies {
+  value: ThemePreference;
+  label: string;
+  Icon: typeof Monitor;
+};
+
 export function ThemeToggle({ className }: { className?: string } = {}) {
   const velvet = useClientFeatureFlagStore.use.velvet();
   const [theme, setTheme] = useState<ThemePreference>(() =>
@@ -55,7 +65,7 @@ export function ThemeToggle({ className }: { className?: string } = {}) {
   };
 
   const themeOptions = velvet
-    ? [...BASE_THEME_OPTIONS, VELVET_THEME_OPTION]
+    ? [...BASE_THEME_OPTIONS, VELVET_THEME_OPTION, VELVETIST_THEME_OPTION]
     : BASE_THEME_OPTIONS;
 
   return (

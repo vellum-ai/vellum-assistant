@@ -1,4 +1,4 @@
-import { Heart, Monitor, Moon, Sun } from "lucide-react";
+import { Flame, Heart, Monitor, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { SegmentControl } from "@vellum/design-library/components/segment-control";
@@ -84,6 +84,11 @@ function ThemeCard() {
             value: "velvet" as const,
             label: "Velvet",
             icon: <Heart className="h-4 w-4" />,
+          },
+          {
+            value: "velvetist" as const,
+            label: "Velvetist",
+            icon: <Flame className="h-4 w-4" />,
           },
         ]
       : []),

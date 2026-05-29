@@ -415,6 +415,85 @@
   --foreground: #F6F5F4;
 }
 
+/* ===== Velvetist mode — velvet cranked up: hotter pink/red, deeper darks ===== */
+[data-theme="velvetist"] {
+  /* Surface — deeper, more saturated dark with red undertones */
+  --surface-base: #0D0A10;
+  --surface-overlay: #16111A;
+  --surface-active: #351D2A;
+  --surface-lift: #1E1522;
+  --surface-hover: rgba(255, 23, 68, 0.10);
+
+  /* Primary — intense hot pink/red */
+  --primary-base: #FF1744;
+  --primary-hover: #FF4569;
+  --primary-active: #D50032;
+  --primary-disabled: #351D2A;
+  --primary-second-hover: #FF2D55;
+
+  /* Border — warm with red-magenta tint */
+  --border-base: #241520;
+  --border-disabled: #1A0F18;
+  --border-element: #7A3B5C;
+  --border-hover: #351D2A;
+  --border-active: #FFB3C7;
+
+  /* Content */
+  --content-default: #F6F5F4;
+  --content-emphasised: #FFF0F3;
+  --content-secondary: #D4A0B2;
+  --content-tertiary: #B87090;
+  --content-quiet: #A9B2BB;
+  --content-strong: #E9E6E2;
+  --content-faint: #8D99A5;
+  --content-disabled: #6B3F58;
+  --content-inset: #FFF0F3;
+
+  /* Surface (extras) */
+  --surface-sunken: #120E16;
+
+  /* Border (extras) */
+  --border-subtle: #2D1E28;
+
+  /* System */
+  --system-positive-strong: #FF1744;
+  --system-positive-weak: #3D1524;
+  --system-negative-strong: #FF1744;
+  --system-negative-hover: #FF4569;
+  --system-negative-weak: #3D1524;
+  --system-mid-strong: #F1B21E;
+  --system-mid-weak: #42321C;
+  --system-info-strong: #467CC8;
+  --system-info-weak: #2A3A50;
+
+  /* Feed identifier — inherits velvet palette */
+  --feed-nudge-strong: #FF1744;
+  --feed-nudge-weak: #4D1828;
+  --feed-digest-strong: #0E9B8B;
+  --feed-digest-weak: #293D3B;
+  --feed-thread-strong: #E9C91A;
+  --feed-thread-weak: #464125;
+
+  /* Aux */
+  --aux-white: #FFFFFF;
+
+  /* Shadow */
+  --shadow-popover: 0 1px 3px 0 rgba(0, 0, 0, 0.30), 0 4px 12px 0 rgba(0, 0, 0, 0.30);
+
+  /* Derived */
+  --ring: color-mix(in srgb, var(--system-positive-strong) 30%, transparent);
+  --border-overlay: var(--border-hover);
+  --ghost-hover: var(--border-base);
+  --ghost-pressed: var(--primary-active);
+  --field-bg: #221820;
+  --field-border: transparent;
+  --tag-bg-neutral: var(--primary-disabled);
+
+  /* Background / Foreground */
+  --background: #0D0A10;
+  --foreground: #F6F5F4;
+}
+
 /* ---------------------------------------------------------------------------
  * Typography tokens — Figma node 2193:4447.
  * --------------------------------------------------------------------------- */

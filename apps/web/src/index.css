@@ -211,6 +211,45 @@ body {
   background-clip: padding-box;
 }
 
+[data-theme="velvetist"] {
+  scrollbar-color: rgba(255, 23, 68, 0.30) transparent;
+}
+
+[data-theme="velvetist"] *,
+[data-theme="velvetist"] *::before,
+[data-theme="velvetist"] *::after {
+  scrollbar-color: rgba(255, 23, 68, 0.30) transparent;
+}
+
+[data-theme="velvetist"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 23, 68, 0.30);
+  background-clip: padding-box;
+}
+
+[data-theme="velvetist"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 23, 68, 0.55);
+  background-clip: padding-box;
+}
+
+/* Velvetist tiled heart background — rendered behind the main chat area
+ * via a pseudo-element on the chat body container. Uses an inline SVG
+ * heart in dark pink, repeated across the surface. */
+[data-theme="velvetist"] [data-slot="chat-body"]::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Cpath d='M24 42 C14 32 4 22 4 14 C4 8 8 4 14 4 C17.5 4 21 6.5 24 10 C27 6.5 30.5 4 34 4 C40 4 44 8 44 14 C44 22 34 32 24 42Z' fill='%23330A15' fill-opacity='0.55'/%3E%3C/svg%3E");
+  background-size: 48px 48px;
+  background-repeat: repeat;
+}
+
+[data-theme="velvetist"] [data-slot="chat-body"] > * {
+  position: relative;
+  z-index: 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .busy-indicator {
     animation: none;
