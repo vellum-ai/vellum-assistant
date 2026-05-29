@@ -296,6 +296,33 @@ describe("ensureVisible readiness gate", () => {
     expect(resolved).toBe(true);
   });
 
+  test("a second ensureVisible against an in-flight window waits on the same readiness", async () => {
+    let firstResolved = false;
+    let secondResolved = false;
+    void ensureVisible().then(() => {
+      firstResolved = true;
+    });
+    void ensureVisible().then(() => {
+      secondResolved = true;
+    });
+    // Same window was used for both calls — no new construction.
+    expect(constructed).toHaveLength(1);
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+
+    await Promise.resolve();
+    expect(firstResolved).toBe(false);
+    expect(secondResolved).toBe(false);
+
+    win.stub.webContents.emit("did-finish-load");
+    win.stub.emit("ready-to-show");
+    // Yield to flush microtasks.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(firstResolved).toBe(true);
+    expect(secondResolved).toBe(true);
+  });
+
   test("unblocks the awaiter if the window is destroyed before either event fires", async () => {
     let resolved = false;
     const promise = ensureVisible().then(() => {

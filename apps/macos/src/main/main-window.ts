@@ -215,10 +215,12 @@ export const ensureVisible = (): Promise<void> => {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
-  // Existing window: its readiness was satisfied on the original
-  // load. Re-show + re-focus are synchronous OS calls; nothing to
-  // wait for.
-  return ALREADY_READY;
+  // The existing window may still be mid-load (created very recently;
+  // `did-finish-load` and/or `ready-to-show` haven't both fired yet),
+  // so return its stored readiness instead of a fresh resolved
+  // promise. If it's already loaded, the stored promise has already
+  // resolved and the await is effectively free.
+  return readyStates.get(mainWindow)?.promise ?? ALREADY_READY;
 };
 
 export const hide = (): void => {
