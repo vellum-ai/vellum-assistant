@@ -554,6 +554,7 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
   { endpoint: "avatar/render-from-traits", scopes: ["settings.write"] },
   { endpoint: "avatar/generate", scopes: ["settings.write"] },
   { endpoint: "avatar/set", scopes: ["settings.write"] },
+  { endpoint: "avatar/image", scopes: ["settings.write"] },
   { endpoint: "avatar/remove", scopes: ["settings.write"] },
   { endpoint: "avatar/get", scopes: ["settings.read"] },
   { endpoint: "avatar/character/ascii", scopes: ["settings.read"] },

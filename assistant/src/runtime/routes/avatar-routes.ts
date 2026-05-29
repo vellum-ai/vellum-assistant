@@ -22,6 +22,7 @@ import {
 import { setPlatformBaseUrl } from "../../config/env.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
+import { detectMediaType } from "../../tools/shared/filesystem/image-read.js";
 import { generateAvatarImage } from "../../tools/system/avatar-generator.js";
 import { getLogger } from "../../util/logger.js";
 import {
@@ -124,6 +125,45 @@ async function handleGenerateAvatar({ body, headers }: RouteHandlerArgs) {
   updateIdentityAvatarSection(null, log);
   publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
   return { ok: true, message: result.content };
+}
+
+/**
+ * Accept a base64-encoded image and set it as the avatar. Replaces the web
+ * client's prior two-call `workspace/write` + `workspace/delete` dance with a
+ * single server-authoritative endpoint: the store atomically writes the PNG,
+ * clears the character sidecars, and records an `image` manifest.
+ */
+function handleUploadAvatarImage({ body, headers }: RouteHandlerArgs) {
+  const payload = body as Record<string, unknown> | undefined;
+  const content = payload?.content;
+  const encoding = payload?.encoding;
+
+  if (typeof content !== "string" || content.length === 0) {
+    throw new BadRequestError("content (base64 string) is required");
+  }
+  if (encoding !== undefined && encoding !== "base64") {
+    throw new BadRequestError('encoding must be "base64"');
+  }
+
+  const buffer = Buffer.from(content, "base64");
+  // Buffer.from silently drops invalid characters, so guard against an empty
+  // decode (e.g. whitespace-only / non-base64 input).
+  if (buffer.length === 0) {
+    throw new BadRequestError("content is not valid base64-encoded image data");
+  }
+  if (detectMediaType(buffer) === null) {
+    throw new BadRequestError(
+      "content must be a PNG, JPEG, GIF, or WEBP image",
+    );
+  }
+
+  // Route through the store: atomically writes the PNG, removes the now-stale
+  // character sidecars (traits + ASCII), and records an uploaded-image manifest.
+  setImage(buffer, "upload");
+
+  updateIdentityAvatarSection(null, log);
+  publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
+  return { ok: true };
 }
 
 function handleSetAvatar({ body, headers }: RouteHandlerArgs) {
@@ -347,6 +387,21 @@ export const ROUTES: RouteDefinition[] = [
     description: "Copy an image file to the avatar location.",
     tags: ["avatar"],
     requestBody: z.object({ imagePath: z.string() }),
+    responseBody: z.object({ ok: z.boolean() }),
+  },
+  {
+    operationId: "avatar_upload_image",
+    endpoint: "avatar/image",
+    method: "POST",
+    handler: handleUploadAvatarImage,
+    summary: "Upload avatar image",
+    description:
+      "Upload a base64-encoded image as the avatar; writes the PNG and clears character traits atomically.",
+    tags: ["avatar"],
+    requestBody: z.object({
+      content: z.string(),
+      encoding: z.literal("base64").optional(),
+    }),
     responseBody: z.object({ ok: z.boolean() }),
   },
   {
