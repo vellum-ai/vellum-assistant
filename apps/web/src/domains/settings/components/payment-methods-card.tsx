@@ -38,7 +38,8 @@ function PaymentMethodHeading() {
         variant="body-small-default"
         className="mt-2 text-[var(--content-tertiary)]"
       >
-        This is the payment method that will be used for automated credit reloads.
+        This is the payment method that will be used for automated credit
+        reloads.
       </Typography>
     </div>
   );
@@ -145,6 +146,62 @@ export function PaymentMethodsCard() {
   const config = configQuery.data;
   const brand = brandLabel(config.payment_method_brand ?? "card");
   const last4 = config.payment_method_last4;
+  const isAutoTopUpEnabled = config.enabled;
+  // Backend gates the Remove action via this flag (False for Pro
+  // subscribers — they must replace the card instead so the Pro plan
+  // never has an empty default-PM slot). We hide the button entirely
+  // rather than disabling it so Pro users don't see a dead control;
+  // the Change button next to it is the path forward. Backend also
+  // returns 409 on the corresponding endpoints
+  // (AutoTopUpViewSet.remove_payment_method and
+  // PaymentMethodViewSet.destroy) as the authoritative guard.
+  const canDeletePaymentMethod = config.can_delete_payment_method;
+
+  // Two confirm-modal variants for the Remove click:
+  // 1. Auto-top-up ON → warn that removing the PM disables auto-top-up.
+  // 2. Auto-top-up OFF → neutral "remove the saved card" confirm; no
+  //    auto-top-up language because none applies.
+  //
+  // The shared remove-mutation handlers below are reused by both so the
+  // success/error/optimistic-cache behavior stays in one place.
+  const handleConfirmRemoveMutation = () => {
+    if (removePmMutation.isPending) return;
+    removePmMutation.mutate(
+      {},
+      {
+        onSuccess: () => {
+          // The remove endpoint clears `stripe_payment_method_id` and
+          // flips `enabled=False` but intentionally preserves the
+          // saved thresholds (`threshold_usd`, `amount_usd`,
+          // `monthly_cap_usd`) so the user can re-enable later
+          // without re-entering them. Merge from the prior cache so
+          // the AutoTopUpCard sibling (same query key) doesn't render
+          // an empty config until the next refetch lands.
+          queryClient.setQueryData<AutoTopUpConfigResponse | undefined>(
+            organizationsBillingAutoTopUpRetrieveQueryKey(),
+            (prior) =>
+              prior
+                ? {
+                    ...prior,
+                    enabled: false,
+                    has_payment_method: false,
+                    payment_method_brand: null,
+                    payment_method_last4: null,
+                  }
+                : DISABLED_CONFIG,
+          );
+          setConfirmRemovePm(false);
+        },
+        onError: () => {
+          toast.error("Failed to remove payment method. Please try again.");
+          setConfirmRemovePm(false);
+        },
+      },
+    );
+  };
+  const handleCancelRemove = () => {
+    if (!removePmMutation.isPending) setConfirmRemovePm(false);
+  };
 
   return (
     <>
@@ -168,80 +225,58 @@ export function PaymentMethodsCard() {
                   {brand}
                 </Typography>
                 {last4 ? (
-                  <Typography variant="body-small-default" as="div" className="text-[var(--content-tertiary)]">
+                  <Typography
+                    variant="body-small-default"
+                    as="div"
+                    className="text-[var(--content-tertiary)]"
+                  >
                     Ending in {last4}
                   </Typography>
                 ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                <Button
-                  variant="ghost"
-                  onClick={() => setPmModalOpen(true)}
-                >
+                <Button variant="ghost" onClick={() => setPmModalOpen(true)}>
                   Change
                 </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setConfirmRemovePm(true)}
-                  disabled={confirmRemovePm || removePmMutation.isPending}
-                  leftIcon={<Trash2 className="h-3.5 w-3.5" />}
-                >
-                  Remove
-                </Button>
+                {canDeletePaymentMethod ? (
+                  <Button
+                    variant="ghost"
+                    onClick={() => setConfirmRemovePm(true)}
+                    disabled={confirmRemovePm || removePmMutation.isPending}
+                    leftIcon={<Trash2 className="h-3.5 w-3.5" />}
+                  >
+                    Remove
+                  </Button>
+                ) : null}
               </div>
             </div>
           )}
         </div>
       </Card>
 
-      <ConfirmDialog
-        open={confirmRemovePm}
-        title="Remove payment method?"
-        message="Removing your payment method will disable automatic top-ups. You can re-enable them after adding a new payment method."
-        confirmLabel={removePmMutation.isPending ? "Removing…" : "Remove"}
-        cancelLabel="Keep"
-        destructive
-        onConfirm={() => {
-          if (removePmMutation.isPending) return;
-          removePmMutation.mutate(
-            {},
-            {
-              onSuccess: () => {
-                // The remove endpoint clears `stripe_payment_method_id` and
-                // flips `enabled=False` but intentionally preserves the
-                // saved thresholds (`threshold_usd`, `amount_usd`,
-                // `monthly_cap_usd`) so the user can re-enable later
-                // without re-entering them. Merge from the prior cache so
-                // the AutoTopUpCard sibling (same query key) doesn't render
-                // an empty config until the next refetch lands.
-                queryClient.setQueryData<AutoTopUpConfigResponse | undefined>(
-                  organizationsBillingAutoTopUpRetrieveQueryKey(),
-                  (prior) =>
-                    prior
-                      ? {
-                          ...prior,
-                          enabled: false,
-                          has_payment_method: false,
-                          payment_method_brand: null,
-                          payment_method_last4: null,
-                        }
-                      : DISABLED_CONFIG,
-                );
-                setConfirmRemovePm(false);
-              },
-              onError: () => {
-                toast.error(
-                  "Failed to remove payment method. Please try again.",
-                );
-                setConfirmRemovePm(false);
-              },
-            },
-          );
-        }}
-        onCancel={() => {
-          if (!removePmMutation.isPending) setConfirmRemovePm(false);
-        }}
-      />
+      {isAutoTopUpEnabled ? (
+        <ConfirmDialog
+          open={confirmRemovePm}
+          title="Remove payment method?"
+          message="Removing your payment method will disable automatic top-ups. You can re-enable them after adding a new payment method."
+          confirmLabel={removePmMutation.isPending ? "Removing…" : "Remove"}
+          cancelLabel="Keep"
+          destructive
+          onConfirm={handleConfirmRemoveMutation}
+          onCancel={handleCancelRemove}
+        />
+      ) : (
+        <ConfirmDialog
+          open={confirmRemovePm}
+          title="Remove payment method?"
+          message="The saved card will be removed from your account."
+          confirmLabel={removePmMutation.isPending ? "Removing…" : "Remove"}
+          cancelLabel="Cancel"
+          destructive
+          onConfirm={handleConfirmRemoveMutation}
+          onCancel={handleCancelRemove}
+        />
+      )}
 
       <AutoTopUpPaymentMethodModal
         open={pmModalOpen}

@@ -62,6 +62,9 @@ export const DISABLED_CONFIG: AutoTopUpConfigResponse = {
   amount_usd: null,
   monthly_cap_usd: null,
   has_payment_method: false,
+  // No saved PM means no Remove button anyway; default True matches what
+  // the backend serializer returns for `_serialize_config(None)`.
+  can_delete_payment_method: true,
   payment_method_brand: null,
   payment_method_last4: null,
   stripe_payment_method_updated_at: null,
