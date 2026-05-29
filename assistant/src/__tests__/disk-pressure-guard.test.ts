@@ -360,4 +360,27 @@ describe("disk pressure guard", () => {
     setDiskUsage(DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT + 1);
     expect(evaluateDiskPressureNow().state).toBe("warning");
   });
+
+  test("holds warning when a critical lock drops straight into the warning deadband", () => {
+    setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT + 1);
+    expect(evaluateDiskPressureNow().state).toBe("critical");
+
+    // A single large cleanup drops usage directly from critical to below the
+    // 80% warning threshold but still at/above the 77% clear threshold. The
+    // deadband must apply when stepping down out of critical too, so this holds
+    // as warning rather than flapping to ok (which would reopen the flap window).
+    setDiskUsage(DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT + 1);
+    const stepped = evaluateDiskPressureNow();
+    expect(stepped.state).toBe("warning");
+    expect(stepped.locked).toBe(false);
+  });
+
+  test("clears straight to ok when a critical lock drops below the warning clear threshold", () => {
+    setDiskUsage(DISK_PRESSURE_THRESHOLD_PERCENT + 1);
+    expect(evaluateDiskPressureNow().state).toBe("critical");
+
+    // A drop below even the warning-clear threshold is a genuine recovery.
+    setDiskUsage(DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT - 1);
+    expect(evaluateDiskPressureNow().state).toBe("ok");
+  });
 });

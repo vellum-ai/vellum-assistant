@@ -253,25 +253,21 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
     ? DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT
     : DISK_PRESSURE_THRESHOLD_PERCENT;
   const isCritical = usagePercent >= criticalThreshold;
-  // Mirror the critical deadband for the warning band: once warning, hold it
-  // until usage clears the lower warning-clear threshold. A critical lock
-  // stepping down below its clear threshold lands here as a fresh warning
-  // (state is still "critical" at this point, so the full 80% threshold
-  // applies) and then holds with hysteresis on subsequent samples.
-  //
-  // Note on dismissal after a critical episode (intended behavior): the in-chat
-  // warning banner's dismissal is scoped to the live warning state, so a spike
-  // into critical clears it. When usage then steps back down into the warning
-  // band the banner re-shows and holds (down to the clear threshold) even
-  // though the user had dismissed an earlier warning. That is deliberate — the
-  // situation materially escalated (it reached the critical lock), so surfacing
-  // the warning again is correct, matching the client's existing
-  // escalation-resets-dismissal semantics. The hysteresis hold is what prevents
-  // the re-shown banner from flapping; the user can dismiss the current warning.
-  const warningThreshold =
-    state.status.state === "warning"
-      ? DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT
-      : DISK_PRESSURE_WARNING_THRESHOLD_PERCENT;
+  // Mirror the critical deadband for the warning band: once in an active
+  // pressure state (warning or critical), hold warning until usage clears the
+  // lower warning-clear threshold. Treating "critical" as active here matters
+  // for a direct step-down: when cleanup frees a lot of space in one sample,
+  // usage can drop straight from a critical lock to e.g. 78%, which is below
+  // the 80% warning trigger but above the 77% clear threshold. Using the full
+  // 80% threshold in that case would report "ok" and discard the warning/
+  // dismissal, reopening the flapping window on the next tick back up. The
+  // deadband must apply consistently whether we arrived in the warning band
+  // from below (rising past 80%) or from above (falling out of critical).
+  const inActivePressureState =
+    state.status.state === "warning" || state.status.state === "critical";
+  const warningThreshold = inActivePressureState
+    ? DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT
+    : DISK_PRESSURE_WARNING_THRESHOLD_PERCENT;
   const isWarning = !isCritical && usagePercent >= warningThreshold;
   const lastCheckedAt = new Date().toISOString();
 
