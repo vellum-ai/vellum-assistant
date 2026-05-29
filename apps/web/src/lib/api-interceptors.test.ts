@@ -138,6 +138,8 @@ describe("api-interceptors / self-hosted rewriting", () => {
   });
 
   afterEach(() => {
+    process.env.VITE_PLATFORM_MODE = "true";
+    delete process.env.VITE_LOCAL_PLATFORM_PROXY_STAGE1;
     setSelfHostedConnection(null);
   });
 
@@ -215,6 +217,21 @@ describe("api-interceptors / self-hosted rewriting", () => {
     const output = await requestInterceptor(input);
     expect(new URL(output.url).origin).toBe("https://platform.test");
     expect(output.headers.get("Vellum-Organization-Id")).toBe(TEST_ORG_ID);
+    expect(output.headers.get("Authorization")).toBeNull();
+  });
+
+  test("routes runtime calls through the app base when the local Stage 1 platform proxy is enabled", async () => {
+    process.env.VITE_PLATFORM_MODE = "false";
+    process.env.VITE_LOCAL_PLATFORM_PROXY_STAGE1 = "true";
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+
+    const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`);
+    const output = await requestInterceptor(input);
+    const outUrl = new URL(output.url);
+
+    expect(outUrl.origin).toBe("https://platform.test");
+    expect(outUrl.pathname).toBe(`/assistant${RUNTIME_PROXIED_PATH}`);
+    expect(output.headers.get("Vellum-Organization-Id")).toBeNull();
     expect(output.headers.get("Authorization")).toBeNull();
   });
 

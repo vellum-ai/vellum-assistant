@@ -34,7 +34,7 @@ import {
   getSelfHostedActorToken,
   getSelfHostedIngressUrl,
 } from "@/lib/self-hosted/connection";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalMode, isStage1PlatformProxyEnabled } from "@/lib/local-mode";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { getActiveOrganizationIdForRequests } from "@/stores/organization-store";
 
@@ -59,6 +59,15 @@ const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  * error state. Add segments here as additional self-hosted flows light up.
  */
 const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
+const STAGE1_PLATFORM_PROXY_FIRST_SEGMENTS = new Set<string>([
+  "attachments",
+  "config",
+  "conversations",
+  "events",
+  "feature-flags",
+  "identity",
+  "messages",
+]);
 
 const ASSISTANT_PATH_RE =
   /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
@@ -145,6 +154,38 @@ export async function rewriteForSelfHostedIngress(
   return new Request(rewrittenUrl.toString(), init);
 }
 
+async function rewriteForStage1PlatformProxy(
+  request: Request,
+): Promise<Request | null> {
+  if (!isStage1PlatformProxyEnabled()) return null;
+
+  const url = new URL(request.url);
+  const match = ASSISTANT_PATH_RE.exec(url.pathname);
+  if (!match) return null;
+
+  const firstSegment = match[1];
+  if (
+    !firstSegment ||
+    !STAGE1_PLATFORM_PROXY_FIRST_SEGMENTS.has(firstSegment)
+  ) {
+    return null;
+  }
+
+  const rewrittenUrl = new URL(request.url);
+  rewrittenUrl.pathname = `/assistant${url.pathname}`;
+
+  const body = request.body ? await request.arrayBuffer() : null;
+  const init: RequestInit = {
+    method: request.method,
+    headers: new Headers(request.headers),
+    body,
+    credentials: request.credentials,
+    redirect: request.redirect,
+    signal: request.signal,
+  };
+  return new Request(rewrittenUrl.toString(), init);
+}
+
 /**
  * Exported for direct unit testing — production code paths invoke this
  * via the registrations at the bottom of the module. Keeping the function
@@ -161,12 +202,19 @@ export async function requestInterceptor(request: Request): Promise<Request> {
     newRequest.headers.set(name, value);
   }
 
+  const stage1PlatformProxy = await rewriteForStage1PlatformProxy(newRequest);
+  if (stage1PlatformProxy) {
+    return stage1PlatformProxy;
+  }
+
   // Self-hosted assistant + runtime-proxied path → talk to the user's
   // gateway directly instead of stamping the platform's session/CSRF
   // headers and hitting the runtime proxy view that filters us out.
-  const selfHosted = await rewriteForSelfHostedIngress(newRequest);
-  if (selfHosted) {
-    return selfHosted;
+  if (!isStage1PlatformProxyEnabled()) {
+    const selfHosted = await rewriteForSelfHostedIngress(newRequest);
+    if (selfHosted) {
+      return selfHosted;
+    }
   }
 
   // Platform path — Django session auth.

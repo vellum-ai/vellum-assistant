@@ -20,6 +20,8 @@ interface ImportMetaEnv {
   readonly VITE_APP_VERSION?: string;
   /** When set, the app runs in platform (cloud-hosted) mode. Unset = local mode. */
   readonly VITE_PLATFORM_MODE?: string;
+  /** Local-only spike: route self-hosted runtime calls through the Vite same-origin proxy. */
+  readonly VITE_LOCAL_PLATFORM_PROXY_STAGE1?: string;
 }
 
 interface ImportMeta {
