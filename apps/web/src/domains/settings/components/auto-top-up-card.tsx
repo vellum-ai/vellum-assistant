@@ -11,7 +11,10 @@ import {
   organizationsBillingAutoTopUpUpdateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
-import { brandLabel, formatBrandLast4 } from "@/domains/settings/utils/payment-method-brand";
+import {
+  brandLabel,
+  formatBrandLast4,
+} from "@/domains/settings/utils/payment-method-brand";
 
 import {
   AutoTopUpForm,
@@ -62,9 +65,6 @@ export const DISABLED_CONFIG: AutoTopUpConfigResponse = {
   amount_usd: null,
   monthly_cap_usd: null,
   has_payment_method: false,
-  // No saved PM means no Remove button anyway; default True matches what
-  // the backend serializer returns for `_serialize_config(None)`.
-  can_delete_payment_method: true,
   payment_method_brand: null,
   payment_method_last4: null,
   stripe_payment_method_updated_at: null,
@@ -83,10 +83,14 @@ export const DISABLED_CONFIG: AutoTopUpConfigResponse = {
  * per field. Exported so unit tests can exercise the parsing without
  * rendering the card.
  */
-export function extractAutoTopUpServerErrors(err: unknown): Record<string, string> {
+export function extractAutoTopUpServerErrors(
+  err: unknown,
+): Record<string, string> {
   if (!err || typeof err !== "object") return {};
   const out: Record<string, string> = {};
-  for (const [key, messages] of Object.entries(err as Record<string, unknown>)) {
+  for (const [key, messages] of Object.entries(
+    err as Record<string, unknown>,
+  )) {
     if (Array.isArray(messages) && typeof messages[0] === "string") {
       out[key] = messages[0];
     }
@@ -131,7 +135,9 @@ export function formatSavedPaymentMethodLine(args: {
 export function AutoTopUpCard() {
   const queryClient = useQueryClient();
   const configQuery = useQuery(organizationsBillingAutoTopUpRetrieveOptions());
-  const updateMutation = useMutation(organizationsBillingAutoTopUpUpdateMutation());
+  const updateMutation = useMutation(
+    organizationsBillingAutoTopUpUpdateMutation(),
+  );
   const disableMutation = useMutation(
     organizationsBillingAutoTopUpDisableCreateMutation(),
   );
@@ -369,8 +375,8 @@ export function AutoTopUpCard() {
                   className="mt-0.5 text-body-small-default text-[var(--content-tertiary)]"
                   data-testid="auto-top-up-cap-progress"
                 >
-                  {formatUsdShort(config.current_month_credits_purchased_usd)} of{" "}
-                  {formatUsdShort(config.monthly_cap_usd)} this month
+                  {formatUsdShort(config.current_month_credits_purchased_usd)}{" "}
+                  of {formatUsdShort(config.monthly_cap_usd)} this month
                 </p>
               )}
             </div>

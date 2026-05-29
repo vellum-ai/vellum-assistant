@@ -4847,8 +4847,6 @@ components:
           nullable: true
         has_payment_method:
           type: boolean
-        can_delete_payment_method:
-          type: boolean
         payment_method_brand:
           type: string
           nullable: true
@@ -4885,7 +4883,6 @@ components:
           type: boolean
       required:
       - amount_usd
-      - can_delete_payment_method
       - current_month_charged_usd
       - current_month_credits_purchased_usd
       - enabled

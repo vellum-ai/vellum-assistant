@@ -12,6 +12,7 @@ import {
   organizationsBillingAutoTopUpRemovePaymentMethodCreateMutation,
   organizationsBillingAutoTopUpRetrieveOptions,
   organizationsBillingAutoTopUpRetrieveQueryKey,
+  organizationsBillingSubscriptionRetrieveOptions,
 } from "@/generated/api/@tanstack/react-query.gen";
 import type { AutoTopUpConfigResponse } from "@/generated/api/types.gen";
 
@@ -48,6 +49,21 @@ function PaymentMethodHeading() {
 export function PaymentMethodsCard() {
   const queryClient = useQueryClient();
   const configQuery = useQuery(organizationsBillingAutoTopUpRetrieveOptions());
+  // Pro subscribers can't remove their PM — the Pro plan requires a
+  // payment method on file. Hide the Remove button entirely so they
+  // see only the Change button (which is the path forward). Backend
+  // 409 guards on AutoTopUpViewSet.remove_payment_method and
+  // PaymentMethodViewSet.destroy are the authoritative enforcement;
+  // this is the UX layer.
+  //
+  // Reads plan_id directly from the subscription rather than a
+  // server-authored boolean on the AutoTopUp response — the rule is
+  // pure plan_id == "pro", so a separate field was redundant (Carson
+  // review on platform PR #7781).
+  const subscriptionQuery = useQuery(
+    organizationsBillingSubscriptionRetrieveOptions(),
+  );
+  const isPro = subscriptionQuery.data?.plan_id === "pro";
 
   const [pmModalOpen, setPmModalOpen] = useState(false);
   const [confirmRemovePm, setConfirmRemovePm] = useState(false);
@@ -147,15 +163,6 @@ export function PaymentMethodsCard() {
   const brand = brandLabel(config.payment_method_brand ?? "card");
   const last4 = config.payment_method_last4;
   const isAutoTopUpEnabled = config.enabled;
-  // Backend gates the Remove action via this flag (False for Pro
-  // subscribers — they must replace the card instead so the Pro plan
-  // never has an empty default-PM slot). We hide the button entirely
-  // rather than disabling it so Pro users don't see a dead control;
-  // the Change button next to it is the path forward. Backend also
-  // returns 409 on the corresponding endpoints
-  // (AutoTopUpViewSet.remove_payment_method and
-  // PaymentMethodViewSet.destroy) as the authoritative guard.
-  const canDeletePaymentMethod = config.can_delete_payment_method;
 
   // Two confirm-modal variants for the Remove click:
   // 1. Auto-top-up ON → warn that removing the PM disables auto-top-up.
@@ -238,7 +245,7 @@ export function PaymentMethodsCard() {
                 <Button variant="ghost" onClick={() => setPmModalOpen(true)}>
                   Change
                 </Button>
-                {canDeletePaymentMethod ? (
+                {isPro ? null : (
                   <Button
                     variant="ghost"
                     onClick={() => setConfirmRemovePm(true)}
@@ -247,7 +254,7 @@ export function PaymentMethodsCard() {
                   >
                     Remove
                   </Button>
-                ) : null}
+                )}
               </div>
             </div>
           )}
