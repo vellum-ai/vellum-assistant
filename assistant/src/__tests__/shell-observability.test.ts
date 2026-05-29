@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { WakeOptions } from "../runtime/agent-wake.js";
 import type { BackgroundTool } from "../tools/background-tool-registry.js";
-import type { Tool } from "../tools/types.js";
+import type { ToolDefinition } from "../tools/types.js";
 
 // ── Mock modules ────────────────────────────────────────────────────────────
 
@@ -159,7 +159,7 @@ const isKill = (reason: string) => (c: LogCall) =>
   c.fields.reason === reason;
 
 describe("shell observability logs", () => {
-  let shellTool: Tool;
+  let shellTool: ToolDefinition;
 
   beforeEach(async () => {
     logCalls.length = 0;
@@ -174,7 +174,7 @@ describe("shell observability logs", () => {
   });
 
   test("foreground exit emits structured 'Shell command exited' info log", async () => {
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       { command: "echo obs-foreground", activity: "test" },
       baseContext,
     );
@@ -191,7 +191,7 @@ describe("shell observability logs", () => {
   });
 
   test("foreground timeout emits killTree warn + exit log with timedOut=true", async () => {
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       { command: "sleep 30", activity: "test", timeout_seconds: 1 },
       baseContext,
     );
@@ -210,7 +210,7 @@ describe("shell observability logs", () => {
   }, 10_000);
 
   test("background mode emits an exit log with mode='background' and the bg invocationId", async () => {
-    await shellTool.execute(
+    await shellTool.execute!(
       { command: "echo bg-obs", activity: "test", background: true },
       baseContext,
     );
@@ -225,7 +225,7 @@ describe("shell observability logs", () => {
 
   test("aborted foreground command emits killTree warn with reason='abort'", async () => {
     const controller = new AbortController();
-    const execPromise = shellTool.execute(
+    const execPromise = shellTool.execute!(
       { command: "sleep 30", activity: "test" },
       { ...baseContext, signal: controller.signal },
     );
