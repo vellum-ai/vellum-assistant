@@ -230,6 +230,74 @@ describe("avatar write/remove handlers", () => {
     });
   });
 
+  describe("POST /avatar/image", () => {
+    // Minimal valid PNG signature followed by enough bytes to clear the
+    // 12-byte sniff floor. The handler only checks the magic bytes.
+    const PNG_BYTES = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+    ]);
+
+    test("writes an image manifest and clears stale traits from base64", async () => {
+      // Seed legacy character artifacts to prove they get removed.
+      writeFileSync(path(TRAITS_FILENAME), JSON.stringify(VALID_TRAITS));
+      writeFileSync(path(ASCII_FILENAME), "ascii art");
+
+      const handler = getHandler("avatar_upload_image");
+      const result = (await handler({
+        body: { content: PNG_BYTES.toString("base64"), encoding: "base64" },
+      })) as { ok: boolean };
+      expect(result.ok).toBe(true);
+
+      expect(existsSync(path(IMAGE_FILENAME))).toBe(true);
+      expect(readFileSync(path(IMAGE_FILENAME))).toEqual(PNG_BYTES);
+      // The stale character sidecars must be gone — no both-files state.
+      expect(existsSync(path(TRAITS_FILENAME))).toBe(false);
+      expect(existsSync(path(ASCII_FILENAME))).toBe(false);
+
+      const manifest = readManifestFile();
+      expect(manifest!.kind).toBe("image");
+      expect(manifest!.traits).toBeNull();
+      expect(manifest!.source).toBe("upload");
+      expect(manifest!.image!.etag).toMatch(/^[0-9a-f]{16}$/);
+    });
+
+    test("accepts a base64 payload without an explicit encoding field", async () => {
+      const handler = getHandler("avatar_upload_image");
+      const result = (await handler({
+        body: { content: PNG_BYTES.toString("base64") },
+      })) as { ok: boolean };
+      expect(result.ok).toBe(true);
+      expect(readManifestFile()!.kind).toBe("image");
+    });
+
+    test("rejects a missing content field with 400 and writes no manifest", () => {
+      const handler = getHandler("avatar_upload_image");
+      expect(() => handler({ body: {} })).toThrow(/content/);
+      expect(readManifestFile()).toBeNull();
+    });
+
+    test("rejects a non-base64 / non-image payload with 400", () => {
+      const handler = getHandler("avatar_upload_image");
+      // Valid base64 but decodes to plain text — not a supported image.
+      expect(() =>
+        handler({
+          body: { content: Buffer.from("not an image").toString("base64") },
+        }),
+      ).toThrow(/PNG|JPEG|GIF|WEBP|image/);
+      expect(readManifestFile()).toBeNull();
+    });
+
+    test("rejects an unsupported encoding with 400", () => {
+      const handler = getHandler("avatar_upload_image");
+      expect(() =>
+        handler({
+          body: { content: PNG_BYTES.toString("base64"), encoding: "hex" },
+        }),
+      ).toThrow(/encoding/);
+      expect(readManifestFile()).toBeNull();
+    });
+  });
+
   describe("POST /avatar/remove", () => {
     test("clears everything to kind:none (revert-to-character branch gone)", async () => {
       // Seed an image plus legacy character artifacts.
