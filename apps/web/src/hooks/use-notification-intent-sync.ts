@@ -36,14 +36,12 @@ export function useNotificationIntentSync(
   useBusSubscription("sse.event", (event) => {
     if (event.type !== "notification_intent") return;
 
-    const ackAssistantId = assistantId;
-
     // Guardian-scoped notifications are for devices bound to that
     // guardian identity. The web/Capacitor client does not participate
     // in guardian binding — skip to avoid leaking to unintended devices.
     if (event.targetGuardianPrincipalId) {
-      if (ackAssistantId && event.deliveryId) {
-        void sendNotificationIntentAck(ackAssistantId, event.deliveryId, true);
+      if (assistantId && event.deliveryId) {
+        void sendNotificationIntentAck(assistantId, event.deliveryId, true);
       }
       return;
     }
@@ -61,8 +59,8 @@ export function useNotificationIntentSync(
         useConversationStore.getState().activeConversationId &&
       window.location.pathname.startsWith("/assistant/conversations/")
     ) {
-      if (ackAssistantId && event.deliveryId) {
-        void sendNotificationIntentAck(ackAssistantId, event.deliveryId, true);
+      if (assistantId && event.deliveryId) {
+        void sendNotificationIntentAck(assistantId, event.deliveryId, true);
       }
       return;
     }
@@ -73,7 +71,7 @@ export function useNotificationIntentSync(
       sourceEventName: event.sourceEventName,
       deliveryId: event.deliveryId,
       deepLinkMetadata: event.deepLinkMetadata,
-      assistantId: ackAssistantId ?? undefined,
+      assistantId: assistantId ?? undefined,
     });
   });
 }
