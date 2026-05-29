@@ -573,7 +573,7 @@ export function ChatComposer({
               // dictation cleanup are in flight — the visual signal that the
               // recording was captured and the transcript is on its way.
               <div
-                className="px-2"
+                className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
                 aria-label={voicePhase === "processing" ? "Transcribing" : "Recording"}
                 aria-live="polite"
               >
