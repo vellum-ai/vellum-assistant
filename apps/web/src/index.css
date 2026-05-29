@@ -231,17 +231,17 @@ body {
   background-clip: padding-box;
 }
 
-/* Velvetist tiled heart background — rendered behind the main chat area
- * via a pseudo-element on the chat body container. Uses an inline SVG
- * heart in dark pink, repeated across the surface. */
+/* Velvetist tiled card-suit background — hearts, diamonds, spades, clubs
+ * arranged in a 2×2 grid with generous spacing, repeated across the chat
+ * body via a CSS pseudo-element. */
 [data-theme="velvetist"] [data-slot="chat-body"]::before {
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='48' height='48' viewBox='0 0 48 48'%3E%3Cpath d='M24 42 C14 32 4 22 4 14 C4 8 8 4 14 4 C17.5 4 21 6.5 24 10 C27 6.5 30.5 4 34 4 C40 4 44 8 44 14 C44 22 34 32 24 42Z' fill='%23330A15' fill-opacity='0.55'/%3E%3C/svg%3E");
-  background-size: 48px 48px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 120 120'%3E%3Cpath d='M30 40 C24 34 16 28 16 21 C16 16 19 13 23 13 C26 13 28 15 30 18 C32 15 34 13 37 13 C41 13 44 16 44 21 C44 28 36 34 30 40Z' fill='%23330A15' fill-opacity='0.30'/%3E%3Cpath d='M90 16 L100 30 L90 44 L80 30Z' fill='%23330A15' fill-opacity='0.30'/%3E%3Cpath d='M30 76 C30 76 18 86 18 93 C18 97 21 100 25 100 C27 100 29 99 30 97 C31 99 33 100 35 100 C39 100 42 97 42 93 C42 86 30 76 30 76Z M28 100 L32 100 L32 107 L28 107Z' fill='%23330A15' fill-opacity='0.30'/%3E%3Ccircle cx='90' cy='84' r='7' fill='%23330A15' fill-opacity='0.30'/%3E%3Ccircle cx='82' cy='96' r='7' fill='%23330A15' fill-opacity='0.30'/%3E%3Ccircle cx='98' cy='96' r='7' fill='%23330A15' fill-opacity='0.30'/%3E%3Crect x='88' y='99' width='4' height='8' fill='%23330A15' fill-opacity='0.30'/%3E%3C/svg%3E");
+  background-size: 120px 120px;
   background-repeat: repeat;
 }
 
