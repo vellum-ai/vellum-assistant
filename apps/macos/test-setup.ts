@@ -66,6 +66,9 @@ mock.module("electron", () => ({
     },
   },
   net: {
+    // Import-time stub only — returns an empty Response so module-eval
+    // calls succeed. Tests that exercise response bodies should re-mock
+    // `net.fetch` locally with their own fixture.
     fetch: () => Promise.resolve(new Response("")),
   },
   screen: {

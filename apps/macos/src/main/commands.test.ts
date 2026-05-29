@@ -2,6 +2,14 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 let mockHotkeys: unknown = null;
 
+// Order matters: `mock.module("./settings", …)` must run before any
+// `import` of `./commands`, because `./commands` imports `./settings` at
+// the top level. The static `import` form would resolve `./settings`
+// first — before this `mock.module` line runs — and bind the real
+// `readSetting`. Using `await import("./commands")` after the mock
+// ensures the mocked module graph is in place when `./commands` is
+// evaluated. Subsequent test files copying this template should
+// preserve the same ordering.
 mock.module("./settings", () => ({
   readSetting: (key: string) => (key === "hotkeys" ? mockHotkeys : null),
   writeSetting: () => undefined,
