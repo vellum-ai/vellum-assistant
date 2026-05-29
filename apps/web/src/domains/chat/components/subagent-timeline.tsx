@@ -8,7 +8,7 @@ import {
 import { useMemo, useState } from "react";
 
 import { Typography } from "@vellum/design-library";
-import type { SubagentTimelineEvent } from "@/domains/subagents/subagent-store";
+import type { SubagentTimelineEvent } from "@/stores/subagent-store";
 
 // ---------------------------------------------------------------------------
 // Constants

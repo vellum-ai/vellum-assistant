@@ -36,7 +36,7 @@ import { RenameConversationDialog } from "@/domains/conversations/rename-convers
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useViewerStore } from "@/stores/viewer-store";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useSubagentStore } from "@/stores/subagent-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import type { Conversation } from "@/types/conversation-types";

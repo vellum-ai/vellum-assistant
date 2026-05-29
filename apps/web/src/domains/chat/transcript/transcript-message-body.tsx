@@ -28,7 +28,7 @@ import {
   EMPTY_SUBAGENT_ENTRIES,
   useSubagentStore,
   type SubagentEntry,
-} from "@/domains/subagents/subagent-store";
+} from "@/stores/subagent-store";
 import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
 
 export interface OpenRuleEditorContext {

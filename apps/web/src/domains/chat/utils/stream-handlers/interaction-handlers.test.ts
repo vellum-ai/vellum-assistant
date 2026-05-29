@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach } from "bun:test";
 
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import { useInteractionStore } from "@/stores/interaction-store";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleSecretRequest,

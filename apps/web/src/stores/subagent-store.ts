@@ -14,7 +14,7 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 import type { SubagentStatus, SubagentInnerEvent } from "@/types/interaction-ui-types";
-import { isActiveStatus } from "@/domains/subagents/status-helpers";
+import { isActiveStatus } from "@/utils/subagent-status";
 
 // ---------------------------------------------------------------------------
 // State

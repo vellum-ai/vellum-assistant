@@ -12,7 +12,7 @@ import { act } from "react";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 import { SubagentInlineProgressCard } from "@/domains/chat/components/subagent-inline-progress-card/subagent-inline-progress-card";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useSubagentStore } from "@/stores/subagent-store";
 
 const NOW = 1700000000000;
 
