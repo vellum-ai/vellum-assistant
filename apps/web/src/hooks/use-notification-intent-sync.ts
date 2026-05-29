@@ -4,8 +4,9 @@
  * Turns daemon-pushed notification intents into local browser or
  * Capacitor notifications. Skips guardian-scoped notifications
  * (the web client does not participate in guardian binding) and
- * notifications targeting the currently focused conversation
- * (the user is already looking at it).
+ * notifications targeting the conversation the user is actively
+ * viewing (verified by both store state and URL pathname, since
+ * `activeConversationId` persists across route changes).
  *
  * Acks every notification back to the daemon so delivery audit
  * trails stay consistent with the macOS client.
@@ -47,15 +48,18 @@ export function useNotificationIntentSync(
       return;
     }
 
-    // If the notification targets the conversation the user is already
-    // viewing, suppress the banner and ack silently.
+    // Suppress the banner when the user is already viewing the target
+    // conversation. `activeConversationId` is never cleared on navigation,
+    // so we also verify the URL matches the conversation route — otherwise
+    // a stale id would suppress notifications on home/settings/etc.
     const metadataConversationId = extractConversationId(
       event.deepLinkMetadata,
     );
     if (
       metadataConversationId &&
       metadataConversationId ===
-        useConversationStore.getState().activeConversationId
+        useConversationStore.getState().activeConversationId &&
+      window.location.pathname.startsWith("/assistant/conversations/")
     ) {
       if (ackAssistantId && event.deliveryId) {
         void sendNotificationIntentAck(ackAssistantId, event.deliveryId, true);
