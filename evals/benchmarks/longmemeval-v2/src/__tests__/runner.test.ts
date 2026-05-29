@@ -58,6 +58,16 @@ function textEvent(text: string): AgentEvent {
   return { message: { type: "assistant_text_delta", text } };
 }
 
+/**
+ * Usage-bearing AgentEvent that `summarizeAssistantUsage` will pick up.
+ * Mirrors what a real adapter would emit on a turn boundary: a
+ * `type: "usage"` envelope carrying the provider, model, and token
+ * fields the pricing module reads.
+ */
+function usageEvent(usage: Record<string, unknown>): AgentEvent {
+  return { message: { type: "usage", usage } };
+}
+
 interface FakeAgentHarness {
   agent: BaseAgent;
   writes: () => WorkspaceFileWrite[];
@@ -274,6 +284,230 @@ describe("runLongMemEvalV2Unit", () => {
     );
     expect(meta.status).toBe("failed");
     expect(meta.error).toMatch(/Ingest turn produced no events/);
+  });
+
+  /**
+   * PR-9: usage.json was not being written for the V2 benchmark because
+   * the runner never summarized the agent's events. These tests lock
+   * down the new behaviour:
+   *
+   *  - agent-side usage from both conversations is folded through the
+   *    same `summarizeAssistantUsage` the simulator runner uses
+   *  - LLM-judge usage (when the judge surfaced a usage block) is
+   *    merged in alongside as a third entry
+   *  - deterministic judges contribute nothing to usage.json
+   *  - a judge that returns no usage block leaves agent-only totals in
+   *    place (no fabricated zeros)
+   */
+  test("writes usage.json from agent events on a deterministic-judge run", async () => {
+    const runId = `lme-v2-runner-usage-${Date.now()}`;
+    runIdsToCleanup.push(runId);
+
+    const harness = makeFakeAgent([
+      [
+        textEvent("Ready."),
+        usageEvent({
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          input_tokens: 1000,
+          output_tokens: 100,
+        }),
+      ],
+      [
+        textEvent("The laptop was blue."),
+        usageEvent({
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          input_tokens: 500,
+          output_tokens: 30,
+        }),
+      ],
+    ]);
+    nextAgent = harness.agent;
+
+    await runLongMemEvalV2Unit({
+      profile: profileFor("p1"),
+      item: makeItem(),
+      trajectoryReader: trajectoryReader(),
+      runId,
+      quietMs: 50,
+    });
+
+    const usage = JSON.parse(
+      await readFile(runArtifacts(runId).usagePath, "utf8"),
+    );
+    // Two ingest + question conversations both contributed a usage row.
+    // No judge entry because the eval_function was deterministic.
+    expect(usage.requests).toHaveLength(2);
+    expect(usage.totalInputTokens).toBe(1500);
+    expect(usage.totalOutputTokens).toBe(130);
+    expect(usage.costStatus).toBe("ok");
+    // Both rows priced against the Anthropic Sonnet 4.6 row in
+    // PRICING_TABLE: 1500/1M × $3 + 130/1M × $15 = $0.00645
+    expect(typeof usage.totalCostUsd).toBe("number");
+    expect(usage.totalCostUsd).toBeGreaterThan(0);
+  });
+
+  test("merges LLM judge usage into usage.json alongside agent usage", async () => {
+    const runId = `lme-v2-runner-judge-usage-${Date.now()}`;
+    runIdsToCleanup.push(runId);
+
+    const harness = makeFakeAgent([
+      [
+        textEvent("Ready."),
+        usageEvent({
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          input_tokens: 800,
+          output_tokens: 50,
+        }),
+      ],
+      [
+        // Hypothesis text that the LLM judge will grade.
+        textEvent("The premise is wrong because X."),
+        usageEvent({
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          input_tokens: 300,
+          output_tokens: 20,
+        }),
+      ],
+    ]);
+    nextAgent = harness.agent;
+
+    // Mock OpenAI chat completions for the LLM judge call. Returns a
+    // positive judgement plus a usage block — the runner must thread
+    // both through.
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: '{"label": 1, "reason": "identified flaw"}',
+              },
+            },
+          ],
+          usage: {
+            prompt_tokens: 200,
+            completion_tokens: 15,
+            total_tokens: 215,
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+    try {
+      await runLongMemEvalV2Unit({
+        profile: profileFor("p1"),
+        item: makeItem({
+          evalFunction: "llm_abstention_checker",
+          answer: "Reject the premise.",
+        }),
+        trajectoryReader: trajectoryReader(),
+        runId,
+        quietMs: 50,
+        judgeOverrides: {
+          evaluatorModel: "gpt-5.2",
+          evaluatorApiKey: "unit-test",
+        },
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+
+    const usage = JSON.parse(
+      await readFile(runArtifacts(runId).usagePath, "utf8"),
+    );
+    // 2 agent rows + 1 judge row.
+    expect(usage.requests).toHaveLength(3);
+    // Totals roll up across all three.
+    expect(usage.totalInputTokens).toBe(800 + 300 + 200);
+    expect(usage.totalOutputTokens).toBe(50 + 20 + 15);
+    // Source tag on the judge row so the report can group it
+    // separately if it wants.
+    const judgeRow = (usage.requests as Array<Record<string, unknown>>).find(
+      (r) => r.source === "longmemeval-v2-judge",
+    );
+    expect(judgeRow).toBeDefined();
+    expect(judgeRow!.provider).toBe("openai");
+    expect(judgeRow!.model).toBe("gpt-5.2");
+    expect(judgeRow!.input_tokens).toBe(200);
+    expect(judgeRow!.output_tokens).toBe(15);
+    // costStatus is "partial" because `gpt-5.2` isn't in the evals
+    // pricing table — the report flags it as `unpriced_model` rather
+    // than silently counting as $0. The agent-side rows still price
+    // (anthropic Sonnet 4.6 IS in the table), so totalCostUsd is > 0.
+    expect(usage.costStatus).toBe("partial");
+    expect(usage.totalCostUsd).toBeGreaterThan(0);
+    const judgeDiagnostic = (
+      usage.costDiagnostics as Array<{ provider?: string; reason: string }>
+    ).find((d) => d.reason === "unpriced_model" && d.provider === "openai");
+    expect(judgeDiagnostic).toBeDefined();
+  });
+
+  test("LLM judge with no usage block: usage.json has agent rows only", async () => {
+    const runId = `lme-v2-runner-no-judge-usage-${Date.now()}`;
+    runIdsToCleanup.push(runId);
+
+    const harness = makeFakeAgent([
+      [
+        textEvent("Ready."),
+        usageEvent({
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          input_tokens: 800,
+          output_tokens: 50,
+        }),
+      ],
+      [textEvent("The premise is wrong because X.")],
+    ]);
+    nextAgent = harness.agent;
+
+    // Judge response with no usage block — local non-OpenAI endpoints
+    // sometimes skip it. We treat that as "missing" rather than
+    // fabricating zeros.
+    const previousFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          choices: [
+            { message: { content: '{"label": 1, "reason": "identified"}' } },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    }) as unknown as typeof fetch;
+    try {
+      await runLongMemEvalV2Unit({
+        profile: profileFor("p1"),
+        item: makeItem({
+          evalFunction: "llm_abstention_checker",
+          answer: "Reject the premise.",
+        }),
+        trajectoryReader: trajectoryReader(),
+        runId,
+        quietMs: 50,
+        judgeOverrides: {
+          evaluatorModel: "gpt-5.2",
+          evaluatorApiKey: "unit-test",
+        },
+      });
+    } finally {
+      globalThis.fetch = previousFetch;
+    }
+
+    const usage = JSON.parse(
+      await readFile(runArtifacts(runId).usagePath, "utf8"),
+    );
+    // Only the single ingest-turn usage row.
+    expect(usage.requests).toHaveLength(1);
+    expect(usage.totalInputTokens).toBe(800);
+    expect(usage.totalOutputTokens).toBe(50);
   });
 
   test("manifest write reflects haystack order and ability", async () => {

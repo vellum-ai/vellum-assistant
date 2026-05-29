@@ -94,6 +94,12 @@ export function createRunProgressLifecycle(
 ): RunProgressLifecycle {
   const { runId, userProgress, heartbeatMs = DEFAULT_HEARTBEAT_MS } = input;
 
+  // Serializes `progress.ndjson` appends so order on disk matches
+  // emission order even when callers fire two progress events in the
+  // same synchronous tick. Errors at any link are swallowed so a single
+  // failure doesn't poison subsequent appends.
+  let appendChain: Promise<void> = Promise.resolve();
+
   const progress: EvalProgressReporter = (event: EvalProgressEvent) => {
     if (userProgress) {
       try {
@@ -107,14 +113,16 @@ export function createRunProgressLifecycle(
     // Persistence is best-effort: a failed append (disk full,
     // permission flake) is logged via the swallowed promise but never
     // blocks the run.
-    void appendProgressEvent(runId, {
-      ...event,
-      emittedAt: new Date().toISOString(),
-    }).catch(() => undefined);
-    // Bump the heartbeat on every progress event so dashboards see a
-    // fresh "last seen" timestamp inside the same frame the event was
-    // emitted. The standalone ticker below is the backstop for the
-    // gaps between events.
+    // Chain appends so two synchronous progress() calls in a row land
+    // on disk in emission order. Without this, parallel appendFile
+    // calls race and `progress.ndjson` can show events out of order —
+    // the report server reads that file as a timeline so order
+    // matters. Heartbeat bumps don't need ordering (they all write the
+    // same key) so they stay fire-and-forget.
+    const emittedAt = new Date().toISOString();
+    appendChain = appendChain
+      .then(() => appendProgressEvent(runId, { ...event, emittedAt }))
+      .catch(() => undefined);
     void updateHeartbeat(runId).catch(() => undefined);
   };
 
