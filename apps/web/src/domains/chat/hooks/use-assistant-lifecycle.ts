@@ -438,12 +438,17 @@ export function useAssistantLifecycle({
       // Force a fresh fetch through the query cache. `fetchQuery`
       // updates the cache atomically so any other subscriber
       // (sidebar header, identity panel, etc.) sees the same answer
-      // this code path acts on. Cache-subscription callers go through
-      // `applyServerStateUpdate` directly to avoid re-fetching the
-      // value we just observed land in the cache.
+      // this code path acts on. `staleTime: 0` is required: the app's
+      // QueryClient sets a 10s default staleTime for queries, and
+      // imperative re-checks (visibility-change return, retry button,
+      // onboarding pre-chat verification) must hit the network so a
+      // 10s-old cached 404 or initializing result doesn't silently
+      // replay. Cache-subscription callers go through
+      // `applyServerStateUpdate` directly to avoid the read-back loop.
       const result = await queryClient.fetchQuery({
         queryKey: ASSISTANT_QUERY_KEY,
         queryFn: () => getAssistant(),
+        staleTime: 0,
       });
       if (generation !== initializingGenerationRef.current) return;
       await applyServerStateUpdate(result);
@@ -476,10 +481,12 @@ export function useAssistantLifecycle({
       if (!assistantIdToRetire) {
         // Force-refresh the cached status. We need to know whether the
         // assistant moved off "initializing" before deciding whether to
-        // retire-and-rehatch.
+        // retire-and-rehatch — a cached 10s-old "initializing" result
+        // would mislead the decision into an unnecessary retire.
         const result = await queryClient.fetchQuery({
           queryKey: ASSISTANT_QUERY_KEY,
           queryFn: () => getAssistant(),
+          staleTime: 0,
         });
         if (generation !== initializingGenerationRef.current) return;
         if (result.ok && result.data.status === "initializing") {
