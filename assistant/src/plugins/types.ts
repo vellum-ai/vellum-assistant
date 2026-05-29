@@ -44,7 +44,7 @@ import type {
 } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type {
-  LoadedTool,
+  Tool,
   ToolContext,
   ToolExecutionResult,
 } from "../tools/types.js";
@@ -1157,10 +1157,10 @@ export interface Plugin {
    * `@vellumai/plugin-api`); the loader derives `name` from the
    * `tools/<name>.ts` basename and runs the definition through
    * `finalizeTool` to fill omitted required fields, producing the
-   * `LoadedTool` values stored here. Category / ownership metadata is
+   * `Tool` values stored here. Category / ownership metadata is
    * stamped by `registerPluginTools` at registration time.
    */
-  tools?: LoadedTool[];
+  tools?: Tool[];
   /** HTTP route registrations served by the assistant. */
   routes?: PluginRouteRegistration[];
   /** Skill registrations loaded at startup. */

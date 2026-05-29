@@ -335,10 +335,12 @@ export interface ToolDefinition {
     input: Record<string, unknown>,
     context: ToolContext,
   ) => Promise<ToolExecutionResult>;
+  /** Tool category used for Slack channel `allowedToolCategories` enforcement. */
+  category?: string;
 }
 
 /** Tool after the loader has derived its name and filled defaults. */
-export type LoadedTool = Required<ToolDefinition> & {
+export type Tool = Required<ToolDefinition> & {
   name: string;
 };
 
@@ -354,8 +356,4 @@ export interface OwnerInfo {
   kind: OwnerKind;
   /** ID of the owning extension (skill id / plugin name / MCP server id). */
   id: string;
-}
-
-export interface Tool extends LoadedTool {
-  category: string;
 }
