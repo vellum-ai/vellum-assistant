@@ -7,6 +7,11 @@
 
 import { z } from "zod";
 
+import {
+  loadRawConfig,
+  saveRawConfig,
+  setNestedValue,
+} from "../../config/loader.js";
 import { markdownToEmailHtml } from "../../email/html-renderer.js";
 import { VellumPlatformClient } from "../../platform/client.js";
 import {
@@ -32,6 +37,18 @@ async function requireClient(): Promise<VellumPlatformClient> {
     );
   }
   return client;
+}
+
+/**
+ * Mirror the platform-registered inbox address into local config so the
+ * settings card (`/integrations/status`) and the email readiness probe —
+ * which both read `email.address` — reflect the registered inbox. Pass
+ * `undefined` to clear it on unregister.
+ */
+function persistLocalInboxAddress(address: string | undefined): void {
+  const raw = loadRawConfig();
+  setNestedValue(raw, "email.address", address);
+  saveRawConfig(raw);
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────
@@ -69,6 +86,7 @@ async function handleEmailRegister({ body = {} }: RouteHandlerArgs) {
     address: string;
     created_at: string;
   };
+  persistLocalInboxAddress(data.address);
   return data;
 }
 
@@ -116,6 +134,7 @@ async function handleEmailUnregister(_args: RouteHandlerArgs) {
     );
   }
 
+  persistLocalInboxAddress(undefined);
   return { unregistered: target.address };
 }
 

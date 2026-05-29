@@ -11,10 +11,27 @@
 // Must be first — before any imports that resolve socket paths
 delete process.env.ASSISTANT_IPC_SOCKET_DIR;
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 
 import { runAssistantCommandFull } from "../../cli/__tests__/run-assistant-command.js";
 import { AssistantIpcServer } from "../assistant-server.js";
+
+/** Read `email.address` from the test workspace config, or null if unset. */
+function readConfiguredEmailAddress(): string | null {
+  const configPath = join(process.env.VELLUM_WORKSPACE_DIR!, "config.json");
+  try {
+    const raw = JSON.parse(readFileSync(configPath, "utf8")) as {
+      email?: { address?: unknown };
+    };
+    const address = raw.email?.address;
+    return typeof address === "string" ? address : null;
+  } catch {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Mock state — set up a controllable VellumPlatformClient at module boundary
@@ -111,6 +128,37 @@ test("register --json outputs structured response", async () => {
   const parsed = JSON.parse(stdout.trim());
   expect(parsed.address).toBe("support@example.com");
   expect(process.exitCode).toBe(0);
+});
+
+test("register persists the inbox address to local config; unregister clears it", async () => {
+  // Register mirrors the platform-returned address into local config so the
+  // settings card and readiness probe (which read email.address) see it.
+  mockFetchFn = async () =>
+    new Response(
+      JSON.stringify({
+        id: "1",
+        address: "mybot@example.com",
+        created_at: "2026-01-01",
+      }),
+      { status: 201 },
+    );
+
+  await runAssistantCommandFull("email", "register", "mybot");
+  expect(readConfiguredEmailAddress()).toBe("mybot@example.com");
+
+  // Unregister (list → DELETE) clears the local address again.
+  mockFetchFn = async (path, init) => {
+    if (path.includes("/email-addresses/") && init?.method === "DELETE") {
+      return new Response(null, { status: 204 });
+    }
+    return new Response(
+      JSON.stringify({ results: [{ id: "1", address: "mybot@example.com" }] }),
+      { status: 200 },
+    );
+  };
+
+  await runAssistantCommandFull("email", "unregister", "--confirm");
+  expect(readConfiguredEmailAddress()).toBeNull();
 });
 
 test("register: platform error surfaces to CLI", async () => {
