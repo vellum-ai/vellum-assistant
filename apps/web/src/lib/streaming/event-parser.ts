@@ -6,34 +6,59 @@
  * envelope/flat shape, tries the canonical `AssistantEventSchema`
  * from `@vellumai/assistant-api` first, and falls back to hand-rolled
  * coercion for legacy events not yet covered by a schema.
+ *
+ * Legacy coercion is split across focused sub-modules by event group:
+ *   - `parse-interaction-events` — user-facing prompts
+ *   - `parse-tool-events`        — tool execution lifecycle
+ *   - `parse-surface-events`     — daemon-driven UI surfaces
+ *   - `parse-subagent-events`    — subagent orchestration
+ *   - `parse-resource-events`    — cache invalidation / push signals
+ *
+ * Events that migrate to `@vellumai/assistant-api` Zod schemas bypass
+ * the legacy switch entirely — the canonical path takes precedence.
  */
 
-import type {
-  DiskPressureBlockedCapability,
-  DiskPressureStatus,
-} from "@/assistant/types";
 import type {
   AssistantActivityPhase,
   AssistantActivityReason,
   AssistantActivityStateEvent,
   AssistantEvent,
-  ConversationListInvalidatedReason,
-  UISurfaceShowEvent,
 } from "@/types/event-types";
-import type {
-  AllowlistOption,
-  DirectoryScopeOption,
-  QuestionEntry,
-  QuestionOption,
-  ScopeOption,
-  SubagentInnerEvent,
-  SubagentStatus,
-} from "@/types/interaction-ui-types";
-import type { AssistantOutboundAttachment } from "@vellumai/assistant-api";
 import { AssistantEventSchema } from "@vellumai/assistant-api";
-import type { DisplayAttachment } from "@/types/attachment-types";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
-import type { SyncInvalidationTag } from "@/lib/sync/types";
+import { unknownEvent } from "@/lib/streaming/parse-helpers";
+
+import {
+  parseSecretRequest,
+  parseConfirmationRequest,
+  parseContactRequest,
+  parseQuestionRequest,
+} from "@/lib/streaming/parse-interaction-events";
+import {
+  parseToolUseStart,
+  parseToolResult,
+  parseToolProgress,
+} from "@/lib/streaming/parse-tool-events";
+import {
+  parseUISurfaceShow,
+  parseUISurfaceUpdate,
+  parseUISurfaceDismiss,
+  parseUISurfaceComplete,
+} from "@/lib/streaming/parse-surface-events";
+import {
+  parseSubagentSpawned,
+  parseSubagentStatusChanged,
+  parseSubagentEvent,
+} from "@/lib/streaming/parse-subagent-events";
+import {
+  parseSyncChanged,
+  parseIdentityChanged,
+  parseAvatarUpdated,
+  parseConversationTitleUpdated,
+  parseConversationListInvalidated,
+  parseNotificationIntent,
+  parseDiskPressureStatusChanged,
+  parseDocumentEditorUpdate,
+} from "@/lib/streaming/parse-resource-events";
 
 /**
  * Unwrap envelope-shape payloads `{ message: { type, ...fields }, conversationId }`
@@ -85,24 +110,6 @@ function mergeEnvelopeConversationId(
 }
 
 /**
- * Build the `unknown` fallback event, preserving the raw type, the
- * original payload, and any conversation scope so downstream filters
- * (e.g. per-conversation SSE subscribers) still route correctly.
- */
-function unknownEvent(
-  rawType: string,
-  data: Record<string, unknown>,
-): AssistantEvent {
-  return {
-    type: "unknown",
-    rawType,
-    data,
-    conversationId:
-      typeof data.conversationId === "string" ? data.conversationId : undefined,
-  };
-}
-
-/**
  * Parse a raw SSE payload into a typed `AssistantEvent`. Owns envelope
  * unwrap, canonical-schema dispatch, legacy-event coercion, and
  * envelope-conversationId stamping. Tolerant of unknown event types —
@@ -138,24 +145,61 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
   const rawType = typeof data.type === "string" ? data.type : "";
 
   switch (rawType) {
-    case "sync_changed": {
-      const tags = data.tags;
-      if (
-        !Array.isArray(tags) ||
-        !tags.every((tag): tag is string => typeof tag === "string")
-      ) {
-        return unknownEvent(rawType, data);
-      }
-      const rawOriginClientId =
-        typeof data.originClientId === "string"
-          ? data.originClientId.trim()
-          : "";
-      return {
-        type: "sync_changed",
-        tags: tags as SyncInvalidationTag[],
-        ...(rawOriginClientId ? { originClientId: rawOriginClientId } : {}),
-      };
-    }
+    // --- Interaction prompts ---
+    case "secret_request":
+      return parseSecretRequest(data);
+    case "confirmation_request":
+      return parseConfirmationRequest(data);
+    case "contact_request":
+      return parseContactRequest(data);
+    case "question_request":
+      return parseQuestionRequest(data);
+
+    // --- Tool execution lifecycle ---
+    case "tool_use_start":
+      return parseToolUseStart(data);
+    case "tool_result":
+      return parseToolResult(data);
+    case "tool_progress":
+      return parseToolProgress(data);
+
+    // --- UI surface lifecycle ---
+    case "ui_surface_show":
+      return parseUISurfaceShow(data);
+    case "ui_surface_update":
+      return parseUISurfaceUpdate(data);
+    case "ui_surface_dismiss":
+      return parseUISurfaceDismiss(data);
+    case "ui_surface_complete":
+      return parseUISurfaceComplete(data);
+
+    // --- Subagent orchestration ---
+    case "subagent_spawned":
+      return parseSubagentSpawned(data);
+    case "subagent_status_changed":
+      return parseSubagentStatusChanged(data);
+    case "subagent_event":
+      return parseSubagentEvent(data);
+
+    // --- Resource invalidation / push signals ---
+    case "sync_changed":
+      return parseSyncChanged(data);
+    case "identity_changed":
+      return parseIdentityChanged();
+    case "avatar_updated":
+      return parseAvatarUpdated();
+    case "conversation_title_updated":
+      return parseConversationTitleUpdated(data);
+    case "conversation_list_invalidated":
+      return parseConversationListInvalidated(data);
+    case "notification_intent":
+      return parseNotificationIntent(data);
+    case "disk_pressure_status_changed":
+      return parseDiskPressureStatusChanged(data);
+    case "document_editor_update":
+      return parseDocumentEditorUpdate(data);
+
+    // --- Inline cases (small, no cohesive group) ---
 
     case "assistant_activity_state": {
       const phase = typeof data.phase === "string" ? data.phase : "";
@@ -241,310 +285,24 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
             : undefined,
       };
 
-    case "secret_request":
+    case "conversation_error":
       return {
-        type: "secret_request",
-        requestId: typeof data.requestId === "string" ? data.requestId : "",
-        service: typeof data.service === "string" ? data.service : undefined,
-        field: typeof data.field === "string" ? data.field : undefined,
-        label: typeof data.label === "string" ? data.label : undefined,
-        description:
-          typeof data.description === "string" ? data.description : undefined,
-        placeholder:
-          typeof data.placeholder === "string" ? data.placeholder : undefined,
-        allowOneTimeSend:
-          typeof data.allowOneTimeSend === "boolean"
-            ? data.allowOneTimeSend
-            : undefined,
-        allowedTools: Array.isArray(data.allowedTools)
-          ? (data.allowedTools as string[])
-          : undefined,
-        allowedDomains: Array.isArray(data.allowedDomains)
-          ? (data.allowedDomains as string[])
-          : undefined,
-        purpose: typeof data.purpose === "string" ? data.purpose : undefined,
+        type: "conversation_error",
         conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
+          typeof data.conversationId === "string" ? data.conversationId : "",
+        code: typeof data.code === "string" ? data.code : "UNKNOWN",
+        userMessage:
+          typeof data.userMessage === "string"
+            ? data.userMessage
+            : "Something went wrong.",
+        retryable: typeof data.retryable === "boolean" ? data.retryable : false,
+        debugDetails:
+          typeof data.debugDetails === "string" ? data.debugDetails : undefined,
+        errorCategory:
+          typeof data.errorCategory === "string"
+            ? data.errorCategory
             : undefined,
       };
-
-    case "confirmation_request":
-      return {
-        type: "confirmation_request",
-        requestId: typeof data.requestId === "string" ? data.requestId : "",
-        title: typeof data.title === "string" ? data.title : undefined,
-        description:
-          typeof data.description === "string" ? data.description : undefined,
-        confirmLabel:
-          typeof data.confirmLabel === "string" ? data.confirmLabel : undefined,
-        denyLabel:
-          typeof data.denyLabel === "string" ? data.denyLabel : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-        toolName: typeof data.toolName === "string" ? data.toolName : undefined,
-        executionTarget:
-          typeof data.executionTarget === "string"
-            ? data.executionTarget
-            : undefined,
-        riskLevel:
-          typeof data.riskLevel === "string" ? data.riskLevel : undefined,
-        riskReason:
-          typeof data.riskReason === "string" ? data.riskReason : undefined,
-        allowlistOptions: Array.isArray(data.allowlistOptions)
-          ? (data.allowlistOptions as AllowlistOption[])
-          : undefined,
-        scopeOptions: Array.isArray(data.scopeOptions)
-          ? (data.scopeOptions as ScopeOption[])
-          : undefined,
-        directoryScopeOptions: Array.isArray(data.directoryScopeOptions)
-          ? (data.directoryScopeOptions as DirectoryScopeOption[])
-          : undefined,
-        persistentDecisionsAllowed:
-          typeof data.persistentDecisionsAllowed === "boolean"
-            ? data.persistentDecisionsAllowed
-            : undefined,
-        input:
-          typeof data.input === "object" &&
-          data.input !== null &&
-          !Array.isArray(data.input)
-            ? (data.input as Record<string, unknown>)
-            : undefined,
-        toolUseId:
-          typeof data.toolUseId === "string" ? data.toolUseId : undefined,
-      };
-
-    case "contact_request":
-      return {
-        type: "contact_request",
-        requestId: typeof data.requestId === "string" ? data.requestId : "",
-        channel: typeof data.channel === "string" ? data.channel : undefined,
-        placeholder:
-          typeof data.placeholder === "string" ? data.placeholder : undefined,
-        label: typeof data.label === "string" ? data.label : undefined,
-        description:
-          typeof data.description === "string" ? data.description : undefined,
-        role: typeof data.role === "string" ? data.role : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "question_request": {
-      const requestId =
-        typeof data.requestId === "string" ? data.requestId : "";
-      // Pass through both shapes: the new `questions` array (batched) and the
-      // legacy flat fields. `normalizeQuestionRequest` (in event-types) picks
-      // whichever is present; legacy daemons emit only the flat fields, newer
-      // daemons emit both for back-compat.
-      const options: QuestionOption[] | undefined = Array.isArray(data.options)
-        ? (data.options as QuestionOption[])
-        : undefined;
-      const questions: QuestionEntry[] | undefined = Array.isArray(
-        data.questions,
-      )
-        ? (data.questions as QuestionEntry[])
-        : undefined;
-      return {
-        type: "question_request",
-        requestId,
-        questions,
-        question: typeof data.question === "string" ? data.question : undefined,
-        description:
-          typeof data.description === "string" ? data.description : undefined,
-        options,
-        freeTextPlaceholder:
-          typeof data.freeTextPlaceholder === "string"
-            ? data.freeTextPlaceholder
-            : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-        toolUseId:
-          typeof data.toolUseId === "string" ? data.toolUseId : undefined,
-      };
-    }
-
-    case "ui_surface_show":
-      return {
-        type: "ui_surface_show",
-        surfaceId: typeof data.surfaceId === "string" ? data.surfaceId : "",
-        surfaceType:
-          typeof data.surfaceType === "string" ? data.surfaceType : "card",
-        title: typeof data.title === "string" ? data.title : undefined,
-        data:
-          typeof data.data === "object" && data.data !== null
-            ? (data.data as Record<string, unknown>)
-            : {},
-        actions: Array.isArray(data.actions)
-          ? (data.actions as UISurfaceShowEvent["actions"])
-          : undefined,
-        display:
-          data.display === "inline" || data.display === "panel"
-            ? data.display
-            : undefined,
-        messageId:
-          typeof data.messageId === "string" ? data.messageId : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "ui_surface_update":
-      return {
-        type: "ui_surface_update",
-        surfaceId: typeof data.surfaceId === "string" ? data.surfaceId : "",
-        data:
-          typeof data.data === "object" && data.data !== null
-            ? (data.data as Record<string, unknown>)
-            : {},
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "ui_surface_dismiss":
-      return {
-        type: "ui_surface_dismiss",
-        surfaceId: typeof data.surfaceId === "string" ? data.surfaceId : "",
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "ui_surface_complete":
-      return {
-        type: "ui_surface_complete",
-        surfaceId: typeof data.surfaceId === "string" ? data.surfaceId : "",
-        summary: typeof data.summary === "string" ? data.summary : "",
-        submittedData:
-          typeof data.submittedData === "object" && data.submittedData !== null
-            ? (data.submittedData as Record<string, unknown>)
-            : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "tool_use_start":
-      return {
-        type: "tool_use_start",
-        toolName: typeof data.toolName === "string" ? data.toolName : "unknown",
-        input:
-          typeof data.input === "object" && data.input !== null
-            ? (data.input as Record<string, unknown>)
-            : {},
-        toolUseId:
-          typeof data.toolUseId === "string" ? data.toolUseId : undefined,
-        messageId:
-          typeof data.messageId === "string" ? data.messageId : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "tool_result":
-      return {
-        type: "tool_result",
-        toolName: typeof data.toolName === "string" ? data.toolName : "unknown",
-        result: typeof data.result === "string" ? data.result : "",
-        isError: typeof data.isError === "boolean" ? data.isError : undefined,
-        toolUseId:
-          typeof data.toolUseId === "string" ? data.toolUseId : undefined,
-        messageId:
-          typeof data.messageId === "string" ? data.messageId : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-        riskLevel:
-          typeof data.riskLevel === "string" ? data.riskLevel : undefined,
-        riskReason:
-          typeof data.riskReason === "string" ? data.riskReason : undefined,
-        matchedTrustRuleId:
-          typeof data.matchedTrustRuleId === "string"
-            ? data.matchedTrustRuleId
-            : undefined,
-        approvalMode:
-          typeof data.approvalMode === "string" ? data.approvalMode : undefined,
-        approvalReason:
-          typeof data.approvalReason === "string"
-            ? data.approvalReason
-            : undefined,
-        riskThreshold:
-          typeof data.riskThreshold === "string"
-            ? data.riskThreshold
-            : undefined,
-        // The daemon emits two semantically distinct arrays on tool_result:
-        //   - `riskAllowlistOptions`  → Minimatch-glob save-path patterns (the
-        //     ones that get persisted as a trust rule's `pattern`). This is
-        //     what the rule editor's "Apply to" radio group needs.
-        //   - `riskScopeOptions`      → display-only ladder, can carry
-        //     regex-flavored descriptors that are NOT valid trust rule
-        //     patterns. We deliberately do not feed these into the save path.
-        // (Pre-PR-29826 the wire collapsed both into `riskScopeOptions` and
-        // we cast that into `allowlistOptions` — a silent shape/contract bug
-        // that produced unmatchable rules. See `assistant/src/tools/types.ts`.)
-        allowlistOptions: Array.isArray(data.riskAllowlistOptions)
-          ? (data.riskAllowlistOptions as AllowlistOption[])
-          : undefined,
-        directoryScopeOptions: Array.isArray(data.riskDirectoryScopeOptions)
-          ? (data.riskDirectoryScopeOptions as DirectoryScopeOption[])
-          : undefined,
-        // Daemon emits `activityMetadata` on tool_result for tools that report
-        // structured activity (currently Anthropic-native web_search). Treated
-        // as opaque on the wire — the downstream consumer (turn-state) keys
-        // off the discriminated child fields (webSearch/webFetch).
-        activityMetadata:
-          typeof data.activityMetadata === "object" &&
-          data.activityMetadata !== null &&
-          !Array.isArray(data.activityMetadata)
-            ? (data.activityMetadata as ToolActivityMetadata)
-            : undefined,
-      };
-
-    case "tool_progress": {
-      const toolName =
-        typeof data.toolName === "string" ? data.toolName : "unknown";
-      const elapsedSec =
-        typeof data.elapsedSec === "number" ? data.elapsedSec : 0;
-      const timeoutSec =
-        typeof data.timeoutSec === "number" ? data.timeoutSec : 0;
-      return {
-        type: "tool_progress",
-        toolName,
-        elapsedSec,
-        timeoutSec,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-        toolUseId:
-          typeof data.toolUseId === "string" ? data.toolUseId : undefined,
-      };
-    }
-
-    case "conversation_list_invalidated": {
-      const rawReason = typeof data.reason === "string" ? data.reason : "";
-      const reason: ConversationListInvalidatedReason =
-        rawReason === "created" ||
-        rawReason === "renamed" ||
-        rawReason === "deleted" ||
-        rawReason === "reordered" ||
-        rawReason === "seen_changed"
-          ? rawReason
-          : "created";
-      return { type: "conversation_list_invalidated", reason };
-    }
 
     case "usage_update": {
       const readNumber = (key: string): number | undefined => {
@@ -568,51 +326,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       };
     }
 
-    case "conversation_title_updated": {
-      const conversationId =
-        typeof data.conversationId === "string" ? data.conversationId : "";
-      const title = typeof data.title === "string" ? data.title : "";
-      if (!conversationId) {
-        return unknownEvent(rawType, data);
-      }
-      return { type: "conversation_title_updated", conversationId, title };
-    }
-
-    case "notification_intent": {
-      const title = typeof data.title === "string" ? data.title : "";
-      const body = typeof data.body === "string" ? data.body : "";
-      const sourceEventName =
-        typeof data.sourceEventName === "string" ? data.sourceEventName : "";
-      if (!title || !sourceEventName) {
-        return unknownEvent(rawType, data);
-      }
-      const deepLinkMetadata =
-        typeof data.deepLinkMetadata === "object" &&
-        data.deepLinkMetadata !== null &&
-        !Array.isArray(data.deepLinkMetadata)
-          ? (data.deepLinkMetadata as Record<string, unknown>)
-          : undefined;
-      return {
-        type: "notification_intent",
-        deliveryId:
-          typeof data.deliveryId === "string" ? data.deliveryId : undefined,
-        sourceEventName,
-        title,
-        body,
-        deepLinkMetadata,
-        targetGuardianPrincipalId:
-          typeof data.targetGuardianPrincipalId === "string"
-            ? data.targetGuardianPrincipalId
-            : undefined,
-      };
-    }
-
-    case "identity_changed":
-      return { type: "identity_changed" };
-
-    case "avatar_updated":
-      return { type: "avatar_updated" };
-
     case "turn_profile_auto_routed": {
       const conversationId =
         typeof data.conversationId === "string" ? data.conversationId : "";
@@ -632,232 +345,7 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       };
     }
 
-    case "conversation_error":
-      return {
-        type: "conversation_error",
-        conversationId:
-          typeof data.conversationId === "string" ? data.conversationId : "",
-        code: typeof data.code === "string" ? data.code : "UNKNOWN",
-        userMessage:
-          typeof data.userMessage === "string"
-            ? data.userMessage
-            : "Something went wrong.",
-        retryable: typeof data.retryable === "boolean" ? data.retryable : false,
-        debugDetails:
-          typeof data.debugDetails === "string" ? data.debugDetails : undefined,
-        errorCategory:
-          typeof data.errorCategory === "string"
-            ? data.errorCategory
-            : undefined,
-      };
-
-    case "disk_pressure_status_changed":
-      return {
-        type: "disk_pressure_status_changed",
-        status: parseDiskPressureStatus(
-          Object.prototype.hasOwnProperty.call(data, "status")
-            ? data.status
-            : data,
-        ),
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "subagent_spawned": {
-      const subagentId =
-        typeof data.subagentId === "string" ? data.subagentId : "";
-      const label = typeof data.label === "string" ? data.label : "";
-      if (!subagentId || !label) {
-        return unknownEvent(rawType, data);
-      }
-      return {
-        type: "subagent_spawned",
-        subagentId,
-        parentConversationId:
-          typeof data.parentConversationId === "string"
-            ? data.parentConversationId
-            : undefined,
-        label,
-        objective: typeof data.objective === "string" ? data.objective : "",
-        isFork: typeof data.isFork === "boolean" ? data.isFork : undefined,
-        parentToolUseId:
-          typeof data.parentToolUseId === "string"
-            ? data.parentToolUseId
-            : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-    }
-
-    case "subagent_status_changed": {
-      const subagentId =
-        typeof data.subagentId === "string" ? data.subagentId : "";
-      const status = typeof data.status === "string" ? data.status : "";
-      if (!subagentId || !status) {
-        return unknownEvent(rawType, data);
-      }
-      const usage =
-        data.usage &&
-        typeof data.usage === "object" &&
-        !Array.isArray(data.usage)
-          ? (data.usage as Record<string, unknown>)
-          : null;
-      return {
-        type: "subagent_status_changed",
-        subagentId,
-        status: status as SubagentStatus,
-        error: typeof data.error === "string" ? data.error : undefined,
-        inputTokens:
-          typeof usage?.inputTokens === "number"
-            ? usage.inputTokens
-            : undefined,
-        outputTokens:
-          typeof usage?.outputTokens === "number"
-            ? usage.outputTokens
-            : undefined,
-        totalCost:
-          typeof usage?.estimatedCost === "number"
-            ? usage.estimatedCost
-            : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-    }
-
-    case "subagent_event": {
-      const subagentId =
-        typeof data.subagentId === "string" ? data.subagentId : "";
-      const event = data.event;
-      if (
-        !subagentId ||
-        !event ||
-        typeof event !== "object" ||
-        Array.isArray(event)
-      ) {
-        return unknownEvent(rawType, data);
-      }
-      return {
-        type: "subagent_event",
-        subagentId,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-        event: event as SubagentInnerEvent,
-      };
-    }
-
-    case "document_editor_update": {
-      const surfaceId =
-        typeof data.surfaceId === "string" ? data.surfaceId : "";
-      const markdown = typeof data.markdown === "string" ? data.markdown : "";
-      const mode = typeof data.mode === "string" ? data.mode : "replace";
-      const conversationId =
-        typeof data.conversationId === "string"
-          ? data.conversationId
-          : undefined;
-      if (!surfaceId) {
-        return unknownEvent(rawType, data);
-      }
-      return {
-        type: "document_editor_update",
-        surfaceId,
-        markdown,
-        mode,
-        conversationId,
-      };
-    }
-
     default:
       return unknownEvent(rawType, data);
   }
-}
-
-function parseDiskPressureStatus(raw: unknown): DiskPressureStatus | null {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
-    return null;
-  }
-
-  const data = raw as Record<string, unknown>;
-  const state =
-    data.state === "disabled" ||
-    data.state === "ok" ||
-    data.state === "critical" ||
-    data.state === "unknown"
-      ? data.state
-      : "unknown";
-
-  const finiteNumberOrNull = (value: unknown): number | null =>
-    typeof value === "number" && Number.isFinite(value) ? value : null;
-
-  const blockedCapabilities: DiskPressureBlockedCapability[] = Array.isArray(
-    data.blockedCapabilities,
-  )
-    ? data.blockedCapabilities.filter(
-        (capability): capability is DiskPressureBlockedCapability =>
-          capability === "agent-turns" ||
-          capability === "background-work" ||
-          capability === "remote-ingress",
-      )
-    : [];
-
-  return {
-    enabled: typeof data.enabled === "boolean" ? data.enabled : false,
-    state,
-    locked: typeof data.locked === "boolean" ? data.locked : false,
-    acknowledged:
-      typeof data.acknowledged === "boolean" ? data.acknowledged : false,
-    overrideActive:
-      typeof data.overrideActive === "boolean" ? data.overrideActive : false,
-    effectivelyLocked:
-      typeof data.effectivelyLocked === "boolean"
-        ? data.effectivelyLocked
-        : false,
-    lockId: typeof data.lockId === "string" ? data.lockId : null,
-    usagePercent: finiteNumberOrNull(data.usagePercent),
-    thresholdPercent: finiteNumberOrNull(data.thresholdPercent) ?? 0,
-    path: typeof data.path === "string" ? data.path : null,
-    lastCheckedAt:
-      typeof data.lastCheckedAt === "string" ? data.lastCheckedAt : null,
-    blockedCapabilities,
-    error: typeof data.error === "string" ? data.error : null,
-  };
-}
-
-/**
- * Convert backend `AssistantOutboundAttachment` objects into `DisplayAttachment`
- * objects suitable for rendering in chat message bubbles. When inline base64
- * data is available, a data-URI `previewUrl` is created for all MIME types so
- * the preview modal can render or download the content without a separate fetch.
- * When only a thumbnail is available (e.g. video with omitted data), the
- * thumbnail is used as a fallback preview. Files with `fileBacked: true` and no
- * inline data rely on the daemon's `/v1/attachments/:id/content` endpoint —
- * the modal fetches content lazily via the assistantId-scoped proxy URL.
- */
-export function toDisplayAttachments(
-  attachments: AssistantOutboundAttachment[] | undefined,
-): DisplayAttachment[] | undefined {
-  if (!attachments || attachments.length === 0) return undefined;
-  return attachments.map((att) => {
-    let previewUrl: string | null = null;
-    if (att.data) {
-      previewUrl = `data:${att.mimeType};base64,${att.data}`;
-    } else if (att.thumbnailData) {
-      previewUrl = `data:image/jpeg;base64,${att.thumbnailData}`;
-    }
-    return {
-      id: att.id ?? att.filename,
-      filename: att.filename,
-      mimeType: att.mimeType,
-      sizeBytes:
-        att.sizeBytes ?? (att.data ? Math.floor((att.data.length * 3) / 4) : 0),
-      previewUrl,
-    };
-  });
 }
