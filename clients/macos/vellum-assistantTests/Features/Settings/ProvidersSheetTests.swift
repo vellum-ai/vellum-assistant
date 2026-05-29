@@ -40,14 +40,12 @@ final class ProvidersSheetTests: XCTestCase {
         name: String = "my-conn",
         provider: String = "anthropic",
         authType: String = "api_key",
-        status: ConnectionStatus = .active,
         label: String? = nil
     ) -> ProviderConnection {
         ProviderConnection(
             name: name,
             provider: provider,
             auth: ProviderConnectionAuth(type: authType, credential: "sk-test"),
-            status: status,
             label: label,
             createdAt: 0,
             updatedAt: 0
@@ -85,7 +83,6 @@ final class ProvidersSheetTests: XCTestCase {
             provider: "openai",
             auth: ProviderConnectionAuth(type: "api_key", credential: "sk-open"),
             label: nil,
-            status: nil,
             baseUrl: nil,
             models: nil
         )
@@ -120,7 +117,6 @@ final class ProvidersSheetTests: XCTestCase {
         let result = await mockClient.updateProviderConnection(
             name: "gone",
             auth: ProviderConnectionAuth(type: "api_key", credential: "sk-x"),
-            status: nil,
             label: nil,
             baseUrl: nil,
             models: nil
@@ -158,27 +154,10 @@ final class ProvidersSheetTests: XCTestCase {
         XCTAssertEqual(InferenceProfileEditor.toKebabCase("hello world!"), "hello-world")
     }
 
-    // MARK: - Status toggle default
-
-    func testNewConnectionDraftDefaultsToActiveStatus() {
-        let sheet = makeSheet()
-        // Verify the draft starts active; the sheet body builds without issues.
-        XCTAssertNotNil(sheet.body)
-    }
-
     // MARK: - Connections with label render correctly
 
     func testSheetBuildsWithLabeledConnection() {
         let conn = makeConnection(name: "labeled", label: "My Anthropic")
-        mockClient.listResponse = [conn]
-        let sheet = makeSheet()
-        XCTAssertNotNil(sheet.body)
-    }
-
-    // MARK: - Connections with disabled status
-
-    func testSheetBuildsWithDisabledConnection() {
-        let conn = makeConnection(name: "disabled-conn", status: .disabled)
         mockClient.listResponse = [conn]
         let sheet = makeSheet()
         XCTAssertNotNil(sheet.body)
@@ -198,7 +177,6 @@ final class ProvidersSheetTests: XCTestCase {
             name: name,
             provider: provider,
             auth: ProviderConnectionAuth(type: "platform", credential: nil),
-            status: .active,
             label: label,
             createdAt: 0,
             updatedAt: 0,
@@ -255,7 +233,6 @@ final class ProvidersSheetTests: XCTestCase {
             provider: "anthropic",
             auth: ProviderConnectionAuth(type: "api_key", credential: "credential/anthropic/api_key"),
             label: "Anthropic",
-            status: .active,
             baseUrl: nil,
             models: nil
         )
