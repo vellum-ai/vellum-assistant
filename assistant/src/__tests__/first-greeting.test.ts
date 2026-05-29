@@ -285,6 +285,45 @@ describe("first-greeting", () => {
     });
   });
 
+  describe("migration offer is present in every variant", () => {
+    const MIGRATION_MARKER = "bring them over early";
+
+    it("no-onboarding greeting includes the migration offer", () => {
+      expect(getCannedFirstGreeting(undefined)).toContain(MIGRATION_MARKER);
+      expect(CANNED_FIRST_GREETING).toContain(MIGRATION_MARKER);
+    });
+
+    it("minimal onboarding (falls back to CANNED) includes the migration offer", () => {
+      expect(
+        getCannedFirstGreeting({ tools: [], tasks: [], tone: "" }),
+      ).toContain(MIGRATION_MARKER);
+    });
+
+    it("every tone variant includes the migration offer", () => {
+      for (const tone of ["grounded", "warm", "energetic", "poetic"]) {
+        const greeting = getCannedFirstGreeting({
+          tools: [],
+          tasks: [],
+          tone,
+          userName: "Alice",
+          assistantName: "Pax",
+        });
+        expect(greeting).toContain(MIGRATION_MARKER);
+        expect(greeting).toContain("port them");
+      }
+    });
+
+    it("google-connected greeting still includes the migration offer", () => {
+      const greeting = getCannedFirstGreeting({
+        tools: [],
+        tasks: [],
+        tone: "warm",
+        googleConnected: true,
+      });
+      expect(greeting).toContain(MIGRATION_MARKER);
+    });
+  });
+
   describe("buildScanFirstMessage", () => {
     it("website variant includes 'my website' and the URL", () => {
       const msg = buildScanFirstMessage("https://acme.com", "website");
