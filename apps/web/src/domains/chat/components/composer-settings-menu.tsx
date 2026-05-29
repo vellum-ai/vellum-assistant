@@ -439,7 +439,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 /** Bottom-sheet section label — small-caps style matching Menu.Label. */
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <div className="px-[8px] py-1 text-label-small-default text-[var(--content-tertiary)]">
+    <div className="px-4 pt-2.5 pb-2 text-body-small-default text-[var(--content-tertiary)]">
       {children}
     </div>
   );
