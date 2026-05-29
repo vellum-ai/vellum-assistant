@@ -27,35 +27,6 @@ extension ChatViewModel {
         appendThinkingToCurrentMessage(buffered)
     }
 
-    /// Decide whether a streaming delta that would fork a *brand-new* assistant
-    /// bubble is actually a stray replay/race artifact that should be dropped.
-    ///
-    /// Bandaid for the duplicate-streaming-message bug: a delta from a superseded
-    /// subscriber or an SSE reconnect can arrive after the turn has already ended,
-    /// hit the lazy bubble-creation path with no `currentAssistantMessageId`, and
-    /// fork a second copy of a message the daemon only persisted once (hence the
-    /// duplicate collapses on reload). We suppress only the narrow signature of
-    /// that bug: the assistant is fully quiescent *and* the previous bubble is
-    /// already an assistant message — i.e. we'd be appending a back-to-back
-    /// duplicate.
-    ///
-    /// Quiescence is keyed on `assistantActivityPhase == "idle"`, not just the
-    /// `isSending`/`isThinking` spinners. The daemon emits an `"idle"` activity
-    /// state at the end of every turn and a `"streaming"`/`"thinking"` state
-    /// before the first delta of any new turn — *including daemon-initiated
-    /// wakes and scheduled/background runs that never set `isSending`/
-    /// `isThinking`* (see `handleTextDelta` → `emitActivityState("streaming",
-    /// "first_text_delta")` in the daemon). Gating on the idle phase preserves
-    /// those live wake deltas — which legitimately fork a new bubble after a
-    /// prior assistant reply — while still catching post-completion replays.
-    func shouldDropStrayStreamingDelta(_ count: Int, kind: String) -> Bool {
-        let assistantIsQuiescent = !isSending && !isThinking && !isCancelling
-            && assistantActivityPhase == "idle"
-        guard assistantIsQuiescent, messages.last?.role == .assistant else { return false }
-        log.warning("Dropping stray \(kind) delta (\(count) chars): assistant idle with no active message — would fork a duplicate assistant bubble")
-        return true
-    }
-
     /// Append a chunk of thinking text to the current assistant message.
     func appendThinkingToCurrentMessage(_ text: String) {
         guard !text.isEmpty else { return }
@@ -72,7 +43,6 @@ extension ChatViewModel {
                 messages[index].contentOrder.append(.thinking(segIdx))
             }
         } else {
-            if shouldDropStrayStreamingDelta(text.count, kind: "thinking") { return }
             if let staleId = currentAssistantMessageId {
                 log.warning("Stale currentAssistantMessageId \(staleId.uuidString) — promoting buffered \(text.count) thinking chars to new message")
                 currentAssistantMessageId = nil
@@ -139,7 +109,6 @@ extension ChatViewModel {
                 messages[index].textSegments[messages[index].textSegments.count - 1] += text
             }
         } else {
-            if shouldDropStrayStreamingDelta(text.count, kind: "text") { return }
             if let staleId = currentAssistantMessageId {
                 log.warning("Stale currentAssistantMessageId \(staleId.uuidString) — promoting buffered \(text.count) chars to new message")
                 currentAssistantMessageId = nil
