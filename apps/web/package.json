@@ -1,8 +1,12 @@
 {
   "name": "@vellumai/web",
   "version": "0.0.1",
-  "private": true,
   "type": "module",
+  "description": "Pre-built web SPA for the Vellum Assistant",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "predev": "bun run postinstall && bun run openapi-ts",
     "dev": "vite",
