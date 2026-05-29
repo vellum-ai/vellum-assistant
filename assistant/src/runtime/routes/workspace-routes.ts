@@ -4,6 +4,7 @@
  * Do not store secrets here — use the credential store or protected/ directory.
  */
 import {
+  type Dirent,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -77,7 +78,7 @@ function computeDirSize(absPath: string, budget: DirSizeBudget): number | null {
   while (stack.length > 0) {
     const dir = stack.pop()!;
 
-    let dirents: ReturnType<typeof readdirSync>;
+    let dirents: Dirent[];
     try {
       dirents = readdirSync(dir, { withFileTypes: true });
     } catch {

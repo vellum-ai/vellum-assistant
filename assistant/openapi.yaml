@@ -19924,6 +19924,14 @@ paths:
           schema:
             type: string
           description: Include dotfiles (true/false)
+        - name: includeDirSizes
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            "Compute recursive byte size for each directory entry (true/false). Budget-bounded — large subtrees may
+            return size: null."
   /v1/workspace/write:
     post:
       operationId: workspace_write_post
