@@ -419,3 +419,33 @@ public enum TemperatureValue: Hashable {
         return nil
     }
 }
+
+extension InferenceProfile {
+    /// Name of the meta-"auto" profile seeded by the daemon. The entry
+    /// exists in `llm.profiles` unconditionally so a switched-on
+    /// `query-complexity-routing` flag has something to point at, but
+    /// every UI surface that lists profiles must hide it while the flag
+    /// is off. Otherwise it leaks into the composer picker, the Default
+    /// Profile dropdown, the Manage Profiles list, and the per-call-site
+    /// override picker.
+    ///
+    /// Mirrors `AUTO_PROFILE_KEY` in
+    /// `assistant/src/config/seed-inference-profiles.ts` and
+    /// `AUTO_PROFILE_NAME` in `apps/web/src/assistant/profile-pickers.ts`.
+    public static let autoProfileName = "auto"
+
+    /// Returns the subset of `profiles` to render in a list-style UI.
+    /// Drops the meta-"auto" profile when the `query-complexity-routing`
+    /// feature flag is off. When the flag is on, the input is returned
+    /// unchanged so the auto profile renders alongside user profiles.
+    ///
+    /// Mirrors `gateAutoProfile` in
+    /// `apps/web/src/assistant/profile-pickers.ts`.
+    public static func gateAutoProfile(
+        _ profiles: [InferenceProfile],
+        queryComplexityRoutingEnabled: Bool
+    ) -> [InferenceProfile] {
+        if queryComplexityRoutingEnabled { return profiles }
+        return profiles.filter { $0.name != autoProfileName }
+    }
+}
