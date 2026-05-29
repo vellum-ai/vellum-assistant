@@ -8,8 +8,35 @@
  */
 import { client } from "@/generated/api/client.gen";
 import { assertHasResponse } from "@/lib/api-errors";
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
-import { isCharacterTraits } from "@/types/avatar";
+import type {
+  AvatarState,
+  CharacterComponents,
+  CharacterTraits,
+} from "@/types/avatar";
+import { isAvatarState, isCharacterTraits } from "@/types/avatar";
+
+/**
+ * Fetch the authoritative avatar render manifest from the daemon's
+ * `GET /avatar/state` endpoint.
+ *
+ * Returns `null` only on transport failure. A 200 response with
+ * `{ kind: "none" }` is a valid state (an empty avatar), not `null`.
+ */
+export async function fetchAvatarState(
+  assistantId: string,
+): Promise<AvatarState | null> {
+  try {
+    const { data, error, response } = await client.get({
+      url: "/v1/assistants/{assistant_id}/avatar/state",
+      path: { assistant_id: assistantId },
+    });
+    assertHasResponse(response, error, "Failed to fetch avatar state");
+    if (!response.ok || !isAvatarState(data)) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
 
 export async function fetchCharacterComponents(
   assistantId: string,
