@@ -18,8 +18,37 @@ export type VellumCommand =
 // new methods" section in `apps/macos/README.md` for the convention
 // (generic KV for non-sensitive prefs; dedicated `<capability>.<verb>()`
 // methods for sensitive capabilities).
+/**
+ * Mirror of `AppVersionInfo` in `apps/macos/src/main/about.ts`. Kept inline
+ * to avoid the cross-project import — the surface is small and rarely
+ * changes; drift surfaces as a renderer field that's `undefined` at
+ * runtime rather than a build error.
+ */
+export interface AppVersionInfo {
+  appName: string;
+  version: string;
+  commitSha: string;
+  copyright: string;
+  website: string;
+}
+
 export interface VellumBridge {
   platform: "electron";
+  app: {
+    /**
+     * Read-only metadata about the running app: name, version, commit
+     * SHA (injected at build time), copyright, website. Used by the
+     * branded About window. Safe to call from any window the preload
+     * is attached to.
+     */
+    versionInfo(): Promise<AppVersionInfo>;
+    /**
+     * Open the marketing website in the user's default browser. The
+     * renderer is sandboxed so it can't call `shell.openExternal`
+     * itself; this routes through main.
+     */
+    openWebsite(): Promise<void>;
+  };
   auth: {
     signIn(): Promise<void>;
     signOut(): Promise<void>;
@@ -64,6 +93,12 @@ const notImplemented = (name: string) => (): Promise<never> =>
 
 const bridge: VellumBridge = {
   platform: "electron",
+  app: {
+    versionInfo: (): Promise<AppVersionInfo> =>
+      ipcRenderer.invoke("vellum:app:versionInfo") as Promise<AppVersionInfo>,
+    openWebsite: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:app:openWebsite") as Promise<void>,
+  },
   auth: {
     signIn: notImplemented("auth.signIn"),
     signOut: notImplemented("auth.signOut"),

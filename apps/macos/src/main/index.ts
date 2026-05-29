@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
+import { installAbout } from "./about";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { installDock } from "./dock";
 import { installApplicationMenu } from "./menu";
@@ -329,13 +330,19 @@ app
     }
     installPermissionHandler();
     installSettingsIpc();
+    installAbout();
     installApplicationMenu();
     installDock();
     spawnDaemon();
     createWindow();
 
+    // Dock-icon click / Cmd-Tab re-activation. Only the absence of the
+    // *main* window should trigger a recreate — auxiliary windows
+    // (About, future thread pop-outs) shouldn't count, otherwise closing
+    // main while an auxiliary stays open would leave the user stuck
+    // with no path back to the app.
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
+      if (!mainWindow || mainWindow.isDestroyed()) {
         createWindow();
       }
     });
