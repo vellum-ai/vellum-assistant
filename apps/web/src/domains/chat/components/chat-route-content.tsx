@@ -1309,7 +1309,14 @@ export function ChatRouteContent({
       />
     ) : undefined,
     contextWindowIndicatorSlot: (
-      <ContextWindowIndicator usage={contextWindowUsage} />
+      <ContextWindowIndicator
+        usage={contextWindowUsage}
+        onClearContext={
+          activeConversation?.conversationId
+            ? () => void sendMessage("/clean")
+            : undefined
+        }
+      />
     ),
     noticesAboveFormSlot: (
       <ComposerNotices
