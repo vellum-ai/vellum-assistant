@@ -35,7 +35,7 @@ function CopyButton({ visible, onClick, copied }: {
       className={cn(
         // Touch devices (hover: none): always visible since hover isn't available.
         // Constraint: WKWebView on Capacitor iOS lacks hover events.
-        "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-[var(--border-subtle)] text-[var(--content-tertiary)] transition-[opacity] duration-150 ease-out hover:bg-[var(--border-element)] hover:text-[var(--content-default)] [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100",
+        "flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-stone-200/80 text-[var(--content-tertiary)] transition-[opacity] duration-150 ease-out hover:bg-stone-300 hover:text-[var(--content-secondary)] [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100 dark:bg-moss-600/80 dark:hover:bg-moss-500 dark:hover:text-stone-200",
         visible ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
       )}
     >
@@ -97,7 +97,7 @@ function CodeBlockWrapper({ children }: { children: ReactNode }) {
 
   return (
     <div
-      className="group/code relative mb-2 overflow-hidden rounded-md bg-[var(--surface-code)] last:mb-0"
+      className="group/code relative mb-2 overflow-hidden rounded-md bg-stone-100 last:mb-0 dark:bg-moss-800"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onFocus={() => setHasFocusWithin(true)}
@@ -150,7 +150,7 @@ function DefaultLink({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
-      className="text-[var(--system-positive-strong)] underline decoration-1 hover:decoration-2"
+      className="text-forest-600 underline hover:text-forest-700 dark:text-forest-400 dark:hover:text-forest-300"
     >
       {children}
     </a>
@@ -205,14 +205,14 @@ function buildMarkdownComponents(
         );
       }
       return (
-        <code className="rounded bg-[var(--surface-code)] px-1 py-0.5 font-mono text-body-small-default">
+        <code className="rounded bg-stone-100 px-1 py-0.5 font-mono text-body-small-default dark:bg-moss-800">
           {children}
         </code>
       );
     },
     pre: ({ children }) => <CodeBlockWrapper>{children}</CodeBlockWrapper>,
     blockquote: ({ children }) => (
-      <blockquote className="mb-2 border-l-2 border-[var(--border-element)] pl-3 italic text-[var(--content-tertiary)] last:mb-0">
+      <blockquote className="mb-2 border-l-2 border-stone-300 pl-3 italic text-stone-600 last:mb-0 dark:border-stone-600 dark:text-stone-400">
         {children}
       </blockquote>
     ),
@@ -226,12 +226,12 @@ function buildMarkdownComponents(
     ),
     th: ({ children }) => (
        
-      <th className={"border border-[var(--border-subtle)] px-2 py-1 text-left font-semibold" /* typography: off-scale — no canonical variant */}>
+      <th className={"border border-stone-200 px-2 py-1 text-left font-semibold dark:border-moss-600" /* typography: off-scale — no canonical variant */}>
         {children}
       </th>
     ),
     td: ({ children }) => (
-      <td className="border border-[var(--border-subtle)] px-2 py-1">
+      <td className="border border-stone-200 px-2 py-1 dark:border-moss-600">
         {children}
       </td>
     ),
@@ -251,7 +251,7 @@ function buildMarkdownComponents(
         return <img src={srcStr} alt={altStr} className="my-1 max-w-full rounded" />;
       }
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-[var(--surface-code)] px-1.5 py-0.5 text-body-small-default text-[var(--content-quiet)]">
+        <span className="inline-flex items-center gap-1 rounded bg-stone-100 px-1.5 py-0.5 text-body-small-default text-stone-500 dark:bg-moss-800 dark:text-stone-400">
           🔗 External image not rendered ({altStr || srcStr})
         </span>
       );

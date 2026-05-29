@@ -22,10 +22,11 @@
 /* ---------------------------------------------------------------------------
  * Tailwind v4 dark variant — wired to the data-theme attribute.
  * Enables `dark:` utility prefixes (e.g. `dark:bg-white`) that activate
- * when data-theme="dark" is set on an ancestor element.
+ * when any dark-family theme is set on an ancestor element.
+ * Velvet is a dark theme variant, so `dark:` utilities apply to it too.
  * https://tailwindcss.com/docs/dark-mode#using-a-data-attribute
  * --------------------------------------------------------------------------- */
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, [data-theme=velvet], [data-theme=velvet] *));
 
 /* ---------------------------------------------------------------------------
  * @theme bridge — registers CSS variables as Tailwind theme variables so
@@ -206,7 +207,6 @@
 
   /* Surface (extras beyond the base/overlay/active/lift/hover ramp) */
   --surface-sunken: #F6F5F4;    /* = surface-base in light; recessed in dark */
-  --surface-code: #F2F0EE;      /* code block / inline code chip background */
 
   /* Border (extras beyond base/disabled/element/hover/active/overlay) */
   --border-subtle: #E9E6E2;     /* = border-disabled in light; soft in dark */
@@ -287,7 +287,6 @@
 
   /* Surface (extras) */
   --surface-sunken: #1C2024;
-  --surface-code: #1C2024;
 
   /* Border (extras) */
   --border-subtle: #2D3339;
@@ -372,7 +371,6 @@
   /* Surface (extras). Sunken inherits dark — design to refine if velvet
    * wants its own subdued surface. */
   --surface-sunken: #1C2024;
-  --surface-code: #211D22;
 
   /* Border (extras) */
   --border-subtle: #2D3339;
