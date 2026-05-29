@@ -112,23 +112,14 @@ export async function uploadAvatarImage(
       ),
     );
 
-    const { error: writeError, response: writeResponse } = await client.post({
-      url: "/v1/assistants/{assistant_id}/workspace/write/",
+    const { error, response } = await client.post({
+      url: "/v1/assistants/{assistant_id}/avatar/image",
       path: { assistant_id: assistantId },
-      body: { path: "data/avatar/avatar-image.png", content: base64, encoding: "base64" },
+      body: { content: base64, encoding: "base64" },
       headers: { "Content-Type": "application/json" },
     });
-    assertHasResponse(writeResponse, writeError, "Failed to upload avatar image");
-    if (!writeResponse.ok) return false;
-
-    await client.post({
-      url: "/v1/assistants/{assistant_id}/workspace/delete/",
-      path: { assistant_id: assistantId },
-      body: { path: "data/avatar/character-traits.json" },
-      headers: { "Content-Type": "application/json" },
-    });
-
-    return true;
+    assertHasResponse(response, error, "Failed to upload avatar image");
+    return response.ok;
   } catch {
     return false;
   }

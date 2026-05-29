@@ -18,7 +18,7 @@ import { client } from "@/generated/api/client.gen";
 import type { AvatarState } from "@/types/avatar";
 import { isAvatarState } from "@/types/avatar";
 
-import { fetchAvatarState } from "./avatar-api";
+import { fetchAvatarState, uploadAvatarImage } from "./avatar-api";
 
 const CHARACTER_STATE: AvatarState = {
   kind: "character",
@@ -173,5 +173,74 @@ describe("fetchAvatarState", () => {
     ) as typeof client.get;
 
     expect(await fetchAvatarState("asst-1")).toBeNull();
+  });
+});
+
+type CapturedPostOptions = {
+  url: string;
+  path?: Record<string, unknown>;
+  body?: Record<string, unknown>;
+};
+
+let capturedPosts: CapturedPostOptions[] = [];
+const originalPost = client.post;
+
+function stubPost(result: { error: unknown; response: Response }): void {
+  capturedPosts = [];
+  client.post = mock(async (options: CapturedPostOptions) => {
+    capturedPosts.push(options);
+    return result;
+  }) as typeof client.post;
+}
+
+function pngFile(): File {
+  return new File([new Uint8Array([137, 80, 78, 71])], "avatar.png", {
+    type: "image/png",
+  });
+}
+
+afterEach(() => {
+  client.post = originalPost;
+  capturedPosts = [];
+});
+
+describe("uploadAvatarImage", () => {
+  test("POSTs base64 content to the single avatar/image endpoint", async () => {
+    stubPost({ error: undefined, response: okResponse() });
+
+    const result = await uploadAvatarImage("asst-1", pngFile());
+
+    expect(result).toBe(true);
+    expect(capturedPosts).toHaveLength(1);
+
+    const post = capturedPosts[0];
+    expect(post?.url).toBe("/v1/assistants/{assistant_id}/avatar/image");
+    expect(post?.path).toEqual({ assistant_id: "asst-1" });
+    expect(post?.body).toEqual({ content: btoa("\x89PNG"), encoding: "base64" });
+  });
+
+  test("does not write or delete workspace files", async () => {
+    stubPost({ error: undefined, response: okResponse() });
+
+    await uploadAvatarImage("asst-1", pngFile());
+
+    for (const post of capturedPosts) {
+      expect(post.url).not.toContain("workspace/write");
+      expect(post.url).not.toContain("workspace/delete");
+    }
+  });
+
+  test("returns false on a non-2xx response", async () => {
+    stubPost({ error: { detail: "boom" }, response: errorResponse(500) });
+
+    expect(await uploadAvatarImage("asst-1", pngFile())).toBe(false);
+  });
+
+  test("returns false on a transport throw", async () => {
+    client.post = mock(() =>
+      Promise.reject(new Error("network down")),
+    ) as typeof client.post;
+
+    expect(await uploadAvatarImage("asst-1", pngFile())).toBe(false);
   });
 });
