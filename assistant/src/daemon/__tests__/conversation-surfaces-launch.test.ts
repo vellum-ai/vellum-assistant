@@ -180,8 +180,8 @@ function makeContext(
       return { queued: false, requestId: "enq-req" };
     },
     getQueueDepth: () => 0,
-    processMessage: async (content: string) => {
-      processCalls.push({ content });
+    processMessage: async (options) => {
+      processCalls.push({ content: options.content });
       return "ok";
     },
     withSurface: createSurfaceMutex(),

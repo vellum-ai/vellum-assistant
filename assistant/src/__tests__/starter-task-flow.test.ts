@@ -54,8 +54,8 @@ describe("starter task surface actions", () => {
   test("forwards prompt payload as normal message content", () => {
     const forwarded: string[] = [];
     const ctx = makeContext();
-    ctx.processMessage = async (content) => {
-      forwarded.push(content);
+    ctx.processMessage = async (options) => {
+      forwarded.push(options.content);
       return "ok";
     };
     ctx.pendingSurfaceActions.set("surf-1", { surfaceType: "dynamic_page" });
@@ -74,8 +74,8 @@ describe("starter task surface actions", () => {
   test("falls back to human-readable summary with action data when prompt is absent", () => {
     const forwarded: string[] = [];
     const ctx = makeContext();
-    ctx.processMessage = async (content) => {
-      forwarded.push(content);
+    ctx.processMessage = async (options) => {
+      forwarded.push(options.content);
       return "ok";
     };
     ctx.pendingSurfaceActions.set("surf-2", { surfaceType: "dynamic_page" });
@@ -94,8 +94,8 @@ describe("starter task surface actions", () => {
   test("does not treat prompt-like fields as relay content for non-relay actions", () => {
     const forwarded: string[] = [];
     const ctx = makeContext();
-    ctx.processMessage = async (content) => {
-      forwarded.push(content);
+    ctx.processMessage = async (options) => {
+      forwarded.push(options.content);
       return "ok";
     };
     ctx.pendingSurfaceActions.set("surf-3", { surfaceType: "dynamic_page" });
