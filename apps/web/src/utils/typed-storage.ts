@@ -268,7 +268,7 @@ export interface RecordStorageAccessorConfig<V> {
 }
 
 export interface RecordStorageAccessor<V> {
-  /** Load the full record for an entity. */
+  /** Load the full record for an entity. Returns a fresh object each call; safe to mutate. */
   load: (id: string) => Record<string, V>;
   /** Get a single entry from the record. */
   get: (id: string, entryKey: string) => V | undefined;
