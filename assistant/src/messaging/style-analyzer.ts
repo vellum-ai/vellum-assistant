@@ -143,15 +143,12 @@ export async function extractStylePatterns(
     },
   ];
 
-  const response = await provider.sendMessage(
-    promptMessages,
-    [storeStyleAnalysisTool],
-    STYLE_EXTRACTION_SYSTEM_PROMPT,
-    {
-      signal: AbortSignal.timeout(30_000),
-      config: { callSite: "styleAnalyzer" },
-    },
-  );
+  const response = await provider.sendMessage(promptMessages, {
+    tools: [storeStyleAnalysisTool],
+    systemPrompt: STYLE_EXTRACTION_SYSTEM_PROMPT,
+    signal: AbortSignal.timeout(30_000),
+    config: { callSite: "styleAnalyzer" },
+  });
 
   const toolBlock = response.content.find((b) => b.type === "tool_use");
   if (!toolBlock || toolBlock.type !== "tool_use") {

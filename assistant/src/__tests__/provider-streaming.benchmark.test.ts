@@ -25,7 +25,6 @@ import type {
   ProviderEvent,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "../providers/types.js";
 // ---------------------------------------------------------------------------
 // Helpers
@@ -51,8 +50,6 @@ function makeStreamingProvider(
     name: opts?.name ?? "mock-streaming",
     async sendMessage(
       _messages: Message[],
-      _tools?: ToolDefinition[],
-      _systemPrompt?: string,
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
       const { onEvent, signal } = options ?? {};
@@ -93,7 +90,7 @@ describe("Provider streaming benchmark", () => {
     let firstEventTime: number | undefined;
     const start = performance.now();
 
-    await wrapped.sendMessage(SIMPLE_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(SIMPLE_MESSAGES, {
       onEvent: () => {
         if (firstEventTime === undefined) {
           firstEventTime = performance.now();
@@ -120,7 +117,7 @@ describe("Provider streaming benchmark", () => {
     const baselineEvents: number[] = [];
     const baselineStart = performance.now();
 
-    await baseline.sendMessage(SIMPLE_MESSAGES, undefined, undefined, {
+    await baseline.sendMessage(SIMPLE_MESSAGES, {
       onEvent: () => {
         baselineEvents.push(performance.now());
       },
@@ -137,7 +134,7 @@ describe("Provider streaming benchmark", () => {
     const events: number[] = [];
     const start = performance.now();
 
-    await wrapped.sendMessage(SIMPLE_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(SIMPLE_MESSAGES, {
       onEvent: () => {
         events.push(performance.now());
       },
@@ -212,7 +209,7 @@ describe("Provider streaming benchmark", () => {
 
     const start = performance.now();
 
-    await wrapped.sendMessage(SIMPLE_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(SIMPLE_MESSAGES, {
       onEvent: (e) => events.push(e),
       signal: controller.signal,
     });
@@ -659,19 +656,14 @@ describe("Provider streaming benchmark", () => {
       let firstEventTime: number | undefined;
       const start = performance.now();
 
-      const result = await provider.sendMessage(
-        SIMPLE_MESSAGES,
-        undefined,
-        undefined,
-        {
-          onEvent: (e) => {
-            if (firstEventTime === undefined) {
-              firstEventTime = performance.now();
-            }
-            receivedEvents.push(e);
-          },
+      const result = await provider.sendMessage(SIMPLE_MESSAGES, {
+        onEvent: (e) => {
+          if (firstEventTime === undefined) {
+            firstEventTime = performance.now();
+          }
+          receivedEvents.push(e);
         },
-      );
+      });
 
       // Verify the full adapter pipeline delivered all events
       const textDeltas = receivedEvents.filter((e) => e.type === "text_delta");
@@ -707,8 +699,6 @@ describe("Provider streaming benchmark", () => {
       name: "rapid-fire",
       async sendMessage(
         _messages: Message[],
-        _tools?: ToolDefinition[],
-        _systemPrompt?: string,
         options?: SendMessageOptions,
       ): Promise<ProviderResponse> {
         const { onEvent } = options ?? {};
@@ -729,7 +719,7 @@ describe("Provider streaming benchmark", () => {
 
     const start = performance.now();
 
-    await wrapped.sendMessage(SIMPLE_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(SIMPLE_MESSAGES, {
       onEvent: (e) => events.push(e),
     });
 

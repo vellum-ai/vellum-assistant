@@ -204,17 +204,27 @@ function makeProvider(
 ): Provider {
   return {
     name: "stub",
-    sendMessage: async (messages, tools, systemPrompt, options) => {
-      calls.push({ messages, tools, systemPrompt, options });
+    sendMessage: async (messages, options) => {
+      calls.push({
+        messages,
+        tools: options?.tools,
+        systemPrompt: options?.systemPrompt,
+        options,
+      });
       if (options?.signal?.aborted) {
         const err = new Error("aborted");
         err.name = "AbortError";
         throw err;
       }
       const nodeId =
-        nodeIdFromCall({ messages, tools, systemPrompt, options }) ?? "";
+        nodeIdFromCall({
+          messages,
+          tools: options?.tools,
+          systemPrompt: options?.systemPrompt,
+          options,
+        }) ?? "";
       const decision = script[nodeId] ?? { descend: [] };
-      const keep = decision.keep ?? keepPagesEnum(tools?.[0]);
+      const keep = decision.keep ?? keepPagesEnum(options?.tools?.[0]);
       const input: Record<string, unknown> = {
         descend: decision.descend,
         keep_pages: keep,
@@ -292,10 +302,20 @@ describe("runTreeWalk — scripted descent", () => {
     // Bespoke stub: emits tool input WITHOUT a `keep_pages` key for node "a".
     const provider: Provider = {
       name: "omit-keep-pages",
-      sendMessage: async (messages, tools, systemPrompt, options) => {
-        calls.push({ messages, tools, systemPrompt, options });
+      sendMessage: async (messages, options) => {
+        calls.push({
+          messages,
+          tools: options?.tools,
+          systemPrompt: options?.systemPrompt,
+          options,
+        });
         const nodeId =
-          nodeIdFromCall({ messages, tools, systemPrompt, options }) ?? "";
+          nodeIdFromCall({
+            messages,
+            tools: options?.tools,
+            systemPrompt: options?.systemPrompt,
+            options,
+          }) ?? "";
         const input: Record<string, unknown> =
           nodeId === "_root"
             ? { descend: ["a"], keep_pages: [] }
@@ -567,8 +587,13 @@ describe("runTreeWalk — fail-safe", () => {
     // Provider returns a non-conforming tool input (descend is not an array).
     const provider: Provider = {
       name: "bad-schema",
-      sendMessage: async (messages, tools, systemPrompt, options) => {
-        calls.push({ messages, tools, systemPrompt, options });
+      sendMessage: async (messages, options) => {
+        calls.push({
+          messages,
+          tools: options?.tools,
+          systemPrompt: options?.systemPrompt,
+          options,
+        });
         return {
           model: "stub-model",
           stopReason: "tool_use",

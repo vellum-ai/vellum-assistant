@@ -72,8 +72,6 @@ function makeRecordingProvider(responses: ProviderResponse[]): {
     name: "mock",
     async sendMessage(
       _messages: Message[],
-      _tools?: ToolDefinition[],
-      _systemPrompt?: string,
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
       configs.push(options?.config as Record<string, unknown> | undefined);

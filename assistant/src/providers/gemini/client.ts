@@ -12,7 +12,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "../types.js";
 import {
   ContextOverflowError,
@@ -223,11 +222,9 @@ export class GeminiProvider implements Provider {
 
   async sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
-    const { config, onEvent, signal } = options ?? {};
+    const { tools, systemPrompt, config, onEvent, signal } = options ?? {};
     const configObj = config as Record<string, unknown> | undefined;
     const maxTokens = configObj?.max_tokens as number | undefined;
     const modelOverride = configObj?.model as string | undefined;

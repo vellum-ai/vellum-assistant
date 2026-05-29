@@ -34,11 +34,13 @@ function createMockProvider(responses: ProviderResponse[]): {
     name: "mock",
     async sendMessage(
       messages: Message[],
-      tools?: ToolDefinition[],
-      systemPrompt?: string,
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
-      calls.push({ messages: [...messages], tools, systemPrompt });
+      calls.push({
+        messages: [...messages],
+        tools: options?.tools,
+        systemPrompt: options?.systemPrompt,
+      });
       const response = responses[callIndex] ?? responses[responses.length - 1];
       callIndex++;
 

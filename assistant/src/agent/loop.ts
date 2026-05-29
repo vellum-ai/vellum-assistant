@@ -724,9 +724,9 @@ export class AgentLoop {
         const llmCallArgs: LLMCallArgs = {
           provider: this.provider,
           messages: providerHistory,
-          tools: currentTools.length > 0 ? currentTools : undefined,
-          systemPrompt: turnSystemPrompt,
           options: {
+            tools: currentTools.length > 0 ? currentTools : undefined,
+            systemPrompt: turnSystemPrompt,
             config: providerConfig,
             onEvent: (event) => {
               if (event.type === "text_delta") {
@@ -824,13 +824,7 @@ export class AgentLoop {
           response = await runPipeline<LLMCallArgs, LLMCallResult>(
             "llmCall",
             getMiddlewaresFor("llmCall"),
-            (args) =>
-              args.provider.sendMessage(
-                args.messages,
-                args.tools,
-                args.systemPrompt,
-                args.options,
-              ),
+            (args) => args.provider.sendMessage(args.messages, args.options),
             llmCallArgs,
             turnCtx,
             DEFAULT_TIMEOUTS.llmCall,
@@ -852,8 +846,8 @@ export class AgentLoop {
             const rawRequest = {
               provider: this.provider.name,
               messages: llmCallArgs.messages,
-              tools: llmCallArgs.tools,
-              systemPrompt: llmCallArgs.systemPrompt,
+              tools: llmCallArgs.options?.tools,
+              systemPrompt: llmCallArgs.options?.systemPrompt,
               config: llmCallArgs.options?.config,
             };
             onEvent({

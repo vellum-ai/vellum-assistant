@@ -58,7 +58,7 @@ function makeProvider(
 ): Provider {
   return {
     name,
-    async sendMessage(_messages, _tools, _systemPrompt, options) {
+    async sendMessage(_messages: Message[], options?: SendMessageOptions) {
       onCall(options);
       return makeResponse(name);
     },
@@ -118,10 +118,7 @@ describe("CallSiteRoutingProvider", () => {
     );
 
     const response = await wrapped.sendMessage(
-      DUMMY_MESSAGES,
-      undefined,
-      undefined,
-      // No callSite — must hit default even though `memoryRetrieval` is
+      DUMMY_MESSAGES, // No callSite — must hit default even though `memoryRetrieval` is
       // configured for openai.
       { config: {} },
     );
@@ -154,7 +151,7 @@ describe("CallSiteRoutingProvider", () => {
       makeConnectionHook({ "openai-conn": altProvider }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "memoryRetrieval" },
     });
 
@@ -190,12 +187,9 @@ describe("CallSiteRoutingProvider", () => {
       makeConnectionHook({ "openai-conn": altProvider }),
     );
 
-    const response = await wrapped.sendMessage(
-      DUMMY_MESSAGES,
-      undefined,
-      undefined,
-      { config: { callSite: "memoryRetrieval" } },
-    );
+    const response = await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryRetrieval" },
+    });
 
     expect(calls.default).toBe(0);
     expect(calls.alt).toBe(1);
@@ -229,12 +223,9 @@ describe("CallSiteRoutingProvider", () => {
       async () => null,
     );
 
-    const response = await wrapped.sendMessage(
-      DUMMY_MESSAGES,
-      undefined,
-      undefined,
-      { config: { callSite: "memoryRetrieval" } },
-    );
+    const response = await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryRetrieval" },
+    });
 
     expect(calls.default).toBe(1);
     expect(response.model).toBe("anthropic");
@@ -265,7 +256,7 @@ describe("CallSiteRoutingProvider", () => {
 
     let caught: unknown;
     try {
-      await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+      await wrapped.sendMessage(DUMMY_MESSAGES, {
         config: { callSite: "memoryRetrieval" },
       });
     } catch (err) {
@@ -301,12 +292,9 @@ describe("CallSiteRoutingProvider", () => {
       makeConnectionHook({ "openai-conn": altProvider }),
     );
 
-    const response = await wrapped.sendMessage(
-      DUMMY_MESSAGES,
-      undefined,
-      undefined,
-      { config: { callSite: "memoryRetrieval" } },
-    );
+    const response = await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryRetrieval" },
+    });
 
     // actualProvider must reflect the alternative, not the default, so that
     // loop.ts / emitUsage / llm_call_finished log and bill the correct
@@ -346,12 +334,9 @@ describe("CallSiteRoutingProvider", () => {
       makeConnectionHook({ "openai-conn": altProvider }),
     );
 
-    const response = await wrapped.sendMessage(
-      DUMMY_MESSAGES,
-      undefined,
-      undefined,
-      { config: { callSite: "memoryRetrieval" } },
-    );
+    const response = await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryRetrieval" },
+    });
 
     expect(response.actualProvider).toBe("openai-via-proxy");
   });
@@ -368,12 +353,9 @@ describe("CallSiteRoutingProvider", () => {
       makeConnectionHook({}),
     );
 
-    const response = await wrapped.sendMessage(
-      DUMMY_MESSAGES,
-      undefined,
-      undefined,
-      { config: { callSite: "memoryRetrieval" } },
-    );
+    const response = await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "memoryRetrieval" },
+    });
 
     // No alternative was resolved — actualProvider should stay unset.
     expect(response.actualProvider).toBeUndefined();
@@ -434,7 +416,7 @@ describe("CallSiteRoutingProvider", () => {
     );
 
     expect(wrapped.name).toBe("anthropic"); // idle → default
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "memoryRetrieval" },
     });
     expect(namesDuringCall).toEqual(["openai"]); // mid-call → routed provider
@@ -511,10 +493,10 @@ describe("CallSiteRoutingProvider", () => {
     );
 
     // Start both calls concurrently (do not await yet).
-    const callA = wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    const callA = wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "memoryRetrieval" }, // → openai
     });
-    const callB = wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    const callB = wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "conversationTitle" }, // → fireworks
     });
 

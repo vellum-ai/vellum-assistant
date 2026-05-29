@@ -74,8 +74,6 @@ async function runStream(
 }> {
   const response = await provider.sendMessage(
     [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-    undefined,
-    undefined,
     {
       onEvent: (e) => {
         events.push(e as { type: string; thinking?: string; text?: string });

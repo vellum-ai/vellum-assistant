@@ -35,8 +35,10 @@ import {
 
 import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
 import type {
+  Message,
   Provider,
   ProviderResponse,
+  SendMessageOptions,
   ToolUseContent,
 } from "../../../providers/types.js";
 
@@ -100,9 +102,8 @@ afterAll(() => {
 });
 
 const { getDb } = await import("../../db-connection.js");
-const { resetDbForTesting } = await import(
-  "../../../__tests__/db-test-helpers.js"
-);
+const { resetDbForTesting } =
+  await import("../../../__tests__/db-test-helpers.js");
 const { initializeDb } = await import("../../db-init.js");
 const { messages, conversations } = await import("../../schema.js");
 const { memoryV2SweepJob } = await import("../sweep-job.js");
@@ -144,9 +145,9 @@ function makeJob(): Parameters<typeof memoryV2SweepJob>[0] {
 function makeEntriesProvider(entries: string[]): Provider {
   return {
     name: "stub",
-    sendMessage: async (msgs, _tools, systemPrompt) => {
+    sendMessage: async (msgs: Message[], options?: SendMessageOptions) => {
       providerCalls.push({
-        systemPrompt,
+        systemPrompt: options?.systemPrompt,
         userText: extractFirstUserText(msgs),
       });
       return {

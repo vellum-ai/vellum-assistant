@@ -113,7 +113,11 @@ describe("RateLimitProvider", () => {
       const systemPrompt = "hello";
       const options = { config: { max_tokens: 100 } };
 
-      await provider.sendMessage(messages, tools, systemPrompt, options);
+      await provider.sendMessage(messages, {
+        tools: tools,
+        systemPrompt: systemPrompt,
+        ...options,
+      });
 
       expect(receivedArgs[0]).toBe(messages);
       expect(receivedArgs[1]).toBe(tools);

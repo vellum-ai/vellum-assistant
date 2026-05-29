@@ -26,7 +26,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
-import type { Provider, ProviderResponse } from "../../../providers/types.js";
+import type {
+  Message,
+  Provider,
+  ProviderResponse,
+  SendMessageOptions,
+} from "../../../providers/types.js";
 
 // -- Mocks that must be installed before importing the module under test ---
 //
@@ -416,8 +421,11 @@ describe("synthesizeConceptPage", () => {
     let capturedSystem: string | undefined;
     const provider: Provider = {
       name: "stub",
-      sendMessage: async (_messages, _tools, system) => {
-        capturedSystem = system;
+      sendMessage: async (
+        _messages: Message[],
+        options?: SendMessageOptions,
+      ) => {
+        capturedSystem = options?.systemPrompt;
         return {
           content: [{ type: "text", text: "synthesized" }],
           model: "stub-model",

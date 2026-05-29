@@ -74,7 +74,7 @@ function makeProvider(
 ): Provider {
   return {
     name,
-    async sendMessage(_messages, _tools, _systemPrompt, options) {
+    async sendMessage(_messages: Message[], options?: SendMessageOptions) {
       onCall(options);
       const config = options?.config as Record<string, unknown> | undefined;
       return makeResponse(
@@ -116,7 +116,7 @@ describe("RetryProvider — callSite resolution", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "memoryRetrieval" },
     });
 
@@ -155,7 +155,7 @@ describe("RetryProvider — callSite resolution", () => {
       { forwardUsageAttributionHeaders: true },
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: {
         callSite: "memoryRetrieval",
         overrideProfile: "conversation-profile",
@@ -197,7 +197,7 @@ describe("RetryProvider — callSite resolution", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "memoryRetrieval" },
     });
 
@@ -227,7 +227,7 @@ describe("RetryProvider — callSite resolution", () => {
       { forwardUsageAttributionHeaders: true },
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "memoryRetrieval" },
     });
 
@@ -256,7 +256,7 @@ describe("RetryProvider — callSite resolution", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "memoryRetrieval" },
     });
 
@@ -288,7 +288,7 @@ describe("RetryProvider — callSite resolution", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "heartbeatAgent" },
     });
 
@@ -327,7 +327,7 @@ describe("RetryProvider — callSite resolution", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent" },
     });
 
@@ -358,7 +358,7 @@ describe("RetryProvider — callSite resolution", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent" },
     });
 
@@ -383,7 +383,7 @@ describe("RetryProvider — callSite resolution", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent" },
     });
 
@@ -417,7 +417,7 @@ describe("RetryProvider — callSite resolution", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent" },
     });
 
@@ -446,7 +446,7 @@ describe("RetryProvider — callSite resolution", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "memoryRetrieval" },
     });
 
@@ -474,7 +474,7 @@ describe("RetryProvider — callSite resolution", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent" },
     });
 
@@ -503,7 +503,7 @@ describe("RetryProvider — callSite resolution", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent" },
     });
 
@@ -528,7 +528,7 @@ describe("RetryProvider — callSite resolution", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent" },
     });
 
@@ -550,7 +550,7 @@ describe("RetryProvider — callSite resolution", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent", model: "explicit-override" },
     });
 
@@ -587,7 +587,7 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       // Hardcoded per-call temperature — the pattern that caused the PR
       // #29560 bug class. Without the guard this would forward to Anthropic
       // and 400.
@@ -619,7 +619,7 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "recall", temperature: 0 },
     });
 
@@ -645,7 +645,7 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent", temperature: 1 },
     });
 
@@ -674,7 +674,7 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent", temperature: 0.7 },
     });
 
@@ -700,7 +700,7 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent", temperature: 0.7 },
     });
 
@@ -730,7 +730,7 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent", temperature: 0.7 },
     });
 
@@ -759,7 +759,7 @@ describe("RetryProvider — thinking/temperature conflict guard", () => {
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: {
         callSite: "trustRuleSuggestion",
         temperature: 0.7,
@@ -794,7 +794,7 @@ describe("RetryProvider — no callSite (pre-resolved config passes through)", (
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: { model: "explicit-model", max_tokens: 1234 },
     });
 
@@ -817,7 +817,7 @@ describe("RetryProvider — no callSite (pre-resolved config passes through)", (
       }),
     );
 
-    await wrapped.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await wrapped.sendMessage(DUMMY_MESSAGES, {
       config: {
         model: "explicit-model",
         usageAttributionHeaders: {
