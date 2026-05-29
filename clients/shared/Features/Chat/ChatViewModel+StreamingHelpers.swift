@@ -34,16 +34,25 @@ extension ChatViewModel {
     /// subscriber or an SSE reconnect can arrive after the turn has already ended,
     /// hit the lazy bubble-creation path with no `currentAssistantMessageId`, and
     /// fork a second copy of a message the daemon only persisted once (hence the
-    /// duplicate collapses on reload). We only suppress the narrow signature of
-    /// that bug: the turn is fully terminal (not sending, thinking, or cancelling)
-    /// *and* the previous bubble is already an assistant message — i.e. we'd be
-    /// appending a back-to-back duplicate. Legitimate new bubbles (first delta of
-    /// a turn, handoff to a queued turn, slash-command responses) all run while
-    /// `isSending`/`isThinking` is true, so they are never affected.
+    /// duplicate collapses on reload). We suppress only the narrow signature of
+    /// that bug: the assistant is fully quiescent *and* the previous bubble is
+    /// already an assistant message — i.e. we'd be appending a back-to-back
+    /// duplicate.
+    ///
+    /// Quiescence is keyed on `assistantActivityPhase == "idle"`, not just the
+    /// `isSending`/`isThinking` spinners. The daemon emits an `"idle"` activity
+    /// state at the end of every turn and a `"streaming"`/`"thinking"` state
+    /// before the first delta of any new turn — *including daemon-initiated
+    /// wakes and scheduled/background runs that never set `isSending`/
+    /// `isThinking`* (see `handleTextDelta` → `emitActivityState("streaming",
+    /// "first_text_delta")` in the daemon). Gating on the idle phase preserves
+    /// those live wake deltas — which legitimately fork a new bubble after a
+    /// prior assistant reply — while still catching post-completion replays.
     func shouldDropStrayStreamingDelta(_ count: Int, kind: String) -> Bool {
-        let turnIsTerminal = !isSending && !isThinking && !isCancelling
-        guard turnIsTerminal, messages.last?.role == .assistant else { return false }
-        log.warning("Dropping stray \(kind) delta (\(count) chars): turn already terminal with no active message — would fork a duplicate assistant bubble")
+        let assistantIsQuiescent = !isSending && !isThinking && !isCancelling
+            && assistantActivityPhase == "idle"
+        guard assistantIsQuiescent, messages.last?.role == .assistant else { return false }
+        log.warning("Dropping stray \(kind) delta (\(count) chars): assistant idle with no active message — would fork a duplicate assistant bubble")
         return true
     }
 
