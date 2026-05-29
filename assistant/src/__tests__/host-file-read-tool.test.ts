@@ -66,7 +66,7 @@ const PNG_HEADER = Buffer.from([
 
 describe("host_file_read tool", () => {
   test("rejects relative paths", async () => {
-    const result = await hostFileReadTool.execute(
+    const result = await hostFileReadTool.execute!(
       { path: "relative.txt" },
       makeContext(),
     );
@@ -80,7 +80,7 @@ describe("host_file_read tool", () => {
     const filePath = join(dir, "sample.txt");
     writeFileSync(filePath, "first\nsecond\nthird\n");
 
-    const result = await hostFileReadTool.execute(
+    const result = await hostFileReadTool.execute!(
       { path: filePath, offset: 2, limit: 2 },
       makeContext(),
     );
@@ -91,7 +91,7 @@ describe("host_file_read tool", () => {
 
   test("returns error when file does not exist", async () => {
     const filePath = join(tmpdir(), `host-file-read-missing-${Date.now()}.txt`);
-    const result = await hostFileReadTool.execute(
+    const result = await hostFileReadTool.execute!(
       { path: filePath },
       makeContext(),
     );
@@ -105,7 +105,7 @@ describe("host_file_read tool", () => {
     const nestedDir = join(dir, "nested");
     mkdirSync(nestedDir, { recursive: true });
 
-    const result = await hostFileReadTool.execute(
+    const result = await hostFileReadTool.execute!(
       { path: nestedDir },
       makeContext(),
     );
@@ -114,13 +114,13 @@ describe("host_file_read tool", () => {
   });
 
   test("rejects missing path parameter", async () => {
-    const result = await hostFileReadTool.execute({}, makeContext());
+    const result = await hostFileReadTool.execute!({}, makeContext());
     expect(result.isError).toBe(true);
     expect(result.content).toContain("path is required");
   });
 
   test("rejects non-string path", async () => {
-    const result = await hostFileReadTool.execute({ path: 42 }, makeContext());
+    const result = await hostFileReadTool.execute!({ path: 42 }, makeContext());
     expect(result.isError).toBe(true);
     expect(result.content).toContain("path is required and must be a string");
   });
@@ -131,7 +131,7 @@ describe("host_file_read tool", () => {
     const filePath = join(dir, "full.txt");
     writeFileSync(filePath, "line1\nline2\nline3\n");
 
-    const result = await hostFileReadTool.execute(
+    const result = await hostFileReadTool.execute!(
       { path: filePath },
       makeContext(),
     );
@@ -147,7 +147,7 @@ describe("host_file_read tool", () => {
     const filePath = join(dir, "empty.txt");
     writeFileSync(filePath, "");
 
-    const result = await hostFileReadTool.execute(
+    const result = await hostFileReadTool.execute!(
       { path: filePath },
       makeContext(),
     );
@@ -160,7 +160,7 @@ describe("host_file_read tool", () => {
     const filePath = join(dir, "lines.txt");
     writeFileSync(filePath, "a\nb\nc\nd\ne\n");
 
-    const result = await hostFileReadTool.execute(
+    const result = await hostFileReadTool.execute!(
       { path: filePath, offset: 3, limit: 1 },
       makeContext(),
     );
@@ -179,7 +179,7 @@ describe("host_file_read tool", () => {
     const { symlinkSync } = await import("node:fs");
     symlinkSync(realFile, linkFile);
 
-    const result = await hostFileReadTool.execute(
+    const result = await hostFileReadTool.execute!(
       { path: linkFile },
       makeContext(),
     );
@@ -217,7 +217,7 @@ describe("host_file_read image support", () => {
       ...makeContext(),
     };
 
-    const result = await hostFileReadTool.execute(
+    const result = await hostFileReadTool.execute!(
       { path: "/host/screenshot.png" },
       proxyContext,
     );
@@ -243,7 +243,7 @@ describe("host_file_read image support", () => {
     const filePath = join(dir, "screenshot.png");
     writeFileSync(filePath, PNG_HEADER);
 
-    const result = await hostFileReadTool.execute(
+    const result = await hostFileReadTool.execute!(
       { path: filePath },
       makeContext(),
     );
@@ -263,7 +263,7 @@ describe("host_file_read image support", () => {
     const filePath = join(dir, "photo.jpg");
     writeFileSync(filePath, JPEG_HEADER);
 
-    const result = await hostFileReadTool.execute(
+    const result = await hostFileReadTool.execute!(
       { path: filePath },
       makeContext(),
     );
@@ -280,7 +280,7 @@ describe("host_file_read image support", () => {
 
   test("returns error for non-existent image path", async () => {
     const filePath = join(tmpdir(), `host-file-read-missing-${Date.now()}.png`);
-    const result = await hostFileReadTool.execute(
+    const result = await hostFileReadTool.execute!(
       { path: filePath },
       makeContext(),
     );
@@ -294,7 +294,7 @@ describe("host_file_read image support", () => {
     const filePath = join(dir, "notes.txt");
     writeFileSync(filePath, "hello world\nsecond line\n");
 
-    const result = await hostFileReadTool.execute(
+    const result = await hostFileReadTool.execute!(
       { path: filePath },
       makeContext(),
     );
@@ -313,7 +313,7 @@ describe("host_file_read image support", () => {
       return { content: "proxied", isError: false };
     };
 
-    await hostFileReadTool.execute(
+    await hostFileReadTool.execute!(
       { path: "/host/notes.txt", target_client_id: "client-x" },
       makeContext(),
     );

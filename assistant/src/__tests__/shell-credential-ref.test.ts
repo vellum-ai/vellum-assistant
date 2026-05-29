@@ -104,7 +104,7 @@ describe("shell tool credential ref resolution", () => {
       ],
     });
 
-    await shellTool.execute(
+    await shellTool.execute!(
       {
         command: "echo hello",
         reason: "test",
@@ -125,7 +125,7 @@ describe("shell tool credential ref resolution", () => {
       allowedTools: ["bash"],
     });
 
-    await shellTool.execute(
+    await shellTool.execute!(
       {
         command: "echo hello",
         reason: "test",
@@ -141,7 +141,7 @@ describe("shell tool credential ref resolution", () => {
   });
 
   test("unknown ref fails fast before spawning", async () => {
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       {
         command: "echo hello",
         reason: "test",
@@ -163,7 +163,7 @@ describe("shell tool credential ref resolution", () => {
       allowedTools: ["bash"],
     });
 
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       {
         command: "echo hello",
         reason: "test",
@@ -184,7 +184,7 @@ describe("shell tool credential ref resolution", () => {
       allowedTools: ["bash"],
     });
 
-    await shellTool.execute(
+    await shellTool.execute!(
       {
         command: "echo hello",
         reason: "test",
@@ -202,7 +202,7 @@ describe("shell tool credential ref resolution", () => {
 
   test("non-proxied mode passes refs through without resolution", async () => {
     // In non-proxied mode, credential_ids are ignored for proxy but still collected
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       {
         command: "echo hello",
         reason: "test",
@@ -230,7 +230,7 @@ describe("shell tool credential ref resolution", () => {
       ],
     });
 
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       {
         command: "curl https://api.vercel.com/v1/projects",
         activity: "test",
@@ -260,7 +260,7 @@ describe("shell tool credential ref resolution", () => {
       ],
     });
 
-    await shellTool.execute(
+    await shellTool.execute!(
       {
         command: "echo deploy",
         activity: "test",
@@ -284,7 +284,7 @@ describe("shell tool credential ref resolution", () => {
       allowedTools: ["publish_page"],
     });
 
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       {
         command: "echo mixed",
         activity: "test",

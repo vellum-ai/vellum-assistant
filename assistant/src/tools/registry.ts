@@ -443,7 +443,7 @@ export function unregisterAllMcpTools(): void {
  * Used by the session resolver to dynamically pick up MCP tools that
  * were registered after session creation (e.g. via `vellum mcp reload`).
  */
-export function getMcpToolDefinitions(): ToolDefinition[] {
+export function getMcpToolDefinitions(): Tool[] {
   return Array.from(tools.values()).filter(
     (t) => ownersByName.get(t.name)?.kind === "mcp",
   );
@@ -465,7 +465,7 @@ export function getSkillRefCount(skillId: string): number {
   return skillRefCount.get(skillId) ?? 0;
 }
 
-export function getAllToolDefinitions(): ToolDefinition[] {
+export function getAllToolDefinitions(): Tool[] {
   // Exclude skill-origin tools - they are managed by the session-level
   // skill projection system (projectSkillTools) and must not leak into
   // the base tool list, which is shared across sessions via the global

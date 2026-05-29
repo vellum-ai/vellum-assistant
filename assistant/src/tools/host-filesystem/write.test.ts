@@ -61,7 +61,7 @@ function makeContext(
 describe("host_file_write cross-client guards", () => {
   test("returns 'no client' error on web transport when proxy unavailable and no targetClientId", async () => {
     const workingDir = makeTempDir();
-    const result = await hostFileWriteTool.execute(
+    const result = await hostFileWriteTool.execute!(
       { path: "/some/host/path.txt", content: "hello" },
       makeContext(workingDir, "web"),
     );
@@ -73,7 +73,7 @@ describe("host_file_write cross-client guards", () => {
 
   test("returns 'specified client disconnected' error when targetClientId set but proxy unavailable on web", async () => {
     const workingDir = makeTempDir();
-    const result = await hostFileWriteTool.execute(
+    const result = await hostFileWriteTool.execute!(
       {
         path: "/some/host/path.txt",
         content: "hello",
@@ -90,7 +90,7 @@ describe("host_file_write cross-client guards", () => {
   test("falls through to local fs on macos transport when proxy unavailable", async () => {
     const workingDir = makeTempDir();
     const destFile = join(workingDir, "out.txt");
-    const result = await hostFileWriteTool.execute(
+    const result = await hostFileWriteTool.execute!(
       { path: destFile, content: "hello" },
       makeContext(workingDir, "macos"),
     );
@@ -102,7 +102,7 @@ describe("host_file_write cross-client guards", () => {
   test("does NOT reject on macos transport with a stale target_client_id when proxy unavailable (regression: P2 fix)", async () => {
     const workingDir = makeTempDir();
     const destFile = join(workingDir, "stale-target.txt");
-    const result = await hostFileWriteTool.execute(
+    const result = await hostFileWriteTool.execute!(
       { path: destFile, content: "hello", target_client_id: "stale-mac" },
       makeContext(workingDir, "macos"),
     );
@@ -118,7 +118,7 @@ describe("host_file_write cross-client guards", () => {
   test("rejects when target_client_id is set but transport metadata is missing (legacy/backwards-compat path)", async () => {
     const workingDir = makeTempDir();
     const destFile = join(workingDir, "should-not-exist.txt");
-    const result = await hostFileWriteTool.execute(
+    const result = await hostFileWriteTool.execute!(
       { path: destFile, content: "hello", target_client_id: "abc-123" },
       // transportInterface intentionally undefined (legacy callers).
       makeContext(workingDir, undefined),

@@ -24,11 +24,7 @@ import { registerShutdownHook } from "../../daemon/shutdown-registry.js";
 import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
 import { resolveExecutionTarget } from "../../tools/execution-target.js";
 import { registerSkillTools } from "../../tools/registry.js";
-import type {
-  ExecutionTarget,
-  Tool,
-  ToolDefinition,
-} from "../../tools/types.js";
+import type { Tool } from "../../tools/types.js";
 import { RiskLevel } from "../../tools/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { SkillIpcRoute } from "../skill-ipc-types.js";
@@ -181,23 +177,24 @@ export function __getActiveSessionCountForTesting(): number {
  * proxy in the registry so the rest of the tool-manifest plumbing can be
  * exercised end-to-end.
  */
-function buildProxyTool(definition: ToolDefinition): Tool {
+type WireToolDefinition = z.infer<typeof WireToolDefinitionSchema>;
+
+function buildProxyTool(definition: WireToolDefinition): Tool {
   // The Zod schema (`WireToolDefinitionSchema`) requires name, description,
   // input_schema, defaultRiskLevel, and category — `definition` arrives via
-  // that parse, so the `!` assertions reflect the runtime invariant while
-  // matching the relaxed `ToolDefinition` type contract.
+  // that parse, so every field below is guaranteed present at runtime.
   // RiskLevel is a string enum whose values are "low" | "medium" | "high",
   // matching the schema above exactly — the cast is a no-op at runtime.
-  const name = definition.name!;
+  const { name } = definition;
   return {
     name,
-    description: definition.description!,
-    input_schema: definition.input_schema as object,
-    category: definition.category!,
+    description: definition.description,
+    input_schema: definition.input_schema,
+    category: definition.category,
     defaultRiskLevel: definition.defaultRiskLevel as RiskLevel,
     executionTarget: resolveExecutionTarget({
       name,
-      executionTarget: definition.executionTarget as ExecutionTarget | undefined,
+      executionTarget: definition.executionTarget,
     }),
     execute: async () => {
       // Only reached when no supervisor is attached (tests/boot race);

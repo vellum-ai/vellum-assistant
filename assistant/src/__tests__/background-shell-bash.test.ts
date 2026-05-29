@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { WakeOptions } from "../runtime/agent-wake.js";
 import type { BackgroundTool } from "../tools/background-tool-registry.js";
-import type { Tool } from "../tools/types.js";
+import type { ToolDefinition } from "../tools/types.js";
 
 // ── Mock modules ────────────────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ function waitForWake(
 }
 
 describe("bash tool background mode", () => {
-  let shellTool: Tool;
+  let shellTool: ToolDefinition;
 
   beforeEach(async () => {
     mockWakeAgentForOpportunity.mockClear();
@@ -138,7 +138,7 @@ describe("bash tool background mode", () => {
   });
 
   test("background: true returns immediately with backgrounded payload", async () => {
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       { command: "echo hello", activity: "test", background: true },
       baseContext,
     );
@@ -153,7 +153,7 @@ describe("bash tool background mode", () => {
   });
 
   test("background process registers in the background tool registry", async () => {
-    await shellTool.execute(
+    await shellTool.execute!(
       { command: "echo hello", activity: "test", background: true },
       baseContext,
     );
@@ -172,7 +172,7 @@ describe("bash tool background mode", () => {
   });
 
   test("background process completion triggers wakeAgentForOpportunity with stdout", async () => {
-    await shellTool.execute(
+    await shellTool.execute!(
       { command: "echo bg_output_12345", activity: "test", background: true },
       baseContext,
     );
@@ -192,7 +192,7 @@ describe("bash tool background mode", () => {
   });
 
   test("failing background process delivers an error hint via wake", async () => {
-    await shellTool.execute(
+    await shellTool.execute!(
       { command: "exit 1", activity: "test", background: true },
       baseContext,
     );
@@ -213,7 +213,7 @@ describe("bash tool background mode", () => {
   });
 
   test("foreground mode still works when background is not set", async () => {
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       { command: "echo foreground_test_789", activity: "test" },
       baseContext,
     );

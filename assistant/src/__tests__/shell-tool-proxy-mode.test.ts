@@ -179,7 +179,7 @@ afterEach(() => {
 
 describe("shell tool proxy mode", () => {
   test("default mode does not inject proxy env vars", async () => {
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       { command: "echo hello" },
       makeContext(),
     );
@@ -193,7 +193,7 @@ describe("shell tool proxy mode", () => {
   });
 
   test("network_mode=off does not inject proxy env vars", async () => {
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       { command: "echo hello", network_mode: "off" },
       makeContext(),
     );
@@ -206,7 +206,7 @@ describe("shell tool proxy mode", () => {
   });
 
   test("network_mode=proxied creates session and injects proxy env", async () => {
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       {
         command: "echo proxied",
         network_mode: "proxied",
@@ -246,7 +246,7 @@ describe("shell tool proxy mode", () => {
       conversationId: "test-conv",
     };
 
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       { command: "echo reuse", network_mode: "proxied" },
       makeContext(),
     );
@@ -266,7 +266,7 @@ describe("shell tool proxy mode", () => {
   });
 
   test("safe env vars are preserved alongside proxy vars", async () => {
-    const result = await shellTool.execute(
+    const result = await shellTool.execute!(
       {
         command: "echo env-merge",
         network_mode: "proxied",
