@@ -180,7 +180,10 @@ export async function waitForNativeSessionCookie(): Promise<void> {
  * same code works across environments without runtime host sniffing.
  */
 export function installSessionCookies(sessionToken: string): void {
-  const cookieAttrs = "path=/; domain=.vellum.ai; secure; samesite=lax";
+  // `max-age` makes the cookie persistent. If unspecified, the cookie
+  // expires at the end of the session, and users will be required to
+  // login again.
+  const cookieAttrs = "path=/; domain=.vellum.ai; secure; samesite=lax; max-age=1209600";
   document.cookie = `sessionid=${sessionToken}; ${cookieAttrs}`;
   document.cookie = `__Secure-sessionid=${sessionToken}; ${cookieAttrs}`;
 }
