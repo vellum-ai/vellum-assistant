@@ -271,9 +271,11 @@ References:
 When migrating an imperative `setTimeout`-driven fetch loop to
 TanStack Query, the load-bearing patterns (mutation ref stability,
 explicit `staleTime: 0` on imperative re-checks, `setQueryData`
-post-mutation seeding, `setTimeout`-wrapped retry backoff) are
-demonstrated in [`src/assistant/queries.ts`](../src/assistant/queries.ts)
-and [`src/assistant/use-lifecycle.ts`](../src/assistant/use-lifecycle.ts).
+post-mutation seeding, `setTimeout`-wrapped retry backoff,
+`useEffect` on query data instead of the low-level
+`queryClient.getQueryCache().subscribe(...)`) are demonstrated in
+[`src/assistant/queries.ts`](../src/assistant/queries.ts) and
+[`src/assistant/use-lifecycle.ts`](../src/assistant/use-lifecycle.ts).
 Each load-bearing call site has an inline comment explaining the
 invariant it preserves and the failure mode it prevents. Read those
 files as the source of truth — they update with the code.
