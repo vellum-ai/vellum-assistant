@@ -34,11 +34,20 @@ import { dispatchToFocused, resolveAccelerator } from "./commands";
 
 export interface TrayHandlers {
   /**
-   * Show + focus the main window if it's hidden, hide it if it's
-   * already focused. Caller decides what "hidden" means today — see
-   * `installTray` invocation in `index.ts`.
+   * Bound to the tray's left click and the "Show / Hide Main Window"
+   * menu item: if the main window is visible and focused, hide it;
+   * otherwise show + focus + (recreate if previously destroyed).
    */
   toggleMainWindow(): void;
+  /**
+   * Bound to the conversation menu items below. Renderer-bound
+   * commands (`newConversation`, `currentConversation`) only update
+   * state — without surfacing the window first, nothing visible
+   * happens when the user picks them from the tray. Call this before
+   * `dispatchToFocused` so the window is up by the time the renderer
+   * processes the command.
+   */
+  ensureMainWindow(): void;
   /**
    * Open (or focus the existing) About window.
    */
@@ -92,12 +101,18 @@ const buildTrayMenu = (handlers: TrayHandlers): Menu =>
     {
       label: "New Conversation",
       accelerator: resolveAccelerator("newConversation"),
-      click: () => dispatchToFocused({ kind: "newConversation" }),
+      click: () => {
+        handlers.ensureMainWindow();
+        dispatchToFocused({ kind: "newConversation" });
+      },
     },
     {
       label: "Current Conversation",
       accelerator: resolveAccelerator("currentConversation"),
-      click: () => dispatchToFocused({ kind: "currentConversation" }),
+      click: () => {
+        handlers.ensureMainWindow();
+        dispatchToFocused({ kind: "currentConversation" });
+      },
     },
     { type: "separator" },
     {

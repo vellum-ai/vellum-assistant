@@ -45,11 +45,13 @@ export const formatBadge = (count: number): string => {
 
 const POLICY_DEBOUNCE_MS = 100;
 
-// Gate the `accessory` (menu-bar-only) transition until a menu-bar
-// (tray) entry point exists. Going accessory before then would hide
-// the Dock icon with no replacement, leaving the user no way to re-open
-// the window. Flip to `true` in the same change that lands the tray.
-const ALLOW_ACCESSORY_MODE = false;
+// When the user is signed out and no windows are visible, drop the
+// Dock icon and run menu-bar-only — same accessory-mode UX Swift Vellum
+// exposes. Safe to flip on now that `installTray` provides an
+// always-available entry point back to the app (the Dock icon used to
+// be the only one). Kept as a module-level constant rather than a
+// setting so the build-time choice is reviewable.
+const ALLOW_ACCESSORY_MODE = true;
 
 interface DockState {
   signedIn: boolean;

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, net, protocol, session, shell } from "electron";
+import { app, ipcMain, net, protocol, session, shell } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
@@ -7,38 +7,14 @@ import path from "node:path";
 import { installAbout, openAboutWindow } from "./about";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { installDock } from "./dock";
+import {
+  ensureVisible as ensureMainWindowVisible,
+  installMainWindow,
+  toggleVisibility as toggleMainWindowVisibility,
+} from "./main-window";
 import { installApplicationMenu } from "./menu";
 import { readSetting, writeSetting } from "./settings";
 import { installTray } from "./tray";
-import { restoreBounds, track as trackWindowState } from "./window-state";
-
-// Dev-mode renderer URL. Honors `VELLUM_DEV_URL` so the launcher can
-// point the BrowserWindow at whichever Vite-or-equivalent is actually
-// up:
-//
-//   - Standalone `bun run dev` → unset, falls back to
-//     `http://localhost:5173/assistant` (our own Vite, spawned by
-//     `dev:standalone`).
-//   - `bun run dev` while `vel up` is running → the probe shim sets it
-//     to `http://localhost:3000/assistant` (vel's edge proxy + the
-//     renderer path that Swift Vellum hits), so the renderer is
-//     same-origin with the running backends.
-//   - Future `vel up electron` → vel sets it directly when spawning us.
-//
-// The `/assistant` path matters: `apps/web/vite.config.ts` declares
-// `base: "/assistant/"`, and vel's edge proxy reserves the `:3000` root
-// for the marketing site and routes `/assistant/*` to apps/web. Loading
-// the bare origin lands the BrowserWindow on the marketing page instead
-// of the renderer. Callers (vel, the probe shim, a developer setting
-// the env var by hand) are responsible for including the path —
-// `VELLUM_DEV_URL` is treated as the full URL to load.
-//
-// The port-5173 fallback agrees with `dev:web` in package.json, which
-// passes `--port 5173 --strictPort` so apps/web's `.env` defaults can't
-// silently move it.
-const DEV_SERVER_URL =
-  process.env.VELLUM_DEV_URL ?? "http://localhost:5173/assistant";
-const DEV_SERVER_ORIGIN = new URL(DEV_SERVER_URL).origin;
 
 // Dev-only: override the workspace `name` (`@vellumai/macos`) so the
 // menu bar's first submenu reads "Vellum Electron", and — more
@@ -93,92 +69,6 @@ protocol.registerSchemesAsPrivileged([
     },
   },
 ]);
-
-let mainWindow: BrowserWindow | null = null;
-
-const createWindow = (): void => {
-  mainWindow = new BrowserWindow({
-    ...restoreBounds("main", { width: 1280, height: 800 }),
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, "../preload/index.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-      devTools: isDev,
-    },
-  });
-
-  // Subscribe to resize/move/close so the next launch can restore the
-  // user's last geometry. See `window-state.ts` for the persistence
-  // model (separate electron-store file, debounced saves, fullscreen
-  // tracked as a flag rather than as bounds).
-  trackWindowState("main", mainWindow);
-
-  mainWindow.once("ready-to-show", () => {
-    mainWindow?.show();
-  });
-
-  mainWindow.on("closed", () => {
-    mainWindow = null;
-  });
-
-  // Same-origin allowlist for top-level navigation. Scoped to the main
-  // window — popups (OAuth flows etc.) need to redirect between provider
-  // domains and our callback origin, so they're left unrestricted.
-  mainWindow.webContents.on("will-navigate", (event, url) => {
-    let target: URL;
-    try {
-      target = new URL(url);
-    } catch {
-      event.preventDefault();
-      return;
-    }
-    const allowed =
-      (isDev && target.origin === DEV_SERVER_ORIGIN) ||
-      (!isDev && target.protocol === `${APP_PROTOCOL}:` && target.host === APP_HOST);
-    if (allowed) return;
-    event.preventDefault();
-    // External http(s) top-level navigations (e.g. `window.location.href =
-    // "https://billing.stripe.com/..."`) route to the system browser instead
-    // of silently failing. Other schemes stay blocked.
-    if (target.protocol === "https:" || target.protocol === "http:") {
-      void shell.openExternal(url);
-    }
-  });
-
-  const loadTarget = isDev ? DEV_SERVER_URL : `${APP_PROTOCOL}://${APP_HOST}/index.html`;
-  mainWindow.loadURL(loadTarget).catch((err: unknown) => {
-    console.error(`[window] loadURL failed for ${loadTarget}:`, err);
-  });
-};
-
-const focusMainWindow = (): void => {
-  if (!mainWindow) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
-};
-
-// Click target for the tray's left-click and the "Show / Hide Main
-// Window" tray menu item. If the user closed the main window since the
-// last interaction, recreate it; if it's visible and focused, hide it;
-// otherwise bring it back up. Lives in `index.ts` (not `tray.ts`)
-// because the main window's lifecycle is owned here.
-const toggleMainWindowVisibility = (): void => {
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    createWindow();
-    return;
-  }
-  if (mainWindow.isVisible() && mainWindow.isFocused()) {
-    mainWindow.hide();
-    return;
-  }
-  focusMainWindow();
-};
 
 // Serve apps/web/dist/ as static files via `app://vellum.ai/...`. Route-like
 // paths (no file extension, or `.html`) fall back to index.html so React
@@ -353,20 +243,19 @@ app
     installDock();
     installTray({
       toggleMainWindow: toggleMainWindowVisibility,
+      ensureMainWindow: ensureMainWindowVisible,
       openAbout: openAboutWindow,
     });
     spawnDaemon();
-    createWindow();
+    installMainWindow();
 
-    // Dock-icon click / Cmd-Tab re-activation. Only the absence of the
-    // *main* window should trigger a recreate — auxiliary windows
-    // (About, future thread pop-outs) shouldn't count, otherwise closing
-    // main while an auxiliary stays open would leave the user stuck
-    // with no path back to the app.
+    // Dock-icon click / Cmd-Tab re-activation: bring the main window
+    // back to front, recreating it if it was previously closed. The
+    // primitive handles both the destroyed-window and the
+    // visible-but-not-focused cases, so we don't need to branch here
+    // on auxiliary window counts the way the old check did.
     app.on("activate", () => {
-      if (!mainWindow || mainWindow.isDestroyed()) {
-        createWindow();
-      }
+      ensureMainWindowVisible();
     });
   })
   .catch((err: unknown) => {
@@ -374,7 +263,11 @@ app
   });
 
 app.on("second-instance", () => {
-  focusMainWindow();
+  // Behavior change vs prior code path: previously a second-instance
+  // launch was a no-op when the main window had been destroyed. Now
+  // we recreate so the user always sees a window in response to
+  // re-launching the app.
+  ensureMainWindowVisible();
 });
 
 app.on("web-contents-created", (_event, contents) => {

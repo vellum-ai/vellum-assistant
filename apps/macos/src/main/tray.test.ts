@@ -83,6 +83,7 @@ const { installTray } = await import("./tray");
 describe("installTray", () => {
   const handlers = {
     toggleMainWindow: mock(() => undefined),
+    ensureMainWindow: mock(() => undefined),
     openAbout: mock(() => undefined),
   };
 
@@ -144,5 +145,25 @@ describe("installTray", () => {
 
     const quitItem = template.find((item) => item.label?.startsWith("Quit"));
     expect(quitItem?.role).toBe("quit");
+  });
+
+  test("conversation menu items surface the main window before dispatching the renderer command", () => {
+    const template = buildFromTemplateMock.mock.calls[0]?.[0] as Array<{
+      label?: string;
+      click?: () => void;
+    }>;
+    const newConversation = template.find(
+      (item) => item.label === "New Conversation",
+    );
+    const currentConversation = template.find(
+      (item) => item.label === "Current Conversation",
+    );
+    expect(newConversation?.click).toBeDefined();
+    expect(currentConversation?.click).toBeDefined();
+
+    const before = handlers.ensureMainWindow.mock.calls.length;
+    newConversation?.click?.();
+    currentConversation?.click?.();
+    expect(handlers.ensureMainWindow.mock.calls.length).toBe(before + 2);
   });
 });
