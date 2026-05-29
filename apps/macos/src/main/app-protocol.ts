@@ -10,27 +10,38 @@ import path from "node:path";
  * (which evaluates the full lifecycle wiring at module load) just to
  * exercise URL parsing. Pure: no Electron, no filesystem, no I/O.
  *
- * Rules:
+ * Implementation is split in two so the guard itself is directly
+ * testable:
  *
- * - URL pathname is `decodeURIComponent`-ed once so `%2e%2e` -style
- *   bypasses get unescaped before normalization sees them.
- * - Leading slashes on the pathname are stripped so `path.join` doesn't
- *   treat the path as absolute and discard `rendererRoot`.
- * - After joining + normalizing, the resolved path must be exactly
- *   `rendererRoot` or sit inside it (`rendererRoot + sep`-prefixed).
- *   Anything else — `..` climbs, absolute-style overrides, sibling
+ *   - `resolveAppProtocolPath` is the public entry point. It parses
+ *     the URL, decodes the pathname, and delegates to
+ *     `resolveRelativePath` for the actual guard. Malformed
+ *     percent-encoding (e.g. `%ZZ`) throws `URIError` out of
+ *     `decodeURIComponent`; we catch and convert to `forbidden` so
+ *     `protocol.handle` returns a clean 403 instead of a 500.
+ *
+ *   - `resolveRelativePath` is the predicate the URL-agnostic guard
+ *     is built from. Exported so tests can probe the
+ *     `startsWith(rendererRoot + sep)` invariant directly with
+ *     synthetic inputs (e.g. `../renderer-evil/x`) the URL parser
+ *     would otherwise normalize away.
+ *
+ * Rules `resolveRelativePath` enforces:
+ *
+ * - The relative path is joined onto `rendererRoot` and normalized.
+ * - The resolved path must be exactly `rendererRoot` or sit inside it
+ *   (`rendererRoot + sep`-prefixed). Anything else — `..` climbs
+ *   surviving normalization, absolute-path overrides, sibling
  *   directories — returns `forbidden`.
  */
 export type ResolveResult =
   | { kind: "ok"; resolved: string }
   | { kind: "forbidden" };
 
-export const resolveAppProtocolPath = (
+export const resolveRelativePath = (
   rendererRoot: string,
-  requestUrl: string,
+  relativePath: string,
 ): ResolveResult => {
-  const url = new URL(requestUrl);
-  const relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, "");
   const resolved = path.normalize(path.join(rendererRoot, relativePath));
   const rendererRootWithSep = rendererRoot + path.sep;
   if (
@@ -40,4 +51,21 @@ export const resolveAppProtocolPath = (
     return { kind: "forbidden" };
   }
   return { kind: "ok", resolved };
+};
+
+export const resolveAppProtocolPath = (
+  rendererRoot: string,
+  requestUrl: string,
+): ResolveResult => {
+  const url = new URL(requestUrl);
+  let relativePath: string;
+  try {
+    relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+  } catch {
+    // Malformed percent-encoding (e.g. `%ZZ`) throws `URIError`.
+    // Convert to `forbidden` so the protocol handler returns a clean
+    // 403 instead of a 500 from an uncaught error.
+    return { kind: "forbidden" };
+  }
+  return resolveRelativePath(rendererRoot, relativePath);
 };
