@@ -197,6 +197,51 @@ describe("ConversationEvictor", () => {
     });
   });
 
+  describe("shouldProtect", () => {
+    test("TTL eviction skips protected sessions", () => {
+      const s1 = createMockSession();
+      const s2 = createMockSession();
+      sessions.set("protected", s1);
+      sessions.set("unprotected", s2);
+
+      evictor.shouldProtect = (id) => id === "protected";
+
+      const result = evictor.sweep();
+
+      expect(result.ttlEvicted).toBe(1);
+      expect(result.skipped).toBe(1);
+      expect(sessions.has("protected")).toBe(true);
+      expect(sessions.has("unprotected")).toBe(false);
+      expect(s1.disposed).toBe(false);
+      expect(s2.disposed).toBe(true);
+    });
+
+    test("LRU eviction skips protected sessions", () => {
+      // maxConversations = 3, add 5 sessions, protect one
+      for (let i = 0; i < 5; i++) {
+        sessions.set(`s${i}`, createMockSession());
+        evictor.touch(`s${i}`);
+      }
+
+      const now = Date.now();
+      const lastAccess = (
+        evictor as unknown as { lastAccess: Map<string, number> }
+      ).lastAccess;
+      // Make s0 the oldest but protected
+      lastAccess.set("s0", now - 100);
+      lastAccess.set("s1", now - 90);
+      lastAccess.set("s2", now - 80);
+
+      evictor.shouldProtect = (id) => id === "s0";
+
+      const result = evictor.sweep();
+
+      // s0 is protected despite being oldest — s1 and s2 are evicted instead
+      expect(sessions.has("s0")).toBe(true);
+      expect(result.lruEvicted).toBe(2);
+    });
+  });
+
   describe("start/stop", () => {
     test("stop clears tracking state", () => {
       evictor.touch("a");

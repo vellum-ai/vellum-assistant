@@ -381,7 +381,7 @@ export class DaemonServer {
   private evictConversationsForReload(): void {
     const subagentManager = getSubagentManager();
     for (const [id, conversation] of conversationEntries()) {
-      if (!conversation.isProcessing()) {
+      if (!conversation.isProcessing() && !this.evictor.shouldProtect?.(id)) {
         subagentManager.abortAllForParent(id);
         conversation.dispose();
         deleteConversation(id);
