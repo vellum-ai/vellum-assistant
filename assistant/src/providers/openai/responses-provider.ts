@@ -219,9 +219,9 @@ export class OpenAIResponsesProvider implements Provider {
             parameters: t.input_schema,
             strict: null,
           }));
-          const webSearchTool = {
-            type: "web_search_preview" as const,
-          };
+          const webSearchTool = this.codexSubscription
+            ? { type: "web_search" as const, external_web_access: false }
+            : { type: "web_search_preview" as const };
           params.tools = [...mappedOther, webSearchTool];
         } else {
           params.tools = tools.map((t) => ({

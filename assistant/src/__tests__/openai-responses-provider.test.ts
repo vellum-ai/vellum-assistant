@@ -1783,6 +1783,23 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
     ]);
   });
 
+  test("codexSubscription: maps web_search to the Codex native web_search tool", async () => {
+    const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
+      codexSubscription: true,
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await codexProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
+      [webSearchTool],
+    );
+
+    expect(lastStreamParams!.tools).toEqual([
+      { type: "web_search", external_web_access: false },
+    ]);
+  });
+
   test("codexSubscription: still sends model, input, and instructions", async () => {
     const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
       codexSubscription: true,
