@@ -9,7 +9,7 @@ import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors";
+} from "@/utils/api-errors";
 
 import type {
   AddTrustRuleBody,

@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
 import * as Sentry from "@sentry/react";
 
-import { migrateDeviceSettings } from "@/lib/device-settings";
+import { migrateDeviceSettings } from "@/utils/device-settings";
 import { initSentry } from "@/lib/sentry/sentry-init";
 import { isLocalMode, loadLockfile } from "@/lib/local-mode";
 import { useAuthStore, setupAuthListeners } from "@/stores/auth-store";

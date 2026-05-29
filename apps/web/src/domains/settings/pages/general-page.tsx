@@ -34,7 +34,7 @@ import {
   getDeviceSetting,
   setDeviceSetting,
   watchDeviceSetting,
-} from "@/lib/device-settings";
+} from "@/utils/device-settings";
 
 function ThemeCard() {
   const velvet = useClientFeatureFlagStore.use.velvet();

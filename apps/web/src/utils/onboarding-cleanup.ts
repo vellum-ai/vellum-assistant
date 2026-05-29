@@ -10,8 +10,8 @@
  * in-memory store state is irrelevant and reinitializes from localStorage
  * on the next page load.
  */
-import { removeLocalSetting } from "@/lib/local-settings";
-import { getDeviceSetting, setDeviceSetting } from "@/lib/device-settings";
+import { removeLocalSetting } from "@/utils/local-settings";
+import { getDeviceSetting, setDeviceSetting } from "@/utils/device-settings";
 
 export const KEY_TOS_ACCEPTED = "onboarding.tosAccepted";
 export const KEY_AI_DATA_CONSENT = "onboarding.aiDataConsent";

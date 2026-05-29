@@ -12,7 +12,7 @@ import {
   getDeviceSetting,
   setDeviceBool,
   setDeviceSetting,
-} from "@/lib/device-settings";
+} from "@/utils/device-settings";
 
 const RETENTION_OPTIONS: { value: string; label: string }[] = [
   { value: "dontRetain", label: "Don't retain" },

@@ -10,12 +10,12 @@ import { createElement, useCallback, useMemo, useState } from "react";
 
 import { Dropdown } from "@vellum/design-library";
 
-import { useConversationListQuery } from "@/lib/conversations";
+import { useConversationListQuery } from "@/domains/conversations/conversation-queries";
 import type { Conversation } from "@/types/conversation-types";
 import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
-} from "@/lib/last-viewed-conversation-storage";
+} from "@/utils/last-viewed-conversation-storage";
 import {
   formatLatency,
   formatTimelineTimestamp,

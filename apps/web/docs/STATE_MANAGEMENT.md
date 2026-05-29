@@ -139,7 +139,7 @@ navigations; for logout, preservation is the problem.
 Before the hard navigation, the auth store's `logout()` action
 clears user-scoped browser storage (`lib/auth/session-cleanup.ts`).
 The cleanup preserves any key starting with `device:` (device-scoped
-settings managed by `lib/device-settings.ts`) and removes all other
+settings managed by `utils/device-settings.ts`) and removes all other
 keys matching app prefixes (`vellum`, `onboarding.`, `ff:client:`,
 `voice:`, `integrations.`). New app keys are cleared by default; new
 device settings are preserved by default — no manual list to maintain.
@@ -147,7 +147,7 @@ device settings are preserved by default — no manual list to maintain.
 ### Device-scoped localStorage (`device:` namespace)
 
 Settings that describe the physical device rather than a user account
-use the `device:` key prefix and are managed via `lib/device-settings.ts`.
+use the `device:` key prefix and are managed via `utils/device-settings.ts`.
 To add a new device setting, add an entry to the `DEVICE_SETTINGS`
 registry in that file and use `getDeviceSetting` / `setDeviceSetting`
 in your component — session-cleanup.ts automatically preserves it.
