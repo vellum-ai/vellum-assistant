@@ -12,15 +12,14 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 // Test-scoped config state
 // ---------------------------------------------------------------------------
 
-const DECLARED_FLAG_ID = "email-channel";
+const DECLARED_FLAG_ID = "a2a-channel";
 const DECLARED_FLAG_KEY = DECLARED_FLAG_ID;
 const SAFE_STORAGE_LIMITS_FLAG = "safe-storage-limits";
 
 const { isAssistantFeatureFlagEnabled } =
   await import("../config/assistant-feature-flags.js");
-const { setOverridesForTesting } = await import(
-  "./feature-flag-test-helpers.js"
-);
+const { setOverridesForTesting } =
+  await import("./feature-flag-test-helpers.js");
 const { skillFlagKey } = await import("../config/skill-state.js");
 
 // ---------------------------------------------------------------------------
@@ -58,7 +57,7 @@ describe("isAssistantFeatureFlagEnabled", () => {
 
   test("missing persisted value falls back to defaults registry defaultEnabled", () => {
     // No explicit config at all — should fall back to defaults registry
-    // which has defaultEnabled: false for email-channel
+    // which has defaultEnabled: false for a2a-channel
     const config = {} as any;
 
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(

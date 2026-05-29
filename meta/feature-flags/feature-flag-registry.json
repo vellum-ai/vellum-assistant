@@ -50,14 +50,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "email-channel",
-      "scope": "assistant",
-      "key": "email-channel",
-      "label": "Email Channel",
-      "description": "Enable the entire email integration: email CLI commands, email channel, domain registration, sequences, email readiness probes, invite adapters, and the email-setup skill",
-      "defaultEnabled": false
-    },
-    {
       "id": "settings-developer-nav",
       "scope": "assistant",
       "key": "settings-developer-nav",
