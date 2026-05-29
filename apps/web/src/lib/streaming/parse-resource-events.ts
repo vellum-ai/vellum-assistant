@@ -12,10 +12,7 @@ import type {
   DiskPressureBlockedCapability,
   DiskPressureStatus,
 } from "@/assistant/types";
-import type {
-  AssistantEvent,
-  ConversationListInvalidatedReason,
-} from "@/types/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 import type { SyncInvalidationTag } from "@/lib/sync/types";
 import { unknownEvent } from "@/lib/streaming/parse-helpers";
 
@@ -40,40 +37,12 @@ export function parseSyncChanged(
   };
 }
 
-export function parseIdentityChanged(): AssistantEvent {
-  return { type: "identity_changed" };
-}
-
-export function parseAvatarUpdated(): AssistantEvent {
-  return { type: "avatar_updated" };
-}
-
-export function parseConversationTitleUpdated(
-  data: Record<string, unknown>,
-): AssistantEvent {
-  const conversationId =
-    typeof data.conversationId === "string" ? data.conversationId : "";
-  const title = typeof data.title === "string" ? data.title : "";
-  if (!conversationId) {
-    return unknownEvent("conversation_title_updated", data);
-  }
-  return { type: "conversation_title_updated", conversationId, title };
-}
-
-export function parseConversationListInvalidated(
-  data: Record<string, unknown>,
-): AssistantEvent {
-  const rawReason = typeof data.reason === "string" ? data.reason : "";
-  const reason: ConversationListInvalidatedReason =
-    rawReason === "created" ||
-    rawReason === "renamed" ||
-    rawReason === "deleted" ||
-    rawReason === "reordered" ||
-    rawReason === "seen_changed"
-      ? rawReason
-      : "created";
-  return { type: "conversation_list_invalidated", reason };
-}
+// `identity_changed`, `avatar_updated`, `conversation_title_updated`, and
+// `conversation_list_invalidated` are now schema-validated via canonical
+// schemas in `@vellumai/assistant-api`. The legacy parser functions
+// previously here are gone — `event-parser.ts` no longer dispatches
+// these cases; `parseAssistantEvent` resolves them through
+// `AssistantEventSchema` before reaching the legacy switch.
 
 export function parseNotificationIntent(
   data: Record<string, unknown>,

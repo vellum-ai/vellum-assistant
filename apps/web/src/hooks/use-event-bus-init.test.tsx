@@ -138,7 +138,10 @@ describe("useEventBusInit — SSE ownership", () => {
         isAssistantActive: true,
       }),
     );
-    const event = { type: "avatar_updated" } as AssistantEvent;
+    const event: AssistantEvent = {
+      type: "avatar_updated",
+      avatarPath: "/tmp/avatar.png",
+    };
     activeOnEvent!(event);
     expect(handler).toHaveBeenCalledWith(event);
   });

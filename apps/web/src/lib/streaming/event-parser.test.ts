@@ -1797,21 +1797,165 @@ describe("parseAssistantEvent", () => {
     }
   });
 
-  describe("identity_changed", () => {
-    test("parses to a typed invalidation signal regardless of payload", () => {
-      // Arbitrary payload — handler treats this as an invalidation-only signal
-      // and refetches identity from the canonical endpoint.
-      const event = parseAssistantEvent({
-        type: "identity_changed",
-        name: "Pax",
-        role: "assistant",
-      });
-      expect(event.type).toBe("identity_changed");
-    });
+  // ---------------------------------------------------------------------
+  // identity_changed (schema-validated)
+  // ---------------------------------------------------------------------
 
-    test("empty payload still produces IdentityChangedEvent (not UnknownEvent)", () => {
-      const event = parseAssistantEvent({ type: "identity_changed" });
-      expect(event.type).toBe("identity_changed");
+  test("parses identity_changed with all required fields", () => {
+    const event = parseAssistantEvent({
+      type: "identity_changed",
+      name: "ApolloBot",
+      role: "sidekick",
+      personality: "cosmic",
+      emoji: "🦖",
+      home: "kubernetes",
+    });
+    expect(event).toEqual({
+      type: "identity_changed",
+      name: "ApolloBot",
+      role: "sidekick",
+      personality: "cosmic",
+      emoji: "🦖",
+      home: "kubernetes",
+    });
+  });
+
+  test("returns unknown identity_changed when a required field is missing", () => {
+    const data = {
+      type: "identity_changed",
+      name: "ApolloBot",
+      role: "sidekick",
+      personality: "cosmic",
+      // emoji omitted
+      home: "kubernetes",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "identity_changed",
+      data,
+    });
+  });
+
+  test("returns unknown identity_changed when a field has wrong type", () => {
+    const data = {
+      type: "identity_changed",
+      name: 42,
+      role: "sidekick",
+      personality: "cosmic",
+      emoji: "🦖",
+      home: "kubernetes",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "identity_changed",
+      data,
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // avatar_updated (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses avatar_updated with avatarPath", () => {
+    const event = parseAssistantEvent({
+      type: "avatar_updated",
+      avatarPath: "/home/.vellum/avatar.png",
+    });
+    expect(event).toEqual({
+      type: "avatar_updated",
+      avatarPath: "/home/.vellum/avatar.png",
+    });
+  });
+
+  test("returns unknown avatar_updated when avatarPath is missing", () => {
+    const data = { type: "avatar_updated" };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "avatar_updated",
+      data,
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // conversation_list_invalidated (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses conversation_list_invalidated with each valid reason", () => {
+    for (const reason of [
+      "created",
+      "renamed",
+      "deleted",
+      "reordered",
+      "seen_changed",
+    ] as const) {
+      const event = parseAssistantEvent({
+        type: "conversation_list_invalidated",
+        reason,
+      });
+      expect(event).toEqual({ type: "conversation_list_invalidated", reason });
+    }
+  });
+
+  test("returns unknown conversation_list_invalidated when reason is missing", () => {
+    const data = { type: "conversation_list_invalidated" };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "conversation_list_invalidated",
+      data,
+    });
+  });
+
+  test("returns unknown conversation_list_invalidated when reason is not a recognized enum value", () => {
+    const data = {
+      type: "conversation_list_invalidated",
+      reason: "evicted",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "conversation_list_invalidated",
+      data,
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // conversation_title_updated (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses conversation_title_updated with conversationId and title", () => {
+    const event = parseAssistantEvent({
+      type: "conversation_title_updated",
+      conversationId: "conv-1",
+      title: "New Title",
+    });
+    expect(event).toEqual({
+      type: "conversation_title_updated",
+      conversationId: "conv-1",
+      title: "New Title",
+    });
+  });
+
+  test("returns unknown conversation_title_updated when conversationId is missing", () => {
+    const data = {
+      type: "conversation_title_updated",
+      title: "Orphan title",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "conversation_title_updated",
+      data,
+    });
+  });
+
+  test("returns unknown conversation_title_updated when title is missing", () => {
+    const data = {
+      type: "conversation_title_updated",
+      conversationId: "conv-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "conversation_title_updated",
+      data,
+      conversationId: "conv-1",
     });
   });
 });

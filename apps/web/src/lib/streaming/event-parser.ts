@@ -51,10 +51,6 @@ import {
 } from "@/lib/streaming/parse-subagent-events";
 import {
   parseSyncChanged,
-  parseIdentityChanged,
-  parseAvatarUpdated,
-  parseConversationTitleUpdated,
-  parseConversationListInvalidated,
   parseNotificationIntent,
   parseDiskPressureStatusChanged,
   parseDocumentEditorUpdate,
@@ -184,14 +180,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
     // --- Resource invalidation / push signals ---
     case "sync_changed":
       return parseSyncChanged(data);
-    case "identity_changed":
-      return parseIdentityChanged();
-    case "avatar_updated":
-      return parseAvatarUpdated();
-    case "conversation_title_updated":
-      return parseConversationTitleUpdated(data);
-    case "conversation_list_invalidated":
-      return parseConversationListInvalidated(data);
     case "notification_intent":
       return parseNotificationIntent(data);
     case "disk_pressure_status_changed":

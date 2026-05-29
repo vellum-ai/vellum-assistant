@@ -2,8 +2,11 @@ import { z } from "zod";
 
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
+import { AvatarUpdatedEventSchema } from "./events/avatar-updated.js";
 import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-closed.js";
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
+import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
+import { ConversationTitleUpdatedEventSchema } from "./events/conversation-title-updated.js";
 import { DocumentCommentCreatedEventSchema } from "./events/document-comment-created.js";
 import { DocumentCommentDeletedEventSchema } from "./events/document-comment-deleted.js";
 import { DocumentCommentReopenedEventSchema } from "./events/document-comment-reopened.js";
@@ -11,6 +14,7 @@ import { DocumentCommentResolvedEventSchema } from "./events/document-comment-re
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
+import { IdentityChangedEventSchema } from "./events/identity-changed.js";
 import { InteractionResolvedEventSchema } from "./events/interaction-resolved.js";
 import { MessageCompleteEventSchema } from "./events/message-complete.js";
 import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
@@ -36,6 +40,10 @@ export {
   AssistantTurnStartEventSchema,
 } from "./events/assistant-turn-start.js";
 export {
+  type AvatarUpdatedEvent,
+  AvatarUpdatedEventSchema,
+} from "./events/avatar-updated.js";
+export {
   type CompactionCircuitClosedEvent,
   CompactionCircuitClosedEventSchema,
 } from "./events/compaction-circuit-closed.js";
@@ -43,6 +51,16 @@ export {
   type CompactionCircuitOpenEvent,
   CompactionCircuitOpenEventSchema,
 } from "./events/compaction-circuit-open.js";
+export {
+  type ConversationListInvalidatedEvent,
+  ConversationListInvalidatedEventSchema,
+  type ConversationListInvalidatedReason,
+  ConversationListInvalidatedReasonSchema,
+} from "./events/conversation-list-invalidated.js";
+export {
+  type ConversationTitleUpdatedEvent,
+  ConversationTitleUpdatedEventSchema,
+} from "./events/conversation-title-updated.js";
 export {
   type DocumentCommentCreatedEvent,
   DocumentCommentCreatedEventSchema,
@@ -71,6 +89,10 @@ export {
   type HomeFeedUpdatedEvent,
   HomeFeedUpdatedEventSchema,
 } from "./events/home-feed-updated.js";
+export {
+  type IdentityChangedEvent,
+  IdentityChangedEventSchema,
+} from "./events/identity-changed.js";
 export {
   type InteractionResolutionState,
   InteractionResolutionStateSchema,
@@ -157,8 +179,11 @@ export {
 export const AssistantEventSchema = z.discriminatedUnion("type", [
   AssistantTextDeltaEventSchema,
   AssistantTurnStartEventSchema,
+  AvatarUpdatedEventSchema,
   CompactionCircuitClosedEventSchema,
   CompactionCircuitOpenEventSchema,
+  ConversationListInvalidatedEventSchema,
+  ConversationTitleUpdatedEventSchema,
   DocumentCommentCreatedEventSchema,
   DocumentCommentDeletedEventSchema,
   DocumentCommentReopenedEventSchema,
@@ -166,6 +191,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
   HomeFeedUpdatedEventSchema,
+  IdentityChangedEventSchema,
   InteractionResolvedEventSchema,
   MessageCompleteEventSchema,
   MessageDequeuedEventSchema,

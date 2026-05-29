@@ -2,6 +2,8 @@
 
 import type { CompactionCircuitClosedEvent } from "../../api/events/compaction-circuit-closed.js";
 import type { CompactionCircuitOpenEvent } from "../../api/events/compaction-circuit-open.js";
+import type { ConversationListInvalidatedEvent } from "../../api/events/conversation-list-invalidated.js";
+import type { ConversationTitleUpdatedEvent } from "../../api/events/conversation-title-updated.js";
 import type { GenerationCancelledEvent } from "../../api/events/generation-cancelled.js";
 import type { GenerationHandoffEvent } from "../../api/events/generation-handoff.js";
 import type {
@@ -218,11 +220,9 @@ export interface ConversationInfo {
   inferenceProfile?: string;
 }
 
-export interface ConversationTitleUpdated {
-  type: "conversation_title_updated";
-  conversationId: string;
-  title: string;
-}
+// `conversation_title_updated` is now the canonical
+// `ConversationTitleUpdatedEvent` defined in
+// `assistant/src/api/events/conversation-title-updated.ts` and imported above.
 
 /** Channel binding metadata exposed in conversation list APIs. */
 interface ChannelBinding {
@@ -559,19 +559,12 @@ export interface ConversationErrorMessage {
   profileName?: string;
 }
 
-/** Reason the conversation list was invalidated. */
-export type ConversationListInvalidatedReason =
-  | "created"
-  | "renamed"
-  | "deleted"
-  | "reordered"
-  | "seen_changed";
-
-/** Server push — tells clients their sidebar conversation list is stale. */
-export interface ConversationListInvalidated {
-  type: "conversation_list_invalidated";
-  reason: ConversationListInvalidatedReason;
-}
+// `conversation_list_invalidated` is now the canonical
+// `ConversationListInvalidatedEvent` defined in
+// `assistant/src/api/events/conversation-list-invalidated.ts` and imported
+// above. The `reason` enum (`ConversationListInvalidatedReason`) lives
+// there too; the one daemon consumer
+// (`runtime/sync/resource-sync-events.ts`) imports it directly.
 
 /** Server push — broadcast when a schedule creates a conversation. */
 export interface ScheduleConversationCreated {
@@ -633,11 +626,11 @@ export type _ConversationsServerMessages =
   | CompactionCircuitClosedEvent
   | ConversationErrorMessage
   | ConversationInfo
-  | ConversationTitleUpdated
+  | ConversationTitleUpdatedEvent
   | ConversationListResponse
   | ConversationsClearResponse
   | ConversationSearchResponse
   | MessageContentResponse
-  | ConversationListInvalidated
+  | ConversationListInvalidatedEvent
   | ScheduleConversationCreated
   | OpenConversation;
