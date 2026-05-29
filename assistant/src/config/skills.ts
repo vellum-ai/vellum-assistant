@@ -1116,7 +1116,7 @@ export function diagnoseSkillNotFound(selector: string): string | null {
     return `"${selector}/SKILL.md" frontmatter is missing the required "description" field.`;
   }
 
-  return `"${selector}/SKILL.md" exists with valid frontmatter but was not loaded. Check daemon logs for details.`;
+  return `"${selector}/SKILL.md" exists with valid frontmatter but was not loaded. Check assistant logs for details.`;
 }
 
 export function resolveSkillSelector(
