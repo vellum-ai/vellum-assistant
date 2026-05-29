@@ -90,6 +90,29 @@ import type {
 
 const log = getLogger("agent-loop-handlers");
 
+// ── B6: partial-persistence tunables ─────────────────────────────────
+//
+// `handleTextDelta` accumulates streamed text into
+// `state.accumulatedContentBlocks` and flushes the row via
+// `updateMessageContent` on a first-fire-wins debounce:
+//
+//   • Time gate: at most one flush per PARTIAL_PERSIST_DEBOUNCE_MS
+//     (~4 writes/sec on a steady stream). Cheap enough that a refresh
+//     mid-turn never lands more than ~250ms behind the wire.
+//   • Size gate: PARTIAL_PERSIST_SIZE_THRESHOLD bytes of new text since
+//     the last flush forces an immediate flush regardless of timer.
+//     Catches bursts that wouldn't trip the time gate.
+//
+// `handleToolUse` flushes eagerly — tool_use blocks are atomic and small
+// relative to text streams, so debounce gives no win there.
+//
+// Indexer + projector still fire ONLY at `handleMessageComplete`; the
+// row's `content` may temporarily reflect a partial assistant turn but
+// is never indexed mid-stream. See B6 spec at
+// `scratch/b6-partial-persist-spec.md`.
+const PARTIAL_PERSIST_DEBOUNCE_MS = 250;
+const PARTIAL_PERSIST_SIZE_THRESHOLD = 1024;
+
 /**
  * Build a {@link TurnContext} from the handler's deps for pipeline logging
  * and plugin attribution.
@@ -239,6 +262,40 @@ export interface EventHandlerState {
   readonly serverToolStartedAt: Map<string, number>;
   /** Original input from server_tool_start, keyed by tool_use_id, so the complete handler can read the query. */
   readonly serverToolInputs: Map<string, Record<string, unknown>>;
+  /**
+   * B6 partial-persistence accumulator. Mirrors the in-progress
+   * assistant content (text + tool_use blocks) emitted to the wire
+   * since the current row's `handleLlmCallStarted`, so a flush can
+   * write the partial snapshot to the row's `content` column without
+   * waiting for `message_complete`. Reset at `handleLlmCallStarted`
+   * for each new assistant row reservation (a tool-flush + second LLM
+   * call within the same run reserves a fresh row and starts a fresh
+   * accumulator). Final flush in `handleMessageComplete` uses the
+   * authoritative `event.message.content` instead — this accumulator
+   * is for *mid-turn* snapshots only.
+   *
+   * Thinking blocks are intentionally NOT mirrored here. The provider
+   * emits them via `thinking_delta`; including them mid-turn would
+   * make the persisted snapshot more chatty than the wire emit (which
+   * already drops thinking text from the on-screen display). The
+   * final `event.message.content` still carries thinking blocks, so
+   * a finalized row reflects them — only the mid-turn snapshot omits.
+   */
+  accumulatedContentBlocks: ContentBlock[];
+  /**
+   * Bytes of new text appended to {@link accumulatedContentBlocks}
+   * since the last flush. Tripping `PARTIAL_PERSIST_SIZE_THRESHOLD`
+   * forces an immediate flush regardless of the debounce timer; reset
+   * to 0 after every flush.
+   */
+  accumulatedCharsSinceLastFlush: number;
+  /**
+   * Active debounce timer for partial persistence. `undefined` when
+   * idle (no text since last flush, or a size-gate / eager flush just
+   * fired). Cleared at the start of `handleMessageComplete` so the
+   * final authoritative flush never races a debounced partial write.
+   */
+  pendingPartialFlushTimer: ReturnType<typeof setTimeout> | undefined;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -299,7 +356,144 @@ export function createEventHandlerState(): EventHandlerState {
     turnStartedAt: Date.now(),
     serverToolStartedAt: new Map(),
     serverToolInputs: new Map(),
+    accumulatedContentBlocks: [],
+    accumulatedCharsSinceLastFlush: 0,
+    pendingPartialFlushTimer: undefined,
   };
+}
+
+// ── B6: partial-persistence helpers ──────────────────────────────────
+
+/**
+ * Append a chunk of streamed text to the partial-persist accumulator.
+ *
+ * If the tail block is already a `text` block, the chunk is appended in
+ * place (the producer of `event.message.content` at finalize fuses
+ * consecutive deltas into a single text block, so we mirror that
+ * shape). Otherwise a new text block is pushed.
+ *
+ * Returns the new total of unflushed bytes so the caller can drive the
+ * size gate.
+ */
+function appendTextToAccumulator(
+  state: EventHandlerState,
+  text: string,
+): number {
+  if (text.length === 0) return state.accumulatedCharsSinceLastFlush;
+  const tail = state.accumulatedContentBlocks.at(-1);
+  if (tail && tail.type === "text") {
+    tail.text = tail.text + text;
+  } else {
+    state.accumulatedContentBlocks.push({ type: "text", text });
+  }
+  state.accumulatedCharsSinceLastFlush += text.length;
+  return state.accumulatedCharsSinceLastFlush;
+}
+
+/**
+ * Reset partial-persist accumulator state. Called from
+ * `handleLlmCallStarted` after reserving a fresh assistant row (each
+ * row has its own accumulator) and after the final flush in
+ * `handleMessageComplete`. Idempotent and safe to call repeatedly.
+ */
+function resetPartialPersistAccumulator(state: EventHandlerState): void {
+  if (state.pendingPartialFlushTimer !== undefined) {
+    clearTimeout(state.pendingPartialFlushTimer);
+    state.pendingPartialFlushTimer = undefined;
+  }
+  state.accumulatedContentBlocks = [];
+  state.accumulatedCharsSinceLastFlush = 0;
+}
+
+/**
+ * Flush the partial-persist accumulator to the assistant row via
+ * `updateContent`. Applies the same redaction discipline as the final
+ * flush in `handleMessageComplete` (text blocks get
+ * `redactSecrets`-cleaned; non-text blocks pass through). UI surfaces
+ * and directive cleaning are NOT applied — surfaces aren't known until
+ * finalize, and directives in mid-turn text render harmlessly as raw
+ * markup if a user happens to refresh before they're stripped.
+ *
+ * No-ops if:
+ *   • there's no reserved assistant row id (pre-`handleLlmCallStarted`
+ *     or post-cleanup), or
+ *   • the accumulator is empty (nothing meaningful has streamed yet).
+ *
+ * After a successful pipeline write the timer is cleared and the size
+ * counter resets to 0. The accumulator itself is *retained* so a
+ * subsequent partial flush rewrites the full content (the accumulated
+ * blocks are the in-memory mirror of what should be in the row).
+ *
+ * Failures are logged but never thrown — a missed partial flush is
+ * always recoverable by either the next debounce tick or the final
+ * authoritative flush at `handleMessageComplete`. Throwing here would
+ * tear down the agent loop turn for a degradation that the eventual
+ * finalize will resolve.
+ */
+async function flushAccumulatedContent(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): Promise<void> {
+  if (state.pendingPartialFlushTimer !== undefined) {
+    clearTimeout(state.pendingPartialFlushTimer);
+    state.pendingPartialFlushTimer = undefined;
+  }
+  const messageId = state.lastAssistantMessageId;
+  if (messageId === undefined) return;
+  if (state.accumulatedContentBlocks.length === 0) return;
+
+  const redacted = state.accumulatedContentBlocks.map((block) => {
+    if (block.type === "text") {
+      return { ...block, text: redactSecrets(block.text) };
+    }
+    return block;
+  });
+  const contentJson = JSON.stringify(redacted);
+
+  try {
+    await runPipeline<PersistArgs, PersistResult>(
+      "persistence",
+      getMiddlewaresFor("persistence"),
+      defaultPersistenceTerminal,
+      {
+        op: "updateContent",
+        messageId,
+        content: contentJson,
+      },
+      buildHandlerTurnContext(deps),
+      DEFAULT_TIMEOUTS.persistence,
+    );
+    state.accumulatedCharsSinceLastFlush = 0;
+  } catch (err) {
+    deps.rlog.warn(
+      { err, messageId },
+      "B6 partial flush of accumulated assistant content failed; finalize at message_complete will recover",
+    );
+  }
+}
+
+/**
+ * Either flush immediately (size gate tripped) or schedule a debounced
+ * flush (time gate). First-fire wins — if a timer is already pending
+ * and the size gate has not tripped, this is a no-op.
+ *
+ * Called from `handleTextDelta` after appending the drained delta.
+ * `handleToolUse` flushes eagerly via `flushAccumulatedContent` instead
+ * of going through this gate.
+ */
+function scheduleOrFireFlush(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): void {
+  if (state.accumulatedCharsSinceLastFlush >= PARTIAL_PERSIST_SIZE_THRESHOLD) {
+    void flushAccumulatedContent(state, deps);
+    return;
+  }
+  if (state.pendingPartialFlushTimer !== undefined) return;
+  state.pendingPartialFlushTimer = setTimeout(() => {
+    state.pendingPartialFlushTimer = undefined;
+    void flushAccumulatedContent(state, deps);
+  }, PARTIAL_PERSIST_DEBOUNCE_MS);
 }
 
 // ── Shared Helper ────────────────────────────────────────────────────
@@ -545,6 +739,12 @@ export async function handleLlmCallStarted(
   )) as PersistReserveResult;
   state.lastAssistantMessageId = reserveResult.message.id;
   state.assistantRowAwaitingFinalization = true;
+  // B6: fresh row → fresh accumulator. If an earlier (failed) LLM call
+  // within the same run left partial state behind, the
+  // `assistantRowAwaitingFinalization` cleanup above already deleted
+  // the orphan row, so the accumulator content would point at a
+  // non-existent id. Reset here so the new row starts from zero.
+  resetPartialPersistAccumulator(state);
   deps.onEvent({
     type: "assistant_turn_start",
     messageId: reserveResult.message.id,
@@ -583,6 +783,12 @@ function handleTextDelta(
       messageId: state.lastAssistantMessageId,
     });
     if (deps.shouldGenerateTitle) state.firstAssistantText += drained.emitText;
+    // B6: mirror the drained delta into the partial-persist accumulator
+    // (the wire's drained text, not the raw event.text, so a refresh
+    // mid-turn sees the same content the user was watching live — raw
+    // directive markup never reaches the persisted snapshot).
+    appendTextToAccumulator(state, drained.emitText);
+    scheduleOrFireFlush(state, deps);
   }
 }
 
@@ -651,6 +857,19 @@ export function handleToolUse(
     toolUseId: event.id,
     messageId: state.lastAssistantMessageId,
   });
+  // B6: tool_use blocks are atomic (the AgentEvent only emits once the
+  // provider has finished streaming the input), so push the full block
+  // onto the accumulator and flush eagerly. No debounce — tool blocks
+  // are infrequent compared to text deltas and a refresh between
+  // tool_use_start and the corresponding tool_result is the
+  // most-visible mid-turn refresh case.
+  state.accumulatedContentBlocks.push({
+    type: "tool_use",
+    id: event.id,
+    name: event.name,
+    input: event.input,
+  });
+  void flushAccumulatedContent(state, deps);
 }
 
 export function handleToolUsePreviewStart(
@@ -1144,6 +1363,20 @@ export async function handleMessageComplete(
 ): Promise<void> {
   // Reset per-turn tool tracking for the new turn.
   state.currentTurnToolUseIds = [];
+
+  // B6: cancel any pending debounced partial flush before the
+  // authoritative `updateContent` below. Without this, a timer that
+  // fires between this line and the final pipeline call could
+  // double-write the row (idempotent in content but wastes a write)
+  // or worse, race ahead of the indexer/projector read and serve a
+  // stale snapshot. The accumulator itself is left untouched until
+  // after finalize — the orchestrator's downstream paths don't read
+  // it, but a defensive reset on the next turn's
+  // `handleLlmCallStarted` keeps state hygienic regardless.
+  if (state.pendingPartialFlushTimer !== undefined) {
+    clearTimeout(state.pendingPartialFlushTimer);
+    state.pendingPartialFlushTimer = undefined;
+  }
 
   // Flush any remaining directive display buffer
   if (state.pendingDirectiveDisplayBuffer.length > 0) {
