@@ -608,6 +608,18 @@ export function useAssistantLifecycle({
       .getQueryCache()
       .subscribe((event) => {
         if (event.type !== "updated") return;
+        // `updated` events fire for every state transition — fetch
+        // start, invalidation marker, pause/continue, observer
+        // changes — not just successful data writes. Filtering on the
+        // `success` action ensures we only project the cache when
+        // there is actually new data behind it; without this guard, a
+        // scheduled `invalidateQueries()` would immediately fire an
+        // `invalidate` action, the subscriber would read the still-
+        // stale cached value, and the hatch-retry backoff would
+        // collapse into back-to-back attempts. `setQueryData` (used
+        // to seed the cache after a successful hatch) also dispatches
+        // `success`, so the seed-driven path still fires here.
+        if (event.action.type !== "success") return;
         // Match on the exact query-key shape so a future scope prefix
         // (e.g. `["org", orgId, "assistant", "current"]`) doesn't
         // silently start firing this branch.
@@ -621,10 +633,10 @@ export function useAssistantLifecycle({
         // Read the just-written cache value and re-apply the full set
         // of side-effects (self-hosted connection, redirects,
         // assistant-id sync). Going through `checkAssistant` here
-        // would call `fetchQuery` and — depending on `staleTime` —
-        // trigger another network round-trip whose cache update would
-        // fire this subscription again, collapsing the intended poll
-        // cadence into a request loop.
+        // would call `fetchQuery` and trigger another network
+        // round-trip whose cache update would fire this subscription
+        // again, collapsing the intended poll cadence into a request
+        // loop.
         const cached = queryClient.getQueryData<
           Awaited<ReturnType<typeof getAssistant>>
         >(ASSISTANT_QUERY_KEY);
