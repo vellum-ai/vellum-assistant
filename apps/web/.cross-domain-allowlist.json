@@ -15,9 +15,6 @@
   "src/domains/chat/components/voice-input-button.tsx": [
     "voice"
   ],
-  "src/domains/chat/hooks/use-assistant-lifecycle.ts": [
-    "onboarding"
-  ],
   "src/domains/chat/hooks/use-send-message.ts": [
     "conversations",
     "onboarding"

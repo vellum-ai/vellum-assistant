@@ -12,6 +12,7 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useConversationSync } from "@/domains/conversations/use-conversation-sync";
+import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
@@ -80,6 +81,7 @@ export function RootLayout() {
     isNonProduction,
     hasPlatformSession,
     onRedirect: navigate,
+    resolveOnboardingRedirect,
   });
 
   useAssistantFeatureFlagSync(hasPlatformSession ? lifecycle.assistantId : null);

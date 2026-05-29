@@ -24,7 +24,6 @@ import {
   useAssistantQuery,
 } from "@/assistant/queries";
 import type { AssistantState } from "@/assistant/types";
-import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import { getSelectedAssistant, getLocalGatewayUrl, isLocalMode } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
@@ -41,6 +40,16 @@ interface UseAssistantLifecycleOptions {
   hasPlatformSession: boolean;
   /** Framework-agnostic redirect — called instead of router.replace(). */
   onRedirect: (url: string) => void;
+  /**
+   * Returns the path to redirect to when onboarding should intercept,
+   * or `null` if the intended destination is fine as-is. Injected as
+   * an option so this hook stays free of the onboarding domain (the
+   * `assistant/` module is shared infrastructure; depending on a
+   * domain would invert the `shared → domains` direction).
+   */
+  resolveOnboardingRedirect: (input: {
+    intendedDestination: string;
+  }) => string | null;
 }
 
 export interface UseAssistantLifecycleReturn {
@@ -91,6 +100,7 @@ export function useAssistantLifecycle({
   isNonProduction,
   hasPlatformSession,
   onRedirect,
+  resolveOnboardingRedirect,
 }: UseAssistantLifecycleOptions): UseAssistantLifecycleReturn {
   const [assistantState, setAssistantState] = useState<AssistantState>({
     kind: "loading",
@@ -116,6 +126,8 @@ export function useAssistantLifecycle({
   isNonProductionRef.current = isNonProduction;
   const onRedirectRef = useRef(onRedirect);
   onRedirectRef.current = onRedirect;
+  const resolveOnboardingRedirectRef = useRef(resolveOnboardingRedirect);
+  resolveOnboardingRedirectRef.current = resolveOnboardingRedirect;
 
   const queryClient = useQueryClient();
   // Dumb mutation wrappers — no implicit retry, no Sentry capture.
@@ -304,7 +316,7 @@ export function useAssistantLifecycle({
         }
         // New signups without completed onboarding should land on
         // `/onboarding/privacy` before we hatch an assistant for them.
-        const onboardingRedirect = resolveOnboardingRedirect({
+        const onboardingRedirect = resolveOnboardingRedirectRef.current({
           intendedDestination: window.location.pathname,
         });
         if (onboardingRedirect) {
@@ -569,7 +581,7 @@ export function useAssistantLifecycle({
     // If the user logged in and chose Vellum Cloud, hasPlatformSession
     // is true and we fall through to checkAssistant() below.
     if (isLocalMode() && !isGatewayAuthMode() && !hasPlatformSession) {
-      const redirect = resolveOnboardingRedirect({ intendedDestination: window.location.pathname });
+      const redirect = resolveOnboardingRedirectRef.current({ intendedDestination: window.location.pathname });
       if (redirect) {
         onRedirectRef.current(redirect);
       }
