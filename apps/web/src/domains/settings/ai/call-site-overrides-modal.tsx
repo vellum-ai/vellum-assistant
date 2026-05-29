@@ -19,6 +19,7 @@ import { INFERENCE_PROVIDER_DISPLAY_NAMES, INFERENCE_PROVIDERS } from "@/domains
 import {
   profilePickerLabel,
   visibleProfilesForPicker,
+  gateAutoProfile,
   type ProfilePickerEntry,
 } from "@/domains/settings/ai/profile-pickers";
 
@@ -268,15 +269,21 @@ function CallSiteOverridesModalInner({
   // show empty when an override targets a now-disabled profile. New
   // selections of *other* disabled profiles are still blocked by the
   // filter (they simply don't appear).
+  const queryComplexityRoutingEnabled =
+    useAssistantFeatureFlagStore.use.queryComplexityRouting();
+
   const buildProfileOptionsForRow = useCallback(
     (selectedProfile: string | null) => {
-      const visible = visibleProfilesForPicker(orderedProfiles, [selectedProfile]);
+      const visible = gateAutoProfile(
+        visibleProfilesForPicker(orderedProfiles, [selectedProfile]),
+        queryComplexityRoutingEnabled,
+      );
       return [
         ...visible.map((p) => ({ value: p.name, label: profilePickerLabel(p) })),
         { value: CUSTOM_SENTINEL, label: "Custom" },
       ];
     },
-    [orderedProfiles],
+    [orderedProfiles, queryComplexityRoutingEnabled],
   );
 
   // First active profile — used when toggling an override on without a draft,

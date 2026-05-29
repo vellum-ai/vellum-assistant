@@ -13,6 +13,10 @@ import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-st
 import { type ProfileEntry } from "@/domains/settings/ai/ai-page";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
 import {
+  AUTO_PROFILE_NAME,
+  gateAutoProfile,
+} from "@/domains/settings/ai/profile-pickers";
+import {
   listConnections,
   type ProviderConnection,
 } from "@/domains/settings/ai/provider-connections-client";
@@ -495,7 +499,10 @@ function ManageProfilesModalInner({
       contextWindow: entry.contextWindow,
     }));
 
-  const allOrderedProfiles = [...orderedProfiles, ...extraProfiles];
+  const allOrderedProfiles = gateAutoProfile(
+    [...orderedProfiles, ...extraProfiles],
+    useAssistantFeatureFlagStore.use.queryComplexityRouting(),
+  );
 
   async function handleDelete(name: string) {
     setDeleting((prev) => ({ ...prev, [name]: true }));

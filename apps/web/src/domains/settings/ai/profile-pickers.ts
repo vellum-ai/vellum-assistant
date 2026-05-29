@@ -14,6 +14,27 @@ export interface ProfilePickerEntry {
 }
 
 /**
+ * Name of the meta-"auto" profile seeded by the daemon. Mirrors
+ * `AUTO_PROFILE_KEY` in `assistant/src/config/seed-inference-profiles.ts`
+ * and `AUTO_PROFILE_NAME` in `@/assistant/profile-pickers`.
+ */
+export const AUTO_PROFILE_NAME = "auto";
+
+/**
+ * Hides the meta-"auto" profile when the `query-complexity-routing`
+ * feature flag is off. The daemon seeds `"auto"` into `llm.profiles`
+ * unconditionally, so every list-style profile UI must run its source
+ * array through this gate before render.
+ */
+export function gateAutoProfile<T extends ProfilePickerEntry>(
+  profiles: ReadonlyArray<T>,
+  queryComplexityRoutingEnabled: boolean,
+): T[] {
+  if (queryComplexityRoutingEnabled) return [...profiles];
+  return profiles.filter((p) => p.name !== AUTO_PROFILE_NAME);
+}
+
+/**
  * Returns the subset of `profiles` to render in a picker.
  *
  * Drops `status === "disabled"` entries, EXCEPT for any entry whose
