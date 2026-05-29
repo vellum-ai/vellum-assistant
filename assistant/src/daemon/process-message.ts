@@ -327,7 +327,7 @@ export async function processMessage(
         attachments,
         options?.displayContent,
       ),
-      userMetaWithSlack,
+      { metadata: userMetaWithSlack },
     );
     conversation.getMessages().push(llmMsg);
 
@@ -377,7 +377,7 @@ export async function processMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
-      serverChannelMeta,
+      { metadata: serverChannelMeta },
     );
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
@@ -420,7 +420,7 @@ export async function processMessage(
         attachments,
         options?.displayContent,
       ),
-      compactUserMeta,
+      { metadata: compactUserMeta },
     );
     conversation.getMessages().push(cleanMsg);
 
@@ -438,7 +438,7 @@ export async function processMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
-      compactChannelMeta,
+      { metadata: compactChannelMeta },
     );
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
@@ -481,7 +481,7 @@ export async function processMessage(
         attachments,
         options?.displayContent,
       ),
-      cleanUserMeta,
+      { metadata: cleanUserMeta },
     );
     conversation.getMessages().push(cleanMsg);
 
@@ -492,7 +492,7 @@ export async function processMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
-      cleanChannelMeta,
+      { metadata: cleanChannelMeta },
     );
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);

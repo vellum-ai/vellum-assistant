@@ -148,8 +148,7 @@ let addMessageCalls: Array<{
   conversationId: string;
   role: string;
   content: string;
-  metadata: unknown;
-  opts: unknown;
+  options: unknown;
 }> = [];
 
 mock.module("../memory/conversation-crud.js", () => ({
@@ -157,10 +156,9 @@ mock.module("../memory/conversation-crud.js", () => ({
     conversationId: string,
     role: string,
     content: string,
-    metadata: unknown,
-    opts: unknown,
+    options: unknown,
   ) => {
-    addMessageCalls.push({ conversationId, role, content, metadata, opts });
+    addMessageCalls.push({ conversationId, role, content, options });
     return { id: `msg-${addMessageCalls.length}` };
   },
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
@@ -466,7 +464,9 @@ describe("runProactiveArtifactJob", () => {
 
       // Message injection: addMessage called with skipIndexing
       expect(addMessageCalls).toHaveLength(1);
-      expect(addMessageCalls[0].opts).toEqual({ skipIndexing: true });
+      expect(
+        (addMessageCalls[0].options as Record<string, unknown>).skipIndexing,
+      ).toBe(true);
       expect(addMessageCalls[0].conversationId).toBe("conv-1");
       const injectedAppContent = JSON.parse(addMessageCalls[0].content);
       expect(injectedAppContent[0].text).toContain("Library");
@@ -715,7 +715,9 @@ describe("injectAuxAssistantMessage", () => {
     expect(addMessageCalls).toHaveLength(1);
     expect(addMessageCalls[0].conversationId).toBe("conv-inject-1");
     expect(addMessageCalls[0].role).toBe("assistant");
-    expect(addMessageCalls[0].opts).toEqual({ skipIndexing: true });
+    expect(
+      (addMessageCalls[0].options as Record<string, unknown>).skipIndexing,
+    ).toBe(true);
 
     // Pushed to in-memory messages
     expect(messages).toHaveLength(1);

@@ -969,15 +969,14 @@ export class SkillHostClient implements SkillHost {
       conversationId,
       role,
       content,
-      metadata,
-      opts,
+      options,
     ) =>
       this.call("host.memory.addMessage", {
         conversationId,
         role,
         content,
-        metadata,
-        opts,
+        metadata: options?.metadata,
+        skipIndexing: options?.skipIndexing,
       });
 
     return {

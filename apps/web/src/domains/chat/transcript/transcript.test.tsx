@@ -344,6 +344,65 @@ describe("Transcript avatar slot", () => {
     expect(html).toContain("min-height");
   });
 
+  // Layout invariant: the avatar must sit directly below the response
+  // items, NOT below the `flex-1` spacer. With anchor + avatar, the spacer
+  // pushes the latest-edge sentinel to the bottom of the viewport — but
+  // the avatar must stay attached to the assistant's content, not get
+  // pushed away with the sentinel.
+  test("renderAvatar with anchor: avatar appears BEFORE the flex-1 spacer", () => {
+    const items: TranscriptItem[] = [
+      userMessage("u1", "ANCHOR_MARKER"),
+      assistantMessage("a1", "RESPONSE_MARKER"),
+    ];
+    const html = renderToStaticMarkup(
+      <Transcript
+        items={items}
+        conversationId="conv-1"
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+        renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
+      />,
+    );
+
+    const responseIdx = html.indexOf("RESPONSE_MARKER");
+    const avatarIdx = html.indexOf('data-latest-assistant-avatar="true"');
+    const spacerIdx = html.indexOf('data-latest-edge-spacer="true"');
+    const edgeIdx = html.indexOf('data-latest-edge="true"');
+
+    expect(responseIdx).toBeGreaterThanOrEqual(0);
+    expect(avatarIdx).toBeGreaterThanOrEqual(0);
+    expect(spacerIdx).toBeGreaterThanOrEqual(0);
+    expect(edgeIdx).toBeGreaterThanOrEqual(0);
+
+    // response → avatar → spacer → edge sentinel
+    expect(responseIdx).toBeLessThan(avatarIdx);
+    expect(avatarIdx).toBeLessThan(spacerIdx);
+    expect(spacerIdx).toBeLessThan(edgeIdx);
+  });
+
+  test("no anchor: no flex-1 spacer rendered (avatar sits inline under history)", () => {
+    const items: TranscriptItem[] = [
+      assistantMessage("a1", "history one"),
+    ];
+    const html = renderToStaticMarkup(
+      <Transcript
+        items={items}
+        conversationId="conv-1"
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+        renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
+      />,
+    );
+
+    expect(html).toContain('data-latest-assistant-avatar="true"');
+    // No spacer in the no-anchor case — avatar sits inline.
+    expect(html).not.toContain('data-latest-edge-spacer="true"');
+  });
+
   test("anchor without renderAvatar: still applies min-height (viewport pinning is for the anchor, not the avatar)", () => {
     const items: TranscriptItem[] = [
       userMessage("u1", "ANCHOR_MARKER"),

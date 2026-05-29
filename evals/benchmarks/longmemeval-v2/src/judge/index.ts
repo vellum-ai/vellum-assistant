@@ -55,6 +55,19 @@ export interface EvalResult {
   reason: string;
   /** The dispatched function name in V2 snake_case, for logging/audit. */
   function: string;
+  /**
+   * Normalized usage record from the LLM judge's chat-completion call,
+   * shaped to drop straight onto an `AgentEvent.message.usage` slot
+   * that `summarizeAssistantUsage` will price. See `LlmJudgeResult.usage`
+   * docstring for the field layout.
+   *
+   * Always omitted for deterministic functions (`norm_phrase_set_match`,
+   * `mc_choice_match`, …) because no network call is made. Even on the
+   * LLM judge path, it stays omitted if the upstream response carried
+   * no `usage` block (local non-OpenAI endpoints sometimes skip it) —
+   * the report's "missing" code path is the honest answer there.
+   */
+  usage?: Record<string, unknown>;
 }
 
 export async function evalFromSpec(

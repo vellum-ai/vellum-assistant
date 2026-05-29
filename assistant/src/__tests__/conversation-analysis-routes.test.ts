@@ -95,7 +95,7 @@ describe("POST /v1/conversations/:id/analyze", () => {
       "analysis-1",
       "user",
       expect.any(String),
-      { provenanceTrustClass: "unknown" },
+      { metadata: { provenanceTrustClass: "unknown" } },
     );
     expect(mockConversation.setTrustContext).toHaveBeenCalledWith({
       trustClass: "unknown",

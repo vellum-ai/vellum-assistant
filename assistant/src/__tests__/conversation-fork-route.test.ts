@@ -52,7 +52,6 @@ import { mintToken } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
-
 initializeDb();
 
 const CHAT_WRITE_JWT = mintToken({
@@ -104,17 +103,13 @@ describe("POST /v1/conversations/fork", () => {
 
   test("returns the same conversation summary shape as GET /v1/conversations/:id", async () => {
     const source = createConversation("Roadmap draft");
-    await addMessage(source.id, "user", "Message 1", undefined, {
+    await addMessage(source.id, "user", "Message 1", {
       skipIndexing: true,
     });
-    const branchPoint = await addMessage(
-      source.id,
-      "assistant",
-      "Message 2",
-      undefined,
-      { skipIndexing: true },
-    );
-    await addMessage(source.id, "user", "Message 3", undefined, {
+    const branchPoint = await addMessage(source.id, "assistant", "Message 2", {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "user", "Message 3", {
       skipIndexing: true,
     });
 
@@ -197,7 +192,7 @@ describe("POST /v1/conversations/fork", () => {
 
   test("rejects nonexistent and cross-conversation branch point message IDs", async () => {
     const source = createConversation("Source");
-    await addMessage(source.id, "user", "Source message", undefined, {
+    await addMessage(source.id, "user", "Source message", {
       skipIndexing: true,
     });
     const otherConversation = createConversation("Other");
@@ -205,7 +200,6 @@ describe("POST /v1/conversations/fork", () => {
       otherConversation.id,
       "assistant",
       "Other message",
-      undefined,
       { skipIndexing: true },
     );
 

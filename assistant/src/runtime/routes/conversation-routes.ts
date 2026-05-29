@@ -414,7 +414,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       conversationId,
       "user",
       JSON.stringify(cleanUserMessage.content),
-      channelMeta,
+      { metadata: channelMeta },
     );
     messageId = persistedUser.id;
 
@@ -428,7 +428,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       conversationId,
       "assistant",
       JSON.stringify(assistantMessage.content),
-      channelMeta,
+      { metadata: channelMeta },
     );
 
     // Avoid mutating in-memory history / emitting stream deltas while a run is active.
@@ -705,6 +705,7 @@ export function handleListMessages({
   });
 
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
+    const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.id) {
       // Use metadata-only query first to avoid loading large base64
@@ -838,6 +839,7 @@ export function handleListMessages({
     const displayTimestamp = m.sentAt ?? m.timestamp;
     return {
       id: m.id ?? "",
+      ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
       role: m.role,
       content: m.text,
       timestamp: new Date(displayTimestamp).toISOString(),
@@ -1453,7 +1455,7 @@ export async function handleSendMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        channelMeta,
+        { metadata: channelMeta },
       );
       conversation.getMessages().push(assistantMsg);
 
@@ -1762,7 +1764,7 @@ export async function handleSendMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        channelMeta,
+        { metadata: channelMeta },
       );
       conversation.getMessages().push(assistantMsg);
 
@@ -1895,7 +1897,7 @@ export async function handleSendMessage(
           conversationId,
           "assistant",
           JSON.stringify(assistantMsg.content),
-          channelMeta,
+          { metadata: channelMeta },
         );
         assistantMessagePersisted = true;
         conversation.getMessages().push(assistantMsg);
@@ -1990,7 +1992,7 @@ export async function handleSendMessage(
           conversationId,
           "assistant",
           JSON.stringify(assistantMsg.content),
-          channelMeta,
+          { metadata: channelMeta },
         );
         assistantMessagePersisted = true;
         conversation.getMessages().push(assistantMsg);

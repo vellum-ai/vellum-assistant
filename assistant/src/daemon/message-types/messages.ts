@@ -2,10 +2,7 @@
 
 import type { AssistantTextDeltaEvent } from "../../api/events/assistant-text-delta.js";
 import type { AssistantTurnStartEvent } from "../../api/events/assistant-turn-start.js";
-import type {
-  InteractionResolutionState as CanonicalInteractionResolutionState,
-  InteractionResolvedEvent,
-} from "../../api/events/interaction-resolved.js";
+import type { InteractionResolvedEvent } from "../../api/events/interaction-resolved.js";
 import type { MessageCompleteEvent } from "../../api/events/message-complete.js";
 import type { MessageDequeuedEvent } from "../../api/events/message-dequeued.js";
 import type { MessageQueuedEvent } from "../../api/events/message-queued.js";
@@ -323,14 +320,6 @@ export interface ErrorMessage {
   errorCategory?: string;
 }
 
-export type MessageQueued = MessageQueuedEvent;
-
-export type MessageDequeued = MessageDequeuedEvent;
-
-export type MessageRequestComplete = MessageRequestCompleteEvent;
-
-export type MessageQueuedDeleted = MessageQueuedDeletedEvent;
-
 export interface MessageSteered {
   type: "message_steered";
   conversationId: string;
@@ -363,21 +352,6 @@ export interface ConfirmationStateChanged {
   /** The tool_use block ID this confirmation applies to, for disambiguating parallel tool calls. */
   toolUseId?: string;
 }
-
-/**
- * Lifecycle states reported by `interaction_resolved`.
- *
- *  - `"approved"` / `"rejected"` — user-supplied verdict on a confirmation.
- *  - `"answered"` — user/client provided a response (secret value, question
- *    answer, host-proxy result).
- *  - `"cancelled"` — the interaction was torn down without a user response
- *    (timeout, abort, dispose, prompter shutdown).
- *  - `"superseded"` — invalidated by a newer event (auto-deny on enqueue, a
- *    fresh user message arriving while a confirmation was outstanding).
- */
-export type InteractionResolutionState = CanonicalInteractionResolutionState;
-
-export type InteractionResolved = InteractionResolvedEvent;
 
 /**
  * Server-side assistant activity lifecycle for thinking indicator placement.
@@ -498,10 +472,10 @@ export type _MessagesServerMessages =
   | QuestionRequest
   | MessageCompleteEvent
   | ErrorMessage
-  | MessageQueued
-  | MessageDequeued
-  | MessageRequestComplete
-  | MessageQueuedDeleted
+  | MessageQueuedEvent
+  | MessageDequeuedEvent
+  | MessageRequestCompleteEvent
+  | MessageQueuedDeletedEvent
   | MessageSteered
   | SuggestionResponse
   | TraceEvent
@@ -509,4 +483,4 @@ export type _MessagesServerMessages =
   | AssistantActivityState
   | TurnProfileAutoRouted
   | ConversationInferenceProfileUpdated
-  | InteractionResolved;
+  | InteractionResolvedEvent;

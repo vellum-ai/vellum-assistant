@@ -52,6 +52,8 @@ interface ToolCallPayload {
 }
 
 interface MessagePayload {
+  id: string;
+  mergedMessageIds?: string[];
   role: string;
   content: string;
   toolCalls?: ToolCallPayload[];
@@ -173,6 +175,35 @@ describe("handleListMessages tool_result merging", () => {
     expect(body.messages).toHaveLength(3);
     expect(body.messages[2].role).toBe("user");
     expect(body.messages[2].content).toBe("how are you?");
+  });
+
+  test("includes merged assistant ids for consecutive assistant history rows", async () => {
+    const conv = createConversation();
+    await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "start" }]),
+    );
+    const anchor = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "Checking." }]),
+    );
+    const tail = await addMessage(
+      conv.id,
+      "assistant",
+      JSON.stringify([{ type: "text", text: "Done." }]),
+    );
+
+    const response = handleListMessages(createTestArgs(conv.id));
+    const body = response as { messages: MessagePayload[] };
+
+    expect(body.messages).toHaveLength(2);
+    expect(body.messages[1]).toMatchObject({
+      id: anchor.id,
+      role: "assistant",
+      mergedMessageIds: [tail.id],
+    });
   });
 
   test("orphan tool_result at pagination boundary is suppressed entirely", async () => {

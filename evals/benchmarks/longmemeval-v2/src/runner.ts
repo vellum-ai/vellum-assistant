@@ -19,12 +19,18 @@
  *   - same wrapped progress reporter + heartbeat ticker, shared with
  *     `runEvalOnce` via `createRunProgressLifecycle` (the PR-8 extract
  *     that replaced the inlined `// PR-6 follow-up` blocks)
- *
- * Out of scope for PR-6 / PR-8 (still deferred):
- *   - usage / cost telemetry. `runIngestAsk` doesn't return per-call
- *     usage and the V2 judges call OpenAI directly (no provider wrapper).
- *     Tracked as a PR-9 candidate.
+ *   - same usage.json shape, fed through `summarizeAssistantUsage` over
+ *     both conversations' events plus the LLM judge's normalized usage
+ *     record when present (PR-9). The agent half rides on
+ *     `event.message.usage` exactly the way `runEvalOnce` ingests it;
+ *     the judge half is synthesized as a single fake usage event from
+ *     `EvalResult.usage` and folded into the same summarizer pass so
+ *     the per-model totals + cost diagnostics + cost status all stay
+ *     centralized in one place.
  */
+import { writeFile } from "node:fs/promises";
+
+import type { AgentEvent } from "../../../src/lib/adapter";
 import {
   type EvalRunResult,
   markErrorAsReportedToProgress,
@@ -37,11 +43,12 @@ import {
   updateRunMetadata,
   writeRunMetadata,
   writeTranscript,
+  writeUsage,
 } from "../../../src/lib/metrics";
 import type { Profile } from "../../../src/lib/profile";
 import type { TranscriptTurn } from "../../../src/lib/transcript";
 import { runIngestAsk } from "../../../src/lib/runner/run-ingest-ask";
-import { writeFile } from "node:fs/promises";
+import { summarizeAssistantUsage } from "../../../src/lib/usage";
 
 import { type EvalOverrides, type EvalResult, evalFromSpec } from "./judge";
 import type { BenchmarkItem } from "./loader";
@@ -126,6 +133,31 @@ function metricFromEvalResult(
       questionId: item.questionId,
     },
   };
+}
+
+/**
+ * Roll the agent's two conversation event streams + the LLM judge's
+ * usage record (if any) into the same `usage.json` shape `runEvalOnce`
+ * writes. Sharing `summarizeAssistantUsage` keeps token sums, cost
+ * pricing, and cost diagnostics consistent across the two runner shapes
+ * — Phase 2's cost/latency Pareto reads usage.json identically for both.
+ *
+ * The judge record is synthesized as a single `type: "usage"` event so
+ * the summarizer treats it exactly like any other usage-bearing
+ * AgentEvent. `EvalResult.usage` is already shaped (provider/model/
+ * input_tokens/output_tokens) by the judge so no further translation
+ * happens here.
+ */
+function buildRunUsageEvents(
+  ingestEvents: AgentEvent[],
+  questionEvents: AgentEvent[],
+  judgeUsage: Record<string, unknown> | undefined,
+): AgentEvent[] {
+  const events: AgentEvent[] = [...ingestEvents, ...questionEvents];
+  if (judgeUsage) {
+    events.push({ message: { type: "usage", usage: judgeUsage } });
+  }
+  return events;
 }
 
 /**
@@ -271,6 +303,20 @@ export async function runLongMemEvalV2Unit(
     );
     const metric = metricFromEvalResult(evalResult, input.item);
     await writeFile(artifacts.metricsPath, JSON.stringify([metric], null, 2));
+
+    // Roll usage from both conversations + the judge (if it surfaced
+    // one) through the shared summarizer. Best-effort: a write failure
+    // is logged via the swallowed promise but never blocks the run —
+    // the metric + transcript are already on disk.
+    const usageEvents = buildRunUsageEvents(
+      ingestAskResult.ingestEvents,
+      ingestAskResult.questionEvents,
+      evalResult.usage,
+    );
+    await writeUsage(input.runId, summarizeAssistantUsage(usageEvents)).catch(
+      () => undefined,
+    );
+
     progress({
       step: "metrics",
       status: "done",

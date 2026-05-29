@@ -276,16 +276,24 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
            *  assistant avatar. Two layout modes:
            *
            *  1. Anchor present — `minHeight: viewportMinHeight` pins the
-           *     anchor user message to the viewport top and the `flex-1`
-           *     spacer pushes the avatar to the viewport bottom. This is
-           *     the "open-to-latest" UX after a user submit.
+           *     anchor user message to the viewport top. The avatar
+           *     renders directly below the response items so it follows
+           *     the conversation flow visually. The `flex-1` spacer then
+           *     fills the remaining vertical space so the latest-edge
+           *     sentinel sits at the bottom of the viewport (preserving
+           *     the bottom-pin scroll target).
            *  2. No anchor (assistant-only history, e.g. recovered
            *     conversation or first paint before a submit) — neither
            *     the viewport-height min-height NOR the flex-1 spacer
            *     render. The avatar appears inline directly below the
-           *     last history item, so the bottom-pin scroll lands on the
-           *     actual latest message rather than on blank space above
-           *     the avatar.
+           *     last history item.
+           *
+           *  Key invariant: the avatar always sits directly below the
+           *  most recent assistant content. No giant empty gap between
+           *  the response and the avatar. The spacer is purely a layout
+           *  device to keep the latest-edge sentinel at the viewport
+           *  bottom for the anchor-pinning UX — it must NOT push the
+           *  avatar away from its content.
            *
            *  The avatar is intentionally decoupled from `partition.anchorMessage`
            *  so it persists across the user-send → response gap AND across the
@@ -310,7 +318,6 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                   {...rowProps}
                 />
               )}
-              {partition.anchorMessage && <div className="flex-1" />}
               {rest.renderAvatar && (
                 <div
                   data-latest-assistant-avatar="true"
@@ -318,6 +325,9 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                 >
                   {rest.renderAvatar()}
                 </div>
+              )}
+              {partition.anchorMessage && (
+                <div data-latest-edge-spacer="true" className="flex-1" />
               )}
               <div aria-hidden data-latest-edge="true" />
             </div>
