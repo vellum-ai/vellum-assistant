@@ -1012,12 +1012,12 @@ export function ChatRouteContent({
 
   const [warningDismissed, setWarningDismissed] = useState(() => {
     if (!assistantId) return false;
-    return localStorage.getItem(`disk-pressure-warning-dismissed-${assistantId}`) === "true";
+    return localStorage.getItem(`vellum:diskPressureDismissed:${assistantId}`) === "true";
   });
 
   const dismissWarning = useCallback(() => {
     if (!assistantId) return;
-    localStorage.setItem(`disk-pressure-warning-dismissed-${assistantId}`, "true");
+    localStorage.setItem(`vellum:diskPressureDismissed:${assistantId}`, "true");
     setWarningDismissed(true);
   }, [assistantId]);
 
@@ -1026,7 +1026,7 @@ export function ChatRouteContent({
     const st = diskPressure.status?.state;
     if (st && st !== "warning" && warningDismissed) {
       if (assistantId) {
-        localStorage.removeItem(`disk-pressure-warning-dismissed-${assistantId}`);
+        localStorage.removeItem(`vellum:diskPressureDismissed:${assistantId}`);
       }
       setWarningDismissed(false);
     }

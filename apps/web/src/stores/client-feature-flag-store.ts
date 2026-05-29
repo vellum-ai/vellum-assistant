@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 import { CLIENT_FLAG_DEFAULTS } from "@/lib/feature-flags/feature-flag-catalog";
 
-const LS_PREFIX = "ff:client:";
+const LS_PREFIX = "vellum:ff:";
 
 function readOverrides(): Record<string, boolean> {
   if (typeof window === "undefined") return {};

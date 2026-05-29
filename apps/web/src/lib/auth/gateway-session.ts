@@ -3,9 +3,9 @@ import {
   getLocalGatewayUrl,
 } from "@/lib/local-mode";
 
-const LS_TOKEN_KEY = "gw:token";
-const LS_EXPIRES_KEY = "gw:expiresAt";
-const LS_TOKEN_SOURCE_KEY = "gw:tokenSource";
+const LS_TOKEN_KEY = "vellum:gw:token";
+const LS_EXPIRES_KEY = "vellum:gw:expiresAt";
+const LS_TOKEN_SOURCE_KEY = "vellum:gw:tokenSource";
 
 let cachedToken: string | null = null;
 let cachedExpiresAt: number = 0;

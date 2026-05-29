@@ -4,6 +4,7 @@ import { RouterProvider } from "react-router";
 import * as Sentry from "@sentry/react";
 
 import { migrateDeviceSettings } from "@/utils/device-settings";
+import { runStorageMigrations } from "@/utils/storage-migration";
 import { initSentry } from "@/lib/sentry/sentry-init";
 import { isLocalMode, loadLockfile } from "@/lib/local-mode";
 import { useAuthStore, setupAuthListeners } from "@/stores/auth-store";
@@ -20,6 +21,7 @@ import { initSafeAreaBridge } from "@/runtime/native-safe-area";
 async function boot() {
   await initSafeAreaBridge();
   migrateDeviceSettings();
+  runStorageMigrations();
   initSentry();
 
   setupOrganizationStore();

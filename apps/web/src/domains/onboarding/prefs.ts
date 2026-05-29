@@ -27,16 +27,16 @@ import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 // Storage keys (non-boolean — boolean keys live in onboarding-store.ts)
 // ---------------------------------------------------------------------------
 
-const KEY_TOS_ACCEPTED = "onboarding.tosAccepted";
-const KEY_AI_DATA_CONSENT = "onboarding.aiDataConsent";
-const KEY_COMPLETED = "onboarding.completed";
+const KEY_TOS_ACCEPTED = "vellum:onboarding:tosAccepted";
+const KEY_AI_DATA_CONSENT = "vellum:onboarding:aiDataConsent";
+const KEY_COMPLETED = "vellum:onboarding:completed";
 /**
  * Onboarding-only, nonprod-only: pinned release version for the hatch.
  * Written by the privacy screen's dev-tools version picker, read by the
  * hatching screen and forwarded to `hatchAssistant({ version })`. Empty
  * string / absent means "latest" (the normal managed default).
  */
-const KEY_SELECTED_VERSION = "onboarding.selectedVersion";
+const KEY_SELECTED_VERSION = "vellum:onboarding:selectedVersion";
 
 // ---------------------------------------------------------------------------
 // Public hooks — thin wrappers around the Zustand store

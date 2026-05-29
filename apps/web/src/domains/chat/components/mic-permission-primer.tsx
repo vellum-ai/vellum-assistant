@@ -5,7 +5,7 @@ import { Button } from "@vellum/design-library";
 import { Modal } from "@vellum/design-library";
 import { isBatchSttSupported } from "@/domains/chat/components/voice-input-button";
 
-const MIC_PRIMER_STORAGE_KEY = "voice:permissionPrimerSeen";
+const MIC_PRIMER_STORAGE_KEY = "vellum:voice:permissionPrimerSeen";
 
 /**
  * Returns `true` when the microphone permission primer should be shown —
