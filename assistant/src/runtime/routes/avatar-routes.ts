@@ -228,19 +228,29 @@ function handleGetAvatar({ queryParams, body }: RouteHandlerArgs) {
     );
   }
 
+  // Resolve precedence from the manifest so this raster accessor (CLI / dock /
+  // notifications) agrees with macOS/web rather than picking image-first off
+  // file existence. For both `character` and `image` the derived raster is the
+  // same on-disk PNG; only the precedence is manifest-driven.
+  const state =
+    readManifest() ??
+    // TODO(avatar-manifest): remove after migration ships + clients adopt (PR 13)
+    deriveStateFromLegacyFiles();
+
+  if (state.kind === "none") {
+    return { exists: false };
+  }
+
   const avatarPath = getAvatarImagePath();
 
-  if (!existsSync(avatarPath)) {
-    const traitsPath = join(getAvatarDir(), "character-traits.json");
-    if (existsSync(traitsPath)) {
-      try {
-        const traits = JSON.parse(
-          readFileSync(traitsPath, "utf-8"),
-        ) as CharacterTraits;
-        writeTraitsAndRenderAvatar(traits);
-      } catch {
-        // Best-effort
-      }
+  // For a character, the rendered PNG normally already exists on disk. Keep the
+  // existing safety net: if it's missing, re-render it from the persisted traits
+  // so the accessor still returns a raster.
+  if (state.kind === "character" && !existsSync(avatarPath) && state.traits) {
+    try {
+      writeTraitsAndRenderAvatar(state.traits);
+    } catch {
+      // Best-effort
     }
   }
 

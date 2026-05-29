@@ -337,3 +337,138 @@ describe("avatar write/remove handlers", () => {
     });
   });
 });
+
+/**
+ * `avatar/get` is the raster accessor (CLI / dock / notifications). Its
+ * precedence is now driven by the manifest (falling back to legacy derivation),
+ * not by image-first file existence. State is set up by writing the manifest +
+ * artifacts on disk and asserted via the handler's return shape.
+ */
+describe("GET /avatar/get (manifest-driven precedence)", () => {
+  let workspaceDir: string;
+  let avatarDir: string;
+  let prevWorkspaceDir: string | undefined;
+
+  beforeEach(() => {
+    workspaceDir = mkdtempSync(join(tmpdir(), "avatar-get-route-test-"));
+    avatarDir = join(workspaceDir, "data", "avatar");
+    mkdirSync(avatarDir, { recursive: true });
+    prevWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+  });
+
+  afterEach(() => {
+    if (prevWorkspaceDir === undefined) {
+      delete process.env.VELLUM_WORKSPACE_DIR;
+    } else {
+      process.env.VELLUM_WORKSPACE_DIR = prevWorkspaceDir;
+    }
+    rmSync(workspaceDir, { recursive: true, force: true });
+  });
+
+  const path = (name: string) => join(avatarDir, name);
+
+  interface GetResult {
+    exists: boolean;
+    path?: string;
+    base64?: string;
+  }
+
+  test("returns the PNG for an image manifest", () => {
+    writeFileSync(path(IMAGE_FILENAME), Buffer.from("png bytes"));
+    const state: AvatarState = {
+      kind: "image",
+      traits: null,
+      source: "upload",
+      image: { updatedAt: new Date().toISOString(), etag: "deadbeefdeadbeef" },
+    };
+    writeManifest(state, avatarDir);
+
+    const result = getHandler("avatar_get")({}) as GetResult;
+    expect(result.exists).toBe(true);
+    expect(result.path).toBe(path(IMAGE_FILENAME));
+  });
+
+  test("returns base64 for an image manifest when format=base64", () => {
+    writeFileSync(path(IMAGE_FILENAME), Buffer.from("png bytes"));
+    const state: AvatarState = {
+      kind: "image",
+      traits: null,
+      source: "upload",
+      image: { updatedAt: new Date().toISOString(), etag: "deadbeefdeadbeef" },
+    };
+    writeManifest(state, avatarDir);
+
+    const result = getHandler("avatar_get")({
+      queryParams: { format: "base64" },
+    }) as GetResult;
+    expect(result.exists).toBe(true);
+    expect(result.base64).toBe(Buffer.from("png bytes").toString("base64"));
+    expect(result.path).toBeUndefined();
+  });
+
+  test("returns the existing raster for a character manifest", () => {
+    // The builder writes the rendered PNG; assert the accessor returns it
+    // without needing to re-render (the manifest says character).
+    writeFileSync(path(IMAGE_FILENAME), Buffer.from("rendered character png"));
+    const state: AvatarState = {
+      kind: "character",
+      traits: VALID_TRAITS,
+      source: "builder",
+      image: null,
+    };
+    writeManifest(state, avatarDir);
+
+    const result = getHandler("avatar_get")({}) as GetResult;
+    expect(result.exists).toBe(true);
+    expect(result.path).toBe(path(IMAGE_FILENAME));
+  });
+
+  test("manifest precedence wins over file order: a character manifest is honored even when a PNG is present", () => {
+    // Both a PNG and traits are on disk, but the manifest declares character.
+    // The pre-manifest accessor was image-first; precedence is now the manifest.
+    writeFileSync(path(IMAGE_FILENAME), Buffer.from("rendered character png"));
+    writeFileSync(path(TRAITS_FILENAME), JSON.stringify(VALID_TRAITS));
+    const state: AvatarState = {
+      kind: "character",
+      traits: VALID_TRAITS,
+      source: "builder",
+      image: null,
+    };
+    writeManifest(state, avatarDir);
+
+    const result = getHandler("avatar_get")({}) as GetResult;
+    expect(result.exists).toBe(true);
+    expect(result.path).toBe(path(IMAGE_FILENAME));
+  });
+
+  test("returns exists:false for a none manifest", () => {
+    writeManifest(
+      { kind: "none", traits: null, source: null, image: null },
+      avatarDir,
+    );
+
+    const result = getHandler("avatar_get")({}) as GetResult;
+    expect(result.exists).toBe(false);
+    expect(result.path).toBeUndefined();
+  });
+
+  test("falls back to legacy derivation when no manifest exists (image file)", () => {
+    writeFileSync(path(IMAGE_FILENAME), Buffer.from("png bytes"));
+
+    const result = getHandler("avatar_get")({}) as GetResult;
+    expect(result.exists).toBe(true);
+    expect(result.path).toBe(path(IMAGE_FILENAME));
+  });
+
+  test("returns exists:false for an empty workspace (no manifest, no files)", () => {
+    const result = getHandler("avatar_get")({}) as GetResult;
+    expect(result.exists).toBe(false);
+  });
+
+  test("rejects an invalid format", () => {
+    expect(() =>
+      getHandler("avatar_get")({ queryParams: { format: "bmp" } }),
+    ).toThrow(/Invalid format/);
+  });
+});
