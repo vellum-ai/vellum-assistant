@@ -1406,12 +1406,19 @@ async function drainBatch(
   conversation.currentActiveSurfaceId = lastSuccessfulActiveSurfaceId;
   conversation.currentPage = lastSuccessfulCurrentPage;
 
-  // Broadcast agent-loop events only to members whose persist succeeded.
-  // Members whose persist failed already received an error event in the
-  // catch block above; sending them the assistant's streaming response
-  // would surface a reply for a user message that isn't in their DB.
+  // Broadcast agent-loop events only to unique sinks whose persist succeeded.
+  // Multiple web-queued messages share the same broadcastMessage callback; if
+  // we call it once per queued message, every text delta is published N times
+  // to the same SSE stream and the client renders duplicated text.
+  //
+  // Members whose persist failed already received an error event in the catch
+  // block above; sending them the assistant's streaming response would surface
+  // a reply for a user message that isn't in their DB.
+  const successfulEventSinks = Array.from(
+    new Set(successfulBatch.map((qm) => qm.onEvent)),
+  );
   const fanOutOnEvent = (msg: ServerMessage) => {
-    for (const qm of successfulBatch) qm.onEvent(msg);
+    for (const onEvent of successfulEventSinks) onEvent(msg);
   };
 
   const drainLoopOptions: {

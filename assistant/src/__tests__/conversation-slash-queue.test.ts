@@ -427,6 +427,44 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     await new Promise((r) => setTimeout(r, 50));
   });
 
+  test("batched queued messages with the same event sink do not duplicate assistant stream events", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const sharedEvents: ServerMessage[] = [];
+    const sharedOnEvent = (event: ServerMessage) => sharedEvents.push(event);
+
+    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: sharedOnEvent,
+      requestId: "req-2",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: sharedOnEvent,
+      requestId: "req-3",
+    });
+
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(
+      sharedEvents.filter((event) => event.type === "message_dequeued"),
+    ).toHaveLength(2);
+
+    sharedEvents.length = 0;
+    resolveRun(1);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(
+      sharedEvents.filter((event) => event.type === "message_complete"),
+    ).toHaveLength(1);
+  });
+
   test("queued skill-name slash passes through as-is", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
