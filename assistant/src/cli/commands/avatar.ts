@@ -84,7 +84,9 @@ Examples:
 
       avatar
         .command("set")
-        .description("Set the assistant's avatar from an image file")
+        .description(
+          "Set the assistant's avatar from an image file (removes any native character)",
+        )
         .requiredOption(
           "--image <path>",
           "Path to image file (absolute or relative to workspace)",
@@ -93,9 +95,11 @@ Examples:
           "after",
           `
 Sets the assistant's avatar by copying the provided image file to the
-canonical avatar location. This replaces any existing avatar image but
-preserves character-traits.json so the native character can be restored
-later with "assistant avatar remove".
+canonical avatar location. This REPLACES any existing avatar and removes
+any configured native character: character-traits.json (and character-ascii.txt)
+are deleted, so a previously configured character is NOT preserved and cannot
+be restored. Rebuild the character with "assistant avatar character update"
+to reconfigure one.
 
 The --image path can be absolute or relative to the workspace directory.
 

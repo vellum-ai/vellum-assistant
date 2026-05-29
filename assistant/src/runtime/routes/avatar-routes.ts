@@ -19,6 +19,7 @@ import { getCharacterComponents } from "../../avatar/character-components.js";
 import { updateIdentityAvatarSection } from "../../avatar/identity-avatar.js";
 import {
   type CharacterTraits,
+  TRAITS_FILENAME,
   writeTraitsAndRenderAvatar,
 } from "../../avatar/traits-png-sync.js";
 import { setPlatformBaseUrl } from "../../config/env.js";
@@ -61,7 +62,14 @@ function readManifestSelfHealing(): AvatarState {
     return manifest;
   }
   const derived = deriveStateFromLegacyFiles();
-  writeManifest(derived);
+  // Persist is best-effort: on a read-only / permission-restricted workspace the
+  // write can throw. Swallow it so a GET still returns the derived state instead
+  // of turning into a 500 — the next read simply self-heals again.
+  try {
+    writeManifest(derived);
+  } catch (err) {
+    log.warn({ err }, "Failed to persist self-healed avatar manifest");
+  }
   return derived;
 }
 
@@ -216,7 +224,12 @@ function handleSetAvatar({ body, headers }: RouteHandlerArgs) {
 }
 
 function handleRemoveAvatar({ headers }: RouteHandlerArgs) {
-  const hadAvatar = existsSync(getAvatarImagePath());
+  // `hadAvatar` must reflect whether *any* avatar was configured before the
+  // clear — not just a rendered PNG. A character-only workspace (traits present,
+  // no PNG) is still an avatar, and clearAvatar() deletes its traits/ascii too.
+  // Derive from the manifest (self-healing on a manifest-miss) and treat any
+  // non-"none" kind as hadAvatar.
+  const hadAvatar = readManifestSelfHealing().kind !== "none";
 
   // Clear everything to a manifest-consistent kind:"none". Semantic change
   // (intentional): traits no longer persist alongside an image, so there is
@@ -296,7 +309,7 @@ function handleCharacterAscii({ queryParams, body }: RouteHandlerArgs) {
     );
   }
 
-  const traitsPath = join(getAvatarDir(), "character-traits.json");
+  const traitsPath = join(getAvatarDir(), TRAITS_FILENAME);
   if (!existsSync(traitsPath)) {
     throw new BadRequestError(
       "No native character set. Use 'assistant avatar character update' first.",

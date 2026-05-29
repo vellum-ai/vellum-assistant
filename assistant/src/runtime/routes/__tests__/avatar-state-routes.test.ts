@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -111,6 +112,32 @@ describe("GET /avatar/state", () => {
       readFileSync(join(avatarDir, MANIFEST_FILENAME), "utf-8"),
     ) as AvatarState;
     expect(persisted).toEqual(result);
+  });
+
+  test("still returns derived state when the self-heal persist fails (read-only workspace)", async () => {
+    // Seed a legacy traits file so derivation yields a character state, then make
+    // the avatar dir read-only so writeManifest() throws. The handler must
+    // swallow the persist failure and still return the derived state (no 500).
+    writeFileSync(
+      join(avatarDir, "character-traits.json"),
+      JSON.stringify(VALID_TRAITS),
+    );
+    expect(existsSync(join(avatarDir, MANIFEST_FILENAME))).toBe(false);
+
+    chmodSync(avatarDir, 0o555);
+    try {
+      let result: AvatarState | undefined;
+      expect(() => {
+        result = getStateHandler()({}) as AvatarState;
+      }).not.toThrow();
+      expect(result!.kind).toBe("character");
+      expect(result!.traits).toEqual(VALID_TRAITS);
+      // Persist failed, so no manifest was written.
+      expect(existsSync(join(avatarDir, MANIFEST_FILENAME))).toBe(false);
+    } finally {
+      // Restore write perms so afterEach can clean up the temp dir.
+      chmodSync(avatarDir, 0o755);
+    }
   });
 
   test("self-heals and persists kind:none (no throw, no 404) for an empty workspace", async () => {
@@ -342,6 +369,31 @@ describe("avatar write/remove handlers", () => {
         source: null,
         image: null,
       });
+    });
+
+    test("reports hadAvatar:true for a character-only workspace (traits, no PNG)", async () => {
+      // A configured native character with no rendered PNG is still an avatar.
+      // hadAvatar is derived from the manifest kind, not PNG existence, so the
+      // clear correctly reports that a configured character was removed.
+      const state: AvatarState = {
+        kind: "character",
+        traits: VALID_TRAITS,
+        source: "builder",
+        image: null,
+      };
+      writeManifest(state, avatarDir);
+      writeFileSync(path(TRAITS_FILENAME), JSON.stringify(VALID_TRAITS));
+      expect(existsSync(path(IMAGE_FILENAME))).toBe(false);
+
+      const handler = getHandler("avatar_remove");
+      const result = (await handler({ body: {} })) as {
+        ok: boolean;
+        hadAvatar: boolean;
+      };
+      expect(result.ok).toBe(true);
+      expect(result.hadAvatar).toBe(true);
+      expect(existsSync(path(TRAITS_FILENAME))).toBe(false);
+      expect(readManifestFile()!.kind).toBe("none");
     });
 
     test("reports hadAvatar:false and still writes kind:none when nothing exists", async () => {
