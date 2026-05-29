@@ -33,7 +33,7 @@
   - Place documentation examples of the syntax inside fenced code blocks (`` ``` `` or `~~~`) — the parser skips tokens inside fences, so examples will not accidentally execute
   - Never use empty commands (`` !`` ``), whitespace-only commands, or unmatched backticks — these are rejected by the parser as malformed
   - The `inline-skill-commands` feature flag must be enabled for inline expansions to work. When the flag is off, skills containing expansion tokens fail closed at load time
-  - Inline command expansions are only supported for `bundled`, `managed`, and `workspace` skill sources. Skills distributed as `extra` sources cannot use this syntax
+  - Inline command expansions are only supported for `bundled` and `managed` skill sources. Skills distributed as `extra` sources cannot use this syntax
 
 - **User-gated actions (interactive confirmation/input)**
 

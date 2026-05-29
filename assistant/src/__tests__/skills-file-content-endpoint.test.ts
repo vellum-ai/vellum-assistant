@@ -316,7 +316,7 @@ function installedSkill(id: string, directoryPath: string) {
       description: id,
       directoryPath,
       skillFilePath: join(directoryPath, "SKILL.md"),
-      source: "workspace" as const,
+      source: "managed" as const,
     },
     state: "enabled" as const,
   };

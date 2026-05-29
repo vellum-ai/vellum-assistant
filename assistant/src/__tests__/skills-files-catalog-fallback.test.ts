@@ -246,7 +246,7 @@ function makeSummary(overrides: Partial<SkillSummary>): SkillSummary {
     skillFilePath:
       overrides.skillFilePath ??
       join(overrides.directoryPath ?? "/tmp/nonexistent-skill-dir", "SKILL.md"),
-    source: overrides.source ?? "workspace",
+    source: overrides.source ?? "managed",
     bundled: overrides.bundled,
     icon: overrides.icon,
     emoji: overrides.emoji,
@@ -389,7 +389,7 @@ describe("getSkillFiles — provider chain fallback", () => {
             displayName: "Installed Skill",
             description: "A pre-installed skill",
             directoryPath: installedDir,
-            source: "workspace",
+            source: "managed",
           }),
           state: "enabled",
         },
@@ -428,7 +428,7 @@ describe("getSkillFiles — provider chain fallback", () => {
           displayName: "Ghost Installed",
           description: "Installed in resolver but directory is gone",
           directoryPath: "/tmp/definitely-does-not-exist-" + Date.now(),
-          source: "workspace",
+          source: "managed",
         }),
         state: "enabled",
       },

@@ -55,7 +55,7 @@ export function resolveSkillStates(
       isEnabled = entry.enabled;
     } else {
       // Default: bundled, managed (user-installed), and plugin-contributed
-      // skills are enabled. Others (workspace, extra) are disabled by default.
+      // skills are enabled. Extra skills are disabled by default.
       isEnabled =
         skill.source === "bundled" ||
         skill.source === "managed" ||

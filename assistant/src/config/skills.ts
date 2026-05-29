@@ -62,19 +62,13 @@ const SkillMetadataSchema = z
  *
  * - `bundled`: ships inside the assistant binary under `bundled-skills/`.
  * - `managed`: installed into `~/.vellum/workspace/skills/` from our catalog.
- * - `workspace`: user-authored skill living in a conversation's working dir.
  * - `extra`: third-party directory roots passed via `loadSkillCatalog`'s
  *   `extraDirs` argument (primarily for tests).
  * - `plugin`: contributed at runtime by a loaded plugin via
  *   `PluginSkillRegistration`. Body is held in-memory by
  *   `plugins/plugin-skill-contributions.ts`, not on disk.
  */
-export type SkillSource =
-  | "bundled"
-  | "managed"
-  | "workspace"
-  | "extra"
-  | "plugin";
+export type SkillSource = "bundled" | "managed" | "extra" | "plugin";
 
 // ─── Core interfaces ─────────────────────────────────────────────────────────
 
@@ -660,10 +654,7 @@ function skillSummaryFromDefinition(
   };
 }
 
-export function loadSkillCatalog(
-  workspaceSkillsDir?: string,
-  extraDirs?: string[],
-): SkillSummary[] {
+export function loadSkillCatalog(extraDirs?: string[]): SkillSummary[] {
   const catalog: SkillSummary[] = [];
   const seenIds = new Set<string>();
 
@@ -743,8 +734,8 @@ export function loadSkillCatalog(
   }
 
   // Load plugin-contributed skills. They sit above bundled/extra but below
-  // managed and workspace so that user-authored filesystem skills can
-  // override a plugin-provided skill by declaring the same id under
+  // managed so that user-authored filesystem skills can override a
+  // plugin-provided skill by declaring the same id under
   // `~/.vellum/workspace/skills/`. Registration is owned by the plugin
   // bootstrap — this call is a pure read against the in-memory registry.
   const pluginSkills = getPluginContributedSkillSummaries();
@@ -783,9 +774,8 @@ export function loadSkillCatalog(
 
     if (seenIds.has(skill.id)) {
       // If the existing entry is bundled, extra, or plugin-contributed, the
-      // user skill overrides it. Only another `managed` or `workspace` entry
-      // (already at or above managed precedence) is treated as a true
-      // duplicate.
+      // user skill overrides it. Only another `managed` entry (already at
+      // managed precedence) is treated as a true duplicate.
       const existingIndex = catalog.findIndex((s) => s.id === skill.id);
       if (
         existingIndex !== -1 &&
@@ -810,62 +800,6 @@ export function loadSkillCatalog(
 
     seenIds.add(skill.id);
     catalog.push(skillSummaryFromDefinition(skill, "managed"));
-  }
-
-  // Load workspace skills with highest precedence
-  if (workspaceSkillsDir && existsSync(workspaceSkillsDir)) {
-    const workspaceDirs = discoverSkillDirectories(workspaceSkillsDir);
-
-    for (const directory of workspaceDirs) {
-      const skillFilePath = join(directory, "SKILL.md");
-      if (!existsSync(skillFilePath)) continue;
-
-      try {
-        const stat = statSync(skillFilePath);
-        if (!stat.isFile()) continue;
-
-        const content = readFileSync(skillFilePath, "utf-8");
-        const parsed = parseFrontmatter(content, skillFilePath);
-        if (!parsed) continue;
-
-        const id = basename(directory);
-        const workspaceSkill: SkillSummary = {
-          id,
-          name: parsed.name,
-          displayName: parsed.displayName ?? parsed.name,
-          description: parsed.description,
-          directoryPath: directory,
-          skillFilePath,
-          emoji: parsed.emoji,
-
-          source: "workspace",
-          toolManifest: detectToolManifest(directory),
-          includes: parsed.includes,
-          featureFlag: parsed.featureFlag,
-          activationHints: parsed.activationHints,
-          avoidWhen: parsed.avoidWhen,
-          inlineCommandExpansions: parsed.inlineCommandExpansions,
-        };
-
-        if (seenIds.has(id)) {
-          // Workspace skills override any existing skill
-          const existingIndex = catalog.findIndex((s) => s.id === id);
-          if (existingIndex !== -1) {
-            log.info(
-              { id, directory },
-              "Workspace skill overrides existing skill",
-            );
-            catalog[existingIndex] = workspaceSkill;
-            continue;
-          }
-        }
-
-        seenIds.add(id);
-        catalog.push(workspaceSkill);
-      } catch (err) {
-        log.warn({ err, directory }, "Failed to read workspace skill");
-      }
-    }
   }
 
   return catalog;
@@ -1011,14 +945,6 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   let loaded: SkillDefinition | null;
   if (skill.bundled) {
     loaded = readBundledSkillFromDirectory(skill.directoryPath);
-  } else if (skill.source === "workspace") {
-    // Workspace skills live outside ~/.vellum/workspace/skills, so use their parent
-    // directory as the root to avoid the isOutsideSkillsRoot rejection.
-    loaded = readSkillFromDirectory(
-      skill.directoryPath,
-      dirname(skill.directoryPath),
-      skill.source,
-    );
   } else {
     loaded = readSkillFromDirectory(
       skill.directoryPath,
@@ -1056,10 +982,7 @@ function loadSkillDefinition(skill: SkillSummary): SkillLookupResult {
   return { skill: loaded };
 }
 
-export function resolveSkillSelector(
-  selector: string,
-  workspaceSkillsDir?: string,
-): SkillSelectorResult {
+export function resolveSkillSelector(selector: string): SkillSelectorResult {
   const needle = selector.trim();
   if (!needle) {
     return {
@@ -1068,7 +991,7 @@ export function resolveSkillSelector(
     };
   }
 
-  const catalog = loadSkillCatalog(workspaceSkillsDir);
+  const catalog = loadSkillCatalog();
   if (catalog.length === 0) {
     return {
       error: `No skills are available. Add skill directories under ${getWorkspaceDirDisplay()}/skills/.`,
@@ -1118,11 +1041,8 @@ export function resolveSkillSelector(
   };
 }
 
-export function loadSkillBySelector(
-  selector: string,
-  workspaceSkillsDir?: string,
-): SkillLookupResult {
-  const resolved = resolveSkillSelector(selector, workspaceSkillsDir);
+export function loadSkillBySelector(selector: string): SkillLookupResult {
+  const resolved = resolveSkillSelector(selector);
   if (!resolved.skill) {
     return {
       error: resolved.error ?? "Failed to resolve skill selector.",

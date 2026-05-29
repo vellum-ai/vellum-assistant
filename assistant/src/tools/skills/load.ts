@@ -29,11 +29,7 @@ import { registerTool } from "../registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 
 /** Skill sources eligible for inline command expansion in v1. */
-const INLINE_COMMAND_ELIGIBLE_SOURCES = new Set([
-  "bundled",
-  "managed",
-  "workspace",
-]);
+const INLINE_COMMAND_ELIGIBLE_SOURCES = new Set(["bundled", "managed"]);
 
 const log = getLogger("skill-load");
 
@@ -129,15 +125,15 @@ export class SkillLoadTool implements Tool {
   defaultRiskLevel = RiskLevel.Low;
 
   input_schema = {
-        type: "object",
-        properties: {
-          skill: {
-            type: "string",
-            description: "The skill id or skill name to load.",
-          },
-        },
-        required: ["skill"],
-      };
+    type: "object",
+    properties: {
+      skill: {
+        type: "string",
+        description: "The skill id or skill name to load.",
+      },
+    },
+    required: ["skill"],
+  };
 
   async execute(
     input: Record<string, unknown>,
