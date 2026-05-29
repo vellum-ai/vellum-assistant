@@ -3,7 +3,11 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
-import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
+import type {
+  AvatarState,
+  CharacterComponents,
+  CharacterTraits,
+} from "@/types/avatar";
 
 const components: CharacterComponents = {
   bodyShapes: [
@@ -32,13 +36,34 @@ const traits: CharacterTraits = {
   color: "cosmic-purple",
 };
 
+const characterState: AvatarState = {
+  kind: "character",
+  traits,
+  source: "builder",
+  image: { updatedAt: "2024-01-01T00:00:00Z", etag: "abc" },
+};
+
+const imageState: AvatarState = {
+  kind: "image",
+  traits: null,
+  source: "upload",
+  image: { updatedAt: "2024-01-01T00:00:00Z", etag: "def" },
+};
+
+const noneState: AvatarState = {
+  kind: "none",
+  traits: null,
+  source: null,
+  image: null,
+};
+
 const fetchCharacterComponents = mock(async () => components);
-const fetchCharacterTraits = mock(async () => traits);
+const fetchAvatarState = mock(async () => noneState as AvatarState | null);
 const fetchAvatarImageUrl = mock(async () => null as string | null);
 
 mock.module("@/assistant/avatar-api", () => ({
   fetchCharacterComponents,
-  fetchCharacterTraits,
+  fetchAvatarState,
   fetchAvatarImageUrl,
 }));
 
@@ -57,15 +82,35 @@ function createWrapper() {
 afterEach(() => {
   cleanup();
   fetchCharacterComponents.mockClear();
-  fetchCharacterTraits.mockClear();
+  fetchAvatarState.mockClear();
   fetchAvatarImageUrl.mockClear();
   fetchCharacterComponents.mockResolvedValue(components);
-  fetchCharacterTraits.mockResolvedValue(traits);
+  fetchAvatarState.mockResolvedValue(noneState);
   fetchAvatarImageUrl.mockResolvedValue(null);
 });
 
 describe("useAssistantAvatar", () => {
-  test("skips character traits when a custom avatar image is available", async () => {
+  test("character kind exposes manifest traits and skips the image fetch", async () => {
+    fetchAvatarState.mockResolvedValueOnce(characterState);
+
+    const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
+      wrapper: createWrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.traits).toEqual(traits);
+    });
+
+    // traits present + no image ⇒ ChatAvatar renders AnimatedAvatar.
+    expect(result.current.components).toEqual(components);
+    expect(result.current.customImageUrl).toBeNull();
+    expect(fetchCharacterComponents).toHaveBeenCalledTimes(1);
+    expect(fetchAvatarState).toHaveBeenCalledTimes(1);
+    expect(fetchAvatarImageUrl).not.toHaveBeenCalled();
+  });
+
+  test("image kind fetches the static image and leaves traits null", async () => {
+    fetchAvatarState.mockResolvedValueOnce(imageState);
     fetchAvatarImageUrl.mockResolvedValueOnce("blob:avatar-image");
 
     const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
@@ -76,25 +121,28 @@ describe("useAssistantAvatar", () => {
       expect(result.current.customImageUrl).toBe("blob:avatar-image");
     });
 
+    // image present + no traits ⇒ ChatAvatar renders the static circle.
     expect(result.current.components).toEqual(components);
     expect(result.current.traits).toBeNull();
     expect(fetchCharacterComponents).toHaveBeenCalledTimes(1);
+    expect(fetchAvatarState).toHaveBeenCalledTimes(1);
     expect(fetchAvatarImageUrl).toHaveBeenCalledTimes(1);
-    expect(fetchCharacterTraits).not.toHaveBeenCalled();
   });
 
-  test("fetches character traits when no avatar image is available", async () => {
+  test("none kind falls back with neither traits nor image", async () => {
     const { result } = renderHook(() => useAssistantAvatar("asst-1"), {
       wrapper: createWrapper(),
     });
 
     await waitFor(() => {
-      expect(result.current.traits).toEqual(traits);
+      expect(result.current.components).toEqual(components);
     });
 
+    // both null ⇒ ChatAvatar falls back to default components / "V".
+    expect(result.current.traits).toBeNull();
     expect(result.current.customImageUrl).toBeNull();
     expect(fetchCharacterComponents).toHaveBeenCalledTimes(1);
-    expect(fetchAvatarImageUrl).toHaveBeenCalledTimes(1);
-    expect(fetchCharacterTraits).toHaveBeenCalledTimes(1);
+    expect(fetchAvatarState).toHaveBeenCalledTimes(1);
+    expect(fetchAvatarImageUrl).not.toHaveBeenCalled();
   });
 });
