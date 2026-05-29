@@ -118,10 +118,3 @@ bunx prettier --write <files>
 
 `format:check` is a distinct CI gate from `lint`; format the touched files
 before push.
-
-## Status
-
-The remaining legacy parser cases are tracked in the **Solve Chat SSE**
-workstream (record `282e972a` in `workspace/data/apps/workstream-command-center/records/`).
-Each batch lands as its own PR under the `API Events Canonical Schemas`
-stream.

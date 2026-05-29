@@ -1513,6 +1513,13 @@ public final class ChatViewModel: MessageSendCoordinatorDelegate {
         messageLoopTask = Task { @MainActor [weak self] in
             for await message in messageStream {
                 guard let self, !Task.isCancelled else { break }
+                // A cancelled-but-still-draining subscriber must not mutate the
+                // shared `messages` array. `Task.cancel()` is cooperative, so a
+                // superseded loop can still resume with a buffered event before
+                // it observes cancellation. Gate on the generation so only the
+                // current subscriber dispatches — this closes the double-subscriber
+                // window that lets a pre-`complete` delta fork a duplicate bubble.
+                guard self.messageLoopGeneration == generation else { break }
                 self.handleServerMessage(message)
             }
             // Stream ended (e.g. daemon disconnected) — clear the task reference

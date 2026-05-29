@@ -22,8 +22,8 @@ import {
 import {
   INITIAL_TURN_STATE,
   type TurnState,
-} from "@/stores/turn-store";
-import type { UIContext } from "@/stores/turn-selectors";
+} from "@/domains/chat/turn-store";
+import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------

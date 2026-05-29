@@ -4,7 +4,7 @@ import {
   getLocalSetting,
   removeLocalSetting,
   setLocalSetting,
-} from "@/lib/local-settings";
+} from "@/utils/local-settings";
 import {
   clearGatewayToken,
   ensureGatewayToken,

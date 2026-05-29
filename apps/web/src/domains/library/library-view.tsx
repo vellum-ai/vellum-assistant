@@ -18,7 +18,7 @@ import { clearAppHtmlCache } from "@/utils/app-html-cache";
 import { importBundle } from "@/utils/import-bundle";
 import { usePinnedAppsStore } from "@/stores/pinned-apps-store";
 import { useDeployStore } from "@/stores/deploy-store";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { appsByIdDeletePost } from "@/generated/daemon/sdk.gen";
 import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { Button, Input, toast } from "@vellum/design-library";

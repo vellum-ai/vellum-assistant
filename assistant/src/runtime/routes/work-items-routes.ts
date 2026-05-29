@@ -797,17 +797,14 @@ export const ROUTES: RouteDefinition[] = [
                 taskConversation.taskRunId = taskRunId;
                 taskConversation.headlessLock = true;
               }
-              await taskConversation.processMessage(
-                message,
-                [],
-                (event) => {
+              await taskConversation.processMessage({
+                content: message,
+                attachments: [],
+                onEvent: (event) => {
                   publishEvent(event);
                 },
-                undefined,
-                undefined,
-                undefined,
-                { isInteractive: false },
-              );
+                isInteractive: false,
+              });
             },
           );
 

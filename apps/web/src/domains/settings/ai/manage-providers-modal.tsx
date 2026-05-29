@@ -13,7 +13,7 @@ import {
   listConnections,
 } from "@/domains/settings/ai/provider-connections-client";
 import { ProviderEditorContent } from "@/domains/settings/ai/provider-editor-modal";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 // ---------------------------------------------------------------------------
 // Helpers

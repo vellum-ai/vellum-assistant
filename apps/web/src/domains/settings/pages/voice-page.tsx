@@ -15,7 +15,7 @@ import { DetailCard } from "@/components/detail-card";
 import {
   getLocalSetting,
   setLocalSetting,
-} from "@/lib/local-settings";
+} from "@/utils/local-settings";
 import {
   LS_PTT_ACTIVATION_KEY,
   activatorDisplayName,

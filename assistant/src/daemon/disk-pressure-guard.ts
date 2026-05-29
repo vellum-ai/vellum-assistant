@@ -1,5 +1,3 @@
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { cancelBackgroundTools } from "../tools/background-tool-registry.js";
@@ -137,24 +135,10 @@ function replaceStatus(next: DiskPressureStatus): DiskPressureStatus {
   return cloneStatus(state.status);
 }
 
-function isEnabled(): boolean {
-  return isAssistantFeatureFlagEnabled("safe-storage-limits", getConfig());
-}
-
-function resetToDisabled(): DiskPressureStatus {
-  const previous = cloneStatus(state.status);
-  stopDiskPressureGuard();
-  state.status = cloneStatus(DISABLED_STATUS);
-  publishStatusChangedIfNeeded(previous);
-  return cloneStatus(state.status);
-}
-
-function ensureEnabledStatus(): DiskPressureStatus | null {
-  if (!isEnabled()) return resetToDisabled();
+function ensureEnabledStatus(): void {
   if (!state.status.enabled) {
     state.status = cloneStatus(OPEN_STATUS);
   }
-  return null;
 }
 
 function nextLockId(): string {
@@ -210,8 +194,7 @@ function rejectTransition(
 }
 
 export function startDiskPressureGuard(): DiskPressureStatus {
-  const disabledStatus = ensureEnabledStatus();
-  if (disabledStatus) return disabledStatus;
+  ensureEnabledStatus();
 
   if (!state.timer) {
     state.timer = setInterval(() => {
@@ -230,8 +213,7 @@ export function stopDiskPressureGuard(): void {
 }
 
 export function evaluateDiskPressureNow(): DiskPressureStatus {
-  const disabledStatus = ensureEnabledStatus();
-  if (disabledStatus) return disabledStatus;
+  ensureEnabledStatus();
 
   let usageInfo: ReturnType<typeof getDiskUsageInfo>;
   try {
@@ -315,14 +297,13 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
 }
 
 export function getDiskPressureStatus(): DiskPressureStatus {
-  if (!isEnabled()) return cloneStatus(DISABLED_STATUS);
   if (!state.status.enabled) return cloneStatus(OPEN_STATUS);
   return cloneStatus(state.status);
 }
 
 export function acknowledgeDiskPressureLock(): DiskPressureTransitionResult {
-  const disabledStatus = ensureEnabledStatus();
-  const status = disabledStatus ?? cloneStatus(state.status);
+  ensureEnabledStatus();
+  const status = cloneStatus(state.status);
   if (!status.locked) {
     return rejectTransition(
       "not_locked",
@@ -348,8 +329,8 @@ export function acknowledgeDiskPressureLock(): DiskPressureTransitionResult {
 export function overrideDiskPressureLock(
   confirmation: string,
 ): DiskPressureTransitionResult {
-  const disabledStatus = ensureEnabledStatus();
-  const status = disabledStatus ?? cloneStatus(state.status);
+  ensureEnabledStatus();
+  const status = cloneStatus(state.status);
   if (!status.locked) {
     return rejectTransition(
       "not_locked",

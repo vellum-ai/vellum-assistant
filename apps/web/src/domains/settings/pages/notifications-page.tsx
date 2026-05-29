@@ -35,7 +35,7 @@ import {
   SNOOZE_OPTIONS,
   formatRelativeDate,
   isSnoozed,
-} from "@/domains/settings/utils/notification-utils";
+} from "@/domains/settings/utils/notification";
 
 interface SnoozeMenuProps {
   notificationId: string;

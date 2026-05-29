@@ -7,7 +7,7 @@
  * codes to plain-language copy and fall back to the shared
  * `extractErrorMessage` util for everything else.
  */
-import { extractErrorMessage } from "@/lib/api-errors";
+import { extractErrorMessage } from "@/utils/api-errors";
 
 const TIER_ERROR_CODES = new Set([
   "exceeds_machine_tier",

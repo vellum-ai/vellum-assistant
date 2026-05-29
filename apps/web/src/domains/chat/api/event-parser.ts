@@ -13,21 +13,22 @@ import type {
   DiskPressureStatus,
 } from "@/assistant/types";
 import type {
-  AllowlistOption,
   AssistantActivityPhase,
   AssistantActivityReason,
   AssistantActivityStateEvent,
   AssistantEvent,
   ConversationListInvalidatedReason,
+  UISurfaceShowEvent,
+} from "@/types/event-types";
+import type {
+  AllowlistOption,
   DirectoryScopeOption,
-  InteractionKind,
   QuestionEntry,
   QuestionOption,
   ScopeOption,
   SubagentInnerEvent,
   SubagentStatus,
-  UISurfaceShowEvent,
-} from "@/domains/chat/api/event-types";
+} from "@/types/interaction-ui-types";
 import type { AssistantOutboundAttachment } from "@vellumai/assistant-api";
 import { AssistantEventSchema } from "@vellumai/assistant-api";
 import type { DisplayAttachment } from "@/domains/chat/types/types";
@@ -650,22 +651,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
             : undefined,
       };
 
-    case "compaction_circuit_open":
-      return {
-        type: "compaction_circuit_open",
-        conversationId:
-          typeof data.conversationId === "string" ? data.conversationId : "",
-        reason: typeof data.reason === "string" ? data.reason : "",
-        openUntil: typeof data.openUntil === "number" ? data.openUntil : 0,
-      };
-
-    case "compaction_circuit_closed":
-      return {
-        type: "compaction_circuit_closed",
-        conversationId:
-          typeof data.conversationId === "string" ? data.conversationId : "",
-      };
-
     case "disk_pressure_status_changed":
       return {
         type: "disk_pressure_status_changed",
@@ -678,59 +663,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
           typeof data.conversationId === "string"
             ? data.conversationId
             : undefined,
-      };
-
-    case "message_queued":
-      return {
-        type: "message_queued",
-        requestId: typeof data.requestId === "string" ? data.requestId : "",
-        position: typeof data.position === "number" ? data.position : 0,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "message_dequeued":
-      return {
-        type: "message_dequeued",
-        requestId: typeof data.requestId === "string" ? data.requestId : "",
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "message_queued_deleted":
-      return {
-        type: "message_queued_deleted",
-        requestId: typeof data.requestId === "string" ? data.requestId : "",
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "message_request_complete":
-      return {
-        type: "message_request_complete",
-        requestId: typeof data.requestId === "string" ? data.requestId : "",
-        runStillActive:
-          typeof data.runStillActive === "boolean"
-            ? data.runStillActive
-            : undefined,
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "home_feed_updated":
-      return {
-        type: "home_feed_updated",
-        updatedAt: typeof data.updatedAt === "string" ? data.updatedAt : "",
-        newItemCount:
-          typeof data.newItemCount === "number" ? data.newItemCount : 0,
       };
 
     case "subagent_spawned": {
@@ -818,37 +750,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
             ? data.conversationId
             : undefined,
         event: event as SubagentInnerEvent,
-      };
-    }
-
-    case "interaction_resolved": {
-      const requestId =
-        typeof data.requestId === "string" ? data.requestId : "";
-      const stateRaw = typeof data.state === "string" ? data.state : "";
-      const validStates = new Set([
-        "approved",
-        "rejected",
-        "answered",
-        "cancelled",
-        "superseded",
-      ]);
-      if (!requestId || !validStates.has(stateRaw)) {
-        return unknownEvent(rawType, data);
-      }
-      const conversationId =
-        typeof data.conversationId === "string" ? data.conversationId : "";
-      const kind = typeof data.kind === "string" ? data.kind : "";
-      return {
-        type: "interaction_resolved",
-        requestId,
-        conversationId,
-        state: stateRaw as
-          | "approved"
-          | "rejected"
-          | "answered"
-          | "cancelled"
-          | "superseded",
-        kind: kind as InteractionKind,
       };
     }
 

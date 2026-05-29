@@ -12,15 +12,15 @@ import { useConversationStore } from "@/stores/conversation-store";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { tailIsStreamingAssistant } from "@/domains/chat/hooks/stream-message-updaters";
-import { useTurnStore } from "@/stores/turn-store";
-import { endTurn } from "@/stores/turn-coordinator";
+import { useTurnStore } from "@/domains/chat/turn-store";
+import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
 import {
   recordChatDiagnostic,
   summarizeAssistantEvent,
 } from "@/domains/chat/utils/diagnostics";
-import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils";
+import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import {
   handleHomeFeedUpdated,
   handleRelationshipStateUpdated,
@@ -92,7 +92,7 @@ export type {
 } from "@/domains/chat/types";
 
 import type { ChatError } from "@/domains/chat/types";
-import type { AssistantEvent, AssistantSyncChangedEvent } from "@/domains/chat/api/event-types";
+import type { AssistantEvent, AssistantSyncChangedEvent } from "@/types/event-types";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
 
 // ---------------------------------------------------------------------------

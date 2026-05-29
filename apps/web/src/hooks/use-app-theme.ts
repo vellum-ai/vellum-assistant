@@ -8,7 +8,7 @@
  */
 import { useEffect } from "react";
 
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import {
   applyThemePreference,
   readStoredThemePreference,

@@ -11,7 +11,7 @@ import * as Sentry from "@sentry/browser";
 import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client";
 import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/utils/diagnostics";
 import { parseAssistantEvent } from "@/domains/chat/api/event-parser";
-import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {

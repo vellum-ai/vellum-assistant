@@ -3,9 +3,11 @@ import Foundation
 // MARK: - Types
 
 /// Scope of a feature flag — determines which platform consumes it.
+/// `both` is read by both the assistant backend and clients.
 public enum FeatureFlagScope: String, Decodable {
     case assistant
     case client
+    case both
 }
 
 /// A single entry in the unified feature flag registry.
@@ -25,14 +27,14 @@ public struct FeatureFlagRegistry: Decodable {
 
     // MARK: - Scope filters
 
-    /// Return only flags with `scope == .client`.
+    /// Return flags consumed by clients (`scope == .client` or `.both`).
     public func clientScopeFlags() -> [FeatureFlagDefinition] {
-        flags.filter { $0.scope == .client }
+        flags.filter { $0.scope == .client || $0.scope == .both }
     }
 
-    /// Return only flags with `scope == .assistant`.
+    /// Return flags consumed by the assistant backend (`scope == .assistant` or `.both`).
     public func assistantScopeFlags() -> [FeatureFlagDefinition] {
-        flags.filter { $0.scope == .assistant }
+        flags.filter { $0.scope == .assistant || $0.scope == .both }
     }
 }
 

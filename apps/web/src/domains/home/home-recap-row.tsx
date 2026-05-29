@@ -1,46 +1,39 @@
 import { Mail, MailOpen, MessageSquare, RotateCcw, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
-import { cn } from "@vellum/design-library";
+import { cn, Tooltip } from "@vellum/design-library";
 import { formatRelativeDate } from "@/utils/format-date";
 import { CATEGORY_STYLES } from "./home-feed-filter-bar";
 import type { FeedItem, FeedItemCategory, FeedItemStatus } from "./types";
 
 function HoverIconButton({
-  title,
+  label,
   onClick,
   className,
   children,
 }: {
-  title: string;
+  label: string;
   onClick: () => void;
   className?: string;
   children: ReactNode;
 }) {
   return (
-    <span
-      role="button"
-      tabIndex={0}
-      title={title}
-      aria-label={title}
-      onClick={(e) => {
-        e.stopPropagation();
-        onClick();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
+    <Tooltip content={label}>
+      <button
+        type="button"
+        aria-label={label}
+        onClick={(e) => {
           e.stopPropagation();
-          e.preventDefault();
           onClick();
-        }
-      }}
-      className={cn(
-        "cursor-pointer text-[var(--content-disabled)] transition-colors hover:text-[var(--content-secondary)]",
-        className,
-      )}
-    >
-      {children}
-    </span>
+        }}
+        className={cn(
+          "cursor-pointer text-[var(--content-disabled)] transition-colors hover:text-[var(--content-secondary)]",
+          className,
+        )}
+      >
+        {children}
+      </button>
+    </Tooltip>
   );
 }
 
@@ -127,7 +120,7 @@ export function HomeRecapRow({
         <span className="flex shrink-0 items-center gap-[var(--app-spacing-sm)]">
           {onToggleRead && (
             <HoverIconButton
-              title={isUnread ? "Mark as read" : "Mark as unread"}
+              label={isUnread ? "Mark as read" : "Mark as unread"}
               onClick={() => onToggleRead(item.id, isUnread ? "seen" : "new")}
             >
               {isUnread ? <MailOpen width={14} height={14} /> : <Mail width={14} height={14} />}
@@ -135,7 +128,7 @@ export function HomeRecapRow({
           )}
           {onGoToThread && item.conversationId && (!validConversationIds || validConversationIds.has(item.conversationId)) && (
             <HoverIconButton
-              title="Go to thread"
+              label="Go to thread"
               onClick={() => {
                 if (isUnread && onToggleRead) {
                   onToggleRead(item.id, "seen");
@@ -147,7 +140,7 @@ export function HomeRecapRow({
             </HoverIconButton>
           )}
           <HoverIconButton
-            title="Dismiss"
+            label="Dismiss"
             onClick={() => onDismiss(item.id)}
           >
             <Trash2 width={14} height={14} />
@@ -155,7 +148,7 @@ export function HomeRecapRow({
         </span>
       ) : isHovering && isRestore ? (
         <HoverIconButton
-          title="Restore"
+          label="Restore"
           onClick={() => onDismiss(item.id)}
           className="flex shrink-0 items-center gap-[var(--app-spacing-xs)]"
         >

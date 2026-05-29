@@ -479,9 +479,11 @@ describe("provider ordering error retry", () => {
     await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage("Hello", [], (msg) =>
-      events.push(msg as unknown as Record<string, unknown>),
-    );
+    await conversation.processMessage({
+      content: "Hello",
+      attachments: [],
+      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
+    });
 
     // Should have been called exactly 2 times: original + one retry
     expect(agentLoopRunCount).toBe(2);
@@ -494,9 +496,11 @@ describe("provider ordering error retry", () => {
     await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage("Hello", [], (msg) =>
-      events.push(msg as unknown as Record<string, unknown>),
-    );
+    await conversation.processMessage({
+      content: "Hello",
+      attachments: [],
+      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
+    });
 
     // Should have a message_complete event (from successful retry)
     const messageComplete = events.find((e) => e.type === "message_complete");
@@ -519,9 +523,11 @@ describe("provider ordering error retry", () => {
     await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage("Hello", [], (msg) =>
-      events.push(msg as unknown as Record<string, unknown>),
-    );
+    await conversation.processMessage({
+      content: "Hello",
+      attachments: [],
+      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
+    });
 
     // Should have been called exactly 1 time (no retry for non-ordering errors)
     expect(agentLoopRunCount).toBe(1);
@@ -535,11 +541,11 @@ describe("provider ordering error retry", () => {
     await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage(
-      "Please compare these images.",
-      makeImageAttachments(8),
-      (msg) => events.push(msg as unknown as Record<string, unknown>),
-    );
+    await conversation.processMessage({
+      content: "Please compare these images.",
+      attachments: makeImageAttachments(8),
+      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
+    });
 
     expect(agentLoopRunCount).toBe(2);
     expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
@@ -555,11 +561,11 @@ describe("provider ordering error retry", () => {
     await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage(
-      "Please compare these images.",
-      makeImageAttachments(8),
-      (msg) => events.push(msg as unknown as Record<string, unknown>),
-    );
+    await conversation.processMessage({
+      content: "Please compare these images.",
+      attachments: makeImageAttachments(8),
+      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
+    });
 
     // The convergence loop enters and applies the reducer (which returns
     // exhausted:true). With the early-break removed, the loop still re-runs
@@ -582,9 +588,11 @@ describe("provider ordering error retry", () => {
     await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage("No attachments here.", [], (msg) =>
-      events.push(msg as unknown as Record<string, unknown>),
-    );
+    await conversation.processMessage({
+      content: "No attachments here.",
+      attachments: [],
+      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
+    });
 
     // Same as above — convergence loop re-runs agent loop, which also fails.
     expect(agentLoopRunCount).toBe(2);
@@ -600,11 +608,11 @@ describe("provider ordering error retry", () => {
     await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage(
-      "Please compare these images.",
-      makeImageAttachments(4),
-      (msg) => events.push(msg as unknown as Record<string, unknown>),
-    );
+    await conversation.processMessage({
+      content: "Please compare these images.",
+      attachments: makeImageAttachments(4),
+      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
+    });
 
     expect(agentLoopRunCount).toBe(2);
     expect(maybeCompactCalls).toEqual([{ force: false }, { force: true }]);
@@ -620,11 +628,11 @@ describe("provider ordering error retry", () => {
     await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage(
-      "Please compare these images.",
-      makeImageAttachments(8),
-      (msg) => events.push(msg as unknown as Record<string, unknown>),
-    );
+    await conversation.processMessage({
+      content: "Please compare these images.",
+      attachments: makeImageAttachments(8),
+      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
+    });
 
     // The 413 ProviderError message "request entity too large" doesn't match
     // the regex patterns, but classifyConversationError recognizes statusCode 413
@@ -643,11 +651,11 @@ describe("provider ordering error retry", () => {
     await conversation.loadFromDb();
 
     const events: Array<Record<string, unknown>> = [];
-    await conversation.processMessage(
-      "Run some tools then hit the limit.",
-      [],
-      (msg) => events.push(msg as unknown as Record<string, unknown>),
-    );
+    await conversation.processMessage({
+      content: "Run some tools then hit the limit.",
+      attachments: [],
+      onEvent: (msg) => events.push(msg as unknown as Record<string, unknown>),
+    });
 
     // Two agent loop runs — first makes progress then 413, convergence loop
     // re-runs after reducer (which returns exhausted). Second run also fails

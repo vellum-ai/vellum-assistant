@@ -28,7 +28,7 @@ import type { GlobalSearchResponse } from "@/domains/chat/api/global-search";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 
-import { formatRelativeTime } from "@/domains/chat/utils/chat-utils";
+import { formatRelativeTime } from "@/domains/chat/utils/chat";
 import type { Conversation } from "@/types/conversation-types";
 
 // ---------------------------------------------------------------------------

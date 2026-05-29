@@ -3,7 +3,7 @@ import * as Sentry from "@sentry/react";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { extractErrorMessage } from "@/lib/api-errors";
+import { extractErrorMessage } from "@/utils/api-errors";
 import { getAssistant } from "@/assistant/api";
 import {
   buildInitializingTimeoutError,

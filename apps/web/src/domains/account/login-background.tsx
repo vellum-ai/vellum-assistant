@@ -1,4 +1,4 @@
-import { publicAsset } from "@/lib/public-asset";
+import { publicAsset } from "@/utils/public-asset";
 
 /**
  * Decorative background for the branded `/account/login` screen.

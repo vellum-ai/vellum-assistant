@@ -21,7 +21,7 @@ import {
   usePullToRefresh,
 } from "@/domains/chat/transcript/use-pull-to-refresh";
 import { useViewportMinHeight } from "@/domains/chat/transcript/use-viewport-min-height";
-import type { ConfirmationDecision } from "@/domains/chat/api/event-types";
+import type { ConfirmationDecision } from "@/types/event-types";
 
 /** Distance from the bottom (in px) at or below which the transcript is
  *  considered pinned to the latest message. Surfaced through
@@ -75,9 +75,9 @@ export interface TranscriptProps {
     riskLevel?: string;
     riskReason?: string;
     input?: Record<string, unknown>;
-    allowlistOptions: import("@/domains/chat/api/event-types").AllowlistOption[];
-    scopeOptions: import("@/domains/chat/api/event-types").ScopeOption[];
-    directoryScopeOptions: import("@/domains/chat/api/event-types").DirectoryScopeOption[];
+    allowlistOptions: import("@/types/interaction-ui-types").AllowlistOption[];
+    scopeOptions: import("@/types/interaction-ui-types").ScopeOption[];
+    directoryScopeOptions: import("@/types/interaction-ui-types").DirectoryScopeOption[];
   }) => void;
   /** Set of tool-call ids that should display the "command not recognized"
    *  nudge below their chip. */
@@ -103,11 +103,13 @@ export interface TranscriptProps {
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
   /** Optional render-prop that produces the chat avatar element to mount
-   *  at the bottom of the latest assistant cluster (forwarded to
-   *  `LatestTurnRow`'s `avatarSlot`). A function — rather than a
-   *  `ReactNode` — lets callers avoid constructing the element when
-   *  there is no latest turn, and gives them a stable identity via
-   *  `useCallback`. Called once per render inside `Transcript`. */
+   *  at the bottom of the conversation. Rendered inside the latest-edge
+   *  region so the avatar pins to the bottom of the viewport while the
+   *  anchor user message pins to the top — regardless of whether the
+   *  latest turn has an anchor message at all. A function — rather than
+   *  a `ReactNode` — lets callers compute lazily and gives them a stable
+   *  identity via `useCallback`. Called once per render inside
+   *  `Transcript`. */
   renderAvatar?: () => ReactNode;
   /** Optional async refresh hook. When provided AND
    *  `pullRefreshEnabled` is `true`, mounts a pull-to-refresh
@@ -270,16 +272,54 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
               </div>
             </Fragment>
           ))}
-          {/* LatestTurnRow last = visual bottom in flex-col. */}
-          {partition.anchorMessage && (
-            <div className="mx-auto w-full max-w-[var(--chat-max-width)] contain-content px-4 sm:px-6">
-              <LatestTurnRow
-                anchorMessage={partition.anchorMessage}
-                responseItems={partition.responseItems}
-                viewportMinHeight={viewportMinHeight}
-                avatarSlot={rest.renderAvatar ? rest.renderAvatar() : undefined}
-                {...rowProps}
-              />
+          {/* Latest-edge region: contains the latest-turn cluster and the
+           *  assistant avatar. Two layout modes:
+           *
+           *  1. Anchor present — `minHeight: viewportMinHeight` pins the
+           *     anchor user message to the viewport top and the `flex-1`
+           *     spacer pushes the avatar to the viewport bottom. This is
+           *     the "open-to-latest" UX after a user submit.
+           *  2. No anchor (assistant-only history, e.g. recovered
+           *     conversation or first paint before a submit) — neither
+           *     the viewport-height min-height NOR the flex-1 spacer
+           *     render. The avatar appears inline directly below the
+           *     last history item, so the bottom-pin scroll lands on the
+           *     actual latest message rather than on blank space above
+           *     the avatar.
+           *
+           *  The avatar is intentionally decoupled from `partition.anchorMessage`
+           *  so it persists across the user-send → response gap AND across the
+           *  "no user message yet" case. The wrapper renders whenever either
+           *  the anchor or avatar slot is active; DOM identity (and ChatAvatar
+           *  entrance-spring state) is preserved across the no-anchor → anchor
+           *  transition because React's reconciler tracks `fiber.index` (see
+           *  the `transcript.test.tsx` regression test). */}
+          {(partition.anchorMessage || rest.renderAvatar) && (
+            <div
+              className="mx-auto flex w-full max-w-[var(--chat-max-width)] flex-col contain-content px-4 sm:px-6"
+              style={
+                partition.anchorMessage
+                  ? { minHeight: viewportMinHeight }
+                  : undefined
+              }
+            >
+              {partition.anchorMessage && (
+                <LatestTurnRow
+                  anchorMessage={partition.anchorMessage}
+                  responseItems={partition.responseItems}
+                  {...rowProps}
+                />
+              )}
+              {partition.anchorMessage && <div className="flex-1" />}
+              {rest.renderAvatar && (
+                <div
+                  data-latest-assistant-avatar="true"
+                  className="flex justify-start pl-1 pt-3 pb-2"
+                >
+                  {rest.renderAvatar()}
+                </div>
+              )}
+              <div aria-hidden data-latest-edge="true" />
             </div>
           )}
           {/* Spinner last = visual bottom in flex-col. Only rendered when

@@ -44,31 +44,17 @@ export interface LlmRequestLogSource {
    * whose `createdAt` falls in the **open window**
    * `(afterCreatedAt, beforeCreatedAt)`, ordered chronologically.
    *
-   * Drives the Inspector's Compaction tab. The route handler resolves
-   * both bounds: the selected LLM call's `createdAt` (ceiling) and the
-   * previous non-`compactionAgent` call's `createdAt` (floor) — passing
-   * `null` for the floor when the selected call is the first real call
-   * in the conversation. See `getCompactionLogsBetween` and
-   * `getPreviousNonCompactionCallCreatedAt` in `llm-request-log-store.ts`
-   * for the full bound semantics.
+   * Drives the Inspector's Compaction tab. The route handler computes
+   * the window from the turn the selected call belongs to via
+   * `getTurnTimeBounds` in `memory/conversation-crud.ts`; this source
+   * method is bound-agnostic. See `getCompactionLogsBetween` in
+   * `llm-request-log-store.ts` for the SQL.
    */
   getCompactionLogsBetween(
     conversationId: string,
     afterCreatedAt: number | null,
     beforeCreatedAt: number,
   ): Promise<LogRow[]>;
-
-  /**
-   * Find the `createdAt` of the most recent non-`compactionAgent` LLM
-   * call in the conversation strictly before `beforeCreatedAt`, or
-   * `null` when no such call exists. Pairs with
-   * `getCompactionLogsBetween` to bound the compaction trail to the
-   * window between the prior real call and the selected call.
-   */
-  getPreviousNonCompactionCallCreatedAt(
-    conversationId: string,
-    beforeCreatedAt: number,
-  ): Promise<number | null>;
 }
 
 /**
@@ -89,14 +75,12 @@ export async function getLlmRequestLogSource(): Promise<LlmRequestLogSource> {
   const cfg = config.llmRequestLogs ?? { readSource: "local" as const };
 
   if (cfg.readSource === "clickhouse") {
-    const { ClickHouseLlmRequestLogSource } = await import(
-      "./llm-request-log-source-clickhouse.js"
-    );
+    const { ClickHouseLlmRequestLogSource } =
+      await import("./llm-request-log-source-clickhouse.js");
     return new ClickHouseLlmRequestLogSource(cfg.clickhouse);
   }
 
-  const { LocalLlmRequestLogSource } = await import(
-    "./llm-request-log-source-local.js"
-  );
+  const { LocalLlmRequestLogSource } =
+    await import("./llm-request-log-source-local.js");
   return new LocalLlmRequestLogSource();
 }

@@ -48,7 +48,6 @@
 
 import { resolve } from "node:path";
 
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
 import { getInContextPkbPaths } from "../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../daemon/pkb-reminder-builder.js";
@@ -116,15 +115,10 @@ Then help the user clean up storage. Prefer safe inspection steps first, such as
 Do not work on unrelated tasks until enough space is freed to clear the lock or the user explicitly overrides it. Background processes and messages from trusted contacts are blocked while this cleanup mode is active.
 </disk_pressure_warning>`;
 
-function isSafeStorageLimitsEnabled(): boolean {
-  return isAssistantFeatureFlagEnabled("safe-storage-limits", getConfig());
-}
-
 const diskPressureWarningInjector: Injector = {
   name: "disk-pressure-warning",
   order: DEFAULT_INJECTOR_ORDER.diskPressureWarning,
   async produce(ctx: TurnContext): Promise<InjectionBlock | null> {
-    if (!isSafeStorageLimitsEnabled()) return null;
     const inputs = readInjectionInputs(ctx);
     if (!inputs.diskPressureContext?.cleanupModeActive) return null;
     return {

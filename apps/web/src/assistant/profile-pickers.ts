@@ -18,6 +18,19 @@ export interface ProfilePickerEntry {
 }
 
 /**
+ * Name of the meta-"auto" profile seeded by the daemon. The entry exists
+ * in `llm.profiles` unconditionally so a switched-on `query-complexity-
+ * routing` flag has something to point at, but every UI surface that
+ * lists profiles must hide it while the flag is off — otherwise it
+ * leaks into the composer picker, the Default Profile dropdown, the
+ * Manage Profiles modal, and the per-call-site override picker.
+ *
+ * Mirrors `AUTO_PROFILE_KEY` in
+ * `assistant/src/config/seed-inference-profiles.ts`.
+ */
+export const AUTO_PROFILE_NAME = "auto";
+
+/**
  * Returns the subset of `profiles` to render in a picker.
  *
  * Drops `status === "disabled"` entries, EXCEPT for any entry whose
@@ -38,6 +51,21 @@ export function visibleProfilesForPicker<T extends ProfilePickerEntry>(
   return profiles.filter(
     (p) => p.status !== "disabled" || selected.has(p.name),
   );
+}
+
+/**
+ * Hides the meta-"auto" profile when the `query-complexity-routing`
+ * feature flag is off. The daemon seeds `"auto"` into `llm.profiles`
+ * unconditionally, so every list-style profile UI must run its source
+ * array through this gate before render, or `Auto` shows up in the
+ * picker for users whose workspace has the flag disabled.
+ */
+export function gateAutoProfile<T extends ProfilePickerEntry>(
+  profiles: ReadonlyArray<T>,
+  queryComplexityRoutingEnabled: boolean,
+): T[] {
+  if (queryComplexityRoutingEnabled) return [...profiles];
+  return profiles.filter((p) => p.name !== AUTO_PROFILE_NAME);
 }
 
 /**

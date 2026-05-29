@@ -37,7 +37,7 @@ import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
-import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils";
+import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
 import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
@@ -85,10 +85,10 @@ import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constant
 import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useDeployStore } from "@/stores/deploy-store";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
-import type { SubagentState } from "@/domains/subagents/subagent-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import type { SubagentState } from "@/domains/chat/subagent-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
@@ -101,7 +101,7 @@ import {
   isSendDisabled,
   shouldShowThinkingIndicator,
   type UIContext,
-} from "@/stores/turn-selectors";
+} from "@/domains/chat/turn-selectors";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
 
 import { useViewerStore, type MainView, type OpenedAppState, type OpenedDocumentState } from "@/stores/viewer-store";
@@ -112,8 +112,10 @@ import { haptic } from "@/utils/haptics";
 import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
-import { type TurnState, useTurnStore } from "@/stores/turn-store";
-import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types";
+import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
@@ -1055,24 +1057,21 @@ export function ChatRouteContent({
   // Billing composer banner
   // -------------------------------------------------------------------------
 
+  const billingBannerDecision = getChatBillingBannerDecision(error);
+
   const renderBillingComposerBanner = (): ReactNode => {
-    const decision = getChatBillingBannerDecision(error);
-    if (decision === "managed_credits") {
+    if (billingBannerDecision === "managed_credits") {
       return (
-        <div className="mb-2">
-          <CreditsExhaustedBanner
-            onAddFunds={() => setShowAddCreditsModal(true)}
-          />
-        </div>
+        <CreditsExhaustedBanner
+          onAddFunds={() => setShowAddCreditsModal(true)}
+        />
       );
     }
-    if (decision === "provider_billing") {
+    if (billingBannerDecision === "provider_billing") {
       return (
-        <div className="mb-2">
-          <ProviderBillingBanner
-            onOpenSettings={pushToAiSettings}
-          />
-        </div>
+        <ProviderBillingBanner
+          onOpenSettings={pushToAiSettings}
+        />
       );
     }
     return null;
@@ -1324,6 +1323,7 @@ export function ChatRouteContent({
       />
     ),
     suggestion,
+    hasBillingBanner: billingBannerDecision !== null,
   };
 
   const chatBodyScrollAreaPropsBase = {
