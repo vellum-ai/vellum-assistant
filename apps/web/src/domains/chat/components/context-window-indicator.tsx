@@ -31,7 +31,7 @@ function resolveRingColor(ratio: number): string {
   if (ratio >= 0.6) {
     return "var(--system-mid-strong)";
   }
-  return "var(--content-tertiary)";
+  return "var(--system-positive-strong)";
 }
 
 function formatTokens(count: number): string {
@@ -141,10 +141,10 @@ function MobileSheetContent({
 }) {
   return (
     <>
-      <div className="flex flex-col items-center gap-4">
+      <div className="flex flex-col items-center gap-5">
         <span
           aria-hidden="true"
-          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full"
+          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl"
           style={{
             backgroundColor:
               "color-mix(in oklab, var(--primary-base) 16%, transparent)",
@@ -155,8 +155,8 @@ function MobileSheetContent({
 
         <BottomSheet.Title className="justify-center">Context Window</BottomSheet.Title>
 
-        <div className="w-full px-4">
-          <div className="relative h-2 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--content-tertiary)_20%,transparent)]">
+        <div className="w-full px-2">
+          <div className="relative h-3 w-full overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--content-tertiary)_20%,transparent)]">
             <div
               className="h-full rounded-full transition-[width] duration-250 ease-out"
               style={{
@@ -167,18 +167,18 @@ function MobileSheetContent({
           </div>
         </div>
 
-        <div className="flex flex-col items-center gap-1">
-          <span className="text-body-medium-emphasised text-[var(--content-default)]">
+        <div className="flex flex-col items-center gap-1.5">
+          <span className="text-body-large-default text-[var(--content-default)]">
             {percentage}% full
             {maxTokens != null && (
               <>
                 {" "}
-                <span className="text-[var(--content-secondary)]">•</span>{" "}
+                <span className="text-[var(--content-tertiary)]">•</span>{" "}
                 {formatTokens(tokens)} / {formatTokens(maxTokens)} tokens used
               </>
             )}
           </span>
-          <span className="text-body-small-default text-[var(--content-tertiary)]">
+          <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
             Vellum automatically compacts its context
           </span>
         </div>
