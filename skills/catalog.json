@@ -34,13 +34,15 @@
     {
       "id": "assistant-migration",
       "name": "assistant-migration",
-      "description": "Migrate from OpenClaw, Hermes, Manus, and other AI assistants into Vellum by inspecting their exports, files, prompts, memory, tools, workflows, integrations, and relationships, then mapping as much as safely possible into Vellum primitives.",
+      "description": "Migrate from ChatGPT, Claude, OpenClaw, Hermes, Manus, and other AI assistants into Vellum by inspecting their data exports, conversation archives, files, prompts, custom instructions, memory, saved memories, tools, GPTs, workflows, integrations, and relationships, then mapping as much as safely possible into Vellum primitives. Handles single-source and multi-source migrations with a unified, deduplicated inventory.",
       "metadata": {
         "emoji": "🧳",
         "vellum": {
           "display-name": "Assistant Migration",
           "activation-hints": [
-            "User wants to migrate from OpenClaw, Hermes, Manus, or another AI assistant into Vellum",
+            "User wants to migrate from ChatGPT, Claude, OpenClaw, Hermes, Manus, or another AI assistant into Vellum",
+            "User wants to migrate from ChatGPT or Claude into Vellum",
+            "User has a ChatGPT data export ZIP or Claude conversation/summary export",
             "User has an assistant export, workspace, prompt bundle, memory dump, tool config, or migration request from another assistant system",
             "User asks what can be preserved when switching from another assistant"
           ],
@@ -50,7 +52,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-21T21:01:42.000Z"
+      "updatedAt": "2026-05-29T03:20:47.000Z"
     },
     {
       "id": "chatgpt-import",
@@ -351,7 +353,7 @@
           "display-name": "LLM Cost Optimizer"
         }
       },
-      "updatedAt": "2026-05-26T18:11:54.000Z"
+      "updatedAt": "2026-05-28T21:37:15.000Z"
     },
     {
       "id": "macos-automation",
@@ -410,7 +412,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-05-28T17:12:12.000Z"
+      "updatedAt": "2026-05-28T17:50:13.000Z"
     },
     {
       "id": "meme-generator",
@@ -448,7 +450,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-28T08:20:55.000Z"
+      "updatedAt": "2026-05-28T21:40:34.000Z"
     },
     {
       "id": "notion",
