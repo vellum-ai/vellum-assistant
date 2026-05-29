@@ -131,16 +131,18 @@ Examples:
 
       avatar
         .command("remove")
-        .description("Remove custom avatar and restore character default")
+        .description("Reset the avatar to none (clears image and character)")
         .addHelpText(
           "after",
           `
-Removes the custom avatar image. If a native character was previously
-configured (character-traits.json still exists), it will be automatically
-restored the next time the avatar is regenerated.
+Resets the avatar to its empty state. This deletes ALL avatar artifacts —
+the custom image (avatar-image.png) AND any configured native character
+(character-traits.json / character-ascii.txt) — and marks the avatar as
+"none".
 
-Does not delete character-traits.json — the native character is preserved
-so it can be restored without reconfiguration.
+This is destructive: a previously configured native character is NOT
+preserved and will not be restored. Rebuild the character (or set a new
+image) to configure an avatar again.
 
 Examples:
   $ assistant avatar remove`,
