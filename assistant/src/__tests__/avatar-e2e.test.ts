@@ -6,10 +6,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockGeminiKey: string | undefined = "test-gemini-key";
 
-const mkdirSyncFn = mock(() => {});
-const writeFileSyncFn = mock(() => {});
-const renameSyncFn = mock(() => {});
-
 let logInfoCalls: Array<[unknown, string]> = [];
 let logErrorCalls: Array<[unknown, string]> = [];
 
@@ -79,16 +75,6 @@ mock.module("pino-pretty", () => ({
   default: () => ({ write: () => true }),
 }));
 
-mock.module("node:fs", () => ({
-  mkdirSync: mkdirSyncFn,
-  writeFileSync: writeFileSyncFn,
-  renameSync: renameSyncFn,
-}));
-
-mock.module("node:crypto", () => ({
-  randomUUID: () => "00000000-0000-0000-0000-000000000000",
-}));
-
 mock.module("@google/genai", () => ({
   GoogleGenAI: class {
     models = {
@@ -105,14 +91,14 @@ mock.module("@google/genai", () => ({
 }));
 
 // Import after all mocks are set up
-import { generateAndSaveAvatar } from "../tools/system/avatar-generator.js";
+import { generateAvatarImage } from "../tools/system/avatar-generator.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function executeAvatar(description: string) {
-  return generateAndSaveAvatar(description);
+  return generateAvatarImage(description);
 }
 
 /** Standard successful Gemini generateContent response. */
@@ -135,8 +121,6 @@ function geminiContentResponse() {
   };
 }
 
-const expectedAvatarPath = `${process.env.VELLUM_WORKSPACE_DIR}/data/avatar/avatar-image.png`;
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -147,9 +131,6 @@ describe("avatar E2E integration", () => {
 
   beforeEach(() => {
     mockGeminiKey = "test-gemini-key";
-    mkdirSyncFn.mockClear();
-    writeFileSyncFn.mockClear();
-    renameSyncFn.mockClear();
     geminiGenerateContentFn.mockClear();
 
     logInfoCalls = [];
@@ -174,29 +155,18 @@ describe("avatar E2E integration", () => {
   // 1. Local Gemini success
   // -----------------------------------------------------------------------
 
-  test("local Gemini success — file written, correct content, success message", async () => {
+  test("local Gemini success — returns PNG bytes and success message", async () => {
     const result = await executeAvatar("a friendly robot");
 
     // Verify success message
     expect(result.isError).toBe(false);
     expect(result.content).toContain("Avatar updated");
 
-    // Verify file was written
-    expect(mkdirSyncFn).toHaveBeenCalledTimes(1);
-    expect(writeFileSyncFn).toHaveBeenCalledTimes(1);
-    expect(renameSyncFn).toHaveBeenCalledTimes(1);
-
-    // Verify rename target is the expected avatar path
-    expect((renameSyncFn.mock.calls[0] as unknown[])[1]).toBe(
-      expectedAvatarPath,
-    );
-
-    // Verify the written buffer content matches the base64 data
-    const writtenBuffer = (
-      writeFileSyncFn.mock.calls[0] as unknown[]
-    )[1] as Buffer;
+    // Verify the returned buffer content matches the base64 data. Persistence
+    // is the caller's job (the route routes these bytes through the store).
     const expectedBuffer = Buffer.from("iVBORw0KGgoAAAANSUhEUg==", "base64");
-    expect(writtenBuffer.equals(expectedBuffer)).toBe(true);
+    expect(result.pngBuffer).not.toBeNull();
+    expect(result.pngBuffer?.equals(expectedBuffer)).toBe(true);
 
     // Verify Gemini was called
     expect(geminiGenerateContentFn).toHaveBeenCalledTimes(1);

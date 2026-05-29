@@ -7,7 +7,6 @@ import { ConstellationView } from "@/domains/intelligence/components/constellati
 import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
 import { AvatarManagementModal } from "@/components/avatar/avatar-management-modal";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
-import { deleteAvatar } from "@/assistant/avatar-api";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { fetchSkills, installSkill, uninstallSkill } from "@/domains/intelligence/skills/api";
@@ -235,13 +234,6 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
     onOpenThread?.("I'd like to create a custom AI-generated avatar.");
   }, [onOpenThread]);
 
-  const handleDeleteAvatar = useCallback(async () => {
-    const ok = await deleteAvatar(assistantId);
-    if (ok) {
-      invalidateAvatar();
-    }
-  }, [assistantId, invalidateAvatar]);
-
   const invalidateSkills = useCallback(() => {
     void queryClient.invalidateQueries({
       queryKey: ["assistantSkills", assistantId],
@@ -393,7 +385,6 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
         onSaveCharacter={handleAvatarChange}
         onUploadImage={handleAvatarChange}
         onGenerateWithAI={onOpenThread ? handleGenerateWithAI : undefined}
-        onDeleteAvatar={handleDeleteAvatar}
       />
       {removalDialog}
     </div>
