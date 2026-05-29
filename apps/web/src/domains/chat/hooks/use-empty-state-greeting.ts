@@ -2,14 +2,16 @@
  * React hook that fetches a personalized empty-state greeting from the daemon.
  *
  * Calls `GET /v1/assistants/{assistant_id}/identity/intro` which returns a
- * deterministic greeting derived from the assistant's IDENTITY.md name (e.g.
- * "Hi, I'm Pax!"). Falls back to {@link DEFAULT_EMPTY_STATE_GREETING} when the
- * assistant ID is missing, the daemon is unreachable, or the response is empty.
+ * list of greetings derived from SOUL.md, cached model output, or the
+ * assistant's IDENTITY.md name. Falls back to
+ * {@link DEFAULT_EMPTY_STATE_GREETING} when the assistant ID is missing, the
+ * daemon is unreachable, or the response is empty.
  *
  * The query has a long `staleTime` (5 minutes) since the intro text only
- * changes when the user renames the assistant — a rare operation.
+ * changes when the assistant's identity or soul prompt changes.
  */
 
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import {
@@ -18,19 +20,26 @@ import {
   SDK_BASE_OPTIONS,
 } from "@/domains/chat/api/client";
 import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants";
+import type { IdentityIntroGetResponse } from "@/generated/daemon/types.gen";
+import { assistantIdentityIntroQueryKey } from "@/lib/sync/query-tags";
 
 const STALE_TIME_MS = 5 * 60 * 1000;
 
-interface IdentityIntroResponse {
-  text: string;
-}
+type IdentityIntroResponse = Partial<IdentityIntroGetResponse> & {
+  greetings?: unknown;
+  text?: unknown;
+};
+
+type IdentityIntroResponses = {
+  200: IdentityIntroResponse;
+};
 
 async function fetchIdentityIntro(
   assistantId: string,
-): Promise<string | null> {
+): Promise<readonly string[] | null> {
   try {
     const { data, error, response } = await client.get<
-      IdentityIntroResponse,
+      IdentityIntroResponses,
       unknown
     >({
       ...SDK_BASE_OPTIONS,
@@ -44,12 +53,38 @@ async function fetchIdentityIntro(
       return null;
     }
 
-    const text =
-      typeof data.text === "string" ? data.text.trim() : null;
-    return text || null;
+    return normalizeIdentityIntroCandidates(data);
   } catch {
     return null;
   }
+}
+
+function normalizeIdentityIntroCandidates(
+  data: IdentityIntroResponse,
+): readonly string[] | null {
+  if (Array.isArray(data.greetings)) {
+    const greetings = data.greetings
+      .filter((candidate): candidate is string => typeof candidate === "string")
+      .map((candidate) => candidate.trim())
+      .filter(Boolean);
+    if (greetings.length > 0) {
+      return greetings;
+    }
+  }
+
+  const text = typeof data.text === "string" ? data.text.trim() : "";
+  return text ? [text] : null;
+}
+
+function pickGreetingCandidate(
+  candidates: readonly string[] | null | undefined,
+): string | null {
+  if (!candidates || candidates.length === 0) return null;
+  const index = Math.min(
+    candidates.length - 1,
+    Math.floor(Math.random() * candidates.length),
+  );
+  return candidates[index] ?? null;
 }
 
 export function useEmptyStateGreeting(
@@ -57,12 +92,17 @@ export function useEmptyStateGreeting(
 ): string {
   const enabled = Boolean(assistantId);
 
-  const query = useQuery<string | null>({
-    queryKey: ["identity-intro", assistantId],
+  const query = useQuery<readonly string[] | null>({
+    queryKey: assistantIdentityIntroQueryKey(assistantId),
     queryFn: () => fetchIdentityIntro(assistantId!),
     enabled,
     staleTime: STALE_TIME_MS,
   });
 
-  return query.data ?? DEFAULT_EMPTY_STATE_GREETING;
+  const greeting = useMemo(
+    () => pickGreetingCandidate(query.data),
+    [query.data],
+  );
+
+  return greeting ?? DEFAULT_EMPTY_STATE_GREETING;
 }
