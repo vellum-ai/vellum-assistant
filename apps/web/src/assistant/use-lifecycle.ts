@@ -25,7 +25,12 @@ import {
 } from "@/assistant/queries";
 import type { AssistantState } from "@/assistant/types";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
-import { getSelectedAssistant, getLocalGatewayUrl, isLocalMode } from "@/lib/local-mode";
+import {
+  getSelectedAssistant,
+  getLocalGatewayUrl,
+  isLocalMode,
+  isStage1PlatformProxyEnabled,
+} from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 
 
@@ -426,9 +431,22 @@ export function useAssistantLifecycle({
     setAssistantState({ kind: "active", isLocal: true });
   }, []);
 
+  const applyStage1PlatformProxyShortCircuit = useCallback(() => {
+    const assistant = getSelectedAssistant();
+    if (!assistant?.resources?.gatewayPort) return false;
+
+    setSelfHostedConnection(null);
+    setAssistantId(assistant.assistantId);
+    setAssistantState({ kind: "active", isLocal: true });
+    return true;
+  }, []);
+
   const checkAssistant = useCallback(async () => {
     if (isGatewayAuthMode()) {
       applyGatewayAuthShortCircuit();
+      return;
+    }
+    if (isStage1PlatformProxyEnabled() && applyStage1PlatformProxyShortCircuit()) {
       return;
     }
     const generation = initializingGenerationRef.current;
@@ -576,6 +594,9 @@ export function useAssistantLifecycle({
       applyGatewayAuthShortCircuit();
       return;
     }
+    if (isStage1PlatformProxyEnabled() && applyStage1PlatformProxyShortCircuit()) {
+      return;
+    }
     // In local mode without a gateway token AND no platform session,
     // the platform API isn't available — redirect to onboarding.
     // If the user logged in and chose Vellum Cloud, hasPlatformSession
@@ -593,7 +614,7 @@ export function useAssistantLifecycle({
       return;
     }
     checkAssistant();
-  }, [isLoggedIn, isLoading, hasPlatformSession, checkAssistant, applyGatewayAuthShortCircuit]);
+  }, [isLoggedIn, isLoading, hasPlatformSession, checkAssistant, applyGatewayAuthShortCircuit, applyStage1PlatformProxyShortCircuit]);
 
   // While the lifecycle is transient (`initializing` / `cleaning_up`),
   // project each new query result into local state. The query polls

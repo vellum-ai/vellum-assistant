@@ -8,6 +8,7 @@ import type { Plugin, Connect } from "vite";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 const CLI_PACKAGE_NAME = "@vellumai/cli";
+const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
 
 let _resolvedCliPath: string | undefined;
 
@@ -119,9 +120,11 @@ export function localModePlugin(env: Record<string, string>): Plugin {
     name: "vellum-local-mode",
     configureServer(server) {
       server.middlewares.use(lockfileMiddleware(lockfilePaths));
+      server.middlewares.use(localModeDiagnosticsMiddleware(env));
       server.middlewares.use(hatchMiddleware());
       server.middlewares.use(retireMiddleware());
       server.middlewares.use(guardianTokenMiddleware(env));
+      server.middlewares.use(stage1PlatformProxyMiddleware(env, lockfilePaths));
       server.middlewares.use(gatewayProxyMiddleware());
     },
   };
@@ -144,6 +147,28 @@ function lockfileMiddleware(
       res.statusCode = 405;
       res.end();
     }
+  };
+}
+
+function localModeDiagnosticsMiddleware(
+  env: Record<string, string>,
+): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (
+      req.url !== "/assistant/__local/stage1-proxy-status" &&
+      req.url !== "/__local/stage1-proxy-status"
+    ) {
+      return next();
+    }
+
+    res.setHeader("Content-Type", "application/json");
+    res.end(
+      JSON.stringify({
+        enabled: isStage1PlatformProxyEnabledForEnv(env),
+        stage1Flag: env[STAGE1_PLATFORM_PROXY_FLAG] ?? null,
+        platformMode: env.VITE_PLATFORM_MODE ?? null,
+      }),
+    );
   };
 }
 
@@ -661,6 +686,352 @@ function guardianTokenMiddleware(
     child.on("error", (err) => {
       respond(500, { error: `Failed to spawn CLI: ${err.message}` });
     });
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Stage 1 platform proxy middleware
+// ---------------------------------------------------------------------------
+
+const STAGE1_PLATFORM_PROXY_FLAG = "VITE_LOCAL_PLATFORM_PROXY_STAGE1";
+const STAGE1_ASSISTANT_ID_RE = /^[A-Za-z0-9_.:-]+$/;
+const STAGE1_ALLOWED_ASSISTANT_SEGMENTS = new Set([
+  "attachments",
+  "config",
+  "conversations",
+  "events",
+  "feature-flags",
+  "identity",
+  "messages",
+]);
+const STAGE1_BLOCKED_ASSISTANT_SEGMENTS = new Set([
+  "auth",
+  "guardian",
+  "pair",
+]);
+const STAGE1_REQUEST_HEADER_ALLOWLIST = new Set([
+  "accept",
+  "content-length",
+  "content-type",
+  "x-vellum-client-id",
+  "x-vellum-interface-id",
+]);
+const STAGE1_RESPONSE_HEADER_BLOCKLIST = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "set-cookie",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+
+type Stage1ProxyRequest =
+  | {
+      kind: "proxy";
+      assistantId: string;
+      firstSegment: string;
+      targetPath: string;
+    }
+  | { kind: "reject" };
+
+interface Stage1LocalAssistant {
+  assistantId: string;
+  gatewayPort: number;
+}
+
+interface Stage1GatewayTokenCacheEntry {
+  token: string;
+  expiresAt: number;
+}
+
+class Stage1PlatformProxyError extends Error {
+  constructor(
+    readonly statusCode: number,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+const stage1GatewayTokenCache = new Map<string, Stage1GatewayTokenCacheEntry>();
+
+export function isStage1PlatformProxyEnabledForEnv(
+  env: Record<string, string>,
+): boolean {
+  return PLATFORM_MODE_TRUTHY.has(
+    (env[STAGE1_PLATFORM_PROXY_FLAG] ?? "").toLowerCase(),
+  );
+}
+
+export function resolveStage1PlatformProxyRequest(
+  rawUrl: string | undefined,
+): Stage1ProxyRequest | null {
+  if (!rawUrl) return null;
+
+  let url: URL;
+  try {
+    url = new URL(rawUrl, "http://localhost");
+  } catch {
+    return null;
+  }
+
+  const pathname = url.pathname.replace(/^\/assistant(?=\/v1\/)/, "");
+  const match = /^\/v1\/assistants\/([^/]+)\/([^/?#]+)(?:\/.*)?$/.exec(
+    pathname,
+  );
+  if (!match) return null;
+
+  const assistantId = match[1]!;
+  const firstSegment = match[2]!;
+  if (!STAGE1_ASSISTANT_ID_RE.test(assistantId)) {
+    return { kind: "reject" };
+  }
+  if (
+    STAGE1_BLOCKED_ASSISTANT_SEGMENTS.has(firstSegment) ||
+    !STAGE1_ALLOWED_ASSISTANT_SEGMENTS.has(firstSegment)
+  ) {
+    return { kind: "reject" };
+  }
+
+  return {
+    kind: "proxy",
+    assistantId,
+    firstSegment,
+    targetPath: `${pathname}${url.search}`,
+  };
+}
+
+export function buildStage1PlatformProxyHeaders(
+  incomingHeaders: http.IncomingHttpHeaders,
+  gatewayPort: number,
+  token: string,
+): http.OutgoingHttpHeaders {
+  const headers: http.OutgoingHttpHeaders = {
+    authorization: `Bearer ${token}`,
+    host: `127.0.0.1:${gatewayPort}`,
+    "x-vellum-stage1-platform-proxy": "true",
+  };
+
+  for (const [rawName, value] of Object.entries(incomingHeaders)) {
+    const name = rawName.toLowerCase();
+    if (!STAGE1_REQUEST_HEADER_ALLOWLIST.has(name)) continue;
+    headers[name] = value;
+  }
+
+  return headers;
+}
+
+export function stage1PlatformProxyResponseHeaders(
+  incomingHeaders: http.IncomingHttpHeaders,
+): http.OutgoingHttpHeaders {
+  const headers: http.OutgoingHttpHeaders = {
+    "x-vellum-stage1-platform-proxy": "true",
+  };
+  for (const [rawName, value] of Object.entries(incomingHeaders)) {
+    const name = rawName.toLowerCase();
+    if (STAGE1_RESPONSE_HEADER_BLOCKLIST.has(name)) continue;
+    headers[name] = value;
+  }
+  return headers;
+}
+
+function sendStage1PlatformProxyError(
+  res: http.ServerResponse,
+  statusCode: number,
+  error: string,
+): void {
+  if (res.headersSent) return;
+  res.statusCode = statusCode;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify({ error }));
+}
+
+function readStage1Lockfile(lockfilePaths: string[]): Record<string, unknown> {
+  for (const candidate of lockfilePaths) {
+    try {
+      return JSON.parse(fs.readFileSync(candidate, "utf-8")) as Record<
+        string,
+        unknown
+      >;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw new Stage1PlatformProxyError(500, "Failed to read lockfile");
+    }
+  }
+  return { assistants: [] };
+}
+
+function getStage1LocalAssistant(
+  lockfilePaths: string[],
+  assistantId: string,
+): Stage1LocalAssistant | null {
+  const lockfile = readStage1Lockfile(lockfilePaths);
+  const assistants = lockfile.assistants;
+  if (!Array.isArray(assistants)) return null;
+
+  for (const assistant of assistants) {
+    if (!assistant || typeof assistant !== "object") continue;
+    const entry = assistant as Record<string, unknown>;
+    if (entry.assistantId !== assistantId || entry.cloud !== "local") continue;
+
+    const resources = entry.resources;
+    if (!resources || typeof resources !== "object") return null;
+    const gatewayPort = (resources as Record<string, unknown>).gatewayPort;
+    if (typeof gatewayPort !== "number" || !Number.isInteger(gatewayPort)) {
+      return null;
+    }
+    if (gatewayPort < 1024 || gatewayPort > 65535) {
+      return null;
+    }
+    return { assistantId, gatewayPort };
+  }
+
+  return null;
+}
+
+function loadGuardianAccessTokenForStage1(
+  env: Record<string, string>,
+  assistantId: string,
+): string {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(resolveGuardianTokenPath(env, assistantId), "utf-8");
+  } catch {
+    throw new Stage1PlatformProxyError(401, "Guardian token not found");
+  }
+
+  let data: GuardianTokenData;
+  try {
+    data = JSON.parse(raw) as GuardianTokenData;
+  } catch {
+    throw new Stage1PlatformProxyError(500, "Malformed guardian token file");
+  }
+
+  if (!data.accessToken || isAccessTokenExpired(data)) {
+    throw new Stage1PlatformProxyError(
+      401,
+      "Guardian token expired; run `vellum wake` and reload",
+    );
+  }
+
+  return data.accessToken;
+}
+
+async function acquireGatewayTokenForStage1(
+  env: Record<string, string>,
+  assistant: Stage1LocalAssistant,
+): Promise<string> {
+  const cacheKey = `${assistant.assistantId}:${assistant.gatewayPort}`;
+  const cached = stage1GatewayTokenCache.get(cacheKey);
+  if (cached && Date.now() / 1000 < cached.expiresAt - 60) {
+    return cached.token;
+  }
+
+  const guardianToken = loadGuardianAccessTokenForStage1(
+    env,
+    assistant.assistantId,
+  );
+  const response = await fetch(
+    `http://127.0.0.1:${assistant.gatewayPort}/auth/token`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${guardianToken}`,
+        Origin: "http://localhost:3000",
+      },
+    },
+  );
+  if (!response.ok) {
+    throw new Stage1PlatformProxyError(
+      response.status,
+      "Gateway token request failed",
+    );
+  }
+
+  const body = (await response.json()) as {
+    token?: unknown;
+    expiresAt?: unknown;
+  };
+  if (typeof body.token !== "string" || typeof body.expiresAt !== "number") {
+    throw new Stage1PlatformProxyError(
+      502,
+      "Gateway token response was malformed",
+    );
+  }
+
+  stage1GatewayTokenCache.set(cacheKey, {
+    token: body.token,
+    expiresAt: body.expiresAt,
+  });
+  return body.token;
+}
+
+function stage1PlatformProxyMiddleware(
+  env: Record<string, string>,
+  lockfilePaths: string[],
+): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (!isStage1PlatformProxyEnabledForEnv(env)) return next();
+
+    const resolved = resolveStage1PlatformProxyRequest(req.url);
+    if (!resolved) return next();
+    if (resolved.kind === "reject") {
+      sendStage1PlatformProxyError(res, 404, "Not found");
+      return;
+    }
+
+    let assistant: Stage1LocalAssistant | null;
+    try {
+      assistant = getStage1LocalAssistant(lockfilePaths, resolved.assistantId);
+    } catch (err) {
+      const statusCode =
+        err instanceof Stage1PlatformProxyError ? err.statusCode : 500;
+      sendStage1PlatformProxyError(res, statusCode, "Proxy setup failed");
+      return;
+    }
+
+    if (!assistant) {
+      sendStage1PlatformProxyError(res, 404, "Assistant not found");
+      return;
+    }
+
+    void acquireGatewayTokenForStage1(env, assistant)
+      .then((token) => {
+        const proxyReq = http.request(
+          {
+            hostname: "127.0.0.1",
+            port: assistant.gatewayPort,
+            path: resolved.targetPath,
+            method: req.method,
+            headers: buildStage1PlatformProxyHeaders(
+              req.headers,
+              assistant.gatewayPort,
+              token,
+            ),
+          },
+          (proxyRes) => {
+            res.writeHead(
+              proxyRes.statusCode ?? 502,
+              stage1PlatformProxyResponseHeaders(proxyRes.headers),
+            );
+            proxyRes.pipe(res);
+          },
+        );
+
+        proxyReq.on("error", () => {
+          sendStage1PlatformProxyError(res, 502, "Gateway proxy error");
+        });
+
+        req.pipe(proxyReq);
+      })
+      .catch((err: unknown) => {
+        const statusCode =
+          err instanceof Stage1PlatformProxyError ? err.statusCode : 502;
+        sendStage1PlatformProxyError(res, statusCode, "Gateway proxy error");
+      });
   };
 }
 

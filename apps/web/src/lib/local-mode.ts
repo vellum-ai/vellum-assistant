@@ -54,10 +54,35 @@ const SELECTED_ASSISTANT_STORAGE_KEY = "vellum:local:selectedAssistantId";
 
 const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
 
+function readEnvValue(key: string): string | undefined {
+  const processEnv = (
+    globalThis as typeof globalThis & {
+      process?: { env?: Record<string, string | undefined> };
+    }
+  ).process?.env;
+  const processValue = processEnv?.[key];
+  if (typeof processValue === "string") return processValue;
+
+  return (import.meta.env as Record<string, string | undefined> | undefined)?.[
+    key
+  ];
+}
+
+function isTruthyEnvValue(raw: string | undefined): boolean {
+  return raw != null && PLATFORM_MODE_TRUTHY.has(raw.toLowerCase());
+}
+
 export function isLocalMode(): boolean {
-  const raw = import.meta.env.VITE_PLATFORM_MODE;
+  const raw = readEnvValue("VITE_PLATFORM_MODE");
   if (!raw) return true;
-  return !PLATFORM_MODE_TRUTHY.has(raw.toLowerCase());
+  return !isTruthyEnvValue(raw);
+}
+
+export function isStage1PlatformProxyEnabled(): boolean {
+  return (
+    isLocalMode() &&
+    isTruthyEnvValue(readEnvValue("VITE_LOCAL_PLATFORM_PROXY_STAGE1"))
+  );
 }
 
 export async function loadLockfile(): Promise<Lockfile> {
@@ -275,6 +300,12 @@ export async function fetchGuardianToken(assistantId: string): Promise<string> {
  * In Electron, replace with direct IPC token acquisition. (LUM-1999)
  */
 export async function primeLocalGatewayConnection(): Promise<void> {
+  if (isStage1PlatformProxyEnabled()) {
+    clearGatewayToken();
+    setSelfHostedConnection(null);
+    return;
+  }
+
   const tokenUrl = getLocalTokenUrl();
   if (!tokenUrl) return;
   const assistant = getSelectedAssistant();
