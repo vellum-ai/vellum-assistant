@@ -1,6 +1,8 @@
 import { BrowserWindow, app, ipcMain, shell } from "electron";
 import path from "node:path";
 
+import { RENDERER_BASE_PROD, getDevRendererBase } from "./app-config";
+
 /**
  * Branded About window — replaces Electron's default `aboutPanel`
  * (which only shows the bundle name) with the same information surface
@@ -60,14 +62,8 @@ export const getVersionInfo = (): AppVersionInfo => ({
 const ABOUT_PATH = "/about";
 
 const aboutWindowUrl = (): string => {
-  if (app.isPackaged) return `app://vellum.ai/assistant${ABOUT_PATH}`;
-  // Dev: build atop the same env-var the main window honors. Strip any
-  // trailing slash so a `VELLUM_DEV_URL=http://localhost:5173/assistant/`
-  // override doesn't produce `/assistant//about`.
-  const devBase = (
-    process.env.VELLUM_DEV_URL ?? "http://localhost:5173/assistant"
-  ).replace(/\/+$/, "");
-  return `${devBase}${ABOUT_PATH}`;
+  const base = app.isPackaged ? RENDERER_BASE_PROD : getDevRendererBase();
+  return `${base}${ABOUT_PATH}`;
 };
 
 // Module-scope handle so reopening the menu item focuses the existing

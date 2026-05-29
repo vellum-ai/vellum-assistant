@@ -67,8 +67,15 @@ const state: DockState = {
 
 let refreshTimer: NodeJS.Timeout | null = null;
 
+// Counts windows the user can actually see. Hiding the main window via
+// the tray (rather than closing it) keeps the `BrowserWindow` instance
+// alive in `getAllWindows()` but `isVisible()` returns `false` — without
+// the filter the policy would think there's still a visible window and
+// stay in `regular` mode instead of dropping to `accessory`.
 const visibleWindowCount = (): number =>
-  BrowserWindow.getAllWindows().filter((win) => !win.isDestroyed()).length;
+  BrowserWindow.getAllWindows().filter(
+    (win) => !win.isDestroyed() && win.isVisible(),
+  ).length;
 
 // Pure function of (visible window count, signed-in flag, accessory-mode
 // gate). Factored out of the caller so tests can exercise the matrix
@@ -160,6 +167,13 @@ export const installDock = (): void => {
   // flipped), and opening the first one transitions us back to regular.
   app.on("browser-window-created", (_event, win) => {
     scheduleRefresh();
+    // The visible-window count drives the accessory-mode transition,
+    // so we refresh on every visibility change — not just on
+    // create/destroy. Without `show`/`hide` listeners, hiding the
+    // main window via the tray would leave the policy thinking a
+    // visible window exists.
+    win.on("show", scheduleRefresh);
+    win.on("hide", scheduleRefresh);
     win.once("closed", scheduleRefresh);
   });
 

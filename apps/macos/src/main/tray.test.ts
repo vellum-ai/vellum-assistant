@@ -44,6 +44,7 @@ const createFromBitmapMock = mock((_buf: unknown, _opts: unknown) => ({
 mock.module("electron", () => ({
   app: {
     name: "Vellum Electron",
+    on: () => undefined,
   },
   // `./commands` imports `BrowserWindow` at the top level for
   // `dispatchToFocused` — provide a stub so the import resolves even
@@ -83,7 +84,7 @@ const { installTray } = await import("./tray");
 describe("installTray", () => {
   const handlers = {
     toggleMainWindow: mock(() => undefined),
-    ensureMainWindow: mock(() => undefined),
+    ensureMainWindow: mock(() => Promise.resolve()),
     openAbout: mock(() => undefined),
   };
 

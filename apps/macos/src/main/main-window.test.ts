@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 type StubWebContents = {
   on: ReturnType<typeof mock>;
+  once: (event: string, handler: () => void) => void;
+  emit: (event: string) => void;
 };
 type StubWindow = {
   show: ReturnType<typeof mock>;
@@ -70,7 +72,21 @@ const makeWindow = (): StubWindow => {
       listeners.set(event, arr);
       return stub;
     },
-    webContents: { on: mock(() => undefined) },
+    webContents: ((): StubWebContents => {
+      const wcListeners = new Map<string, Array<() => void>>();
+      const wc: StubWebContents = {
+        on: mock(() => undefined),
+        once: (event, handler) => {
+          const arr = wcListeners.get(event) ?? [];
+          arr.push(handler);
+          wcListeners.set(event, arr);
+        },
+        emit: (event) => {
+          for (const h of wcListeners.get(event) ?? []) h();
+        },
+      };
+      return wc;
+    })(),
     emit: (event) => {
       if (event === "closed") state.destroyed = true;
       for (const h of listeners.get(event) ?? []) h();

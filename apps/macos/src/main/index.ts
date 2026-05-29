@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 import path from "node:path";
 
 import { installAbout, openAboutWindow } from "./about";
+import { APP_PROTOCOL } from "./app-config";
 import { resolveAppProtocolPath } from "./app-protocol";
 import { installDock } from "./dock";
 import {
@@ -41,9 +42,6 @@ import { installTray } from "./tray";
 if (!app.isPackaged) {
   app.setName("Vellum Electron");
 }
-const APP_PROTOCOL = "app";
-const APP_HOST = "vellum.ai";
-
 const isDev = !app.isPackaged;
 
 // Single-instance lock: relaunches focus the existing window instead of

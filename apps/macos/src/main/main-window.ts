@@ -1,6 +1,12 @@
 import { BrowserWindow, app, shell } from "electron";
 import path from "node:path";
 
+import {
+  APP_HOST,
+  APP_PROTOCOL,
+  RENDERER_BASE_PROD,
+  getDevRendererBase,
+} from "./app-config";
 import { restoreBounds, track as trackWindowState } from "./window-state";
 
 /**
@@ -36,30 +42,37 @@ import { restoreBounds, track as trackWindowState } from "./window-state";
  * `whenReady` to create the initial window.
  */
 
-// Mirrors the protocol constants used by `registerAppProtocol` in
-// `index.ts`. Inlined rather than imported across files because the
-// surface is small and the protocol scheme is part of the app's
-// stable identity — drift surfaces immediately as a broken renderer
-// load. If a third caller needs these, lift to a shared module.
-const APP_PROTOCOL = "app";
-const APP_HOST = "vellum.ai";
-
-const devServerUrl = (): string =>
-  process.env.VELLUM_DEV_URL ?? "http://localhost:5173/assistant";
-
-const loadUrl = (): string =>
-  app.isPackaged
-    ? `${APP_PROTOCOL}://${APP_HOST}/index.html`
-    : devServerUrl();
-
 let mainWindow: BrowserWindow | null = null;
 
-const installSameOriginNavigationGuard = (win: BrowserWindow): void => {
+// Tracks whether the current `mainWindow`'s renderer has finished
+// loading. The tray's command menu items rely on this — `ensureVisible`
+// can return a fresh BrowserWindow whose React tree (and the
+// `useVellumCommands` IPC listener) hasn't subscribed yet, so a bare
+// `dispatchToFocused` would drop the command. `whenReady` is the
+// awaitable seam; the tray composes `await ensureVisible()` before
+// `dispatchToFocused(...)`. Reset on every `createWindow` so the
+// per-window readiness signal stays accurate.
+let renderReady: Promise<void> = Promise.resolve();
+let resolveRenderReady: (() => void) | null = null;
+
+const armRenderReady = (): void => {
+  renderReady = new Promise<void>((resolve) => {
+    resolveRenderReady = resolve;
+  });
+};
+
+interface NavigationGuardConfig {
+  isDev: boolean;
+  devOrigin: string;
+}
+
+const installSameOriginNavigationGuard = (
+  win: BrowserWindow,
+  { isDev, devOrigin }: NavigationGuardConfig,
+): void => {
   // Scoped to the main window — popups (OAuth flows etc.) need to
   // redirect between provider domains and our callback origin, so
   // they're left unrestricted.
-  const isDev = !app.isPackaged;
-  const devOrigin = new URL(devServerUrl()).origin;
   win.webContents.on("will-navigate", (event, url) => {
     let target: URL;
     try {
@@ -86,6 +99,14 @@ const installSameOriginNavigationGuard = (win: BrowserWindow): void => {
 };
 
 const createWindow = (): BrowserWindow => {
+  // Resolve the dev URL once per window construction so the loader
+  // and the navigation guard see a consistent string even if
+  // `VELLUM_DEV_URL` is mutated mid-process.
+  const isDev = !app.isPackaged;
+  const devBase = isDev ? getDevRendererBase() : null;
+  const loadTarget = devBase ?? `${RENDERER_BASE_PROD}/index.html`;
+  const devOrigin = devBase ? new URL(devBase).origin : "";
+
   const win = new BrowserWindow({
     ...restoreBounds("main", { width: 1280, height: 800 }),
     show: false,
@@ -103,6 +124,12 @@ const createWindow = (): BrowserWindow => {
 
   trackWindowState("main", win);
 
+  armRenderReady();
+  win.webContents.once("did-finish-load", () => {
+    resolveRenderReady?.();
+    resolveRenderReady = null;
+  });
+
   win.once("ready-to-show", () => {
     win.show();
   });
@@ -111,25 +138,37 @@ const createWindow = (): BrowserWindow => {
     if (mainWindow === win) mainWindow = null;
   });
 
-  installSameOriginNavigationGuard(win);
+  installSameOriginNavigationGuard(win, { isDev, devOrigin });
 
-  const target = loadUrl();
-  win.loadURL(target).catch((err: unknown) => {
-    console.error(`[main-window] loadURL failed for ${target}:`, err);
+  win.loadURL(loadTarget).catch((err: unknown) => {
+    console.error(`[main-window] loadURL failed for ${loadTarget}:`, err);
   });
 
   mainWindow = win;
   return win;
 };
 
-export const ensureVisible = (): void => {
+/**
+ * Recreate if destroyed, restore from minimize, show, focus. Returns
+ * a Promise that resolves once the renderer has finished loading, so
+ * callers that immediately dispatch IPC commands (the tray) can await
+ * before the dispatch. Callers that don't need the renderer (the
+ * `activate` handler, `second-instance`) can `void` the return.
+ *
+ * Residual race: `did-finish-load` fires after the bundle parses but
+ * before React mounts. In practice the gap is small (~ms) and bigger
+ * tickets land an explicit "renderer ready for commands" IPC handshake;
+ * for the tray's clicks this is good enough.
+ */
+export const ensureVisible = (): Promise<void> => {
   if (!mainWindow || mainWindow.isDestroyed()) {
     createWindow();
-    return;
+    return renderReady;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+  return renderReady;
 };
 
 export const hide = (): void => {
@@ -148,7 +187,7 @@ export const toggleVisibility = (): void => {
     hide();
     return;
   }
-  ensureVisible();
+  void ensureVisible();
 };
 
 /**
@@ -167,5 +206,5 @@ let installed = false;
 export const installMainWindow = (): void => {
   if (installed) return;
   installed = true;
-  ensureVisible();
+  void ensureVisible();
 };

@@ -43,11 +43,12 @@ export interface TrayHandlers {
    * Bound to the conversation menu items below. Renderer-bound
    * commands (`newConversation`, `currentConversation`) only update
    * state — without surfacing the window first, nothing visible
-   * happens when the user picks them from the tray. Call this before
-   * `dispatchToFocused` so the window is up by the time the renderer
-   * processes the command.
+   * happens when the user picks them from the tray. Returns a Promise
+   * that resolves once the renderer has finished loading, so the
+   * dispatched command isn't dropped on the floor if the BrowserWindow
+   * was just recreated.
    */
-  ensureMainWindow(): void;
+  ensureMainWindow(): Promise<void>;
   /**
    * Open (or focus the existing) About window.
    */
@@ -101,16 +102,16 @@ const buildTrayMenu = (handlers: TrayHandlers): Menu =>
     {
       label: "New Conversation",
       accelerator: resolveAccelerator("newConversation"),
-      click: () => {
-        handlers.ensureMainWindow();
+      click: async () => {
+        await handlers.ensureMainWindow();
         dispatchToFocused({ kind: "newConversation" });
       },
     },
     {
       label: "Current Conversation",
       accelerator: resolveAccelerator("currentConversation"),
-      click: () => {
-        handlers.ensureMainWindow();
+      click: async () => {
+        await handlers.ensureMainWindow();
         dispatchToFocused({ kind: "currentConversation" });
       },
     },
@@ -163,5 +164,14 @@ export const installTray = (handlers: TrayHandlers): void => {
   const menu = buildTrayMenu(handlers);
   trayInstance.on("right-click", () => {
     trayInstance?.popUpContextMenu(menu);
+  });
+
+  // Explicit destroy on quit. In production the OS releases the
+  // NSStatusItem when the process exits anyway; in dev with main-process
+  // hot reload, freeing the JS handle ourselves avoids a ghost menu-bar
+  // icon for a beat between reloads.
+  app.on("before-quit", () => {
+    trayInstance?.destroy();
+    trayInstance = null;
   });
 };
