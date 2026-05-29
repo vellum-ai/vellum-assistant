@@ -311,6 +311,7 @@ const POLICY_TABLE: PolicyEntry[] = [
   ["recordings_stop", ["settings.write"]],
 
   // Avatar
+  ["avatar_get_state", ["settings.read"]],
   ["avatar_upload_image", ["settings.write"]],
 
   // Settings

@@ -1947,6 +1947,41 @@ paths:
           schema:
             type: string
           description: '"path" or "base64"'
+  /v1/avatar/image:
+    post:
+      operationId: avatar_image_post
+      summary: Upload avatar image
+      description: Upload a base64-encoded image as the avatar; writes the PNG and clears character traits atomically.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                encoding:
+                  type: string
+                  const: base64
+              required:
+                - content
+              additionalProperties: false
   /v1/avatar/notify-updated:
     post:
       operationId: avatar_notifyupdated_post
@@ -2060,6 +2095,70 @@ paths:
               required:
                 - imagePath
               additionalProperties: false
+  /v1/avatar/state:
+    get:
+      operationId: avatar_state_get
+      summary: Get avatar state
+      description: Return the authoritative avatar render mode (character, image, or none).
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum:
+                      - character
+                      - image
+                      - none
+                  traits:
+                    anyOf:
+                      - type: object
+                        properties:
+                          bodyShape:
+                            type: string
+                          eyeStyle:
+                            type: string
+                          color:
+                            type: string
+                        required:
+                          - bodyShape
+                          - eyeStyle
+                          - color
+                        additionalProperties: false
+                      - type: "null"
+                  source:
+                    anyOf:
+                      - type: string
+                        enum:
+                          - builder
+                          - upload
+                          - ai
+                      - type: "null"
+                  image:
+                    anyOf:
+                      - type: object
+                        properties:
+                          updatedAt:
+                            type: string
+                          etag:
+                            type: string
+                        required:
+                          - updatedAt
+                          - etag
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - kind
+                  - traits
+                  - source
+                  - image
+                additionalProperties: false
   /v1/background-tools:
     get:
       operationId: backgroundtools_get
