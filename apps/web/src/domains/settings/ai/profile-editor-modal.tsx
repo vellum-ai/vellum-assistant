@@ -604,6 +604,16 @@ function ProfileEditorModalInner({
     availableConnectionsForProvider,
   ]);
 
+  useEffect(() => {
+    if (
+      model &&
+      availableModels.length > 0 &&
+      !availableModels.some((m) => m.id === model)
+    ) {
+      setModel("");
+    }
+  }, [model, availableModels]);
+
   return (
     <Modal.Content size="md">
       <Modal.Header>
