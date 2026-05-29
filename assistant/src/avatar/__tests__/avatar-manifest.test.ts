@@ -72,6 +72,98 @@ describe("avatar-manifest", () => {
       writeFileSync(join(dir, "avatar.json"), JSON.stringify({ traits: null }));
       expect(readManifest(dir)).toBeNull();
     });
+
+    test("returns null when kind is character but traits are null", () => {
+      writeFileSync(
+        join(dir, "avatar.json"),
+        JSON.stringify({
+          kind: "character",
+          traits: null,
+          source: null,
+          image: null,
+        }),
+      );
+      expect(readManifest(dir)).toBeNull();
+    });
+
+    test("returns null when kind is character but traits are missing", () => {
+      writeFileSync(
+        join(dir, "avatar.json"),
+        JSON.stringify({ kind: "character" }),
+      );
+      expect(readManifest(dir)).toBeNull();
+    });
+
+    test("returns null when kind is character but traits are incomplete", () => {
+      writeFileSync(
+        join(dir, "avatar.json"),
+        JSON.stringify({
+          kind: "character",
+          traits: { bodyShape: "round" },
+          source: null,
+          image: null,
+        }),
+      );
+      expect(readManifest(dir)).toBeNull();
+    });
+
+    test("returns null when kind is image but image meta is null", () => {
+      writeFileSync(
+        join(dir, "avatar.json"),
+        JSON.stringify({
+          kind: "image",
+          traits: null,
+          source: null,
+          image: null,
+        }),
+      );
+      expect(readManifest(dir)).toBeNull();
+    });
+
+    test("returns null when kind is image but image meta is missing", () => {
+      writeFileSync(
+        join(dir, "avatar.json"),
+        JSON.stringify({ kind: "image" }),
+      );
+      expect(readManifest(dir)).toBeNull();
+    });
+
+    test("returns null when kind is image but etag is empty", () => {
+      writeFileSync(
+        join(dir, "avatar.json"),
+        JSON.stringify({
+          kind: "image",
+          traits: null,
+          source: null,
+          image: { updatedAt: "2024-01-01T00:00:00.000Z", etag: "" },
+        }),
+      );
+      expect(readManifest(dir)).toBeNull();
+    });
+
+    test("returns null when kind is image but updatedAt is missing", () => {
+      writeFileSync(
+        join(dir, "avatar.json"),
+        JSON.stringify({
+          kind: "image",
+          traits: null,
+          source: null,
+          image: { etag: "abc123" },
+        }),
+      );
+      expect(readManifest(dir)).toBeNull();
+    });
+
+    test("returns the manifest when kind is none (no payload required)", () => {
+      const state: AvatarState = {
+        kind: "none",
+        traits: null,
+        source: null,
+        image: null,
+      };
+      writeFileSync(join(dir, "avatar.json"), JSON.stringify({ kind: "none" }));
+      expect(readManifest(dir)).toEqual(state);
+    });
   });
 
   describe("deriveStateFromLegacyFiles", () => {

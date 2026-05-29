@@ -65,10 +65,23 @@ function isValidTraits(value: unknown): value is CharacterTraits {
   );
 }
 
+/** Narrows an unknown value to valid AvatarImageMeta (presence check only). */
+function isValidImageMeta(value: unknown): value is AvatarImageMeta {
+  if (!value || typeof value !== "object") return false;
+  const m = value as Record<string, unknown>;
+  return (
+    typeof m.updatedAt === "string" &&
+    !!m.updatedAt &&
+    typeof m.etag === "string" &&
+    !!m.etag
+  );
+}
+
 /**
  * Reads and validates the avatar manifest. Returns `null` when the manifest is
- * missing, unreadable, unparseable, or has an invalid `kind` so callers can
- * fall back to legacy derivation.
+ * missing, unreadable, unparseable, has an invalid `kind`, or carries a
+ * partial/malformed per-kind payload so callers can fall back to legacy
+ * derivation rather than surfacing an avatar with null traits/image.
  */
 export function readManifest(
   avatarDir: string = getAvatarDir(),
@@ -83,8 +96,16 @@ export function readManifest(
     if (typeof obj.kind !== "string" || !AVATAR_KINDS.has(obj.kind)) {
       return null;
     }
+    const kind = obj.kind as AvatarKind;
+
+    // Reject partial manifests: a valid `kind` with a missing/malformed payload
+    // would otherwise short-circuit the legacy fallback and surface an avatar
+    // with null traits/image.
+    if (kind === "character" && !isValidTraits(obj.traits)) return null;
+    if (kind === "image" && !isValidImageMeta(obj.image)) return null;
+
     return {
-      kind: obj.kind as AvatarKind,
+      kind,
       traits: (obj.traits as CharacterTraits | null) ?? null,
       source: (obj.source as AvatarSource | null) ?? null,
       image: (obj.image as AvatarImageMeta | null) ?? null,
