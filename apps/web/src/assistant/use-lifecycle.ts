@@ -1,6 +1,6 @@
 
 import * as Sentry from "@sentry/react";
-import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { extractErrorMessage } from "@/utils/api-errors";
@@ -24,6 +24,7 @@ import {
   useAssistantQuery,
 } from "@/assistant/queries";
 import type { AssistantState } from "@/assistant/types";
+import { useAssistantSelectionStore } from "@/stores/assistant-selection-store";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import { getSelectedAssistant, getLocalGatewayUrl, isLocalMode } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
@@ -54,8 +55,6 @@ interface UseAssistantLifecycleOptions {
 
 export interface UseAssistantLifecycleReturn {
   assistantState: AssistantState;
-  assistantId: string | null;
-  setAssistantId: Dispatch<SetStateAction<string | null>>;
   /** Re-check the assistant status from the server. Exposed for the
    *  visibility-change handler and other external effects. */
   checkAssistant: () => Promise<void>;
@@ -105,7 +104,13 @@ export function useAssistantLifecycle({
   const [assistantState, setAssistantState] = useState<AssistantState>({
     kind: "loading",
   });
-  const [assistantId, setAssistantId] = useState<string | null>(null);
+  // The active assistant id lives in `useAssistantSelectionStore` so
+  // cross-domain consumers (RootLayout sync hooks, chat-layout, page
+  // routes) can subscribe via atomic selectors. The hook drives the
+  // writes; readers go through the store, not through this hook's
+  // return.
+  const setAssistantId =
+    useAssistantSelectionStore.use.setActiveAssistantId();
 
   const hatchingRef = useRef(false);
   const hatchRetryCountRef = useRef(0);
@@ -646,8 +651,6 @@ export function useAssistantLifecycle({
 
   return {
     assistantState,
-    assistantId,
-    setAssistantId,
     checkAssistant,
     retryAssistant,
     hatchVersion,

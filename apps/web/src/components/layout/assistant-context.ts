@@ -25,12 +25,10 @@ import type { AssistantState } from "@/assistant/types";
 import type { UseAssistantLifecycleReturn } from "@/assistant/use-lifecycle";
 
 export interface AssistantContextValue {
-  assistantId: string | null;
   assistantState: AssistantState;
   checkAssistant: UseAssistantLifecycleReturn["checkAssistant"];
   retryAssistant: UseAssistantLifecycleReturn["retryAssistant"];
   hatchVersion: UseAssistantLifecycleReturn["hatchVersion"];
-  setAssistantId: UseAssistantLifecycleReturn["setAssistantId"];
   autoGreetRef: UseAssistantLifecycleReturn["autoGreetRef"];
   setTopBarCenter: (node: ReactNode) => void;
   setTopBarRightSlot: (node: ReactNode) => void;

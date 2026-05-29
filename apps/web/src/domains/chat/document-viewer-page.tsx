@@ -12,7 +12,7 @@ import { useNavigate, useParams } from "react-router";
 import { Loader2 } from "lucide-react";
 import { Typography } from "@vellum/design-library";
 
-import { useAssistantContext } from "@/components/layout/assistant-context";
+import { useAssistantSelectionStore } from "@/stores/assistant-selection-store";
 import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
@@ -36,7 +36,7 @@ import {
 export function DocumentViewerPage() {
   const { surfaceId } = useParams<{ surfaceId: string }>();
   const navigate = useNavigate();
-  const { assistantId } = useAssistantContext();
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
 
   const [doc, setDoc] = useState<DocumentContent | null>(null);
   const [loading, setLoading] = useState(true);

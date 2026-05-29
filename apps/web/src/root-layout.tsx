@@ -18,6 +18,7 @@ import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
+import { useAssistantSelectionStore } from "@/stores/assistant-selection-store";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -86,16 +87,17 @@ export function RootLayout() {
     resolveOnboardingRedirect,
   });
 
-  useAssistantFeatureFlagSync(hasPlatformSession ? lifecycle.assistantId : null);
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  useAssistantFeatureFlagSync(hasPlatformSession ? assistantId : null);
   const isAssistantActive = lifecycle.assistantState.kind === "active";
-  useAssistantResourceSync(lifecycle.assistantId, isAssistantActive);
-  useConversationSync(lifecycle.assistantId, isAssistantActive);
-  useFeatureFlagBusSync(lifecycle.assistantId, isAssistantActive);
-  useNotificationIntentSync(lifecycle.assistantId);
+  useAssistantResourceSync(assistantId, isAssistantActive);
+  useConversationSync(assistantId, isAssistantActive);
+  useFeatureFlagBusSync(assistantId, isAssistantActive);
+  useNotificationIntentSync(assistantId);
   useDocumentEditorSync();
 
   useEventBusInit({
-    assistantId: lifecycle.assistantId,
+    assistantId,
     isAssistantActive,
     checkAssistant: lifecycle.checkAssistant,
   });

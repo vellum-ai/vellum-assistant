@@ -66,6 +66,7 @@ import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
 import { useRootOutletContext } from "@/root-layout";
+import { useAssistantSelectionStore } from "@/stores/assistant-selection-store";
 import { routes } from "@/utils/routes.js";
 
 /**
@@ -105,7 +106,9 @@ export function PreChatFlow() {
   const lastName = user?.lastName ?? "";
   const isNative = useIsNativePlatform();
   const { lifecycle } = useRootOutletContext();
-  const { assistantId: lifecycleAssistantId, checkAssistant } = lifecycle;
+  const { checkAssistant } = lifecycle;
+  const lifecycleAssistantId =
+    useAssistantSelectionStore.use.activeAssistantId();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [recipe, setRecipe] = useState<OnboardingRecipe | null>(null);
   const [recipeLoadState, setRecipeLoadState] = useState<"loading" | "ready">(

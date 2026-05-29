@@ -23,6 +23,7 @@ import * as Sentry from "@sentry/react";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAuthStore } from "@/stores/auth-store";
 import { useAssistantContext } from "@/components/layout/assistant-context";
+import { useAssistantSelectionStore } from "@/stores/assistant-selection-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
   COMPOSER_FOCUS_EVENT,
@@ -154,7 +155,6 @@ export function ChatPage() {
   const [searchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
   const {
-    assistantId,
     assistantState,
     checkAssistant,
     retryAssistant,
@@ -163,6 +163,7 @@ export function ChatPage() {
     setTopBarRightSlot,
     setOnSearchClick,
   } = useAssistantContext();
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const doctor = useClientFeatureFlagStore.use.doctor();

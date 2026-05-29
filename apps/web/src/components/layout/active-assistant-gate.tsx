@@ -7,14 +7,14 @@ import {
   useAssistantContext,
   type AssistantContextValue,
 } from "@/components/layout/assistant-context";
+import { useAssistantSelectionStore } from "@/stores/assistant-selection-store";
 
 /**
  * Narrowed outlet context for routes mounted inside `ActiveAssistantGate`.
  * Guarantees `assistantId: string` (non-null) and that the daemon is
  * reachable (`assistantState.kind === "active"`).
  */
-export interface ActiveAssistantContextValue
-  extends Omit<AssistantContextValue, "assistantId"> {
+export interface ActiveAssistantContextValue extends AssistantContextValue {
   assistantId: string;
 }
 
@@ -25,24 +25,26 @@ export interface ActiveAssistantContextValue
  * placeholder is rendered.
  *
  * Without this gate, every route component that reads `assistantId` from
- * `useAssistantContext()` and feeds it to a `useQuery` (e.g. home, identity,
+ * the outlet context and feeds it to a `useQuery` (e.g. home, identity,
  * library, workspace, contacts) suffers a silent-degradation bug on cold
  * navigation: the query stays `enabled: false`, `isLoading` is false, and
  * the page renders its fully-empty fallback state instead of waiting.
  *
  * Inside this gate, child routes call `useActiveAssistantContext()`
- * instead of `useAssistantContext()` to read the narrowed context.
+ * to read the narrowed context. Non-gated routes that need the same id
+ * read directly from `useAssistantSelectionStore.use.activeAssistantId()`.
  */
 export function ActiveAssistantGate() {
   const ctx = useAssistantContext();
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
 
-  if (!ctx.assistantId || ctx.assistantState.kind !== "active") {
+  if (!assistantId || ctx.assistantState.kind !== "active") {
     return <ActiveAssistantPlaceholder />;
   }
 
   const activeCtx: ActiveAssistantContextValue = {
     ...ctx,
-    assistantId: ctx.assistantId,
+    assistantId,
   };
 
   return <Outlet context={activeCtx} />;

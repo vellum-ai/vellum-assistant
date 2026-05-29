@@ -14,6 +14,7 @@ import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { useRootOutletContext } from "@/root-layout";
+import { useAssistantSelectionStore } from "@/stores/assistant-selection-store";
 import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
@@ -152,6 +153,7 @@ export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { lifecycle } = useRootOutletContext();
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
 
   // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
@@ -161,11 +163,11 @@ export function ChatLayout() {
   const homePageEnabled = useClientFeatureFlagStore.use.homePage();
   const isAssistantActive = lifecycle.assistantState.kind === "active";
   const { conversations } = useConversationListQuery(
-    lifecycle.assistantId,
+    assistantId,
     isAssistantActive,
   );
   const { conversationGroups } = useConversationGroupsQuery(
-    lifecycle.assistantId,
+    assistantId,
     isAssistantActive && conversationGroupsUI,
   );
 
@@ -175,7 +177,7 @@ export function ChatLayout() {
   // post-reconnect reconcile sweep stay live across home, library,
   // contacts, identity, and chat — not only inside `/assistant`.
   useAttentionTracking({
-    assistantId: lifecycle.assistantId,
+    assistantId: assistantId,
     assistantStateKind: lifecycle.assistantState.kind,
   });
 
@@ -185,7 +187,7 @@ export function ChatLayout() {
   // it can live wherever the sidebar lives.
   const { handleRenameGroup, handleDeleteGroup } =
     useConversationGroupActions({
-      assistantId: lifecycle.assistantId,
+      assistantId: assistantId,
       conversationGroups,
     });
 
@@ -194,7 +196,7 @@ export function ChatLayout() {
   // route — not only inside a conversation where ChatPage owns the
   // fetch.
   useAssistantIdentityInit({
-    assistantId: lifecycle.assistantId,
+    assistantId: assistantId,
     assistantStateKind: lifecycle.assistantState.kind,
   });
 
@@ -203,7 +205,7 @@ export function ChatLayout() {
   // layout keeps the favicon live while the user is on identity,
   // library, workspace, contacts, or home (where ChatPage isn't
   // mounted). The hook is a no-op when assistantId is null.
-  const layoutAvatar = useAssistantAvatar(lifecycle.assistantId);
+  const layoutAvatar = useAssistantAvatar(assistantId);
   useDynamicFavicon(
     layoutAvatar.customImageUrl,
     layoutAvatar.components,
@@ -214,7 +216,7 @@ export function ChatLayout() {
   // the layout header. Gated on the homePage feature flag so the hook
   // doesn't fire its query when the home route is disabled.
   const { hasUnreadHome } = useHomeUnreadBadge(
-    homePageEnabled ? lifecycle.assistantId : null,
+    homePageEnabled ? assistantId : null,
   );
 
   // Mirror the unread count + signed-in flag into the Electron Dock
@@ -237,24 +239,20 @@ export function ChatLayout() {
 
   const assistantContext = useMemo<AssistantContextValue>(
     () => ({
-      assistantId: lifecycle.assistantId,
       assistantState: lifecycle.assistantState,
       checkAssistant: lifecycle.checkAssistant,
       retryAssistant: lifecycle.retryAssistant,
       hatchVersion: lifecycle.hatchVersion,
-      setAssistantId: lifecycle.setAssistantId,
       autoGreetRef: lifecycle.autoGreetRef,
       setTopBarCenter,
       setTopBarRightSlot,
       setOnSearchClick,
     }),
     [
-      lifecycle.assistantId,
       lifecycle.assistantState,
       lifecycle.checkAssistant,
       lifecycle.retryAssistant,
       lifecycle.hatchVersion,
-      lifecycle.setAssistantId,
       lifecycle.autoGreetRef,
       setOnSearchClick,
     ],
@@ -472,17 +470,17 @@ export function ChatLayout() {
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
   const refreshConversations = useCallback(async () => {
-    if (!lifecycle.assistantId) return;
+    if (!assistantId) return;
     try {
       await queryClient.invalidateQueries({
-        queryKey: conversationsQueryKey(lifecycle.assistantId),
+        queryKey: conversationsQueryKey(assistantId),
       });
     } catch (err) {
       Sentry.captureException(err, {
         tags: { context: "refresh_conversations" },
       });
     }
-  }, [lifecycle.assistantId, queryClient]);
+  }, [assistantId, queryClient]);
 
   // `useConversationActions.handleArchiveConversation` calls
   // `startNewConversation({ silent: true })` when the active conversation
@@ -513,7 +511,7 @@ export function ChatLayout() {
     submitRenameConversation,
     cancelRenameConversation,
   } = useConversationActions({
-    assistantId: lifecycle.assistantId,
+    assistantId: assistantId,
     activeConversationId,
     conversations,
     refreshConversations,
@@ -574,7 +572,7 @@ export function ChatLayout() {
   const renderSideMenu = useCallback(
     (args: SideMenuRenderArgs): ReactNode => (
       <AssistantSideMenu
-        assistantId={lifecycle.assistantId ?? ""}
+        assistantId={assistantId ?? ""}
         assistantName={assistantName}
         collapsed={args.collapsed}
         variant={args.variant}
@@ -604,7 +602,7 @@ export function ChatLayout() {
         onInspect={showLlmInspector ? handleInspectConversation : undefined}
         footerAction={
           <PreferencesMenu
-            assistantId={lifecycle.assistantId}
+            assistantId={assistantId}
             assistantVersion={assistantVersion}
             activeConversationId={activeConversationId}
           />
@@ -614,7 +612,7 @@ export function ChatLayout() {
       />
     ),
     [
-      lifecycle.assistantId,
+      assistantId,
       assistantName,
       assistantVersion,
       conversations,
