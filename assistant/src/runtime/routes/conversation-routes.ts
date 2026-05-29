@@ -41,6 +41,7 @@ import { getOrCreateConversation as getOrCreateConversationInstance } from "../.
 import { canonicalizeTimeZone } from "../../daemon/date-context.js";
 import {
   buildScanFirstMessage,
+  buildSelfIntroMessage,
   getCannedFirstGreeting,
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
@@ -1392,6 +1393,12 @@ export async function handleSendMessage(
     conversation.getMessages().length,
   );
   const isScanPath = !!scanUrl && isWakeUp;
+  // Self-intro path: when we know a name, send a natural introduction on the
+  // user's behalf instead of the canned greeting, so the assistant generates a
+  // real first response. `undefined` (no names) falls back to the canned path.
+  const selfIntro = isWakeUp
+    ? buildSelfIntroMessage(body.onboarding ?? undefined)
+    : undefined;
 
   let effectiveContent: string | undefined;
   if (isScanPath) {
@@ -1402,6 +1409,10 @@ export async function handleSendMessage(
     // Fall through to normal inference path below
   } else if (isWakeUp && body.onboarding?.initialMessage) {
     effectiveContent = body.onboarding.initialMessage;
+  } else if (isWakeUp && selfIntro) {
+    // Rewrite to the self-introduction and fall through to real inference
+    // (mirrors the scan path above).
+    effectiveContent = selfIntro;
   } else if (isWakeUp) {
     const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 
