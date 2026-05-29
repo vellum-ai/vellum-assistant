@@ -1,26 +1,14 @@
 /**
  * Chat-domain diagnostic summarization helpers.
  *
- * These functions produce compact summaries of chat-specific types
- * (DisplayMessage, RuntimeMessage) for the diagnostics ring buffer.
- * The generic recording infrastructure lives in `utils/diagnostics.ts`.
+ * Compact summaries of chat-specific types (DisplayMessage, RuntimeMessage)
+ * for the diagnostics ring buffer. Generic recording infrastructure lives
+ * in `@/lib/diagnostics`.
  */
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { RuntimeMessage } from "@/domains/chat/api/messages";
-import { roleCounts } from "@/utils/diagnostics";
-
-// Re-export generic diagnostics for backwards-compatible imports within
-// the chat domain. New code should import from `@/utils/diagnostics` directly.
-export {
-  type DiagnosticsEvent as ChatDiagnosticsEvent,
-  recordDiagnostic as recordChatDiagnostic,
-  resolvePlatformTag,
-  getDiagnosticsEvents as getChatDiagnosticsEvents,
-  buildDiagnosticsSnapshot as buildChatDiagnosticsSnapshot,
-  bucketMessagesAdded,
-  summarizeAssistantEvent,
-} from "@/utils/diagnostics";
+import { roleCounts } from "@/lib/diagnostics";
 
 export function summarizeDisplayMessage(message: DisplayMessage): Record<string, unknown> {
   return {

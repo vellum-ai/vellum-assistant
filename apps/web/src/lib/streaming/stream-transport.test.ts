@@ -45,7 +45,7 @@ mock.module("@sentry/browser", () => ({
 
 import {
   getDiagnosticsEvents,
-} from "@/utils/diagnostics";
+} from "@/lib/diagnostics";
 import {
   type TurnState,
   INITIAL_TURN_STATE,
@@ -801,7 +801,7 @@ describe("subscribeChatEvents idle watchdog", () => {
   test("tags wasTurnSending: 'unknown' when no getActiveTurnSending snapshot is supplied", async () => {
     // Backwards compatibility: callers that have not yet wired the
     // turn-sending snapshot (e.g. unit tests of subscribeChatEvents
-    // in isolation, or any caller pre-LUM-1538) must still produce
+    // in isolation, or any caller without turn-sending wiring) must still produce
     // a tag value, not omit the field. Sentry groups absent tags as
     // `"<no-tag>"` in Discover, which collides with healthy events
     // that legitimately have no value. Sending `"unknown"` makes

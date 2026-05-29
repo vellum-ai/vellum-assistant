@@ -154,7 +154,7 @@ References:
 
 ### Organize by domain, not technical layer
 
-Group code by what it does (messages, conversations, streaming,
+Group code by what it does (messages, conversations, voice,
 interactions), not by what it is (hooks, utils, components). The
 top-level folder for domain modules is called **`domains/`**.
 
@@ -298,7 +298,7 @@ Examples of correct splits:
 - `messages/` vs `conversations/`: messages are created, streamed,
   delta-updated, and compacted — different lifecycle from conversation
   CRUD and grouping.
-- `streaming/` vs `messages/`: SSE transport and reconnection logic
+- `lib/streaming/` vs `messages/`: SSE transport and reconnection logic
   changes for different reasons than message state management.
 - `chat/interaction-store` vs `chat/turn-store`: user-facing prompts
   (secrets, confirmations) have their own state machine, independent
@@ -376,7 +376,7 @@ owns it.
 | `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-feature-flag-bus-sync.ts` |
 | `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
 | `types/` | Shared type definitions | `window.d.ts`, `api-types.ts` |
-| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `api-client.ts` (HeyAPI) |
+| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `streaming/` (SSE transport), `diagnostics.ts` (session ring buffer), `api-client.ts` (HeyAPI) |
 | `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 

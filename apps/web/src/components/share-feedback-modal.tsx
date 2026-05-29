@@ -35,7 +35,7 @@ import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.ge
 import type { ClassificationEnum } from "@/generated/api/types.gen";
 import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
 import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
-import { buildDiagnosticsSnapshot } from "@/utils/diagnostics";
+import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore } from "@/stores/auth-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";

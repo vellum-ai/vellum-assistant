@@ -10,7 +10,7 @@ import * as Sentry from "@sentry/browser";
 
 import { client } from "@/generated/api/client.gen";
 import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
-import { recordDiagnostic, resolvePlatformTag } from "@/utils/diagnostics";
+import { recordDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
 import { parseAssistantEvent } from "@/lib/streaming/event-parser";
 import type { AssistantEvent } from "@/types/event-types";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
@@ -240,7 +240,7 @@ export function subscribeChatEvents(
         level: "warning",
         // platform is the only fleet-wide signal that distinguishes
         // Capacitor iOS from Safari iOS — Sentry's auto-detected
-        // os.name does not, but LUM-1431 is iOS-only so the L2/L3
+        // os.name does not, but the idle-watchdog is iOS-only so the L2/L3
         // decision needs the breakdown. tags are aggregable in
         // Discover; extras are not. wasTurnSending is promoted to a
         // tag so the user-harming vs benign split can be queried in
