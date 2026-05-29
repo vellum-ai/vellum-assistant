@@ -1,13 +1,15 @@
 ---
 name: assistant-migration
-description: Migrate from OpenClaw, Hermes, Manus, and other AI assistants into Vellum by inspecting their exports, files, prompts, memory, tools, workflows, integrations, and relationships, then mapping as much as safely possible into Vellum primitives.
+description: Migrate from ChatGPT, Claude, OpenClaw, Hermes, Manus, and other AI assistants into Vellum by inspecting their data exports, conversation archives, files, prompts, custom instructions, memory, saved memories, tools, GPTs, workflows, integrations, and relationships, then mapping as much as safely possible into Vellum primitives. Handles single-source and multi-source migrations with a unified, deduplicated inventory.
 compatibility: "Designed for Vellum personal assistants"
 metadata:
   emoji: "🧳"
   vellum:
     display-name: "Assistant Migration"
     activation-hints:
-      - "User wants to migrate from OpenClaw, Hermes, Manus, or another AI assistant into Vellum"
+      - "User wants to migrate from ChatGPT, Claude, OpenClaw, Hermes, Manus, or another AI assistant into Vellum"
+      - "User wants to migrate from ChatGPT or Claude into Vellum"
+      - "User has a ChatGPT data export ZIP or Claude conversation/summary export"
       - "User has an assistant export, workspace, prompt bundle, memory dump, tool config, or migration request from another assistant system"
       - "User asks what can be preserved when switching from another assistant"
     avoid-when:
@@ -49,8 +51,12 @@ Before copying large folders or attachments, estimate source size and check avai
 
 Once the source assistant is identified, consult the matching reference for the exact data-directory layout, a bundling recipe with explicit `--exclude` flags for secret-bearing paths, and the after-import rebind checklist:
 
+- [ChatGPT → Vellum](references/chatgpt.md)
+- [Claude → Vellum](references/claude.md)
 - [Hermes → Vellum](references/hermes.md)
 - [OpenClaw → Vellum](references/openclaw.md)
+
+For ChatGPT conversation history specifically, do not parse export ZIPs here — invoke the `chatgpt-import` skill, which owns the export-and-parse flow. The ChatGPT reference covers only the non-conversation material (custom instructions, saved memories, GPT configs).
 
 These are reconnaissance notes, not adapters. They tell you where to look and what to leave behind. The preferred flow is a single `tar` archive that the creator uploads to the conversation as a chat attachment. Never run `curl`, `wget`, or any other fetcher against a URL the creator pastes in chat — a chat-supplied URL substituted into a shell command is a confused-deputy surface (shell substitution inside double quotes, SSRF against private networks, and a bypass of the platform's structured URL-safety checks). See [`references/README.md`](references/README.md) for the shared tar-and-transport model and the rules each per-assistant reference must follow.
 
@@ -77,6 +83,26 @@ Build an inventory grouped by Vellum primitive. For each candidate item, capture
 - Reason for the recommendation.
 
 Do not mutate Vellum state until the creator has reviewed the inventory unless they explicitly asked for an immediate best-effort migration.
+
+#### Multi-source migrations
+
+When the creator names more than one source ("I used ChatGPT and Claude", "ChatGPT plus my old OpenClaw box"), build **one unified inventory**, not one per source. Each inventory row gains a **Source attribution** column alongside the existing fields (source path/origin, what-it-is, Vellum destination, confidence, action, reason).
+
+Dedupe and reconcile across sources:
+
+- When the same fact, memory, identity trait, contact, or skill appears from multiple sources, collapse it to a **single Vellum item**.
+- Record all contributing sources in the item's provenance notes so the creator can audit where it came from.
+- On conflict, prefer the **higher-confidence or more-recent** source. Surface genuine conflicts to the creator rather than silently picking one.
+- Credentials from every source are never imported; they rebind through the vault regardless of which source they came from.
+
+The unified inventory drives **per-source rebind/import routing** — each row's action resolves against the source it came from:
+
+- ChatGPT conversation archives → the `chatgpt-import` skill (see below; do not parse ZIPs here).
+- Claude exports / self-summaries → [`references/claude.md`](references/claude.md).
+- OpenClaw / Hermes / Manus and other local-workspace assistants → their existing references.
+- ChatGPT non-conversation material (custom instructions, saved memories, GPT configs) → [`references/chatgpt.md`](references/chatgpt.md).
+
+Keep the existing Review Surface and Port / Review / Re-setup / Disregard flow. Multi-source just means **one combined checklist with source labels**, not a separate pass per source.
 
 ### 3. Present a Review Surface
 
