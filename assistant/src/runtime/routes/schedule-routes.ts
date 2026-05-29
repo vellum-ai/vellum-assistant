@@ -472,6 +472,7 @@ async function handleRunScheduleNow(id: string) {
             await conversation.processMessage({
               content: message,
               attachments: [],
+              onEvent: () => {},
               isInteractive: false,
             });
           } finally {
@@ -564,6 +565,7 @@ async function handleRunScheduleNow(id: string) {
     await activeConversation.processMessage({
       content: schedule.message,
       attachments: [],
+      onEvent: () => {},
       isInteractive: false,
     });
     completeScheduleRun(runId, { status: "ok" });

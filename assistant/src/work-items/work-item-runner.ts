@@ -143,6 +143,7 @@ export function runWorkItemInBackground(workItemId: string): RunWorkItemResult {
             onEvent: (event) => {
               broadcastMessage(event);
             },
+            isInteractive: false,
           });
         },
       );
