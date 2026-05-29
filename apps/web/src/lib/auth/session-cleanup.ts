@@ -1,18 +1,19 @@
 /**
  * Clear user-scoped browser storage on logout.
  *
- * Any localStorage key starting with `device:` is automatically
- * preserved — these are device-scoped settings managed by
- * `utils/device-settings.ts`. All other keys matching app prefixes are
- * removed. Third-party keys (analytics SDKs, Sentry, etc.) are
- * untouched because they don't match app prefixes.
+ * All app-owned localStorage keys use one of two prefixes:
+ * - `vellum:` — user-scoped, cleared on logout
+ * - `device:` — device-scoped, preserved across sessions
  *
- * The `DEVICE_LEVEL_KEYS` set below is a transitional safety net for
- * legacy (non-prefixed) device keys that haven't been migrated yet.
- * It will be removed once the `device:` namespace migration is
- * complete (see LUM-1933).
+ * This function removes every `vellum:` key while leaving `device:`
+ * keys and third-party keys (analytics SDKs, Sentry, etc.) untouched.
+ * sessionStorage is cleared entirely — all keys are session-scoped.
  *
- * sessionStorage is cleared entirely — all keys are user-session-scoped.
+ * Legacy prefixes are also swept as a safety net: if the startup
+ * migration in `storage-migration.ts` failed (e.g. QuotaExceededError),
+ * old key names would survive without this fallback. Particularly
+ * important for auth tokens (`gw:*`). This sweep can be removed
+ * once we're confident all users have been migrated.
  *
  * Called from the auth store's `logout()` action and from the
  * cross-tab BroadcastChannel handler before a hard page reload.
@@ -21,25 +22,31 @@
  * - https://web.dev/articles/sign-out-best-practices
  */
 
-import { DEVICE_PREFIX } from "@/utils/device-settings";
+const USER_PREFIX = "vellum:";
 
-/** Prefixes that identify keys owned by this app. */
-const APP_KEY_PREFIXES = [
-  "vellum",
+/**
+ * Legacy key prefixes that were user-scoped before the `vellum:`
+ * standardization. Swept as a fallback in case startup migration failed.
+ */
+const LEGACY_USER_PREFIXES = [
   "onboarding.",
-  "ff:client:",
   "voice:",
-  "integrations.",
   "gw:",
+  "ff:client:",
   "local:",
+  "integrations.",
+  "vellumDebug.",
+  "vellum_",
 ];
 
 /**
- * Legacy device-level keys preserved as a transitional safety net.
- * After the `device:` namespace migration completes, this set is
- * removed — the prefix check handles everything. See LUM-1933.
+ * Legacy device-level keys that used the `vellum_` prefix.
+ * Must NOT be cleaned on logout — they are device-scoped settings.
+ * Normally these have been migrated to `device:*` by
+ * `migrateDeviceSettings()`, but if that migration also failed,
+ * this set prevents accidental deletion.
  */
-const DEVICE_LEVEL_KEYS = new Set([
+const LEGACY_DEVICE_KEYS = new Set([
   "vellum_theme",
   "vellum_share_analytics",
   "vellum_share_diagnostics",
@@ -48,15 +55,13 @@ const DEVICE_LEVEL_KEYS = new Set([
   "vellum_timezone",
   "vellum_media_embeds_enabled",
   "vellum_media_embed_domains",
-  "onboarding.lastUserId",
+  "onboarding.lastUserId", // matches "onboarding." prefix but is device-scoped
 ]);
 
-function isAppKey(key: string): boolean {
-  return APP_KEY_PREFIXES.some((p) => key.startsWith(p));
-}
-
-function isDeviceKey(key: string): boolean {
-  return key.startsWith(DEVICE_PREFIX) || DEVICE_LEVEL_KEYS.has(key);
+function isUserScopedKey(key: string): boolean {
+  if (key.startsWith(USER_PREFIX)) return true;
+  if (LEGACY_DEVICE_KEYS.has(key)) return false;
+  return LEGACY_USER_PREFIXES.some((prefix) => key.startsWith(prefix));
 }
 
 export function clearUserScopedStorage(): void {
@@ -70,7 +75,7 @@ export function clearUserScopedStorage(): void {
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (key && isAppKey(key) && !isDeviceKey(key)) {
+      if (key && isUserScopedKey(key)) {
         keysToRemove.push(key);
       }
     }

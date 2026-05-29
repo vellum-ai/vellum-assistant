@@ -14,14 +14,9 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { tailIsStreamingAssistant } from "@/domains/chat/hooks/stream-message-updaters";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
-import { useViewerStore } from "@/stores/viewer-store";
-import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
+
 import { recordDiagnostic, summarizeAssistantEvent } from "@/lib/diagnostics";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
-import {
-  handleHomeFeedUpdated,
-  handleRelationshipStateUpdated,
-} from "@/domains/chat/utils/stream-handlers/home-handlers";
 import {
   handleOpenUrl,
   handleNavigateSettings,
@@ -56,13 +51,8 @@ import {
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 import {
   handleUsageUpdate,
-  handleConversationTitleUpdated,
-  handleNotificationIntent,
   handleCompactionCircuitOpen,
   handleCompactionCircuitClosed,
-  handleDiskPressureStatusChanged,
-  handleIdentityChanged,
-  handleAvatarUpdated,
   handleTurnProfileAutoRouted,
 } from "@/domains/chat/utils/stream-handlers/metadata-handlers";
 import {
@@ -140,12 +130,7 @@ export interface UseStreamEventHandlerParams {
   // --- Compaction ---
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
-  // --- External callbacks (stabilized via refs in the hook) ---
-  applyDiskPressureStatusEvent: (
-    payload: DiskPressureStatusEventPayload,
-  ) => void;
-  refreshAssistantIdentity: (force?: boolean) => Promise<void>;
-  invalidateAvatar: () => void;
+  // --- Sync router ---
   dispatchSyncChanged: (event: AssistantSyncChangedEvent) => void;
 
   // --- Queue management ---
@@ -195,9 +180,6 @@ export function useStreamEventHandler(
     setContextWindowUsage,
     scheduleConversationListRefetch,
     setCompactionCircuitOpenUntil,
-    applyDiskPressureStatusEvent,
-    refreshAssistantIdentity,
-    invalidateAvatar,
     dispatchSyncChanged,
     pendingQueuedMessageIdsRef,
     requestIdToMessageIdRef,
@@ -208,18 +190,6 @@ export function useStreamEventHandler(
   const lastActivityVersionRef = useRef<Map<string, number>>(new Map());
   const toolCallIdCounterRef = useRef(0);
   const currentAssistantMessageIdRef = useRef<string | undefined>(undefined);
-
-  // Stabilize external callbacks that may not be memoized upstream.
-  // Storing them in refs keeps handleStreamEvent's identity stable across
-  // renders while always calling the latest version of each callback.
-  // Reference: https://react.dev/reference/react/useCallback#preventing-an-effect-from-firing-too-often
-  const applyDiskPressureStatusEventRef = useRef(applyDiskPressureStatusEvent);
-  applyDiskPressureStatusEventRef.current = applyDiskPressureStatusEvent;
-  const refreshAssistantIdentityRef = useRef(refreshAssistantIdentity);
-  refreshAssistantIdentityRef.current = refreshAssistantIdentity;
-  const invalidateAvatarRef = useRef(invalidateAvatar);
-  invalidateAvatarRef.current = invalidateAvatar;
-
 
   // --- Main event handler ---
 
@@ -311,12 +281,6 @@ export function useStreamEventHandler(
         scheduleConversationListRefetch,
         queryClient,
         setCompactionCircuitOpenUntil,
-        applyDiskPressureStatusEvent: (...args) =>
-          applyDiskPressureStatusEventRef.current(...args),
-        refreshAssistantIdentity: (...args) =>
-          refreshAssistantIdentityRef.current(...args),
-        invalidateAvatar: (...args) =>
-          invalidateAvatarRef.current(...args),
         pendingQueuedMessageIdsRef,
         requestIdToMessageIdRef,
         pendingLocalDeletionsRef,
@@ -410,27 +374,14 @@ export function useStreamEventHandler(
           // to the Electron client and `conversation_list_invalidated`
           // is retired from the event types entirely.
           break;
-        case "conversation_title_updated":
-          handleConversationTitleUpdated(event, ctx);
-          break;
-        case "notification_intent":
-          handleNotificationIntent(event, ctx);
-          break;
+
         case "compaction_circuit_open":
           handleCompactionCircuitOpen(event, ctx);
           break;
         case "compaction_circuit_closed":
           handleCompactionCircuitClosed(event, ctx);
           break;
-        case "disk_pressure_status_changed":
-          handleDiskPressureStatusChanged(event, ctx);
-          break;
-        case "identity_changed":
-          handleIdentityChanged(event, ctx);
-          break;
-        case "avatar_updated":
-          handleAvatarUpdated(event, ctx);
-          break;
+
         case "turn_profile_auto_routed":
           handleTurnProfileAutoRouted(event, ctx);
           break;
@@ -446,12 +397,7 @@ export function useStreamEventHandler(
         case "message_request_complete":
           handleMessageRequestComplete(event, ctx);
           break;
-        case "home_feed_updated":
-          handleHomeFeedUpdated(queryClient, event);
-          break;
-        case "relationship_state_updated":
-          handleRelationshipStateUpdated(queryClient, event);
-          break;
+
         case "subagent_spawned":
           handleSubagentSpawned(event, ctx);
           break;
@@ -464,21 +410,25 @@ export function useStreamEventHandler(
         case "sync_changed":
           dispatchSyncChanged(event);
           break;
+
+        // Cross-domain events handled by bus subscribers mounted in
+        // RootLayout (useAssistantResourceSync, useConversationSync,
+        // useNotificationIntentSync, useDocumentEditorSync) or
+        // ChatPage-scoped hooks (useDiskPressureMonitor). The chat
+        // handler is intentionally a no-op for these.
+        case "home_feed_updated":
+        case "relationship_state_updated":
+        case "identity_changed":
+        case "avatar_updated":
+        case "disk_pressure_status_changed":
+        case "notification_intent":
         case "document_editor_update":
-          useViewerStore.getState().updateDocumentContent(
-            event.surfaceId,
-            event.markdown,
-            event.mode,
-          );
-          break;
+        case "conversation_title_updated":
         case "document_comment_created":
         case "document_comment_resolved":
         case "document_comment_reopened":
         case "document_comment_deleted":
         case "interaction_resolved":
-          // Attention reconciliation lives in `useAttentionTracking`, which
-          // subscribes to the event bus directly. The chat-stream handler
-          // is intentionally a no-op here.
           break;
         case "unknown":
           break;
@@ -497,9 +447,6 @@ export function useStreamEventHandler(
       // Stable deps listed for correctness — React guarantees identity
       // stability for state setters and refs, so these never trigger
       // re-creation of the callback.
-      // Note: applyDiskPressureStatusEvent, refreshAssistantIdentity, and
-      // invalidateAvatar are accessed via refs (stable identity) and are
-      // intentionally excluded from this dep array.
       dispatchSyncChanged,
       queryClient,
       streamEpochRef,

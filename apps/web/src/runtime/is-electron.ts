@@ -29,6 +29,16 @@ declare global {
   interface Window {
     vellum?: {
       platform: "electron";
+      app: {
+        versionInfo(): Promise<{
+          appName: string;
+          version: string;
+          commitSha: string;
+          copyright: string;
+          website: string;
+        }>;
+        openWebsite(): Promise<void>;
+      };
       settings: {
         get<T = unknown>(key: string): Promise<T | null>;
         set<T = unknown>(key: string, value: T): Promise<void>;

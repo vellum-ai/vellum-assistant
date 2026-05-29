@@ -6,7 +6,7 @@
  * **Storage model — one localStorage key per org:**
  *
  * Each org's selection is stored under
- * `vellum_current_assistant_id__{orgId}`. A custom `StateStorage`
+ * `vellum:currentAssistantId:{orgId}`. A custom `StateStorage`
  * adapter wired into the `persist` middleware reads/writes those keys
  * directly, so the on-disk format stays compatible with the prior
  * hand-rolled implementation.
@@ -44,7 +44,7 @@ import {
 import { createSelectors } from "@/utils/create-selectors";
 
 export const PLATFORM_ASSISTANT_STORAGE_PREFIX =
-  "vellum_current_assistant_id__";
+  "vellum:currentAssistantId:";
 
 export interface CurrentPlatformAssistantState {
   /** orgId → selected assistant ID. Absent entries mean "no selection yet". */
@@ -92,7 +92,7 @@ function removeStoredAssistantId(orgId: string): void {
 /**
  * Translates the single-name view that `persist` expects into per-org
  * reads and writes against the existing
- * `vellum_current_assistant_id__{orgId}` localStorage keys. Writes are
+ * `vellum:currentAssistantId:{orgId}` localStorage keys. Writes are
  * additive — see the file header for why deletions are not handled
  * here.
  */

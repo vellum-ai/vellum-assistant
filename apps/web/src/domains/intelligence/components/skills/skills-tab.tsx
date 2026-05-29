@@ -81,7 +81,7 @@ const ORIGIN_FILTERS: FilterOption[] = [
 const FILTERS: FilterOption[] = [...STATUS_FILTERS, ...ORIGIN_FILTERS];
 
 const SEARCH_DEBOUNCE_MS = 300;
-const TIP_STORAGE_KEY = "vellum:skillsTabTipDismissed";
+const TIP_STORAGE_KEY = "vellum:skills:tipDismissed";
 
 export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   const queryClient = useQueryClient();

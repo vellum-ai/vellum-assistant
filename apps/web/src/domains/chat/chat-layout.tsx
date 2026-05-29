@@ -52,8 +52,8 @@ import { ChatLayoutHeader } from "./chat-layout-header";
  * LocalStorage key used to persist the collapsed state of the sidebar rail
  * across reloads.
  */
-export const SIDEBAR_COLLAPSED_STORAGE_KEY = "assistantSidebarCollapsed";
-export const SIDEBAR_WIDTH_STORAGE_KEY = "assistantSidebarWidth";
+export const SIDEBAR_COLLAPSED_STORAGE_KEY = "vellum:sidebar:collapsed";
+export const SIDEBAR_WIDTH_STORAGE_KEY = "vellum:sidebar:width";
 const DEFAULT_SIDEBAR_WIDTH = 230;
 
 const FOCUSABLE_SELECTOR = [

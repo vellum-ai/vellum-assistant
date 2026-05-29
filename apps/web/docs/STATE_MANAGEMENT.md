@@ -266,6 +266,20 @@ References:
 - [TkDodo — Working with Zustand](https://tkdodo.eu/blog/working-with-zustand) — React Query maintainer's guidance on the boundary between server state (RQ) and client/infrastructure state (Zustand)
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
 
+### Canonical migration example
+
+When migrating an imperative `setTimeout`-driven fetch loop to
+TanStack Query, the load-bearing patterns (mutation ref stability,
+explicit `staleTime: 0` on imperative re-checks, `setQueryData`
+post-mutation seeding, `setTimeout`-wrapped retry backoff,
+`useEffect` on query data instead of the low-level
+`queryClient.getQueryCache().subscribe(...)`) are demonstrated in
+[`src/assistant/queries.ts`](../src/assistant/queries.ts) and
+[`src/assistant/use-lifecycle.ts`](../src/assistant/use-lifecycle.ts).
+Each load-bearing call site has an inline comment explaining the
+invariant it preserves and the failure mode it prevents. Read those
+files as the source of truth — they update with the code.
+
 ## useReducer is not used for client state
 
 **Do not use `useReducer` in `apps/web/`.** All client state — including

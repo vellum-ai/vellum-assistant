@@ -39,7 +39,7 @@ import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcrip
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
+import type { AssistantState } from "@/assistant/types";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
@@ -103,6 +103,7 @@ import {
   type UIContext,
 } from "@/domains/chat/turn-selectors";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
+import { getSlackConversationDisplay } from "@/domains/chat/utils/slack-conversation-display";
 
 import { useViewerStore, type MainView, type OpenedAppState, type OpenedDocumentState } from "@/stores/viewer-store";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
@@ -1012,12 +1013,12 @@ export function ChatRouteContent({
 
   const [warningDismissed, setWarningDismissed] = useState(() => {
     if (!assistantId) return false;
-    return localStorage.getItem(`disk-pressure-warning-dismissed-${assistantId}`) === "true";
+    return localStorage.getItem(`vellum:diskPressureDismissed:${assistantId}`) === "true";
   });
 
   const dismissWarning = useCallback(() => {
     if (!assistantId) return;
-    localStorage.setItem(`disk-pressure-warning-dismissed-${assistantId}`, "true");
+    localStorage.setItem(`vellum:diskPressureDismissed:${assistantId}`, "true");
     setWarningDismissed(true);
   }, [assistantId]);
 
@@ -1026,7 +1027,7 @@ export function ChatRouteContent({
     const st = diskPressure.status?.state;
     if (st && st !== "warning" && warningDismissed) {
       if (assistantId) {
-        localStorage.removeItem(`disk-pressure-warning-dismissed-${assistantId}`);
+        localStorage.removeItem(`vellum:diskPressureDismissed:${assistantId}`);
       }
       setWarningDismissed(false);
     }
@@ -1396,13 +1397,20 @@ export function ChatRouteContent({
     </div>
   ) : null;
 
-  const channelFooterSlot = (
+  const slackReadonlyBannerDisplay =
+    activeConversation?.originChannel === "slack"
+      ? getSlackConversationDisplay({
+          conversation: activeConversation,
+          messages: sanitizedMessages,
+        })
+      : null;
+  const slackReadonlyBannerSlot = slackReadonlyBannerDisplay ? (
     <SlackChannelFooter
       assistantId={assistantId ?? undefined}
       conversation={activeConversation}
       messages={sanitizedMessages}
     />
-  );
+  ) : null;
 
   // -------------------------------------------------------------------------
   // Render
@@ -1437,7 +1445,7 @@ export function ChatRouteContent({
             isChannelReadonly={isChannelReadonly}
             canStopGenerating={canStopGenerating}
             questionPromptSlot={questionPromptSlot}
-            channelFooterSlot={channelFooterSlot}
+            readonlyBannerSlot={slackReadonlyBannerSlot}
             startersSlot={startersSlot}
           />
         }
@@ -1511,7 +1519,7 @@ export function ChatRouteContent({
       bannerSlot={mainBannerSlot}
       queuedDrawerSlot={mainQueuedDrawerSlot}
       questionPromptSlot={questionPromptSlot}
-      channelFooterSlot={channelFooterSlot}
+      readonlyBannerSlot={slackReadonlyBannerSlot}
       startersSlot={startersSlot}
     />
   );

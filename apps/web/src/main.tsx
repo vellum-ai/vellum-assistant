@@ -1,9 +1,13 @@
+// Run localStorage migrations before any other app import.
+// MUST stay above the routes import — routes → onboarding-store and
+// client-feature-flag-store read localStorage at module level.
+import "@/utils/run-storage-migrations";
+
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router";
 import * as Sentry from "@sentry/react";
 
-import { migrateDeviceSettings } from "@/utils/device-settings";
 import { initSentry } from "@/lib/sentry/sentry-init";
 import { isLocalMode, loadLockfile } from "@/lib/local-mode";
 import { useAuthStore, setupAuthListeners } from "@/stores/auth-store";
@@ -19,7 +23,6 @@ import { initSafeAreaBridge } from "@/runtime/native-safe-area";
 
 async function boot() {
   await initSafeAreaBridge();
-  migrateDeviceSettings();
   initSentry();
 
   setupOrganizationStore();

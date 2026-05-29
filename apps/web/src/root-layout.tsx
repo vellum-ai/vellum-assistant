@@ -7,11 +7,14 @@ import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import {
   useAssistantLifecycle,
   type UseAssistantLifecycleReturn,
-} from "@/domains/chat/hooks/use-assistant-lifecycle";
+} from "@/assistant/use-lifecycle";
 import { useAuthStore } from "@/stores/auth-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
+import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
+import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
 import { useConversationSync } from "@/domains/conversations/use-conversation-sync";
+import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
@@ -80,6 +83,7 @@ export function RootLayout() {
     isNonProduction,
     hasPlatformSession,
     onRedirect: navigate,
+    resolveOnboardingRedirect,
   });
 
   useAssistantFeatureFlagSync(hasPlatformSession ? lifecycle.assistantId : null);
@@ -87,6 +91,8 @@ export function RootLayout() {
   useAssistantResourceSync(lifecycle.assistantId, isAssistantActive);
   useConversationSync(lifecycle.assistantId, isAssistantActive);
   useFeatureFlagBusSync(lifecycle.assistantId, isAssistantActive);
+  useNotificationIntentSync(lifecycle.assistantId);
+  useDocumentEditorSync();
 
   useEventBusInit({
     assistantId: lifecycle.assistantId,

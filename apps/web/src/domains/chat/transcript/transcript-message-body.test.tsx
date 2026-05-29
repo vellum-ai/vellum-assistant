@@ -122,6 +122,92 @@ describe("TranscriptMessageBody", () => {
     expect(html).not.toContain(">Assistant<");
   });
 
+  test("renders an explicit Open in Slack hover action for Slack messages", () => {
+    const { getByRole } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "slack-1",
+          role: "assistant",
+          content: "Slack context",
+          slackMessage: {
+            channelId: "C123",
+            channelTs: "1710000000.000300",
+            messageLink: {
+              webUrl:
+                "https://example.slack.com/archives/C123/p1710000000000300",
+            },
+          },
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      getByRole("link", { name: "Open in Slack" }).getAttribute("href"),
+    ).toBe("https://example.slack.com/archives/C123/p1710000000000300");
+  });
+
+  test("opens Slack from the message body on coarse pointers", () => {
+    const originalMatchMedia = window.matchMedia;
+    const originalOpen = window.open;
+    const openMock = mock(() => null);
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: mock((query: string) => ({
+        matches: query === "(pointer: coarse)",
+        media: query,
+        onchange: null,
+        addListener: mock(() => {}),
+        removeListener: mock(() => {}),
+        addEventListener: mock(() => {}),
+        removeEventListener: mock(() => {}),
+        dispatchEvent: mock(() => false),
+      })),
+    });
+    window.open = openMock as unknown as typeof window.open;
+
+    try {
+      const { getByTestId } = render(
+        <TranscriptMessageBody
+          message={{
+            id: "slack-1",
+            role: "assistant",
+            content: "Slack context",
+            slackMessage: {
+              channelId: "C123",
+              channelTs: "1710000000.000300",
+              messageLink: {
+                webUrl:
+                  "https://example.slack.com/archives/C123/p1710000000000300",
+              },
+            },
+          }}
+          expandedToolCallIds={new Set()}
+          expandedCardIds={new Map()}
+          onSurfaceAction={noop}
+        />,
+      );
+
+      fireEvent.click(getByTestId("markdown"));
+
+      expect(openMock).toHaveBeenCalledWith(
+        "https://example.slack.com/archives/C123/p1710000000000300",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        writable: true,
+        value: originalMatchMedia,
+      });
+      window.open = originalOpen;
+    }
+  });
+
   test("passes message id to inspect handler", () => {
     const inspectedIds: string[] = [];
     const { getByTitle } = render(

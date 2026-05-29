@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { ExternalLink } from "lucide-react";
 
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -296,34 +295,15 @@ function SlackMessageAttribution({
   const label = getSlackSenderLabel(message, assistantDisplayName);
   if (!label) return null;
 
-  const url = getSlackLinkUrl(message.slackMessage?.messageLink);
   const className =
     "inline-flex items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]";
-  const content = (
-    <>
-      <span>{label}</span>
-      {url && <ExternalLink aria-hidden className="h-3 w-3 shrink-0" />}
-    </>
-  );
-
-  if (!url) {
-    return (
-      <div data-testid="slack-message-attribution" className={className}>
-        {content}
-      </div>
-    );
-  }
-
   return (
-    <a
+    <div
       data-testid="slack-message-attribution"
-      href={url}
-      target="_blank"
-      rel="noreferrer noopener"
-      className={`${className} hover:text-[var(--content-default)]`}
+      className={className}
     >
-      {content}
-    </a>
+      <span>{label}</span>
+    </div>
   );
 }
 
@@ -352,11 +332,16 @@ export function TranscriptMessageBody({
   const hasInterleavedToolCalls = message.contentOrder?.some(
     (e) => e.type === "toolCall" || e.type === "tool",
   );
+  const isSlackMessage = Boolean(message.slackMessage);
 
   const textBubbleClass =
     message.role === "user"
-      ? "max-w-[80%] rounded-lg px-4 py-3 bg-[var(--surface-lift)] text-[var(--content-default)]"
-      : "w-full text-[var(--content-default)]";
+      ? `max-w-[80%] rounded-lg bg-[var(--surface-lift)] px-4 py-3 text-[var(--content-default)] ${
+          isSlackMessage ? "sm:max-w-[420px]" : ""
+        }`
+      : isSlackMessage
+        ? "max-w-[80%] text-[var(--content-default)] sm:max-w-[640px]"
+        : "w-full text-[var(--content-default)]";
 
   const handleExpandChange = (toolCallId: string, isExpanded: boolean) => {
     if (isExpanded) {
@@ -402,7 +387,7 @@ export function TranscriptMessageBody({
       return;
     }
 
-    if (slackMessageUrl) {
+    if (slackMessageUrl && isPointerCoarse()) {
       if (window.getSelection()?.toString()) return;
       window.open(slackMessageUrl, "_blank", "noopener,noreferrer");
       return;
@@ -577,9 +562,7 @@ export function TranscriptMessageBody({
         ref={wrapperRef}
         onClick={handleBubbleClick}
         data-revealed={revealed}
-        data-slack-message-link={slackMessageUrl ? "true" : undefined}
-        title={slackMessageUrl ? "Open in Slack" : undefined}
-        className={`group/msg flex ${slackMessageUrl ? "cursor-pointer" : ""} ${message.role === "user" ? "justify-end" : "justify-start"}`}
+        className={`group/msg flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
       >
         <div
           className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
@@ -680,6 +663,7 @@ export function TranscriptMessageBody({
               timestamp={messageTimestamp}
               role={message.role}
               isStreaming={message.isStreaming}
+              openInSlackUrl={slackMessageUrl}
               onFork={forkHandler}
               onInspect={inspectHandler}
             />
@@ -742,9 +726,7 @@ export function TranscriptMessageBody({
       ref={wrapperRef}
       onClick={handleBubbleClick}
       data-revealed={revealed}
-      data-slack-message-link={slackMessageUrl ? "true" : undefined}
-      title={slackMessageUrl ? "Open in Slack" : undefined}
-      className={`group/msg flex ${slackMessageUrl ? "cursor-pointer" : ""} ${message.role === "user" ? "justify-end" : "justify-start"}`}
+      className={`group/msg flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
     >
       <div
         className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
@@ -825,6 +807,7 @@ export function TranscriptMessageBody({
             timestamp={messageTimestamp}
             role={message.role}
             isStreaming={message.isStreaming}
+            openInSlackUrl={slackMessageUrl}
             onFork={forkHandler}
             onInspect={inspectHandler}
           />

@@ -5118,6 +5118,8 @@ paths:
                           type: number
                         inferenceProfile:
                           type: string
+                        isProcessing:
+                          type: boolean
                       required:
                         - id
                         - title
@@ -5127,6 +5129,7 @@ paths:
                         - conversationType
                         - source
                         - groupId
+                        - isProcessing
                       additionalProperties: false
                   nextOffset:
                     type: number
@@ -5461,6 +5464,8 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      isProcessing:
+                        type: boolean
                     required:
                       - id
                       - title
@@ -5470,6 +5475,7 @@ paths:
                       - conversationType
                       - source
                       - groupId
+                      - isProcessing
                     additionalProperties: false
                 required:
                   - conversation
@@ -5656,6 +5662,8 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      isProcessing:
+                        type: boolean
                     required:
                       - id
                       - title
@@ -5665,6 +5673,7 @@ paths:
                       - conversationType
                       - source
                       - groupId
+                      - isProcessing
                     additionalProperties: false
                 required:
                   - conversation
@@ -6364,10 +6373,13 @@ paths:
                             - type: "null"
                         updatedAt:
                           type: number
+                        isProcessing:
+                          type: boolean
                       required:
                         - id
                         - title
                         - updatedAt
+                        - isProcessing
                       additionalProperties: false
                 required:
                   - conversations
@@ -6613,6 +6625,8 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      isProcessing:
+                        type: boolean
                     required:
                       - id
                       - title
@@ -6622,6 +6636,7 @@ paths:
                       - conversationType
                       - source
                       - groupId
+                      - isProcessing
                     additionalProperties: false
                 required:
                   - conversation
