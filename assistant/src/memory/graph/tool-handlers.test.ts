@@ -19,9 +19,14 @@ mock.module("./store.js", () => ({
   recordNodeEdit: recordNodeEditMock,
 }));
 
-// Other deps used by the remember path (not under test here but imported)
+// Other deps used by the remember and update paths
 mock.module("../jobs/embed-pkb-file.js", () => ({
   enqueuePkbIndexJob: mock(() => {}),
+}));
+
+const enqueueMemoryJobMock = mock(() => {});
+mock.module("../jobs-store.js", () => ({
+  enqueueMemoryJob: enqueueMemoryJobMock,
 }));
 
 import { handleDeleteMemory, handleUpdateMemory } from "./tool-handlers.js";

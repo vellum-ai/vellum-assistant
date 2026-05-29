@@ -13,6 +13,7 @@ import type { AssistantConfig } from "../../config/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
+import { enqueueMemoryJob } from "../jobs-store.js";
 import { PKB_WORKSPACE_SCOPE } from "../pkb/types.js";
 import { deleteNode, queryNodes, recordNodeEdit, updateNode } from "./store.js";
 
@@ -341,6 +342,9 @@ export function handleUpdateMemory(
     conversationId,
   });
   updateNode(target.id, { content: newContent });
+  // Re-embed so Qdrant reflects the new content — same pattern as the
+  // memory-item-routes update handler.
+  enqueueMemoryJob("embed_graph_node", { nodeId: target.id });
 
   return {
     success: true,
