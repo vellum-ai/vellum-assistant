@@ -13,7 +13,7 @@
  * @see {@link https://react.dev/reference/react/useMemo}
  */
 
-import { useCallback, useEffect, useMemo, useState, startTransition } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, startTransition, type RefObject } from "react";
 
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
 import { groupConversations, type CustomGroup } from "@/domains/chat/utils/group-conversations";
@@ -28,6 +28,7 @@ import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
 // ---------------------------------------------------------------------------
 
 export const SIDEBAR_CONVERSATION_LIMIT = 5;
+const ITEM_HEIGHT_ESTIMATE = 34; // PanelItem 32px + SubList gap 2px
 
 // ---------------------------------------------------------------------------
 // Types
@@ -63,6 +64,9 @@ export interface SidebarState {
   onOpenCustomGroupsChange: (next: string[]) => void;
 
   conversationGroupsEnabled: boolean;
+
+  /** Attach to SideMenu.Body so auto-fill can measure available space. */
+  bodyRef: RefObject<HTMLDivElement | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -122,12 +126,51 @@ export function useSidebarState({
 
   // --- Pagination ("show more") ---
 
+  const bodyRef = useRef<HTMLDivElement>(null);
   const [visibleRecentsCount, setVisibleRecentsCount] = useState(
     SIDEBAR_CONVERSATION_LIMIT,
   );
   const [visibleSlackCount, setVisibleSlackCount] = useState(
     SIDEBAR_CONVERSATION_LIMIT,
   );
+
+  // The baseline for "Show less": either the auto-filled count (if the body
+  // had room for more than SIDEBAR_CONVERSATION_LIMIT) or the hardcoded min.
+  const autoFilledCountRef = useRef(SIDEBAR_CONVERSATION_LIMIT);
+
+  // Auto-fill: after conversations render, measure empty space in the
+  // scrollable body and expand recents to fill the viewport.
+  // useLayoutEffect runs before paint so the user never sees the short list.
+  // Note: can't compare scrollHeight vs clientHeight because the body uses
+  // flex-1, making them equal even when content is shorter than the container.
+  // Instead, measure the gap between the last child's bottom and the body's
+  // bottom edge.
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el || grouped.recents.length === 0) return;
+
+    // Skip when the sidebar is in collapsed rail mode — the icon layout
+    // has different dimensions and would produce an incorrect fill count.
+    if (el.clientWidth < 100) return;
+
+    const lastChild = el.lastElementChild;
+    if (!lastChild) return;
+
+    const emptyPx =
+      el.getBoundingClientRect().bottom -
+      lastChild.getBoundingClientRect().bottom;
+    if (emptyPx <= 0) return;
+
+    const additional = Math.floor(emptyPx / ITEM_HEIGHT_ESTIMATE);
+    if (additional <= 0) return;
+
+    const target = Math.min(
+      grouped.recents.length,
+      visibleRecentsCount + additional,
+    );
+    autoFilledCountRef.current = Math.max(autoFilledCountRef.current, target);
+    setVisibleRecentsCount(target);
+  }, [grouped.recents.length]);
 
   const recentsSection = useMemo((): PaginatedSection => {
     const attentionIndex = attentionConversationIds
@@ -145,8 +188,8 @@ export function useSidebarState({
       totalCount: grouped.recents.length,
       showMore: effectiveVisibleCount < grouped.recents.length,
       showLess:
-        visibleRecentsCount > SIDEBAR_CONVERSATION_LIMIT &&
-        grouped.recents.length > SIDEBAR_CONVERSATION_LIMIT,
+        visibleRecentsCount > autoFilledCountRef.current &&
+        grouped.recents.length > autoFilledCountRef.current,
       onShowMore: () =>
         setVisibleRecentsCount((prev) =>
           Math.min(
@@ -154,7 +197,7 @@ export function useSidebarState({
             Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
           ),
         ),
-      onShowLess: () => setVisibleRecentsCount(SIDEBAR_CONVERSATION_LIMIT),
+      onShowLess: () => setVisibleRecentsCount(autoFilledCountRef.current),
     };
   }, [grouped.recents, visibleRecentsCount, attentionConversationIds]);
 
@@ -254,5 +297,6 @@ export function useSidebarState({
     onOpenCategoriesChange: setOpenCategories,
     onOpenCustomGroupsChange: setOpenCustomGroups,
     conversationGroupsEnabled: conversationGroupsUI,
+    bodyRef,
   };
 }

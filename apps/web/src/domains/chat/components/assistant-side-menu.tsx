@@ -411,7 +411,7 @@ export function AssistantSideMenu({
         <SideMenu.Separator />
       </SideMenu.Header>
 
-      <SideMenu.Body className="pt-3 max-md:pt-4">
+      <SideMenu.Body ref={sidebar.bodyRef} className="pt-3 max-md:pt-4">
         {collapsed && variant === "rail" ? (
           <div className="flex flex-col items-center gap-1">
             {headerActions}
