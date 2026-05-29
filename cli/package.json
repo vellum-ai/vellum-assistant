@@ -8,6 +8,10 @@
     "./package.json": "./package.json",
     "./src/components/DefaultMainScreen": "./src/components/DefaultMainScreen.tsx",
     "./src/lib/constants": "./src/lib/constants.ts",
+    "./src/lib/hatch-local": "./src/lib/hatch-local.ts",
+    "./src/lib/retire-local": "./src/lib/retire-local.ts",
+    "./src/lib/guardian-token": "./src/lib/guardian-token.ts",
+    "./src/lib/lifecycle-reporter": "./src/lib/lifecycle-reporter.ts",
     "./src/commands/*": "./src/commands/*.ts"
   },
   "bin": {
