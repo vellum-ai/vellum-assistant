@@ -32,8 +32,8 @@ import { resolveEditChatDraftConversationId } from "@/domains/chat/utils/edit-ch
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
-import { isSending, useTurnStore } from "@/stores/turn-store";
-import { endTurn } from "@/stores/turn-coordinator";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
+import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {

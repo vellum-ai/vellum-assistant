@@ -51,7 +51,7 @@ import type { ContextWindowUsage } from "@/domains/chat/components/context-windo
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
-import { type UIContext } from "@/stores/turn-selectors";
+import { type UIContext } from "@/domains/chat/turn-selectors";
 import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
@@ -98,7 +98,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
-import { useTurnStore } from "@/stores/turn-store";
+import { useTurnStore } from "@/domains/chat/turn-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";

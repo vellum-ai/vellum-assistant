@@ -30,7 +30,7 @@
  */
 
 import { useConversationStore } from "@/stores/conversation-store";
-import { isSending, useTurnStore } from "@/stores/turn-store";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 
 export type TurnTerminalReason =
   | "complete"

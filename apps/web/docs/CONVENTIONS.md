@@ -168,8 +168,6 @@ src/
     viewer-store.ts
     sse-connected-store.ts
     conversation-store.ts
-    turn-store.ts
-    turn-coordinator.ts            #   atomic turn-store + conversation-store transitions
   domains/                         # feature modules
     messages/                      # message lifecycle
       message-store.ts
@@ -192,10 +190,10 @@ src/
         message-handlers.ts
         interaction-handlers.ts
         types.ts
-    interactions/                   # user-facing prompts
-      interaction-store.ts
-      interaction-store.test.ts
-      types.ts
+    chat/                          # chat feature module
+      turn-store.ts                #   turn-level state machine
+      turn-coordinator.ts          #   atomic turn-store + conversation-store transitions
+      turn-selectors.ts            #   render-decision selectors from TurnState
   hooks/                           # cross-domain shared hooks
     use-is-mobile.ts
     use-visible-viewport.ts

@@ -45,12 +45,12 @@ import type {
   WebSyncRouter,
 } from "@/lib/sync/web-sync-router";
 
-import { endTurn } from "@/stores/turn-coordinator";
+import { endTurn } from "@/domains/chat/turn-coordinator";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   isSending,
   useTurnStore,
-} from "@/stores/turn-store";
+} from "@/domains/chat/turn-store";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
 import { useEventBusStore } from "@/stores/event-bus-store";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
