@@ -1136,7 +1136,7 @@ struct ToolCallStepDetailRow: View {
     /// level; the rule editor still receives the original risk for correct rule creation.
     @ViewBuilder
     private var leadingAccessory: some View {
-        if let risk = toolCall.riskLevel {
+        if toolCall.riskLevel != nil {
             let effective = effectiveRiskDisplay(
                 approvalReason: toolCall.approvalReason,
                 riskLevel: toolCall.riskLevel
