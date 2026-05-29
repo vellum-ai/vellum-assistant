@@ -55,7 +55,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-05-29T03:45:08.000Z"
+      "updatedAt": "2026-05-29T12:58:30.000Z"
     },
     {
       "id": "chatgpt-import",
@@ -415,7 +415,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-05-28T17:50:13.000Z"
+      "updatedAt": "2026-05-29T19:00:19.000Z"
     },
     {
       "id": "meme-generator",
