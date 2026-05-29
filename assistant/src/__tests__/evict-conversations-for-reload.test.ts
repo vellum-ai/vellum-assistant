@@ -8,6 +8,10 @@
  *
  * Regression guard for LUM-2039: subagent spawn silent death caused by
  * config-reload eviction bypassing the shouldProtect callback.
+ *
+ * KEEP IN SYNC with `DaemonServer.evictConversationsForReload` in
+ * `src/daemon/server.ts`. If the production logic changes, update
+ * `evictConversationsForReload` below to match.
  */
 import { describe, expect, test } from "bun:test";
 
