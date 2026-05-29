@@ -902,9 +902,14 @@ export function ProviderEditorContent({
                   <Typography
                     variant="body-small-default"
                     as="p"
-                    className="text-[var(--content-secondary)]"
+                    className={
+                      chatgptOAuthState === "paste_url"
+                        ? "text-[var(--content-tertiary)] line-through"
+                        : "text-[var(--content-secondary)]"
+                    }
                   >
-                    1. Click &ldquo;Sign in with ChatGPT&rdquo; below to open a
+                    1. Click &ldquo;Sign in with ChatGPT&rdquo;
+                    {chatgptOAuthState === "idle" ? " below" : null} to open a
                     popup
                   </Typography>
                   <Typography
@@ -921,7 +926,7 @@ export function ProviderEditorContent({
                     className="text-[var(--content-secondary)]"
                   >
                     3. Copy the full URL from that page&apos;s address bar and
-                    paste it back here
+                    paste it below
                   </Typography>
                 </div>
 
