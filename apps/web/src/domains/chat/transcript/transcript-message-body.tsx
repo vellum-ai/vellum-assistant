@@ -387,9 +387,15 @@ export function TranscriptMessageBody({
       return;
     }
 
+    if (slackMessageUrl && isPointerCoarse()) {
+      if (window.getSelection()?.toString()) return;
+      window.open(slackMessageUrl, "_blank", "noopener,noreferrer");
+      return;
+    }
+
     if (!isPointerCoarse()) return;
     setRevealed((v) => !v);
-  }, []);
+  }, [slackMessageUrl]);
 
   // Resolve a surface from a contentOrder id. Surfaces are stored directly
   // on the message's surfaces[] array. The streaming path uses the UUID

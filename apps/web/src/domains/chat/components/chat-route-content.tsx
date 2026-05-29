@@ -103,6 +103,7 @@ import {
   type UIContext,
 } from "@/domains/chat/turn-selectors";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
+import { getSlackConversationDisplay } from "@/domains/chat/utils/slack-conversation-display";
 
 import { useViewerStore, type MainView, type OpenedAppState, type OpenedDocumentState } from "@/stores/viewer-store";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
@@ -1396,7 +1397,14 @@ export function ChatRouteContent({
     </div>
   ) : null;
 
-  const slackReadonlyBannerSlot = activeConversation?.originChannel === "slack" ? (
+  const slackReadonlyBannerDisplay =
+    activeConversation?.originChannel === "slack"
+      ? getSlackConversationDisplay({
+          conversation: activeConversation,
+          messages: sanitizedMessages,
+        })
+      : null;
+  const slackReadonlyBannerSlot = slackReadonlyBannerDisplay ? (
     <SlackChannelFooter
       assistantId={assistantId ?? undefined}
       conversation={activeConversation}

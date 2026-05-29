@@ -102,8 +102,8 @@ import { isChannelConversation } from "@/domains/chat/utils/conversation-channel
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
 import {
   formatSlackConversationDisplayLabel,
-  getSlackConversationDisplay,
 } from "@/domains/chat/utils/slack-conversation-display";
+import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conversation-display";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
 const AddCreditsModal = lazy(() =>
@@ -1091,13 +1091,16 @@ export function ChatPage() {
     () => messages.some((m) => m.id != null),
     [messages],
   );
+  const slackConversationDisplay = useSlackConversationDisplay({
+    assistantId: assistantId ?? undefined,
+    conversation: activeConversation,
+    messages,
+  });
   const slackHeaderLabel = useMemo(() => {
-    const display = getSlackConversationDisplay({
-      conversation: activeConversation,
-      messages,
-    });
-    return display ? formatSlackConversationDisplayLabel(display) : null;
-  }, [activeConversation, messages]);
+    return slackConversationDisplay
+      ? formatSlackConversationDisplayLabel(slackConversationDisplay)
+      : null;
+  }, [slackConversationDisplay]);
 
   const topBarCenterContent = useMemo(() => {
     if (!activeConversation) {

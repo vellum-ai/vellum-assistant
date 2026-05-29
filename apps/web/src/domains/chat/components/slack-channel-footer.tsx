@@ -1,14 +1,8 @@
-import { useEffect, useState } from "react";
-
 import { ExternalLink, Hash, Info, MessageCircle } from "lucide-react";
 
-import { resolveSlackChannelName } from "@/domains/chat/api/slack-channel-name";
 import type { Conversation } from "@/types/conversation-types";
-import {
-  getSlackConversationDisplay,
-  shouldResolveSlackConversationDisplayName,
-} from "@/domains/chat/utils/slack-conversation-display";
 import { type DisplayMessage } from "@/domains/chat/types/types";
+import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conversation-display";
 
 type SlackFooterConversation = Pick<
   Conversation,
@@ -22,92 +16,15 @@ export interface SlackChannelFooterProps {
   messages?: DisplayMessage[];
 }
 
-const slackChannelNameRequests = new Map<string, Promise<string | null>>();
-
 export function SlackChannelFooter({
   assistantId,
   conversation,
   messages,
 }: SlackChannelFooterProps) {
-  const [resolvedChannelName, setResolvedChannelName] = useState<{
-    key: string;
-    channelName: string;
-  } | null>(null);
-
-  const unresolvedDisplay = getSlackConversationDisplay({
-    conversation,
-    messages,
-  });
-  const channelId = unresolvedDisplay?.channelId;
-  const conversationId = conversation?.conversationId;
-  const resolutionKey =
-    assistantId && conversationId && channelId
-      ? `${assistantId}:${conversationId}:${channelId}`
-      : undefined;
-  const shouldResolveChannelName =
-    Boolean(assistantId && conversationId && channelId) &&
-    shouldResolveSlackConversationDisplayName(unresolvedDisplay);
-
-  useEffect(() => {
-    if (
-      !shouldResolveChannelName ||
-      !assistantId ||
-      !conversationId ||
-      !channelId ||
-      !resolutionKey
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    let request = slackChannelNameRequests.get(resolutionKey);
-
-    if (!request) {
-      request = resolveSlackChannelName(assistantId, conversationId).then(
-        (result) => {
-          if (
-            !result?.resolved ||
-            result.channelId !== channelId ||
-            !result.channelName
-          ) {
-            return null;
-          }
-          return result.channelName;
-        },
-      );
-      slackChannelNameRequests.set(resolutionKey, request);
-      request.finally(() => {
-        if (slackChannelNameRequests.get(resolutionKey) === request) {
-          slackChannelNameRequests.delete(resolutionKey);
-        }
-      });
-    }
-
-    request.then((channelName) => {
-      if (!cancelled && channelName) {
-        setResolvedChannelName({ key: resolutionKey, channelName });
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
+  const display = useSlackConversationDisplay({
     assistantId,
-    channelId,
-    conversationId,
-    resolutionKey,
-    shouldResolveChannelName,
-  ]);
-
-  const resolvedDisplayText =
-    resolutionKey && resolvedChannelName?.key === resolutionKey
-      ? resolvedChannelName.channelName
-      : undefined;
-  const display = getSlackConversationDisplay({
     conversation,
     messages,
-    resolvedChannelName: resolvedDisplayText,
   });
   if (!display) return null;
 
