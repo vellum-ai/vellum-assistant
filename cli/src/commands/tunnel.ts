@@ -1,4 +1,7 @@
+import { join } from "path";
+
 import { resolveAssistant } from "../lib/assistant-config";
+import { runCloudflareTunnel } from "../lib/cloudflare-tunnel.js";
 import { runNgrokTunnel } from "../lib/ngrok";
 
 const VALID_PROVIDERS = ["vellum", "ngrok", "cloudflare", "tailscale"] as const;
@@ -21,17 +24,45 @@ function parseArgs(): TunnelArgs {
     if (arg === "--help" || arg === "-h") {
       console.log("Usage: vellum tunnel [<name>] [options]");
       console.log("");
-      console.log("Create a tunnel for a locally hosted assistant.");
+      console.log(
+        "Expose a locally running assistant to the internet via a tunnel.",
+      );
+      console.log(
+        "The public URL is saved to the workspace config as the ingress base URL,",
+      );
+      console.log(
+        "enabling webhook integrations (Telegram, Twilio, etc.) to reach the assistant.",
+      );
       console.log("");
       console.log("Arguments:");
       console.log(
-        "  <name>                        Name of the assistant (defaults to latest)",
+        "  <name>                        Name of the assistant (defaults to active or only local)",
       );
       console.log("");
       console.log("Options:");
       console.log(
         `  --provider <provider>         Tunnel provider: ${VALID_PROVIDERS.join(", ")} (default: ${DEFAULT_PROVIDER})`,
       );
+      console.log("");
+      console.log("Providers:");
+      console.log(
+        "  vellum       Managed tunnel via Vellum Cloud (default; requires account)",
+      );
+      console.log(
+        "  ngrok        ngrok tunnel — install: brew install ngrok/ngrok/ngrok",
+      );
+      console.log(
+        "  cloudflare   Cloudflare quick tunnel — install: brew install cloudflare/cloudflare/cloudflared",
+      );
+      console.log(
+        "               No Cloudflare account required for quick tunnels.",
+      );
+      console.log("");
+      console.log("Examples:");
+      console.log("  $ vellum tunnel");
+      console.log("  $ vellum tunnel --provider ngrok");
+      console.log("  $ vellum tunnel --provider cloudflare");
+      console.log("  $ vellum tunnel my-assistant --provider cloudflare");
       process.exit(0);
     } else if (arg === "--provider") {
       const next = args[i + 1];
@@ -75,6 +106,19 @@ export async function tunnel(): Promise<void> {
 
   if (provider === "ngrok") {
     await runNgrokTunnel();
+    return;
+  }
+
+  if (provider === "cloudflare") {
+    const resources = entry.resources;
+    await runCloudflareTunnel(
+      resources
+        ? {
+            port: resources.gatewayPort,
+            workspaceDir: join(resources.instanceDir, ".vellum", "workspace"),
+          }
+        : {},
+    );
     return;
   }
 
