@@ -1,11 +1,7 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  AgentEvent,
-  CheckpointDecision,
-  CheckpointInfo,
-} from "../agent/loop.js";
+import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -548,11 +544,7 @@ import {
 type AgentLoopRun = (
   messages: Message[],
   onEvent: (event: AgentEvent) => void | Promise<void>,
-  signal?: AbortSignal,
-  requestId?: string,
-  onCheckpoint?: (
-    checkpoint: CheckpointInfo,
-  ) => CheckpointDecision | Promise<CheckpointDecision>,
+  options?: AgentLoopRunOptions,
 ) => Promise<Message[]>;
 
 function makeCtx(
@@ -819,13 +811,7 @@ describe("session-agent-loop", () => {
       mockHasProactiveArtifactCompleted = false;
       mockTryClaimProactiveArtifactTrigger = true;
 
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _requestId,
-        onCheckpoint,
-      ) => {
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
         // Prime the assistant row anchor for LLM call 1 — production code
         // emits this from `AgentLoop.run` just before `provider.sendMessage`.
         await onEvent({ type: "llm_call_started" });
@@ -848,7 +834,7 @@ describe("session-agent-loop", () => {
           content: "{}",
           isError: false,
         });
-        await onCheckpoint?.({
+        await options?.onCheckpoint?.({
           turnIndex: 0,
           toolCount: 1,
           hasToolUse: true,
@@ -2150,13 +2136,7 @@ describe("session-agent-loop", () => {
       // call). 90k satisfies both so the path reaches call 3.
       mockEstimateTokens = 90_000;
 
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _reqId,
-        onCheckpoint,
-      ) => {
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
         callCount++;
         if (callCount <= 2) {
           // Calls 1 (initial) and 2 (convergence rerun): error so
@@ -2180,8 +2160,8 @@ describe("session-agent-loop", () => {
         // flips `yieldedForBudget` to true, then return without
         // finishing — mirroring what AgentLoop.run does when its
         // checkpoint returns "yield".
-        if (onCheckpoint) {
-          await onCheckpoint({
+        if (options?.onCheckpoint) {
+          await options.onCheckpoint({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,
@@ -2461,13 +2441,7 @@ describe("session-agent-loop", () => {
     test("yields at checkpoint when canHandoffAtCheckpoint returns true", async () => {
       const events: ServerMessage[] = [];
 
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _reqId,
-        onCheckpoint,
-      ) => {
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
         // Prime the assistant row anchor — production code emits this from
         // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
         // need this on every invocation: each agent-loop iteration reserves
@@ -2495,8 +2469,8 @@ describe("session-agent-loop", () => {
           model: "test-model",
           providerDurationMs: 100,
         });
-        if (onCheckpoint) {
-          const decision = await onCheckpoint({
+        if (options?.onCheckpoint) {
+          const decision = await options.onCheckpoint({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,
@@ -2539,13 +2513,7 @@ describe("session-agent-loop", () => {
     test("continues when canHandoffAtCheckpoint returns false", async () => {
       const events: ServerMessage[] = [];
 
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _reqId,
-        onCheckpoint,
-      ) => {
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
         // Prime the assistant row anchor — production code emits this from
         // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
         // need this on every invocation: each agent-loop iteration reserves
@@ -2572,8 +2540,8 @@ describe("session-agent-loop", () => {
           model: "test-model",
           providerDurationMs: 100,
         });
-        if (onCheckpoint) {
-          await onCheckpoint({
+        if (options?.onCheckpoint) {
+          await options.onCheckpoint({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,
@@ -3939,14 +3907,12 @@ describe("session-agent-loop", () => {
       const agentLoopRun: AgentLoopRun = async (
         messages,
         _onEvent,
-        _signal,
-        _reqId,
-        onCheckpoint,
+        options,
       ) => {
         runCount++;
         if (runCount === 1) {
           mockEstimateTokens = 90_000;
-          const decision = await onCheckpoint?.({
+          const decision = await options?.onCheckpoint?.({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,

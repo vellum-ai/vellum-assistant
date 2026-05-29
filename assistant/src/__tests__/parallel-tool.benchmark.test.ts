@@ -304,11 +304,9 @@ describe("Parallel tool execution benchmarks", () => {
         toolExecutor,
       );
       const start = Date.now();
-      const history = await loop.run(
-        [userMessage],
-        () => {},
-        controller.signal,
-      );
+      const history = await loop.run([userMessage], () => {}, {
+        signal: controller.signal,
+      });
       const elapsed = Date.now() - start;
 
       // Should exit quickly after the 50ms abort, not wait 500ms

@@ -221,7 +221,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       (e) => {
         events.push(e);
       },
-      controller.signal,
+      { signal: controller.signal },
     );
 
     expect(countExitEvents(events)).toBe(1);
@@ -276,9 +276,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       (e) => {
         events.push(e);
       },
-      undefined,
-      undefined,
-      onCheckpoint,
+      { onCheckpoint },
     );
 
     expect(countExitEvents(events)).toBe(0);
@@ -355,7 +353,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       (e) => {
         events.push(e);
       },
-      controller.signal,
+      { signal: controller.signal },
     );
 
     expect(countExitEvents(events)).toBe(1);

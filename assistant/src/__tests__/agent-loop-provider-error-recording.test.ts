@@ -184,7 +184,7 @@ describe("AgentLoop provider_error event emission", () => {
       (e) => {
         events.push(e);
       },
-      controller.signal,
+      { signal: controller.signal },
     );
 
     const providerErrorEvent = events.find((e) => e.type === "provider_error");

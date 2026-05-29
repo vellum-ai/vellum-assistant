@@ -48,7 +48,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import type { AgentEvent } from "../agent/loop.js";
+import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
 import { LLMSchema } from "../config/schemas/llm.js";
 import { RetryProvider } from "../providers/retry.js";
 import type {
@@ -65,13 +65,7 @@ import {
 
 interface RunArgs {
   messages: Message[];
-  signal: AbortSignal | undefined;
-  requestId: string | undefined;
-  onCheckpoint: unknown;
-  callSite: unknown;
-  turnContext: unknown;
-  overrideProfile: string | undefined;
-  effectiveMaxInputTokens: number | undefined;
+  options: AgentLoopRunOptions | undefined;
 }
 
 function makeTarget(): {
@@ -90,23 +84,11 @@ function makeTarget(): {
       run: (async (
         messages: Message[],
         _onEvent: (event: AgentEvent) => void | Promise<void>,
-        signal?: AbortSignal,
-        requestId?: string,
-        onCheckpoint?: unknown,
-        callSite?: unknown,
-        turnContext?: unknown,
-        overrideProfile?: string,
-        effectiveMaxInputTokens?: number,
+        options?: AgentLoopRunOptions,
       ) => {
         runArgs.push({
           messages: [...messages],
-          signal,
-          requestId,
-          onCheckpoint,
-          callSite,
-          turnContext,
-          overrideProfile,
-          effectiveMaxInputTokens,
+          options,
         });
         // Return the input verbatim → silent no-op (no assistant tail).
         return messages;
@@ -167,18 +149,15 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
 
     expect(result.invoked).toBe(true);
     expect(runArgs).toHaveLength(1);
-    // The 8th positional argument (after messages, onEvent, signal,
-    // requestId, onCheckpoint, callSite, turnContext) is overrideProfile.
-    expect(runArgs[0]!.overrideProfile).toBe("frontier");
-    // The 6th positional argument is callSite. Wakes resume a user-facing
-    // conversation, so route through the same `mainAgent` call site as a
-    // normal user turn — without it the resolver and routing layers would
-    // short-circuit and silently drop both the call-site config and the
-    // pinned override profile.
-    expect(runArgs[0]!.callSite).toBe("mainAgent");
-    expect(runArgs[0]!.effectiveMaxInputTokens).toBe(150000);
+    expect(runArgs[0]!.options?.overrideProfile).toBe("frontier");
+    // Wakes resume a user-facing conversation, so route through the same
+    // `mainAgent` call site as a normal user turn — without it the resolver
+    // and routing layers would short-circuit and silently drop both the
+    // call-site config and the pinned override profile.
+    expect(runArgs[0]!.options?.callSite).toBe("mainAgent");
+    expect(runArgs[0]!.options?.effectiveMaxInputTokens).toBe(150000);
     // Sanity: the wake-source tag still propagates as requestId.
-    expect(runArgs[0]!.requestId).toBe("wake:scheduler");
+    expect(runArgs[0]!.options?.requestId).toBe("wake:scheduler");
   });
 
   test("passes undefined overrideProfile when the conversation has no pinned profile, but still forwards mainAgent callSite", async () => {
@@ -195,13 +174,13 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
     );
 
     expect(runArgs).toHaveLength(1);
-    expect(runArgs[0]!.overrideProfile).toBeUndefined();
+    expect(runArgs[0]!.options?.overrideProfile).toBeUndefined();
     // Even without an override profile, we still need callSite="mainAgent"
     // so the resolver picks up `llm.callSites.mainAgent` config (model,
     // maxTokens, effort, etc.). Otherwise the wake silently runs under
     // workspace defaults regardless of any per-call-site configuration.
-    expect(runArgs[0]!.callSite).toBe("mainAgent");
-    expect(runArgs[0]!.effectiveMaxInputTokens).toBeGreaterThan(0);
+    expect(runArgs[0]!.options?.callSite).toBe("mainAgent");
+    expect(runArgs[0]!.options?.effectiveMaxInputTokens).toBeGreaterThan(0);
   });
 });
 

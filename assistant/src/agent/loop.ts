@@ -378,6 +378,35 @@ export interface ResolvedSystemPrompt {
   model?: string;
 }
 
+export interface AgentLoopRunOptions {
+  signal?: AbortSignal;
+  requestId?: string;
+  onCheckpoint?: (
+    checkpoint: CheckpointInfo,
+  ) => CheckpointDecision | Promise<CheckpointDecision>;
+  callSite?: LLMCallSite;
+  /**
+   * Per-turn context supplied by the orchestrator. Every pipeline
+   * invocation inside the loop clones from this value (overwriting only
+   * `turnIndex`/`requestId`) so middleware sees the real conversation
+   * identity, trust class, and `contextWindowManager` rather than the
+   * `"agent-loop"` sentinel used when the loop is instantiated standalone
+   * in unit tests.
+   */
+  turnContext?: TurnContext;
+  /**
+   * Ad-hoc inference-profile override applied to every LLM call the loop
+   * issues. When set, each `SendMessageOptions.config` carries
+   * `overrideProfile = <name>` so the provider's resolver layers
+   * `llm.profiles[<name>]` between the workspace `activeProfile` and any
+   * call-site named profile. Missing profile names silently fall through.
+   */
+  overrideProfile?: string;
+  effectiveMaxInputTokens?: number;
+  resolveOverrideProfile?: () => string | undefined;
+  resolveEffectiveMaxInputTokens?: () => number | undefined;
+}
+
 /**
  * Callback shape the loop uses to execute a tool invocation.
  *
@@ -484,35 +513,19 @@ export class AgentLoop {
   async run(
     messages: Message[],
     onEvent: (event: AgentEvent) => void | Promise<void>,
-    signal?: AbortSignal,
-    requestId?: string,
-    onCheckpoint?: (
-      checkpoint: CheckpointInfo,
-    ) => CheckpointDecision | Promise<CheckpointDecision>,
-    callSite?: LLMCallSite,
-    /**
-     * Optional per-turn context supplied by the orchestrator. Every pipeline
-     * invocation inside the loop clones from this value (overwriting only
-     * `turnIndex`/`requestId`) so middleware sees the real conversation
-     * identity, trust class, and `contextWindowManager` rather than the
-     * `"agent-loop"` sentinel used when the loop is instantiated standalone
-     * in unit tests.
-     */
-    turnContext?: TurnContext,
-    /**
-     * Optional ad-hoc inference-profile override applied to every LLM call
-     * the loop issues. When set, each `SendMessageOptions.config` carries
-     * `overrideProfile = <name>` so the provider's resolver layers
-     * `llm.profiles[<name>]` between the workspace `activeProfile` and any
-     * call-site named profile. Missing profile names silently fall through.
-     * Used by per-conversation pinned profiles to override the workspace
-     * default for the lifetime of an agent loop run.
-     */
-    overrideProfile?: string,
-    effectiveMaxInputTokens?: number,
-    resolveOverrideProfile?: () => string | undefined,
-    resolveEffectiveMaxInputTokens?: () => number | undefined,
+    options?: AgentLoopRunOptions,
   ): Promise<Message[]> {
+    const {
+      signal,
+      requestId,
+      onCheckpoint,
+      callSite,
+      turnContext,
+      overrideProfile,
+      effectiveMaxInputTokens,
+      resolveOverrideProfile,
+      resolveEffectiveMaxInputTokens,
+    } = options ?? {};
     const history = [...messages];
     const initialHistoryLength = messages.length;
     let toolUseTurns = 0;
