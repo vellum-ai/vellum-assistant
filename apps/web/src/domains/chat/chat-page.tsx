@@ -59,7 +59,6 @@ import type { SyncChangedEvent } from "@/lib/sync/types";
 
 import { Button } from "@vellum/design-library";
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { useSyncChatStore } from "@/domains/chat/chat-store";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -993,21 +992,6 @@ export function ChatPage() {
     }),
     reconcileActiveConversation,
   });
-
-  // -------------------------------------------------------------------------
-  // Sync chat store (for deeply-nested components that read via context)
-  // -------------------------------------------------------------------------
-  useSyncChatStore({
-    messages,
-    activeConversationId,
-    assistantId,
-    sendMessage,
-  });
-
-  // (Previously: a useEffect mirrored a local `useState<AssistantIdentity>`
-  // into `useAssistantIdentityStore`. That mirror is gone — chat-page now
-  // reads the store via atomic selectors above and `useAssistantIdentityInit`
-  // at the layout level owns the fetch + write. LUM-1959.)
 
   // -------------------------------------------------------------------------
   // Conversation actions (archive, pin, rename, etc.)
