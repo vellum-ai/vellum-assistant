@@ -108,7 +108,7 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
           typeof msg.content === "string"
             ? msg.content
             : JSON.stringify(msg.content);
-        await addMessage(conversation.id, msg.role, contentStr, undefined, {
+        await addMessage(conversation.id, msg.role, contentStr, {
           skipIndexing: true,
         });
       }

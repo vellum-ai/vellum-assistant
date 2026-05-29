@@ -519,9 +519,7 @@ export async function persistQueuedMessageBody(
       ctx.conversationId,
       "user",
       contentToPersist,
-      mergedMetadata,
-      undefined,
-      clientMessageId,
+      { metadata: mergedMetadata, clientMessageId },
     );
 
     if (persistedUserMessage.deduplicated) {

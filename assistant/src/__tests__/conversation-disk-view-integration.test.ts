@@ -127,7 +127,7 @@ describe("addMessage + syncMessageToDisk → disk view", () => {
   test("appends JSONL line for a text message", async () => {
     const conv = createConversation("Msg Test");
 
-    const msg = await addMessage(conv.id, "user", "Hello world", undefined, {
+    const msg = await addMessage(conv.id, "user", "Hello world", {
       skipIndexing: true,
     });
 
@@ -149,7 +149,7 @@ describe("addMessage + syncMessageToDisk → disk view", () => {
   test("message with attachment copies file and includes in JSONL", async () => {
     const conv = createConversation("Attach Test");
 
-    const msg = await addMessage(conv.id, "user", "See attached", undefined, {
+    const msg = await addMessage(conv.id, "user", "See attached", {
       skipIndexing: true,
     });
 

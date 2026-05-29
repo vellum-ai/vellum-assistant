@@ -434,10 +434,12 @@ describe("relay-server", () => {
               "user",
               JSON.stringify([{ type: "text", text: options.content }]),
               {
-                userMessageChannel: "phone",
-                assistantMessageChannel: "phone",
-                userMessageInterface: "phone",
-                assistantMessageInterface: "phone",
+                metadata: {
+                  userMessageChannel: "phone",
+                  assistantMessageChannel: "phone",
+                  userMessageInterface: "phone",
+                  assistantMessageInterface: "phone",
+                },
               },
             );
             return { id: message.id, deduplicated: false };
@@ -485,10 +487,12 @@ describe("relay-server", () => {
                 "assistant",
                 JSON.stringify([{ type: "text", text: fullText }]),
                 {
-                  userMessageChannel: "phone",
-                  assistantMessageChannel: "phone",
-                  userMessageInterface: "phone",
-                  assistantMessageInterface: "phone",
+                  metadata: {
+                    userMessageChannel: "phone",
+                    assistantMessageChannel: "phone",
+                    userMessageInterface: "phone",
+                    assistantMessageInterface: "phone",
+                  },
                 },
               );
             }

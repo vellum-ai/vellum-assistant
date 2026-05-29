@@ -167,7 +167,7 @@ describe("analyzeConversation", () => {
       "analysis-new",
       "user",
       expect.any(String),
-      { provenanceTrustClass: "unknown" },
+      { metadata: { provenanceTrustClass: "unknown" } },
     );
 
     // Sets trust context to unknown.
@@ -287,7 +287,7 @@ describe("analyzeConversation", () => {
       "analysis-existing",
       "user",
       expect.any(String),
-      { provenanceTrustClass: "guardian" },
+      { metadata: { provenanceTrustClass: "guardian" } },
     );
   });
 

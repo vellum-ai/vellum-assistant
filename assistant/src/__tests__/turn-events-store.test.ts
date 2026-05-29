@@ -213,16 +213,20 @@ describe("queryUnreportedTurnEvents", () => {
     const conv = createConversation({ conversationType: "standard" });
 
     const macOsMsg = await addMessage(conv.id, "user", "hi from desktop", {
-      userMessageInterface: "macos",
-      userMessageChannel: "vellum",
-      client: {
-        os: "darwin",
-        interface_version: "0.8.2",
+      metadata: {
+        userMessageInterface: "macos",
+        userMessageChannel: "vellum",
+        client: {
+          os: "darwin",
+          interface_version: "0.8.2",
+        },
       },
     });
     const slackMsg = await addMessage(conv.id, "user", "hi from slack", {
-      userMessageInterface: "slack",
-      userMessageChannel: "slack",
+      metadata: {
+        userMessageInterface: "slack",
+        userMessageChannel: "slack",
+      },
     });
     const legacyMsg = await addMessage(conv.id, "user", "hi from the past");
 
