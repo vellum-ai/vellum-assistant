@@ -283,6 +283,63 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     });
   });
 
+  test("merges a collapsed history row into a live assistant row by merged message id", () => {
+    const liveToolCalls: ChatMessageToolCall[] = [
+      {
+        id: "toolu_load_skill",
+        toolName: "bash",
+        input: { command: "find geo-writing skill" },
+        status: "completed",
+        result: "ok",
+      },
+    ];
+    const liveAssistant = makeLocal({
+      id: "assistant-final",
+      role: "assistant",
+      content: "Good, that's exactly what we're here for.",
+      timestamp: 1010,
+      toolCalls: liveToolCalls,
+      textSegments: [
+        { type: "text", content: "Good, that's exactly what we're here for." },
+      ],
+      contentOrder: [
+        { type: "text", id: "0" },
+        { type: "toolCall", id: "toolu_load_skill" },
+      ],
+    });
+    const latestAssistant = makeLocal({
+      id: "assistant-anchor",
+      mergedMessageIds: ["assistant-middle", "assistant-final"],
+      role: "assistant",
+      content:
+        "Good, that's exactly what we're here for. Everything is set up.",
+      timestamp: 1010,
+      toolCalls: [
+        {
+          id: "tool-history-assistant-anchor-0",
+          toolName: "bash",
+          input: { command: "find geo-writing skill" },
+          status: "completed",
+          result: "ok",
+        },
+      ],
+    });
+
+    const result = reconcileDisplayMessagesWithLatestHistory(
+      [liveAssistant],
+      [latestAssistant],
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: "assistant-anchor",
+      content:
+        "Good, that's exactly what we're here for. Everything is set up.",
+      mergedMessageIds: ["assistant-middle", "assistant-final"],
+    });
+    expect(result[0]!.toolCalls).toEqual(liveToolCalls);
+  });
+
   test("clears queued state when latest history confirms the user row", () => {
     const queuedUser = makeLocal({
       id: "queued-user",
@@ -521,6 +578,73 @@ describe("reconcileMessages", () => {
     );
     expect(messagesWithTc1).toHaveLength(1);
     expect(messagesWithTc1[0]).toMatchObject({ id: "sse-123" });
+  });
+
+  test("does not preserve a live assistant row separately when server history aliases its id", () => {
+    const liveToolCalls: ChatMessageToolCall[] = [
+      {
+        id: "toolu_check_workspace",
+        toolName: "bash",
+        input: { command: "test -d geo-writing" },
+        status: "completed",
+        result: "exists",
+      },
+    ];
+    const local: DisplayMessage[] = [
+      makeLocal({
+        id: "user-1",
+        role: "user",
+        content: "I want to write articles that rank better in GEO",
+        timestamp: 1000,
+      }),
+      makeLocal({
+        id: "assistant-final",
+        role: "assistant",
+        content: "Everything is set up.",
+        timestamp: 1010,
+        toolCalls: liveToolCalls,
+        contentOrder: [
+          { type: "toolCall", id: "toolu_check_workspace" },
+          { type: "text", id: "0" },
+        ],
+        textSegments: [{ type: "text", content: "Everything is set up." }],
+      }),
+    ];
+    const server: RuntimeMessage[] = [
+      {
+        id: "user-1",
+        role: "user",
+        content: "I want to write articles that rank better in GEO",
+        timestamp: 1000,
+      },
+      {
+        id: "assistant-anchor",
+        mergedMessageIds: ["assistant-tool", "assistant-final"],
+        role: "assistant",
+        content:
+          "Good, that's exactly what we're here for. Everything is set up.",
+        timestamp: 1010,
+        toolCalls: [
+          {
+            name: "bash",
+            input: { command: "test -d geo-writing" },
+            result: "exists",
+          },
+        ],
+      },
+    ];
+
+    const result = reconcileMessages(local, server);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((m) => m.id)).toEqual(["user-1", "assistant-anchor"]);
+    expect(result[1]).toMatchObject({
+      id: "assistant-anchor",
+      mergedMessageIds: ["assistant-tool", "assistant-final"],
+      content:
+        "Good, that's exactly what we're here for. Everything is set up.",
+    });
+    expect(result[1]!.toolCalls).toEqual(liveToolCalls);
   });
 
   test("deduplicates optimistic user message when server has matching content", () => {
