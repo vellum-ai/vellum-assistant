@@ -273,20 +273,35 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
             </Fragment>
           ))}
           {/* Latest-edge region: contains the latest-turn cluster and the
-           *  assistant avatar, with `minHeight: viewportMinHeight` so the
-           *  anchor user message pins to the top of the viewport while
-           *  the avatar pins to the bottom of the viewport. The avatar
-           *  is intentionally decoupled from `partition.anchorMessage`
-           *  here — it must persist across the user-send → response gap
-           *  AND across the "no user message yet" case (e.g. assistant-
-           *  only history after recovery). Rendered unconditionally
-           *  whenever the chat has avatar data so DOM identity is
-           *  preserved across turn boundaries (no ChatAvatar entrance-
-           *  spring flicker). */}
+           *  assistant avatar. Two layout modes:
+           *
+           *  1. Anchor present — `minHeight: viewportMinHeight` pins the
+           *     anchor user message to the viewport top and the `flex-1`
+           *     spacer pushes the avatar to the viewport bottom. This is
+           *     the "open-to-latest" UX after a user submit.
+           *  2. No anchor (assistant-only history, e.g. recovered
+           *     conversation or first paint before a submit) — neither
+           *     the viewport-height min-height NOR the flex-1 spacer
+           *     render. The avatar appears inline directly below the
+           *     last history item, so the bottom-pin scroll lands on the
+           *     actual latest message rather than on blank space above
+           *     the avatar.
+           *
+           *  The avatar is intentionally decoupled from `partition.anchorMessage`
+           *  so it persists across the user-send → response gap AND across the
+           *  "no user message yet" case. The wrapper renders whenever either
+           *  the anchor or avatar slot is active; DOM identity (and ChatAvatar
+           *  entrance-spring state) is preserved across the no-anchor → anchor
+           *  transition because React's reconciler tracks `fiber.index` (see
+           *  the `transcript.test.tsx` regression test). */}
           {(partition.anchorMessage || rest.renderAvatar) && (
             <div
               className="mx-auto flex w-full max-w-[var(--chat-max-width)] flex-col contain-content px-4 sm:px-6"
-              style={{ minHeight: viewportMinHeight }}
+              style={
+                partition.anchorMessage
+                  ? { minHeight: viewportMinHeight }
+                  : undefined
+              }
             >
               {partition.anchorMessage && (
                 <LatestTurnRow
@@ -295,7 +310,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
                   {...rowProps}
                 />
               )}
-              <div className="flex-1" />
+              {partition.anchorMessage && <div className="flex-1" />}
               {rest.renderAvatar && (
                 <div
                   data-latest-assistant-avatar="true"

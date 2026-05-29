@@ -10,7 +10,9 @@
  * LatestTurnRow follows at the end of the DOM (visual bottom).
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { act, useEffect } from "react";
+import { cleanup, render } from "@testing-library/react";
 
 // `ChatMarkdownMessage` pulls in `react-markdown` + `remark-gfm`. They render
 // fine under `renderToStaticMarkup`, but to keep these tests hermetic we
@@ -286,5 +288,178 @@ describe("Transcript avatar slot", () => {
     );
     expect(html).toContain('data-latest-assistant-avatar="true"');
     expect(html).toContain("AVATAR_SLOT_MARKER");
+  });
+
+  // Codex P2 #1 regression. When `renderAvatar` is provided but there is
+  // NO anchor message (assistant-only history — e.g. a recovered conversation
+  // whose user message was lost, or the onboarding-only state), the latest-
+  // edge wrapper must not apply `minHeight: viewportMinHeight`. If it did,
+  // the wrapper would occupy a full viewport-height region after the last
+  // history item, and the bottom-pin scroll on conversation switch (see
+  // `595071cbb1 — scroll to bottom on transcript container DOM attach`)
+  // would land on blank space + the avatar instead of on the actual latest
+  // assistant message.
+  test("renderAvatar with no anchor: latest-edge wrapper does NOT apply viewport-height min-height", () => {
+    const items: TranscriptItem[] = [
+      assistantMessage("a1", "LATEST_ASSISTANT_MSG"),
+    ];
+    const html = renderToStaticMarkup(
+      <Transcript
+        items={items}
+        conversationId="conv-1"
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+        renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
+      />,
+    );
+
+    // Sanity: avatar + edge sentinel both render.
+    expect(html).toContain('data-latest-assistant-avatar="true"');
+    expect(html).toContain('data-latest-edge="true"');
+    // The only place the component sets `min-height` is the latest-edge
+    // wrapper. With no anchor, that style must be omitted entirely.
+    expect(html).not.toContain("min-height");
+  });
+
+  test("renderAvatar with anchor: latest-edge wrapper applies min-height (viewport pinning preserved)", () => {
+    const items: TranscriptItem[] = [
+      userMessage("u1", "ANCHOR_MARKER"),
+    ];
+    const html = renderToStaticMarkup(
+      <Transcript
+        items={items}
+        conversationId="conv-1"
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+        renderAvatar={() => <span>AVATAR_SLOT_MARKER</span>}
+      />,
+    );
+
+    // Min-height attribute must be present so the anchor pins to the top
+    // and the flex-1 spacer pushes the avatar to the bottom.
+    expect(html).toContain("min-height");
+  });
+
+  test("anchor without renderAvatar: still applies min-height (viewport pinning is for the anchor, not the avatar)", () => {
+    const items: TranscriptItem[] = [
+      userMessage("u1", "ANCHOR_MARKER"),
+      assistantMessage("a1", "RESPONSE_MARKER"),
+    ];
+    const html = renderToStaticMarkup(
+      <Transcript
+        items={items}
+        conversationId="conv-1"
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+      />,
+    );
+
+    expect(html).not.toContain('data-latest-assistant-avatar="true"');
+    expect(html).toContain("min-height");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Codex P2 #2 regression — DOM identity across no-anchor → anchor transition.
+//
+// The latest-edge wrapper has unkeyed conditional children. Codex's review
+// claimed that inserting `<LatestTurnRow>` at slot 0 (was `false`) would
+// cause React to "reconcile the following <div>s by index", reusing the
+// current avatar wrapper as the spacer and remounting `ChatAvatar`, replaying
+// the entrance-spring animation. Empirically that does NOT happen — React's
+// reconciler tracks `fiber.index` (the OLD render's position), so the
+// existing avatar fiber at fiber.index=2 still matches newIdx=2 even after
+// the conditional slot 0 lights up. This test locks in the correct behavior
+// so a future refactor (e.g. reordering siblings, changing the conditional
+// shape) doesn't silently regress.
+// ---------------------------------------------------------------------------
+describe("Transcript no-anchor → anchor transition preserves avatar DOM identity", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  test("ChatAvatar instance is NOT remounted when first user anchor appears", async () => {
+    let avatarMountCount = 0;
+    let avatarUnmountCount = 0;
+    function MountTracker() {
+      useEffect(() => {
+        avatarMountCount++;
+        return () => {
+          avatarUnmountCount++;
+        };
+      }, []);
+      return <span data-testid="mount-tracker">avatar</span>;
+    }
+
+    // Start with assistant-only history + renderAvatar. No anchor.
+    const historyOnly: TranscriptItem[] = [
+      assistantMessage("a1", "history one"),
+    ];
+
+    const renderAvatar = () => <MountTracker />;
+
+    const { rerender } = render(
+      <Transcript
+        items={historyOnly}
+        conversationId="conv-1"
+        onSecretSubmit={noop}
+        onConfirmationDecision={noop}
+        onSurfaceAction={noop}
+        onRetryError={noop}
+        renderAvatar={renderAvatar}
+      />,
+    );
+    expect(avatarMountCount).toBe(1);
+    expect(avatarUnmountCount).toBe(0);
+
+    // Now insert the first user message → anchor lights up. This is the
+    // exact transition Codex flagged.
+    const withAnchor: TranscriptItem[] = [
+      assistantMessage("a1", "history one"),
+      userMessage("u1", "first user message"),
+    ];
+    await act(async () => {
+      rerender(
+        <Transcript
+          items={withAnchor}
+          conversationId="conv-1"
+          onSecretSubmit={noop}
+          onConfirmationDecision={noop}
+          onSurfaceAction={noop}
+          onRetryError={noop}
+          renderAvatar={renderAvatar}
+        />,
+      );
+    });
+
+    // CRITICAL: ChatAvatar must NOT have been unmounted + remounted.
+    // If it had, entrance-spring state would replay on every first-turn
+    // landing — exactly the flicker this PR is preventing.
+    expect(avatarMountCount).toBe(1);
+    expect(avatarUnmountCount).toBe(0);
+
+    // Reverse direction: drop the anchor (e.g. message deletion or
+    // conversation restore). Avatar identity must still be preserved.
+    await act(async () => {
+      rerender(
+        <Transcript
+          items={historyOnly}
+          conversationId="conv-1"
+          onSecretSubmit={noop}
+          onConfirmationDecision={noop}
+          onSurfaceAction={noop}
+          onRetryError={noop}
+          renderAvatar={renderAvatar}
+        />,
+      );
+    });
+    expect(avatarMountCount).toBe(1);
+    expect(avatarUnmountCount).toBe(0);
   });
 });
