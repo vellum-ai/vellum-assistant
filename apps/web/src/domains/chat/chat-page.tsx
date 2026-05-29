@@ -100,6 +100,10 @@ import { isSurfaceInteractive } from "@/domains/chat/types/types";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
+import {
+  formatSlackConversationDisplayLabel,
+  getSlackConversationDisplay,
+} from "@/domains/chat/utils/slack-conversation-display";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
 const AddCreditsModal = lazy(() =>
@@ -1087,6 +1091,13 @@ export function ChatPage() {
     () => messages.some((m) => m.id != null),
     [messages],
   );
+  const slackHeaderLabel = useMemo(() => {
+    const display = getSlackConversationDisplay({
+      conversation: activeConversation,
+      messages,
+    });
+    return display ? formatSlackConversationDisplayLabel(display) : null;
+  }, [activeConversation, messages]);
 
   const topBarCenterContent = useMemo(() => {
     if (!activeConversation) {
@@ -1166,13 +1177,28 @@ export function ChatPage() {
             aria-haspopup="menu"
             className="min-w-0"
           >
-            <span className="min-w-0 max-w-[240px] truncate">
-              {isArchived && (
-                <span className="mr-1 text-[var(--content-tertiary)]">
-                  [Archived]
+            <span className="flex min-w-0 items-center gap-1.5">
+              {slackHeaderLabel ? (
+                <img
+                  src="/images/integrations/slack.svg"
+                  alt=""
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 shrink-0"
+                />
+              ) : null}
+              <span className="min-w-0 max-w-[220px] truncate leading-6">
+                {isArchived && (
+                  <span className="mr-1 text-[var(--content-tertiary)]">
+                    [Archived]
+                  </span>
+                )}
+                {activeConversation.title ?? "Untitled"}
+              </span>
+              {slackHeaderLabel ? (
+                <span className="hidden max-w-[160px] shrink truncate leading-6 text-[var(--content-tertiary)] sm:inline">
+                  ({slackHeaderLabel})
                 </span>
-              )}
-              {activeConversation.title ?? "Untitled"}
+              ) : null}
             </span>
           </Button>
         }
@@ -1182,6 +1208,7 @@ export function ChatPage() {
     activeConversation,
     assistantId,
     isChannelReadonly,
+    slackHeaderLabel,
     conversationGroups,
     handleTogglePinConversation,
     handleRenameConversation,

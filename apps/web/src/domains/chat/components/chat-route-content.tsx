@@ -1396,13 +1396,13 @@ export function ChatRouteContent({
     </div>
   ) : null;
 
-  const channelFooterSlot = (
+  const slackReadonlyBannerSlot = activeConversation?.originChannel === "slack" ? (
     <SlackChannelFooter
       assistantId={assistantId ?? undefined}
       conversation={activeConversation}
       messages={sanitizedMessages}
     />
-  );
+  ) : null;
 
   // -------------------------------------------------------------------------
   // Render
@@ -1437,7 +1437,7 @@ export function ChatRouteContent({
             isChannelReadonly={isChannelReadonly}
             canStopGenerating={canStopGenerating}
             questionPromptSlot={questionPromptSlot}
-            channelFooterSlot={channelFooterSlot}
+            readonlyBannerSlot={slackReadonlyBannerSlot}
             startersSlot={startersSlot}
           />
         }
@@ -1511,7 +1511,7 @@ export function ChatRouteContent({
       bannerSlot={mainBannerSlot}
       queuedDrawerSlot={mainQueuedDrawerSlot}
       questionPromptSlot={questionPromptSlot}
-      channelFooterSlot={channelFooterSlot}
+      readonlyBannerSlot={slackReadonlyBannerSlot}
       startersSlot={startersSlot}
     />
   );
