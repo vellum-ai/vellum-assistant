@@ -68,7 +68,13 @@ import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/lib/loca
 import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
-import { profilePickerLabel, visibleProfilesForPicker } from "@/domains/settings/ai/profile-pickers";
+import {
+  AUTO_PROFILE_NAME,
+  gateAutoProfile,
+  profilePickerLabel,
+  visibleProfilesForPicker,
+} from "@/domains/settings/ai/profile-pickers";
+import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import { readSecret } from "@/domains/settings/ai/provider-connections-client";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 
@@ -1691,9 +1697,16 @@ export function AiPage() {
   // path). ManageProfilesModal and CallSiteOverridesModal both still consume
   // the full `orderedProfiles` — the latter applies the same "preserve
   // current selection" rule per-row internally.
+  const queryComplexityRoutingEnabled =
+    useAssistantFeatureFlagStore.use.queryComplexityRouting();
+
   const defaultProfilePickerEntries = useMemo(
-    () => visibleProfilesForPicker(orderedProfiles, [activeProfile]),
-    [orderedProfiles, activeProfile],
+    () =>
+      gateAutoProfile(
+        visibleProfilesForPicker(orderedProfiles, [activeProfile]),
+        queryComplexityRoutingEnabled,
+      ),
+    [orderedProfiles, activeProfile, queryComplexityRoutingEnabled],
   );
 
   // Guard so background refetches (window focus, reconnect) don't clobber
@@ -2006,12 +2019,12 @@ export function AiPage() {
               options={defaultProfilePickerEntries.map((p) => ({
                 value: p.name,
                 label:
-                  p.name === "auto"
+                  p.name === AUTO_PROFILE_NAME
                     ? "Automatically switch between profiles"
                     : profilePickerLabel(p),
               }))}
             />
-            {activeProfile === "auto" && (
+            {queryComplexityRoutingEnabled && activeProfile === AUTO_PROFILE_NAME && (
               <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-warning-subtle)] px-3 py-2">
                 <span className="text-body-small-default text-[var(--content-warning)]">
                   Auto may use more powerful models when needed, which can increase costs.
