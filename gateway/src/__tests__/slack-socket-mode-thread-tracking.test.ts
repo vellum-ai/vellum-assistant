@@ -6,6 +6,7 @@ import { SlackStore } from "../db/slack-store.js";
 import * as schema from "../db/schema.js";
 import type { RuntimeInboundPayload } from "../runtime/client.js";
 import type { NormalizedSlackEvent } from "../slack/normalize.js";
+import { SLACK_THREAD_MUTE_SUCCESS } from "../webhook-copy.js";
 
 type FetchFn = (
   input: string | URL | Request,
@@ -185,6 +186,89 @@ beforeEach(() => {
 });
 
 describe("SlackSocketModeClient thread tracking", () => {
+  test("handles app mention mute without forwarding or re-tracking the thread", async () => {
+    const { rawDb, store } = createSlackStore();
+    const emitted: NormalizedSlackEvent[] = [];
+    const client = createHarness(store, (event) => emitted.push(event));
+    const ws = makeOpenSocket();
+    const threadTs = "1700000000.000000";
+    const postBodies: Array<Record<string, unknown>> = [];
+
+    fetchMock = mock(async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/chat.postMessage")) {
+        postBodies.push(JSON.parse(String(init?.body)));
+        return new Response(
+          JSON.stringify({ ok: true, ts: "1700000000.000300" }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      return makeSlackUserResponse();
+    });
+
+    try {
+      store.trackThread(threadTs, "C-thread", 60_000);
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-mute",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-mute",
+            event: {
+              type: "app_mention",
+              user: "U-mentioned",
+              text: "<@UBOT> mute",
+              ts: "1700000000.000100",
+              channel: "C-thread",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+      expect(store.hasThread(threadTs)).toBe(false);
+      expect(postBodies).toEqual([
+        {
+          channel: "C-thread",
+          thread_ts: threadTs,
+          text: SLACK_THREAD_MUTE_SUCCESS,
+        },
+      ]);
+
+      client.handleMessage(
+        JSON.stringify({
+          envelope_id: "env-muted-reply",
+          type: "events_api",
+          payload: {
+            event_id: "Ev-muted-reply",
+            event: {
+              type: "message",
+              user: "U-reply",
+              text: "following up without mentioning the bot",
+              ts: "1700000000.000200",
+              channel: "C-thread",
+              channel_type: "channel",
+              thread_ts: threadTs,
+            },
+          },
+        }),
+        ws,
+      );
+      await flushAsyncEventEmission();
+
+      expect(emitted).toHaveLength(0);
+    } finally {
+      rawDb.close();
+    }
+  });
+
   test("accepts unmentioned thread replies immediately after an app mention", async () => {
     const { rawDb, store } = createSlackStore();
     const emitted: NormalizedSlackEvent[] = [];

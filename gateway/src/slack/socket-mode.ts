@@ -7,6 +7,7 @@ import { fetchImpl } from "../fetch.js";
 import type { GatewayConfig } from "../config.js";
 import { SlackStore } from "../db/slack-store.js";
 import { isRejection, resolveAssistant } from "../routing/resolve-assistant.js";
+import { SLACK_THREAD_MUTE_SUCCESS } from "../webhook-copy.js";
 import {
   CatchupAbortSignal,
   fetchChannelHistorySince,
@@ -65,6 +66,7 @@ const CATCHUP_MAX_LOOKBACK_MS = 60 * 60 * 1_000;
 const CATCHUP_SAFETY_OVERLAP_MS = 60 * 1_000;
 const CATCHUP_HISTORY_LIMIT = 50;
 const CATCHUP_CONCURRENCY = 4;
+const SLACK_MUTE_COMMANDS = new Set(["detach", "mute"]);
 
 export type SlackSocketModeConfig = {
   appToken: string;
@@ -77,6 +79,31 @@ export type SlackSocketModeConfig = {
   /** Workspace/team name, resolved at startup via auth.test. */
   teamName?: string;
 };
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function removeLeadingBotMentions(text: string, botUserId?: string): string {
+  let remaining = text.trim();
+  if (!remaining) return "";
+
+  if (botUserId) {
+    const mentionPrefix = new RegExp(`^<@${escapeRegExp(botUserId)}>\\s*`);
+    while (mentionPrefix.test(remaining)) {
+      remaining = remaining.replace(mentionPrefix, "").trim();
+    }
+    return remaining;
+  }
+
+  return remaining.replace(/^<@[UW][A-Z0-9]+>\s*/, "").trim();
+}
+
+function isSlackMuteCommand(text: string, botUserId?: string): boolean {
+  return SLACK_MUTE_COMMANDS.has(
+    removeLeadingBotMentions(text, botUserId).toLowerCase(),
+  );
+}
 
 /**
  * Slack Socket Mode WebSocket client.
@@ -281,6 +308,57 @@ export class SlackSocketModeClient {
    */
   trackThread(threadTs: string, channelId: string): void {
     this.store.trackThread(threadTs, channelId, ACTIVE_THREAD_TTL_MS);
+  }
+
+  private handleSlackMuteCommand(event: SlackAppMentionEvent): boolean {
+    if (!isSlackMuteCommand(event.text, this.config.botUserId)) {
+      return false;
+    }
+
+    const channelId = event.channel;
+    const threadTs = event.thread_ts ?? event.ts;
+    if (!channelId || !threadTs) {
+      log.warn(
+        { channelId, threadTs },
+        "Slack mute command missing channel or thread timestamp",
+      );
+      return true;
+    }
+
+    const detached = this.store.detachThread(threadTs, channelId);
+    log.info(
+      { channelId, threadTs, detached },
+      "Handled Slack mute command without runtime dispatch",
+    );
+
+    if (detached) {
+      this.sendSlackMuteConfirmation(channelId, threadTs).catch((err) => {
+        log.warn(
+          { err, channelId, threadTs },
+          "Slack thread muted, but confirmation message failed",
+        );
+      });
+    }
+
+    return true;
+  }
+
+  private async sendSlackMuteConfirmation(
+    channelId: string,
+    threadTs: string,
+  ): Promise<void> {
+    await fetchImpl("https://slack.com/api/chat.postMessage", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.config.botToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        channel: channelId,
+        text: SLACK_THREAD_MUTE_SUCCESS,
+        thread_ts: threadTs,
+      }),
+    });
   }
 
   /**
@@ -697,6 +775,13 @@ export class SlackSocketModeClient {
     const watermarkTs = extractEventWatermarkTs(event, eventPayload.event_time);
     if (watermarkTs) {
       this.store.setLastSeenTsIfGreater(watermarkTs);
+    }
+
+    if (
+      isAppMention &&
+      this.handleSlackMuteCommand(event as SlackAppMentionEvent)
+    ) {
+      return;
     }
 
     if (isAppMention) {
