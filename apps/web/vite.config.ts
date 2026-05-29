@@ -66,6 +66,12 @@ export default defineConfig(({ mode }) => {
       port: parseInt(env.PORT || "3000"),
       strictPort: true,
       host: true,
+      watch: {
+        // Include the design-library source so edits trigger HMR via the
+        // file: dependency link (chokidar won't follow it automatically
+        // when preserveSymlinks is true).
+        paths: [path.resolve(import.meta.dirname, "../../packages/design-library/src")],
+      },
       proxy: {
         "/v1": { target: apiProxyTarget, changeOrigin: true },
         "/_allauth": { target: apiProxyTarget, changeOrigin: true },
