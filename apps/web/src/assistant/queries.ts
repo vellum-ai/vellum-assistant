@@ -1,0 +1,80 @@
+/**
+ * TanStack Query wrapper for the assistant lifecycle resource.
+ *
+ * `useAssistantQuery` is the canonical read path for the `/assistant/`
+ * status response. It owns:
+ *
+ *   - The fetch (`getAssistant`)
+ *   - The cache (`["assistant", "current"]`)
+ *   - The poll cadence (`refetchInterval`, only while the assistant is
+ *     in a transient lifecycle state like `initializing` / `to_be_deleted`)
+ *   - The "should this even fire" gate (`enabled`)
+ *
+ * Everything that derives an `AssistantState` from the response — the
+ * authoritative client-side state machine in
+ * `use-assistant-lifecycle.ts` — reads via this query instead of issuing
+ * its own ad-hoc fetch.
+ *
+ * Retry policy: this query DOES NOT retry on failure (`retry: false`).
+ * The owning hook has a richer retry budget (`MAX_HATCH_RETRIES`,
+ * `MAX_INITIALIZING_RECOVERIES`) that distinguishes recoverable 5xx
+ * from terminal errors like capacity kill-switches. Letting TanStack
+ * Query retry on top of that would burn the hook's budget twice as
+ * fast and double-log to Sentry.
+ *
+ * @see {@link https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults}
+ */
+
+import { useQuery } from "@tanstack/react-query";
+
+import { getAssistant, type GetAssistantResult } from "@/assistant/api";
+import {
+  resolveAssistantLifecycleState,
+  type ResolvedAssistantLifecycleState,
+} from "@/assistant/lifecycle";
+
+const ASSISTANT_QUERY_KEY = ["assistant", "current"] as const;
+
+/**
+ * How often to refetch while the assistant is in a transient state.
+ * Matches the legacy 3-second polling cadence — the daemon's startup
+ * sequence is sub-second on healthy machines, but 3s gives us margin
+ * on slow disks and keeps mobile data costs reasonable.
+ */
+const POLL_INTERVAL_MS = 3000;
+
+/**
+ * Lifecycle phases where we expect the assistant to transition soon
+ * (typically within a few poll cycles). Other phases are stable; we
+ * stop polling once we land in one of them so the tab isn't fetching
+ * forever in the background.
+ */
+const TRANSIENT_PHASES: ReadonlySet<ResolvedAssistantLifecycleState["kind"]> =
+  new Set(["initializing", "cleaning_up"]);
+
+export interface UseAssistantQueryOptions {
+  /**
+   * Disables the query when false. Used to short-circuit the fetch
+   * during auth handshake / local-mode boot before the platform
+   * session is actually available.
+   */
+  enabled: boolean;
+}
+
+export function useAssistantQuery(options: UseAssistantQueryOptions) {
+  return useQuery<GetAssistantResult>({
+    queryKey: ASSISTANT_QUERY_KEY,
+    queryFn: () => getAssistant(),
+    enabled: options.enabled,
+    retry: false,
+    refetchInterval: (query) => {
+      const result = query.state.data;
+      if (!result) return false;
+      const phase = resolveAssistantLifecycleState(result);
+      return TRANSIENT_PHASES.has(phase.kind) ? POLL_INTERVAL_MS : false;
+    },
+    refetchOnWindowFocus: false,
+  });
+}
+
+export { ASSISTANT_QUERY_KEY };

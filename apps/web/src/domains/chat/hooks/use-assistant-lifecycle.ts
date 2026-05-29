@@ -1,13 +1,10 @@
 
 import * as Sentry from "@sentry/react";
 import { useCallback, useEffect, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { extractErrorMessage } from "@/lib/api-errors";
-import {
-  getAssistant,
-  hatchAssistant,
-  retireAssistantById,
-} from "@/assistant/api";
+import { getAssistant } from "@/assistant/api";
 import {
   buildInitializingTimeoutError,
   INITIALIZING_TIMEOUT_MS,
@@ -16,13 +13,20 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
+import {
+  ASSISTANT_QUERY_KEY,
+  useAssistantQuery,
+} from "@/assistant/queries";
+import {
+  useHatchAssistant,
+  useRetireAssistant,
+} from "@/assistant/mutations";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import { getSelectedAssistant, getLocalGatewayUrl, isLocalMode } from "@/lib/local-mode";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 
 
-const POLL_INTERVAL_MS = 3000;
 const MAX_HATCH_RETRIES = 3;
 const MAX_INITIALIZING_RECOVERIES = 3;
 
@@ -76,11 +80,26 @@ export interface UseAssistantLifecycleReturn {
 }
 
 /**
- * Owns the full assistant lifecycle: hatching, polling, recovery, and
- * state transitions from "loading" through "active" / "error".
+ * Owns the assistant lifecycle state machine: hatching, recovery, and
+ * the derived `AssistantState` that drives top-level page rendering.
  *
- * Framework-agnostic — no Next.js imports. Routing is delegated to the
- * caller via the `onRedirect` callback.
+ * The server-side resource (`/assistant/`) is owned by the
+ * `useAssistantQuery` TanStack Query — this hook subscribes to its
+ * result and layers a client-side state machine on top:
+ *
+ *   - Retry budgets that distinguish recoverable 5xx from terminal
+ *     errors like the platform-hosted-disabled capacity kill-switch.
+ *   - A "stuck initializing" recovery path that retires and re-hatches
+ *     an assistant the daemon never promoted to `active`.
+ *   - Generation counters that drop responses from a previous recovery
+ *     cycle so a slow `getAssistant()` can't revive the spinner after
+ *     a timeout already escalated the state to `error`.
+ *   - Side effects on lifecycle transitions: priming / clearing the
+ *     self-hosted connection, redirecting to onboarding, surfacing
+ *     awaiting-version-selection in nonprod.
+ *
+ * Framework-agnostic — no Next.js or React Router imports. Routing is
+ * delegated to the caller via the `onRedirect` callback.
  */
 export function useAssistantLifecycle({
   isLoggedIn,
@@ -95,7 +114,6 @@ export function useAssistantLifecycle({
   });
   const [assistantId, setAssistantId] = useState<string | null>(null);
 
-  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hatchingRef = useRef(false);
   const hatchRetryCountRef = useRef(0);
   const initializingAssistantIdRef = useRef<string | null>(null);
@@ -116,6 +134,32 @@ export function useAssistantLifecycle({
   const onRedirectRef = useRef(onRedirect);
   onRedirectRef.current = onRedirect;
 
+  const queryClient = useQueryClient();
+  const hatchMutation = useHatchAssistant();
+  const retireMutation = useRetireAssistant();
+
+  // Whether to query the server-side status at all. Gateway-auth mode
+  // and "local mode without platform session" short-circuit to local
+  // states without ever calling /assistant/.
+  const shouldQueryServer =
+    isLoggedIn &&
+    !isLoading &&
+    !isGatewayAuthMode() &&
+    (hasPlatformSession || !isLocalMode());
+
+  useAssistantQuery({ enabled: shouldQueryServer });
+
+  /**
+   * Imperative re-check. Today the TanStack Query polls in the
+   * background while the lifecycle is transient; callers use this for
+   * the `app.resume` / visibility-change handler that needs to verify
+   * the daemon is still alive immediately on return.
+   *
+   * Falls back to a direct `getAssistant()` call when the
+   * gateway-auth / local-mode short-circuit means the query is
+   * disabled. In those modes the lifecycle is local-only and the
+   * "re-check" is a no-op refresh of the gateway connection.
+   */
   const hatchAndCheck = useCallback(async (version?: string) => {
     if (hatchingRef.current) return;
 
@@ -133,7 +177,9 @@ export function useAssistantLifecycle({
     setInitializingCycle((n) => n + 1);
     setAssistantState({ kind: "initializing" });
     try {
-      const result = await hatchAssistant(version ? { version } : undefined);
+      const result = await hatchMutation.mutateAsync(
+        version ? { version } : undefined,
+      );
       if (generation !== initializingGenerationRef.current) return;
       if (result.ok) {
         initializingAssistantIdRef.current = result.data.id;
@@ -187,7 +233,7 @@ export function useAssistantLifecycle({
     // early poll returned 404 and switched state to "initializing"
     // while the hatch request was still in-flight.
     setAssistantState({ kind: "initializing" });
-  }, []);
+  }, [hatchMutation]);
 
   const checkAssistant = useCallback(async () => {
     if (isGatewayAuthMode()) {
@@ -209,7 +255,18 @@ export function useAssistantLifecycle({
     }
     const generation = initializingGenerationRef.current;
     try {
-      const result = await getAssistant();
+      // Force a fresh fetch through the query cache. `fetchQuery` returns
+      // a freshly-resolved value and updates the cache atomically so any
+      // other subscriber (sidebar header, identity panel, etc.) sees the
+      // same answer this code path acts on.
+      const result = await queryClient.fetchQuery({
+        queryKey: ASSISTANT_QUERY_KEY,
+        queryFn: () => getAssistant(),
+        // `staleTime: 0` would force every call to refetch even when a
+        // poll just landed. Default behavior (use cached value if fresh)
+        // is what we want here: this is a "make sure we're in sync"
+        // probe, not "force a network round-trip."
+      });
       if (generation !== initializingGenerationRef.current) return;
       const nextState = resolveAssistantLifecycleState(result);
       if (result.ok && nextState.kind === "initializing") {
@@ -315,7 +372,7 @@ export function useAssistantLifecycle({
         message: "Network error. Please check your connection and try again.",
       });
     }
-  }, [hatchAndCheck]);
+  }, [hatchAndCheck, queryClient]);
 
   const recoverStuckInitializingAssistant = useCallback(async () => {
     if (initializingRecoveryCountRef.current >= MAX_INITIALIZING_RECOVERIES) {
@@ -331,7 +388,13 @@ export function useAssistantLifecycle({
     try {
       let assistantIdToRetire = initializingAssistantIdRef.current;
       if (!assistantIdToRetire) {
-        const result = await getAssistant();
+        // Force-refresh the cached status. We need to know whether the
+        // assistant moved off "initializing" before deciding whether to
+        // retire-and-rehatch.
+        const result = await queryClient.fetchQuery({
+          queryKey: ASSISTANT_QUERY_KEY,
+          queryFn: () => getAssistant(),
+        });
         if (generation !== initializingGenerationRef.current) return;
         if (result.ok && result.data.status === "initializing") {
           assistantIdToRetire = result.data.id;
@@ -382,7 +445,7 @@ export function useAssistantLifecycle({
       // creates the replacement) races to create a duplicate assistant.
       hatchingRef.current = true;
 
-      const retireResult = await retireAssistantById(assistantIdToRetire);
+      const retireResult = await retireMutation.mutateAsync(assistantIdToRetire);
       if (generation !== initializingGenerationRef.current) {
         hatchingRef.current = false;
         return;
@@ -409,7 +472,7 @@ export function useAssistantLifecycle({
       if (generation !== initializingGenerationRef.current) return;
       setAssistantState(buildInitializingTimeoutError());
     }
-  }, [hatchAndCheck]);
+  }, [hatchAndCheck, queryClient, retireMutation]);
 
   // Local-mode: gateway token and connection are primed during onboarding hatch.
   useEffect(() => {
@@ -456,27 +519,29 @@ export function useAssistantLifecycle({
     checkAssistant();
   }, [isLoggedIn, isLoading, hasPlatformSession, checkAssistant]);
 
-  // Poll while initializing or cleaning up
+  // The query polls automatically while `kind` is transient
+  // (`initializing` / `cleaning_up`). Each poll lands in the cache;
+  // we observe and project it into `AssistantState` here.
   useEffect(() => {
     if (assistantState.kind !== "initializing" && assistantState.kind !== "cleaning_up") {
       return;
     }
-    let cancelled = false;
-    const poll = async () => {
-      await checkAssistant();
-      if (!cancelled) {
-        pollRef.current = setTimeout(poll, POLL_INTERVAL_MS);
-      }
-    };
-    pollRef.current = setTimeout(poll, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      if (pollRef.current) {
-        clearTimeout(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-  }, [assistantState.kind, checkAssistant]);
+    const unsubscribe = queryClient
+      .getQueryCache()
+      .subscribe((event) => {
+        if (event.type !== "updated") return;
+        const key = event.query.queryKey;
+        if (key.length < 2 || key[0] !== "assistant" || key[1] !== "current") {
+          return;
+        }
+        // Re-run checkAssistant so we re-apply the full set of
+        // side-effects (self-hosted connection, redirects, assistant-id
+        // sync). The function reads the cached result via the
+        // queryClient, so there's no duplicate fetch.
+        void checkAssistant();
+      });
+    return unsubscribe;
+  }, [assistantState.kind, checkAssistant, queryClient]);
 
   // If the backend assigns an assistant but never promotes it to "active",
   // retire that stuck row and hatch a replacement.
