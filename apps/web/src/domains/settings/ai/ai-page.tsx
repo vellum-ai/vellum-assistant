@@ -62,9 +62,15 @@ import {
   WEB_SEARCH_PROVIDER_KEY_STORAGE,
 } from "@/assistant/generated/web-search-provider-catalog.gen";
 import { routes } from "@/utils/routes";
+import { useRootOutletContext } from "@/root-layout";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
 import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/lib/local-settings";
+import {
+  aiSettingsAssistantListHosting,
+  isSelfHostedAiSettingsAssistant,
+  resolveAiSettingsAssistantId,
+} from "@/domains/settings/ai/assistant-selection";
 import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
@@ -1455,6 +1461,12 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
 // ---------------------------------------------------------------------------
 
 export function AiPage() {
+  const { lifecycle } = useRootOutletContext();
+  const isSelfHosted = isSelfHostedAiSettingsAssistant(
+    lifecycle.assistantState,
+  );
+  const lifecycleAssistantId = lifecycle.assistantId;
+  const navigate = useNavigate();
   const [webSearchSaving, setWebSearchSaving] = useState(false);
   const [imageGenSaving, setImageGenSaving] = useState(false);
 
@@ -1478,8 +1490,22 @@ export function AiPage() {
 
   // -- Backend provisioning (matches desktop SettingsStore) --
   const queryClient = useQueryClient();
-  const { data: assistantList } = useQuery(assistantsListOptions());
-  const assistantId = assistantList?.results?.[0]?.id;
+  const assistantListOptionsForMode = useMemo(
+    () =>
+      assistantsListOptions({
+        query: { hosting: aiSettingsAssistantListHosting(isSelfHosted) },
+      }),
+    [isSelfHosted],
+  );
+  const assistantListQuery = useQuery(assistantListOptionsForMode);
+  const assistantList = assistantListQuery.data;
+  const assistantId = resolveAiSettingsAssistantId({
+    isSelfHosted,
+    lifecycleAssistantId,
+    assistantList,
+  });
+  const assistantListResolved = !assistantListQuery.isPending;
+  const showPreHatchState = assistantListResolved && !assistantId;
 
   // Fetch daemon config on mount and reconcile state so that settings changed
   // on macOS are reflected here without requiring a manual save first.
@@ -1545,9 +1571,9 @@ export function AiPage() {
     if (assistantId) {
       return assistantId;
     }
-    const list = await queryClient.fetchQuery(assistantsListOptions());
+    const list = await queryClient.fetchQuery(assistantListOptionsForMode);
     return list.results?.[0]?.id ?? null;
-  }, [assistantId, queryClient]);
+  }, [assistantId, assistantListOptionsForMode, queryClient]);
 
   const provisionProviderKey = useCallback(
     async (providerName: string, key: string): Promise<void> => {
@@ -2002,7 +2028,12 @@ export function AiPage() {
               onChange={(val) => {
                 setActiveProfile(val === "" ? null : val);
               }}
-              placeholder="Select a default profile…"
+              disabled={!assistantId}
+              placeholder={
+                showPreHatchState
+                  ? "Hatch an assistant to configure profiles"
+                  : "Select a default profile…"
+              }
               options={defaultProfilePickerEntries.map((p) => ({
                 value: p.name,
                 label:
@@ -2018,7 +2049,24 @@ export function AiPage() {
                 </span>
               </div>
             )}
-            {defaultProfilePickerEntries.length === 0 ? (
+            {showPreHatchState ? (
+              <Notice
+                tone="info"
+                title="Hatch an assistant to configure profiles"
+                actions={
+                  <Button
+                    variant="outlined"
+                    size="compact"
+                    onClick={() => void navigate(routes.assistant)}
+                  >
+                    Go to chat
+                  </Button>
+                }
+              >
+                Profiles are stored in the assistant runtime config, so they appear after the assistant is created.
+              </Notice>
+            ) : null}
+            {assistantId && defaultProfilePickerEntries.length === 0 ? (
               <Typography
                 variant="body-small-default"
                 as="p"
@@ -2033,6 +2081,7 @@ export function AiPage() {
             <Button
               variant="outlined"
               size="compact"
+              disabled={!assistantId}
               onClick={() => setManageProvidersOpen(true)}
             >
               Providers
@@ -2040,6 +2089,7 @@ export function AiPage() {
             <Button
               variant="outlined"
               size="compact"
+              disabled={!assistantId}
               onClick={() => setManageProfilesOpen(true)}
             >
               Profiles
@@ -2047,6 +2097,7 @@ export function AiPage() {
             <Button
               variant="outlined"
               size="compact"
+              disabled={!assistantId}
               onClick={() => setOverridesOpen(true)}
             >
               {overrideLabel}

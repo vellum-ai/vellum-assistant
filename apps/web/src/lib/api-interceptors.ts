@@ -54,11 +54,17 @@ const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  * `maintenance-mode/`, `system-events/`, `terminal/`, `doctor/` when a
  * new one is added on the backend.
  *
- * Today's only consumer is the chat-page bootstrap — `conversations/`
- * has to land on the gateway so the chat surface can fail-and-render the
- * error state. Add segments here as additional self-hosted flows light up.
+ * These are runtime-owned surfaces the SPA needs while a self-hosted
+ * assistant is selected. Platform-owned actions intentionally stay on
+ * the platform path.
  */
-const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
+const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
+  "config",
+  "conversations",
+  "inference",
+  "model",
+  "secrets",
+]);
 
 const ASSISTANT_PATH_RE =
   /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;

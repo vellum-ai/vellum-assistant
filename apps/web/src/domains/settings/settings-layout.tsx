@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { Outlet, useLocation } from "react-router";
 
+import { useRootOutletContext } from "@/root-layout";
 import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
@@ -18,6 +19,7 @@ import { useSettingsSync } from "@/domains/settings/hooks/use-settings-sync";
  * fresh while the user is on any settings page.
  */
 export function SettingsLayout() {
+  const rootContext = useRootOutletContext();
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
   const sounds = useAssistantFeatureFlagStore.use.sounds();
@@ -68,7 +70,7 @@ export function SettingsLayout() {
       }
       title={pageTitle}
     >
-      <Outlet />
+      <Outlet context={rootContext} />
     </SidebarShell>
   );
 }

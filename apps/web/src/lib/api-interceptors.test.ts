@@ -203,6 +203,22 @@ describe("api-interceptors / self-hosted rewriting", () => {
     expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
   });
 
+  test("rewrites Models & Services runtime settings segments", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+
+    for (const segment of ["config", "secrets", "inference", "model"]) {
+      const input = new Request(
+        `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/${segment}/`,
+        { method: "POST" },
+      );
+      const output = await requestInterceptor(input);
+      expect(new URL(output.url).origin).toBe(INGRESS);
+      expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+      expect(output.headers.get("Vellum-Organization-Id")).toBeNull();
+      expect(output.headers.get("X-CSRFToken")).toBeNull();
+    }
+  });
+
   test("omits cookie credentials on the rewritten request", async () => {
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
     const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`);
