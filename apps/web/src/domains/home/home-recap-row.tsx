@@ -2,6 +2,7 @@ import { Mail, MailOpen, MessageSquare, RotateCcw, Trash2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 
 import { cn } from "@vellum/design-library";
+import { formatRelativeDate } from "@/utils/format-date";
 import { CATEGORY_STYLES } from "./home-feed-filter-bar";
 import type { FeedItem, FeedItemCategory, FeedItemStatus } from "./types";
 
@@ -54,6 +55,7 @@ export type HomeRecapRowTrailingAction = "dismiss" | "restore";
 
 export interface HomeRecapRowProps {
   item: FeedItem;
+  isActive?: boolean;
   validConversationIds?: Set<string>;
   onSelect: (item: FeedItem) => void;
   onDismiss: (itemId: string) => void;
@@ -64,6 +66,7 @@ export interface HomeRecapRowProps {
 
 export function HomeRecapRow({
   item,
+  isActive = false,
   validConversationIds,
   onSelect,
   onDismiss,
@@ -87,10 +90,12 @@ export function HomeRecapRow({
         "flex w-full cursor-pointer items-center gap-[var(--app-spacing-sm)]",
         "rounded-[var(--radius-md)] px-[var(--app-spacing-md)] py-[var(--app-spacing-sm)]",
         "transition-[background-color,opacity] duration-150",
-        isHovering
-          ? "bg-[var(--surface-lift)]"
-          : "bg-[var(--surface-overlay)]",
-        !isUnread && "opacity-70",
+        isActive
+          ? "bg-[var(--surface-active)]"
+          : isHovering
+            ? "bg-[var(--surface-lift)]"
+            : "bg-[var(--surface-overlay)]",
+        !isUnread && !isActive && "opacity-70",
       )}
     >
       <span className="relative shrink-0" aria-hidden="true">
@@ -157,7 +162,11 @@ export function HomeRecapRow({
           <RotateCcw width={14} height={14} aria-hidden="true" />
           <span className="text-body-small-default">Restore</span>
         </HoverIconButton>
-      ) : null}
+      ) : (
+        <span className="shrink-0 text-body-small-default text-[var(--content-tertiary)]">
+          {formatRelativeDate(item.timestamp)}
+        </span>
+      )}
     </button>
   );
 }

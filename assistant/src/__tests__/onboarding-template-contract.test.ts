@@ -111,8 +111,9 @@ describe("onboarding template contracts", () => {
       expect(identity).toContain("**Emoji:**");
     });
 
-    test("contains parsed field format guidance", () => {
-      expect(identity).toContain("parsed by the app");
+    test("does not invite assistant-owned identity restructuring", () => {
+      expect(identity).not.toContain("This file is yours");
+      expect(identity).not.toContain("parsed by the app");
     });
   });
 

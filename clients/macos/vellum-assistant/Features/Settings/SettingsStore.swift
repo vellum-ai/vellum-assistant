@@ -1249,7 +1249,11 @@ public final class SettingsStore: ObservableObject {
         LLMProviderRegistry.provider(id: provider)?.supportsPlatformAuth == true
     }
 
-    /// Whether the current inference selection supports native web search.
+    /// Whether the current inference selection supports provider-native web search.
+    ///
+    /// This does not describe managed app-executed web search. Managed-capable
+    /// providers that return false here can still search via the platform search
+    /// proxy when `services.web-search.mode` is `"managed"`.
     /// OpenRouter routes `anthropic/*` models through the Anthropic-compat
     /// endpoint, which accepts Anthropic's native `web_search_20250305` tool.
     func isNativeWebSearchCapable(_ provider: String, model: String) -> Bool {
@@ -2438,9 +2442,16 @@ public final class SettingsStore: ObservableObject {
     @discardableResult
     func setWebSearchMode(_ mode: String) -> Task<Bool, Never> {
         webSearchMode = mode
+        if mode == "managed" {
+            webSearchProvider = "inference-provider-native"
+        }
         let task = Task {
+            var webSearch: [String: String] = ["mode": mode]
+            if mode == "managed" {
+                webSearch["provider"] = "inference-provider-native"
+            }
             let success = await settingsClient.patchConfig([
-                "services": ["web-search": ["mode": mode]]
+                "services": ["web-search": webSearch]
             ])
             if !success {
                 log.error("Failed to patch config for web search mode")

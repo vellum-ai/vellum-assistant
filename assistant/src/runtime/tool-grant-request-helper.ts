@@ -147,6 +147,7 @@ export function createOrReuseToolGrantRequest(
     sourceEventName: "guardian.question",
     sourceChannel: sourceChannel as NotificationSourceChannel,
     sourceContextId: conversationId,
+    requiresConversation: true,
     attentionHints: {
       requiresAction: true,
       urgency: "high",

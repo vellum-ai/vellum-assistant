@@ -60,7 +60,7 @@ describe("handleAssistantActivityState", () => {
       ctx,
     );
     expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
-    expect(ctx.turnActions.completeTurn).not.toHaveBeenCalled();
+    expect(ctx.endTurn).not.toHaveBeenCalled();
   });
 
   it("updates version and handles idle phase without starting reconcile", () => {
@@ -78,8 +78,10 @@ describe("handleAssistantActivityState", () => {
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(1);
     expect(ctx.setMessages).toHaveBeenCalled();
-    expect(ctx.turnActions.completeTurn).toHaveBeenCalled();
-    expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
+    expect(ctx.endTurn).toHaveBeenCalledWith({
+      conversationId: "conv-1",
+      reason: "complete",
+    });
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
@@ -135,20 +137,22 @@ describe("handleAssistantActivityState", () => {
       ctx.streamContextRef.current!.conversationId,
     )).toBe(1);
     expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
-    expect(ctx.turnActions.completeTurn).not.toHaveBeenCalled();
+    expect(ctx.endTurn).not.toHaveBeenCalled();
   });
 });
 
 describe("handleMessageComplete", () => {
-  it("finalizes message and completes turn without starting reconcile", () => {
+  it("finalizes message and ends the turn without starting reconcile", () => {
     const ctx = makeCtx();
     handleMessageComplete(
       { type: "message_complete", messageId: "msg-1" },
       ctx,
     );
     expect(ctx.setMessages).toHaveBeenCalled();
-    expect(ctx.turnActions.completeTurn).toHaveBeenCalled();
-    expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
+    expect(ctx.endTurn).toHaveBeenCalledWith({
+      conversationId: "conv-1",
+      reason: "complete",
+    });
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
@@ -169,7 +173,10 @@ describe("handleMessageComplete", () => {
       },
       ctx,
     );
-    expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-from-event");
+    expect(ctx.endTurn).toHaveBeenCalledWith({
+      conversationId: "conv-from-event",
+      reason: "complete",
+    });
   });
 
   it("re-anchors a spawned subagent from the streaming id to the server messageId", () => {
@@ -264,11 +271,13 @@ describe("handleGenerationHandoff", () => {
 });
 
 describe("handleGenerationCancelled", () => {
-  it("dispatches GENERATION_CANCELLED and clears processing", () => {
+  it("ends the turn with reason=cancelled and stops streaming rows", () => {
     const ctx = makeCtx();
     handleGenerationCancelled({ type: "generation_cancelled" }, ctx);
-    expect(ctx.turnActions.cancelGeneration).toHaveBeenCalled();
-    expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-1");
+    expect(ctx.endTurn).toHaveBeenCalledWith({
+      conversationId: "conv-1",
+      reason: "cancelled",
+    });
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 
@@ -280,6 +289,9 @@ describe("handleGenerationCancelled", () => {
       { type: "generation_cancelled", conversationId: "conv-from-event" },
       ctx,
     );
-    expect(ctx.clearProcessingKey).toHaveBeenCalledWith("conv-from-event");
+    expect(ctx.endTurn).toHaveBeenCalledWith({
+      conversationId: "conv-from-event",
+      reason: "cancelled",
+    });
   });
 });

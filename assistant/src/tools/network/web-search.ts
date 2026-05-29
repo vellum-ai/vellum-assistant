@@ -101,8 +101,11 @@ interface TavilySearchResponse {
 function getWebSearchProvider(): WebSearchProvider {
   const config = getConfig();
   const configured = config.services["web-search"].provider ?? "perplexity";
-  // 'inference-provider-native' is handled by the inference provider client
-  // directly; fall back to perplexity for other providers.
+  // In Your Own mode, `inference-provider-native` is only executable when the
+  // inference provider swaps this tool for a native hosted-search definition.
+  // If this app-executed tool is still invoked, fall back to the existing BYOK
+  // provider chain. Managed mode short-circuits before this function and uses
+  // the platform search proxy instead.
   if (configured === "inference-provider-native") return "perplexity";
   return configured as WebSearchProvider;
 }

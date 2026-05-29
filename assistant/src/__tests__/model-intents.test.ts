@@ -20,7 +20,7 @@ describe("model intents", () => {
       "claude-haiku-4-5-20251001",
     );
     expect(resolveModelIntent("anthropic", "quality-optimized")).toBe(
-      "claude-opus-4-7",
+      "claude-opus-4-8",
     );
     expect(resolveModelIntent("anthropic", "vision-optimized")).toBe(
       "claude-opus-4-6",
@@ -44,9 +44,9 @@ describe("model intents", () => {
   });
 
   test("falls back to provider default for unknown providers", () => {
-    expect(getProviderDefaultModel("unknown-provider")).toBe("claude-opus-4-7");
+    expect(getProviderDefaultModel("unknown-provider")).toBe("claude-opus-4-8");
     expect(resolveModelIntent("unknown-provider", "quality-optimized")).toBe(
-      "claude-opus-4-7",
+      "claude-opus-4-8",
     );
   });
 });

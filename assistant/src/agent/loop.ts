@@ -121,6 +121,15 @@ export type AgentLoopExitReason =
   | "error";
 
 export type AgentEvent =
+  /**
+   * Emitted once per LLM call inside the loop, immediately before the
+   * `provider.sendMessage` invocation. Carries the optional `callSite` tag so
+   * downstream handlers (the daemon's persistence pipeline) can decide
+   * whether to reserve a row for this call. One `llm_call_started` precedes
+   * every `message_complete` for the same call; multi-call agent turns emit
+   * one pair per call.
+   */
+  | { type: "llm_call_started"; callSite?: LLMCallSite }
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; thinking: string }
   | { type: "message_complete"; message: Message }
@@ -618,6 +627,16 @@ export class AgentLoop {
         if (callSite) {
           providerConfig.callSite = callSite;
           providerConfig.usageTracking = "manual";
+          // Per-conversation seed for deterministic `mix`-profile expansion.
+          // Sourced from the orchestrator-supplied turn context's
+          // conversationId so every LLM call in a conversation resolves the
+          // same mix arm (stable across turns and retries, and across daemon
+          // restarts since the seed is the durable conversation id). Absent
+          // for standalone `AgentLoop` instances (unit tests / no turnContext)
+          // — those fall back to per-call random mix selection.
+          if (turnContext?.conversationId) {
+            providerConfig.selectionSeed = turnContext.conversationId;
+          }
         }
 
         // Per-call inference-profile override. The resolver layers
@@ -765,6 +784,18 @@ export class AgentLoop {
           requestId,
           toolUseTurns,
         );
+
+        // Announce the LLM-call boundary so downstream handlers (the
+        // daemon's persistence pipeline) can reserve an empty assistant row
+        // and stamp the resulting `messageId` onto every streaming event the
+        // call emits. Emit as late as possible — after history stripping,
+        // arg construction, and turn-context resolution — so the gap
+        // between "we said the call started" and the actual provider HTTP
+        // call is minimized. Awaited so the row is created and the
+        // `assistant_turn_start` wire event reaches the client BEFORE the
+        // provider starts streaming deltas — the deltas downstream will
+        // carry the freshly-reserved id.
+        await onEvent({ type: "llm_call_started", callSite });
 
         // Inner try/catch narrows error-recording scope to the provider
         // call itself. The outer agent-loop catch (below) wraps the entire

@@ -12,7 +12,6 @@
  * canonical records.
  */
 
-
 import type { TrustContext } from "../daemon/trust-context.js";
 import {
   type CanonicalGuardianRequest,
@@ -150,6 +149,7 @@ export function bridgeConfirmationRequestToGuardian(
     sourceEventName: "guardian.question",
     sourceChannel: sourceChannel as NotificationSourceChannel,
     sourceContextId: conversationId,
+    requiresConversation: true,
     attentionHints: {
       requiresAction: true,
       urgency: "high",

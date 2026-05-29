@@ -18,7 +18,7 @@ import {
   useRef,
 } from "react";
 
-import { useTurnStore } from "@/domains/messaging/turn-store";
+import { useTurnStore } from "@/stores/turn-store";
 import { useInteractionStore } from "@/domains/interactions/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";

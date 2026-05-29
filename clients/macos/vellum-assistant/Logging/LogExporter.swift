@@ -1008,24 +1008,33 @@ enum LogExporter {
 
     // MARK: - Snapshot Helpers
 
-    /// Writes a sanitized copy of the lockfile with credential fields stripped.
+    /// Returns a sanitized copy of the lockfile with credential fields stripped.
     /// Preserves all structural data (assistant IDs, cloud, ports, timestamps)
-    /// while replacing `bearerToken` and `runtimeUrl` with boolean presence flags.
-    private nonisolated static func writeSanitizedLockfile(to url: URL) {
-        guard let json = LockfilePaths.read() else { return }
-
+    /// while replacing sensitive fields with boolean presence flags.
+    nonisolated static func sanitizedLockfileForExport(_ json: [String: Any]) -> [String: Any] {
         var sanitized = json
         if var assistants = json["assistants"] as? [[String: Any]] {
             for i in assistants.indices {
                 let hasBearerToken = assistants[i]["bearerToken"] != nil
                 let hasRuntimeUrl = assistants[i]["runtimeUrl"] != nil
+                let hasGuardianBootstrapSecret = assistants[i]["guardianBootstrapSecret"] != nil
                 assistants[i].removeValue(forKey: "bearerToken")
                 assistants[i].removeValue(forKey: "runtimeUrl")
+                assistants[i].removeValue(forKey: "guardianBootstrapSecret")
                 assistants[i]["hasBearerToken"] = hasBearerToken
                 assistants[i]["hasRuntimeUrl"] = hasRuntimeUrl
+                assistants[i]["hasGuardianBootstrapSecret"] = hasGuardianBootstrapSecret
             }
             sanitized["assistants"] = assistants
         }
+        return sanitized
+    }
+
+    /// Writes a sanitized copy of the lockfile with credential fields stripped.
+    private nonisolated static func writeSanitizedLockfile(to url: URL) {
+        guard let json = LockfilePaths.read() else { return }
+
+        let sanitized = sanitizedLockfileForExport(json)
 
         guard let data = try? JSONSerialization.data(
             withJSONObject: sanitized,

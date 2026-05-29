@@ -736,6 +736,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
       let agentLoopCallCount = 0;
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         agentLoopCallCount++;
         if (agentLoopCallCount === 1) {
           // Simulate: agent makes progress (tool calls + results added)
@@ -915,6 +918,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     };
 
     const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       callCount++;
       if (callCount === 1) {
         // Provider rejects with "prompt is too long: 242201 tokens > 200000"
@@ -1037,6 +1043,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         callCount++;
         if (callCount === 1) {
           // Provider rejects: actual tokens 242201, way above estimate of 185k
@@ -1162,6 +1171,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         callCount++;
         onEvent({
           type: "message_complete",
@@ -1250,6 +1262,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
       let agentLoopCallCount = 0;
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         agentLoopCallCount++;
         if (agentLoopCallCount === 1) {
           // Agent makes progress (tool calls succeed, messages grow)
@@ -1441,6 +1456,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         _requestId,
         onCheckpoint,
       ) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         agentLoopCallCount++;
 
         if (agentLoopCallCount === 1) {
@@ -1626,6 +1644,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         _requestId,
         onCheckpoint,
       ) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         agentLoopCallCount++;
 
         if (agentLoopCallCount === 1) {
@@ -1801,6 +1822,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       _requestId,
       onCheckpoint,
     ) => {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       agentLoopCallCount++;
 
       // Every call: simulate tool progress then yield at checkpoint
@@ -1962,6 +1986,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       _requestId,
       onCheckpoint,
     ) => {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       agentLoopCallCount++;
 
       const withProgress: Message[] = [
@@ -2194,6 +2221,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     };
 
     const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       onEvent({
         type: "message_complete",
         message: {
@@ -2297,6 +2327,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       _requestId,
       onCheckpoint,
     ) => {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       agentLoopCallCount++;
 
       const withProgress: Message[] = [

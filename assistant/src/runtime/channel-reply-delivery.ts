@@ -141,6 +141,29 @@ export async function deliverRenderedReplyViaCallback(
     return;
   }
 
+  if (startFromSegment >= deliverableSegments.length) {
+    if (replyAttachments) {
+      const result: ChannelDeliveryResult = await deliverChannelReply(
+        callbackUrl,
+        {
+          chatId,
+          attachments: replyAttachments,
+          assistantId,
+          ephemeral,
+          user,
+          messageTs,
+        },
+      );
+      const deliveredTs = result.ts ?? messageTs;
+      if (deliveredTs) {
+        onMessageTs?.(deliveredTs);
+      }
+    } else if (messageTs) {
+      onMessageTs?.(messageTs);
+    }
+    return;
+  }
+
   const isSlack = isSlackCallbackUrl(callbackUrl);
 
   // Only the first segment uses messageTs for in-place update;

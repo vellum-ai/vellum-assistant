@@ -146,6 +146,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOverrideProfileFromRow: () => undefined,
   updateMessageMetadata: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  updateMessageContent: mock(() => {}),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -245,6 +246,9 @@ mock.module("../agent/loop.js", () => ({
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
     ): Promise<Message[]> {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       runCalls.push(messages);
       agentLoopScript(onEvent);
       onEvent({

@@ -3,8 +3,8 @@ import { mock } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { TurnActions, TurnState } from "@/domains/messaging/turn-store";
-import { INITIAL_TURN_STATE } from "@/domains/messaging/turn-store";
+import type { TurnActions, TurnState } from "@/stores/turn-store";
+import { INITIAL_TURN_STATE } from "@/stores/turn-store";
 
 /** Build a minimal mock StreamHandlerContext with spies on every callback. */
 export function makeCtx(
@@ -49,7 +49,7 @@ export function makeCtx(
       deleteQueuedMessage: mock(() => {}),
     } satisfies TurnActions,
     getTurnState: () => ({ ...INITIAL_TURN_STATE }) as TurnState,
-    clearProcessingKey: mock(() => {}),
+    endTurn: mock(() => {}),
     setError: mock(() => {}),
     streamRef: { current: { cancel: mock(() => {}) } as never },
     cancelReconciliation: mock(() => {}),

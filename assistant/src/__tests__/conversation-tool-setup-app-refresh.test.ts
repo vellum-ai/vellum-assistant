@@ -295,6 +295,36 @@ describe("session-tool-setup app refresh side effects", () => {
       });
     });
 
+    test("canonicalizes legacy computer_use_press_key skill_execute alias before dispatch", async () => {
+      const ctx = makeCtx({ allowedToolNames: new Set(["computer_use_key"]) });
+      const executor = makeFakeExecutor({ content: "ok", isError: false });
+
+      const toolFn = createToolExecutor(
+        executor as unknown as ToolExecutor,
+        noopPrompter,
+        noopSecretPrompter,
+        ctx,
+        noopLifecycleHandler,
+      );
+
+      await toolFn("skill_execute", {
+        tool: "computer_use_press_key",
+        input: {
+          key: "Space",
+          modifiers: ["Command"],
+          reasoning: "Open Spotlight",
+        },
+        activity: "Opening Spotlight",
+      });
+
+      const calls = executor.execute.mock.calls as unknown[][];
+      expect(calls[0][0]).toBe("computer_use_key");
+      expect(calls[0][1]).toEqual({
+        key: "cmd+space",
+        reasoning: "Open Spotlight",
+      });
+    });
+
     test("preserves exact active create_app skill tool when app_create is also active", async () => {
       const ctx = makeCtx({
         allowedToolNames: new Set(["create_app", "app_create"]),

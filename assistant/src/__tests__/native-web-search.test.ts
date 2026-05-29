@@ -51,8 +51,7 @@ mock.module("@anthropic-ai/sdk", () => ({
           _options?: Record<string, unknown>,
         ) => {
           lastStreamParams = JSON.parse(JSON.stringify(params));
-          const handlers: Record<string, ((...args: unknown[]) => void)[]> =
-            {};
+          const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
           return {
             on(event: string, cb: (...args: unknown[]) => void) {
               (handlers[event] ??= []).push(cb);
@@ -74,6 +73,7 @@ mock.module("@anthropic-ai/sdk", () => ({
 
 // Import after mocking
 import { AnthropicProvider } from "../providers/anthropic/client.js";
+import { isNativeWebSearchCapableProvider } from "../providers/registry.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -98,6 +98,34 @@ const sampleTools: ToolDefinition[] = [
     },
   },
 ];
+
+describe("Native Web Search — Selection Semantics", () => {
+  test("only native-capable inference providers/models request provider-native web search", () => {
+    expect(
+      isNativeWebSearchCapableProvider("anthropic", "claude-opus-4-7"),
+    ).toBe(true);
+    expect(isNativeWebSearchCapableProvider("openai", "gpt-5")).toBe(true);
+    expect(
+      isNativeWebSearchCapableProvider(
+        "openrouter",
+        "anthropic/claude-opus-4-7",
+      ),
+    ).toBe(true);
+
+    expect(
+      isNativeWebSearchCapableProvider(
+        "fireworks",
+        "accounts/fireworks/models/kimi-k2p6",
+      ),
+    ).toBe(false);
+    expect(isNativeWebSearchCapableProvider("gemini", "gemini-3.1-pro")).toBe(
+      false,
+    );
+    expect(isNativeWebSearchCapableProvider("openrouter", "openai/gpt-5")).toBe(
+      false,
+    );
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Tests — Round-trip: fromAnthropicBlock

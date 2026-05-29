@@ -17,12 +17,16 @@ import type {
 import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
+import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import {
+  deleteMessageById,
   getConversation,
   getMessageById,
+  messageMetadataSchema,
   provenanceFromTrustContext,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
+import { indexMessageNow } from "../memory/indexer.js";
 import {
   backfillMessageIdOnLogs,
   buildProviderErrorResponsePayload,
@@ -41,13 +45,14 @@ import { defaultPersistenceTerminal } from "../plugins/defaults/persistence.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
-  PersistAddResult,
   PersistArgs,
+  PersistReserveResult,
   PersistResult,
   TurnContext,
 } from "../plugins/types.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
+import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
 import {
@@ -77,6 +82,7 @@ import type {
   SurfaceAction,
   UiSurfaceShow,
 } from "./message-protocol.js";
+import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import type {
   WebSearchMetadata,
   WebSearchResultItem,
@@ -156,6 +162,21 @@ export interface EventHandlerState {
   contextTooLargeError: unknown;
   providerErrorUserMessage: string | null;
   lastAssistantMessageId: string | undefined;
+  /**
+   * True when `handleLlmCallStarted` has reserved an empty assistant row
+   * that has NOT yet been finalized via `handleMessageComplete`
+   * (`op:"updateContent"` + indexing + projection). Used by error/retry
+   * paths to detect a stranded reservation that must be cleaned up
+   * before the next LLM call reserves a fresh row — without it, every
+   * retryable failure (overflow, ordering, image overflow) and every
+   * terminal provider rejection would leak an empty assistant bubble
+   * into the transcript and mispoint downstream sync/projection.
+   *
+   * Cleared by `handleMessageComplete` on successful finalize, and by
+   * the synthetic-error branch in `conversation-agent-loop.ts` after it
+   * absorbs the reserved row into the error message.
+   */
+  assistantRowAwaitingFinalization: boolean;
   readonly pendingToolResults: Map<string, PendingToolResult>;
   readonly persistedToolUseIds: Set<string>;
   readonly accumulatedDirectives: DirectiveRequest[];
@@ -256,6 +277,7 @@ export function createEventHandlerState(): EventHandlerState {
     contextTooLargeError: null,
     providerErrorUserMessage: null,
     lastAssistantMessageId: undefined,
+    assistantRowAwaitingFinalization: false,
     pendingToolResults: new Map(),
     persistedToolUseIds: new Set(),
     accumulatedDirectives: [],
@@ -403,6 +425,133 @@ function resolveAssistantReplyTimestampTimezone(
   }).effectiveTimezone;
 }
 
+/**
+ * Assemble the metadata envelope written to the assistant message row.
+ *
+ * Stamped at reserve time (before `provider.sendMessage`) so the row carries
+ * channel provenance from the moment it lands in SQLite, mirroring the
+ * snapshot that handleMessageComplete used to compute at end-of-turn. All
+ * inputs (channel context, trust context, turnStartedAt) are stable across
+ * the LLM call, so building this once at reserve is equivalent to building
+ * it at complete. Slack reply rows further stamp a `slackMeta` sub-object —
+ * the `channelTs` field stays absent here and is back-filled by
+ * `deliverReplyViaCallback` after the gateway returns the ts.
+ */
+function buildAssistantChannelMetadata(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {
+    ...provenanceFromTrustContext(deps.ctx.trustContext),
+    userMessageChannel: deps.turnChannelContext.userMessageChannel,
+    assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
+    userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
+    assistantMessageInterface:
+      deps.turnInterfaceContext.assistantMessageInterface,
+    sentAt: state.turnStartedAt,
+  };
+
+  if (deps.turnChannelContext.assistantMessageChannel === "slack") {
+    const channelId = deps.ctx.trustContext?.requesterChatId;
+    if (channelId) {
+      const threadTs = getThreadTs(deps.ctx.conversationId);
+      const timestampTimezone = resolveAssistantReplyTimestampTimezone(
+        deps.ctx,
+      );
+      const timestampTimezoneLabel = formatSlackTimezoneLabel(
+        timestampTimezone,
+        { nowMs: state.turnStartedAt },
+      );
+      const partialSlackMeta: Partial<SlackMessageMetadata> = {
+        source: "slack",
+        eventKind: "message",
+        channelId,
+        ...(threadTs ? { threadTs } : {}),
+        timestampTimezone,
+        ...(timestampTimezoneLabel ? { timestampTimezoneLabel } : {}),
+      };
+      // `channelTs` is filled in by the post-send reconciliation step in
+      // `deliverReplyViaCallback`; cast through the Partial to satisfy
+      // the writer's type at this pre-send boundary.
+      metadata.slackMeta = writeSlackMetadata(
+        partialSlackMeta as SlackMessageMetadata,
+      );
+    }
+  }
+
+  return metadata;
+}
+
+/**
+ * Reserve an empty assistant row for the LLM call about to begin, stash
+ * its id on `state.lastAssistantMessageId`, and announce the boundary on
+ * the wire via `assistant_turn_start`.
+ *
+ * Awaited so the row exists and the client has the anchor id BEFORE any
+ * streaming delta arrives — every subsequent `deps.onEvent` in this LLM
+ * call stamps `messageId: state.lastAssistantMessageId`, and
+ * `handleMessageComplete` flushes the final content to the same row via
+ * `op: "updateContent"` instead of inserting a fresh one.
+ *
+ * Multi-LLM-call agent turns (LLM call → tool execution → LLM call) emit
+ * one `llm_call_started` per call, so each LLM call reserves its own row.
+ * The read-path `findDisplayTurnEndIndex` collapses consecutive assistant
+ * rows for the merged history view, matching today's per-call DB layout.
+ */
+export async function handleLlmCallStarted(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): Promise<void> {
+  // Clean up an orphaned reservation from a previous LLM call in this run
+  // that errored before `message_complete` could finalize it. This covers
+  // the retryable paths (overflow, ordering, image overflow) where the
+  // agent loop re-enters with a fresh `run()` and reserves another row;
+  // without this delete the failed-attempt row stays in the transcript as
+  // an empty assistant bubble. The finalized-row case is filtered out via
+  // the `assistantRowAwaitingFinalization` flag — `handleMessageComplete`
+  // clears it after the successful `updateContent`, so the previous call's
+  // committed row is never touched here.
+  //
+  // Direct `deleteMessageById` (not via the `persistence` pipeline) is
+  // intentional: a never-finalized reservation has no segments, no
+  // attachments, and no observable history — undoing it isn't a real
+  // persistence event for plugins to react to, so routing through the
+  // pipeline would only widen the mock surface for no observability win.
+  if (state.assistantRowAwaitingFinalization && state.lastAssistantMessageId) {
+    try {
+      deleteMessageById(state.lastAssistantMessageId);
+    } catch (err) {
+      // Non-fatal: a leaked empty row is preferable to a turn-level throw.
+      deps.rlog.warn(
+        { err, messageId: state.lastAssistantMessageId },
+        "Failed to clean up stranded reserved assistant row before new reservation",
+      );
+    }
+  }
+
+  const metadata = buildAssistantChannelMetadata(state, deps);
+  const reserveResult = (await runPipeline<PersistArgs, PersistResult>(
+    "persistence",
+    getMiddlewaresFor("persistence"),
+    defaultPersistenceTerminal,
+    {
+      op: "reserve",
+      conversationId: deps.ctx.conversationId,
+      role: "assistant",
+      metadata,
+    },
+    buildHandlerTurnContext(deps),
+    DEFAULT_TIMEOUTS.persistence,
+  )) as PersistReserveResult;
+  state.lastAssistantMessageId = reserveResult.message.id;
+  state.assistantRowAwaitingFinalization = true;
+  deps.onEvent({
+    type: "assistant_turn_start",
+    messageId: reserveResult.message.id,
+    conversationId: deps.ctx.conversationId,
+  });
+}
+
 // ── Individual Handlers ──────────────────────────────────────────────
 
 function handleTextDelta(
@@ -431,6 +580,7 @@ function handleTextDelta(
       type: "assistant_text_delta",
       text: drained.emitText,
       conversationId: deps.ctx.conversationId,
+      messageId: state.lastAssistantMessageId,
     });
     if (deps.shouldGenerateTitle) state.firstAssistantText += drained.emitText;
   }
@@ -468,6 +618,7 @@ function handleThinkingDelta(
     type: "assistant_thinking_delta",
     thinking: event.thinking,
     conversationId: deps.ctx.conversationId,
+    messageId: state.lastAssistantMessageId,
   });
 }
 
@@ -498,11 +649,12 @@ export function handleToolUse(
     input: event.input,
     conversationId: deps.ctx.conversationId,
     toolUseId: event.id,
+    messageId: state.lastAssistantMessageId,
   });
 }
 
 export function handleToolUsePreviewStart(
-  _state: EventHandlerState,
+  state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_use_preview_start" }>,
 ): void {
@@ -511,6 +663,7 @@ export function handleToolUsePreviewStart(
     toolUseId: event.toolUseId,
     toolName: event.toolName,
     conversationId: deps.ctx.conversationId,
+    messageId: state.lastAssistantMessageId,
   });
   const statusText = `Preparing ${friendlyToolName(event.toolName)}...`;
   deps.ctx.emitActivityState(
@@ -523,7 +676,7 @@ export function handleToolUsePreviewStart(
 }
 
 function handleToolOutputChunk(
-  _state: EventHandlerState,
+  state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_output_chunk" }>,
 ): void {
@@ -581,6 +734,7 @@ function handleToolOutputChunk(
       chunk: event.chunk,
       conversationId: deps.ctx.conversationId,
       toolUseId: event.toolUseId,
+      messageId: state.lastAssistantMessageId,
       subType: structured.subType,
       subToolName: structured.subToolName,
       subToolInput: structured.subToolInput,
@@ -593,12 +747,13 @@ function handleToolOutputChunk(
       chunk: event.chunk,
       conversationId: deps.ctx.conversationId,
       toolUseId: event.toolUseId,
+      messageId: state.lastAssistantMessageId,
     });
   }
 }
 
 export function handleInputJsonDelta(
-  _state: EventHandlerState,
+  state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "input_json_delta" }>,
 ): void {
@@ -612,6 +767,7 @@ export function handleInputJsonDelta(
     content: event.accumulatedJson,
     conversationId: deps.ctx.conversationId,
     toolUseId: event.toolUseId,
+    messageId: state.lastAssistantMessageId,
   });
 }
 
@@ -738,6 +894,7 @@ export function handleToolResult(
     diff: event.diff,
     status: event.status,
     conversationId: deps.ctx.conversationId,
+    messageId: state.lastAssistantMessageId,
     imageData: imageDataList?.[0],
     imageDataList,
     toolUseId: event.toolUseId,
@@ -994,6 +1151,7 @@ export async function handleMessageComplete(
       type: "assistant_text_delta",
       text: state.pendingDirectiveDisplayBuffer,
       conversationId: deps.ctx.conversationId,
+      messageId: state.lastAssistantMessageId,
     });
     if (deps.shouldGenerateTitle)
       state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
@@ -1100,52 +1258,6 @@ export async function handleMessageComplete(
     } as unknown as ContentBlock);
   }
 
-  const assistantChannelMetadata: Record<string, unknown> = {
-    ...provenanceFromTrustContext(deps.ctx.trustContext),
-    userMessageChannel: deps.turnChannelContext.userMessageChannel,
-    assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
-    userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
-    assistantMessageInterface:
-      deps.turnInterfaceContext.assistantMessageInterface,
-    sentAt: state.turnStartedAt,
-  };
-
-  // When the assistant is replying through Slack, stamp a `slackMeta`
-  // sub-object so the transcript-rendering / thread-aware-context lookup
-  // can identify this row's thread without joining tables.
-  // Persistence happens BEFORE the Slack adapter sends the message, so
-  // Slack's authoritative `ts` (-> `channelTs`) is not yet known and is
-  // intentionally omitted here. The post-send reconciliation step in
-  // `deliverReplyViaCallback` writes `channelTs` back into this row once
-  // the gateway returns the Slack-assigned ts, restoring a fully-formed
-  // metadata envelope before any subsequent turn reads the row.
-  if (deps.turnChannelContext.assistantMessageChannel === "slack") {
-    const channelId = deps.ctx.trustContext?.requesterChatId;
-    if (channelId) {
-      const threadTs = getThreadTs(deps.ctx.conversationId);
-      const timestampTimezone = resolveAssistantReplyTimestampTimezone(
-        deps.ctx,
-      );
-      const timestampTimezoneLabel = formatSlackTimezoneLabel(
-        timestampTimezone,
-        { nowMs: state.turnStartedAt },
-      );
-      const partialSlackMeta: Partial<SlackMessageMetadata> = {
-        source: "slack",
-        eventKind: "message",
-        channelId,
-        ...(threadTs ? { threadTs } : {}),
-        timestampTimezone,
-        ...(timestampTimezoneLabel ? { timestampTimezoneLabel } : {}),
-      };
-      assistantChannelMetadata.slackMeta = writeSlackMetadata(
-        // `channelTs` is filled in by the post-send reconciliation step in
-        // `deliverReplyViaCallback`; cast through the Partial to satisfy
-        // the writer's type at this pre-send boundary.
-        partialSlackMeta as SlackMessageMetadata,
-      );
-    }
-  }
   // Redact known-pattern secrets from assistant text blocks before they are
   // written to durable storage. Non-text blocks (images, UI surfaces) pass
   // through unchanged. The live model history retains the original values.
@@ -1157,32 +1269,123 @@ export async function handleMessageComplete(
     return block;
   });
 
-  // Route the assistant-message persistence through the `persistence`
-  // pipeline. No `syncToDisk` here — the orchestrator separately invokes
-  // `syncMessageToDisk` on `state.lastAssistantMessageId` after the loop
-  // completes (see `conversation-agent-loop.ts::syncLastAssistantMessageToDisk`).
-  const assistantPersistResult = (await runPipeline<PersistArgs, PersistResult>(
+  // The row was reserved at `llm_call_started` (with channel metadata
+  // stamped at that point) and `state.lastAssistantMessageId` carries its
+  // id. Flush the final content via `updateContent` instead of inserting a
+  // new row. No `syncToDisk` flag here — the orchestrator separately
+  // invokes `syncMessageToDisk` on `state.lastAssistantMessageId` after
+  // the loop completes (see
+  // `conversation-agent-loop.ts::syncLastAssistantMessageToDisk`).
+  const assistantMessageId = state.lastAssistantMessageId;
+  if (!assistantMessageId) {
+    throw new Error(
+      "handleMessageComplete fired without a prior llm_call_started reserving an assistant row",
+    );
+  }
+  const contentJson = JSON.stringify(contentForPersistence);
+  await runPipeline<PersistArgs, PersistResult>(
     "persistence",
     getMiddlewaresFor("persistence"),
     defaultPersistenceTerminal,
     {
-      op: "add",
-      conversationId: deps.ctx.conversationId,
-      role: "assistant",
-      content: JSON.stringify(contentForPersistence),
-      metadata: assistantChannelMetadata,
+      op: "updateContent",
+      messageId: assistantMessageId,
+      content: contentJson,
     },
     buildHandlerTurnContext(deps),
     DEFAULT_TIMEOUTS.persistence,
-  )) as PersistAddResult;
-  const assistantMsg = assistantPersistResult.message;
-  state.lastAssistantMessageId = assistantMsg.id;
+  );
+  state.assistantRowAwaitingFinalization = false;
+
+  // ── Indexing + attention projection (restored from the pre-B3 `add` path) ──
+  // `reserveMessage` + `updateMessageContent` are CRUD-only: they don't run
+  // the memory indexer or the attention-cursor projector. The pre-B3 path
+  // wrote the row via `addMessage`, which ran both as side-effects of the
+  // insert. Calling them here keeps the assistant row's external state
+  // (Qdrant segments, conversation attention cursor) in lockstep with the
+  // finalized content. Both are non-fatal — a memory hiccup must not
+  // escalate a successful generation into a turn-level throw. Indexing
+  // intentionally fires AFTER `updateContent` succeeds so we never index
+  // the empty reserved placeholder.
+  const finalizedRow = getMessageById(
+    assistantMessageId,
+    deps.ctx.conversationId,
+  );
+  if (finalizedRow) {
+    let provenanceTrustClass:
+      | "guardian"
+      | "trusted_contact"
+      | "unknown"
+      | undefined;
+    let automated: boolean | undefined;
+    if (finalizedRow.metadata) {
+      try {
+        const parsedMeta = messageMetadataSchema.safeParse(
+          JSON.parse(finalizedRow.metadata),
+        );
+        if (parsedMeta.success) {
+          provenanceTrustClass = parsedMeta.data.provenanceTrustClass;
+          automated = parsedMeta.data.automated;
+        }
+      } catch {
+        // Malformed metadata JSON — fall through with undefined fields,
+        // matching the legacy behavior in `addMessage`.
+      }
+    }
+    try {
+      await indexMessageNow(
+        {
+          messageId: assistantMessageId,
+          conversationId: deps.ctx.conversationId,
+          role: "assistant",
+          content: contentJson,
+          createdAt: finalizedRow.createdAt,
+          scopeId: "default",
+          provenanceTrustClass,
+          automated,
+        },
+        getConfig().memory,
+      );
+    } catch (err) {
+      deps.rlog.warn(
+        {
+          err,
+          conversationId: deps.ctx.conversationId,
+          messageId: assistantMessageId,
+        },
+        "Failed to index assistant message for memory (non-fatal)",
+      );
+    }
+    try {
+      const attentionStateChanged = projectAssistantMessage({
+        conversationId: deps.ctx.conversationId,
+        messageId: assistantMessageId,
+        messageAt: finalizedRow.createdAt,
+      });
+      if (attentionStateChanged) {
+        void publishSyncInvalidation([
+          conversationMetadataSyncTag(deps.ctx.conversationId),
+        ]);
+      }
+    } catch (err) {
+      deps.rlog.warn(
+        {
+          err,
+          conversationId: deps.ctx.conversationId,
+          messageId: assistantMessageId,
+        },
+        "Failed to project assistant message for attention tracking (non-fatal)",
+      );
+    }
+  }
 
   // Backfill message_id on all LLM request logs from this turn.
   // The agent loop is single-threaded per conversation, so all rows with
-  // message_id IS NULL belong to the current turn.
+  // message_id IS NULL belong to the current turn. The reserved id was
+  // available before the LLM call ran but the logs are inserted DURING
+  // the call, so the sweep still runs here.
   try {
-    backfillMessageIdOnLogs(deps.ctx.conversationId, assistantMsg.id);
+    backfillMessageIdOnLogs(deps.ctx.conversationId, assistantMessageId);
   } catch (err) {
     deps.rlog.warn(
       { err },
@@ -1191,7 +1394,10 @@ export async function handleMessageComplete(
   }
 
   try {
-    backfillMemoryRecallLogMessageId(deps.ctx.conversationId, assistantMsg.id);
+    backfillMemoryRecallLogMessageId(
+      deps.ctx.conversationId,
+      assistantMessageId,
+    );
   } catch (err) {
     deps.rlog.warn(
       { err },
@@ -1202,7 +1408,7 @@ export async function handleMessageComplete(
   try {
     backfillMemoryV2ActivationMessageId(
       deps.ctx.conversationId,
-      assistantMsg.id,
+      assistantMessageId,
     );
   } catch (err) {
     deps.rlog.warn(
@@ -1402,6 +1608,9 @@ export async function dispatchAgentEvent(
 ): Promise<void> {
   try {
     switch (event.type) {
+      case "llm_call_started":
+        await handleLlmCallStarted(state, deps);
+        break;
       case "text_delta":
         handleTextDelta(state, deps, event);
         break;
@@ -1442,6 +1651,7 @@ export async function dispatchAgentEvent(
           input: event.input,
           conversationId: deps.ctx.conversationId,
           toolUseId: event.toolUseId,
+          messageId: state.lastAssistantMessageId,
         });
         break;
       }
@@ -1521,6 +1731,7 @@ export async function dispatchAgentEvent(
           isError: event.isError,
           conversationId: deps.ctx.conversationId,
           toolUseId: event.toolUseId,
+          messageId: state.lastAssistantMessageId,
           ...(metadata ? { activityMetadata: { webSearch: metadata } } : {}),
         });
         break;

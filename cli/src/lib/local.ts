@@ -1043,7 +1043,7 @@ export async function startLocalDaemon(
 export async function startGateway(
   watch: boolean = false,
   resources?: LocalInstanceResources,
-  options?: { signingKey?: string },
+  options?: { signingKey?: string; bootstrapSecret?: string },
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
 
@@ -1078,6 +1078,9 @@ export async function startGateway(
     DEFAULT_ASSISTANT_ID: "self",
     ...(options?.signingKey
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
+    ...(options?.bootstrapSecret
+      ? { GUARDIAN_BOOTSTRAP_SECRET: options.bootstrapSecret }
       : {}),
     ...(watch
       ? {

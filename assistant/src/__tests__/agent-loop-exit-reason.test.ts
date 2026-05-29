@@ -167,6 +167,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     expect(events.map((e) => e.type)).toEqual([
+      "llm_call_started",
       "usage",
       "max_tokens_reached",
       "message_complete",

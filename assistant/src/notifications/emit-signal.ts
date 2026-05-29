@@ -51,7 +51,7 @@ const log = getLogger("emit-signal");
 
 let broadcasterInstance: NotificationBroadcaster | null = null;
 
-function getBroadcaster(): NotificationBroadcaster {
+export function getBroadcaster(): NotificationBroadcaster {
   if (!broadcasterInstance) {
     broadcasterInstance = new NotificationBroadcaster([
       new VellumAdapter(broadcastMessage),
@@ -188,6 +188,15 @@ export interface EmitSignalParams<TEventName extends string = string> {
     source?: string;
     conversationType?: ConversationCreateType;
   };
+  /**
+   * When true, the vellum-channel delivery materializes a fresh conversation
+   * to host the notification (and any follow-up interaction). Set this only
+   * for flows where the conversation IS the interaction surface — e.g.
+   * guardian.question, tool grant requests, ingress access requests. Passive
+   * notifications leave this unset; they surface via the home feed and link
+   * back to their originating conversation via `sourceContextId`.
+   */
+  requiresConversation?: boolean;
 }
 
 export interface EmitSignalResult {
@@ -223,6 +232,7 @@ export async function emitNotificationSignal<TEventName extends string>(
     routingHints: params.routingHints,
     conversationAffinityHint: params.conversationAffinityHint,
     conversationMetadata: params.conversationMetadata,
+    requiresConversation: params.requiresConversation,
   };
 
   try {

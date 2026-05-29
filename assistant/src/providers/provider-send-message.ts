@@ -9,7 +9,10 @@ import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { getDb } from "../memory/db-connection.js";
 import { getLogger } from "../util/logger.js";
-import { isConnectionCompatibleWithModel } from "./connection-model-compat.js";
+import {
+  describeSubscriptionModelIncompatibility,
+  isConnectionCompatibleWithModel,
+} from "./connection-model-compat.js";
 import { tryResolveProviderForConnectionName } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import { initializeProviders, listProviders } from "./registry.js";
@@ -132,6 +135,14 @@ export async function resolveConfiguredProvider(
         );
         if (active) {
           connectionName = active.name;
+        } else {
+          const incompatMsg = describeSubscriptionModelIncompatibility(
+            candidates,
+            resolved.model,
+          );
+          if (incompatMsg) {
+            log.warn({ callSite, inferenceProvider, model: resolved.model }, incompatMsg);
+          }
         }
       } catch {
         // DB not available — fall through to the existing null-return path.

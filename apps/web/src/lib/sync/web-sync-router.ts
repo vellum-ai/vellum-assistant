@@ -73,7 +73,10 @@ export function createWebSyncRouter(
       options.scheduleConversationListRefetch,
     ),
     registry.registerPattern(isConversationMetadataSyncTag, () => {
-      options.scheduleConversationListRefetch();
+      // RootLayout's `useConversationSync` owns metadata tags and
+      // GET-and-patches the single cached row. Handling the tag here as a
+      // no-op keeps it out of unknown-tag telemetry without re-draining every
+      // paginated conversation list during active turns.
     }),
     registry.registerPattern(isConversationMessagesSyncTag, ({ tag }) => {
       // List-level refetch on `:messages` tags is deliberately omitted.

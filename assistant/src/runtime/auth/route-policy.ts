@@ -872,6 +872,12 @@ registerPolicy("notifications/events", {
   allowedPrincipalTypes: ["local"],
 });
 
+// Edit an already-sent notification: local-only (CLI / IPC callers)
+registerPolicy("notifications/edit", {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ["local"],
+});
+
 // Defer operations: local-only (CLI / IPC callers)
 registerPolicy("defer/create", {
   requiredScopes: ["settings.write"],

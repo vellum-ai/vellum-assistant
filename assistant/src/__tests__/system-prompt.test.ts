@@ -186,7 +186,6 @@ describe("buildSystemPrompt", () => {
     const result = buildSystemPrompt();
     // SOUL still renders; the template scaffolding must not.
     expect(result).toContain("# Soul\n\nBe thoughtful.");
-    expect(result).not.toContain("This file is yours.");
     expect(result).not.toContain("(not yet chosen)");
   });
 
@@ -204,7 +203,10 @@ describe("buildSystemPrompt", () => {
       "# First run\n\nGet started.",
     );
     const result = buildSystemPrompt();
-    expect(result).toContain("This file is yours.");
+    // The bundled template's placeholder scaffolding (the `(not yet chosen)`
+    // field markers) renders verbatim during bootstrap — the mirror of the
+    // gating test above, which asserts it is absent without BOOTSTRAP.md.
+    expect(result).toContain("(not yet chosen)");
   });
 
   test("trims whitespace from file content", () => {

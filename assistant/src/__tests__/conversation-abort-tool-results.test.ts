@@ -139,6 +139,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  updateMessageContent: mock(() => {}),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -193,6 +194,9 @@ mock.module("../agent/loop.js", () => ({
       onEvent: (event: AgentEvent) => void,
       _signal?: AbortSignal,
     ): Promise<Message[]> {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       const history = [...messages];
 
       // Simulate provider response with 2 tool_use blocks

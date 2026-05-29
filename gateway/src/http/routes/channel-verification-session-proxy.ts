@@ -458,15 +458,19 @@ export function createChannelVerificationSessionProxyHandler(
         );
       }
 
-      // Docker mode uses secret-based consumption tracking — resetting the
-      // lockfile alone wouldn't help because consumed secrets are tracked
-      // separately. Only bare-metal (no bootstrap secret) uses the simple
-      // lockfile as the sole guard.
-      if (parseBootstrapSecrets().length > 0) {
-        return Response.json(
-          { error: "Reset not available in containerized mode" },
-          { status: 403 },
-        );
+      // When bootstrap secrets are configured, require a valid one to
+      // authorize the reset. This allows bare-metal re-pair (the macOS app
+      // reads the secret from the lockfile) while preventing unauthorized
+      // resets on Docker deployments where secrets are ephemeral.
+      const expectedSecrets = parseBootstrapSecrets();
+      if (expectedSecrets.length > 0) {
+        const provided = req?.headers.get("x-bootstrap-secret");
+        if (!provided || !expectedSecrets.includes(provided)) {
+          return Response.json(
+            { error: "Invalid bootstrap secret" },
+            { status: 403 },
+          );
+        }
       }
 
       // Refuse while an init request is awaiting an upstream response —
@@ -482,6 +486,7 @@ export function createChannelVerificationSessionProxyHandler(
 
       const lockDir = getGatewaySecurityDir();
       const lockPath = join(lockDir, "guardian-init.lock");
+      const consumedPath = join(lockDir, "guardian-init-consumed.json");
 
       try {
         if (existsSync(lockPath)) {
@@ -490,8 +495,12 @@ export function createChannelVerificationSessionProxyHandler(
             "Guardian bootstrap lock file removed — re-init is now allowed",
           );
         }
+        if (existsSync(consumedPath)) {
+          unlinkSync(consumedPath);
+          log.info("Guardian consumed secrets file removed");
+        }
       } catch (err) {
-        log.error({ err }, "Failed to remove guardian-init.lock");
+        log.error({ err }, "Failed to remove guardian-init lock/consumed files");
         return Response.json(
           { error: "Failed to remove lock file" },
           { status: 500 },

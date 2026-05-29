@@ -1557,32 +1557,32 @@ describe("OpenRouterProvider reasoning", () => {
     });
   });
 
-  test("sends reasoning.enabled=false when thinking is explicitly disabled", async () => {
+  test("omits reasoning when thinking is explicitly disabled", async () => {
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
     await provider.sendMessage([userMsg("hi")], undefined, undefined, {
       config: { thinking: { type: "disabled" } },
     });
 
     expect(lastCreateParams).toBeTruthy();
-    expect(lastCreateParams!.reasoning).toEqual({ enabled: false });
+    expect(lastCreateParams!.reasoning).toBeUndefined();
   });
 
-  test("sends reasoning.enabled=false when thinking config is absent", async () => {
+  test("omits reasoning when thinking config is absent", async () => {
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
     await provider.sendMessage([userMsg("hi")], undefined, undefined, {
       config: {},
     });
 
     expect(lastCreateParams).toBeTruthy();
-    expect(lastCreateParams!.reasoning).toEqual({ enabled: false });
+    expect(lastCreateParams!.reasoning).toBeUndefined();
   });
 
-  test("sends reasoning.enabled=false when no options are provided", async () => {
+  test("omits reasoning when no options are provided", async () => {
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
     await provider.sendMessage([userMsg("hi")]);
 
     expect(lastCreateParams).toBeTruthy();
-    expect(lastCreateParams!.reasoning).toEqual({ enabled: false });
+    expect(lastCreateParams!.reasoning).toBeUndefined();
   });
 
   test("sends OpenRouter app-attribution headers on OpenAI-compatible requests", async () => {
@@ -1623,15 +1623,14 @@ describe("OpenRouterProvider reasoning", () => {
     });
   });
 
-  test("RetryProvider + OpenRouterProvider disables thinking end-to-end", async () => {
+  test("RetryProvider + OpenRouterProvider omits reasoning when thinking disabled", async () => {
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
     const retry = new RetryProvider(provider);
 
-    // thinking disabled at loop-level can arrive as an explicit disabled config.
     await retry.sendMessage([userMsg("hi")], undefined, undefined, {
       config: { thinking: { type: "disabled" } },
     });
-    expect(lastCreateParams!.reasoning).toEqual({ enabled: false });
+    expect(lastCreateParams!.reasoning).toBeUndefined();
   });
 
   test("nests effort under reasoning and omits top-level reasoning_effort", async () => {

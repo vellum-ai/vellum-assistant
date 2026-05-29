@@ -22,7 +22,10 @@ import type { Profile } from "../../../../src/lib/profile";
 import type { TestSetupCommand } from "../../../../src/lib/setup-command";
 
 import type { BenchmarkItem } from "../loader";
-import type { TrajectoryRecord } from "../trajectories";
+import {
+  createInMemoryTrajectoryReader,
+  type TrajectoryReader,
+} from "../trajectory-reader";
 
 let nextAgent: BaseAgent | null = null;
 // Specifier is relative to THIS test file's location
@@ -128,10 +131,10 @@ function makeItem(overrides: Partial<BenchmarkItem> = {}): BenchmarkItem {
   };
 }
 
-function trajectoryMap(): Map<string, TrajectoryRecord> {
-  return new Map([
-    ["t1", { id: "t1", domain: "web", states: [{ a: 1 }] }],
-    ["t2", { id: "t2", domain: "web", states: [{ a: 2 }] }],
+function trajectoryReader(): TrajectoryReader {
+  return createInMemoryTrajectoryReader([
+    { id: "t1", domain: "web", states: [{ a: 1 }] },
+    { id: "t2", domain: "web", states: [{ a: 2 }] },
   ]);
 }
 
@@ -166,7 +169,7 @@ describe("runLongMemEvalV2Unit", () => {
     const result = await runLongMemEvalV2Unit({
       profile: profileFor("p1"),
       item: makeItem(),
-      trajectories: trajectoryMap(),
+      trajectoryReader: trajectoryReader(),
       runId,
       progress: (e) => events.push(e),
       quietMs: 50,
@@ -241,7 +244,7 @@ describe("runLongMemEvalV2Unit", () => {
     const result = await runLongMemEvalV2Unit({
       profile: profileFor("p1"),
       item: makeItem(),
-      trajectories: trajectoryMap(),
+      trajectoryReader: trajectoryReader(),
       runId,
       quietMs: 50,
     });
@@ -260,7 +263,7 @@ describe("runLongMemEvalV2Unit", () => {
       runLongMemEvalV2Unit({
         profile: profileFor("p1"),
         item: makeItem(),
-        trajectories: trajectoryMap(),
+        trajectoryReader: trajectoryReader(),
         runId,
         quietMs: 50,
       }),
@@ -283,7 +286,7 @@ describe("runLongMemEvalV2Unit", () => {
     await runLongMemEvalV2Unit({
       profile: profileFor("p1"),
       item: makeItem({ trajectoryIds: ["t2", "t1"] }),
-      trajectories: trajectoryMap(),
+      trajectoryReader: trajectoryReader(),
       runId,
       quietMs: 50,
     });

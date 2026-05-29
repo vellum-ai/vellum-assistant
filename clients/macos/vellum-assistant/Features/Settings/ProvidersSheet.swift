@@ -43,12 +43,6 @@ struct ProvidersSheet: View {
     /// that matches the user's current credential selection.
     @State private var loadMaskedTask: Task<Void, Never>?
 
-    /// Connection names with an in-flight status PATCH from the inline row
-    /// toggle. Used to drop subsequent toggle attempts so a fast off→on→off
-    /// sequence can't produce out-of-order responses that clobber the user's
-    /// final intent.
-    @State private var inFlightStatusToggles: Set<String> = []
-
     // -- ChatGPT Subscription OAuth state -----------------------------------
 
     enum ChatgptOAuthState {
@@ -88,7 +82,6 @@ struct ProvidersSheet: View {
         var provider = ""
         var authType = "api_key"
         var credential = ""
-        var status: ConnectionStatus = .active
         // Inline credential editing
         var apiKeyValue = ""
         var isAdvancedExpanded = false
@@ -107,14 +100,14 @@ struct ProvidersSheet: View {
         /// gemini-managed rows). The daemon write-protects DELETE + PATCH-auth
         /// on these rows. The UI mirrors that by disabling the auth-related
         /// fields (Auth Type, API Key, Advanced/Credential Reference) but
-        /// leaves Display Name + Status editable — those are exactly the
-        /// PATCH fields the daemon allows on managed rows.
+        /// leaves Display Name editable — that is exactly the PATCH field
+        /// the daemon allows on managed rows.
         case managedEdit(name: String)
     }
 
     /// True when the editor is in managed-edit mode. Selectively disables the
     /// auth-related fields (Auth Type, API Key, Credential Reference) while
-    /// leaving Display Name + Status editable.
+    /// leaving Display Name editable.
     private var isAuthLocked: Bool {
         if case .managedEdit = editorState { return true }
         return false
@@ -270,7 +263,6 @@ struct ProvidersSheet: View {
 
     private func connectionRow(_ conn: ProviderConnection) -> some View {
         let isManaged = conn.isManaged
-        let isDisabled = conn.status == .disabled
         return HStack(alignment: .center, spacing: VSpacing.md) {
             VStack(alignment: .leading, spacing: VSpacing.xxs) {
                 if let label = conn.label, !label.isEmpty {
@@ -289,19 +281,8 @@ struct ProvidersSheet: View {
                     connectionRowMetadata(conn, primary: nil)
                 }
             }
-            .opacity(isDisabled ? 0.55 : 1.0)
             Spacer(minLength: 0)
             HStack(spacing: VSpacing.sm) {
-                VToggle(
-                    isOn: Binding(
-                        get: { conn.status == .active },
-                        set: { newActive in
-                            Task { await setStatus(conn, active: newActive) }
-                        }
-                    )
-                )
-                .accessibilityLabel("\(isDisabled ? "Activate" : "Disable") connection \(conn.label?.isEmpty == false ? conn.label! : conn.name)")
-                .help(isDisabled ? "Disabled — toggle to activate" : "Active — toggle to disable")
                 VButton(label: "Edit", style: .ghost) {
                     if isManaged {
                         beginManagedEdit(conn)
@@ -334,7 +315,7 @@ struct ProvidersSheet: View {
             }
             if conn.isManaged {
                 VBadge(label: "Platform", tone: .positive, emphasis: .subtle)
-                    .help("Managed by Platform — auth is locked, but you can rename or disable this connection.")
+                    .help("Managed by Platform — auth is locked, but you can rename this connection.")
             }
             VBadge(
                 label: store.dynamicProviderDisplayName(conn.provider),
@@ -413,7 +394,6 @@ struct ProvidersSheet: View {
                         }
                     }
                     .disabled(isAuthLocked)
-                    editorStatusToggle
                     if let actionError {
                         Text(actionError)
                             .font(VFont.bodySmallDefault)
@@ -458,7 +438,7 @@ struct ProvidersSheet: View {
                     .font(VFont.titleSmall)
                     .foregroundStyle(VColor.contentDefault)
                 if isAuthLocked {
-                    Text("Managed by Vellum — auth is locked, but you can rename or disable this connection.")
+                    Text("Managed by Vellum — auth is locked, but you can rename this connection.")
                         .font(VFont.bodySmallDefault)
                         .foregroundStyle(VColor.contentSecondary)
                 }
@@ -513,21 +493,6 @@ struct ProvidersSheet: View {
                 )
             )
             .disabled(editorState != .create)
-        }
-    }
-
-    private var editorStatusToggle: some View {
-        VStack(alignment: .leading, spacing: VSpacing.xs) {
-            Text("Status")
-                .font(VFont.labelDefault)
-                .foregroundStyle(VColor.contentSecondary)
-            VToggle(
-                isOn: Binding(
-                    get: { editorDraft.status == .active },
-                    set: { editorDraft.status = $0 ? .active : .disabled }
-                ),
-                label: "Active"
-            )
         }
     }
 
@@ -1118,7 +1083,6 @@ struct ProvidersSheet: View {
             provider: conn.provider,
             authType: conn.auth.type,
             credential: conn.auth.credential ?? "",
-            status: conn.status,
             baseUrl: conn.baseUrl ?? "",
             connectionModels: conn.models?.map(\.id).joined(separator: ", ") ?? ""
         )
@@ -1135,8 +1099,8 @@ struct ProvidersSheet: View {
     /// Open the editor for a Vellum-managed connection. Auth-related fields
     /// (Auth Type, API Key, Credential Reference) are disabled via
     /// `isAuthLocked` so the daemon's write-protection on `auth` for managed
-    /// rows isn't surprising; Display Name + Status remain editable to match
-    /// what the daemon allows on managed PATCHes.
+    /// rows isn't surprising; Display Name remains editable to match what the
+    /// daemon allows on managed PATCHes.
     private func beginManagedEdit(_ conn: ProviderConnection) {
         actionError = nil
         isKeyDirty = true
@@ -1146,7 +1110,6 @@ struct ProvidersSheet: View {
             provider: conn.provider,
             authType: conn.auth.type,
             credential: conn.auth.credential ?? "",
-            status: conn.status,
             baseUrl: conn.baseUrl ?? "",
             connectionModels: conn.models?.map(\.id).joined(separator: ", ") ?? ""
         )
@@ -1201,9 +1164,6 @@ struct ProvidersSheet: View {
         editorDraft.apiKeyValue = ""
         editorDraft.baseUrl = ""
         editorDraft.connectionModels = ""
-        // New connection starts active by convention; user can toggle off
-        // before saving if they want it disabled.
-        editorDraft.status = .active
         // Reset masked credential — there's no key for the new connection
         // yet, so the API Key field shows its placeholder instead of the
         // managed source's masked value. Cancel any in-flight masked-
@@ -1241,45 +1201,6 @@ struct ProvidersSheet: View {
         return "\(base)-\(index)"
     }
 
-    /// Inline status toggle from the list row. Optimistically updates the
-    /// row, PATCHes the daemon with just the new status (auth + label stay
-    /// untouched), and rolls back on failure. Mirrors the daemon's accept-
-    /// status-only PATCH path so managed connections can be toggled too.
-    ///
-    /// `inFlightStatusToggles` guards against overlapping toggles for the
-    /// same row — a fast off→on→off sequence would otherwise produce
-    /// out-of-order PATCH responses that clobber the user's final intent.
-    private func setStatus(_ conn: ProviderConnection, active: Bool) async {
-        guard !inFlightStatusToggles.contains(conn.name) else { return }
-        let newStatus: ConnectionStatus = active ? .active : .disabled
-        let previous = conn.status
-        inFlightStatusToggles.insert(conn.name)
-        defer { inFlightStatusToggles.remove(conn.name) }
-
-        // Optimistic update — `ProviderConnection` is an immutable struct,
-        // so swap in a new value with just `status` flipped.
-        if let idx = connections.firstIndex(where: { $0.name == conn.name }) {
-            connections[idx] = conn.withStatus(newStatus)
-        }
-        guard let updated = await client.updateProviderConnection(
-            name: conn.name,
-            auth: conn.auth,
-            status: newStatus,
-            label: .none,
-            baseUrl: .none,
-            models: .none
-        ) else {
-            // Roll back on failure.
-            if let idx = connections.firstIndex(where: { $0.name == conn.name }) {
-                connections[idx] = conn.withStatus(previous)
-            }
-            actionError = "Couldn't update \"\(conn.name)\". Please try again."
-            return
-        }
-        if let idx = connections.firstIndex(where: { $0.name == conn.name }) {
-            connections[idx] = updated
-        }
-    }
 
     private func commitEditor() async {
         actionError = nil
@@ -1306,8 +1227,7 @@ struct ProvidersSheet: View {
         // commitEditor in create mode so a user who selects "ChatGPT
         // Subscription" and clicks Create without completing the OAuth flow
         // doesn't end up with a broken connection missing OAuth tokens.
-        // In edit mode the OAuth tokens are already set up, so allow saves
-        // for display name / status changes.
+        // In edit mode the OAuth tokens are already set up, so allow saves.
         if draft.authType == "oauth_subscription" && editorState == .create {
             actionError = "Use the \"Sign in with ChatGPT\" button to connect your subscription."
             return
@@ -1352,7 +1272,6 @@ struct ProvidersSheet: View {
             credential: (draft.authType == "api_key" || draft.authType == "oauth_subscription") ? credentialRef : nil
         )
         let label: String? = draft.label.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : draft.label.trimmingCharacters(in: .whitespacesAndNewlines)
-        let status = draft.status
 
         let baseUrlValue: String? = draft.isOpenAICompatible && !draft.baseUrl.trimmingCharacters(in: .whitespaces).isEmpty
             ? draft.baseUrl.trimmingCharacters(in: .whitespaces)
@@ -1374,7 +1293,6 @@ struct ProvidersSheet: View {
                 provider: draft.provider,
                 auth: auth,
                 label: label,
-                status: status,
                 baseUrl: baseUrlValue,
                 models: modelsValue
             )
@@ -1410,7 +1328,6 @@ struct ProvidersSheet: View {
             guard let updated = await client.updateProviderConnection(
                 name: originalName,
                 auth: auth,
-                status: status,
                 label: .some(label),
                 baseUrl: draft.isOpenAICompatible ? .some(baseUrlValue) : .none,
                 models: draft.isOpenAICompatible ? .some(modelsValue) : .none

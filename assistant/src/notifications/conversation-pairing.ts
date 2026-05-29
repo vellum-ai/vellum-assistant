@@ -113,6 +113,29 @@ export async function pairDeliveryWithConversation(
       };
     }
 
+    const conversationAction = options?.conversationAction;
+    const bindingContext = options?.bindingContext;
+
+    // Passive vellum notifications surface via the home feed alone and link
+    // back to the originating conversation via `signal.sourceContextId`.
+    // Materializing a fresh per-notification conversation just to host the
+    // seed message leaves a graveyard entry in the sidebar; skip it unless
+    // the producer opted in via `requiresConversation` or the decision engine
+    // requested explicit reuse of a target conversation.
+    if (
+      strategy === "start_new_conversation" &&
+      !signal.requiresConversation &&
+      conversationAction?.action !== "reuse_existing"
+    ) {
+      return {
+        conversationId: null,
+        messageId: null,
+        strategy,
+        createdNewConversation: false,
+        conversationFallbackUsed: false,
+      };
+    }
+
     const title =
       copy.conversationTitle ?? copy.title ?? signal.sourceEventName;
 
@@ -129,9 +152,6 @@ export async function pairDeliveryWithConversation(
     const messageContent = isConversationSeedSane(copy.conversationSeedMessage)
       ? copy.conversationSeedMessage
       : composeConversationSeed(signal, channel, copy);
-
-    const conversationAction = options?.conversationAction;
-    const bindingContext = options?.bindingContext;
 
     // Attempt to reuse an existing conversation when the model requests it
     if (conversationAction?.action === "reuse_existing") {

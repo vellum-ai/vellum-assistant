@@ -9,7 +9,8 @@ import {
   X,
 } from "lucide-react";
 
-import { Button, Menu, Typography } from "@vellum/design-library";
+import { Button, Menu, Tag, Typography } from "@vellum/design-library";
+import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
 import { CATEGORY_STYLES } from "../home-feed-filter-bar";
 import { HomeGenericDetail } from "./home-generic-detail";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
@@ -124,6 +125,9 @@ export function HomeDetailPanel({
           >
             {item.title ?? item.summary}
           </Typography>
+          <Tag tone="neutral" className="shrink-0" title={formatFullLocalDate(item.timestamp)}>
+            {formatRelativeDate(item.timestamp)}
+          </Tag>
         </div>
 
         {/* Divider */}
@@ -180,6 +184,10 @@ export function HomeDetailPanel({
         >
           {item.title ?? item.summary}
         </Typography>
+
+        <Tag tone="neutral" className="shrink-0" title={formatFullLocalDate(item.timestamp)}>
+          {formatRelativeDate(item.timestamp)}
+        </Tag>
 
         {hasValidConversation ? (
           <Button

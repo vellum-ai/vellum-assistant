@@ -12,6 +12,8 @@ Call this when something happened that the user would want to know about — a c
 
 ## Sending Notifications
 
+Always pass `--title`. Skipping it triggers a fallback that just truncates `--message` to 60 chars and shows it as the title — the user sees the same text twice with no scannability gained.
+
 ```bash
 assistant notifications send \
   --title "Short headline" \
@@ -28,14 +30,31 @@ assistant notifications send --title "..." --message "..." --urgent
 
 | Flag                  | Required | Description                                  |
 | --------------------- | -------- | -------------------------------------------- |
-| `--message <message>` | Yes      | Notification message the user should receive |
-| `--title <title>`     | No       | Short headline (≤ 8 words). Strongly recommended — auto-derived from `--message` if omitted. |
+| `--message <message>` | Yes      | Notification body. Markdown (GFM) renders in the detail panel; the OS banner shows plain text. |
+| `--title <title>`     | Yes in practice | Short headline (≤ 8 words). Omitting it triggers a body-truncation fallback that shows up as a duplicate of `--message` — always write a real title. |
 | `--urgent`            | No       | Mark as needing attention now/soon           |
 | `--json`              | No       | Output machine-readable JSON                 |
 
 ### Title
 
-Include a deliberate `--title` whenever you can. It's what the user sees in the lock-screen popup and notification list, so a short headline (noun phrase, ≤ 8 words) is much easier to scan than an auto-derived snippet from the message body. Avoid restating the first sentence of `--message` verbatim — the title should add scannability, not duplicate.
+Write a `--title` for every notification. It's the only line the user sees in the lock-screen popup and the collapsed row of the notification list, so a short noun phrase (≤ 8 words) is what makes the notification scannable. If you omit `--title`, the system falls back to the first sentence of `--message` (truncated at 60 chars) — that's almost always worse than what you'd write, because it duplicates body text the user is already going to read.
+
+Avoid restating the first sentence of `--message` verbatim — the title should add scannability, not duplicate.
+
+### Message
+
+The body renders as markdown (GFM) in the home feed detail panel — where the user actually opens the notification on web, iOS, and macOS. Light markdown makes multi-fact bodies scannable. The OS lock-screen banner shows the body as plain text, so prefer inline emphasis over heavy structure that looks ugly unrendered.
+
+Supported: `**bold**`, `*italic*`, `` `inline code` ``, fenced code blocks, links, bulleted and numbered lists, blockquotes, headings, GFM tables, `~~strikethrough~~`.
+
+Use it like this:
+
+- **Bold** the headline fact when the body has more than one sentence.
+- Bullets or numbered lists when surfacing multiple discrete items (failures, files touched, missed messages).
+- Inline `code` for identifiers, paths, commands, and short snippets.
+- Fenced code blocks for multi-line output (stack traces, diffs).
+
+Avoid large headings (`#`, `##`) and wide tables — they render fine in the panel but look noisy in the banner preview.
 
 ### Urgent semantics
 
@@ -44,15 +63,15 @@ Use `--urgent` for items needing attention now/soon (blocked work, broken auth, 
 ### Examples
 
 ```bash
-# Plain notification
+# Plain notification — bold the headline fact
 assistant notifications send \
   --title "Backup complete" \
-  --message "Nightly backup finished — 12.4 GB archived to cold storage."
+  --message "Nightly backup finished — **12.4 GB** archived to cold storage across **3** datasets."
 
-# Urgent notification
+# Urgent notification — inline code for the identifier
 assistant notifications send \
   --title "Auth token expired" \
-  --message "Sync is paused until you reauthenticate the GitHub integration." \
+  --message "Sync is paused until you reauthenticate the \`GitHub\` integration." \
   --urgent
 ```
 
@@ -121,6 +140,73 @@ assistant notifications list --limit 20 --offset 20 --json
   "hasMore": true,
   "updatedAt": "2026-05-28T10:30:00.000Z"
 }
+```
+
+## Editing Notifications
+
+Use `edit` when an already-sent notification needs revising — a typo in the body, a status update on something you previously surfaced (e.g. "in progress" → "done"), or de-escalating the urgency of a stale alert. **Prefer editing over re-sending**: a fresh notification with the corrected text creates duplicate noise in the user's inbox and pings them twice.
+
+```bash
+assistant notifications edit --id <notif:uuid> --message "Corrected body"
+```
+
+### Finding the id
+
+The `id` field is the full `notif:<uuid>` printed by `notifications list --json` under `items[].id`. Bare uuids (without the `notif:` prefix) are also accepted.
+
+```bash
+assistant notifications list --json | jq '.items[] | {id, title, summary}'
+```
+
+### Command Reference
+
+| Flag                | Required | Description                                                                                       |
+| ------------------- | -------- | ------------------------------------------------------------------------------------------------- |
+| `--id <id>`         | Yes      | Feed item id (`notif:<uuid>`) or bare uuid                                                        |
+| `--message <text>`  | No*      | New body — updates the home-feed summary AND the delivered channel message where supported       |
+| `--title <text>`    | No*      | New short headline (≤ 8 words)                                                                    |
+| `--urgency <level>` | No*      | Change urgency (`low`/`medium`/`high`/`critical`). **Feed-only** — does not re-push channel messages |
+| `--status <state>`  | No*      | Lifecycle transition (`new`/`seen`/`acted_on`/`dismissed`). **Feed-only**                         |
+| `--json`            | No       | Machine-readable JSON                                                                             |
+
+*At least one of `--message`, `--title`, `--urgency`, or `--status` must be supplied.
+
+### Channel behavior
+
+| Channel | Edit behavior |
+| --- | --- |
+| Home feed (macOS/iOS inbox) | Always updated when the item exists. |
+| Slack | Updated in-place via `chat.update` when the original delivery captured a Slack `ts`. Deliveries older than this feature returned `messageId: null` and report `outcome: "unsupported"`. |
+| Push, email, SMS | Cannot be edited — reported as `outcome: "unsupported"` in the result. |
+
+### Response shape
+
+```json
+{
+  "ok": true,
+  "feedItem": { "id": "notif:...", "title": "...", "summary": "...", "status": "new", "urgency": "low" },
+  "channels": [
+    { "channel": "slack", "deliveryId": "...", "outcome": "updated" },
+    { "channel": "platform", "deliveryId": "...", "outcome": "unsupported", "reason": "platform adapter does not support in-place edits" }
+  ]
+}
+```
+
+`outcome` values: `"updated"` (channel message edited successfully), `"unsupported"` (channel cannot edit at all), `"skipped"` (delivery wasn't in `sent` status), `"failed"` (channel-side error — see `reason`).
+
+### Examples
+
+```bash
+# Fix a typo in the body
+assistant notifications edit \
+  --id notif:abc12345-... \
+  --message "Backup completed — 12.4 GB archived to cold storage."
+
+# De-escalate an urgent alert that resolved itself
+assistant notifications edit --id notif:abc12345-... --urgency low
+
+# Dismiss a notification you previously surfaced
+assistant notifications edit --id notif:abc12345-... --status dismissed
 ```
 
 ## Important

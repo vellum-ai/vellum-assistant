@@ -23,7 +23,7 @@ import {
   VoiceInputButton,
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
-import { type TurnPhase, useTurnStore } from "@/domains/messaging/turn-store";
+import { type TurnPhase, useTurnStore } from "@/stores/turn-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude";
@@ -224,6 +224,10 @@ export interface ChatComposerProps {
   // Ghost text autocomplete — shown as a dimmed suffix in the textarea when
   // the suggestion endpoint returns a completion for the current conversation.
   suggestion?: string | null;
+
+  // Edit-message recall — up-arrow on empty input recalls last user message.
+  onRecallLastMessage?: () => void;
+  onCancelEdit?: () => void;
 }
 
 export function ChatComposer({
@@ -254,6 +258,8 @@ export function ChatComposer({
   cmdEnterMode = false,
   suggestion,
   modelSupportsVision = true,
+  onRecallLastMessage,
+  onCancelEdit,
 }: ChatComposerProps) {
   const voicePhase = useVoiceRecordingStore.use.phase();
   const isVoiceActive = voicePhase === "recording" || voicePhase === "processing";
@@ -464,6 +470,22 @@ export function ChatComposer({
                       emoji.dismiss();
                       return;
                     }
+                  }
+
+                  if (
+                    e.key === "ArrowUp" &&
+                    !input.trim() &&
+                    onRecallLastMessage
+                  ) {
+                    e.preventDefault();
+                    onRecallLastMessage();
+                    return;
+                  }
+
+                  if (e.key === "Escape" && onCancelEdit) {
+                    e.preventDefault();
+                    onCancelEdit();
+                    return;
                   }
 
                   const marker = matchFormattingShortcut(e);

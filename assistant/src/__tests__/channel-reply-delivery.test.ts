@@ -578,6 +578,40 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls).toHaveLength(0);
   });
 
+  it("updates a live-delivered message when skipped text has attachments", async () => {
+    const seenTs: string[] = [];
+    const attachments: RuntimeAttachmentMetadata[] = [
+      {
+        id: "attachment-1",
+        filename: "report.txt",
+        mimeType: "text/plain",
+        sizeBytes: 12,
+        kind: "file",
+      },
+    ];
+
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-live",
+      textSegments: ["Already sent live."],
+      attachments,
+      startFromSegment: 1,
+      messageTs: "1700000000.000055",
+      onMessageTs: (ts) => seenTs.push(ts),
+    });
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload).toEqual({
+      chatId: "chat-live",
+      attachments,
+      assistantId: undefined,
+      ephemeral: undefined,
+      user: undefined,
+      messageTs: "1700000000.000055",
+    });
+    expect(seenTs).toEqual(["1700000000.000055"]);
+  });
+
   it("passes ephemeral and user through to each delivery call", async () => {
     await deliverRenderedReplyViaCallback({
       callbackUrl: "http://gateway/deliver/slack",

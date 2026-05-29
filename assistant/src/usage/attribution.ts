@@ -15,6 +15,14 @@ export type UsageAttributionProfileSource =
 export interface UsageAttributionInput {
   callSite: LLMCallSite | null;
   overrideProfile?: string | null;
+  /**
+   * Per-conversation seed for `mix`-profile expansion (the conversation id).
+   * When the applied profile is a mix, threading the same seed the dispatch
+   * path uses ensures `resolvedModel`/`resolvedMixArm` reflect the arm the
+   * request actually ran on. Omitted by one-shot callers (the snapshot's
+   * `resolvedMixArm` is then null even if a mix was involved).
+   */
+  selectionSeed?: string;
 }
 
 export interface UsageAttributionSnapshot {
@@ -26,6 +34,12 @@ export interface UsageAttributionSnapshot {
   profileSource: UsageAttributionProfileSource;
   resolvedProvider: string;
   resolvedModel: string;
+  /**
+   * When `appliedProfile` is a mix profile, the constituent arm chosen for
+   * this request; null otherwise. Lets A/B analysis attribute usage to the
+   * specific arm (mix name lives in `appliedProfile`).
+   */
+  resolvedMixArm: string | null;
 }
 
 /**
@@ -51,7 +65,11 @@ export function resolveUsageAttribution(
   const overrideProfile = normalizeProfileId(input.overrideProfile);
 
   if (callSite == null) {
-    const resolvedMainAgent = resolveCallSiteConfig("mainAgent", llm);
+    const resolvedMainAgent = resolveCallSiteConfig("mainAgent", llm, {
+      ...(input.selectionSeed != null
+        ? { selectionSeed: input.selectionSeed }
+        : {}),
+    });
     return {
       callSite: null,
       activeProfile: normalizeProfileId(llm.activeProfile),
@@ -61,11 +79,20 @@ export function resolveUsageAttribution(
       profileSource: "unknown",
       resolvedProvider: resolvedMainAgent.provider,
       resolvedModel: resolvedMainAgent.model,
+      resolvedMixArm: null,
     };
   }
 
+  // Capture which arm each expanded mix resolved to so we can attribute usage
+  // to the arm behind the applied (mix) profile below.
+  const mixSelections = new Map<string, string>();
   const resolved = resolveCallSiteConfig(callSite, llm, {
     ...(overrideProfile != null ? { overrideProfile } : {}),
+    ...(input.selectionSeed != null
+      ? { selectionSeed: input.selectionSeed }
+      : {}),
+    onMixSelected: ({ mixProfile, chosenProfile }) =>
+      mixSelections.set(mixProfile, chosenProfile),
   });
   const activeProfile = normalizeProfileId(llm.activeProfile);
   const callSiteProfile = normalizeProfileId(
@@ -88,6 +115,10 @@ export function resolveUsageAttribution(
     profileSource: profile.profileSource,
     resolvedProvider: resolved.provider,
     resolvedModel: resolved.model,
+    resolvedMixArm:
+      profile.appliedProfile != null
+        ? (mixSelections.get(profile.appliedProfile) ?? null)
+        : null,
   };
 }
 

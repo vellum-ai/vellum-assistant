@@ -107,11 +107,47 @@ mock.module("../memory/conversation-crud.js", () => ({
         : {};
     row.metadata = JSON.stringify({ ...existing, ...updates });
   },
-  updateMessageContent: () => {},
+  updateMessageContent: (messageId: string, content: string) => {
+    // Mirror updateContent into the same capture array so existing
+    // `lastAssistantPersisted()` assertions continue to find the row that
+    // was reserved at `llm_call_started` time.
+    const row = persistedRows.find((candidate) => candidate.id === messageId);
+    if (row) row.content = content;
+    const call = addMessageCalls.find((c) => c.id === messageId);
+    if (call) call.content = content;
+  },
   // The handler treats provenance as a flat spread; returning {} keeps the
   // metadata snapshot focused on the fields under test.
   provenanceFromTrustContext: () => ({}),
-  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  reserveMessage: mock(
+    async (
+      conversationId: string,
+      role: string,
+      metadata?: Record<string, unknown>,
+    ) => {
+      // B3: production code creates the assistant row at `llm_call_started`
+      // via `reserveMessage`, stamping channel metadata at reserve time.
+      // Mirror that into the addMessage capture array so existing
+      // `lastAssistantPersisted()` assertions keep working.
+      const id = `mock-msg-${addMessageCalls.length + 1}-reserve`;
+      addMessageCalls.push({
+        id,
+        conversationId,
+        role,
+        content: "",
+        metadata,
+      });
+      persistedRows.push({
+        id,
+        conversationId,
+        role,
+        content: "",
+        createdAt: Date.now(),
+        metadata: metadata ? JSON.stringify(metadata) : null,
+      });
+      return { id };
+    },
+  ),
 }));
 
 mock.module("../memory/llm-request-log-store.js", () => ({
@@ -148,6 +184,7 @@ import type {
 } from "../daemon/conversation-agent-loop-handlers.js";
 import {
   createEventHandlerState,
+  handleLlmCallStarted,
   handleMessageComplete,
 } from "../daemon/conversation-agent-loop-handlers.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
@@ -256,6 +293,7 @@ describe("outbound assistant Slack metadata persistence", () => {
       assistantMessageChannel: "slack",
       requesterChatId: channelId,
     });
+    await handleLlmCallStarted(state, deps);
     await handleMessageComplete(state, deps, makeMessageCompleteEvent("hi"));
 
     const persisted = lastAssistantPersisted();
@@ -297,6 +335,7 @@ describe("outbound assistant Slack metadata persistence", () => {
       requesterTimezoneLabel: "ET",
       clientTimezone: "America/Los_Angeles",
     });
+    await handleLlmCallStarted(state, deps);
     await handleMessageComplete(
       state,
       deps,
@@ -325,6 +364,7 @@ describe("outbound assistant Slack metadata persistence", () => {
       requesterChatId: channelId,
       clientTimezone: "America/Los_Angeles",
     });
+    await handleLlmCallStarted(state, deps);
     await handleMessageComplete(
       state,
       deps,
@@ -352,6 +392,7 @@ describe("outbound assistant Slack metadata persistence", () => {
       requesterChatId: channelId,
       requesterTimezoneLabel: "ET",
     });
+    await handleLlmCallStarted(state, deps);
     await handleMessageComplete(
       state,
       deps,
@@ -395,6 +436,7 @@ describe("outbound assistant Slack metadata persistence", () => {
       assistantMessageChannel: "slack",
       requesterChatId: channelId,
     });
+    await handleLlmCallStarted(state, deps);
     await handleMessageComplete(state, deps, makeMessageCompleteEvent("hello"));
 
     const persisted = lastAssistantPersisted();
@@ -426,6 +468,7 @@ describe("outbound assistant Slack metadata persistence", () => {
       assistantMessageChannel: "slack",
       requesterChatId: channelId,
     });
+    await handleLlmCallStarted(state, deps);
     await handleMessageComplete(
       state,
       deps,
@@ -447,6 +490,7 @@ describe("outbound assistant Slack metadata persistence", () => {
     const deps = makeDeps(conversationId, {
       assistantMessageChannel: "vellum",
     });
+    await handleLlmCallStarted(state, deps);
     await handleMessageComplete(
       state,
       deps,

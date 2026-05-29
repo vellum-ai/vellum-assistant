@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import type { Services } from "../config/schemas/services.js";
 import { PLATFORM_PROVIDER_META } from "../providers/platform-proxy/constants.js";
 import { credentialKey } from "../security/credential-key.js";
 
@@ -38,33 +39,115 @@ mock.module("@google/genai", () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock OpenAI SDK to capture OpenAI/Fireworks tool definitions and preserve
+// constructor baseURL assertions. Must be before importing the registry.
+// ---------------------------------------------------------------------------
+let lastOpenAIChatParams: Record<string, unknown> | null = null;
+
+mock.module("openai", () => {
+  class FakeAPIError extends Error {
+    status: number;
+    headers: Record<string, string>;
+    constructor(status: number, message: string) {
+      super(message);
+      this.status = status;
+      this.headers = {};
+      this.name = "APIError";
+    }
+  }
+
+  class MockOpenAI {
+    static APIError = FakeAPIError;
+    clientOpts: Record<string, unknown>;
+    baseURL: string;
+
+    constructor(opts: Record<string, unknown>) {
+      this.clientOpts = opts;
+      this.baseURL = String(opts.baseURL ?? "");
+    }
+
+    chat = {
+      completions: {
+        create: (params: Record<string, unknown>) => {
+          lastOpenAIChatParams = JSON.parse(JSON.stringify(params));
+          return (async function* () {
+            yield {
+              choices: [
+                {
+                  delta: { content: "OK" },
+                  finish_reason: "stop",
+                },
+              ],
+              usage: { prompt_tokens: 10, completion_tokens: 5 },
+              model: "gpt-4o",
+            };
+          })();
+        },
+      },
+    };
+  }
+
+  return {
+    default: MockOpenAI,
+  };
+});
+
+// ---------------------------------------------------------------------------
 // Mock the underlying dependencies that the real context module relies on.
 // This avoids mocking the context module directly and prevents mock conflicts
 // with context.test.ts (which also mocks these same underlying deps).
 // ---------------------------------------------------------------------------
 let mockPlatformBaseUrl = "";
+let mockPlatformAssistantId = "";
 let mockAssistantApiKey: string | null = null;
 let mockProviderKeys: Record<string, string> = {};
 let mockLlmConfig: Record<string, unknown> = {};
+let mockWebSearchService: Services["web-search"] = {
+  mode: "your-own",
+  provider: "inference-provider-native",
+};
 
 mock.module("../config/env.js", () => ({
   getPlatformBaseUrl: () => mockPlatformBaseUrl,
+  getPlatformAssistantId: () => mockPlatformAssistantId,
 }));
 
 mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => {
+    if (key === credentialKey("vellum", "platform_base_url")) {
+      return mockPlatformBaseUrl;
+    }
     if (key === credentialKey("vellum", "assistant_api_key")) {
       return mockAssistantApiKey;
     }
+    if (key === credentialKey("vellum", "platform_assistant_id")) {
+      return mockPlatformAssistantId;
+    }
     return mockProviderKeys[key] ?? null;
   },
+  getProviderKeyAsync: async (provider: string) =>
+    mockProviderKeys[credentialKey(provider, "api_key")] ??
+    mockProviderKeys[provider] ??
+    undefined,
 }));
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => ({
     llm: mockLlmConfig,
-    services: { inference: {} },
+    services: {
+      inference: {},
+      "image-generation": {
+        mode: "your-own",
+        provider: "gemini",
+        model: "gemini-3.1-flash-image-preview",
+      },
+      "web-search": mockWebSearchService,
+    },
   }),
+}));
+
+mock.module("../platform/feature-gate.js", () => ({
+  arePlatformFeaturesEnabled: () => true,
 }));
 
 import { type LLMConfigBase, LLMSchema } from "../config/schemas/llm.js";
@@ -75,8 +158,13 @@ import {
   initializeProviders,
   listProviders,
 } from "../providers/registry.js";
+import type { Message, ToolDefinition } from "../providers/types.js";
 
-function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
+function makeProvidersConfig(
+  provider: string,
+  model: string,
+  webSearch: Services["web-search"] = mockWebSearchService,
+): ProvidersConfig {
   const baseLlm = LLMSchema.parse({});
   return {
     services: {
@@ -86,7 +174,7 @@ function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
         provider: "gemini",
         model: "gemini-3.1-flash-image-preview",
       },
-      "web-search": { mode: "your-own", provider: "inference-provider-native" },
+      "web-search": webSearch,
     },
     llm: {
       ...baseLlm,
@@ -105,6 +193,12 @@ function makeProvidersConfig(provider: string, model: string): ProvidersConfig {
 
 const PLATFORM_BASE = "https://platform.example.com";
 const MANAGED_API_KEY = "ast-managed-key-123";
+const PLATFORM_ASSISTANT_ID = "assistant-abc123";
+
+const MANAGED_NATIVE_WEB_SEARCH: Services["web-search"] = {
+  mode: "managed",
+  provider: "inference-provider-native",
+};
 
 const DIRECT_OR_MANAGED_PROVIDER_KEYS: string[] = [
   "openai",
@@ -113,15 +207,22 @@ const DIRECT_OR_MANAGED_PROVIDER_KEYS: string[] = [
   "fireworks",
   "openrouter",
 ];
-const MANAGED_FALLBACK_PROVIDERS: string[] = ["anthropic", "gemini", "openai", "fireworks"];
+const MANAGED_FALLBACK_PROVIDERS: string[] = [
+  "anthropic",
+  "gemini",
+  "openai",
+  "fireworks",
+];
 
 function enableManagedProxy() {
   mockPlatformBaseUrl = PLATFORM_BASE;
+  mockPlatformAssistantId = PLATFORM_ASSISTANT_ID;
   mockAssistantApiKey = MANAGED_API_KEY;
 }
 
 function disableManagedProxy() {
   mockPlatformBaseUrl = "";
+  mockPlatformAssistantId = "";
   mockAssistantApiKey = null;
 }
 
@@ -147,6 +248,26 @@ function setUserKeysFor(...names: string[]): void {
   }
 }
 
+function userMsg(text: string): Message {
+  return { role: "user", content: [{ type: "text", text }] };
+}
+
+const sampleTools: ToolDefinition[] = [
+  {
+    name: "file_read",
+    description: "Read a file",
+    input_schema: { type: "object", properties: { path: { type: "string" } } },
+  },
+  {
+    name: "web_search",
+    description: "Search the web",
+    input_schema: {
+      type: "object",
+      properties: { query: { type: "string" } },
+    },
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -154,8 +275,13 @@ function setUserKeysFor(...names: string[]): void {
 beforeEach(() => {
   disableManagedProxy();
   mockProviderKeys = {};
+  mockWebSearchService = {
+    mode: "your-own",
+    provider: "inference-provider-native",
+  };
   lastGeminiConstructorOpts = null;
   lastGeminiGenerateContentStreamParams = null;
+  lastOpenAIChatParams = null;
   mockLlmConfig = LLMSchema.parse({}) as Record<string, unknown>;
 });
 
@@ -408,6 +534,92 @@ describe("managed proxy integration — credential precedence", () => {
       expect(registered).not.toContain("openrouter");
       expect(getProviderRoutingSource("openrouter")).toBeUndefined();
     });
+  });
+});
+
+describe("managed proxy integration — managed web search routing", () => {
+  test("managed Fireworks/Kimi tool call completes through the platform Brave proxy", async () => {
+    enableManagedProxy();
+    mockProviderKeys = {};
+    mockWebSearchService = MANAGED_NATIVE_WEB_SEARCH;
+
+    const originalFetch = globalThis.fetch;
+    const fetchUrls: string[] = [];
+    globalThis.fetch = (async (url: URL | RequestInfo) => {
+      fetchUrls.push(String(url));
+      return new Response(
+        JSON.stringify({
+          status: 200,
+          headers: { "content-type": "application/json" },
+          body: {
+            web: {
+              results: [
+                {
+                  title: "Platform Result",
+                  url: "https://example.com/platform-result",
+                  description: "Returned by the managed Brave proxy.",
+                  age: "1 day ago",
+                },
+              ],
+            },
+          },
+        }),
+        {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        },
+      );
+    }) as unknown as typeof fetch;
+
+    try {
+      await initializeProviders(
+        makeProvidersConfig(
+          "fireworks",
+          "accounts/fireworks/models/kimi-k2p6",
+          MANAGED_NATIVE_WEB_SEARCH,
+        ),
+      );
+
+      const provider = getProvider("fireworks");
+      await provider.sendMessage(
+        [userMsg("Search using managed Brave")],
+        sampleTools,
+      );
+
+      const tools = lastOpenAIChatParams!.tools as Array<{
+        type: string;
+        function?: { name: string; description?: string };
+      }>;
+      expect(tools).toHaveLength(2);
+      expect(tools[1]).toMatchObject({
+        type: "function",
+        function: {
+          name: "web_search",
+          description: "Search the web",
+        },
+      });
+
+      const { webSearchTool } = await import("../tools/network/web-search.js");
+      const result = await webSearchTool.execute(
+        { query: "managed kimi query", count: 1, offset: 2, freshness: "pw" },
+        {
+          conversationId: "conv-123",
+          workingDir: "/tmp",
+          trustClass: "guardian",
+        },
+      );
+
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Platform Result");
+      expect(result.activityMetadata?.webSearch?.provider).toBe("brave");
+      expect(result.activityMetadata?.webSearch?.resultCount).toBe(1);
+
+      expect(fetchUrls).toEqual([
+        `${PLATFORM_BASE}/v1/assistants/${PLATFORM_ASSISTANT_ID}/managed-search-proxy/brave/`,
+      ]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
 

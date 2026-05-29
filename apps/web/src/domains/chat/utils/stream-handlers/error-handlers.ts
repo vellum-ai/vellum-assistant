@@ -7,15 +7,15 @@ import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type { ConversationErrorEvent, StreamErrorEvent } from "@/domains/chat/api/event-types";
 
+
 export function handleStreamError(
   event: StreamErrorEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.turnActions.onStreamError();
-  const convId = ctx.streamContextRef.current?.conversationId;
-  if (convId) {
-    ctx.clearProcessingKey(convId);
-  }
+  ctx.endTurn({
+    conversationId: ctx.streamContextRef.current?.conversationId,
+    reason: "error",
+  });
   ctx.setMessages((prev) => stopStreaming(prev));
   const detail =
     (event.code && ERROR_MESSAGES[event.code]) ||
@@ -36,11 +36,15 @@ export function handleConversationErrorEvent(
 ): void {
   const isBannerError = shouldSuppressGenericChatErrorNotice(event);
 
-  ctx.turnActions.onStreamError();
-  const convId = ctx.streamContextRef.current?.conversationId;
-  if (convId) {
-    ctx.clearProcessingKey(convId);
-  }
+  // `ConversationErrorEvent` carries `conversationId` as a required
+  // field; prefer it over `streamContextRef.current?.conversationId`
+  // (which is a mirror that may be cleared by a stream teardown
+  // racing the error event) — same fallback shape as the other
+  // terminal handlers.
+  ctx.endTurn({
+    conversationId: event.conversationId ?? ctx.streamContextRef.current?.conversationId,
+    reason: "error",
+  });
 
   ctx.setMessages(handleConversationError);
 

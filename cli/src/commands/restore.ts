@@ -97,6 +97,7 @@ async function getAccessToken(
   runtimeUrl: string,
   assistantId: string,
   displayName: string,
+  bootstrapSecret?: string,
 ): Promise<string> {
   const tokenData = loadGuardianToken(assistantId);
 
@@ -105,7 +106,11 @@ async function getAccessToken(
   }
 
   try {
-    const freshToken = await leaseGuardianToken(runtimeUrl, assistantId);
+    const freshToken = await leaseGuardianToken(
+      runtimeUrl,
+      assistantId,
+      bootstrapSecret,
+    );
     return freshToken.accessToken;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -574,6 +579,7 @@ export async function restore(): Promise<void> {
     entry.runtimeUrl,
     entry.assistantId,
     name,
+    entry.guardianBootstrapSecret,
   );
 
   if (dryRun) {
@@ -679,6 +685,7 @@ export async function restore(): Promise<void> {
         entry.runtimeUrl,
         entry.assistantId,
         name,
+        entry.guardianBootstrapSecret,
       );
     }
 

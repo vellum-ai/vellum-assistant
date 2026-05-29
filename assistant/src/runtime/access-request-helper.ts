@@ -217,6 +217,7 @@ export function notifyGuardianOfAccessRequest(
     sourceEventName: "ingress.access_request",
     sourceChannel: sourceChannel as NotificationSourceChannel,
     sourceContextId: `access-req-${sourceChannel}-${actorExternalId}`,
+    requiresConversation: true,
     ...(sameChannelOnly ? { routingIntent: "single_channel" as const } : {}),
     attentionHints: {
       requiresAction: true,

@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, Loader2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import {
@@ -16,7 +16,7 @@ import {
   oauthCompletionStorageKey,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
-import { PRECHAT_TOOLS } from "@/domains/onboarding/prechat-tools";
+import { publicAsset } from "@/lib/public-asset";
 import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
@@ -24,11 +24,27 @@ import { routes } from "@/utils/routes";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 
 const GOOGLE_PROVIDER_KEY = "google";
+const GOOGLE_CONNECT_ITEMS = [
+  {
+    id: "gmail",
+    label: "Gmail",
+    logoSrc: publicAsset("/images/integrations/gmail.svg"),
+  },
+  {
+    id: "google-calendar",
+    label: "Google Calendar",
+    logoSrc: publicAsset("/images/integrations/google-calendar.svg"),
+  },
+  {
+    id: "google-drive",
+    label: "Google Drive",
+    logoSrc: publicAsset("/images/integrations/google-drive.svg"),
+  },
+];
 
 interface GoogleConnectScreenProps {
   assistantId: string;
   assistantName: string;
-  selectedGoogleToolIds: string[];
   onConnect: (scopes: string[]) => void;
   onSkip: () => void;
   onBack: () => void;
@@ -37,7 +53,6 @@ interface GoogleConnectScreenProps {
 export function GoogleConnectScreen({
   assistantId,
   assistantName,
-  selectedGoogleToolIds,
   onConnect,
   onSkip,
   onBack,
@@ -353,25 +368,8 @@ export function GoogleConnectScreen({
     startOAuth,
   ]);
 
-  const displayNameCapitalized = assistantName || "Your assistant";
-
-  const selectedToolItems = useMemo(
-    () => PRECHAT_TOOLS.filter((t) => selectedGoogleToolIds.includes(t.id)),
-    [selectedGoogleToolIds],
-  );
-
-  const RESOURCE_LABELS: Record<string, string> = {
-    gmail: "inbox",
-    "google-calendar": "calendar",
-    "google-drive": "drive",
-  };
-  const resourceParts = selectedGoogleToolIds
-    .map((id) => RESOURCE_LABELS[id])
-    .filter(Boolean);
-  const resourcesLabel =
-    resourceParts.length <= 1
-      ? resourceParts[0] ?? "Google account"
-      : resourceParts.slice(0, -1).join(", ") + " and " + resourceParts[resourceParts.length - 1];
+  const assistantInlineName = assistantName || "your assistant";
+  const assistantSentenceName = assistantName || "Your assistant";
 
   return (
     <OnboardingLayout>
@@ -390,7 +388,7 @@ export function GoogleConnectScreen({
           </button>
           {/* typography: off-scale — hero onboarding h1 (30px) larger than text-title-large (24px) to match macOS visual weight */}
           <h1 className="text-center text-3xl font-semibold tracking-tight">
-            Connect to Google
+            Connect Google
           </h1>
           <div aria-hidden="true" className="h-8 w-8" />
         </div>
@@ -399,30 +397,28 @@ export function GoogleConnectScreen({
           className="mt-4 text-center text-body-medium-lighter text-[var(--content-secondary)]"
           style={{ animation: "fadeInUp 0.3s ease-out 0.15s both" }}
         >
-          {`${displayNameCapitalized} will scan your ${resourcesLabel} to learn what's on your plate. Expect something genuinely useful before your first conversation ends.`}
+          {`If you use Google, ${assistantInlineName} can use Gmail, Calendar, and Drive with your permission.`}
         </p>
 
         <div
           className="mt-6 flex items-stretch justify-center gap-3"
           style={{ animation: "fadeInUp 0.3s ease-out 0.2s both" }}
         >
-          {selectedToolItems.map((tool) => (
+          {GOOGLE_CONNECT_ITEMS.map((item) => (
             <div
-              key={tool.id}
+              key={item.id}
               className="flex w-24 flex-col items-center gap-2.5 rounded-2xl bg-[var(--surface-lift)] px-3 pb-3 pt-4"
             >
-              {tool.logoSrc ? (
-                <img
-                  src={tool.logoSrc}
-                  alt=""
-                  width={28}
-                  height={28}
-                  className="h-7 w-7 object-contain"
-                  loading="eager"
-                />
-              ) : null}
+              <img
+                src={item.logoSrc}
+                alt=""
+                width={28}
+                height={28}
+                className="h-7 w-7 object-contain"
+                loading="eager"
+              />
               <span className="text-center text-xs leading-tight text-[var(--content-tertiary)]">
-                {tool.label}
+                {item.label}
               </span>
             </div>
           ))}
@@ -432,7 +428,7 @@ export function GoogleConnectScreen({
           className="mt-8 text-center text-body-medium-lighter text-[var(--content-secondary)]"
           style={{ animation: "fadeInUp 0.3s ease-out 0.25s both" }}
         >
-          {`${displayNameCapitalized} will never perform any actions without your permission, and you can disconnect at any time.`}
+          {`${assistantSentenceName} will never send email, change calendar events, or edit files without your permission. You can disconnect at any time.`}
         </p>
 
         <div

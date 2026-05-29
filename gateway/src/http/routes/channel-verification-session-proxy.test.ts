@@ -231,7 +231,7 @@ describe("channel-verification-session-proxy guardian init", () => {
     expect(body.ok).toBe(true);
   });
 
-  it("rejects handleResetBootstrap in containerized mode", async () => {
+  it("rejects handleResetBootstrap without valid bootstrap secret", async () => {
     process.env.GUARDIAN_BOOTSTRAP_SECRET = "secret-abc";
     const config = makeConfig();
     const handler = createChannelVerificationSessionProxyHandler(config);
@@ -240,6 +240,6 @@ describe("channel-verification-session-proxy guardian init", () => {
 
     expect(response.status).toBe(403);
     const body = await response.json();
-    expect(body.error).toBe("Reset not available in containerized mode");
+    expect(body.error).toBe("Invalid bootstrap secret");
   });
 });

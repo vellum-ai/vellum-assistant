@@ -1057,8 +1057,13 @@ function extractOpenAiResponsesRequestToolNames(tools: unknown): string[] {
       if (asString(tool.type) === "function" && asString(tool.name)) {
         return asString(tool.name);
       }
-      // Native web search tool: { type: "web_search_preview" }
-      if (asString(tool.type) === "web_search_preview") {
+      // Native web search tools:
+      // - OpenAI API: { type: "web_search_preview" }
+      // - Codex subscription endpoint: { type: "web_search" }
+      if (
+        asString(tool.type) === "web_search_preview" ||
+        asString(tool.type) === "web_search"
+      ) {
         return "web_search";
       }
       return undefined;

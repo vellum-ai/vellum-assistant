@@ -7,7 +7,7 @@
  * were routed.
  */
 
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 
 import { getDb } from "../memory/db-connection.js";
 import { notificationDecisions } from "../memory/schema.js";
@@ -93,4 +93,35 @@ export function updateDecision(id: string, params: UpdateDecisionParams): void {
     .set(updates)
     .where(eq(notificationDecisions.id, id))
     .run();
+}
+
+/**
+ * Return the most recent decision for a given notification event, or
+ * `undefined` if none exists. The decision engine writes exactly one
+ * decision per event today, but ordering by createdAt DESC keeps this
+ * stable if that ever changes (e.g. re-decisions on retry).
+ */
+export function findLatestDecisionByEventId(
+  eventId: string,
+): NotificationDecisionRow | undefined {
+  const db = getDb();
+  const row = db
+    .select()
+    .from(notificationDecisions)
+    .where(eq(notificationDecisions.notificationEventId, eventId))
+    .orderBy(desc(notificationDecisions.createdAt))
+    .get();
+  if (!row) return undefined;
+  return {
+    id: row.id,
+    notificationEventId: row.notificationEventId,
+    shouldNotify: row.shouldNotify === 1,
+    selectedChannels: row.selectedChannels,
+    reasoningSummary: row.reasoningSummary,
+    confidence: row.confidence,
+    fallbackUsed: row.fallbackUsed === 1,
+    promptVersion: row.promptVersion,
+    validationResults: row.validationResults,
+    createdAt: row.createdAt,
+  };
 }

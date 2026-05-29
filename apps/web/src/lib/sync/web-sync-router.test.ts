@@ -127,6 +127,22 @@ describe("createWebSyncRouter — self-echo drop", () => {
     expect(calls.scheduleConversationListRefetch).toBe(1);
   });
 
+  test("metadata-only conversation tags do not refetch the full conversation list", async () => {
+    const { router, calls } = createHarness();
+    const tag = conversationMetadataSyncTag("conv-123");
+    const event: SyncChangedEvent = {
+      type: "sync_changed",
+      tags: [tag],
+    };
+
+    const result = await router.dispatchSyncChanged(event);
+
+    expect(result.handledTags).toEqual([tag]);
+    expect(result.unknownTags).toEqual([]);
+    expect(calls.scheduleConversationListRefetch).toBe(0);
+    expect(calls.refreshActiveConversationMessages).toBe(0);
+  });
+
   test("does not drop when originClientId is empty string", async () => {
     // An empty origin id should never have been emitted in the first
     // place — the daemon trims and only sets the field when truthy.

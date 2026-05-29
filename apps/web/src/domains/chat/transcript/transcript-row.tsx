@@ -1,5 +1,4 @@
 
-import { Loader2 } from "lucide-react";
 import { memo, type ReactNode } from "react";
 
 import { Notice } from "@vellum/design-library";
@@ -207,16 +206,6 @@ export const TranscriptRow = memo(function TranscriptRow({
          
         <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--surface-secondary)] p-4 text-sm text-[var(--content-secondary)]">
           {item.label ?? "Enter contact info"}
-        </div>
-      );
-
-    case "queuedMarker":
-      return (
-        <div className="flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--surface-sunken)] px-3 py-2 text-body-small-default text-[var(--content-tertiary)]">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          {item.count === 1
-            ? "1 message queued"
-            : `${item.count} messages queued`}
         </div>
       );
 

@@ -45,12 +45,12 @@ import type {
   WebSyncRouter,
 } from "@/lib/sync/web-sync-router";
 
-import { useConversationStore } from "@/stores/conversation-store";
+import { endTurn } from "@/stores/turn-coordinator";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   isSending,
   useTurnStore,
-} from "@/domains/messaging/turn-store";
+} from "@/stores/turn-store";
 import type { ChatEventStream } from "@/domains/chat/api/stream";
 import { useEventBusStore } from "@/stores/event-bus-store";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
@@ -448,13 +448,10 @@ export function useEventStream({
           epoch: streamEpochRef.current,
           messageLength: reason.length,
         });
-        useTurnStore.getState().onSessionError();
-        {
-          const convId = streamContextRef.current?.conversationId;
-          if (convId) {
-            useConversationStore.getState().removeProcessingConversationId(convId);
-          }
-        }
+        endTurn({
+          conversationId: streamContextRef.current?.conversationId,
+          reason: "session_error",
+        });
         // Idle SSE drops should reopen the stream without interrupting the
         // user; active turns still surface the reconnect state immediately.
         if (hadActiveTurn) {

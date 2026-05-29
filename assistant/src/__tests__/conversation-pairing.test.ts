@@ -123,6 +123,11 @@ function makeSignal(
       isAsyncBackground: true,
       visibleInSourceNow: false,
     },
+    // Most existing pairing tests pre-date the passive-by-default gate and
+    // exercise the conversation-creation path. Default to the opt-in flag so
+    // they continue to assert creation semantics; the dedicated passive-gate
+    // test below explicitly omits it to cover the new default.
+    requiresConversation: true,
     ...overrides,
   };
 }
@@ -814,6 +819,53 @@ describe("pairDeliveryWithConversation", () => {
     expect(createConversationMock).toHaveBeenCalledTimes(1);
     // Binding lookup should not be called for non-continue_existing channels
     expect(getBindingByChannelChatMock).not.toHaveBeenCalled();
+  });
+
+  // ── Passive default: vellum no-creates without opt-in ─────────────
+
+  test("passive vellum signal does not create a conversation or message", async () => {
+    const signal = makeSignal({ requiresConversation: undefined });
+    const copy = makeCopy();
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      copy,
+    );
+
+    expect(result.conversationId).toBeNull();
+    expect(result.messageId).toBeNull();
+    expect(result.strategy).toBe("start_new_conversation");
+    expect(result.createdNewConversation).toBe(false);
+    expect(result.conversationFallbackUsed).toBe(false);
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).not.toHaveBeenCalled();
+  });
+
+  test("passive vellum signal still honors explicit reuse_existing action", async () => {
+    mockExistingConversations["conv-explicit-passive"] = {
+      id: "conv-explicit-passive",
+      source: "notification",
+      title: "Existing",
+    };
+    const signal = makeSignal({ requiresConversation: undefined });
+    const copy = makeCopy();
+    const conversationAction: ConversationAction = {
+      action: "reuse_existing",
+      conversationId: "conv-explicit-passive",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      copy,
+      { conversationAction },
+    );
+
+    expect(result.conversationId).toBe("conv-explicit-passive");
+    expect(result.createdNewConversation).toBe(false);
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).toHaveBeenCalledTimes(1);
   });
 
   // ── conversationMetadata.conversationType override ─────────────────

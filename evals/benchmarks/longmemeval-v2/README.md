@@ -27,10 +27,12 @@ benchmarks/longmemeval-v2/
 ├── items/                     # virtual unit dir — populated on demand by the loader
 └── src/
     ├── loader.ts              # questions.jsonl + haystacks/<tier>.json → BenchmarkItem[]
-    ├── trajectories.ts        # trajectories.jsonl → workspace file writes
+    ├── trajectories.ts        # schema + workspace materializer (async, reader-backed)
+    ├── trajectory-reader.ts   # positional reader over trajectories.jsonl + index file
     ├── runner.ts              # per-question runIngestAsk + evalFromSpec wiring
+    ├── run.ts                 # `benchmark.run()` entry point — opens reader, loops
     ├── judge/                 # eval_function dispatcher (deterministic + LLM)
-    └── __tests__/             # fixture-backed loader/trajectories/runner tests
+    └── __tests__/             # fixture-backed loader/trajectories/reader/runner tests
 ```
 
 ## Getting the data
@@ -93,27 +95,46 @@ echoed for audit/logging.
 
 ## Trajectories
 
-`src/trajectories.ts` exports two pieces the runner depends on:
+Two modules split the "what is a trajectory" contract from the "how do
+we get one off disk" strategy:
 
-- `loadTrajectories(dataRoot)` — parses `trajectories.jsonl` into a
-  `Map<string, TrajectoryRecord>` keyed by id, with line-numbered
-  schema errors and duplicate-id rejection. The current implementation
-  reads the entire file (~1 GB at the small tier) into memory once per
-  `evals run` invocation; a streaming / indexed variant is tracked for
-  the cache PR.
-- `materializeWorkspaceFiles(item, trajectories)` — turns one
-  `BenchmarkItem` + the trajectory map into the `WorkspaceFileWrite[]`
-  the agent receives at ingest time. Layout the agent sees:
+- `src/trajectories.ts` owns the canonical Zod schema, the in-workspace
+  path conventions (`longmemeval/trajectories/`, `longmemeval/manifest.json`),
+  and the async slice/serialize step
+  `materializeWorkspaceFiles(item, reader, opts?)`. Bulk-checks
+  `reader.has(id)` for every id in the haystack before issuing any
+  reads, then `Promise.all`s the actual fetches — missing-id failures
+  surface every absent id at once and never waste an I/O round-trip on
+  a broken slice.
+- `src/trajectory-reader.ts` owns `openTrajectories(dataRoot)`, an
+  indexed positional reader over `trajectories.jsonl` backed by a
+  persistent sibling `trajectories.index.json` (`id → {offset, length}`,
+  ~150 KB at the small tier). First open after a fresh
+  `data/download.sh` scans the JSONL once, validates each line through
+  the canonical schema, and atomically writes the index via
+  `.tmp + rename`. Subsequent opens reuse the index unless the JSONL's
+  size or mtime has changed. `reader.get(id)` does a positional
+  `pread` for the recorded byte range, with a 256-entry LRU keeping
+  hot trajectories resident across the profile sweep of a single
+  `evals run`. Also exports `createInMemoryTrajectoryReader(records)`
+  for unit tests.
 
-  ```
-  longmemeval/
-  ├── trajectories/
-  │   ├── <trajectory_id_1>.json   # verbatim TrajectoryRecord
-  │   ├── <trajectory_id_2>.json
-  │   └── …                         # haystack order preserved
-  └── manifest.json                  # { questionId, ability, question,
-                                     #   trajectoryDir, trajectoryIds, count }
-  ```
+What the agent sees at ingest time:
+
+```
+longmemeval/
+├── trajectories/
+│   ├── <trajectory_id_1>.json   # verbatim TrajectoryRecord
+│   ├── <trajectory_id_2>.json
+│   └── …                         # haystack order preserved
+└── manifest.json                  # { questionId, ability, question,
+                                   #   trajectoryDir, trajectoryIds, count }
+```
+
+The index file (`trajectories.index.json`) is rebuilt automatically
+whenever the JSONL changes size or mtime. To force a rebuild manually
+(e.g. after an in-place edit that preserved the mtime), delete the
+index file and rerun.
 
 ## Per-unit runner
 
@@ -130,20 +151,23 @@ echoed for audit/logging.
    and the single `longmemeval-v2-judge` metric
 6. flip `run.json` to `status: "completed"` (or `"failed"` on throw)
 
-Out of scope for the wire PR (deferred, not forgotten):
+Still deferred (tracked as PR-8 / PR-9 candidates):
 
 - extracting the artifact-lifecycle boilerplate (progress wrapper +
   heartbeat ticker) into a helper shared with `runEvalOnce` — flagged
   with `// PR-6 follow-up` markers in the source
-- per-event transcript reconstruction + usage/cost telemetry — picked
-  up alongside the cache + telemetry PR
+- per-event transcript reconstruction + usage/cost telemetry —
+  `runIngestAsk` doesn't currently surface per-call usage, and the V2
+  judges call OpenAI directly outside the provider wrapper
 
 ## Running the benchmark
 
-`evals run --benchmark longmemeval-v2 --profiles <id>` dispatches by
-`benchmark.id` (not by a manifest field) — the V2 path runs the
-two-conversation flow above; every other benchmark runs the
-simulator-driven `runEvalOnce` path.
+`evals run --benchmark longmemeval-v2 --profiles <id>` resolves the
+benchmark's `run()` function via the file-based registry in
+`src/lib/benchmark.ts` and invokes it with the parsed CLI input — the
+V2 entry point lives in `src/run.ts`, opens a `TrajectoryReader` once
+per invocation, loops profile × question through `runLongMemEvalV2Unit`,
+and closes the reader in a `finally`.
 
 Operator surface (env vars):
 
@@ -169,12 +193,18 @@ each `eval_function` family at least once. Pick IDs from
 | `llm_abstention_checker`        | LLM judge — flawed-premise abstention |
 | `llm_gotchas_checker`           | LLM judge — gotcha insight            |
 
-Phase 2 expands to the full 451-question small tier once the cache PR
-lands the indexed trajectory reader.
+Phase 2 expands to the full 451-question small tier — the indexed
+reader landed in PR-7 so that scale-up doesn't pay for a ~1 GB upfront
+read per `evals run` invocation.
 
 ## Next
 
-The cache PR (PR-7) is the next major step: indexed / streaming
-`trajectories.jsonl` access so the full 451-Q small tier runs without
-a ~1 GB upfront read per `evals run`, plus the shared artifact-lifecycle
-helper extract called out above.
+- **PR-8 candidate** — extract the progress-wrap / heartbeat ticker
+  boilerplate that `runLongMemEvalV2Unit` and `runEvalOnce` both
+  duplicate (see the `// PR-6 follow-up` markers in
+  `src/runner.ts`).
+- **PR-9 candidate** — usage / cost telemetry. `runIngestAsk` doesn't
+  return per-call usage today, and the V2 judges hit OpenAI's REST API
+  directly without going through the provider wrapper that the
+  simulator-driven benchmarks instrument. Both gaps need closing
+  before Phase 2's cost/latency Pareto chart is real.

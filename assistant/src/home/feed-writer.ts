@@ -44,6 +44,7 @@ import { getDataDir } from "../util/platform.js";
 import {
   type FeedItem,
   type FeedItemStatus,
+  type FeedItemUrgency,
   type HomeFeedFile,
   parseFeedFile,
 } from "./feed-types.js";
@@ -156,6 +157,38 @@ export async function patchFeedItemStatus(
 }
 
 /**
+ * Patch the user-editable copy fields on a single feed item by id.
+ *
+ * Returns the updated `FeedItem`, or `null` if no item with the given
+ * id exists. Used by the `assistant notifications edit` flow. Patches
+ * are applied inside the same coalescing queue as appends and status
+ * patches so overlapping writes don't race.
+ *
+ * Only fields explicitly present on `patch` are touched. Pass an empty
+ * object and the call is a no-op that returns the existing item (or
+ * `null` if the id isn't on disk).
+ */
+export interface FeedItemContentPatch {
+  title?: string;
+  summary?: string;
+  urgency?: FeedItemUrgency;
+  status?: FeedItemStatus;
+}
+
+export async function patchFeedItemContent(
+  id: string,
+  patch: FeedItemContentPatch,
+): Promise<FeedItem | null> {
+  let resolveResult!: (value: FeedItem | null) => void;
+  const resultPromise = new Promise<FeedItem | null>((resolve) => {
+    resolveResult = resolve;
+  });
+  pendingContentPatches.push({ id, patch, resolve: resolveResult });
+  void scheduleWrite();
+  return resultPromise;
+}
+
+/**
  * Remove the `conversationId` field from all feed items that reference
  * the given conversation. Returns the number of items modified.
  *
@@ -202,6 +235,11 @@ const pendingPatches: Array<{
   status: FeedItemStatus;
   resolve: (value: FeedItem | null) => void;
 }> = [];
+const pendingContentPatches: Array<{
+  id: string;
+  patch: FeedItemContentPatch;
+  resolve: (value: FeedItem | null) => void;
+}> = [];
 const pendingStrips: Array<{
   conversationId: string;
   resolve: (count: number) => void;
@@ -244,6 +282,10 @@ function scheduleWrite(): Promise<void> {
 async function runWrite(): Promise<void> {
   const appendsToApply = pendingAppends.splice(0, pendingAppends.length);
   const patchesToApply = pendingPatches.splice(0, pendingPatches.length);
+  const contentPatchesToApply = pendingContentPatches.splice(
+    0,
+    pendingContentPatches.length,
+  );
   const stripsToApply = pendingStrips.splice(0, pendingStrips.length);
 
   const current = readHomeFeed();
@@ -270,6 +312,39 @@ async function runWrite(): Promise<void> {
     const updated: FeedItem = { ...items[idx]!, status: patch.status };
     items[idx] = updated;
     patchResults.push({ resolve: patch.resolve, value: updated });
+  }
+
+  const contentPatchResults: Array<{
+    resolve: (v: FeedItem | null) => void;
+    value: FeedItem | null;
+  }> = [];
+  for (const { id, patch, resolve } of contentPatchesToApply) {
+    const idx = items.findIndex((i) => i.id === id);
+    if (idx === -1) {
+      contentPatchResults.push({ resolve, value: null });
+      continue;
+    }
+    const existing = items[idx]!;
+    const updated: FeedItem = { ...existing };
+    if (patch.title !== undefined) {
+      const trimmed = patch.title.trim();
+      if (trimmed.length === 0) {
+        delete updated.title;
+      } else {
+        updated.title = trimmed;
+      }
+    }
+    if (patch.summary !== undefined) {
+      updated.summary = patch.summary;
+    }
+    if (patch.urgency !== undefined) {
+      updated.urgency = patch.urgency;
+    }
+    if (patch.status !== undefined) {
+      updated.status = patch.status;
+    }
+    items[idx] = updated;
+    contentPatchResults.push({ resolve, value: updated });
   }
 
   // Strip conversationId from matching items.
@@ -325,6 +400,9 @@ async function runWrite(): Promise<void> {
   // promises with `0` — the state was not persisted, and callers must
   // not report success when the underlying write failed.
   for (const { resolve, value } of patchResults) {
+    resolve(wrote ? value : null);
+  }
+  for (const { resolve, value } of contentPatchResults) {
     resolve(wrote ? value : null);
   }
   for (const { resolve, count } of stripResults) {

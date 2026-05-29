@@ -213,4 +213,14 @@ export interface NotificationSignal<TEventName extends string = string> {
     source?: string;
     conversationType?: ConversationCreateType;
   };
+  /**
+   * When true, the vellum-channel delivery materializes a fresh conversation
+   * to host the notification (and any follow-up interaction). Set this only
+   * for flows where the conversation IS the interaction surface — e.g.
+   * guardian.question, tool grant requests, ingress access requests. Passive
+   * notifications (scheduler fired, watcher alert, activity complete, etc.)
+   * should leave this unset; they surface via the home feed and link back
+   * to their originating conversation via `sourceContextId`.
+   */
+  requiresConversation?: boolean;
 }

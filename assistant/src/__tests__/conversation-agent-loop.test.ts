@@ -176,6 +176,12 @@ let mockConversationRow: Record<string, unknown> = {
   title: null,
 };
 let mockMessageById: Record<string, unknown> | null = null;
+const deleteMessageByIdMock = mock(() => ({
+  segmentIds: [],
+  deletedSummaryIds: [],
+}));
+const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
+const updateMessageContentMock = mock(() => {});
 mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
@@ -189,7 +195,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   }),
   getConversationOriginInterface: () => null,
   addMessage: () => ({ id: "mock-msg-id" }),
-  deleteMessageById: () => {},
+  deleteMessageById: deleteMessageByIdMock,
   updateConversationContextWindow: () => {},
   updateConversationSlackContextWatermark:
     updateConversationSlackContextWatermarkMock,
@@ -197,7 +203,36 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOriginChannel: () => null,
   getMessageById: () => mockMessageById,
   getLastUserTimestampBefore: () => 0,
-  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  reserveMessage: reserveMessageMock,
+  updateMessageContent: updateMessageContentMock,
+  // The real schema is a Zod object; tests don't exercise validation,
+  // so a passthrough is sufficient — the production code at
+  // `handleMessageComplete` only branches on `success` and reads two
+  // fields off `data`. `safeParse` of an empty object satisfies the
+  // schema (every field is optional).
+  messageMetadataSchema: {
+    safeParse: (input: unknown) => ({ success: true, data: input ?? {} }),
+  },
+}));
+
+// The B3 indexing-restoration path imports `indexMessageNow` from
+// `../memory/indexer.js` and `projectAssistantMessage` from
+// `../memory/conversation-attention-store.js`; without these stubs the
+// real modules would try to open a SQLite DB and read a real config.
+const indexMessageNowMock = mock(async () => ({
+  indexedSegments: 0,
+  enqueuedJobs: 0,
+}));
+const projectAssistantMessageMock = mock(() => false);
+const publishSyncInvalidationMock = mock(async () => {});
+mock.module("../memory/indexer.js", () => ({
+  indexMessageNow: indexMessageNowMock,
+}));
+mock.module("../memory/conversation-attention-store.js", () => ({
+  projectAssistantMessage: projectAssistantMessageMock,
+}));
+mock.module("../runtime/sync/sync-publisher.js", () => ({
+  publishSyncInvalidation: publishSyncInvalidationMock,
 }));
 
 afterAll(() => {
@@ -693,6 +728,13 @@ beforeEach(() => {
   mockSlackChronologicalContext = null;
   loadSlackChronologicalContextMock.mockClear();
   getSlackCompactionWatermarkForPrefixMock.mockClear();
+  deleteMessageByIdMock.mockClear();
+  reserveMessageMock.mockClear();
+  updateMessageContentMock.mockClear();
+  indexMessageNowMock.mockClear();
+  projectAssistantMessageMock.mockClear();
+  publishSyncInvalidationMock.mockClear();
+  mockMessageById = null;
   // Orchestrator pipelines (overflowReduce, persistence, …) run through the
   // plugin registry; reset and re-register every default so the pipelines
   // dispatch to middleware backed by the mocked collaborators these tests
@@ -784,6 +826,9 @@ describe("session-agent-loop", () => {
         _requestId,
         onCheckpoint,
       ) => {
+        // Prime the assistant row anchor for LLM call 1 — production code
+        // emits this from `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         await onEvent({
           type: "message_complete",
           message: {
@@ -809,6 +854,9 @@ describe("session-agent-loop", () => {
           hasToolUse: true,
           history: messages,
         });
+        // Prime the anchor again for LLM call 2 — multi-call agent turns
+        // reserve a fresh assistant row per LLM call.
+        await onEvent({ type: "llm_call_started" });
         await onEvent({
           type: "message_complete",
           message: {
@@ -1065,6 +1113,9 @@ describe("session-agent-loop", () => {
       const events: ServerMessage[] = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         // Simulate tool_use + error during execution
         onEvent({
           type: "tool_use",
@@ -1114,6 +1165,9 @@ describe("session-agent-loop", () => {
       const events: ServerMessage[] = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -1174,6 +1228,9 @@ describe("session-agent-loop", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -1239,6 +1296,9 @@ describe("session-agent-loop", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -1321,6 +1381,9 @@ describe("session-agent-loop", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -1389,6 +1452,9 @@ describe("session-agent-loop", () => {
       }> = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({ type: "text_delta", text: "Hi." });
         onEvent({
           type: "message_complete",
@@ -1464,6 +1530,9 @@ describe("session-agent-loop", () => {
       }> = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         // No text_delta — pure tool-call response
         onEvent({
           type: "message_complete",
@@ -1527,6 +1596,9 @@ describe("session-agent-loop", () => {
       const events: ServerMessage[] = [];
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -1639,6 +1711,9 @@ describe("session-agent-loop", () => {
       });
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -1729,6 +1804,11 @@ describe("session-agent-loop", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         callCount++;
         if (callCount === 1) {
           onEvent({
@@ -1856,6 +1936,11 @@ describe("session-agent-loop", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         callCount++;
         if (callCount === 1) {
           onEvent({
@@ -1941,6 +2026,11 @@ describe("session-agent-loop", () => {
       mockOverflowAction = "auto_compress_latest_turn";
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         callCount++;
         if (callCount <= 2) {
           onEvent({
@@ -2238,6 +2328,9 @@ describe("session-agent-loop", () => {
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
         agentLoopCalls++;
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -2286,6 +2379,11 @@ describe("session-agent-loop", () => {
       let callCount = 0;
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         callCount++;
         if (callCount === 1) {
           onEvent({
@@ -2370,6 +2468,11 @@ describe("session-agent-loop", () => {
         _reqId,
         onCheckpoint,
       ) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         // Simulate tool use followed by checkpoint
         onEvent({ type: "tool_use", id: "tu-1", name: "file_read", input: {} });
         onEvent({
@@ -2443,6 +2546,11 @@ describe("session-agent-loop", () => {
         _reqId,
         onCheckpoint,
       ) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         onEvent({ type: "tool_use", id: "tu-1", name: "file_read", input: {} });
         onEvent({
           type: "tool_result",
@@ -2505,6 +2613,9 @@ describe("session-agent-loop", () => {
       const abortController = new AbortController();
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -2565,6 +2676,9 @@ describe("session-agent-loop", () => {
       resolveAssistantAttachmentsMock.mockClear();
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         onEvent({
           type: "message_complete",
           message: {
@@ -2604,6 +2718,9 @@ describe("session-agent-loop", () => {
     test("increments turnCount after successful run", async () => {
       const ctx = makeCtx({
         agentLoopRun: async (messages, onEvent) => {
+          // Prime the assistant row anchor — production code emits this from
+          // `AgentLoop.run` just before `provider.sendMessage`.
+          await onEvent({ type: "llm_call_started" });
           onEvent({
             type: "message_complete",
             message: {
@@ -2637,6 +2754,9 @@ describe("session-agent-loop", () => {
     test("clears processing state and abort controller", async () => {
       const ctx = makeCtx({
         agentLoopRun: async (messages, onEvent) => {
+          // Prime the assistant row anchor — production code emits this from
+          // `AgentLoop.run` just before `provider.sendMessage`.
+          await onEvent({ type: "llm_call_started" });
           onEvent({
             type: "message_complete",
             message: {
@@ -2700,8 +2820,13 @@ describe("session-agent-loop", () => {
       const ctx = makeCtx({
         agentLoopRun: async (
           messages: Message[],
-          onEvent: (event: AgentEvent) => void,
+          onEvent: (event: AgentEvent) => void | Promise<void>,
         ) => {
+          // Prime the assistant row anchor — production code emits this from
+          // `AgentLoop.run` just before `provider.sendMessage`. Must be
+          // awaited so the assistant row is reserved before message_complete
+          // tries to write into it.
+          await onEvent({ type: "llm_call_started" });
           onEvent({
             type: "message_complete",
             message: {
@@ -3042,6 +3167,280 @@ describe("session-agent-loop", () => {
         .calls[0] as unknown as [string, string];
       expect(backfillCall[0]).toBe("test-conv");
       expect(backfillCall[1]).toBe("mock-msg-id");
+    });
+  });
+
+  describe("B3 pre-allocation: indexing + cleanup", () => {
+    test("handleMessageComplete indexes and projects the finalized assistant row", async () => {
+      // The pre-B3 path inserted assistant rows via `addMessage`, which ran
+      // the memory indexer and the conversation-attention projector as
+      // side-effects of the insert. B3 splits the write into
+      // `reserveMessage` + `updateMessageContent`, both of which are CRUD-only,
+      // so the indexing + projection calls had to be re-driven explicitly
+      // after `updateContent` succeeds. Codex P1 caught a regression where
+      // this path was missing entirely; this test pins it down.
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+      // Force attention projection to report a state change so we also
+      // observe the sync-invalidation publish path on the same turn.
+      projectAssistantMessageMock.mockImplementationOnce(() => true);
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        await onEvent({ type: "llm_call_started" });
+        // `message_complete` is awaited so `handleMessageComplete` (and its
+        // async indexer + projector chain) completes before the next event
+        // or before the loop returns. Without the await the projector's
+        // synchronous call still races against the test's assertion phase
+        // because the indexer's `await` yields microtasks.
+        await onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "indexed reply" }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 5,
+          model: "test",
+          providerDurationMs: 50,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [
+              { type: "text", text: "indexed reply" },
+            ] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({ agentLoopRun });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // Indexer fired with the reserved row's id + the finalized content.
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
+      const indexCallArgs = indexMessageNowMock.mock.calls[0] as unknown as [
+        {
+          messageId: string;
+          conversationId: string;
+          role: string;
+          content: string;
+          createdAt: number;
+          scopeId: string;
+        },
+        unknown,
+      ];
+      const indexCall = indexCallArgs[0];
+      expect(indexCall).toMatchObject({
+        messageId: "msg-reserve",
+        conversationId: "test-conv",
+        role: "assistant",
+        createdAt: 1234567,
+        scopeId: "default",
+      });
+      expect(indexCall.content).toContain("indexed reply");
+
+      // Attention projector fired with the same row coordinates.
+      expect(projectAssistantMessageMock).toHaveBeenCalledTimes(1);
+      const projectCall = projectAssistantMessageMock.mock
+        .calls[0] as unknown as [
+        { conversationId: string; messageId: string; messageAt: number },
+      ];
+      expect(projectCall[0]).toEqual({
+        conversationId: "test-conv",
+        messageId: "msg-reserve",
+        messageAt: 1234567,
+      });
+
+      // Projection reported a state change → sync invalidation fires with
+      // the conversation `:metadata` tag. The mock also receives a
+      // `:messages` invalidation from the orchestrator's
+      // `publishLoopMessagesChanged` post-loop emit, so we filter by tag
+      // rather than asserting a total call count.
+      const metadataPublishes = (
+        publishSyncInvalidationMock.mock.calls as unknown as Array<[string[]]>
+      ).filter((args) => args[0]?.includes("conversation:test-conv:metadata"));
+      expect(metadataPublishes).toHaveLength(1);
+    });
+
+    test("handleMessageComplete skips sync invalidation when attention state unchanged", async () => {
+      // Mirror of the previous test but with the default projector return
+      // (`false`). The projection still runs every turn, but the sync
+      // invalidation publish must be gated on attention-state movement to
+      // avoid flooding clients with no-op metadata refreshes.
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 999,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        await onEvent({ type: "llm_call_started" });
+        // See sibling test — `message_complete` must be awaited so the
+        // projector call lands before the assertion phase.
+        await onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "quiet" }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 1,
+          outputTokens: 1,
+          model: "test",
+          providerDurationMs: 1,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "quiet" }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({ agentLoopRun });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      expect(projectAssistantMessageMock).toHaveBeenCalledTimes(1);
+      // The mock will still receive a `:messages` invalidation from the
+      // orchestrator's `publishLoopMessagesChanged` — filter to the
+      // `:metadata` tag and assert it never landed.
+      const metadataPublishes = (
+        publishSyncInvalidationMock.mock.calls as unknown as Array<[string[]]>
+      ).filter((args) => args[0]?.includes("conversation:test-conv:metadata"));
+      expect(metadataPublishes).toHaveLength(0);
+    });
+
+    test("handleLlmCallStarted deletes a stranded reservation before reserving a new row", async () => {
+      // Simulates a retry path: the first LLM call reserves an assistant row
+      // but exits without `message_complete` (e.g. context-overflow rescue,
+      // ordering-error rescue, image-overflow rescue). The next
+      // `llm_call_started` must delete the stranded row so the transcript
+      // does not accumulate empty assistant bubbles.
+      reserveMessageMock
+        .mockImplementationOnce(async () => ({ id: "msg-strand-A" }))
+        .mockImplementationOnce(async () => ({ id: "msg-strand-B" }));
+      // Indexer/projector mocks default to no-op; no finalized row in this
+      // test, so `mockMessageById` stays null.
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // First LLM call: reserve msg-strand-A, never finalize.
+        await onEvent({ type: "llm_call_started" });
+        // Second LLM call: should delete msg-strand-A before reserving
+        // msg-strand-B.
+        await onEvent({ type: "llm_call_started" });
+        // Finalize the second one so the loop has a valid assistant message
+        // and exits cleanly.
+        onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "retry succeeded" }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 5,
+          outputTokens: 3,
+          model: "test",
+          providerDurationMs: 25,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [
+              { type: "text", text: "retry succeeded" },
+            ] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({ agentLoopRun });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // Exactly one delete fires — for msg-strand-A, before the second
+      // reserve. The second reservation is committed via `updateContent`
+      // (not deleted), and after the run completes
+      // `assistantRowAwaitingFinalization` is false, so no further delete
+      // is attempted on shutdown.
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const strandDeleteCall = deleteMessageByIdMock.mock
+        .calls[0] as unknown as [string];
+      expect(strandDeleteCall[0]).toBe("msg-strand-A");
+      expect(reserveMessageMock).toHaveBeenCalledTimes(2);
+    });
+
+    test("provider-error branch deletes the orphaned reservation and repoints lastAssistantMessageId", async () => {
+      // Codex P2 regression: B3 reserves an empty assistant row at
+      // `llm_call_started`. When the call exits via the provider-error
+      // branch (no `message_complete`), the synthetic error message is
+      // inserted separately. Without cleanup the transcript would carry
+      // both the empty reserved row AND the error message, and
+      // `syncLastAssistantMessageToDisk` (which reads
+      // `state.lastAssistantMessageId`) would mis-target the deleted
+      // reservation id.
+      reserveMessageMock.mockImplementationOnce(async () => ({
+        id: "msg-orphaned-reservation",
+      }));
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Reserve the orphan.
+        await onEvent({ type: "llm_call_started" });
+        // Provider rejects — writes the llm_request_log row and arms
+        // `state.providerErrorUserMessage` via `handleError`.
+        onEvent({
+          type: "provider_error",
+          error: new Error("upstream 500"),
+          rawRequest: { model: "gpt-4.1", messages: [] },
+          actualProvider: "openai",
+        });
+        onEvent({
+          type: "error",
+          error: new Error("upstream 500"),
+        });
+        // No assistant message in the result — the synthetic-error branch
+        // below the agent loop fires.
+        return messages;
+      };
+
+      const ctx = makeCtx({ agentLoopRun });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // The orphan was deleted exactly once, before the synthetic error
+      // message landed.
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-orphaned-reservation");
+
+      // Post-loop `syncLastAssistantMessageToDisk` targets the synthetic
+      // error row's id (`mock-msg-id` from the mocked `addMessage`), NOT
+      // the deleted reservation id. This is the externally-observable
+      // proof that `state.lastAssistantMessageId` was repointed.
+      expect(syncMessageToDiskMock).toHaveBeenCalled();
+      const syncCalls = syncMessageToDiskMock.mock.calls as unknown as Array<
+        [string, string, number]
+      >;
+      const lastSync = syncCalls[syncCalls.length - 1];
+      expect(lastSync?.[1]).toBe("mock-msg-id");
+      expect(lastSync?.[1]).not.toBe("msg-orphaned-reservation");
     });
   });
 
@@ -3909,6 +4308,11 @@ describe("session-agent-loop", () => {
       let callCount = 0;
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
         callCount++;
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         if (callCount === 1) {
           // Trigger convergence path: error + appended assistant message so
           // updatedHistory.length > preRunHistoryLength at the strip site.
@@ -3989,6 +4393,11 @@ describe("session-agent-loop", () => {
       let callCount = 0;
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
         callCount++;
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
+        // need this on every invocation: each agent-loop iteration reserves
+        // its own row.
+        await onEvent({ type: "llm_call_started" });
         if (callCount === 1) {
           onEvent({
             type: "error",

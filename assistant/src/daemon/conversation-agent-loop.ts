@@ -59,6 +59,7 @@ import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
+  deleteMessageById,
   getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
@@ -219,10 +220,7 @@ import type {
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
-import {
-  conversationMetadataSyncTag,
-  SYNC_TAGS,
-} from "./message-types/sync.js";
+import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import type { TrustContext } from "./trust-context.js";
@@ -770,12 +768,14 @@ export async function runAgentLoopImpl(
     llm: config.llm,
     callSite: turnCallSite,
     overrideProfile: turnOverrideProfile ?? undefined,
+    selectionSeed: ctx.conversationId,
   });
   let currentEffectiveContextWindow: EffectiveContextWindow =
     effectiveContextWindow;
   let currentContextWindowConfig = contextWindowConfigFromEffective(
     resolveCallSiteConfig(turnCallSite, config.llm, {
       overrideProfile: turnOverrideProfile ?? undefined,
+      selectionSeed: ctx.conversationId,
     }).contextWindow,
     currentEffectiveContextWindow,
   );
@@ -794,10 +794,12 @@ export async function runAgentLoopImpl(
         llm: config.llm,
         callSite: turnCallSite,
         overrideProfile: currentOverrideProfile,
+        selectionSeed: ctx.conversationId,
       });
       currentContextWindowConfig = contextWindowConfigFromEffective(
         resolveCallSiteConfig(turnCallSite, config.llm, {
           overrideProfile: currentOverrideProfile,
+          selectionSeed: ctx.conversationId,
         }).contextWindow,
         currentEffectiveContextWindow,
       );
@@ -1052,10 +1054,7 @@ export async function runAgentLoopImpl(
           });
           onEvent({
             type: "sync_changed",
-            tags: [
-              SYNC_TAGS.conversationsList,
-              conversationMetadataSyncTag(ctx.conversationId),
-            ],
+            tags: [conversationMetadataSyncTag(ctx.conversationId)],
           });
         },
       };
@@ -3225,6 +3224,34 @@ export async function runAgentLoopImpl(
       !abortController.signal.aborted &&
       !yieldedForHandoff
     ) {
+      // Drop any reservation stranded by the failed LLM call before
+      // inserting the synthetic error message. The B3 pre-allocation
+      // path reserves an empty assistant row at `llm_call_started`;
+      // when the call exits through the provider-error branch (no
+      // `message_complete`), `assistantRowAwaitingFinalization` stays
+      // true. Without this delete the transcript would carry both the
+      // empty reserved row AND the error message — and downstream sync
+      // (`syncLastAssistantMessageToDisk`) would mis-target the empty
+      // row. After delete we set `lastAssistantMessageId` to the new
+      // error row's id so the post-loop emission paths still point at
+      // a real message.
+      if (
+        state.assistantRowAwaitingFinalization &&
+        state.lastAssistantMessageId
+      ) {
+        // Direct `deleteMessageById` (not via the `persistence` pipeline):
+        // see the same rationale on the matching cleanup in
+        // `handleLlmCallStarted` — an unfinalized reservation has no
+        // observable history for plugins.
+        try {
+          deleteMessageById(state.lastAssistantMessageId);
+        } catch (err) {
+          rlog.warn(
+            { err, messageId: state.lastAssistantMessageId },
+            "Failed to clean up stranded reserved assistant row on provider-error path (non-fatal)",
+          );
+        }
+      }
       const errChannelMeta = {
         ...provenanceFromTrustContext(ctx.trustContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
@@ -3252,6 +3279,15 @@ export async function runAgentLoopImpl(
         DEFAULT_TIMEOUTS.persistence,
       )) as PersistAddResult;
       persistedErrorAssistantMessage = true;
+      // Repoint `lastAssistantMessageId` at the synthetic error row so the
+      // post-loop sync, attachment resolution, and `message_complete`/
+      // `generation_handoff` emissions all reference a real, persisted
+      // message id. The previous reservation (if any) was already deleted
+      // above. Mark finalization complete so the next LLM call in this run
+      // (or a downstream handler) doesn't try to clean up an id that
+      // already corresponds to a finalized row.
+      state.lastAssistantMessageId = errorPersistResult.message.id;
+      state.assistantRowAwaitingFinalization = false;
       newMessages.push(errorAssistantMessage);
       // Pipe the just-assigned message id into any orphaned LLM request log
       // row(s) for this turn. The success path links rows via
@@ -3517,10 +3553,7 @@ export async function runAgentLoopImpl(
           });
           onEvent({
             type: "sync_changed",
-            tags: [
-              SYNC_TAGS.conversationsList,
-              conversationMetadataSyncTag(ctx.conversationId),
-            ],
+            tags: [conversationMetadataSyncTag(ctx.conversationId)],
           });
         },
         signal: abortController.signal,

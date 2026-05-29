@@ -2,9 +2,6 @@
   "src/domains/chat/api/messages.ts": [
     "onboarding"
   ],
-  "src/domains/chat/api/stream.test.ts": [
-    "messaging"
-  ],
   "src/domains/chat/chat-layout.tsx": [
     "conversations",
     "subagents"
@@ -12,20 +9,14 @@
   "src/domains/chat/chat-page.tsx": [
     "conversations",
     "interactions",
-    "messaging",
     "onboarding",
     "subagents"
   ],
-  "src/domains/chat/components/chat-composer/chat-composer.test.tsx": [
-    "messaging"
-  ],
   "src/domains/chat/components/chat-composer/chat-composer.tsx": [
-    "messaging",
     "voice"
   ],
   "src/domains/chat/components/chat-route-content.tsx": [
     "interactions",
-    "messaging",
     "subagents"
   ],
   "src/domains/chat/components/mobile-subagent-detail-overlay.tsx": [
@@ -57,44 +48,23 @@
     "subagents"
   ],
   "src/domains/chat/hooks/use-conversation-switch.ts": [
-    "interactions",
-    "messaging"
-  ],
-  "src/domains/chat/hooks/use-event-stream.ts": [
-    "messaging"
+    "interactions"
   ],
   "src/domains/chat/hooks/use-interaction-actions.ts": [
     "interactions",
-    "messaging",
     "trust-rules"
-  ],
-  "src/domains/chat/hooks/use-message-queue.ts": [
-    "messaging"
-  ],
-  "src/domains/chat/hooks/use-message-reconciliation.test.tsx": [
-    "messaging"
-  ],
-  "src/domains/chat/hooks/use-message-reconciliation.ts": [
-    "messaging"
   ],
   "src/domains/chat/hooks/use-send-message.ts": [
     "conversations",
     "interactions",
-    "messaging",
     "onboarding",
     "subagents"
-  ],
-  "src/domains/chat/hooks/use-stream-event-handler.ts": [
-    "messaging"
   ],
   "src/domains/chat/hooks/use-subagent-card-data.test.ts": [
     "subagents"
   ],
   "src/domains/chat/hooks/use-subagent-card-data.ts": [
     "subagents"
-  ],
-  "src/domains/chat/hooks/use-tool-call-card-data.ts": [
-    "messaging"
   ],
   "src/domains/chat/hooks/use-voice-input.ts": [
     "voice"
@@ -104,12 +74,6 @@
   ],
   "src/domains/chat/transcript/transcript-subagent-inline.test.tsx": [
     "subagents"
-  ],
-  "src/domains/chat/utils/debug-api.test.ts": [
-    "messaging"
-  ],
-  "src/domains/chat/utils/debug-api.ts": [
-    "messaging"
   ],
   "src/domains/chat/utils/stream-handlers/interaction-handlers.test.ts": [
     "interactions"
@@ -134,12 +98,6 @@
   ],
   "src/domains/chat/utils/stream-handlers/subagent-handlers.ts": [
     "subagents"
-  ],
-  "src/domains/chat/utils/stream-handlers/test-helpers.ts": [
-    "messaging"
-  ],
-  "src/domains/chat/utils/stream-handlers/types.ts": [
-    "messaging"
   ],
   "src/domains/conversations/use-attention-tracking.ts": [
     "chat"

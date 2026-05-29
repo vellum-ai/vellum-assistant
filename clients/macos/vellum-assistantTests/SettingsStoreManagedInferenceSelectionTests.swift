@@ -37,8 +37,8 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
         XCTAssertFalse(store.isPlatformCapable("ollama"))
     }
 
-    func testFireworksIsNotManagedCapable() {
-        XCTAssertFalse(store.isPlatformCapable("fireworks"))
+    func testFireworksIsManagedCapable() {
+        XCTAssertTrue(store.isPlatformCapable("fireworks"))
     }
 
     func testOpenRouterIsNotManagedCapable() {
@@ -87,12 +87,12 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
         XCTAssertTrue(ids.contains("anthropic"), "expected anthropic in managed-capable providers")
         XCTAssertTrue(ids.contains("openai"), "expected openai in managed-capable providers")
         XCTAssertTrue(ids.contains("gemini"), "expected gemini in managed-capable providers")
+        XCTAssertTrue(ids.contains("fireworks"), "expected fireworks in managed-capable providers")
     }
 
     func testManagedCapableProvidersExcludesNonManagedEntries() {
         let ids = store.platformCapableProviders.map(\.id)
         XCTAssertFalse(ids.contains("ollama"), "ollama should not be in managed-capable providers")
-        XCTAssertFalse(ids.contains("fireworks"), "fireworks should not be in managed-capable providers")
         XCTAssertFalse(ids.contains("openrouter"), "openrouter should not be in managed-capable providers")
     }
 
@@ -169,6 +169,40 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
                        "expected gemini to be persisted as the inference provider, got: \(providerPatches)")
     }
 
+    func testManagedWebSearchModeRestoresProviderNativePreference() {
+        let mockClient = MockSettingsClient()
+        mockClient.patchConfigResponse = true
+        let testStore = SettingsStore(settingsClient: mockClient)
+        testStore.webSearchMode = "your-own"
+        testStore.webSearchProvider = "brave"
+
+        _ = testStore.setWebSearchMode("managed")
+
+        XCTAssertEqual(testStore.webSearchMode, "managed")
+        XCTAssertEqual(testStore.webSearchProvider, "inference-provider-native")
+
+        let predicate = NSPredicate { _, _ in
+            mockClient.patchConfigCalls.count >= 1
+        }
+        let expectation = XCTNSPredicateExpectation(predicate: predicate, object: nil)
+        wait(for: [expectation], timeout: 2.0)
+
+        let webSearchPatches = mockClient.patchConfigCalls.compactMap { call -> [String: String]? in
+            guard let services = call["services"] as? [String: Any],
+                  let webSearch = services["web-search"] as? [String: String] else {
+                return nil
+            }
+            return webSearch
+        }
+        XCTAssertTrue(
+            webSearchPatches.contains([
+                "mode": "managed",
+                "provider": "inference-provider-native",
+            ]),
+            "expected managed web search save to restore provider-native preference, got: \(webSearchPatches)"
+        )
+    }
+
     // MARK: - Managed Provider + Native Web Search Capability Gating
 
     func testManagedOpenAIPlusProviderNativeIsValid() {
@@ -184,11 +218,20 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
         XCTAssertTrue(store.isNativeWebSearchCapable("anthropic", model: "claude-opus-4.7"))
     }
 
-    func testManagedGeminiPlusProviderNativeIsInvalid() {
-        // Gemini is managed-capable but NOT native-web-search-capable,
-        // so managed Gemini + inference-provider-native should be rejected.
+    func testManagedGeminiPlusProviderNativeUsesAppExecutedFallback() {
+        // Gemini is managed-capable but NOT native-web-search-capable. Managed
+        // mode can still provide web search through the app-executed platform
+        // search proxy instead of requiring a BYOK search provider.
         XCTAssertTrue(store.isPlatformCapable("gemini"))
         XCTAssertFalse(store.isNativeWebSearchCapable("gemini", model: "gemini-2.5-pro"))
+    }
+
+    func testManagedFireworksKimiPlusProviderNativeUsesAppExecutedFallback() {
+        // Fireworks/Kimi is managed-capable but not native-web-search-capable.
+        // That distinction means the daemon should keep the custom web_search
+        // tool available and execute it through managed Brave in managed mode.
+        XCTAssertTrue(store.isPlatformCapable("fireworks"))
+        XCTAssertFalse(store.isNativeWebSearchCapable("fireworks", model: "accounts/fireworks/models/kimi-k2p6"))
     }
 
     func testManagedOpenAIProviderNativeWebSearchCanBePersisted() {
@@ -222,15 +265,16 @@ final class SettingsStoreManagedInferenceSelectionTests: XCTestCase {
                        "expected inference-provider-native to be persisted with managed OpenAI, got: \(webSearchPatches)")
     }
 
-    func testNonNativeWebSearchCapableProviderFallsBackToPerplexity() {
-        // When the inference provider doesn't support native web search,
-        // isNativeWebSearchCapable should return false, indicating the UI
-        // should enforce fallback to a key-based provider such as Perplexity, Brave, or Tavily.
+    func testNonNativeWebSearchCapabilityDoesNotMeanManagedWebSearchUnavailable() {
+        // Native capability only describes provider-hosted web search. Managed
+        // platform-capable providers can still use app-executed managed search.
         XCTAssertFalse(store.isNativeWebSearchCapable("gemini", model: "gemini-2.5-pro"))
         XCTAssertFalse(store.isNativeWebSearchCapable("ollama", model: "llama3"))
         XCTAssertFalse(store.isNativeWebSearchCapable("fireworks", model: "accounts/fireworks/models/kimi-k2"))
         // OpenRouter with a non-anthropic model is not native-web-search-capable.
         XCTAssertFalse(store.isNativeWebSearchCapable("openrouter", model: "openai/gpt-5"))
+        XCTAssertTrue(store.isPlatformCapable("gemini"))
+        XCTAssertTrue(store.isPlatformCapable("fireworks"))
     }
 
     // MARK: - Model Validation Against Selected Provider

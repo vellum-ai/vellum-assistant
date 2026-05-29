@@ -200,17 +200,21 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
       ? EFFORT_TO_REASONING_EFFORT[effort]
       : undefined;
     const summaryOverride = extractReasoningSummaryOverride(config);
-    const reasoning: Record<string, unknown> = { enabled: thinkingEnabled };
-    if (mappedEffort) {
-      reasoning.effort = clampReasoningEffort(
-        mappedEffort,
-        this.resolveMaxReasoningEffort(this.resolveEffectiveModel(options)),
-      );
-    }
+    // Only send `reasoning` when explicitly enabling thinking. Omitting the
+    // field lets OpenRouter use the model's natural default, which avoids 400s
+    // from reasoning-only models (e.g. DeepSeek R1) that reject `enabled: false`.
+    const extras: Record<string, unknown> = {};
     if (thinkingEnabled) {
+      const reasoning: Record<string, unknown> = { enabled: true };
+      if (mappedEffort) {
+        reasoning.effort = clampReasoningEffort(
+          mappedEffort,
+          this.resolveMaxReasoningEffort(this.resolveEffectiveModel(options)),
+        );
+      }
       reasoning.summary = summaryOverride ?? "detailed";
+      extras.reasoning = reasoning;
     }
-    const extras: Record<string, unknown> = { reasoning };
     const only = extractOnlyList(config);
     if (only.length > 0) {
       const existingProvider = (config?.provider ?? {}) as Record<

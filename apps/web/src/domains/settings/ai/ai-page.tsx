@@ -1655,9 +1655,11 @@ export function AiPage() {
   const webSearchNeedsApiKey =
     WEB_SEARCH_BYOK_PROVIDER_IDS.has(webSearchProvider);
   const webSearchHasNewApiKey = webSearchApiKey.trim().length > 0;
+  const effectiveWebSearchProvider =
+    webSearchMode === "managed" ? "inference-provider-native" : webSearchProvider;
   const webSearchConfigChanged =
     webSearchMode !== savedWebSearchMode ||
-    webSearchProvider !== savedWebSearchProvider;
+    effectiveWebSearchProvider !== savedWebSearchProvider;
   const webSearchNeedsKeyBeforeSave =
     webSearchMode === "your-own" &&
     webSearchNeedsApiKey &&
@@ -1844,20 +1846,22 @@ export function AiPage() {
   const handleWebSearchSave = async () => {
     setWebSearchSaving(true);
     const trimmed = webSearchApiKey.trim();
-    const storageKey = getWebSearchProviderKeyStorage(webSearchProvider);
+    const providerToSave =
+      webSearchMode === "managed" ? "inference-provider-native" : webSearchProvider;
+    const storageKey = getWebSearchProviderKeyStorage(providerToSave);
     const hasUserKey =
       webSearchMode === "your-own" && webSearchNeedsApiKey && trimmed.length > 0;
     let remoteSaved = false;
     try {
       if (hasUserKey) {
-        await provisionProviderKey(webSearchProvider, trimmed);
+        await provisionProviderKey(providerToSave, trimmed);
       }
-      // PATCH daemon config: mode + provider for web search.
-      // Mirrors desktop `setWebSearchMode` / `setWebSearchProvider` which each
-      // PATCH `services["web-search"]`.
+      // Managed mode restores Provider Native so native-capable inference
+      // providers use hosted search while non-native providers use the
+      // managed app-executed fallback.
       await patchDaemonConfig({
         services: {
-          "web-search": { mode: webSearchMode, provider: webSearchProvider },
+          "web-search": { mode: webSearchMode, provider: providerToSave },
         },
       });
       remoteSaved = true;
@@ -1872,9 +1876,10 @@ export function AiPage() {
     try {
       // Persist local settings only after remote save succeeds.
       setLocalSetting(LS_WEB_SEARCH_MODE, webSearchMode);
-      setLocalSetting(LS_WEB_SEARCH_PROVIDER, webSearchProvider);
+      setLocalSetting(LS_WEB_SEARCH_PROVIDER, providerToSave);
+      setWebSearchProvider(providerToSave);
       setSavedWebSearchMode(webSearchMode);
-      setSavedWebSearchProvider(webSearchProvider);
+      setSavedWebSearchProvider(providerToSave);
       if (hasUserKey) {
         if (storageKey) {
           setLocalSetting(storageKey, trimmed);
