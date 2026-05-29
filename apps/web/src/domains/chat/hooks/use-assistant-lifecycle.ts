@@ -138,6 +138,18 @@ export function useAssistantLifecycle({
   const hatchMutation = useHatchAssistant();
   const retireMutation = useRetireAssistant();
 
+  // `useMutation` returns a new object reference every render, but the
+  // bound `mutateAsync` methods on the underlying observer don't.
+  // Capture them in refs so the `useCallback`s below don't have to list
+  // an unstable object in their deps array — without this, every render
+  // would re-issue `hatchAndCheck` / `checkAssistant` / `recoverStuck...`
+  // identities, the init effect would re-fire, and active users would
+  // see a continuous `/assistant/` fetch loop.
+  const hatchMutateRef = useRef(hatchMutation.mutateAsync);
+  hatchMutateRef.current = hatchMutation.mutateAsync;
+  const retireMutateRef = useRef(retireMutation.mutateAsync);
+  retireMutateRef.current = retireMutation.mutateAsync;
+
   // Whether to query the server-side status at all. Gateway-auth mode
   // and "local mode without platform session" short-circuit to local
   // states without ever calling /assistant/.
@@ -147,6 +159,13 @@ export function useAssistantLifecycle({
     !isGatewayAuthMode() &&
     (hasPlatformSession || !isLocalMode());
 
+  // Invoked for its background polling + cache-write side effects only.
+  // The state-machine consumes the cached value via `queryClient.fetchQuery`
+  // in `checkAssistant` and via `getQueryData` in the cache subscription
+  // below — going through the hook return would mean projecting React
+  // state into the state machine, which is the inversion this PR exists
+  // to fix. A future PR (LUM-2038) can collapse the orchestrator onto
+  // the query result directly.
   useAssistantQuery({ enabled: shouldQueryServer });
 
   /**
@@ -177,7 +196,7 @@ export function useAssistantLifecycle({
     setInitializingCycle((n) => n + 1);
     setAssistantState({ kind: "initializing" });
     try {
-      const result = await hatchMutation.mutateAsync(
+      const result = await hatchMutateRef.current(
         version ? { version } : undefined,
       );
       if (generation !== initializingGenerationRef.current) return;
@@ -233,41 +252,26 @@ export function useAssistantLifecycle({
     // early poll returned 404 and switched state to "initializing"
     // while the hatch request was still in-flight.
     setAssistantState({ kind: "initializing" });
-  }, [hatchMutation]);
+  }, []);
 
-  const checkAssistant = useCallback(async () => {
-    if (isGatewayAuthMode()) {
-      let ingressUrl = window.location.origin;
-      let resolvedAssistantId = "self";
-      const localGateway = getLocalGatewayUrl();
-      if (localGateway) {
-        const assistant = getSelectedAssistant();
-        ingressUrl = `${window.location.origin}${localGateway}`;
-        resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
-      }
-      setSelfHostedConnection({
-        url: ingressUrl,
-        token: getGatewayToken(),
-      });
-      setAssistantId(resolvedAssistantId);
-      setAssistantState({ kind: "active", isLocal: true });
-      return;
-    }
-    const generation = initializingGenerationRef.current;
-    try {
-      // Force a fresh fetch through the query cache. `fetchQuery` returns
-      // a freshly-resolved value and updates the cache atomically so any
-      // other subscriber (sidebar header, identity panel, etc.) sees the
-      // same answer this code path acts on.
-      const result = await queryClient.fetchQuery({
-        queryKey: ASSISTANT_QUERY_KEY,
-        queryFn: () => getAssistant(),
-        // `staleTime: 0` would force every call to refetch even when a
-        // poll just landed. Default behavior (use cached value if fresh)
-        // is what we want here: this is a "make sure we're in sync"
-        // probe, not "force a network round-trip."
-      });
-      if (generation !== initializingGenerationRef.current) return;
+  /**
+   * Project a server result onto local lifecycle state + side effects.
+   *
+   * Splitting this out of `checkAssistant` matters for the cache
+   * subscription below: a successful 3-second poll lands the new
+   * result in the query cache, the subscription fires, and we want to
+   * re-apply the side effects without triggering another network
+   * round-trip. Calling `checkAssistant` from the subscription would
+   * `fetchQuery({ staleTime: 0 })` again and collapse the polling
+   * cadence into a request loop.
+   *
+   * Imperative re-checks (visibility-change handler, retry button)
+   * still go through `checkAssistant`, which forces a fresh fetch and
+   * then delegates here.
+   */
+  const applyServerStateUpdate = useCallback(
+    async (result: Awaited<ReturnType<typeof getAssistant>>) => {
+      const generation = initializingGenerationRef.current;
       const nextState = resolveAssistantLifecycleState(result);
       if (result.ok && nextState.kind === "initializing") {
         initializingAssistantIdRef.current = result.data.id;
@@ -358,9 +362,46 @@ export function useAssistantLifecycle({
         return;
       }
 
+      if (generation !== initializingGenerationRef.current) return;
       if (nextState.kind !== "active") {
         setAssistantState(nextState);
       }
+    },
+    [hatchAndCheck],
+  );
+
+  const checkAssistant = useCallback(async () => {
+    if (isGatewayAuthMode()) {
+      let ingressUrl = window.location.origin;
+      let resolvedAssistantId = "self";
+      const localGateway = getLocalGatewayUrl();
+      if (localGateway) {
+        const assistant = getSelectedAssistant();
+        ingressUrl = `${window.location.origin}${localGateway}`;
+        resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
+      }
+      setSelfHostedConnection({
+        url: ingressUrl,
+        token: getGatewayToken(),
+      });
+      setAssistantId(resolvedAssistantId);
+      setAssistantState({ kind: "active", isLocal: true });
+      return;
+    }
+    const generation = initializingGenerationRef.current;
+    try {
+      // Force a fresh fetch through the query cache. `fetchQuery`
+      // updates the cache atomically so any other subscriber
+      // (sidebar header, identity panel, etc.) sees the same answer
+      // this code path acts on. Cache-subscription callers go through
+      // `applyServerStateUpdate` directly to avoid re-fetching the
+      // value we just observed land in the cache.
+      const result = await queryClient.fetchQuery({
+        queryKey: ASSISTANT_QUERY_KEY,
+        queryFn: () => getAssistant(),
+      });
+      if (generation !== initializingGenerationRef.current) return;
+      await applyServerStateUpdate(result);
     } catch (err) {
       console.error("Error checking assistant status:", err);
       Sentry.captureException(err, {
@@ -372,7 +413,7 @@ export function useAssistantLifecycle({
         message: "Network error. Please check your connection and try again.",
       });
     }
-  }, [hatchAndCheck, queryClient]);
+  }, [applyServerStateUpdate, queryClient]);
 
   const recoverStuckInitializingAssistant = useCallback(async () => {
     if (initializingRecoveryCountRef.current >= MAX_INITIALIZING_RECOVERIES) {
@@ -445,7 +486,7 @@ export function useAssistantLifecycle({
       // creates the replacement) races to create a duplicate assistant.
       hatchingRef.current = true;
 
-      const retireResult = await retireMutation.mutateAsync(assistantIdToRetire);
+      const retireResult = await retireMutateRef.current(assistantIdToRetire);
       if (generation !== initializingGenerationRef.current) {
         hatchingRef.current = false;
         return;
@@ -472,7 +513,7 @@ export function useAssistantLifecycle({
       if (generation !== initializingGenerationRef.current) return;
       setAssistantState(buildInitializingTimeoutError());
     }
-  }, [hatchAndCheck, queryClient, retireMutation]);
+  }, [hatchAndCheck, queryClient]);
 
   // Local-mode: gateway token and connection are primed during onboarding hatch.
   useEffect(() => {
@@ -530,18 +571,31 @@ export function useAssistantLifecycle({
       .getQueryCache()
       .subscribe((event) => {
         if (event.type !== "updated") return;
+        // Match on the exact query-key shape so a future scope prefix
+        // (e.g. `["org", orgId, "assistant", "current"]`) doesn't
+        // silently start firing this branch.
         const key = event.query.queryKey;
-        if (key.length < 2 || key[0] !== "assistant" || key[1] !== "current") {
+        if (
+          key.length !== ASSISTANT_QUERY_KEY.length ||
+          !ASSISTANT_QUERY_KEY.every((k, i) => k === key[i])
+        ) {
           return;
         }
-        // Re-run checkAssistant so we re-apply the full set of
-        // side-effects (self-hosted connection, redirects, assistant-id
-        // sync). The function reads the cached result via the
-        // queryClient, so there's no duplicate fetch.
-        void checkAssistant();
+        // Read the just-written cache value and re-apply the full set
+        // of side-effects (self-hosted connection, redirects,
+        // assistant-id sync). Going through `checkAssistant` here
+        // would call `fetchQuery` and — depending on `staleTime` —
+        // trigger another network round-trip whose cache update would
+        // fire this subscription again, collapsing the intended poll
+        // cadence into a request loop.
+        const cached = queryClient.getQueryData<
+          Awaited<ReturnType<typeof getAssistant>>
+        >(ASSISTANT_QUERY_KEY);
+        if (!cached) return;
+        void applyServerStateUpdate(cached);
       });
     return unsubscribe;
-  }, [assistantState.kind, checkAssistant, queryClient]);
+  }, [assistantState.kind, applyServerStateUpdate, queryClient]);
 
   // If the backend assigns an assistant but never promotes it to "active",
   // retire that stuck row and hatch a replacement.

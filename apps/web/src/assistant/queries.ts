@@ -33,7 +33,7 @@ import {
   type ResolvedAssistantLifecycleState,
 } from "@/assistant/lifecycle";
 
-const ASSISTANT_QUERY_KEY = ["assistant", "current"] as const;
+export const ASSISTANT_QUERY_KEY = ["assistant", "current"] as const;
 
 /**
  * How often to refetch while the assistant is in a transient state.
@@ -41,7 +41,7 @@ const ASSISTANT_QUERY_KEY = ["assistant", "current"] as const;
  * sequence is sub-second on healthy machines, but 3s gives us margin
  * on slow disks and keeps mobile data costs reasonable.
  */
-const POLL_INTERVAL_MS = 3000;
+export const POLL_INTERVAL_MS = 3000;
 
 /**
  * Lifecycle phases where we expect the assistant to transition soon
@@ -51,6 +51,22 @@ const POLL_INTERVAL_MS = 3000;
  */
 const TRANSIENT_PHASES: ReadonlySet<ResolvedAssistantLifecycleState["kind"]> =
   new Set(["initializing", "cleaning_up"]);
+
+/**
+ * The query's `refetchInterval` decision in a form callers can test
+ * directly. Returns the cadence (ms) to poll at, or `false` to stop
+ * polling. Lives at module scope so the unit tests can exercise the
+ * same code path the runtime uses — duplicating the logic in a test
+ * helper would let `TRANSIENT_PHASES` drift silently when a new
+ * transient phase is added.
+ */
+export function pollIntervalFor(
+  result: GetAssistantResult | undefined,
+): number | false {
+  if (!result) return false;
+  const phase = resolveAssistantLifecycleState(result);
+  return TRANSIENT_PHASES.has(phase.kind) ? POLL_INTERVAL_MS : false;
+}
 
 export interface UseAssistantQueryOptions {
   /**
@@ -67,14 +83,7 @@ export function useAssistantQuery(options: UseAssistantQueryOptions) {
     queryFn: () => getAssistant(),
     enabled: options.enabled,
     retry: false,
-    refetchInterval: (query) => {
-      const result = query.state.data;
-      if (!result) return false;
-      const phase = resolveAssistantLifecycleState(result);
-      return TRANSIENT_PHASES.has(phase.kind) ? POLL_INTERVAL_MS : false;
-    },
+    refetchInterval: (query) => pollIntervalFor(query.state.data),
     refetchOnWindowFocus: false,
   });
 }
-
-export { ASSISTANT_QUERY_KEY };
