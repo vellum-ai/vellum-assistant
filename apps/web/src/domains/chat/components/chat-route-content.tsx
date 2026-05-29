@@ -1012,33 +1012,58 @@ export function ChatRouteContent({
   // Disk pressure banner
   // -------------------------------------------------------------------------
 
+  // `dismissed` clears when disk pressure exits the warning state; `suppressed`
+  // is the "Don't show again" choice and persists across state transitions.
+  const dismissedKey = assistantId
+    ? `vellum:diskPressureDismissed:${assistantId}`
+    : null;
+  const suppressedKey = assistantId
+    ? `vellum:diskPressureSuppressed:${assistantId}`
+    : null;
+
   const [warningDismissed, setWarningDismissed] = useState(() => {
-    if (!assistantId) return false;
-    return getLocalBool(`vellum:diskPressureDismissed:${assistantId}`, false);
+    if (!dismissedKey) return false;
+    return getLocalBool(dismissedKey, false);
+  });
+  const [warningSuppressed, setWarningSuppressed] = useState(() => {
+    if (!suppressedKey) return false;
+    return getLocalBool(suppressedKey, false);
   });
 
-  const dismissWarning = useCallback(() => {
-    if (!assistantId) return;
-    setLocalBool(`vellum:diskPressureDismissed:${assistantId}`, true);
-    setWarningDismissed(true);
-  }, [assistantId]);
+  const dismissWarning = useCallback(
+    (permanent: boolean) => {
+      if (permanent) {
+        if (suppressedKey) {
+          setLocalBool(suppressedKey, true);
+        }
+        setWarningSuppressed(true);
+        return;
+      }
+      if (dismissedKey) {
+        setLocalBool(dismissedKey, true);
+      }
+      setWarningDismissed(true);
+    },
+    [dismissedKey, suppressedKey],
+  );
 
-  // Reset dismiss when state escalates to critical or drops below warning
+  // Clear the per-episode dismiss on state change; the suppressed flag is
+  // intentionally not cleared here so "Don't show again" actually sticks.
   useEffect(() => {
     const st = diskPressure.status?.state;
     if (st && st !== "warning" && warningDismissed) {
-      if (assistantId) {
-        removeLocalSetting(`vellum:diskPressureDismissed:${assistantId}`);
+      if (dismissedKey) {
+        removeLocalSetting(dismissedKey);
       }
       setWarningDismissed(false);
     }
-  }, [diskPressure.status?.state, warningDismissed, assistantId]);
+  }, [diskPressure.status?.state, warningDismissed, dismissedKey]);
 
   const renderDiskPressureBanner = useCallback((): ReactNode => {
     if (!diskPressure.status) return null;
     const mode = diskPressure.mode === "inactive" ? null : (diskPressure.mode as DiskPressureBannerMode | null);
     if (!mode) return null;
-    if (mode === "warning" && warningDismissed) return null;
+    if (mode === "warning" && (warningDismissed || warningSuppressed)) return null;
     return (
       <DiskPressureBanner
         status={diskPressure.status}
@@ -1053,7 +1078,7 @@ export function ChatRouteContent({
         onUpgradeStorage={assistantState.kind === "active" ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`) : null}
       />
     );
-  }, [diskPressure, navigate, assistantState.kind, warningDismissed, dismissWarning]);
+  }, [diskPressure, navigate, assistantState.kind, warningDismissed, warningSuppressed, dismissWarning]);
 
   // -------------------------------------------------------------------------
   // Billing composer banner

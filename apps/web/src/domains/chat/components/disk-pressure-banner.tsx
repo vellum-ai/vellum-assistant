@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { AlertTriangle, HardDrive } from "lucide-react";
 
-import { Button, Modal } from "@vellum/design-library";
+import { Button, Checkbox, Modal } from "@vellum/design-library";
 import { Notice } from "@vellum/design-library";
 import type { DiskPressureStatus } from "@/assistant/api";
 import { formatDiskPressureUsage } from "@/assistant/disk-pressure";
@@ -15,7 +15,13 @@ export interface DiskPressureBannerProps {
   isAcknowledging?: boolean;
   acknowledgeError?: string | null;
   onAcknowledge: () => void;
-  onDismissWarning?: () => void;
+  /**
+   * Called when the user dismisses the warning banner. The `permanent` flag is
+   * true when the user also checked "Don't show again" — in that case the
+   * caller should suppress the warning across state transitions, not just
+   * until the next escalation.
+   */
+  onDismissWarning?: (permanent: boolean) => void;
   onReviewWorkspaceData?: () => void;
   onUpgradeStorage?: (() => void) | null;
 }
@@ -32,6 +38,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
     onUpgradeStorage,
   } = props;
   const [showAcknowledgeModal, setShowAcknowledgeModal] = useState(false);
+  const [dontShowAgain, setDontShowAgain] = useState(false);
   const formattedUsage = formatDiskPressureUsage(status);
 
   if (mode === "warning") {
@@ -42,7 +49,11 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
         tone="warning"
         title="Storage is running low"
         icon={<HardDrive className="h-4 w-4" aria-hidden="true" />}
-        onDismiss={onDismissWarning}
+        onDismiss={
+          onDismissWarning
+            ? () => onDismissWarning(dontShowAgain)
+            : undefined
+        }
         className="p-4"
         data-testid="disk-pressure-banner"
       >
@@ -64,7 +75,7 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
           <p className="m-0">
             Your assistant will enter a locked state if it runs out of storage.
           </p>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {onReviewWorkspaceData && (
               <Button
                 variant="outlined"
@@ -83,6 +94,15 @@ export function DiskPressureBanner(props: DiskPressureBannerProps) {
                 Upgrade Storage
               </Button>
             )}
+            {onDismissWarning ? (
+              <Checkbox
+                className="ml-auto"
+                checked={dontShowAgain}
+                onCheckedChange={(next) => setDontShowAgain(next === true)}
+                label="Don't show again"
+                data-testid="disk-pressure-banner-dont-show-again"
+              />
+            ) : null}
           </div>
         </div>
       </Notice>
