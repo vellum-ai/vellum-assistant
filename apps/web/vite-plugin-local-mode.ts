@@ -7,7 +7,7 @@ import path from "node:path";
 import type { Plugin, Connect } from "vite";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
-const CLI_PACKAGE_NAME = "@vellumai/vellum";
+const CLI_PACKAGE_NAME = "@vellumai/cli";
 
 let _resolvedCliPath: string | undefined;
 
@@ -15,7 +15,7 @@ let _resolvedCliPath: string | undefined;
  * Resolve the CLI entry point via two strategies:
  *
  * 1. **Source tree** — `<repoRoot>/cli/src/index.ts` exists (dev mode in monorepo).
- * 2. **Installed package** — `require.resolve("@vellumai/vellum/package.json")` then
+ * 2. **Installed package** — `require.resolve("@vellumai/cli/package.json")` then
  *    derive the entry point from the resolved package directory.
  *
  * The result is cached for the lifetime of the Vite server process.
