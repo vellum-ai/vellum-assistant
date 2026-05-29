@@ -51,7 +51,7 @@ import {
   isSending,
   useTurnStore,
 } from "@/domains/chat/turn-store";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/domains/streaming/stream-transport";
 import { useEventBusStore } from "@/stores/event-bus-store";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
 

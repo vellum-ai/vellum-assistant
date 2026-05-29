@@ -4,7 +4,7 @@ import { act } from "react";
 import { useRef, type MutableRefObject } from "react";
 
 import type { AssistantEvent } from "@/types/event-types";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/domains/streaming/stream-transport";
 import {
   __resetEventBusForTesting,
   useEventBusStore,

@@ -13,12 +13,12 @@ import type {
   SlackRuntimeMessage,
   Surface,
 } from "@/domains/chat/types/types";
+import { client } from "@/generated/api/client.gen";
 import {
   assertHasResponse,
-  client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client";
+} from "@/lib/api-errors";
 import {
   normalizePreChatOnboardingContext,
   type PreChatOnboardingContext,

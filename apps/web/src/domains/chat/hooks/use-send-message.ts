@@ -66,7 +66,7 @@ import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/domains/streaming/stream-transport";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 
 // Re-export pure utilities so existing consumers don't break.

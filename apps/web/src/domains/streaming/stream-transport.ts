@@ -8,9 +8,10 @@
 
 import * as Sentry from "@sentry/browser";
 
-import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client";
-import { recordChatDiagnostic, resolvePlatformTag } from "@/domains/chat/utils/diagnostics";
-import { parseAssistantEvent } from "@/domains/chat/api/event-parser";
+import { client } from "@/generated/api/client.gen";
+import { SDK_BASE_OPTIONS } from "@/lib/api-errors";
+import { recordDiagnostic, resolvePlatformTag } from "@/utils/diagnostics";
+import { parseAssistantEvent } from "@/domains/streaming/event-parser";
 import type { AssistantEvent } from "@/types/event-types";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
@@ -19,7 +20,7 @@ import {
   pushSseEvent,
   registerSseClient,
   unregisterSseClient,
-} from "@/domains/chat/api/stream-debug";
+} from "@/domains/streaming/stream-debug";
 
 // ---------------------------------------------------------------------------
 // SSE stream transport
@@ -201,7 +202,7 @@ export function subscribeChatEvents(
       // Record before aborting so the diagnostic captures the
       // attempt that actually stalled, even if the abort cascade
       // tears state down before the next reconnect runs.
-      recordChatDiagnostic("sse_watchdog_fired", {
+      recordDiagnostic("sse_watchdog_fired", {
         assistantId,
         conversationId: requestedConversationId ?? null,
         attempt: reconnectCount,

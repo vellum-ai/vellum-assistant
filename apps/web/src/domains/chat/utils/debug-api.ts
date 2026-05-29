@@ -33,7 +33,7 @@ import {
   fetchConversationMessages as defaultFetchConversationMessages,
   type RuntimeMessage,
 } from "@/domains/chat/api/messages";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/domains/streaming/stream-transport";
 import type {
   PendingConfirmationState,
   PendingContactRequestState,

@@ -35,7 +35,7 @@ import type { AssistantStateKind, ChatError } from "@/domains/chat/types";
 import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { ApiError } from "@/domains/chat/api/client";
+import { ApiError } from "@/lib/api-errors";
 import type { Conversation } from "@/types/conversation-types";
 import { isBackgroundConversation } from "@/utils/conversation-predicates";
 import {

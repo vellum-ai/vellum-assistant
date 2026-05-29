@@ -1,4 +1,7 @@
 {
+  "src/domains/chat/api/debug-api.ts": [
+    "streaming"
+  ],
   "src/domains/chat/api/messages.ts": [
     "onboarding"
   ],
@@ -7,29 +10,61 @@
   ],
   "src/domains/chat/chat-page.tsx": [
     "conversations",
-    "onboarding"
+    "onboarding",
+    "streaming"
   ],
   "src/domains/chat/components/chat-composer/chat-composer.tsx": [
     "voice"
   ],
+  "src/domains/chat/components/chat-route-content.tsx": [
+    "streaming"
+  ],
   "src/domains/chat/components/voice-input-button.tsx": [
     "voice"
+  ],
+  "src/domains/chat/hooks/stream-message-updaters.ts": [
+    "streaming"
   ],
   "src/domains/chat/hooks/use-assistant-lifecycle.ts": [
     "onboarding"
   ],
+  "src/domains/chat/hooks/use-event-stream-conversation-filter.test.tsx": [
+    "streaming"
+  ],
+  "src/domains/chat/hooks/use-event-stream-rapid-switch.test.tsx": [
+    "streaming"
+  ],
+  "src/domains/chat/hooks/use-event-stream-resume-reconcile.test.tsx": [
+    "streaming"
+  ],
+  "src/domains/chat/hooks/use-event-stream.ts": [
+    "streaming"
+  ],
   "src/domains/chat/hooks/use-send-message.ts": [
     "conversations",
-    "onboarding"
+    "onboarding",
+    "streaming"
+  ],
+  "src/domains/chat/hooks/use-stream-event-handler.ts": [
+    "streaming"
   ],
   "src/domains/chat/hooks/use-voice-input.ts": [
     "voice"
+  ],
+  "src/domains/chat/utils/debug-api.test.ts": [
+    "streaming"
+  ],
+  "src/domains/chat/utils/debug-api.ts": [
+    "streaming"
   ],
   "src/domains/chat/utils/stream-handlers/metadata-handlers.test.ts": [
     "conversations"
   ],
   "src/domains/chat/utils/stream-handlers/metadata-handlers.ts": [
     "conversations"
+  ],
+  "src/domains/chat/utils/stream-handlers/types.ts": [
+    "streaming"
   ],
   "src/domains/conversations/use-attention-tracking.ts": [
     "chat"
@@ -38,6 +73,9 @@
     "chat"
   ],
   "src/domains/conversations/use-conversation-loader.ts": [
+    "chat"
+  ],
+  "src/domains/streaming/stream-transport.test.ts": [
     "chat"
   ]
 }

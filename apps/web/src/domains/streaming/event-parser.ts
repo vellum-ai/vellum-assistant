@@ -31,7 +31,7 @@ import type {
 } from "@/types/interaction-ui-types";
 import type { AssistantOutboundAttachment } from "@vellumai/assistant-api";
 import { AssistantEventSchema } from "@vellumai/assistant-api";
-import type { DisplayAttachment } from "@/domains/chat/types/types";
+import type { DisplayAttachment } from "@/types/attachment-types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type { SyncInvalidationTag } from "@/lib/sync/types";
 

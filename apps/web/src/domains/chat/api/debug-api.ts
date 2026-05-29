@@ -15,14 +15,12 @@
  * namespace, so both halves of the debug API mount/unmount together.
  */
 
-import type {
-  SseDebugClient,
-  SseDebugEventEntry,
-} from "@/domains/chat/api/stream-debug";
 import {
+  type SseDebugClient,
+  type SseDebugEventEntry,
   getSseClients,
   getSseEvents,
-} from "@/domains/chat/api/stream-debug";
+} from "@/domains/streaming/stream-debug";
 
 export interface ChatDebugEventsApi {
   /** Snapshot of currently-live SSE clients. */
