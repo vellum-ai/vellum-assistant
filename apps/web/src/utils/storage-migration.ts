@@ -17,6 +17,22 @@
  */
 
 /**
+ * Migrate a key's stored value from one format to another without
+ * renaming the key. Idempotent — only writes when the current value
+ * matches `oldValue` exactly.
+ */
+export function migrateValue(key: string, oldValue: string, newValue: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (localStorage.getItem(key) === oldValue) {
+      localStorage.setItem(key, newValue);
+    }
+  } catch {
+    // Storage unavailable — retry on next load.
+  }
+}
+
+/**
  * Remove a legacy key that has no successor. Idempotent.
  */
 export function removeKey(key: string): void {
@@ -154,6 +170,10 @@ export function runStorageMigrations(): void {
 
   // vellum_ per-org → vellum:
   migratePrefix("vellum_current_assistant_id__", "vellum:currentAssistantId:");
+
+  // -- Value format migrations ---------------------------------------------
+  // Skills tip was stored as "1"; getLocalBool expects "true".
+  migrateValue("vellum:skills:tipDismissed", "1", "true");
 
   // -- Dead key removals --------------------------------------------------
   // Legacy nudge keys superseded by the `vellum:nudge-prefs` Zustand

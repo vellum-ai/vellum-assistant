@@ -121,7 +121,7 @@ export function usePushToTalk(
 
     const readActivator = () => {
       const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
-      activatorRef.current = parseActivator(raw || null);
+      activatorRef.current = raw ? parseActivator(raw) : { kind: "off" };
     };
     readActivator();
 

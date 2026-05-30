@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { migrateKey, migratePrefix, removeKey, runStorageMigrations } from "./storage-migration";
+import { migrateKey, migratePrefix, migrateValue, removeKey, runStorageMigrations } from "./storage-migration";
 
 beforeEach(() => {
   localStorage.clear();
@@ -21,6 +21,30 @@ describe("removeKey", () => {
 
   test("no-op when key is absent", () => {
     removeKey("missing");
+
+    expect(localStorage.getItem("missing")).toBeNull();
+  });
+});
+
+describe("migrateValue", () => {
+  test("converts matching old value to new value", () => {
+    localStorage.setItem("key", "1");
+
+    migrateValue("key", "1", "true");
+
+    expect(localStorage.getItem("key")).toBe("true");
+  });
+
+  test("no-op when current value does not match old value", () => {
+    localStorage.setItem("key", "true");
+
+    migrateValue("key", "1", "true");
+
+    expect(localStorage.getItem("key")).toBe("true");
+  });
+
+  test("no-op when key is absent", () => {
+    migrateValue("missing", "1", "true");
 
     expect(localStorage.getItem("missing")).toBeNull();
   });
@@ -244,6 +268,14 @@ describe("runStorageMigrations", () => {
 
     expect(localStorage.getItem("vellum:skills:tipDismissed")).toBe("true");
     expect(localStorage.getItem("vellum:skillsTabTipDismissed")).toBeNull();
+  });
+
+  test("converts skills tip value from '1' to 'true'", () => {
+    localStorage.setItem("vellum:skills:tipDismissed", "1");
+
+    runStorageMigrations();
+
+    expect(localStorage.getItem("vellum:skills:tipDismissed")).toBe("true");
   });
 
   test("does not touch device: keys", () => {
