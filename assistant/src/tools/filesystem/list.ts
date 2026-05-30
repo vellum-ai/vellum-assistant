@@ -2,35 +2,39 @@ import { RiskLevel } from "../../permissions/types.js";
 import { registerTool } from "../registry.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
-import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
-class FileListTool implements ToolDefinition {
-  name = "file_list";
-  description =
-    "List the contents of a directory on your own machine. Returns file and subdirectory names with type indicators and sizes.";
-  category = "filesystem";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
+export const fileListTool: ToolDefinition = {
+  name: "file_list",
+  description:
+    "List the contents of a directory on your own machine. Returns file and subdirectory names with type indicators and sizes.",
+  category: "filesystem",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-            description: "The directory path to list",
-          },
-          glob: {
-            type: "string",
-            description: "Filter entries by glob pattern, e.g. '*.md'",
-          },
-          activity: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are doing and why, shown as a status update.",
-          },
-        },
-        required: ["path", "activity"],
-      };
+  input_schema: {
+    type: "object",
+    properties: {
+      path: {
+        type: "string",
+        description: "The directory path to list",
+      },
+      glob: {
+        type: "string",
+        description: "Filter entries by glob pattern, e.g. '*.md'",
+      },
+      activity: {
+        type: "string",
+        description:
+          "Brief non-technical explanation of what you are doing and why, shown as a status update.",
+      },
+    },
+    required: ["path", "activity"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -80,8 +84,7 @@ class FileListTool implements ToolDefinition {
     }
 
     return { content: result.value.listing, isError: false };
-  }
-}
+  },
+};
 
-export const fileListTool = new FileListTool();
 registerTool(fileListTool);

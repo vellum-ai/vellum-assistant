@@ -5,44 +5,48 @@ import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatEditDiff } from "../shared/filesystem/format-diff.js";
 import { hostPolicy } from "../shared/filesystem/path-policy.js";
-import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
-class HostFileEditTool implements ToolDefinition {
-  name = "host_file_edit";
-  description =
-    "Replace exact text in a file on your guardian's device with new text. For files on your own machine, use file_edit instead.";
-  category = "host-filesystem";
-  executionTarget = "host" as const;
-  defaultRiskLevel = RiskLevel.Medium;
+export const hostFileEditTool: ToolDefinition = {
+  name: "host_file_edit",
+  description:
+    "Replace exact text in a file on your guardian's device with new text. For files on your own machine, use file_edit instead.",
+  category: "host-filesystem",
+  executionTarget: "host",
+  defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-            description: "Absolute host path to the file to edit",
-          },
-          old_string: {
-            type: "string",
-            description: "The exact text to find in the file",
-          },
-          new_string: {
-            type: "string",
-            description: "The replacement text",
-          },
-          replace_all: {
-            type: "boolean",
-            description:
-              "Replace all occurrences instead of requiring a unique match (default: false)",
-          },
-          target_client_id: {
-            type: "string",
-            description:
-              "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
-          },
-        },
-        required: ["path", "old_string", "new_string"],
-      };
+  input_schema: {
+    type: "object",
+    properties: {
+      path: {
+        type: "string",
+        description: "Absolute host path to the file to edit",
+      },
+      old_string: {
+        type: "string",
+        description: "The exact text to find in the file",
+      },
+      new_string: {
+        type: "string",
+        description: "The replacement text",
+      },
+      replace_all: {
+        type: "boolean",
+        description:
+          "Replace all occurrences instead of requiring a unique match (default: false)",
+      },
+      target_client_id: {
+        type: "string",
+        description:
+          "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
+      },
+    },
+    required: ["path", "old_string", "new_string"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -229,7 +233,5 @@ class HostFileEditTool implements ToolDefinition {
       isError: false,
       diff: { filePath, oldContent, newContent, isNewFile: false },
     };
-  }
-}
-
-export const hostFileEditTool: ToolDefinition = new HostFileEditTool();
+  },
+};

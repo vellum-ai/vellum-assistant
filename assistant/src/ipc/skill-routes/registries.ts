@@ -25,7 +25,7 @@ import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
 import { resolveExecutionTarget } from "../../tools/execution-target.js";
 import { registerSkillTools } from "../../tools/registry.js";
 import type { Tool } from "../../tools/types.js";
-import { RiskLevel } from "../../tools/types.js";
+import { WireToolDefinitionSchema } from "../../tools/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { SkillIpcRoute } from "../skill-ipc-types.js";
 import type { SkillIpcConnection } from "../skill-server.js";
@@ -33,22 +33,12 @@ import type { SkillIpcConnection } from "../skill-server.js";
 const log = getLogger("skill-routes-registries");
 
 // ── Wire-level schemas ────────────────────────────────────────────────
-
-/**
- * Wire form of a {@link ToolDefinition} sent over IPC by a skill process.
- * Identical structurally to {@link ToolDefinition} except `execute` is
- * dropped (a closure cannot cross the socket) — the daemon synthesizes
- * an `execute` that forwards invocations back over IPC; see
- * {@link buildProxyTool}.
- */
-const WireToolDefinitionSchema = z.object({
-  name: z.string().min(1),
-  description: z.string(),
-  input_schema: z.record(z.string(), z.unknown()),
-  defaultRiskLevel: z.enum(["low", "medium", "high"]),
-  category: z.string().min(1),
-  executionTarget: z.enum(["sandbox", "host"]).optional(),
-});
+//
+// `WireToolDefinitionSchema` is the single source of truth for the wire
+// form of a tool. It lives in `tools/types.ts` alongside the loose
+// `ToolDefinitionSchema` that `ToolDefinition` is inferred from, so both
+// the in-process author shape and the IPC wire shape derive from one
+// schema declaration.
 
 // `skillId` lives at the params level rather than per-tool: a single
 // `register_tools` IPC frame is always one skill's batch, ownership flows
@@ -183,15 +173,15 @@ function buildProxyTool(definition: WireToolDefinition): Tool {
   // The Zod schema (`WireToolDefinitionSchema`) requires name, description,
   // input_schema, defaultRiskLevel, and category — `definition` arrives via
   // that parse, so every field below is guaranteed present at runtime.
-  // RiskLevel is a string enum whose values are "low" | "medium" | "high",
-  // matching the schema above exactly — the cast is a no-op at runtime.
+  // `defaultRiskLevel` is `z.enum(RiskLevel)` so the inferred type IS
+  // `RiskLevel` (the native enum), no cast needed.
   const { name } = definition;
   return {
     name,
     description: definition.description,
     input_schema: definition.input_schema,
     category: definition.category,
-    defaultRiskLevel: definition.defaultRiskLevel as RiskLevel,
+    defaultRiskLevel: definition.defaultRiskLevel,
     executionTarget: resolveExecutionTarget({
       name,
       executionTarget: definition.executionTarget,

@@ -37,7 +37,11 @@ import {
 } from "../background-tool-registry.js";
 import { formatShellOutput } from "../shared/shell-output.js";
 import { buildSanitizedEnv } from "../terminal/safe-env.js";
-import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
 const log = getLogger("host-shell-tool");
 
@@ -91,52 +95,52 @@ function buildHostBashProxyEnv(
   return env;
 }
 
-class HostShellTool implements ToolDefinition {
-  name = "host_bash";
-  description =
-    "LAST RESORT — Execute a shell command directly on the host machine. You MUST strongly prefer the regular `bash` tool for all commands. Only use `host_bash` when you are absolutely certain the command MUST run on the host machine and CANNOT run in the workspace (e.g., managing host-level system services, accessing host-only peripherals, or interacting with host paths outside the workspace). If in doubt, use `bash` instead. Approval-gated: each invocation must be explicitly approved. Do not use for commands that require injected credentials or secrets.";
-  category = "host-terminal";
-  executionTarget = "host" as const;
+export const hostShellTool: ToolDefinition = {
+  name: "host_bash",
+  description:
+    "LAST RESORT — Execute a shell command directly on the host machine. You MUST strongly prefer the regular `bash` tool for all commands. Only use `host_bash` when you are absolutely certain the command MUST run on the host machine and CANNOT run in the workspace (e.g., managing host-level system services, accessing host-only peripherals, or interacting with host paths outside the workspace). If in doubt, use `bash` instead. Approval-gated: each invocation must be explicitly approved. Do not use for commands that require injected credentials or secrets.",
+  category: "host-terminal",
+  executionTarget: "host",
   // host_bash is a weaker-tier escape hatch under CES lockdown. It remains
   // Medium risk by default but persistent approvals are disabled for
   // untrusted sessions (see execute()).
-  defaultRiskLevel = RiskLevel.Medium;
+  defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          command: {
-            type: "string",
-            description: "The host shell command to execute.",
-          },
-          activity: {
-            type: "string",
-            description:
-              'Brief non-technical explanation of what this command does and why, shown to a non-technical user in the permission prompt. Avoid jargon and technical terms. Good: "to check if a required program is installed on your computer". Bad: "to check if gcloud CLI is installed". Good: "to download a helper program". Bad: "to run npm install".',
-          },
-          working_dir: {
-            type: "string",
-            description:
-              "Optional absolute host working directory (defaults to user home)",
-          },
-          timeout_seconds: {
-            type: "number",
-            description:
-              "Optional timeout in seconds. Uses configured default and max limits.",
-          },
-          background: {
-            type: "boolean",
-            description:
-              "Run the command in the background on the host machine. The tool returns immediately with a background tool ID. When the process exits, its output is delivered to the conversation as a wake.",
-          },
-          target_client_id: {
-            type: "string",
-            description:
-              "ID of the specific client to execute this command on. Required when multiple clients support host_bash; omit when only one client is connected. Obtain IDs from `assistant clients list --capability host_bash`.",
-          },
-        },
-        required: ["command", "activity"],
-      };
+  input_schema: {
+    type: "object",
+    properties: {
+      command: {
+        type: "string",
+        description: "The host shell command to execute.",
+      },
+      activity: {
+        type: "string",
+        description:
+          'Brief non-technical explanation of what this command does and why, shown to a non-technical user in the permission prompt. Avoid jargon and technical terms. Good: "to check if a required program is installed on your computer". Bad: "to check if gcloud CLI is installed". Good: "to download a helper program". Bad: "to run npm install".',
+      },
+      working_dir: {
+        type: "string",
+        description:
+          "Optional absolute host working directory (defaults to user home)",
+      },
+      timeout_seconds: {
+        type: "number",
+        description:
+          "Optional timeout in seconds. Uses configured default and max limits.",
+      },
+      background: {
+        type: "boolean",
+        description:
+          "Run the command in the background on the host machine. The tool returns immediately with a background tool ID. When the process exits, its output is delivered to the conversation as a wake.",
+      },
+      target_client_id: {
+        type: "string",
+        description:
+          "ID of the specific client to execute this command on. Required when multiple clients support host_bash; omit when only one client is connected. Obtain IDs from `assistant clients list --capability host_bash`.",
+      },
+    },
+    required: ["command", "activity"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -565,7 +569,5 @@ class HostShellTool implements ToolDefinition {
         });
       });
     });
-  }
-}
-
-export const hostShellTool: ToolDefinition = new HostShellTool();
+  },
+};

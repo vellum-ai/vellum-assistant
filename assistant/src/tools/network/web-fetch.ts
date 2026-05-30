@@ -12,7 +12,11 @@ import { faviconUrlForDomain } from "../../util/favicon.js";
 import { getLogger } from "../../util/logger.js";
 import { safeStringSlice } from "../../util/unicode.js";
 import { registerTool } from "../registry.js";
-import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 import { extractDomain } from "./domain-normalize.js";
 import {
   buildHostHeader,
@@ -984,56 +988,55 @@ export async function executeWebFetch(
   }
 }
 
-class WebFetchTool implements ToolDefinition {
-  name = "web_fetch";
-  description =
-    "Fetch a webpage and return LLM-friendly extracted text with metadata. Use this after web_search when you need to read a specific result. To find pages on a site without guessing slugs, fetch /sitemap.xml first — it has ground-truth paths and works even when pages are JS-rendered.";
-  category = "network";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
+export const webFetchTool: ToolDefinition = {
+  name: "web_fetch",
+  description:
+    "Fetch a webpage and return LLM-friendly extracted text with metadata. Use this after web_search when you need to read a specific result. To find pages on a site without guessing slugs, fetch /sitemap.xml first — it has ground-truth paths and works even when pages are JS-rendered.",
+  category: "network",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          url: {
-            type: "string",
-            description:
-              "The target webpage URL. If scheme is missing, https:// is assumed.",
-          },
-          max_chars: {
-            type: "number",
-            description: `Maximum characters of content to return (1-${MAX_MAX_CHARS}, default ${DEFAULT_MAX_CHARS})`,
-          },
-          start_index: {
-            type: "number",
-            description:
-              "Character index to start returning content from (default 0). Useful for paging large pages.",
-          },
-          timeout_seconds: {
-            type: "number",
-            description: `Request timeout in seconds (1-${MAX_TIMEOUT_SECONDS}, default ${DEFAULT_TIMEOUT_SECONDS})`,
-          },
-          raw: {
-            type: "boolean",
-            description:
-              "If true, return normalized raw response text instead of extracted plain text for HTML pages.",
-          },
-          allow_private_network: {
-            type: "boolean",
-            description:
-              "If true, allows requests to localhost/private-network hosts. Disabled by default for SSRF safety.",
-          },
-        },
-        required: ["url"],
-      };
+  input_schema: {
+    type: "object",
+    properties: {
+      url: {
+        type: "string",
+        description:
+          "The target webpage URL. If scheme is missing, https:// is assumed.",
+      },
+      max_chars: {
+        type: "number",
+        description: `Maximum characters of content to return (1-${MAX_MAX_CHARS}, default ${DEFAULT_MAX_CHARS})`,
+      },
+      start_index: {
+        type: "number",
+        description:
+          "Character index to start returning content from (default 0). Useful for paging large pages.",
+      },
+      timeout_seconds: {
+        type: "number",
+        description: `Request timeout in seconds (1-${MAX_TIMEOUT_SECONDS}, default ${DEFAULT_TIMEOUT_SECONDS})`,
+      },
+      raw: {
+        type: "boolean",
+        description:
+          "If true, return normalized raw response text instead of extracted plain text for HTML pages.",
+      },
+      allow_private_network: {
+        type: "boolean",
+        description:
+          "If true, allows requests to localhost/private-network hosts. Disabled by default for SSRF safety.",
+      },
+    },
+    required: ["url"],
+  },
 
   async execute(
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> {
     return executeWebFetch(input, { signal: context.signal });
-  }
-}
+  },
+};
 
-export const webFetchTool = new WebFetchTool();
 registerTool(webFetchTool);

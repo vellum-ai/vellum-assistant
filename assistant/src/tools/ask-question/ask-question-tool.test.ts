@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import type { QuestionPromptResult } from "../../permissions/question-prompter.js";
-import type { ToolContext } from "../types.js";
-import { AskQuestionTool } from "./ask-question-tool.js";
+import type { ToolContext, ToolDefinition } from "../types.js";
+import { askQuestionTool, createAskQuestionTool } from "./ask-question-tool.js";
 
 type PromptParams = Parameters<
   import("../../permissions/question-prompter.js").QuestionPrompter["prompt"]
@@ -19,11 +19,11 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
 }
 
 function makeToolWithStub(result: QuestionPromptResult): {
-  tool: AskQuestionTool;
+  tool: ToolDefinition;
   calls: PromptParams[];
 } {
   const calls: PromptParams[] = [];
-  const tool = new AskQuestionTool(() => ({
+  const tool = createAskQuestionTool(() => ({
     async prompt(params: PromptParams) {
       calls.push(params);
       return result;
@@ -49,9 +49,9 @@ const singleQ = {
   freeTextPlaceholder: validInput.freeTextPlaceholder,
 };
 
-describe("AskQuestionTool definition", () => {
+describe("askQuestionTool definition", () => {
   test("exposes the expected schema shape and description language", () => {
-    const def = new AskQuestionTool();
+    const def = askQuestionTool;
     expect(def.name).toBe("ask_question");
     expect(def.description).toContain("free-text fallback is always added");
     expect(def.description).toContain("do not");
@@ -102,7 +102,7 @@ describe("AskQuestionTool.execute", () => {
       singleCompleted({ decision: "option", optionId: "a" }),
     );
 
-    const result = await tool.execute(validInput, makeContext());
+    const result = await tool.execute!(validInput, makeContext());
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.conversationId).toBe("conv-1");
@@ -125,7 +125,7 @@ describe("AskQuestionTool.execute", () => {
     const { tool } = makeToolWithStub(
       singleCompleted({ decision: "option", optionId: "b" }),
     );
-    const result = await tool.execute(validInput, makeContext());
+    const result = await tool.execute!(validInput, makeContext());
     expect(result.content).toBe(
       `Question "${validInput.question}" → Option: b (Banana)`,
     );
@@ -136,7 +136,7 @@ describe("AskQuestionTool.execute", () => {
     const { tool } = makeToolWithStub(
       singleCompleted({ decision: "option", optionId: "ghost" }),
     );
-    const result = await tool.execute(validInput, makeContext());
+    const result = await tool.execute!(validInput, makeContext());
     expect(result.content).toBe(
       `Question "${validInput.question}" → Option: ghost ((unknown))`,
     );
@@ -147,7 +147,7 @@ describe("AskQuestionTool.execute", () => {
     const { tool } = makeToolWithStub(
       singleCompleted({ decision: "free_text", text: "Cherry" }),
     );
-    const result = await tool.execute(validInput, makeContext());
+    const result = await tool.execute!(validInput, makeContext());
     expect(result.content).toBe(
       `Question "${validInput.question}" → Free text: Cherry`,
     );
@@ -156,7 +156,7 @@ describe("AskQuestionTool.execute", () => {
 
   test("formats skipped result", async () => {
     const { tool } = makeToolWithStub(singleCompleted({ decision: "skipped" }));
-    const result = await tool.execute(validInput, makeContext());
+    const result = await tool.execute!(validInput, makeContext());
     expect(result.content).toBe(`Question "${validInput.question}" → Skipped`);
     expect(result.isError).toBe(false);
   });
@@ -166,7 +166,7 @@ describe("AskQuestionTool.execute", () => {
       entries: [{ questionId: "q1", decision: "timed_out" }],
       overall: "timed_out",
     });
-    const result = await tool.execute(validInput, makeContext());
+    const result = await tool.execute!(validInput, makeContext());
     expect(result.isError).toBe(true);
     expect(result.content).toBe("User did not respond within timeout");
   });
@@ -176,7 +176,7 @@ describe("AskQuestionTool.execute", () => {
       entries: [{ questionId: "q1", decision: "skipped" }],
       overall: "aborted",
     });
-    const result = await tool.execute(validInput, makeContext());
+    const result = await tool.execute!(validInput, makeContext());
     expect(result.isError).toBe(true);
     expect(result.content).toBe("Question aborted");
   });
@@ -185,7 +185,7 @@ describe("AskQuestionTool.execute", () => {
     const { tool, calls } = makeToolWithStub(
       singleCompleted({ decision: "option", optionId: "a" }),
     );
-    const result = await tool.execute(
+    const result = await tool.execute!(
       { ...validInput, options: [{ id: "a", label: "Apple" }] },
       makeContext(),
     );
@@ -198,7 +198,7 @@ describe("AskQuestionTool.execute", () => {
     const { tool, calls } = makeToolWithStub(
       singleCompleted({ decision: "option", optionId: "a" }),
     );
-    const result = await tool.execute(
+    const result = await tool.execute!(
       {
         ...validInput,
         options: [
@@ -219,7 +219,7 @@ describe("AskQuestionTool.execute", () => {
     const { tool, calls } = makeToolWithStub(
       singleCompleted({ decision: "option", optionId: "a" }),
     );
-    const result = await tool.execute(
+    const result = await tool.execute!(
       { ...validInput, question: "" },
       makeContext(),
     );
@@ -232,7 +232,7 @@ describe("AskQuestionTool.execute", () => {
       singleCompleted({ decision: "option", optionId: "a" }),
     );
     const ac = new AbortController();
-    await tool.execute(validInput, makeContext({ signal: ac.signal }));
+    await tool.execute!(validInput, makeContext({ signal: ac.signal }));
     expect(calls[0]?.signal).toBe(ac.signal);
   });
 });
@@ -245,7 +245,7 @@ describe("AskQuestionTool batched input", () => {
       singleCompleted({ decision: "option", optionId: "a" }),
     );
 
-    const result = await tool.execute(validInput, makeContext());
+    const result = await tool.execute!(validInput, makeContext());
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.questions).toHaveLength(1);
@@ -259,7 +259,7 @@ describe("AskQuestionTool batched input", () => {
       singleCompleted({ decision: "option", optionId: "a" }),
     );
 
-    const result = await tool.execute({ questions: [singleQ] }, makeContext());
+    const result = await tool.execute!({ questions: [singleQ] }, makeContext());
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.questions).toHaveLength(1);
@@ -298,7 +298,7 @@ describe("AskQuestionTool batched input", () => {
       overall: "completed",
     });
 
-    const result = await tool.execute(
+    const result = await tool.execute!(
       { questions: [singleQ, q2, q3] },
       makeContext(),
     );
@@ -345,7 +345,7 @@ describe("AskQuestionTool batched input", () => {
       overall: "completed",
     });
 
-    const result = await tool.execute(
+    const result = await tool.execute!(
       { questions: [singleQ, q2, q3] },
       makeContext(),
     );
@@ -376,7 +376,7 @@ describe("AskQuestionTool batched input", () => {
       overall: "closed",
     });
 
-    const result = await tool.execute(
+    const result = await tool.execute!(
       { questions: [singleQ, q2] },
       makeContext(),
     );
@@ -404,7 +404,7 @@ describe("AskQuestionTool batched input", () => {
     });
     const five = [singleQ, singleQ, singleQ, singleQ, singleQ];
 
-    const result = await tool.execute({ questions: five }, makeContext());
+    const result = await tool.execute!({ questions: five }, makeContext());
 
     expect(result.isError).toBe(false);
     expect(calls).toHaveLength(1);
@@ -417,7 +417,7 @@ describe("AskQuestionTool batched input", () => {
     );
     const six = [singleQ, singleQ, singleQ, singleQ, singleQ, singleQ];
 
-    const result = await tool.execute({ questions: six }, makeContext());
+    const result = await tool.execute!({ questions: six }, makeContext());
 
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("invalid input");
@@ -429,7 +429,7 @@ describe("AskQuestionTool batched input", () => {
       singleCompleted({ decision: "option", optionId: "a" }),
     );
 
-    const result = await tool.execute({ questions: [] }, makeContext());
+    const result = await tool.execute!({ questions: [] }, makeContext());
 
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("invalid input");
@@ -441,7 +441,7 @@ describe("AskQuestionTool batched input", () => {
       singleCompleted({ decision: "option", optionId: "a" }),
     );
 
-    const result = await tool.execute({}, makeContext());
+    const result = await tool.execute!({}, makeContext());
 
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("invalid input");
@@ -453,7 +453,7 @@ describe("AskQuestionTool batched input", () => {
       singleCompleted({ decision: "option", optionId: "a" }),
     );
 
-    const result = await tool.execute({ question: "Hi?" }, makeContext());
+    const result = await tool.execute!({ question: "Hi?" }, makeContext());
 
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("invalid input");
@@ -461,9 +461,9 @@ describe("AskQuestionTool batched input", () => {
   });
 });
 
-describe("AskQuestionTool definition (batched schema)", () => {
+describe("askQuestionTool definition (batched schema)", () => {
   test("exposes `questions[]` shape, keeps legacy fields, omits per-question id", () => {
-    const def = new AskQuestionTool();
+    const def = askQuestionTool;
     const schema = def.input_schema as unknown as {
       properties: Record<
         string,

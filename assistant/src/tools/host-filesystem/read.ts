@@ -10,39 +10,43 @@ import {
   readImageFile,
 } from "../shared/filesystem/image-read.js";
 import { hostPolicy } from "../shared/filesystem/path-policy.js";
-import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
-class HostFileReadTool implements ToolDefinition {
-  name = "host_file_read";
-  description =
-    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP). For files on your own machine, use file_read instead.";
-  category = "host-filesystem";
-  executionTarget = "host" as const;
-  defaultRiskLevel = RiskLevel.Medium;
+export const hostFileReadTool: ToolDefinition = {
+  name: "host_file_read",
+  description:
+    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP). For files on your own machine, use file_read instead.",
+  category: "host-filesystem",
+  executionTarget: "host",
+  defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-            description: "Absolute path to the host file to read",
-          },
-          offset: {
-            type: "number",
-            description: "Line number to start reading from (1-indexed)",
-          },
-          limit: {
-            type: "number",
-            description: "Maximum number of lines to read",
-          },
-          target_client_id: {
-            type: "string",
-            description:
-              "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
-          },
-        },
-        required: ["path"],
-      };
+  input_schema: {
+    type: "object",
+    properties: {
+      path: {
+        type: "string",
+        description: "Absolute path to the host file to read",
+      },
+      offset: {
+        type: "number",
+        description: "Line number to start reading from (1-indexed)",
+      },
+      limit: {
+        type: "number",
+        description: "Maximum number of lines to read",
+      },
+      target_client_id: {
+        type: "string",
+        description:
+          "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
+      },
+    },
+    required: ["path"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -183,7 +187,5 @@ class HostFileReadTool implements ToolDefinition {
     }
 
     return { content: result.value.content, isError: false };
-  }
-}
-
-export const hostFileReadTool: ToolDefinition = new HostFileReadTool();
+  },
+};

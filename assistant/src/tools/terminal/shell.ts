@@ -44,14 +44,14 @@ function buildCredentialRefTrace(
 
 const log = getLogger("shell-tool");
 
-class ShellTool implements ToolDefinition {
-  name = "bash";
-  description = "Execute a shell command on the local machine";
-  category = "terminal";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Medium;
+export const shellTool: ToolDefinition = {
+  name: "bash",
+  description: "Execute a shell command on the local machine",
+  category: "terminal",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema = {
+  input_schema: {
     type: "object",
     properties: {
       command: {
@@ -87,7 +87,7 @@ class ShellTool implements ToolDefinition {
       },
     },
     required: ["command", "activity"],
-  };
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -558,8 +558,8 @@ class ShellTool implements ToolDefinition {
     });
 
     return result;
-  }
-}
+  },
+};
 
 /**
  * Structured teardown log. Pairs with the `"Executing shell command"`
@@ -652,5 +652,4 @@ function buildKillTree(
   };
 }
 
-export const shellTool: ToolDefinition = new ShellTool();
 registerTool(shellTool);

@@ -10,90 +10,97 @@
  * straight through to the CES RPC call with no transformation.
  */
 
-import { GrantProposalSchema, renderProposal } from "@vellumai/service-contracts/credential-rpc";
+import {
+  GrantProposalSchema,
+  renderProposal,
+} from "@vellumai/service-contracts/credential-rpc";
 
 import { RiskLevel } from "../../permissions/types.js";
 import { getLogger } from "../../util/logger.js";
-import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
 const log = getLogger("ces-tool:run-authenticated-command");
 
-class RunAuthenticatedCommandTool implements ToolDefinition {
-  name = "run_authenticated_command";
-  description =
-    "Execute a command with credential environment variables injected by CES. The command runs inside the CES sandbox - the assistant never sees raw secrets.";
-  category = "credential-execution";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.High;
+export const runAuthenticatedCommandTool: ToolDefinition = {
+  name: "run_authenticated_command",
+  description:
+    "Execute a command with credential environment variables injected by CES. The command runs inside the CES sandbox - the assistant never sees raw secrets.",
+  category: "credential-execution",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.High,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          credentialHandle: {
-            type: "string",
-            description:
-              "CES credential handle to use for environment injection (e.g. local_static:aws/key).",
-          },
-          command: {
-            type: "string",
-            description:
-              "Secure command reference in format '<bundleDigest>/<profileName> [argv...]'. Only manifest-driven secure commands are supported.",
-          },
-          cwd: {
-            type: "string",
-            description:
-              "Optional path used for resolving workspace input/output staging, not as the actual execution working directory (CES always runs commands in the scratch directory).",
-          },
-          purpose: {
-            type: "string",
-            description:
-              "Human-readable purpose for this command, shown in audit logs and approval prompts.",
-          },
-          inputs: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                workspacePath: {
-                  type: "string",
-                  description:
-                    "Relative path within the assistant workspace to stage as a read-only input.",
-                },
-              },
-              required: ["workspacePath"],
+  input_schema: {
+    type: "object",
+    properties: {
+      credentialHandle: {
+        type: "string",
+        description:
+          "CES credential handle to use for environment injection (e.g. local_static:aws/key).",
+      },
+      command: {
+        type: "string",
+        description:
+          "Secure command reference in format '<bundleDigest>/<profileName> [argv...]'. Only manifest-driven secure commands are supported.",
+      },
+      cwd: {
+        type: "string",
+        description:
+          "Optional path used for resolving workspace input/output staging, not as the actual execution working directory (CES always runs commands in the scratch directory).",
+      },
+      purpose: {
+        type: "string",
+        description:
+          "Human-readable purpose for this command, shown in audit logs and approval prompts.",
+      },
+      inputs: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            workspacePath: {
+              type: "string",
+              description:
+                "Relative path within the assistant workspace to stage as a read-only input.",
             },
-            description:
-              "Workspace files to stage as read-only inputs in the CES scratch directory before command execution.",
           },
-          outputs: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                scratchPath: {
-                  type: "string",
-                  description:
-                    "Relative path within the scratch directory where the command writes output.",
-                },
-                workspacePath: {
-                  type: "string",
-                  description:
-                    "Relative path within the assistant workspace where the output is copied after execution.",
-                },
-              },
-              required: ["scratchPath", "workspacePath"],
-            },
-            description:
-              "Workspace files to copy back from the CES scratch directory after command execution.",
-          },
-          grantId: {
-            type: "string",
-            description:
-              "Existing grant ID to consume, if the caller holds one from a prior approval.",
-          },
+          required: ["workspacePath"],
         },
-        required: ["credentialHandle", "command", "purpose"],
-      };
+        description:
+          "Workspace files to stage as read-only inputs in the CES scratch directory before command execution.",
+      },
+      outputs: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            scratchPath: {
+              type: "string",
+              description:
+                "Relative path within the scratch directory where the command writes output.",
+            },
+            workspacePath: {
+              type: "string",
+              description:
+                "Relative path within the assistant workspace where the output is copied after execution.",
+            },
+          },
+          required: ["scratchPath", "workspacePath"],
+        },
+        description:
+          "Workspace files to copy back from the CES scratch directory after command execution.",
+      },
+      grantId: {
+        type: "string",
+        description:
+          "Existing grant ID to consume, if the caller holds one from a prior approval.",
+      },
+    },
+    required: ["credentialHandle", "command", "purpose"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -249,7 +256,5 @@ class RunAuthenticatedCommandTool implements ToolDefinition {
         isError: true,
       };
     }
-  }
-}
-
-export const runAuthenticatedCommandTool = new RunAuthenticatedCommandTool();
+  },
+};

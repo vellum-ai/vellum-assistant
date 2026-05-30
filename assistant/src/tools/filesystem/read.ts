@@ -8,40 +8,44 @@ import {
   readImageFile,
 } from "../shared/filesystem/image-read.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
-import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
-class FileReadTool implements ToolDefinition {
-  name = "file_read";
-  description =
-    "Read the contents of a file on your own machine. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. Use host_file_read for files on your guardian's device instead.";
-  category = "filesystem";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
+export const fileReadTool: ToolDefinition = {
+  name: "file_read",
+  description:
+    "Read the contents of a file on your own machine. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. Use host_file_read for files on your guardian's device instead.",
+  category: "filesystem",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-            description:
-              "The path to the file to read (absolute or relative to working directory)",
-          },
-          offset: {
-            type: "number",
-            description: "Line number to start reading from (1-indexed)",
-          },
-          limit: {
-            type: "number",
-            description: "Maximum number of lines to read",
-          },
-          activity: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are doing and why, shown as a status update.",
-          },
-        },
-        required: ["path", "activity"],
-      };
+  input_schema: {
+    type: "object",
+    properties: {
+      path: {
+        type: "string",
+        description:
+          "The path to the file to read (absolute or relative to working directory)",
+      },
+      offset: {
+        type: "number",
+        description: "Line number to start reading from (1-indexed)",
+      },
+      limit: {
+        type: "number",
+        description: "Maximum number of lines to read",
+      },
+      activity: {
+        type: "string",
+        description:
+          "Brief non-technical explanation of what you are doing and why, shown as a status update.",
+      },
+    },
+    required: ["path", "activity"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -105,8 +109,7 @@ class FileReadTool implements ToolDefinition {
     }
 
     return { content: result.value.content, isError: false };
-  }
-}
+  },
+};
 
-export const fileReadTool = new FileReadTool();
 registerTool(fileReadTool);

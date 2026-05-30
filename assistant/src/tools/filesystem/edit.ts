@@ -3,45 +3,49 @@ import { registerTool } from "../registry.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatEditDiff } from "../shared/filesystem/format-diff.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
-import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
-class FileEditTool implements ToolDefinition {
-  name = "file_edit";
-  description =
-    "Replace an exact string in a file on your own machine with a new string. Use this for surgical edits instead of rewriting entire files. Use host_file_edit for files on your guardian's device instead.";
-  category = "filesystem";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
+export const fileEditTool: ToolDefinition = {
+  name: "file_edit",
+  description:
+    "Replace an exact string in a file on your own machine with a new string. Use this for surgical edits instead of rewriting entire files. Use host_file_edit for files on your guardian's device instead.",
+  category: "filesystem",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-            description:
-              "The path to the file to edit (absolute or relative to working directory)",
-          },
-          old_string: {
-            type: "string",
-            description: "The exact text to find in the file",
-          },
-          new_string: {
-            type: "string",
-            description: "The replacement text",
-          },
-          replace_all: {
-            type: "boolean",
-            description:
-              "Replace all occurrences of old_string instead of requiring a unique match (default: false)",
-          },
-          activity: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are doing and why, shown as a status update.",
-          },
-        },
-        required: ["path", "old_string", "new_string", "activity"],
-      };
+  input_schema: {
+    type: "object",
+    properties: {
+      path: {
+        type: "string",
+        description:
+          "The path to the file to edit (absolute or relative to working directory)",
+      },
+      old_string: {
+        type: "string",
+        description: "The exact text to find in the file",
+      },
+      new_string: {
+        type: "string",
+        description: "The replacement text",
+      },
+      replace_all: {
+        type: "boolean",
+        description:
+          "Replace all occurrences of old_string instead of requiring a unique match (default: false)",
+      },
+      activity: {
+        type: "string",
+        description:
+          "Brief non-technical explanation of what you are doing and why, shown as a status update.",
+      },
+    },
+    required: ["path", "old_string", "new_string", "activity"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -152,8 +156,7 @@ class FileEditTool implements ToolDefinition {
       isError: false,
       diff: { filePath, oldContent, newContent, isNewFile: false },
     };
-  }
-}
+  },
+};
 
-export const fileEditTool = new FileEditTool();
 registerTool(fileEditTool);

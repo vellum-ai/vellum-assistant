@@ -11,17 +11,21 @@ import {
 } from "../../memory/graph/tools.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
-import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
 // ── remember ────────────────────────────────────────────────────────
 
-class RememberTool implements ToolDefinition {
-  name = "remember";
-  description = graphRememberDefinition.description;
-  category = "memory";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
-  input_schema = graphRememberDefinition.input_schema;
+export const rememberTool: ToolDefinition = {
+  name: "remember",
+  description: graphRememberDefinition.description,
+  category: "memory",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
+  input_schema: graphRememberDefinition.input_schema,
 
   async execute(
     input: Record<string, unknown>,
@@ -39,18 +43,18 @@ class RememberTool implements ToolDefinition {
       isError: !result.success,
       ...(typedInput.finish_turn === true ? { yieldToUser: true } : {}),
     };
-  }
-}
+  },
+};
 
 // ── recall ──────────────────────────────────────────────────────────
 
-class RecallTool implements ToolDefinition {
-  name = "recall";
-  description = graphRecallDefinition.description;
-  category = "memory";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
-  input_schema = graphRecallDefinition.input_schema;
+export const recallTool: ToolDefinition = {
+  name: "recall",
+  description: graphRecallDefinition.description,
+  category: "memory",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
+  input_schema: graphRecallDefinition.input_schema,
 
   async execute(
     input: Record<string, unknown>,
@@ -73,10 +77,5 @@ class RecallTool implements ToolDefinition {
     });
 
     return { content: result.content, isError: false };
-  }
-}
-
-// ── Exported tool instances ──────────────────────────────────────────
-
-export const rememberTool = new RememberTool();
-export const recallTool = new RecallTool();
+  },
+};

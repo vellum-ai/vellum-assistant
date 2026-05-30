@@ -1,6 +1,10 @@
 import { RiskLevel } from "../../permissions/types.js";
 import { registerTool } from "../registry.js";
-import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
 const PERMISSION_TYPES = [
   "full_disk_access",
@@ -49,32 +53,32 @@ const FRIENDLY_NAMES: Record<PermissionType, string> = {
   camera: "Camera",
 };
 
-class RequestSystemPermissionTool implements ToolDefinition {
-  name = "request_system_permission";
-  description =
+export const requestSystemPermissionTool: ToolDefinition = {
+  name: "request_system_permission",
+  description:
     "Request a macOS system permission via System Settings. " +
     "Use when a tool fails with a permission/access error (e.g. 'Operation not permitted', 'EACCES', sandbox denial). " +
-    "Do not explain how to open System Settings manually - this tool handles it with a clickable button.";
-  category = "system";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.High;
+    "Do not explain how to open System Settings manually - this tool handles it with a clickable button.",
+  category: "system",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.High,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          permission_type: {
-            type: "string",
-            enum: [...PERMISSION_TYPES],
-            description: "The macOS system permission to request",
-          },
-          activity: {
-            type: "string",
-            description:
-              "Short explanation of why this permission is needed (shown in the prompt)",
-          },
-        },
-        required: ["permission_type", "activity"],
-      };
+  input_schema: {
+    type: "object",
+    properties: {
+      permission_type: {
+        type: "string",
+        enum: [...PERMISSION_TYPES],
+        description: "The macOS system permission to request",
+      },
+      activity: {
+        type: "string",
+        description:
+          "Short explanation of why this permission is needed (shown in the prompt)",
+      },
+    },
+    required: ["permission_type", "activity"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -102,8 +106,7 @@ class RequestSystemPermissionTool implements ToolDefinition {
       ].join("\n"),
       isError: false,
     };
-  }
-}
+  },
+};
 
-export const requestSystemPermissionTool = new RequestSystemPermissionTool();
 registerTool(requestSystemPermissionTool);
