@@ -1535,49 +1535,249 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("preserves surfaceType verbatim without coercion", () => {
+  // ---------------------------------------------------------------------
+  // ui_surface_show (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses ui_surface_show with all fields", () => {
     const event = parseAssistantEvent({
       type: "ui_surface_show",
+      conversationId: "conv-1",
       surfaceId: "s-1",
-      surfaceType: "custom_widget",
-      data: { key: "value" },
+      surfaceType: "card",
+      title: "Status",
+      data: { title: "Hello", body: "World" },
+      actions: [
+        { id: "ok", label: "OK", style: "primary" },
+        { id: "cancel", label: "Cancel", style: "secondary" },
+      ],
+      display: "inline",
+      messageId: "m-1",
+      persistent: true,
     });
     expect(event).toEqual({
       type: "ui_surface_show",
+      conversationId: "conv-1",
       surfaceId: "s-1",
-      surfaceType: "custom_widget",
-      title: undefined,
-      data: { key: "value" },
-      actions: undefined,
-      display: undefined,
-      messageId: undefined,
+      surfaceType: "card",
+      title: "Status",
+      data: { title: "Hello", body: "World" },
+      actions: [
+        { id: "ok", label: "OK", style: "primary" },
+        { id: "cancel", label: "Cancel", style: "secondary" },
+      ],
+      display: "inline",
+      messageId: "m-1",
+      persistent: true,
     });
   });
 
-  test("preserves known surfaceType values as-is", () => {
+  test("parses ui_surface_show with required fields only", () => {
     const event = parseAssistantEvent({
       type: "ui_surface_show",
+      conversationId: "conv-2",
       surfaceId: "s-2",
       surfaceType: "form",
       data: {},
     });
-    expect(event.type).toBe("ui_surface_show");
-    if (event.type === "ui_surface_show") {
-      expect(event.surfaceType).toBe("form");
-    }
-  });
-
-  test("defaults surfaceType to 'card' when not a string", () => {
-    const event = parseAssistantEvent({
+    expect(event).toEqual({
       type: "ui_surface_show",
-      surfaceId: "s-3",
-      surfaceType: 42,
+      conversationId: "conv-2",
+      surfaceId: "s-2",
+      surfaceType: "form",
       data: {},
     });
-    expect(event.type).toBe("ui_surface_show");
-    if (event.type === "ui_surface_show") {
-      expect(event.surfaceType).toBe("card");
-    }
+  });
+
+  test("returns unknown ui_surface_show when conversationId is missing", () => {
+    const data = {
+      type: "ui_surface_show",
+      surfaceId: "s-3",
+      surfaceType: "card",
+      data: {},
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "ui_surface_show",
+      data,
+    });
+  });
+
+  test("returns unknown ui_surface_show when extra field is present", () => {
+    const data = {
+      type: "ui_surface_show",
+      conversationId: "conv-4",
+      surfaceId: "s-4",
+      surfaceType: "card",
+      data: {},
+      surpriseField: "boom",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "ui_surface_show",
+      data,
+      conversationId: "conv-4",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // ui_surface_update (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses ui_surface_update with all fields", () => {
+    const event = parseAssistantEvent({
+      type: "ui_surface_update",
+      conversationId: "conv-1",
+      surfaceId: "s-1",
+      data: { html: "<p>updated</p>" },
+    });
+    expect(event).toEqual({
+      type: "ui_surface_update",
+      conversationId: "conv-1",
+      surfaceId: "s-1",
+      data: { html: "<p>updated</p>" },
+    });
+  });
+
+  test("returns unknown ui_surface_update when data is missing", () => {
+    const data = {
+      type: "ui_surface_update",
+      conversationId: "conv-1",
+      surfaceId: "s-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "ui_surface_update",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown ui_surface_update when extra field is present", () => {
+    const data = {
+      type: "ui_surface_update",
+      conversationId: "conv-1",
+      surfaceId: "s-1",
+      data: {},
+      surpriseField: "boom",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "ui_surface_update",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // ui_surface_dismiss (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses ui_surface_dismiss with all fields", () => {
+    const event = parseAssistantEvent({
+      type: "ui_surface_dismiss",
+      conversationId: "conv-1",
+      surfaceId: "s-1",
+    });
+    expect(event).toEqual({
+      type: "ui_surface_dismiss",
+      conversationId: "conv-1",
+      surfaceId: "s-1",
+    });
+  });
+
+  test("returns unknown ui_surface_dismiss when surfaceId is missing", () => {
+    const data = {
+      type: "ui_surface_dismiss",
+      conversationId: "conv-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "ui_surface_dismiss",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown ui_surface_dismiss when extra field is present", () => {
+    const data = {
+      type: "ui_surface_dismiss",
+      conversationId: "conv-1",
+      surfaceId: "s-1",
+      surpriseField: "boom",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "ui_surface_dismiss",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // ui_surface_complete (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses ui_surface_complete with all fields", () => {
+    const event = parseAssistantEvent({
+      type: "ui_surface_complete",
+      conversationId: "conv-1",
+      surfaceId: "s-1",
+      summary: "Form submitted",
+      submittedData: { name: "Ada" },
+    });
+    expect(event).toEqual({
+      type: "ui_surface_complete",
+      conversationId: "conv-1",
+      surfaceId: "s-1",
+      summary: "Form submitted",
+      submittedData: { name: "Ada" },
+    });
+  });
+
+  test("parses ui_surface_complete with required fields only", () => {
+    const event = parseAssistantEvent({
+      type: "ui_surface_complete",
+      conversationId: "conv-1",
+      surfaceId: "s-1",
+      summary: "Done",
+    });
+    expect(event).toEqual({
+      type: "ui_surface_complete",
+      conversationId: "conv-1",
+      surfaceId: "s-1",
+      summary: "Done",
+    });
+  });
+
+  test("returns unknown ui_surface_complete when summary is missing", () => {
+    const data = {
+      type: "ui_surface_complete",
+      conversationId: "conv-1",
+      surfaceId: "s-1",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "ui_surface_complete",
+      data,
+      conversationId: "conv-1",
+    });
+  });
+
+  test("returns unknown ui_surface_complete when extra field is present", () => {
+    const data = {
+      type: "ui_surface_complete",
+      conversationId: "conv-1",
+      surfaceId: "s-1",
+      summary: "Done",
+      surpriseField: "boom",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "ui_surface_complete",
+      data,
+      conversationId: "conv-1",
+    });
   });
 
   test("parses notification_intent with deep-link metadata", () => {

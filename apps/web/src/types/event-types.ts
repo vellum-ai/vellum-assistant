@@ -42,44 +42,6 @@ export interface StreamErrorEvent {
 /** Valid decisions accepted by the assistant runtime's POST /v1/confirm endpoint. */
 export type ConfirmationDecision = "allow" | "deny";
 
-export interface UISurfaceShowEvent {
-  type: "ui_surface_show";
-  surfaceId: string;
-  surfaceType: string;
-  title?: string;
-  data: Record<string, unknown>;
-  actions?: Array<{
-    id: string;
-    label: string;
-    style?: string;
-    data?: Record<string, unknown>;
-  }>;
-  display?: "inline" | "panel";
-  messageId?: string;
-  conversationId?: string;
-}
-
-export interface UISurfaceUpdateEvent {
-  type: "ui_surface_update";
-  surfaceId: string;
-  data: Record<string, unknown>;
-  conversationId?: string;
-}
-
-export interface UISurfaceDismissEvent {
-  type: "ui_surface_dismiss";
-  surfaceId: string;
-  conversationId?: string;
-}
-
-export interface UISurfaceCompleteEvent {
-  type: "ui_surface_complete";
-  surfaceId: string;
-  summary: string;
-  submittedData?: Record<string, unknown>;
-  conversationId?: string;
-}
-
 export interface ToolResultEvent {
   type: "tool_result";
   toolName: string;
@@ -361,10 +323,6 @@ export const USER_FACING_INTERACTION_KINDS: ReadonlySet<string> =
 export type AssistantEvent =
   | APIAssistantEvent
   | StreamErrorEvent
-  | UISurfaceShowEvent
-  | UISurfaceUpdateEvent
-  | UISurfaceDismissEvent
-  | UISurfaceCompleteEvent
   | ToolResultEvent
   | NotificationIntentEvent
   | UsageUpdateEvent
