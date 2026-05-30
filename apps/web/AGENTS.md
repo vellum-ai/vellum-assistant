@@ -16,6 +16,7 @@ Read these before making changes:
 ## Common pitfalls
 
 - **`conversationId` vs `conversationKey`**: API queries must send `conversationId` (UUID), never `conversationKey`. See [`docs/CONVENTIONS.md` — Conversation identifiers](./docs/CONVENTIONS.md#conversation-identifiers-conversationid-vs-conversationkey).
+- **Don't ship app state through outlet context.** React Router outlet context [re-renders every consumer when any field changes](https://reactrouter.com/start/framework/outlet) and forces a bundled value through every layout. Use it only for layout-scoped slots (header content, portal targets) where every consumer genuinely needs to re-render together. Cross-route app state — auth, lifecycle, selection, feature flags — belongs in a Zustand store so consumers can subscribe atomically. See [`docs/STATE_MANAGEMENT.md` — Why React Query (not SWR or others)](./docs/STATE_MANAGEMENT.md) for the server/client boundary.
 
 When a topic in `docs/CONVENTIONS.md` grows past ~100 lines and has a
 coherent boundary, extract it into a `docs/TOPIC.md` sibling with a
