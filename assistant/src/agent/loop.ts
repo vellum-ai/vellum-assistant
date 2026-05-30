@@ -724,7 +724,7 @@ export class AgentLoop {
         // Also strip old AX tree snapshots to keep TTFT from growing
         // linearly with step count in computer-use sessions.
         const providerHistory = compactAxTreeHistory(
-          stripOldImageBlocks(history),
+          stripOldMediaBlocks(history),
         );
 
         // Wrap the provider call in the `llmCall` pipeline so middleware
@@ -1539,7 +1539,7 @@ export function compactAxTreeHistory(messages: Message[]): Message[] {
  * turn. Using the last user message unconditionally would leave the most
  * recent tool screenshots unprotected from stripping.
  */
-function stripOldImageBlocks(history: Message[]): Message[] {
+function stripOldMediaBlocks(history: Message[]): Message[] {
   // Find the last user message that contains tool_result blocks.
   let lastToolResultUserIdx = -1;
   for (let i = history.length - 1; i >= 0; i--) {
@@ -1556,29 +1556,32 @@ function stripOldImageBlocks(history: Message[]): Message[] {
     // Keep the most recent tool-result user message intact (current turn)
     if (idx === lastToolResultUserIdx || msg.role !== "user") return msg;
 
-    // Check if any tool_result blocks have image contentBlocks
-    const hasImages = msg.content.some(
+    // Check if any tool_result blocks carry embedded media (image or audio).
+    const isMedia = (cb: ContentBlock) =>
+      cb.type === "image" || cb.type === "file";
+    const hasMedia = msg.content.some(
       (b) =>
         b.type === "tool_result" &&
-        (b as ToolResultContent).contentBlocks?.some(
-          (cb) => cb.type === "image",
-        ),
+        (b as ToolResultContent).contentBlocks?.some(isMedia),
     );
-    if (!hasImages) return msg;
+    if (!hasMedia) return msg;
 
-    // Strip images from tool_result blocks, replacing with text marker
+    // Strip media from tool_result blocks, replacing with a text marker. The
+    // model already saw/heard the media in the turn it was captured; resending
+    // the bytes every turn (a 12 MB audio clip isn't optimized like images)
+    // bloats the request until compaction.
     return {
       ...msg,
       content: msg.content.map((b) => {
         if (b.type !== "tool_result") return b;
         const tr = b as ToolResultContent;
-        if (!tr.contentBlocks?.some((cb) => cb.type === "image")) return b;
+        if (!tr.contentBlocks?.some(isMedia)) return b;
         return {
           ...tr,
           contentBlocks: undefined,
           content:
             (tr.content || "") +
-            "\n[Screenshot was captured and shown previously — image data removed to save context.]",
+            "\n[Media (image/audio) was captured and shown previously — binary data removed to save context.]",
         };
       }),
     };

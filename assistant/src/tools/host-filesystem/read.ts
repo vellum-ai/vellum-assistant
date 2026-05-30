@@ -4,6 +4,10 @@ import { supportsHostProxy } from "../../channels/types.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
+import {
+  AUDIO_EXTENSIONS,
+  readAudioFile,
+} from "../shared/filesystem/audio-read.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import {
   IMAGE_EXTENSIONS,
@@ -19,7 +23,7 @@ import type {
 export const hostFileReadTool = {
   name: "host_file_read",
   description:
-    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP). For files on your own machine, use file_read instead.",
+    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP) and audio (MP3, WAV, OGG, FLAC, AAC, M4A). For files on your own machine, use file_read instead.",
   category: "host-filesystem",
   executionTarget: "host",
   defaultRiskLevel: RiskLevel.Medium,
@@ -144,6 +148,14 @@ export const hostFileReadTool = {
         return { content: `Error: ${pathCheck.error}`, isError: true };
       }
       return readImageFile(pathCheck.resolved);
+    }
+
+    if (AUDIO_EXTENSIONS.has(ext)) {
+      const pathCheck = hostPolicy(rawPath);
+      if (!pathCheck.ok) {
+        return { content: `Error: ${pathCheck.error}`, isError: true };
+      }
+      return readAudioFile(pathCheck.resolved);
     }
 
     const ops = new FileSystemOps(hostPolicy);

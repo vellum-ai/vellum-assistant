@@ -648,6 +648,91 @@ describe("GeminiProvider", () => {
     });
   });
 
+  function toolResultWithAudio(mediaType: string, data: string): Message[] {
+    return [
+      { role: "user", content: [{ type: "text", text: "Read clip" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "call_audio",
+            name: "file_read",
+            input: { path: "/tmp/clip" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "call_audio",
+            content: "Audio loaded: /tmp/clip",
+            is_error: false,
+            contentBlocks: [
+              {
+                type: "file",
+                source: {
+                  type: "base64",
+                  media_type: mediaType,
+                  data,
+                  filename: "clip",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ];
+  }
+
+  test("sends tool_result audio as a separate inlineData Content (audio/mpeg → audio/mp3)", async () => {
+    fakeChunks = [textChunk("I hear a bell"), finishChunk("STOP", 20, 10)];
+
+    await provider.sendMessage(toolResultWithAudio("audio/mpeg", "QUJDREVG"));
+
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: Array<Record<string, unknown>>;
+    }>;
+    // user, model(functionCall), user(functionResponse), user(audio inlineData)
+    expect(contents).toHaveLength(4);
+    expect(contents[2].parts[0]).toMatchObject({
+      functionResponse: { name: "file_read" },
+    });
+    // Audio must NOT be mixed into the functionResponse Content.
+    expect(contents[2].parts.some((p) => "inlineData" in p)).toBe(false);
+    expect(contents[3].role).toBe("user");
+    expect(contents[3].parts[0]).toEqual({
+      inlineData: { mimeType: "audio/mp3", data: "QUJDREVG" },
+    });
+  });
+
+  test("drops unsupported tool_result audio (m4a) — no extra Content", async () => {
+    fakeChunks = [textChunk("ok"), finishChunk("STOP", 10, 2)];
+
+    await provider.sendMessage(toolResultWithAudio("audio/x-m4a", "QUJDREVG"));
+
+    const contents = lastStreamParams!.contents as Array<{ parts: unknown[] }>;
+    expect(contents).toHaveLength(3); // no separate media Content
+  });
+
+  test("degrades oversize tool_result audio into the functionResponse output", async () => {
+    fakeChunks = [textChunk("ok"), finishChunk("STOP", 10, 2)];
+    const oversize = "A".repeat(17_000_000); // > 12 MB raw
+
+    await provider.sendMessage(toolResultWithAudio("audio/mpeg", oversize));
+
+    const contents = lastStreamParams!.contents as Array<{
+      parts: Array<{ functionResponse?: { response: { output: string } } }>;
+    }>;
+    expect(contents).toHaveLength(3); // no inlineData Content
+    expect(contents[2].parts[0].functionResponse?.response.output).toContain(
+      "too large",
+    );
+  });
+
   test("replays Gemini thought signatures on serialized tool_use history", async () => {
     fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
 

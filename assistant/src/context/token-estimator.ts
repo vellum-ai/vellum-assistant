@@ -239,6 +239,11 @@ export function estimateContentBlockTokens(
             tokens += estimateContentBlockTokens(cb, options);
           } else if (cb.type === "image" && !anthropicDropsErrorImage) {
             tokens += estimateContentBlockTokens(cb, options);
+          } else if (cb.type === "file") {
+            // Audio file sub-blocks (e.g. file_read on an .mp3) are sent inline
+            // to Gemini; estimateFileDataTokens charges the ~32 tok/sec audio
+            // rate for Gemini and ~0 for providers that drop the block.
+            tokens += estimateContentBlockTokens(cb, options);
           }
         }
       }

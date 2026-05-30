@@ -458,7 +458,7 @@ export class GeminiProvider implements Provider {
 
     for (const msg of messages) {
       const role = msg.role === "assistant" ? "model" : "user";
-      const { parts, toolResultImageParts } = this.toGeminiParts(
+      const { parts, toolResultMediaParts } = this.toGeminiParts(
         msg.content,
         toolCallNames,
         model,
@@ -470,8 +470,8 @@ export class GeminiProvider implements Provider {
       // Gemini requires that a Content with functionResponse parts must not
       // contain non-functionResponse parts. Emit tool-result images in a
       // separate user Content entry.
-      if (toolResultImageParts.length > 0) {
-        result.push({ role: "user", parts: toolResultImageParts });
+      if (toolResultMediaParts.length > 0) {
+        result.push({ role: "user", parts: toolResultMediaParts });
       }
     }
 
@@ -484,9 +484,9 @@ export class GeminiProvider implements Provider {
     toolCallNames: Map<string, string>,
     model: string,
     role: "model" | "user",
-  ): { parts: genai.Part[]; toolResultImageParts: genai.Part[] } {
+  ): { parts: genai.Part[]; toolResultMediaParts: genai.Part[] } {
     const parts: genai.Part[] = [];
-    const toolResultImageParts: genai.Part[] = [];
+    const toolResultMediaParts: genai.Part[] = [];
 
     for (const block of blocks) {
       switch (block.type) {
@@ -558,16 +558,39 @@ export class GeminiProvider implements Provider {
             if (extraText.length > 0) {
               outputText = outputText + "\n" + extraText.join("\n");
             }
-            // Collect images separately — Gemini rejects mixing inlineData
-            // with functionResponse in the same Content entry.
+            // Collect images and inline-able audio separately — Gemini rejects
+            // mixing inlineData with functionResponse in the same Content entry.
             for (const cb of block.contentBlocks) {
               if (cb.type === "image") {
-                toolResultImageParts.push({
+                toolResultMediaParts.push({
                   inlineData: {
                     mimeType: cb.source.media_type,
                     data: cb.source.data,
                   },
                 });
+              } else if (cb.type === "file") {
+                const audioMime = normalizeGeminiAudioMime(
+                  cb.source.media_type,
+                );
+                if (
+                  audioMime &&
+                  base64ByteLength(cb.source.data) <=
+                    GEMINI_MAX_INLINE_AUDIO_BYTES
+                ) {
+                  toolResultMediaParts.push({
+                    inlineData: { mimeType: audioMime, data: cb.source.data },
+                  });
+                } else if (audioMime) {
+                  // Oversize audio: note it in the functionResponse output
+                  // rather than a media part (a text part can't ride the
+                  // separate media Content, and inline audio would blow
+                  // Gemini's request-size limit).
+                  outputText =
+                    outputText +
+                    `\n[Audio too large to send inline: ${cb.source.filename}. Ask for a shorter clip.]`;
+                }
+                // Non-inline-able file sub-blocks (m4a/opus/pdf) are skipped
+                // here; the tool's text output already conveys the file.
               }
             }
           }
@@ -593,7 +616,7 @@ export class GeminiProvider implements Provider {
       this.addGemini3UnsignedToolCallFallback(parts, model);
     }
 
-    return { parts, toolResultImageParts };
+    return { parts, toolResultMediaParts };
   }
 
   private addGemini3UnsignedToolCallFallback(
