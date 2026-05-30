@@ -7003,6 +7003,12 @@ paths:
                         properties: {}
                         additionalProperties: {}
                       - type: "null"
+                  memoryV3Selection:
+                    anyOf:
+                      - type: object
+                        properties: {}
+                        additionalProperties: {}
+                      - type: "null"
                 required:
                   - conversationId
                   - conversationKind
@@ -13439,6 +13445,12 @@ paths:
                         additionalProperties: {}
                       - type: "null"
                   memoryV2Activation:
+                    anyOf:
+                      - type: object
+                        properties: {}
+                        additionalProperties: {}
+                      - type: "null"
+                  memoryV3Selection:
                     anyOf:
                       - type: object
                         properties: {}

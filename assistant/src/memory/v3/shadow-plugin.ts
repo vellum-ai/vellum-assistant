@@ -46,12 +46,12 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getPageIndex } from "../v2/page-index.js";
-import { readPage, renderPageContent } from "../v2/page-store.js";
 import { loadCore } from "./core.js";
 import type { NeedleIndex } from "./needle.js";
 import { buildNeedleIndex } from "./needle.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
+import { renderV3PageContent } from "./page-content.js";
 import { renderMemoryBlock } from "./render-injection.js";
 import { coreSlugs, loadLeafTree, resolveDataDir } from "./tree.js";
 import {
@@ -106,25 +106,6 @@ async function pageSummary(slug: Slug): Promise<string> {
   try {
     const index = await getPageIndex(getWorkspaceDir());
     return index.bySlug.get(slug)?.summary ?? "";
-  } catch {
-    return "";
-  }
-}
-
-/**
- * Render a selected page's full content for live injection. Mirrors the v2
- * dynamic-memory layout (`# memory/concepts/<slug>.md\n<frontmatter+body>`) so
- * the working-set block reads like v2's. A missing page (or any read failure)
- * degrades to "" — `renderMemoryBlock` still emits a line for the slug, and a
- * blank section is preferable to throwing into the turn.
- */
-async function pageContent(slug: Slug): Promise<string> {
-  try {
-    const page = await readPage(getWorkspaceDir(), slug);
-    if (!page) return "";
-    const content = renderPageContent(page).trim();
-    if (content.length === 0) return "";
-    return `# memory/concepts/${slug}.md\n${content}`;
   } catch {
     return "";
   }
@@ -338,7 +319,10 @@ const memoryV3Injector: Injector = {
 
     try {
       // `renderMemoryBlock` returns "" for an empty selection; inject nothing.
-      const text = await renderMemoryBlock(result.finalInjection, pageContent);
+      const text = await renderMemoryBlock(
+        result.finalInjection,
+        renderV3PageContent,
+      );
       if (text.length === 0) return null;
       return {
         id: MEMORY_V3_BLOCK_ID,

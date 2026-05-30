@@ -134,6 +134,12 @@ export {
   type MemoryV2ConfigSnapshot,
   MemoryV2ConfigSnapshotSchema,
 } from "./responses/memory-v2-activation-log.js";
+export {
+  type MemoryV3SelectionLog,
+  MemoryV3SelectionLogSchema,
+  type MemoryV3SelectionRow,
+  MemoryV3SelectionRowSchema,
+} from "./responses/memory-v3-selection-log.js";
 
 /**
  * Canonical SSE event schema for the assistant runtime.
