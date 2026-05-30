@@ -601,7 +601,9 @@ export class Conversation {
     };
 
     provider
-      .sendMessage([warmMessage], tools, systemPrompt, {
+      .sendMessage([warmMessage], {
+        tools,
+        systemPrompt,
         config: {
           max_tokens: 1,
           callSite: "mainAgent",

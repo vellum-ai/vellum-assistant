@@ -42,7 +42,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "../providers/types.js";
 
 const userMessage: Message = {
@@ -72,8 +71,6 @@ function makePipeline(providerName: string): {
     name: providerName,
     async sendMessage(
       _messages: Message[],
-      _tools?: ToolDefinition[],
-      _systemPrompt?: string,
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
       captured = options?.config as Record<string, unknown> | undefined;

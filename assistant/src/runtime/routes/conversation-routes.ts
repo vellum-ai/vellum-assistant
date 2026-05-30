@@ -2144,9 +2144,10 @@ async function generateLlmSuggestion(
   // tokens here would be wasteful.
   const response = await provider.sendMessage(
     [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
-    [], // no tools
-    systemPrompt,
     {
+      tools: [],
+      // no tools
+      systemPrompt,
       config: {
         callSite: "replySuggestion",
         max_tokens: 60,

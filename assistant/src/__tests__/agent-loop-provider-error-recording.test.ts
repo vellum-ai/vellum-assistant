@@ -59,11 +59,13 @@ function makeThrowingProvider(
     name,
     async sendMessage(
       messages: Message[],
-      tools?: ToolDefinition[],
-      systemPrompt?: string,
       _options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
-      calls.push({ messages: [...messages], tools, systemPrompt });
+      calls.push({
+        messages: [...messages],
+        tools: _options?.tools,
+        systemPrompt: _options?.systemPrompt,
+      });
       throw throwFn();
     },
   };

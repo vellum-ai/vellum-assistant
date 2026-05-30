@@ -12,7 +12,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "../types.js";
 import {
   ContextOverflowError,
@@ -809,11 +808,9 @@ export class AnthropicProvider implements Provider {
 
   async sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
-    const { config, onEvent, signal } = options ?? {};
+    const { tools, systemPrompt, config, onEvent, signal } = options ?? {};
     const cacheTtl: "5m" | "1h" =
       ((config as Record<string, unknown> | undefined)?.cacheTtl as
         | "5m"

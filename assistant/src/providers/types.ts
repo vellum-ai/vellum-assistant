@@ -211,6 +211,8 @@ export interface SendMessageConfig {
 }
 
 export interface SendMessageOptions {
+  tools?: ToolDefinition[];
+  systemPrompt?: string;
   config?: SendMessageConfig;
   onEvent?: (event: ProviderEvent) => void;
   signal?: AbortSignal;
@@ -229,8 +231,6 @@ export interface Provider {
   tokenEstimationProvider?: string;
   sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse>;
 }

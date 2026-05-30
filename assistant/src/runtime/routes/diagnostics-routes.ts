@@ -266,35 +266,35 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
     try {
       const response = await provider.sendMessage(
         [userMessage(`Transcription: "${transcription}"`)],
-        [
-          {
-            name: "process_dictation",
-            description: "Classify the voice input and return cleaned text",
-            input_schema: {
-              type: "object" as const,
-              properties: {
-                mode: {
-                  type: "string",
-                  enum: ["dictation", "action"],
-                  description:
-                    "dictation = user wants text inserted/cleaned up for typing. action = user wants the assistant to perform a task.",
-                },
-                text: {
-                  type: "string",
-                  description:
-                    "If dictation: the cleaned/formatted text ready for insertion. If action: the raw transcription unchanged.",
-                },
-                reasoning: {
-                  type: "string",
-                  description: "Brief reasoning for the classification",
-                },
-              },
-              required: ["mode", "text", "reasoning"],
-            },
-          },
-        ],
-        systemPrompt,
         {
+          tools: [
+            {
+              name: "process_dictation",
+              description: "Classify the voice input and return cleaned text",
+              input_schema: {
+                type: "object" as const,
+                properties: {
+                  mode: {
+                    type: "string",
+                    enum: ["dictation", "action"],
+                    description:
+                      "dictation = user wants text inserted/cleaned up for typing. action = user wants the assistant to perform a task.",
+                  },
+                  text: {
+                    type: "string",
+                    description:
+                      "If dictation: the cleaned/formatted text ready for insertion. If action: the raw transcription unchanged.",
+                  },
+                  reasoning: {
+                    type: "string",
+                    description: "Brief reasoning for the classification",
+                  },
+                },
+                required: ["mode", "text", "reasoning"],
+              },
+            },
+          ],
+          systemPrompt,
           config: {
             callSite: "interactionClassifier",
             max_tokens: maxTokens,
@@ -405,9 +405,9 @@ async function handleCommandMode(
 
     const response = await provider.sendMessage(
       [userMessage(body.transcription)],
-      [],
-      systemPrompt,
       {
+        tools: [],
+        systemPrompt,
         config: { callSite: "interactionClassifier", max_tokens: maxTokens },
       },
     );
@@ -467,12 +467,8 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       text: z.string().describe("Processed text output"),
-      mode: z
-        .string()
-        .describe("Detected mode: dictation, command, or action"),
-      actionPlan: z
-        .string()
-        .describe("Action plan (only when mode is action)"),
+      mode: z.string().describe("Detected mode: dictation, command, or action"),
+      actionPlan: z.string().describe("Action plan (only when mode is action)"),
       resolvedProfileId: z.string().describe("Resolved dictation profile ID"),
       profileSource: z.string().describe("How the profile was resolved"),
     }),

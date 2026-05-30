@@ -35,7 +35,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "../providers/types.js";
 
 const DUMMY_MESSAGES: Message[] = [
@@ -66,8 +65,6 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       name: "anthropic",
       async sendMessage(
         _messages: Message[],
-        _tools?: ToolDefinition[],
-        _systemPrompt?: string,
         options?: SendMessageOptions,
       ): Promise<ProviderResponse> {
         captured = options;
@@ -76,7 +73,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     };
 
     const provider = new CallSiteConfiguredProvider(inner, "mainAgent");
-    await provider.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await provider.sendMessage(DUMMY_MESSAGES, {
       config: { model: "claude-opus-4-7" },
     });
 
@@ -92,8 +89,6 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       name: "anthropic",
       async sendMessage(
         _messages: Message[],
-        _tools?: ToolDefinition[],
-        _systemPrompt?: string,
         options?: SendMessageOptions,
       ): Promise<ProviderResponse> {
         captured = options;
@@ -102,7 +97,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     };
 
     const provider = new CallSiteConfiguredProvider(inner, "mainAgent");
-    await provider.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await provider.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "conversationTitle" },
     });
 
@@ -122,8 +117,6 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       name: "anthropic",
       async sendMessage(
         _messages: Message[],
-        _tools?: ToolDefinition[],
-        _systemPrompt?: string,
         options?: SendMessageOptions,
       ): Promise<ProviderResponse> {
         captured = options?.config as Record<string, unknown> | undefined;
@@ -132,7 +125,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     };
 
     const provider = new RetryProvider(inner);
-    await provider.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await provider.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent", overrideProfile: "fast" },
     });
 
@@ -178,12 +171,9 @@ describe("SendMessageOptions.config.overrideProfile", () => {
         connectionName === "openai-conn" ? altProvider : null,
     );
 
-    const response = await wrapped.sendMessage(
-      DUMMY_MESSAGES,
-      undefined,
-      undefined,
-      { config: { callSite: "mainAgent", overrideProfile: "fast" } },
-    );
+    const response = await wrapped.sendMessage(DUMMY_MESSAGES, {
+      config: { callSite: "mainAgent", overrideProfile: "fast" },
+    });
 
     expect(calls.default).toBe(0);
     expect(calls.alt).toBe(1);
@@ -203,8 +193,6 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       name: "anthropic",
       async sendMessage(
         _messages: Message[],
-        _tools?: ToolDefinition[],
-        _systemPrompt?: string,
         options?: SendMessageOptions,
       ): Promise<ProviderResponse> {
         captured = options?.config as Record<string, unknown> | undefined;
@@ -213,7 +201,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     };
 
     const provider = new RetryProvider(inner);
-    await provider.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await provider.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent", overrideProfile: "does-not-exist" },
     });
 
@@ -234,8 +222,6 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       name: "anthropic",
       async sendMessage(
         _messages: Message[],
-        _tools?: ToolDefinition[],
-        _systemPrompt?: string,
         options?: SendMessageOptions,
       ): Promise<ProviderResponse> {
         captured = options?.config as Record<string, unknown> | undefined;
@@ -244,7 +230,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     };
 
     const provider = new RetryProvider(inner);
-    await provider.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await provider.sendMessage(DUMMY_MESSAGES, {
       config: { callSite: "mainAgent" },
     });
 
@@ -257,8 +243,6 @@ describe("SendMessageOptions.config.overrideProfile", () => {
       name: "anthropic",
       async sendMessage(
         _messages: Message[],
-        _tools?: ToolDefinition[],
-        _systemPrompt?: string,
         options?: SendMessageOptions,
       ): Promise<ProviderResponse> {
         captured = options?.config as Record<string, unknown> | undefined;
@@ -267,7 +251,7 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     };
 
     const provider = new RetryProvider(inner);
-    await provider.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await provider.sendMessage(DUMMY_MESSAGES, {
       config: { overrideProfile: "fast" },
     });
 

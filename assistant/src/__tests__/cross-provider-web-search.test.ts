@@ -366,7 +366,9 @@ describe("Cross-Provider Web Search — OpenAI (Responses API, native mode)", ()
       },
     ];
 
-    await provider.sendMessage([userMsg("Search for something")], tools);
+    await provider.sendMessage([userMsg("Search for something")], {
+      tools,
+    });
 
     const sentTools = lastOpenAIResponsesParams!.tools as Array<
       Record<string, unknown>
@@ -494,7 +496,9 @@ describe("Cross-Provider Web Search — Fireworks", () => {
       "accounts/fireworks/models/kimi-k2p6",
     );
 
-    await provider.sendMessage([userMsg("Search for something")], sampleTools);
+    await provider.sendMessage([userMsg("Search for something")], {
+      tools: sampleTools,
+    });
 
     const tools = lastOpenAIChatParams!.tools as Array<{
       type: string;

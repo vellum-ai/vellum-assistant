@@ -274,7 +274,9 @@ export async function runGate(args: RunGateArgs): Promise<RunGateResult> {
   const startedAt = Date.now();
   let response;
   try {
-    response = await provider.sendMessage([userMsg], [gateTool], systemPrompt, {
+    response = await provider.sendMessage([userMsg], {
+      tools: [gateTool],
+      systemPrompt,
       config: {
         callSite: "memoryV3Gate" as const,
         tool_choice: { type: "tool" as const, name: GATE_TOOL_NAME },

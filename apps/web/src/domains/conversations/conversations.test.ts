@@ -22,8 +22,9 @@ function makeRaw(
     conversationType: "standard",
     source: "vellum",
     groupId: "",
+    isProcessing: false,
     ...overrides,
-  };
+  } as RawConversationSummary;
 }
 
 // ---------------------------------------------------------------------------

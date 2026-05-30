@@ -56,8 +56,13 @@ function makeProvider(
 ): Provider {
   return {
     name: "stub",
-    sendMessage: async (messages, tools, systemPrompt, options) => {
-      calls.push({ messages, tools, systemPrompt, options });
+    sendMessage: async (messages, options) => {
+      calls.push({
+        messages,
+        tools: options?.tools,
+        systemPrompt: options?.systemPrompt,
+        options,
+      });
       if (options?.signal?.aborted) {
         const err = new Error("aborted");
         err.name = "AbortError";

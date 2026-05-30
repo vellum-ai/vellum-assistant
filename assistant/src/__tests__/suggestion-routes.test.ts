@@ -442,7 +442,7 @@ describe("GET /v1/suggestion", () => {
       role: string;
       content: Array<{ type: string; text: string }>;
     }>;
-    const options = callArgs[3] as {
+    const options = callArgs[1] as {
       config?: {
         stop_sequences?: string[];
         max_tokens?: number;
@@ -557,7 +557,7 @@ describe("GET /v1/suggestion", () => {
 
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
     const callArgs = provider.sendMessage.mock.calls[0] as unknown[];
-    const options = callArgs[3] as
+    const options = callArgs[1] as
       | { config?: { callSite?: string } }
       | undefined;
     expect(options?.config?.callSite).toBe("replySuggestion");
@@ -595,7 +595,7 @@ describe("GET /v1/suggestion", () => {
 
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
     const callArgs = provider.sendMessage.mock.calls[0] as unknown[];
-    const options = callArgs[3] as
+    const options = callArgs[1] as
       | {
           config?: {
             temperature?: number;

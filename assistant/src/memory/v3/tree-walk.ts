@@ -265,18 +265,15 @@ export function createDescender(args: CreateDescenderArgs): DescendDecision {
     const startedAt = Date.now();
     let response;
     try {
-      response = await provider.sendMessage(
-        [userMsg],
-        [descendTool],
+      response = await provider.sendMessage([userMsg], {
+        tools: [descendTool],
         systemPrompt,
-        {
-          config: {
-            callSite: "memoryV3Descent" as const,
-            tool_choice: { type: "tool" as const, name: DESCEND_TOOL_NAME },
-          },
-          ...(input.signal ? { signal: input.signal } : {}),
+        config: {
+          callSite: "memoryV3Descent" as const,
+          tool_choice: { type: "tool" as const, name: DESCEND_TOOL_NAME },
         },
-      );
+        ...(input.signal ? { signal: input.signal } : {}),
+      });
     } catch (err) {
       log.warn(
         { err, nodeId },

@@ -200,7 +200,7 @@ describe("wakeAgentForOpportunity — resolver actually engages", () => {
   ): Provider {
     return {
       name,
-      async sendMessage(_messages, _tools, _systemPrompt, options) {
+      async sendMessage(_messages: Message[], options?: SendMessageOptions) {
         onCall(options);
         const response: ProviderResponse = {
           content: [{ type: "text", text: "ok" }],
@@ -246,8 +246,6 @@ describe("wakeAgentForOpportunity — resolver actually engages", () => {
     // `callSite` and `overrideProfile` are both set (see `agent/loop.ts`).
     await wrapped.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-      undefined,
-      undefined,
       { config: { callSite: "mainAgent", overrideProfile: "frontier" } },
     );
 
