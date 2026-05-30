@@ -40,6 +40,7 @@ import {
   assistantEventHub,
 } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
+import { getReplayWindow } from "../conversation-stream-state.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import {
   BadRequestError,
@@ -264,17 +265,30 @@ export function handleSubscribeAssistantEvents(
 
   const rawConversationId = queryParams?.conversationId;
   const rawConversationKey = queryParams?.conversationKey;
-  if (
-    "conversationId" in (queryParams ?? {}) &&
-    !rawConversationId?.trim()
-  ) {
+  const rawLastSeenSeq = queryParams?.lastSeenSeq;
+  if ("conversationId" in (queryParams ?? {}) && !rawConversationId?.trim()) {
     throw new BadRequestError("conversationId must not be empty");
   }
-  if (
-    "conversationKey" in (queryParams ?? {}) &&
-    !rawConversationKey?.trim()
-  ) {
+  if ("conversationKey" in (queryParams ?? {}) && !rawConversationKey?.trim()) {
     throw new BadRequestError("conversationKey must not be empty");
+  }
+
+  // Parse the optional reconnect cursor. We accept any non-negative integer
+  // -- including 0, which is the natural cursor for a client that has not
+  // yet observed any event in this conversation but still wants its full
+  // ring buffer replayed (as opposed to omitting the param entirely, which
+  // means "no replay attempt, just connect live").
+  let lastSeenSeq: number | null = null;
+  if (rawLastSeenSeq != null) {
+    const trimmed = rawLastSeenSeq.trim();
+    if (trimmed === "") {
+      throw new BadRequestError("lastSeenSeq must not be empty");
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      throw new BadRequestError("lastSeenSeq must be a non-negative integer");
+    }
+    lastSeenSeq = parsed;
   }
 
   // ── Client identity from headers ──────────────────────────────────────
@@ -372,9 +386,24 @@ export function handleSubscribeAssistantEvents(
     }
   }
 
+  // Tracks the highest seq enqueued during the synchronous replay drain.
+  // Live events that race in with seq <= this watermark are dropped to
+  // avoid double-delivery -- broadcastMessage stamps and rings BEFORE
+  // calling publish, so any in-flight event mid-replay is already in the
+  // replay window we just drained.
+  let highWaterReplaySeq = -1;
+
   const callback: AssistantEventCallback = (event) => {
     const controller = controllerRef;
     if (!controller) return;
+    if (
+      event.seq != null &&
+      highWaterReplaySeq >= 0 &&
+      event.seq <= highWaterReplaySeq
+    ) {
+      // Already delivered via replay; skip the duplicate.
+      return;
+    }
     try {
       if (controller.desiredSize != null && controller.desiredSize <= 0) {
         shedReporter("callback_backpressure", instrumentation);
@@ -430,6 +459,28 @@ export function handleSubscribeAssistantEvents(
           sub.dispose();
           cleanup();
           return;
+        }
+
+        // Reconnect replay: when the caller passed lastSeenSeq and the
+        // subscription is scoped to a single conversation, deliver any
+        // buffered events the client missed before the first heartbeat.
+        //
+        // If the cursor is older than the ring's oldest entry,
+        // `getReplayWindow` returns `null`. We do not surface that to
+        // the client over the wire -- the connection just goes live.
+        // The client detects the gap from the seq jump on its first
+        // live event and refetches via the existing messages API.
+        if (lastSeenSeq != null && filter.conversationId) {
+          const window = getReplayWindow(filter.conversationId, lastSeenSeq);
+          if (window !== null) {
+            for (const replayed of window) {
+              controller.enqueue(encoder.encode(formatSseFrame(replayed)));
+              instrumentation.eventsDelivered += 1;
+              if (replayed.seq != null && replayed.seq > highWaterReplaySeq) {
+                highWaterReplaySeq = replayed.seq;
+              }
+            }
+          }
         }
 
         controller.enqueue(encoder.encode(formatSseHeartbeat()));
@@ -526,6 +577,11 @@ export const ROUTES: RouteDefinition[] = [
         name: "conversationKey",
         description:
           "Scope to a single conversation by an external key (non-vellum channels) or the web idempotency key. Materializes a row on first use. Ignored when conversationId is also provided.",
+      },
+      {
+        name: "lastSeenSeq",
+        description:
+          "Optional reconnect cursor: the highest per-conversation event seq the client has already applied. When set together with a conversation scope, the daemon replays any buffered events with seq > lastSeenSeq before going live. If the cursor is older than the ring buffer's oldest entry the connection simply goes live; the client is expected to detect the gap from the next event's seq and refetch via the messages API. Must be a non-negative integer.",
       },
     ],
     responseHeaders: {

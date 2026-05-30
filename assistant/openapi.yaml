@@ -9072,6 +9072,17 @@ paths:
           description:
             Scope to a single conversation by an external key (non-vellum channels) or the web idempotency key.
             Materializes a row on first use. Ignored when conversationId is also provided.
+        - name: lastSeenSeq
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            "Optional reconnect cursor: the highest per-conversation event seq the client has already applied. When set
+            together with a conversation scope, the daemon replays any buffered events with seq > lastSeenSeq before
+            going live. If the cursor is older than the ring buffer's oldest entry the connection simply goes live; the
+            client is expected to detect the gap from the next event's seq and refetch via the messages API. Must be a
+            non-negative integer."
   /v1/events/emit:
     post:
       operationId: events_emit_post
