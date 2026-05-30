@@ -94,6 +94,10 @@ describe("VellumAgent", () => {
       profile,
       testId: "timeline-recall",
       runId: "eval-run-1",
+      // Pin to empty so a host-shell `ANTHROPIC_API_KEY` (or any other
+      // provider var) doesn't leak into the `env: {}` assertion below.
+      // The provider-forwarding contract has its own dedicated tests.
+      processEnv: {},
     });
 
     await agent.hatch();
