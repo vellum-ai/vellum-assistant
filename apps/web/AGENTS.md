@@ -16,6 +16,7 @@ Read these before making changes:
 ## Common pitfalls
 
 - **`conversationId` vs `conversationKey`**: API queries must send `conversationId` (UUID), never `conversationKey`. See [`docs/CONVENTIONS.md` — Conversation identifiers](./docs/CONVENTIONS.md#conversation-identifiers-conversationid-vs-conversationkey).
+- **Type colocation**: Types live with the module that owns them. `src/types/` is only for cross-domain types with no clear owning module. Don't create `-types.ts` files to break circular dependencies — use [`import type`](https://www.typescriptlang.org/docs/handbook/modules/reference.html#type-only-imports-and-exports) instead (erased at compile time, no runtime cycle). See [`docs/CONVENTIONS.md` — Top-level shared directories](./docs/CONVENTIONS.md#top-level-shared-directories).
 
 When a topic in `docs/CONVENTIONS.md` grows past ~100 lines and has a
 coherent boundary, extract it into a `docs/TOPIC.md` sibling with a

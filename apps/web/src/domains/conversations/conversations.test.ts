@@ -23,7 +23,7 @@ function makeRaw(
     source: "vellum",
     groupId: "",
     ...overrides,
-  };
+  } as RawConversationSummary;
 }
 
 // ---------------------------------------------------------------------------
