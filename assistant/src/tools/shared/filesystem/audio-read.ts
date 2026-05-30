@@ -104,3 +104,19 @@ export function readAudioFile(resolvedPath: string): ToolExecutionResult {
 
   return buildAudioToolResult(buffer, resolvedPath, mimeType);
 }
+
+/**
+ * Build an audio ToolExecutionResult from already-read base64 bytes. Used by
+ * the host-file proxy when a remote client streams audio back over the wire.
+ */
+export function readAudioBase64(
+  base64Data: string,
+  sourceLabel: string,
+  mimeType: string,
+): ToolExecutionResult {
+  return buildAudioToolResult(
+    Buffer.from(base64Data, "base64"),
+    sourceLabel,
+    mimeType,
+  );
+}
