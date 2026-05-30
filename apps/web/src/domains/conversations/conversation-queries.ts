@@ -50,7 +50,9 @@ import {
   extractErrorMessage,
 } from "@/utils/api-errors";
 import {
+  ARCHIVED_CONVERSATIONS_QUERY_KEY,
   CONVERSATIONS_QUERY_KEY,
+  archivedConversationsQueryKey,
   conversationsQueryKey,
 } from "@/lib/sync/query-tags";
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
@@ -68,7 +70,12 @@ export { CONVERSATION_NOT_FOUND, type FetchConversationDetailResult };
 // Query keys
 // ---------------------------------------------------------------------------
 
-export { CONVERSATIONS_QUERY_KEY, conversationsQueryKey };
+export {
+  ARCHIVED_CONVERSATIONS_QUERY_KEY,
+  CONVERSATIONS_QUERY_KEY,
+  archivedConversationsQueryKey,
+  conversationsQueryKey,
+};
 
 /**
  * Build the generated query key for conversation groups. Exported so that
@@ -90,10 +97,21 @@ export function conversationGroupsQueryKey(
 const CONVERSATION_LIST_PAGE_SIZE = 50;
 const CONVERSATION_LIST_MAX_PAGES = 200;
 
+type FetchConversationListOptions = {
+  conversationType?: "background";
+  /**
+   * Filter by archive state. Defaults to `"active"` on the daemon side, so
+   * omitting this returns non-archived rows only — matching how the sidebar
+   * wants to read the list. The Archive page passes `"archived"`.
+   */
+  archiveStatus?: "active" | "archived" | "all";
+};
+
 async function fetchConversationList(
   assistantId: string,
-  conversationType?: "background",
+  options: FetchConversationListOptions = {},
 ): Promise<Conversation[]> {
+  const { conversationType, archiveStatus } = options;
   const all: Conversation[] = [];
 
   for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
@@ -104,6 +122,7 @@ async function fetchConversationList(
         limit: CONVERSATION_LIST_PAGE_SIZE,
         offset,
         ...(conversationType ? { conversationType } : {}),
+        ...(archiveStatus ? { archiveStatus } : {}),
       },
       throwOnError: false,
     });
@@ -126,9 +145,15 @@ async function fetchConversationList(
 }
 
 /**
- * Fetch all conversations (foreground + background) for a given assistant.
- * Both are fetched in parallel and merged so the sidebar can display every
- * conversation type. Returns sorted newest-first.
+ * Fetch all active (non-archived) conversations — foreground + background —
+ * for a given assistant. Both buckets are fetched in parallel and merged so
+ * the sidebar can display every conversation type. Returns sorted
+ * newest-first.
+ *
+ * Archived conversations are filtered out on the daemon (the
+ * `archiveStatus` query param defaults to `"active"`), so the sidebar no
+ * longer paginates past stale archived rows. The Archive page reads from
+ * `listArchivedConversations` instead.
  *
  * The background fetch is best-effort: if it fails the foreground list is
  * still returned so the sidebar remains usable.
@@ -138,7 +163,7 @@ export async function listConversations(
 ): Promise<Conversation[]> {
   const [foregroundResult, backgroundResult] = await Promise.allSettled([
     fetchConversationList(assistantId),
-    fetchConversationList(assistantId, "background"),
+    fetchConversationList(assistantId, { conversationType: "background" }),
   ]);
 
   if (foregroundResult.status === "rejected") {
@@ -168,6 +193,57 @@ export async function listConversations(
   }
 
   conversations.sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
+
+  return conversations;
+}
+
+/**
+ * Fetch all archived conversations — foreground + background — for a given
+ * assistant. Mirrors `listConversations` but passes `archiveStatus:
+ * "archived"` so the daemon returns only archived rows. Sorted by
+ * `archivedAt` descending so the most recently archived row is first.
+ *
+ * The background fetch is best-effort: if it fails the foreground list is
+ * still returned so the archive page remains usable.
+ */
+export async function listArchivedConversations(
+  assistantId: string,
+): Promise<Conversation[]> {
+  const [foregroundResult, backgroundResult] = await Promise.allSettled([
+    fetchConversationList(assistantId, { archiveStatus: "archived" }),
+    fetchConversationList(assistantId, {
+      conversationType: "background",
+      archiveStatus: "archived",
+    }),
+  ]);
+
+  if (foregroundResult.status === "rejected") {
+    throw foregroundResult.reason;
+  }
+
+  const foreground = foregroundResult.value;
+  let background: Conversation[] = [];
+  if (backgroundResult.status === "fulfilled") {
+    background = backgroundResult.value;
+  } else {
+    Sentry.captureException(backgroundResult.reason, {
+      level: "warning",
+      tags: { context: "listArchivedConversations.backgroundFetch" },
+      extra: { assistantId },
+    });
+  }
+
+  const seen = new Set<string>();
+  const conversations: Conversation[] = [];
+  for (const conversation of [...foreground, ...background]) {
+    if (seen.has(conversation.conversationId)) {
+      continue;
+    }
+    seen.add(conversation.conversationId);
+    conversations.push(conversation);
+  }
+
+  conversations.sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
 
   return conversations;
 }
@@ -210,6 +286,44 @@ export function useConversationListQuery(
   const query = useQuery({
     queryKey: conversationsQueryKey(assistantId),
     queryFn: () => listConversations(assistantId!),
+    enabled: enabled && Boolean(assistantId),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+  return {
+    conversations: query.data ?? EMPTY_CONVERSATIONS,
+    isLoading: query.isLoading,
+    isPending: query.isPending,
+    isError: query.isError,
+    error: query.error,
+    refetch: () => {
+      void query.refetch();
+    },
+  };
+}
+
+/**
+ * Subscribe to the archived conversation list for the given assistant. The
+ * cache lives under a separate query key (`archivedConversationsQueryKey`)
+ * so that mutations to the active list don't refetch the archive view and
+ * vice versa.
+ *
+ * Returns an empty array until the query resolves so consumers can render
+ * an empty state without null-checking.
+ */
+export function useArchivedConversationListQuery(
+  assistantId: string | null,
+  enabled: boolean = true,
+): {
+  conversations: Conversation[];
+  isLoading: boolean;
+  isPending: boolean;
+  isError: boolean;
+  error: Error | null;
+  refetch: () => void;
+} {
+  const query = useQuery({
+    queryKey: archivedConversationsQueryKey(assistantId),
+    queryFn: () => listArchivedConversations(assistantId!),
     enabled: enabled && Boolean(assistantId),
     staleTime: QUERY_STALE_TIME_MS,
   });

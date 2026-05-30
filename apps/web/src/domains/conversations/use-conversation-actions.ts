@@ -4,6 +4,7 @@ import { type MutableRefObject, useCallback, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { patchConversation } from "@/domains/conversations/conversation-queries";
+import { archivedConversationsQueryKey } from "@/lib/sync/query-tags";
 import { isSlackConversation } from "@/domains/chat/utils/group-conversations";
 import {
   conversationsByIdArchivePost,
@@ -142,6 +143,11 @@ export function useConversationActions({
         // Refresh so the optimistic `Date.now()` guess is replaced with the
         // server-authoritative timestamp and any other side effects sync in.
         await refreshConversations();
+        // Invalidate the archive page's cache too so the newly-archived row
+        // appears there immediately on next visit.
+        void queryClient.invalidateQueries({
+          queryKey: archivedConversationsQueryKey(assistantId),
+        });
       } catch (err) {
         // Roll back the optimistic patch so the row reappears in the
         // sidebar — the user's action effectively didn't happen. We
@@ -175,7 +181,9 @@ export function useConversationActions({
 
       // Optimistic update: clear `archivedAt` so the row pops back into the
       // active sidebar in the same frame as the click. Mirrors the
-      // optimistic archive path above.
+      // optimistic archive path above. No-op when the row isn't already in
+      // the active cache (the daemon filters archived rows out of the
+      // default list); the post-success refresh below brings it in.
       patchConversation(queryClient, assistantId, conversation.conversationId, {
         archivedAt: undefined,
       });
@@ -184,6 +192,13 @@ export function useConversationActions({
         await conversationsByIdUnarchivePost({
           path: { assistant_id: assistantId, id: conversation.conversationId },
           throwOnError: true,
+        });
+        // Refresh the active list so the newly-unarchived row materializes
+        // in the sidebar even when it wasn't in the cache pre-call.
+        await refreshConversations();
+        // Drop the row from the archive page's cache.
+        void queryClient.invalidateQueries({
+          queryKey: archivedConversationsQueryKey(assistantId),
         });
       } catch (err) {
         // Roll back so the row re-archives in the UI.
@@ -195,7 +210,7 @@ export function useConversationActions({
         });
       }
     },
-    [assistantId, queryClient],
+    [assistantId, queryClient, refreshConversations],
   );
 
   const handleMarkConversationUnread = useCallback(

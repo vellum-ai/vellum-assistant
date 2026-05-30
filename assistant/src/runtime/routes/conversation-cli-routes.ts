@@ -37,9 +37,17 @@ const log = getLogger("conversation-cli-routes");
 function handleListCli({ body = {} }: RouteHandlerArgs) {
   const limit =
     body.limit != null ? Number(body.limit) : Number.MAX_SAFE_INTEGER;
+  // CLI flag historically named `includeArchived`. Map onto the new
+  // `archiveStatus` enum: when set, fetch active + archived together so the
+  // user sees archived rows alongside live ones in the picker.
   const includeArchived = (body.includeArchived as boolean) ?? false;
 
-  const rows = listConversations(limit, false, 0, includeArchived);
+  const rows = listConversations(
+    limit,
+    false,
+    0,
+    includeArchived ? "all" : "active",
+  );
   return {
     conversations: rows.map((c) => ({
       id: c.id,
@@ -116,10 +124,11 @@ function handleExportCli({ body = {} }: RouteHandlerArgs) {
     conversationId = all[0].id;
   }
 
-  // Support prefix matching
+  // Support prefix matching. `archiveStatus: "all"` preserves the pre-default
+  // behavior of letting `vellum export <prefix>` resolve an archived row.
   let conversation = getConversation(conversationId);
   if (!conversation) {
-    const all = listConversations(Number.MAX_SAFE_INTEGER);
+    const all = listConversations(Number.MAX_SAFE_INTEGER, false, 0, "all");
     const match = all.find((c) => c.id.startsWith(conversationId!));
     if (match) {
       conversation = match;

@@ -177,14 +177,25 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   const limit = Number(queryParams.limit ?? 50);
   const offset = Number(queryParams.offset ?? 0);
   const backgroundOnly = queryParams.conversationType === "background";
+  // Defaults to `active` so sidebar restores no longer pull archived rows.
+  // The Archive page opts into `archived` to render only archived rows
+  // without dragging the entire live history through pagination first.
+  const archiveStatus =
+    queryParams.archiveStatus === "archived"
+      ? "archived"
+      : queryParams.archiveStatus === "all"
+        ? "all"
+        : "active";
 
-  let rows = listConversations(limit, backgroundOnly, offset);
-  const totalCount = countConversations(backgroundOnly);
+  let rows = listConversations(limit, backgroundOnly, offset, archiveStatus);
+  const totalCount = countConversations(backgroundOnly, archiveStatus);
 
   // On the first page, ensure all pinned conversations are included
-  // even if they fall outside the paginated window.
-  if (offset === 0 && !backgroundOnly) {
-    const pinned = listPinnedConversations();
+  // even if they fall outside the paginated window. Pinned injection is
+  // skipped in archived/all views since the Archive page renders archived
+  // rows in archive-time order, not pin order.
+  if (offset === 0 && !backgroundOnly && archiveStatus === "active") {
+    const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));
     const missing = pinned.filter((c) => !seen.has(c.id));
     if (missing.length > 0) {
@@ -349,6 +360,14 @@ export const ROUTES: RouteDefinition[] = [
         description:
           'Filter by conversation type. Pass "background" to list only background/scheduled conversations.',
         schema: { type: "string", enum: ["background"] },
+      },
+      {
+        name: "archiveStatus",
+        type: "string",
+        required: false,
+        description:
+          'Filter by archive state. Defaults to "active" (non-archived rows only). Pass "archived" to list only archived rows (for the Archive page) or "all" to include both.',
+        schema: { type: "string", enum: ["active", "archived", "all"] },
       },
     ],
     responseBody: listConversationsResponseSchema,

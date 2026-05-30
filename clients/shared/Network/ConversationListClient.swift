@@ -5,7 +5,13 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Conve
 
 /// Focused client for conversation list and management operations via the gateway.
 public protocol ConversationListClientProtocol {
-    func fetchConversationList(offset: Int, limit: Int, conversationType: String?) async -> ConversationListResponse?
+    /// Fetch a page of conversations.
+    /// - Parameters:
+    ///   - archiveStatus: `nil` defers to the daemon's default (`"active"` —
+    ///     non-archived rows only). Pass `"archived"` to fetch only archived
+    ///     rows (used by the Settings → Archive tab) or `"all"` to include
+    ///     both. Mutually exclusive states; matches the daemon enum.
+    func fetchConversationList(offset: Int, limit: Int, conversationType: String?, archiveStatus: String?) async -> ConversationListResponse?
     func switchConversation(conversationId: String) async -> Bool
     func renameConversation(conversationId: String, name: String) async -> Bool
     func clearAllConversations() async -> Bool
@@ -20,7 +26,7 @@ public protocol ConversationListClientProtocol {
 public struct ConversationListClient: ConversationListClientProtocol {
     nonisolated public init() {}
 
-    public func fetchConversationList(offset: Int = 0, limit: Int = 50, conversationType: String? = nil) async -> ConversationListResponse? {
+    public func fetchConversationList(offset: Int = 0, limit: Int = 50, conversationType: String? = nil, archiveStatus: String? = nil) async -> ConversationListResponse? {
         do {
             var params: [String: String] = [
                 "limit": "\(limit)",
@@ -28,6 +34,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
             ]
             if offset == 0 { params.removeValue(forKey: "offset") }
             if let conversationType { params["conversationType"] = conversationType }
+            if let archiveStatus { params["archiveStatus"] = archiveStatus }
 
             let response = try await GatewayHTTPClient.get(
                 path: "conversations", params: params, timeout: 15
@@ -55,6 +62,7 @@ public struct ConversationListClient: ConversationListClientProtocol {
                     isPinned: $0.isPinned,
                     groupId: $0.groupId,
                     forkParent: $0.forkParent,
+                    archivedAt: $0.archivedAt,
                     inferenceProfile: $0.inferenceProfile
                 )
             }
@@ -387,6 +395,7 @@ private struct HTTPConversationsListResponse: Decodable {
         let groupId: String?
         let forkParent: ConversationForkParent?
         let inferenceProfile: String?
+        let archivedAt: Int?
     }
     let conversations: [Conversation]
     let hasMore: Bool?

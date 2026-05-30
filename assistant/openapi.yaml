@@ -5180,6 +5180,18 @@ paths:
             enum:
               - background
           description: Filter by conversation type. Pass "background" to list only background/scheduled conversations.
+        - name: archiveStatus
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - active
+              - archived
+              - all
+          description:
+            Filter by archive state. Defaults to "active" (non-archived rows only). Pass "archived" to list only
+            archived rows (for the Archive page) or "all" to include both.
     post:
       operationId: conversations_post
       summary: Create a conversation
