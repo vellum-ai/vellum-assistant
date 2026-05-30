@@ -3,6 +3,7 @@ import type {
   ResolvedRadioPlaybackPlan,
   ResolvedRadioTrack,
 } from "@/domains/radio/types.js";
+import { fetchRadioAudioObjectUrl } from "@/domains/radio/api.js";
 
 export interface RadioProgressEvent {
   positionMs: number;
@@ -17,6 +18,7 @@ export interface RadioAudioLike {
   paused?: boolean;
   play: () => Promise<void> | void;
   pause: () => void;
+  dispose?: () => void;
   addEventListener?: (name: "ended" | "timeupdate", listener: () => void) => void;
   removeEventListener?: (
     name: "ended" | "timeupdate",
@@ -25,7 +27,7 @@ export interface RadioAudioLike {
 }
 
 export interface RadioAudioControllerOptions {
-  createAudio?: (url: string) => RadioAudioLike;
+  createAudio?: (url: string) => Promise<RadioAudioLike> | RadioAudioLike;
   requestAnimationFrame?: (callback: FrameRequestCallback) => number;
   cancelAnimationFrame?: (id: number) => void;
   prefetchWindowMs?: number;
@@ -50,7 +52,15 @@ const DEFAULT_DUCK_VOLUME = 0.18;
 type PlayResult = "played" | "paused" | "inactive";
 
 function defaultCreateAudio(url: string): RadioAudioLike {
-  return new Audio(url);
+  const audio = new Audio(url);
+  return audio;
+}
+
+async function defaultCreateFetchedAudio(url: string): Promise<RadioAudioLike> {
+  const objectUrl = await fetchRadioAudioObjectUrl(url);
+  const audio = defaultCreateAudio(objectUrl.url);
+  audio.dispose = objectUrl.revoke;
+  return audio;
 }
 
 function defaultRequestAnimationFrame(
@@ -64,7 +74,7 @@ function defaultCancelAnimationFrame(id: number): void {
 }
 
 export class RadioAudioController {
-  private readonly createAudio: (url: string) => RadioAudioLike;
+  private readonly createAudio: (url: string) => Promise<RadioAudioLike> | RadioAudioLike;
   private readonly requestFrame: (callback: FrameRequestCallback) => number;
   private readonly cancelFrame: (id: number) => void;
   private readonly prefetchWindowMs: number;
@@ -86,7 +96,7 @@ export class RadioAudioController {
   private readonly pendingRampFrames = new Set<number>();
 
   constructor(options: RadioAudioControllerOptions = {}) {
-    this.createAudio = options.createAudio ?? defaultCreateAudio;
+    this.createAudio = options.createAudio ?? defaultCreateFetchedAudio;
     this.requestFrame =
       options.requestAnimationFrame ?? defaultRequestAnimationFrame;
     this.cancelFrame =
@@ -104,11 +114,15 @@ export class RadioAudioController {
     const operationToken = this.beginOperation();
     this.cancelPendingRamps();
     this.detachCurrentAudioListeners();
-    this.currentAudio?.pause();
-    this.djAudio?.pause();
-    this.outgoingAudio?.pause();
+    this.disposeAudio(this.currentAudio);
+    this.disposeAudio(this.djAudio);
+    this.disposeAudio(this.outgoingAudio);
 
-    const audio = this.createAudio(track.audioUrl);
+    const audio = await this.createAudioForOperation(
+      track.audioUrl,
+      operationToken,
+    );
+    if (!audio) return;
     audio.volume = 1;
     this.currentAudio = audio;
     this.currentTrack = track;
@@ -144,8 +158,20 @@ export class RadioAudioController {
     const operationToken = this.beginOperation();
     this.cancelPendingRamps();
     const outgoingAudio = this.currentAudio;
-    const djAudio = this.createAudio(params.djBreak.audioUrl);
-    const nextAudio = this.createAudio(params.nextTrack.audioUrl);
+    this.disposeAudio(this.djAudio);
+    if (this.outgoingAudio && this.outgoingAudio !== outgoingAudio) {
+      this.disposeAudio(this.outgoingAudio);
+    }
+
+    const [djAudio, nextAudio] = await Promise.all([
+      this.createAudioForOperation(params.djBreak.audioUrl, operationToken),
+      this.createAudioForOperation(params.nextTrack.audioUrl, operationToken),
+    ]);
+    if (!djAudio || !nextAudio) {
+      this.disposeAudio(djAudio);
+      this.disposeAudio(nextAudio);
+      return;
+    }
 
     this.outgoingAudio = outgoingAudio;
     this.djAudio = djAudio;
@@ -154,13 +180,13 @@ export class RadioAudioController {
 
     if (outgoingAudio) {
       this.rampVolume(outgoingAudio, this.duckVolume, this.rampDurationMs, () => {
-        outgoingAudio.pause();
+        this.disposeAudio(outgoingAudio);
       });
     }
 
     const djPlayResult = await this.playAudio(djAudio, operationToken);
     if (djPlayResult === "inactive") {
-      nextAudio.pause();
+      this.disposeAudio(nextAudio);
       return;
     }
     if (djPlayResult === "paused") {
@@ -190,9 +216,9 @@ export class RadioAudioController {
     this.operationGeneration += 1;
     this.cancelPendingRamps();
     this.detachCurrentAudioListeners();
-    this.currentAudio?.pause();
-    this.djAudio?.pause();
-    this.outgoingAudio?.pause();
+    this.disposeAudio(this.currentAudio);
+    this.disposeAudio(this.djAudio);
+    this.disposeAudio(this.outgoingAudio);
     this.currentAudio = null;
     this.currentTrack = null;
     this.djAudio = null;
@@ -208,6 +234,24 @@ export class RadioAudioController {
 
   private isActiveOperation(operationToken: number): boolean {
     return !this.disposed && operationToken === this.operationGeneration;
+  }
+
+  private async createAudioForOperation(
+    url: string,
+    operationToken: number,
+  ): Promise<RadioAudioLike | null> {
+    const audio = await this.createAudio(url);
+    if (!this.isActiveOperation(operationToken)) {
+      this.disposeAudio(audio);
+      return null;
+    }
+    return audio;
+  }
+
+  private disposeAudio(audio: RadioAudioLike | null | undefined): void {
+    if (!audio) return;
+    audio.pause();
+    audio.dispose?.();
   }
 
   private async playAudio(

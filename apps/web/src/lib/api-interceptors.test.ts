@@ -268,6 +268,25 @@ describe("api-interceptors / self-hosted rewriting", () => {
     }
   });
 
+  test("rewrites radio runtime segments to self-hosted ingress", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+
+    for (const path of [
+      `/v1/assistants/${SELF_HOSTED_ID}/radio/advance/`,
+      `/v1/assistants/${SELF_HOSTED_ID}/radio/tracks/soft-launch/`,
+      `/v1/assistants/${SELF_HOSTED_ID}/audio/dj-1/`,
+    ]) {
+      const input = new Request(`https://platform.test${path}`, {
+        method: path.includes("advance") ? "POST" : "GET",
+      });
+      const output = await requestInterceptor(input);
+
+      expect(new URL(output.url).origin).toBe(INGRESS);
+      expect(new URL(output.url).pathname).toBe(path);
+      expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+    }
+  });
+
   test("does NOT rewrite the bare retrieve route", async () => {
     // `/v1/assistants/{id}/` is the canonical retrieve — the assistant
     // record lives on the platform regardless of where the runtime

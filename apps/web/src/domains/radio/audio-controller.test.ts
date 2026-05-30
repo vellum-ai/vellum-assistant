@@ -176,6 +176,27 @@ describe("RadioAudioController", () => {
     expect(endedCalls).toBe(0);
   });
 
+  it("awaits async audio creation before playing the initial track", async () => {
+    let resolveAudio!: (audio: FakeAudio) => void;
+    const audioPromise = new Promise<FakeAudio>((resolve) => {
+      resolveAudio = resolve;
+    });
+    const controller = createController({
+      createAudio: () => audioPromise,
+    });
+
+    const playPromise = controller.playInitial(track);
+    await Promise.resolve();
+
+    const audio = new FakeAudio(track.audioUrl);
+    expect(audio.playCalls).toBe(0);
+
+    resolveAudio(audio);
+    await playPromise;
+
+    expect(audio.playCalls).toBe(1);
+  });
+
   it("fires the ended callback when a track ends before the prefetch window", async () => {
     let endedCalls = 0;
     const controller = createController({
@@ -263,7 +284,9 @@ describe("RadioAudioController", () => {
       nextTrack,
       playbackPlan,
     });
-    await Promise.resolve();
+    for (let i = 0; i < 5; i += 1) {
+      await Promise.resolve();
+    }
 
     const [, djAudio, incoming] = createdAudio;
     expect(djAudio.playCalls).toBe(1);

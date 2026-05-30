@@ -21,6 +21,35 @@ export const SDK_BASE_OPTIONS =
     ? ({ baseUrl: "http://localhost" } as const)
     : ({} as const);
 
+export interface RadioAudioObjectUrl {
+  url: string;
+  revoke: () => void;
+}
+
+interface RadioAudioGetOptions {
+  baseUrl?: string;
+  headers?: Record<string, string>;
+  parseAs: "blob";
+  throwOnError: false;
+  url: string;
+}
+
+interface RadioAudioGetResult {
+  data?: Blob;
+  error?: unknown;
+  response?: Response;
+}
+
+type RadioAudioGet = (
+  options: RadioAudioGetOptions
+) => Promise<RadioAudioGetResult>;
+
+interface RadioAudioObjectUrlDependencies {
+  get?: RadioAudioGet;
+  createObjectURL?: (blob: Blob) => string;
+  revokeObjectURL?: (url: string) => void;
+}
+
 export async function advanceRadio(
   assistantId: string,
   request: RadioAdvanceRequest
@@ -50,6 +79,53 @@ export async function advanceRadio(
   }
 
   return data;
+}
+
+export async function fetchRadioAudioObjectUrl(
+  audioUrl: string,
+  dependencies: RadioAudioObjectUrlDependencies = {}
+): Promise<RadioAudioObjectUrl> {
+  const get: RadioAudioGet =
+    dependencies.get ?? ((options) => client.get<Blob, unknown>(options));
+  const createObjectURL =
+    dependencies.createObjectURL ?? ((blob: Blob) => URL.createObjectURL(blob));
+  const revokeObjectURL =
+    dependencies.revokeObjectURL ?? ((url: string) => URL.revokeObjectURL(url));
+
+  const { data, error, response } = await get({
+    ...SDK_BASE_OPTIONS,
+    url: audioUrl,
+    headers: { Accept: "audio/*" },
+    parseAs: "blob",
+    throwOnError: false,
+  });
+
+  assertHasResponse(response, error, "Failed to load radio audio.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to load radio audio.")
+    );
+  }
+
+  if (!data) {
+    throw new ApiError(response.status, "Radio audio response was empty.");
+  }
+
+  const contentType =
+    response.headers.get("Content-Type") ?? data.type ?? "application/octet-stream";
+  if (!contentType.toLowerCase().startsWith("audio/")) {
+    throw new ApiError(
+      response.status,
+      `Radio audio response was not playable audio (${contentType}).`
+    );
+  }
+
+  const objectUrl = createObjectURL(data);
+  return {
+    url: objectUrl,
+    revoke: () => revokeObjectURL(objectUrl),
+  };
 }
 
 export function runtimeAudioUrl(
