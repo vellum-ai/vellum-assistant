@@ -42,6 +42,7 @@ export * from "./message-types/schedules.js";
 export * from "./message-types/settings.js";
 export * from "./message-types/shared.js";
 export * from "./message-types/skills.js";
+export * from "./message-types/stream.js";
 export * from "./message-types/subagents.js";
 export * from "./message-types/surfaces.js";
 export * from "./message-types/sync.js";
@@ -127,6 +128,7 @@ import type {
   _SkillsClientMessages,
   _SkillsServerMessages,
 } from "./message-types/skills.js";
+import type { _StreamServerMessages } from "./message-types/stream.js";
 import type {
   _SubagentsClientMessages,
   _SubagentsServerMessages,
@@ -187,6 +189,7 @@ export type ServerMessage =
   | _MessagesServerMessages
   | _SurfacesServerMessages
   | _SkillsServerMessages
+  | _StreamServerMessages
   | _AppsServerMessages
   | _IntegrationsServerMessages
   | _ComputerUseServerMessages
