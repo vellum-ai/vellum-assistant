@@ -151,7 +151,7 @@ describe("conversation-compaction-routes — registration", () => {
     expect(route).toBeDefined();
     expect(route.method).toBe("GET");
     expect(route.endpoint).toBe("conversations/:id/compaction");
-    expect(route.policyKey).toBe("conversations/compaction");
+    expect(route.policy?.requiredScopes).toContain("chat.read");
   });
 });
 

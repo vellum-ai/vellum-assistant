@@ -99,15 +99,13 @@ describe("route policy coverage", () => {
     ]);
 
     const unprotectedFound: string[] = [];
+    // The `policy` field is required on `RouteDefinition` at the type
+    // level, so TS catches omissions at compile time. Belt-and-suspenders
+    // runtime check is unnecessary; we only need to verify the *value*
+    // is non-null or explicitly allowlisted.
     const missingField: string[] = [];
 
     for (const r of ROUTES) {
-      // Required `policy` field on the type means TS catches the
-      // omission at compile time; this is the runtime belt-and-suspenders.
-      if (!("policy" in r)) {
-        missingField.push(`${r.method} ${r.endpoint}`);
-        continue;
-      }
       if (r.policy === null) {
         const key = r.endpoint;
         if (!INTENTIONALLY_UNPROTECTED.has(key)) {

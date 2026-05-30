@@ -97,11 +97,12 @@ function findRoute() {
 // ---------------------------------------------------------------------------
 
 describe("playgroundForceCompact", () => {
-  test("exposes a single POST route with the expected endpoint + policy key", () => {
+  test("exposes a single POST route with the expected endpoint", () => {
     const route = findRoute();
     expect(route.endpoint).toBe("conversations/:id/playground/compact");
     expect(route.method).toBe("POST");
-    expect(route.policyKey).toBe("conversations/playground/compact");
+    // Intentionally unprotected — handler gates on assertPlaygroundEnabled()
+    expect(route.policy).toBeNull();
   });
 
   test("throws RouteError with conversation_not_found code when the conversation is missing", async () => {

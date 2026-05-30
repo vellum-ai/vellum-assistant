@@ -56,6 +56,7 @@ function buildTestContext(overrides?: {
         "approval.write",
       ],
     ),
+    policyEpoch: 0,
   };
 }
 
