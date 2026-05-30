@@ -65,7 +65,7 @@ import {
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
-import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { routes } from "@/utils/routes.js";
 
@@ -185,7 +185,7 @@ export function PreChatFlow() {
     !localMode || hasPlatformSession || localPlatformAssistantId !== null;
 
   const navigateToChatAfterLifecycleRefresh = useCallback(async () => {
-    await useAssistantLifecycleStore.getState().checkAssistant();
+    await lifecycleService.checkAssistant();
     void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
   }, [navigate]);
 

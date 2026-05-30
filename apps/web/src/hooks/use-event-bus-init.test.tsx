@@ -42,9 +42,9 @@ mock.module("@/lib/streaming/stream-transport", () => ({
 // resume time. Mock the store so tests can assert on the call without
 // running the real lifecycle hook.
 const checkAssistantMock = mock(async () => {});
-mock.module("@/assistant/lifecycle-store", () => ({
-  useAssistantLifecycleStore: {
-    getState: () => ({ checkAssistant: checkAssistantMock }),
+mock.module("@/assistant/lifecycle-service", () => ({
+  lifecycleService: {
+    checkAssistant: checkAssistantMock,
   },
 }));
 

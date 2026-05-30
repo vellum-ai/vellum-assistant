@@ -1,0 +1,620 @@
+/**
+ * Assistant lifecycle state machine — the non-React core.
+ *
+ * Owns: hatching, recovery, retry budgets, the generation counter
+ * that drops stale async responses on timeout escalations, the
+ * 5-minute stuck-initializing watchdog, the gateway-auth
+ * short-circuit, post-hatch cache seeding, and the
+ * onboarding-redirect coordination.
+ *
+ * Publishes its observable state — `assistantState` and
+ * `activeAssistantId` — into the two Zustand stores
+ * (`useAssistantLifecycleStore`, `useAssistantSelectionStore`),
+ * which is how the React tree reads it. Inputs from React (auth,
+ * env, the navigate callback, the TanStack Query client) flow in
+ * through `setInputs()`; `useAssistantLifecycle` is the thin
+ * wiring layer that pushes them.
+ *
+ * Module-level singleton — instantiated at import, survives every
+ * mount/unmount cycle. Tests can swap in a fresh instance via
+ * `__resetForTesting`.
+ */
+
+import * as Sentry from "@sentry/react";
+import type { QueryClient } from "@tanstack/react-query";
+
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import {
+  getAssistant,
+  hatchAssistant,
+  retireAssistantById,
+  type GetAssistantResult,
+} from "@/assistant/api";
+import {
+  buildInitializingTimeoutError,
+  INITIALIZING_TIMEOUT_MS,
+  isPlatformHostedDisabled,
+  PLATFORM_HOSTED_DISABLED_MESSAGE,
+  resolveAssistantLifecycleState,
+  shouldRecoverFromHatchFailure,
+} from "@/assistant/lifecycle";
+import { ASSISTANT_QUERY_KEY, POLL_INTERVAL_MS } from "@/assistant/queries";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
+import type { AssistantState } from "@/assistant/types";
+import { extractErrorMessage } from "@/utils/api-errors";
+import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
+import {
+  getSelectedAssistant,
+  getLocalGatewayUrl,
+  isLocalMode,
+} from "@/lib/local-mode";
+import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
+
+const MAX_HATCH_RETRIES = 3;
+const MAX_INITIALIZING_RECOVERIES = 3;
+
+export interface LifecycleServiceInputs {
+  isLoggedIn: boolean;
+  isLoading: boolean;
+  isRetired: boolean;
+  isNonProduction: boolean;
+  hasPlatformSession: boolean;
+  /** Framework-agnostic redirect — called instead of router.replace(). */
+  onRedirect: (url: string) => void;
+  /**
+   * Returns the path to redirect to when onboarding should intercept,
+   * or `null` if the intended destination is fine as-is. Injected so
+   * `assistant/` stays free of the onboarding domain (the
+   * `shared → domains` direction).
+   */
+  resolveOnboardingRedirect: (input: {
+    intendedDestination: string;
+  }) => string | null;
+  /** The TanStack Query client owned by `RootLayout`'s provider. */
+  queryClient: QueryClient;
+}
+
+const NOOP_REDIRECT = (_: string) => {};
+const NOOP_RESOLVE: LifecycleServiceInputs["resolveOnboardingRedirect"] =
+  () => null;
+
+class AssistantLifecycleService {
+  private state: AssistantState = { kind: "loading" };
+  private hatching = false;
+  private hatchRetryCount = 0;
+  private initializingAssistantId: string | null = null;
+  private initializingRecoveryCount = 0;
+  private hatchingVersion: string | undefined = undefined;
+  /**
+   * Bumped when an `initializing` cycle times out. Async work that
+   * captured a prior value compares against this and drops its
+   * response, so stale `initializing` answers can't revive the
+   * spinner after timeout → error.
+   */
+  private generation = 0;
+  private initializingTimeout: ReturnType<typeof setTimeout> | null = null;
+  private inputs: LifecycleServiceInputs = {
+    isLoggedIn: false,
+    isLoading: true,
+    isRetired: false,
+    isNonProduction: false,
+    hasPlatformSession: false,
+    onRedirect: NOOP_REDIRECT,
+    resolveOnboardingRedirect: NOOP_RESOLVE,
+    queryClient: null as unknown as QueryClient,
+  };
+
+  // ---------------------------------------------------------------------------
+  // React-facing API
+  // ---------------------------------------------------------------------------
+
+  setInputs(inputs: LifecycleServiceInputs): void {
+    this.inputs = inputs;
+  }
+
+  /**
+   * Reconcile against the current inputs — drives initial bootstrap
+   * (post-login `checkAssistant`), logout reset, and the local-mode
+   * branches. Safe to call on every input change.
+   */
+  async respondToInputs(): Promise<void> {
+    if (!this.inputs.isLoggedIn || this.inputs.isLoading) {
+      // Logout / pre-auth boot. Drop selection + lifecycle state
+      // so a returning login doesn't observe the previous user's id.
+      // Guarded resets avoid spurious subscriber wake-ups when the
+      // stores are already at defaults.
+      if (useAssistantSelectionStore.getState().activeAssistantId !== null) {
+        useAssistantSelectionStore.getState().setActiveAssistantId(null);
+      }
+      if (this.state.kind !== "loading") {
+        this.transition({ kind: "loading" });
+      }
+      return;
+    }
+
+    if (isGatewayAuthMode()) {
+      this.applyGatewayAuthShortCircuit();
+      return;
+    }
+    if (
+      isLocalMode() &&
+      !isGatewayAuthMode() &&
+      !this.inputs.hasPlatformSession
+    ) {
+      const redirect = this.inputs.resolveOnboardingRedirect({
+        intendedDestination: window.location.pathname,
+      });
+      if (redirect) this.inputs.onRedirect(redirect);
+      return;
+    }
+    if (this.inputs.hasPlatformSession) {
+      setSelfHostedConnection(null);
+    }
+    await this.checkAssistant();
+  }
+
+  /**
+   * Project a fresh `/assistant/` poll result into local state.
+   * Called by the React wiring on every `useAssistantQuery` data
+   * change — the service decides whether to act on it (only while
+   * the lifecycle is transient).
+   */
+  async applyServerResult(result: GetAssistantResult): Promise<void> {
+    if (this.state.kind !== "initializing" && this.state.kind !== "cleaning_up") {
+      return;
+    }
+    await this.applyServerStateUpdate(result);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Imperative actions — called from event handlers / consumers
+  // ---------------------------------------------------------------------------
+
+  async checkAssistant(): Promise<void> {
+    if (isGatewayAuthMode()) {
+      this.applyGatewayAuthShortCircuit();
+      return;
+    }
+    const generation = this.generation;
+    try {
+      // Force a fresh fetch through the query cache. `fetchQuery`
+      // updates the cache atomically so any other subscriber
+      // (sidebar header, identity panel, etc.) sees the same answer
+      // this code path acts on. `staleTime: 0` is required: the
+      // app's QueryClient sets a 10s default staleTime, and
+      // imperative re-checks (visibility-change return, retry
+      // button, onboarding pre-chat verification) must hit the
+      // network so a 10s-old cached 404 or initializing result
+      // doesn't silently replay. Poll-driven projections go through
+      // `applyServerResult` to avoid the read-back loop.
+      const result = await this.inputs.queryClient.fetchQuery({
+        queryKey: ASSISTANT_QUERY_KEY,
+        queryFn: () => getAssistant(),
+        staleTime: 0,
+      });
+      if (generation !== this.generation) return;
+      await this.applyServerStateUpdate(result);
+    } catch (err) {
+      console.error("Error checking assistant status:", err);
+      Sentry.captureException(err, { tags: { context: "check_assistant" } });
+      if (generation !== this.generation) return;
+      this.transition({
+        kind: "error",
+        message: "Network error. Please check your connection and try again.",
+      });
+    }
+  }
+
+  retryAssistant(): void {
+    this.hatchRetryCount = 0;
+    this.initializingRecoveryCount = 0;
+    void this.checkAssistant();
+  }
+
+  hatchVersion(version?: string): void {
+    this.hatchRetryCount = 0;
+    void this.hatchAndCheck(version);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private state machine
+  // ---------------------------------------------------------------------------
+
+  private transition(next: AssistantState): void {
+    this.state = next;
+    useAssistantLifecycleStore.setState({ assistantState: next });
+    this.syncInitializingWatchdog(next.kind);
+  }
+
+  /**
+   * Owns the 5-minute stuck-initializing timer. Entering
+   * `initializing` arms it; leaving clears it. A re-entry during an
+   * active hatch attempt (e.g. retry → initializing again) clears
+   * the prior timer and starts a fresh one, matching the previous
+   * React implementation's `initializingCycle`-driven re-arming.
+   */
+  private syncInitializingWatchdog(kind: AssistantState["kind"]): void {
+    if (this.initializingTimeout) {
+      clearTimeout(this.initializingTimeout);
+      this.initializingTimeout = null;
+    }
+    if (kind === "initializing") {
+      this.initializingTimeout = setTimeout(() => {
+        Sentry.captureMessage("Assistant hatch stuck in initializing state", {
+          level: "warning",
+          extra: { timeoutMs: INITIALIZING_TIMEOUT_MS },
+        });
+        void this.recoverStuckInitializingAssistant();
+      }, INITIALIZING_TIMEOUT_MS);
+    }
+  }
+
+  /**
+   * Gateway-auth resolves the assistant locally — bypasses
+   * `/assistant/` entirely because the gateway issues the session
+   * token directly. Mount-time init and imperative `checkAssistant`
+   * both short-circuit through this; keep them in lockstep.
+   */
+  private applyGatewayAuthShortCircuit(): void {
+    let ingressUrl = window.location.origin;
+    let resolvedAssistantId = "self";
+    const localGateway = getLocalGatewayUrl();
+    if (localGateway) {
+      const assistant = getSelectedAssistant();
+      ingressUrl = `${window.location.origin}${localGateway}`;
+      resolvedAssistantId = assistant?.assistantId ?? resolvedAssistantId;
+    }
+    setSelfHostedConnection({ url: ingressUrl, token: getGatewayToken() });
+    useAssistantSelectionStore
+      .getState()
+      .setActiveAssistantId(resolvedAssistantId);
+    this.transition({ kind: "active", isLocal: true });
+  }
+
+  private async applyServerStateUpdate(
+    result: GetAssistantResult,
+  ): Promise<void> {
+    const generation = this.generation;
+    const nextState = resolveAssistantLifecycleState(result);
+    if (result.ok && nextState.kind === "initializing") {
+      this.initializingAssistantId = result.data.id;
+    } else if (nextState.kind !== "initializing") {
+      this.initializingAssistantId = null;
+    }
+
+    if (nextState.kind === "auto_hatch") {
+      // If we just retired, show the retired screen instead of auto-hatching.
+      if (this.inputs.isRetired) {
+        this.transition({ kind: "retired" });
+        return;
+      }
+      // New signups without completed onboarding land on
+      // `/onboarding/privacy` before we hatch an assistant for them.
+      const onboardingRedirect = this.inputs.resolveOnboardingRedirect({
+        intendedDestination: window.location.pathname,
+      });
+      if (onboardingRedirect) {
+        this.inputs.onRedirect(onboardingRedirect);
+        return;
+      }
+      // In nonprod, let the user pick a release version before hatching.
+      if (this.inputs.isNonProduction) {
+        this.transition({ kind: "awaiting_version_selection" });
+        return;
+      }
+      await this.hatchAndCheck();
+      return;
+    }
+
+    if (nextState.kind === "active" && result.ok) {
+      const mm = result.data.maintenance_mode;
+      this.initializingRecoveryCount = 0;
+      this.hatchingVersion = undefined;
+      // Drop any stale self-hosted connection: the server says the
+      // assistant is now managed-active, so runtime calls belong on
+      // the platform and we don't want a leftover token attached.
+      setSelfHostedConnection(null);
+      // Set the assistant id BEFORE the kind flips. The `init`
+      // effect that fetches conversations gates on
+      // `assistantState.kind === "active"`, and that fetch is what
+      // the unreachable-bus interceptor is meant to notice. If we
+      // wait until after the conversation list query succeeds to
+      // set this, the reachability hook's probe() has no target
+      // assistant when the 503 arrives and the connecting overlay
+      // never shows.
+      useAssistantSelectionStore
+        .getState()
+        .setActiveAssistantId(result.data.id);
+      this.transition({
+        kind: "active",
+        isLocal: result.data.is_local ?? false,
+        maintenanceMode: { enabled: mm?.enabled },
+      });
+      return;
+    }
+
+    if (nextState.kind === "self_hosted" && result.ok) {
+      this.initializingRecoveryCount = 0;
+      this.hatchingVersion = undefined;
+      // Record the user's gateway + actor token so the request
+      // interceptor can rewrite runtime-proxied calls to the
+      // gateway and attach `Authorization: Bearer`. The slots have
+      // to be primed before `assistantId` flips, otherwise the
+      // first conversation list fetch races us and hits the
+      // platform.
+      //
+      // Both fields are nullable in the serializer:
+      //   - `ingress_url`: an assistant can be `is_local=true`
+      //     before its gateway hostname is known. In that case the
+      //     URL slot stays null and the platform's proxy view 404s
+      //     cleanly.
+      //   - `platform_actor_token`: there's a brief window after
+      //     hatch where `bootstrap_platform_actor_token` is still
+      //     in-flight. In that case the request fires
+      //     unauthenticated, the gateway responds 401, and the
+      //     chat surface lands on its error state.
+      setSelfHostedConnection({
+        url: result.data.ingress_url,
+        token: result.data.platform_actor_token,
+      });
+      useAssistantSelectionStore
+        .getState()
+        .setActiveAssistantId(result.data.id);
+      this.transition({ kind: "self_hosted" });
+      return;
+    }
+
+    if (generation !== this.generation) return;
+    if (nextState.kind !== "active") {
+      this.transition(nextState);
+    }
+  }
+
+  private async hatchAndCheck(version?: string): Promise<void> {
+    if (this.hatching) return;
+
+    if (this.hatchRetryCount >= MAX_HATCH_RETRIES) {
+      this.transition({
+        kind: "error",
+        message:
+          "Failed to start your assistant after multiple attempts. Please refresh the page to try again.",
+      });
+      return;
+    }
+
+    this.hatching = true;
+    this.hatchingVersion = version;
+    const generation = this.generation;
+    this.transition({ kind: "initializing" });
+    try {
+      const result = await hatchAssistant(version ? { version } : undefined);
+      if (generation !== this.generation) return;
+      if (result.ok) {
+        this.initializingAssistantId = result.data.id;
+        // Seed the assistant-query cache with the hatch response so
+        // post-hatch polling actually begins. The initial
+        // `/assistant/` read for a fresh user caches a 404; without
+        // this seed, `pollIntervalFor(404)` keeps the query idle
+        // and newly-hatched users sit on the initializing screen
+        // until the 5-minute stuck-assistant recovery timer fires.
+        // The hatch response is shape-compatible with
+        // `GetAssistantResult`, so projecting it directly avoids an
+        // extra round-trip.
+        this.inputs.queryClient.setQueryData<GetAssistantResult>(
+          ASSISTANT_QUERY_KEY,
+          { ok: true, status: result.status, data: result.data },
+        );
+      }
+      if (!result.ok) {
+        this.hatchRetryCount += 1;
+        Sentry.captureMessage("Hatch request failed", {
+          level: "warning",
+          extra: {
+            status: result.status,
+            error: result.error,
+            attempt: this.hatchRetryCount,
+          },
+        });
+        // Capacity / kill-switch from the backend
+        // (platform-hosted-enabled flag is off). Surface the
+        // tailored message instead of treating this as a
+        // recoverable 5xx — retrying just burns the
+        // MAX_HATCH_RETRIES budget and ends in a generic error.
+        if (isPlatformHostedDisabled(result.status, result.error)) {
+          this.transition({
+            kind: "error",
+            message: PLATFORM_HOSTED_DISABLED_MESSAGE,
+          });
+          return;
+        }
+        if (shouldRecoverFromHatchFailure(result.status)) {
+          this.transition({ kind: "initializing" });
+          // Cache is still 404 → `pollIntervalFor` keeps the query
+          // idle → no automatic retry. Space the next attempt by
+          // `POLL_INTERVAL_MS` to preserve the 3-second backoff
+          // between hatch retries: rapid back-to-back invalidations
+          // burn the `MAX_HATCH_RETRIES` budget in milliseconds and
+          // hammer the server.
+          setTimeout(() => {
+            void this.inputs.queryClient.invalidateQueries({
+              queryKey: ASSISTANT_QUERY_KEY,
+            });
+          }, POLL_INTERVAL_MS);
+          return;
+        }
+
+        this.transition({
+          kind: "error",
+          message: extractErrorMessage(
+            result.error,
+            undefined,
+            "Failed to start your assistant. Please refresh the page to try again.",
+          ),
+        });
+        return;
+      }
+      this.hatchRetryCount = 0;
+    } catch (err) {
+      this.hatchRetryCount += 1;
+      Sentry.captureException(err, { tags: { context: "hatch_assistant" } });
+      if (generation !== this.generation) return;
+      this.transition({ kind: "initializing" });
+      // Network error during hatch behaves like a recoverable
+      // failure (cache still 404, no automatic poll). Apply the
+      // same 3-second backoff before driving the next attempt.
+      setTimeout(() => {
+        void this.inputs.queryClient.invalidateQueries({
+          queryKey: ASSISTANT_QUERY_KEY,
+        });
+      }, POLL_INTERVAL_MS);
+      return;
+    } finally {
+      this.hatching = false;
+    }
+    if (generation !== this.generation) return;
+    // Re-assert `initializing` so the poll loop restarts in case an
+    // early poll returned 404 and switched state to `initializing`
+    // while the hatch request was still in-flight.
+    this.transition({ kind: "initializing" });
+  }
+
+  private async recoverStuckInitializingAssistant(): Promise<void> {
+    if (this.initializingRecoveryCount >= MAX_INITIALIZING_RECOVERIES) {
+      this.generation++;
+      this.transition(buildInitializingTimeoutError());
+      return;
+    }
+
+    this.initializingRecoveryCount++;
+    this.generation++;
+    const generation = this.generation;
+
+    try {
+      let assistantIdToRetire = this.initializingAssistantId;
+      if (!assistantIdToRetire) {
+        // Force-refresh the cached status. We need to know whether
+        // the assistant moved off `initializing` before deciding
+        // whether to retire-and-rehatch — a cached 10s-old
+        // `initializing` result would mislead the decision into an
+        // unnecessary retire.
+        const result = await this.inputs.queryClient.fetchQuery({
+          queryKey: ASSISTANT_QUERY_KEY,
+          queryFn: () => getAssistant(),
+          staleTime: 0,
+        });
+        if (generation !== this.generation) return;
+        if (result.ok && result.data.status === "initializing") {
+          assistantIdToRetire = result.data.id;
+        } else {
+          const nextState = resolveAssistantLifecycleState(result);
+          this.initializingAssistantId = null;
+          if (nextState.kind === "auto_hatch") {
+            await this.hatchAndCheck(this.hatchingVersion);
+          } else if (nextState.kind === "active" && result.ok) {
+            const mm = result.data.maintenance_mode;
+            this.initializingRecoveryCount = 0;
+            setSelfHostedConnection(null);
+            useAssistantSelectionStore
+              .getState()
+              .setActiveAssistantId(result.data.id);
+            this.transition({
+              kind: "active",
+              isLocal: result.data.is_local ?? false,
+              maintenanceMode: { enabled: mm?.enabled },
+            });
+          } else if (nextState.kind === "self_hosted" && result.ok) {
+            // Mirror `applyServerStateUpdate`'s `self_hosted`
+            // branch: an assistant can graduate from `initializing`
+            // straight into `is_local: true` once it registers its
+            // gateway. Without this the recovery path leaves
+            // `assistantId` null and the chat surface keeps showing
+            // the initializing-timeout error after the assistant
+            // has actually come up.
+            this.initializingRecoveryCount = 0;
+            setSelfHostedConnection({
+              url: result.data.ingress_url,
+              token: result.data.platform_actor_token,
+            });
+            useAssistantSelectionStore
+              .getState()
+              .setActiveAssistantId(result.data.id);
+            this.transition({ kind: "self_hosted" });
+          } else if (nextState.kind !== "active") {
+            this.transition(nextState);
+          }
+          return;
+        }
+      }
+
+      // Prevent the poll loop from calling `hatchAndCheck()` while
+      // we retire the stuck assistant. Without this, a poll that
+      // observes the 404 (after the retire takes effect on the
+      // backend but before our own `hatchAndCheck` creates the
+      // replacement) races to create a duplicate.
+      this.hatching = true;
+
+      const retireResult = await retireAssistantById(assistantIdToRetire);
+      if (generation !== this.generation) {
+        this.hatching = false;
+        return;
+      }
+      if (!retireResult.ok && retireResult.status !== 404) {
+        this.hatching = false;
+        Sentry.captureMessage(
+          "Failed to retire stuck initializing assistant",
+          {
+            level: "warning",
+            extra: { status: retireResult.status, error: retireResult.error },
+          },
+        );
+        this.transition(buildInitializingTimeoutError());
+        return;
+      }
+
+      this.initializingAssistantId = null;
+      useAssistantSelectionStore.getState().setActiveAssistantId(null);
+      this.hatching = false;
+      await this.hatchAndCheck(this.hatchingVersion);
+    } catch (err) {
+      this.hatching = false;
+      Sentry.captureException(err, {
+        tags: { context: "recover_stuck_initializing_assistant" },
+      });
+      if (generation !== this.generation) return;
+      this.transition(buildInitializingTimeoutError());
+    }
+  }
+
+  /**
+   * Reset all state to the post-import default. For tests only —
+   * production code should never call this. (Use `respondToInputs`
+   * with `isLoggedIn: false` for logout reset.)
+   */
+  __resetForTesting(): void {
+    if (this.initializingTimeout) {
+      clearTimeout(this.initializingTimeout);
+      this.initializingTimeout = null;
+    }
+    this.state = { kind: "loading" };
+    this.hatching = false;
+    this.hatchRetryCount = 0;
+    this.initializingAssistantId = null;
+    this.initializingRecoveryCount = 0;
+    this.hatchingVersion = undefined;
+    this.generation = 0;
+    this.inputs = {
+      isLoggedIn: false,
+      isLoading: true,
+      isRetired: false,
+      isNonProduction: false,
+      hasPlatformSession: false,
+      onRedirect: NOOP_REDIRECT,
+      resolveOnboardingRedirect: NOOP_RESOLVE,
+      queryClient: null as unknown as QueryClient,
+    };
+    useAssistantLifecycleStore.setState({ assistantState: this.state });
+    useAssistantSelectionStore.setState({ activeAssistantId: null });
+  }
+}
+
+export const lifecycleService = new AssistantLifecycleService();
