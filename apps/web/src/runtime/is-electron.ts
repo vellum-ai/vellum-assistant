@@ -50,6 +50,9 @@ declare global {
         setBadge(count: number): Promise<void>;
         setSignedIn(signedIn: boolean): Promise<void>;
       };
+      mainWindow: {
+        ensureVisible(): Promise<void>;
+      };
       power: {
         onEvent(
           callback: (event: {

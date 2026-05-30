@@ -83,6 +83,7 @@ import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-acti
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
 import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input";
+import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
 import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
 import { useChatDebugApi } from "@/domains/chat/utils/debug-api";
 
@@ -396,6 +397,13 @@ export function ChatPage() {
     draftConversationIdResolutionRef,
     onDraftRestored: setRestoredDraftConversationId,
   });
+
+  // Inbound deep links: pre-fill composer with `deeplink.send` text,
+  // navigate to `/assistant/conversations/<id>` for `deeplink.openThread`,
+  // and ensure the main window is visible first. The hook gates the
+  // composer pre-fill on `input` being empty so it doesn't clobber
+  // in-progress typing. Off Electron the bus events never fire.
+  useDeepLinkConsumer({ composerInput: input, setComposerInput: setInput });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {

@@ -1,4 +1,4 @@
-import { BrowserWindow, app, shell } from "electron";
+import { BrowserWindow, app, ipcMain, shell } from "electron";
 import path from "node:path";
 
 import {
@@ -309,5 +309,21 @@ let installed = false;
 export const installMainWindow = (): void => {
   if (installed) return;
   installed = true;
+
+  // IPC surface for renderer-driven "bring the window forward"
+  // actions — used by feature consumers reacting to inbound signals
+  // (deep links, future notification clicks, etc.). The renderer
+  // wrapper at `apps/web/src/runtime/main-window.ts` calls this; the
+  // handler returns void so the caller can `await` without value.
+  ipcMain.handle("vellum:mainWindow:ensureVisible", async (): Promise<void> => {
+    await ensureVisible();
+  });
+
   void ensureVisible();
+};
+
+// Test seam — exported only for unit-test setup. Production code
+// uses `installMainWindow` instead.
+export const __resetForTesting = (): void => {
+  installed = false;
 };
