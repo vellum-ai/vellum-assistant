@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import { QuestionPrompter } from "../../permissions/question-prompter.js";
 import { RiskLevel } from "../../permissions/types.js";
-import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -242,7 +241,7 @@ export const askQuestionTool = {
       },
     ];
 
-    const prompter = new QuestionPrompter({ broadcastMessage });
+    const prompter = new QuestionPrompter();
     const result = await prompter.prompt({
       conversationId: context.conversationId,
       questions,
