@@ -13,7 +13,7 @@ import type {
 } from "../providers/types.js";
 import { webFetchTool } from "../tools/network/web-fetch.js";
 import { webSearchTool } from "../tools/network/web-search.js";
-import type { ToolContext, ToolExecutionResult } from "../tools/types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import type { RadioAdvanceReason, RadioTrack } from "./types.js";
 
@@ -73,13 +73,10 @@ export interface PlannedRadioDjBreak {
   djText: string;
 }
 
-interface RadioDjExecutableTool {
-  getDefinition(): ToolDefinition;
-  execute(
-    input: Record<string, unknown>,
-    context: ToolContext,
-  ): Promise<ToolExecutionResult>;
-}
+type RadioDjExecutableTool = Pick<
+  Tool,
+  "name" | "description" | "input_schema" | "execute"
+>;
 
 export interface PlanRadioDjBreakDeps {
   getConfiguredProvider?: typeof getConfiguredProvider;
@@ -114,8 +111,8 @@ export async function planRadioDjBreak(
   const searchTool = deps.webSearchTool ?? webSearchTool;
   const fetchTool = deps.webFetchTool ?? webFetchTool;
   const tools = [
-    cloneToolDefinition(searchTool.getDefinition()),
-    sanitizeWebFetchDefinition(fetchTool.getDefinition()),
+    toolDefinitionFromTool(searchTool),
+    sanitizeWebFetchDefinition(toolDefinitionFromTool(fetchTool)),
   ];
   const requestId = deps.createRequestId?.() ?? `radio-dj-${randomUUID()}`;
   const toolContext: ToolContext = {
@@ -256,6 +253,14 @@ function toolForName(
 
 function cloneToolDefinition(definition: ToolDefinition): ToolDefinition {
   return structuredClone(definition) as ToolDefinition;
+}
+
+function toolDefinitionFromTool(tool: RadioDjExecutableTool): ToolDefinition {
+  return cloneToolDefinition({
+    name: tool.name,
+    description: tool.description,
+    input_schema: tool.input_schema,
+  });
 }
 
 function sanitizeWebFetchDefinition(

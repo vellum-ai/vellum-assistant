@@ -108,14 +108,14 @@ mock.module("../../providers/provider-send-message.js", () => ({
 
 mock.module("../../tools/network/web-search.js", () => ({
   webSearchTool: {
-    getDefinition: () => webSearchDefinition,
+    ...webSearchDefinition,
     execute: webSearchExecuteMock,
   },
 }));
 
 mock.module("../../tools/network/web-fetch.js", () => ({
   webFetchTool: {
-    getDefinition: () => webFetchDefinition,
+    ...webFetchDefinition,
     execute: webFetchExecuteMock,
   },
 }));

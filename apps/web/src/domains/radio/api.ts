@@ -1,6 +1,6 @@
 // Hand-written fetch wrapper: the radio route is served by the assistant
 // runtime through the gateway proxy and is not part of Django OpenAPI yet.
-import { client } from "@/generated/api/client.gen.js";
+import { client } from "@/generated/api/client.gen";
 import type {
   RadioAdvanceRequest,
   RadioAdvanceResponse,
@@ -9,7 +9,7 @@ import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors.js";
+} from "@/utils/api-errors";
 import { routes } from "@/utils/routes.js";
 
 export { ApiError };
@@ -23,7 +23,7 @@ export const SDK_BASE_OPTIONS =
 
 export async function advanceRadio(
   assistantId: string,
-  request: RadioAdvanceRequest,
+  request: RadioAdvanceRequest
 ): Promise<RadioAdvanceResponse> {
   const { data, error, response } = await client.post<
     RadioAdvanceResponse,
@@ -41,7 +41,7 @@ export async function advanceRadio(
   if (!response.ok) {
     throw new ApiError(
       response.status,
-      extractErrorMessage(error, response, "Failed to advance radio."),
+      extractErrorMessage(error, response, "Failed to advance radio.")
     );
   }
 
@@ -54,7 +54,7 @@ export async function advanceRadio(
 
 export function runtimeAudioUrl(
   assistantId: string,
-  audioPath: string,
+  audioPath: string
 ): string {
   const encodedAssistantId = encodeURIComponent(assistantId);
   const pathSegments = normalizeRuntimeAudioPath(audioPath);
@@ -78,9 +78,7 @@ function normalizeRuntimeAudioPath(audioPath: string): string[] {
   }
 
   const isDemoTrackPath =
-    segments[0] === "radio" &&
-    segments[1] === "tracks" &&
-    segments.length >= 3;
+    segments[0] === "radio" && segments[1] === "tracks" && segments.length >= 3;
   const isDjAudioPath = segments[0] === "audio" && segments.length >= 2;
 
   if (!isDemoTrackPath && !isDjAudioPath) {
