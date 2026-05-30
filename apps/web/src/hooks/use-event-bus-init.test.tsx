@@ -211,6 +211,152 @@ describe("useEventBusInit — SSE ownership", () => {
     expect(checkAssistantMock).toHaveBeenCalledTimes(1);
   }, 5_000);
 
+  test("power.suspend tears down a live SSE so the daemon sees us go away cleanly", () => {
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+
+    useEventBusStore.getState().publish("power.suspend", {});
+
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("power.suspend is a no-op when no SSE is open", () => {
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: null,
+        isAssistantActive: false,
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(0);
+
+    useEventBusStore.getState().publish("power.suspend", {});
+
+    // Nothing to tear down — cancel was never wired in the first place.
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+  });
+
+  test("power.resume bounces a LIVE SSE (no preceding app.hidden) — the tray-resident case", () => {
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+
+    // No app.hidden first — the renderer stayed visible during system
+    // sleep (tray-resident / full-screen). power.resume must tear down
+    // and reopen, otherwise the half-dead socket persists.
+    useEventBusStore.getState().publish("power.resume", {});
+
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(checkAssistantMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("power.unlock bounces a LIVE SSE — screen lock can outlast TCP timeouts", () => {
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+
+    useEventBusStore.getState().publish("power.unlock", {});
+
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("power.resume reopens the SSE after teardown — same dedup window as app.resume", async () => {
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    useEventBusStore.getState().publish("app.hidden", { signal: "visibility" });
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    useEventBusStore.getState().publish("power.resume", {});
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(checkAssistantMock).toHaveBeenCalledTimes(1);
+  }, 5_000);
+
+  test("power.unlock reopens the SSE after teardown", async () => {
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    useEventBusStore.getState().publish("app.hidden", { signal: "visibility" });
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    useEventBusStore.getState().publish("power.unlock", {});
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(checkAssistantMock).toHaveBeenCalledTimes(1);
+  }, 5_000);
+
+  test("app.resume no-op (current non-null) does NOT suppress a follow-up power.resume bounce", () => {
+    // Real-world trace: tray-resident Electron, system sleeps, wifi
+    // reconnects on wake → `online` event → `app.resume(signal:"online")`
+    // → handleAppResume runs but bails because `current` is still
+    // non-null (renderer never went hidden). 50ms later `power.resume`
+    // arrives. The handler MUST bounce — that's the entire point of
+    // this PR. Independent dedup windows ensure the noop'd
+    // app.resume doesn't suppress it.
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+
+    // Fire app.resume — current is non-null, so this is a no-op.
+    useEventBusStore.getState().publish("app.resume", { signal: "online" });
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+
+    // Power.resume arrives within the dedup window. MUST still bounce.
+    useEventBusStore.getState().publish("power.resume", {});
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("app.resume then power.resume — fresh SSE gets bounced (wasted bounce, but the correctness tradeoff)", async () => {
+    // Independent dedup windows mean the two handlers don't observe
+    // each other's timestamps. In the rare case where the renderer
+    // both went hidden AND received a system-power signal on wake,
+    // app.resume opens a fresh SSE and power.resume then bounces it.
+    // One extra teardown + reopen, <100ms — acceptable cost for
+    // closing the missed-bounce bug in the more common tray-resident
+    // case.
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+      }),
+    );
+    useEventBusStore.getState().publish("app.hidden", { signal: "visibility" });
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    useEventBusStore.getState().publish("app.resume", { signal: "visibility" });
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    useEventBusStore.getState().publish("power.resume", {});
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(3);
+    expect(cancelMock).toHaveBeenCalledTimes(2); // app.hidden + power.resume bounce
+  }, 5_000);
+
   test("reachability.retry-requested bounces the SSE connection", () => {
     renderHook(() =>
       useEventBusInit({

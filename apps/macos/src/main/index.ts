@@ -14,6 +14,7 @@ import {
   toggleVisibility as toggleMainWindowVisibility,
 } from "./main-window";
 import { installApplicationMenu } from "./menu";
+import { installPowerEvents } from "./power-events";
 import { readSetting, writeSetting } from "./settings";
 import { installTray } from "./tray";
 
@@ -250,6 +251,7 @@ app
     installAbout();
     installApplicationMenu();
     installDock();
+    installPowerEvents();
     installTray({
       toggleMainWindow: toggleMainWindowVisibility,
       ensureMainWindow: ensureMainWindowVisible,
