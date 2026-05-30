@@ -171,7 +171,9 @@ async function sendRadioDjMessage(
   tools: ToolDefinition[],
   signal?: AbortSignal,
 ) {
-  return await provider.sendMessage(messages, tools, RADIO_DJ_SYSTEM_PROMPT, {
+  return await provider.sendMessage(messages, {
+    tools,
+    systemPrompt: RADIO_DJ_SYSTEM_PROMPT,
     config: { callSite: "radioDj" },
     signal,
   });

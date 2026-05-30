@@ -140,8 +140,6 @@ function makeProvider(responses: ProviderResponse[]): MockProvider {
   const sendMessage = mock(
     async (
       _messages: Message[],
-      _tools?: ToolDefinition[],
-      _systemPrompt?: string,
       _options?: SendMessageOptions,
     ): Promise<ProviderResponse> => {
       const response = responses.shift();
@@ -205,13 +203,14 @@ describe("planRadioDjBreak", () => {
       "Tiny weather in the wires, then Buffer Bloom rolls in.",
     );
 
-    const [, tools, systemPrompt, options] = currentProvider.sendMessage.mock
-      .calls[0] as Parameters<Provider["sendMessage"]>;
-    expect(tools?.map((tool) => tool.name)).toEqual([
+    const [, options] = currentProvider.sendMessage.mock.calls[0] as Parameters<
+      Provider["sendMessage"]
+    >;
+    expect(options?.tools?.map((tool) => tool.name)).toEqual([
       "web_search",
       "web_fetch",
     ]);
-    expect(systemPrompt).toContain("return JSON only");
+    expect(options?.systemPrompt).toContain("return JSON only");
     expect(options?.config?.callSite).toBe("radioDj");
   });
 
@@ -361,7 +360,7 @@ describe("planRadioDjBreak", () => {
     const firstCall = currentProvider.sendMessage.mock.calls[0] as Parameters<
       Provider["sendMessage"]
     >;
-    const djFacingFetchDefinition = firstCall[1]!.find(
+    const djFacingFetchDefinition = firstCall[1]!.tools!.find(
       (tool) => tool.name === "web_fetch",
     )!;
     expect(
