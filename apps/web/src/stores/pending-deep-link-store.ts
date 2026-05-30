@@ -11,11 +11,12 @@
  * would be dropped — the bus event publishes to no chat-domain
  * subscriber until `ChatPage` mounts.
  *
- * One-shot semantics — `consumePendingMessage` returns and clears.
- * If a second deep link arrives before consumption, the latest
- * message wins (older drops with a Sentry breadcrumb). Renderer
- * reloads / hard navigates blow this away because it's
- * not persisted — by design, deep links are transient signals.
+ * One-shot semantics — `consumePendingComposerMessage` returns and
+ * clears. If a second deep link arrives before consumption, the
+ * latest message wins (silent overwrite — two-link-overwrite is
+ * below the noise floor in practice). Renderer reloads / hard
+ * navigates blow this away because it's not persisted — by design,
+ * deep links are transient signals.
  *
  * @see {@link https://zustand.docs.pmnd.rs/}
  */

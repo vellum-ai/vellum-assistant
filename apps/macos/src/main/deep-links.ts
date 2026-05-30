@@ -146,6 +146,12 @@ const broadcast = (link: DeepLink): void => {
  * would sit forever. `unknown` kinds skip activation: an attacker
  * who could induce the OS to route a `javascript:` URL to us
  * shouldn't get a UI side effect.
+ *
+ * Main owns the cold path (no-renderer activation), renderer owns
+ * the hot path (window minimized / behind another window — see
+ * `useGlobalDeepLinkConsumer`). The duplicated call when both fire
+ * is intentional defense-in-depth — `ensureVisible` short-circuits
+ * on an already-visible main window.
  */
 export const handleDeepLink = (input: string): void => {
   const link = parseVellumUrl(input);
