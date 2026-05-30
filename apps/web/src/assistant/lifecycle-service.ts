@@ -94,13 +94,13 @@ class AssistantLifecycleService {
   private generation = 0;
   private initializingTimeout: ReturnType<typeof setTimeout> | null = null;
   /**
-   * Flips true on the first `setInputs()` call. Public action
-   * methods early-return until then. Without this, a child route's
-   * `useEffect` calling e.g. `lifecycleService.checkAssistant()`
-   * BEFORE `RootLayout`'s passive effect has installed the
-   * `queryClient` would catch a TypeError on `null.fetchQuery` and
-   * publish a spurious network-error state. Mirrors the no-op
-   * defaults the pre-service store action API used to ship with.
+   * Public action methods early-return until `setInputs()` flips
+   * this true. Without the guard, a child route's `useEffect`
+   * calling e.g. `lifecycleService.checkAssistant()` BEFORE
+   * `RootLayout`'s passive effect installs the `queryClient` would
+   * catch a TypeError on `null.fetchQuery` and publish a spurious
+   * network-error state — children's effects commit before
+   * parents' in the same render cycle.
    */
   private ready = false;
   private inputs: LifecycleServiceInputs = {
