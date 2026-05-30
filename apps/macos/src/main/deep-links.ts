@@ -102,6 +102,19 @@ export const extractDeepLinkFromArgv = (argv: readonly string[]): string | null 
 
 const pending: DeepLink[] = [];
 
+// Flips on the first `drain` call. After that, the renderer is
+// known to be subscribed (subscribe-then-drain is the wrapper's
+// contract), so live links go via broadcast only — buffering them
+// would cause a renderer reload / second drainer to replay
+// already-handled links and duplicate user-visible actions
+// (send-twice, navigate-twice). Caveat: a deep link arriving in
+// the narrow window between a renderer hard-navigate (e.g. logout)
+// and the new renderer's drain is lost. That's the accepted
+// tradeoff — the duplicate-action bug is worse than the
+// during-reload lost-link case (which is rare in this app and
+// recoverable by re-clicking).
+let drained = false;
+
 const broadcast = (link: DeepLink): void => {
   for (const win of BrowserWindow.getAllWindows()) {
     if (win.isDestroyed()) continue;
@@ -110,13 +123,13 @@ const broadcast = (link: DeepLink): void => {
 };
 
 /**
- * Main entry — parse, buffer, broadcast. Internal to this module;
- * exposed via the `open-url` / `second-instance` event handlers and
- * exported for tests.
+ * Main entry — parse, buffer-if-pre-drain, broadcast. Internal to
+ * this module; exposed via the `open-url` / `second-instance` event
+ * handlers and exported for tests.
  */
 export const handleDeepLink = (input: string): void => {
   const link = parseVellumUrl(input);
-  pending.push(link);
+  if (!drained) pending.push(link);
   broadcast(link);
 };
 
@@ -146,13 +159,14 @@ export const installDeepLinks = (): void => {
     });
   });
 
-  // Renderer drains on mount. Returns AND clears the buffer — live
-  // links arriving after drain are delivered via the broadcast
-  // channel above; the renderer's `runtime/deep-links.ts` wrapper
-  // does subscribe-then-drain to avoid losing in-flight events.
+  // Renderer drains on mount. Returns AND clears the buffer, then
+  // switches to live-only mode (see `drained` comment above): future
+  // links broadcast without buffering, so a renderer reload or
+  // second drainer can't replay already-delivered events.
   ipcMain.handle("vellum:deepLinks:drain", (): DeepLink[] => {
-    const drained = pending.splice(0, pending.length);
-    return drained;
+    const out = pending.splice(0, pending.length);
+    drained = true;
+    return out;
   });
 };
 
@@ -160,5 +174,6 @@ export const installDeepLinks = (): void => {
 // uses `installDeepLinks` instead.
 export const __resetForTesting = (): void => {
   installed = false;
+  drained = false;
   pending.length = 0;
 };

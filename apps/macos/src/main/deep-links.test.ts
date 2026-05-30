@@ -215,6 +215,47 @@ describe("installDeepLinks", () => {
     // Second drain returns empty — buffer was cleared.
     expect(drainHandler()).toEqual([]);
   });
+
+  test("post-drain live links do NOT enter the buffer (no replay on renderer reload)", () => {
+    installDeepLinks();
+    const drainHandler = ipcHandleMock.mock.calls.find(
+      (c) => c[0] === "vellum:deepLinks:drain",
+    )![1] as () => unknown[];
+
+    // Backlog before renderer is ready — buffered + broadcast.
+    handleDeepLink("vellum://send?message=backlog");
+
+    // Renderer mounts, subscribes, drains the backlog. After this
+    // call we're in live-only mode.
+    expect(drainHandler()).toEqual([{ kind: "send", message: "backlog" }]);
+
+    // Live link arrives. It broadcasts (the renderer handles it via
+    // its live subscription) but must NOT be buffered — a renderer
+    // reload + second drain would otherwise replay it and double-
+    // dispatch the user-visible action.
+    handleDeepLink("vellum://thread/live");
+
+    // Simulating a renderer hard-navigate: the new renderer mounts,
+    // subscribes, drains again. Buffer must be empty.
+    expect(drainHandler()).toEqual([]);
+  });
+
+  test("post-drain live links still broadcast (live subscribers still get them)", () => {
+    installDeepLinks();
+    const drainHandler = ipcHandleMock.mock.calls.find(
+      (c) => c[0] === "vellum:deepLinks:drain",
+    )![1] as () => unknown[];
+    drainHandler(); // switch to live-only mode
+
+    const w = makeWindow();
+    windows = [w];
+    handleDeepLink("vellum://send?message=live");
+
+    expect(w.webContents.send).toHaveBeenCalledWith("vellum:deepLinks:event", {
+      kind: "send",
+      message: "live",
+    });
+  });
 });
 
 describe("handleDeepLink — broadcast", () => {
