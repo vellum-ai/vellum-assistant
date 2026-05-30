@@ -63,7 +63,6 @@ import {
 } from "@/assistant/generated/web-search-provider-catalog.gen";
 import { routes } from "@/utils/routes";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
-import { synthesizeTTS } from "@/lib/tts-synthesize";
 import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
@@ -268,6 +267,11 @@ interface DaemonConfig {
   services?: {
     "web-search"?: { mode?: string; provider?: string };
     "image-generation"?: { mode?: string };
+    tts?: {
+      mode?: string;
+      provider?: string;
+      providers?: Record<string, Record<string, unknown> | undefined>;
+    };
   };
   llm?: {
     default?: { provider?: string; model?: string };
@@ -332,10 +336,7 @@ const LS_WEB_SEARCH_PROVIDER = "vellum:ai:webSearchProvider";
 const LS_EMAIL_MODE = "vellum:ai:emailMode";
 const LS_EMAIL_BYO_PROVIDER = "vellum:ai:emailByoProvider";
 
-// TTS / STT localStorage keys (shared with the Voice settings tab)
-const LS_TTS_PROVIDER = "vellum:voice:ttsProvider";
-const LS_TTS_API_KEY_PREFIX = "vellum:voice:ttsApiKey:";
-const LS_TTS_VOICE_ID_PREFIX = "vellum:voice:ttsVoiceId:";
+// STT localStorage keys (shared with the Voice settings tab)
 const LS_STT_PROVIDER = "vellum:voice:sttProvider";
 const LS_STT_API_KEY_PREFIX = "vellum:voice:sttApiKey:";
 
@@ -541,20 +542,82 @@ function CredentialsGuide({ guide }: CredentialsGuideProps) {
 // Text-to-Speech card
 // ---------------------------------------------------------------------------
 
-function TextToSpeechCard() {
+const TTS_VOICE_CONFIG_KEY_BY_PROVIDER: Record<string, string | undefined> = {
+  elevenlabs: "voiceId",
+  "fish-audio": "referenceId",
+  xai: "voiceId",
+};
+
+function normalizeTtsProvider(provider: string | undefined): string | undefined {
+  if (!provider) return undefined;
+  return TTS_PROVIDERS.some((entry) => entry.id === provider) ? provider : undefined;
+}
+
+function configuredTtsVoiceId(config: DaemonConfig | undefined, provider: string): string {
+  const key = TTS_VOICE_CONFIG_KEY_BY_PROVIDER[provider];
+  if (!key) return "";
+  const value = config?.services?.tts?.providers?.[provider]?.[key];
+  return typeof value === "string" ? value : "";
+}
+
+function ttsConfigPatch(provider: string, voiceId: string): Record<string, unknown> {
+  const voiceConfigKey = TTS_VOICE_CONFIG_KEY_BY_PROVIDER[provider];
+  const tts: Record<string, unknown> = {
+    mode: "your-own",
+    provider,
+  };
+  if (voiceConfigKey) {
+    tts.providers = {
+      [provider]: {
+        [voiceConfigKey]: voiceId,
+      },
+    };
+  }
+  return { services: { tts } };
+}
+
+function ttsAudioBlobFromBase64(
+  audioBase64: string,
+  contentType: string | undefined,
+): Blob {
+  const binary = globalThis.atob(audioBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: contentType || "audio/mpeg" });
+}
+
+export function TextToSpeechCard() {
   const defaultProviderId = TTS_PROVIDERS[0]?.id ?? "elevenlabs";
-  const [draftProvider, setDraftProvider] = useState<string>(() =>
-    getLocalSetting(LS_TTS_PROVIDER, defaultProviderId),
-  );
+  const queryClient = useQueryClient();
+  const [draftProvider, setDraftProvider] = useState<string>(defaultProviderId);
   const [initialProvider, setInitialProvider] = useState<string>(draftProvider);
   const [apiKeyText, setApiKeyText] = useState("");
   const [voiceIdText, setVoiceIdText] = useState("");
   const [initialVoiceId, setInitialVoiceId] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
+  const [credentialRevision, setCredentialRevision] = useState(0);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const { data: assistantList } = useQuery(assistantsListOptions());
+  const assistantId = assistantList?.results?.[0]?.id;
   const assistantName = assistantList?.results?.[0]?.name ?? "your assistant";
+
+  const { data: daemonConfig } = useQuery({
+    queryKey: assistantDaemonConfigQueryKey(assistantId),
+    queryFn: async () => {
+      const { data } = await client.get<DaemonConfig, unknown, true>({
+        url: `/v1/assistants/{assistant_id}/config`,
+        path: { assistant_id: assistantId! },
+        throwOnError: true,
+      });
+      return data as DaemonConfig;
+    },
+    enabled: !!assistantId,
+    staleTime: 30_000,
+    refetchOnWindowFocus: false,
+  });
 
   const selectedProvider = useMemo<TTSProvider>(() => {
     return (
@@ -562,21 +625,68 @@ function TextToSpeechCard() {
     );
   }, [draftProvider]);
 
-  const loadProviderState = useCallback((providerId: string) => {
-    const storedKey = getLocalSetting(LS_TTS_API_KEY_PREFIX + providerId, "");
-    const storedVoiceId = getLocalSetting(
-      LS_TTS_VOICE_ID_PREFIX + providerId,
-      "",
-    );
-    setProviderHasKey(storedKey.length > 0);
-    setVoiceIdText(storedVoiceId);
-    setInitialVoiceId(storedVoiceId);
+  const hydrateFromDaemonConfig = useCallback((config: DaemonConfig) => {
+    const provider =
+      normalizeTtsProvider(config.services?.tts?.provider) ?? defaultProviderId;
+    const voiceId = configuredTtsVoiceId(config, provider);
+    setDraftProvider(provider);
+    setInitialProvider(provider);
+    setVoiceIdText(voiceId);
+    setInitialVoiceId(voiceId);
     setApiKeyText("");
-  }, []);
+  }, [defaultProviderId]);
+
+  const configHydrated = useRef(false);
+  useEffect(() => {
+    if (!daemonConfig || configHydrated.current) return;
+    configHydrated.current = true;
+    hydrateFromDaemonConfig(daemonConfig);
+  }, [daemonConfig, hydrateFromDaemonConfig]);
 
   useEffect(() => {
-    loadProviderState(draftProvider);
-  }, [draftProvider, loadProviderState]);
+    let cancelled = false;
+    if (!assistantId) {
+      setProviderHasKey(false);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const { data } = await client.post<
+          { 200: { hasSecret?: boolean } },
+          unknown,
+          true
+        >({
+          url: `/v1/assistants/{assistant_id}/credentials/inspect`,
+          path: { assistant_id: assistantId },
+          body: { service: draftProvider, field: "api_key" },
+          throwOnError: true,
+        });
+        if (!cancelled) {
+          setProviderHasKey(Boolean(data?.hasSecret));
+        }
+      } catch {
+        if (!cancelled) {
+          setProviderHasKey(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assistantId, credentialRevision, draftProvider]);
+
+  const handleProviderChange = useCallback(
+    (providerId: string) => {
+      setDraftProvider(providerId);
+      const voiceId = configuredTtsVoiceId(daemonConfig, providerId);
+      setVoiceIdText(voiceId);
+      setInitialVoiceId(voiceId);
+      setApiKeyText("");
+    },
+    [daemonConfig],
+  );
 
   const hasChanges = useMemo(() => {
     const providerChanged = draftProvider !== initialProvider;
@@ -585,63 +695,132 @@ function TextToSpeechCard() {
     return providerChanged || hasNewKey || voiceIdChanged;
   }, [draftProvider, initialProvider, apiKeyText, voiceIdText, initialVoiceId]);
 
-  const handleSave = useCallback(() => {
-    setSaving(true);
+  const saveTtsSettings = useCallback(async (
+    options: { showSuccessToast?: boolean } = {},
+  ): Promise<boolean> => {
+    if (!assistantId) {
+      toast.error("No assistant found. Please hatch an assistant first.");
+      return false;
+    }
+
+    const showSuccessToast = options.showSuccessToast ?? true;
     try {
-      setLocalSetting(LS_TTS_PROVIDER, draftProvider);
       const trimmedKey = apiKeyText.trim();
       if (trimmedKey.length > 0) {
-        setLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, trimmedKey);
+        await client.post<Record<string, unknown>, unknown, true>({
+          url: `/v1/assistants/{assistant_id}/credentials/set`,
+          path: { assistant_id: assistantId },
+          body: {
+            service: draftProvider,
+            field: "api_key",
+            value: trimmedKey,
+            label: `${selectedProvider.displayName} API Key`,
+            description: `Text-to-speech API key for ${selectedProvider.displayName}`,
+          },
+          throwOnError: true,
+        });
         setProviderHasKey(true);
+        setCredentialRevision((revision) => revision + 1);
       }
       const trimmedVoiceId = voiceIdText.trim();
-      setLocalSetting(LS_TTS_VOICE_ID_PREFIX + draftProvider, trimmedVoiceId);
+      await client.patch<Record<string, unknown>, unknown, true>({
+        url: `/v1/assistants/{assistant_id}/config`,
+        path: { assistant_id: assistantId },
+        body: ttsConfigPatch(draftProvider, trimmedVoiceId),
+        throwOnError: true,
+      });
       setInitialProvider(draftProvider);
       setInitialVoiceId(trimmedVoiceId);
       setApiKeyText("");
-    } finally {
-      setSaving(false);
+      void queryClient.invalidateQueries({
+        queryKey: assistantDaemonConfigQueryKey(assistantId),
+      });
+      if (showSuccessToast) {
+        toast.success("Text-to-Speech settings saved.");
+      }
+      return true;
+    } catch (error) {
+      toast.error("Failed to save Text-to-Speech settings. Please try again.");
+      reportError(error, {
+        context: "settings-ai-tts-save",
+        userMessage: "Failed to save Text-to-Speech settings",
+      });
+      return false;
     }
-  }, [draftProvider, apiKeyText, voiceIdText]);
+  }, [
+    apiKeyText,
+    assistantId,
+    draftProvider,
+    queryClient,
+    selectedProvider.displayName,
+    voiceIdText,
+  ]);
 
-  const handleReset = useCallback(() => {
-    setLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, "");
-    setProviderHasKey(false);
-    setApiKeyText("");
-  }, [draftProvider]);
+  const handleSave = useCallback(() => {
+    setSaving(true);
+    void saveTtsSettings().finally(() => {
+      setSaving(false);
+    });
+  }, [saveTtsSettings]);
+
+  const handleReset = useCallback(async () => {
+    if (!assistantId) {
+      toast.error("No assistant found. Please hatch an assistant first.");
+      return;
+    }
+    try {
+      await client.post<Record<string, unknown>, unknown, true>({
+        url: `/v1/assistants/{assistant_id}/credentials/delete`,
+        path: { assistant_id: assistantId },
+        body: { service: draftProvider, field: "api_key" },
+        throwOnError: true,
+      });
+      setProviderHasKey(false);
+      setCredentialRevision((revision) => revision + 1);
+      setApiKeyText("");
+      toast.success("Text-to-Speech API key reset.");
+    } catch (error) {
+      toast.error("Failed to reset Text-to-Speech API key. Please try again.");
+      reportError(error, {
+        context: "settings-ai-tts-reset",
+        userMessage: "Failed to reset Text-to-Speech API key",
+      });
+    }
+  }, [assistantId, draftProvider]);
 
   const handleTest = useCallback(async () => {
     setTesting(true);
     try {
-      const storedApiKey = getLocalSetting(
-        LS_TTS_API_KEY_PREFIX + draftProvider,
-        "",
-      );
-      const pendingApiKey = apiKeyText.trim();
-      const apiKey = pendingApiKey.length > 0 ? pendingApiKey : storedApiKey;
-      if (apiKey.length === 0) {
+      if (!assistantId) {
+        toast.error("No assistant found. Please hatch an assistant first.");
+        return;
+      }
+      if (!providerHasKey && apiKeyText.trim().length === 0) {
         toast.error("Save an API key for this provider before testing.");
         return;
       }
-      const storedVoiceId = getLocalSetting(
-        LS_TTS_VOICE_ID_PREFIX + draftProvider,
-        "",
-      );
-      const pendingVoiceId = voiceIdText.trim();
-      const voiceId =
-        pendingVoiceId.length > 0 ? pendingVoiceId : storedVoiceId;
-      const text = `Hey! It's ${assistantName}. How does this sound?`;
-      const result = await synthesizeTTS({
-        provider: draftProvider,
-        apiKey,
-        voiceId,
-        text,
-      });
-      if (result.kind !== "audio") {
-        toast.error(result.message);
-        return;
+
+      if (hasChanges) {
+        const saved = await saveTtsSettings({ showSuccessToast: false });
+        if (!saved) return;
       }
-      const url = URL.createObjectURL(result.blob);
+
+      const text = `Hey! It's ${assistantName}. How does this sound?`;
+      const { data } = await client.post<
+        { 200: { audioBase64?: string; contentType?: string } },
+        unknown,
+        true
+      >({
+        url: `/v1/assistants/{assistant_id}/tts/synthesize-cli`,
+        path: { assistant_id: assistantId },
+        body: { text, useCase: "message-playback" },
+        throwOnError: true,
+      });
+      if (!data?.audioBase64) {
+        throw new Error("Text-to-Speech test returned no audio.");
+      }
+      const blob = ttsAudioBlobFromBase64(data.audioBase64, data.contentType);
+      const url = URL.createObjectURL(blob);
       try {
         const audio = new Audio(url);
         await audio.play();
@@ -652,14 +831,32 @@ function TextToSpeechCard() {
       } finally {
         URL.revokeObjectURL(url);
       }
+    } catch (error) {
+      toast.error(
+        error instanceof Error && error.message.trim().length > 0
+          ? error.message
+          : "Text-to-Speech test failed. Please check your configuration.",
+      );
+      reportError(error, {
+        context: "settings-ai-tts-test",
+        userMessage: "Failed to test Text-to-Speech settings",
+      });
     } finally {
       setTesting(false);
     }
-  }, [assistantName, apiKeyText, draftProvider, voiceIdText]);
+  }, [
+    apiKeyText,
+    assistantId,
+    assistantName,
+    hasChanges,
+    providerHasKey,
+    saveTtsSettings,
+  ]);
 
-  const apiKeyPlaceholder = providerHasKey
-    ? "••••••••  (Enter a new key to replace)"
-    : selectedProvider.apiKeyPlaceholder;
+  const apiKeyPlaceholder = secretPlaceholder(
+    selectedProvider.apiKeyPlaceholder,
+    providerHasKey,
+  );
 
   return (
     <ByoServiceCard
@@ -673,7 +870,7 @@ function TextToSpeechCard() {
           </label>
           <Dropdown
             value={draftProvider}
-            onChange={setDraftProvider}
+            onChange={handleProviderChange}
             options={TTS_PROVIDERS.map((p) => ({
               value: p.id,
               label: p.displayName,
@@ -716,7 +913,7 @@ function TextToSpeechCard() {
           <Button
             variant="outlined"
             onClick={handleTest}
-            disabled={testing}
+            disabled={testing || saving}
           >
             {testing ? "Testing…" : "Test"}
           </Button>
