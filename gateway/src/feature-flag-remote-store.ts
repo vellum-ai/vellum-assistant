@@ -43,10 +43,6 @@ export function getRemoteFeatureFlagStorePath(): string {
   return join(getGatewaySecurityDir(), "feature-flags-remote.json");
 }
 
-export function hasRemoteFeatureFlagSnapshot(): boolean {
-  return existsSync(getRemoteFeatureFlagStorePath());
-}
-
 // ---------------------------------------------------------------------------
 // Disk I/O with caching
 // ---------------------------------------------------------------------------
