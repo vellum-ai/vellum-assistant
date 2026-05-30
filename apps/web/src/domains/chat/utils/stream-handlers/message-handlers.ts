@@ -9,12 +9,51 @@ import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/
 import type { AssistantActivityStateEvent } from "@/types/event-types";
 import type {
   AssistantTextDeltaEvent,
+  AssistantTurnStartEvent,
   GenerationCancelledEvent,
   GenerationHandoffEvent,
   MessageCompleteEvent,
 } from "@vellumai/assistant-api";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 
+
+/**
+ * Apply an `assistant_turn_start` event.
+ *
+ * The daemon emits this from event zero of each LLM call in a turn,
+ * carrying the `messageId` of the row it `reserveMessage`'d in SQLite.
+ * The handler does two things:
+ *
+ * 1. Stamps `currentAssistantMessageIdRef` with the anchor id. Downstream
+ *    deltas in this LLM call carry the same `messageId` and
+ *    `appendTextDelta` matches by id — but subagent attribution and any
+ *    other consumer that reads the ref before a delta lands sees the
+ *    correct anchor immediately.
+ *
+ * 2. If a row with this id already exists in `messages` — e.g. the
+ *    reserved row was pulled in by an in-flight reconcile poll before the
+ *    SSE wire delivered this event — flips it to `isStreaming: true`.
+ *    That ensures `appendTextDelta` doesn't see a non-streaming assistant
+ *    tail and open a duplicate bubble with the same id. No-op when the
+ *    row doesn't exist yet (the common case: SSE strictly precedes
+ *    reconcile).
+ */
+export function handleAssistantTurnStart(
+  event: AssistantTurnStartEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.currentAssistantMessageIdRef.current = event.messageId;
+  ctx.setMessages((prev) => {
+    let touched = false;
+    const next = prev.map((m) => {
+      if (m.role !== "assistant" || m.id !== event.messageId) return m;
+      if (m.isStreaming) return m;
+      touched = true;
+      return { ...m, isStreaming: true };
+    });
+    return touched ? next : prev;
+  });
+}
 
 export function handleAssistantTextDelta(
   event: AssistantTextDeltaEvent,
