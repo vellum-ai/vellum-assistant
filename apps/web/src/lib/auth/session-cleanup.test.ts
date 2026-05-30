@@ -131,16 +131,20 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("vellum:onboarding:completed")).toBeNull();
   });
 
-  test("clears legacy app. prefixed nudge keys", () => {
+  test("preserves active app. nudge keys on logout", () => {
+    localStorage.setItem("app.iosNudge.downloaded", "true");
+    localStorage.setItem("app.macOsNudge.bannerDismissed", "true");
     localStorage.setItem("app.githubNudge.starred", "true");
-    localStorage.setItem("app.discordNudge.joined", "true");
-    localStorage.setItem("app.nudgeLegacy.cleaned", "true");
 
     clearUserScopedStorage();
 
-    expect(localStorage.getItem("app.githubNudge.starred")).toBeNull();
-    expect(localStorage.getItem("app.discordNudge.joined")).toBeNull();
-    expect(localStorage.getItem("app.nudgeLegacy.cleaned")).toBeNull();
+    // Active iOS/macOS nudge keys must survive logout — they are
+    // still read by use-ios-app-nudge.ts and use-macos-app-nudge.ts.
+    // Dead github/discord keys are removed at startup by removeKey()
+    // in storage-migration.ts, not by the logout sweep.
+    expect(localStorage.getItem("app.iosNudge.downloaded")).toBe("true");
+    expect(localStorage.getItem("app.macOsNudge.bannerDismissed")).toBe("true");
+    expect(localStorage.getItem("app.githubNudge.starred")).toBe("true");
   });
 
   test("clears legacy prefixed keys if startup migration failed", () => {
