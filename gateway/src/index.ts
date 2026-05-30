@@ -1800,6 +1800,25 @@ async function main() {
     }
   }
 
+  function shouldRecordSlackActivityAfterRuntime(
+    result: Awaited<ReturnType<typeof handleInbound>>,
+  ): boolean {
+    return (
+      result.forwarded &&
+      result.runtimeResponse?.accepted === true &&
+      result.runtimeResponse.duplicate !== true &&
+      result.runtimeResponse.denied !== true
+    );
+  }
+
+  async function notifyRecordActivityForRuntimeResult(
+    result: Awaited<ReturnType<typeof handleInbound>>,
+  ): Promise<void> {
+    if (shouldRecordSlackActivityAfterRuntime(result)) {
+      await notifyRecordActivity();
+    }
+  }
+
   async function startSlackSocket(): Promise<void> {
     if (slackSocketClient) {
       slackSocketClient.stop();
@@ -1817,10 +1836,6 @@ async function main() {
     slackSocketClient = createSlackSocketModeClient(
       { appToken, botToken, gatewayConfig: config },
       (normalized) => {
-        // Notify the platform of inbound activity so the idle-sleep timer
-        // is reset for this assistant (fire-and-forget).
-        notifyRecordActivity();
-
         const { threadTs, channel } = normalized;
         const params = new URLSearchParams({ channel });
         if (threadTs) params.set("threadTs", threadTs);
@@ -1865,7 +1880,9 @@ async function main() {
             },
             log,
             threadTs,
-          );
+          ).finally(() => {
+            void notifyRecordActivity();
+          });
           return;
         }
 
@@ -2010,7 +2027,7 @@ async function main() {
               }
             }
 
-            handleInbound(config, normalized.event, {
+            const result = await handleInbound(config, normalized.event, {
               replyCallbackUrl,
               routingOverride: normalized.routing,
               ...(Object.keys(slackSourceMetadata).length > 0
@@ -2025,12 +2042,13 @@ async function main() {
                 "Failed to forward Slack event to runtime",
               );
             });
+            if (result) await notifyRecordActivityForRuntimeResult(result);
           } catch (err) {
             log.error(
               { err, channel, threadTs },
               "Failed to process Slack event — delivering message without attachments",
             );
-            handleInbound(config, normalized.event, {
+            const result = await handleInbound(config, normalized.event, {
               replyCallbackUrl,
               routingOverride: normalized.routing,
               ...(Object.keys(slackSourceMetadata).length > 0
@@ -2042,6 +2060,7 @@ async function main() {
                 "Failed to forward Slack event to runtime (fallback)",
               );
             });
+            if (result) await notifyRecordActivityForRuntimeResult(result);
           }
         };
 
