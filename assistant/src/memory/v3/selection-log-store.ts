@@ -36,26 +36,21 @@ function rowsForTurn(conversationId: string, turn: number): SelectionRow[] {
     .all(conversationId, turn) as SelectionRow[];
 }
 
-function latestTurn(conversationId: string): number | null {
-  const row = getSqliteFrom(getDb())
-    .query(
-      /*sql*/ `
-      SELECT MAX(turn) AS t FROM memory_v3_selections WHERE conversation_id = ?
-    `,
-    )
-    .get(conversationId) as { t: number | null } | undefined;
-  return row?.t ?? null;
-}
-
 /**
- * Build the inspector's v3 selection log for a conversation.
+ * Build the inspector's v3 selection log for one turn of a conversation.
  *
- * `preferredTurn` (the v2-activation log's turn, when the caller has one) is
- * tried first. The v3 turn counter (`ctx.turnCount`) and the v2 memory-tracker
- * turn need not agree, so when the preferred turn has no v3 rows we fall back
- * to the conversation's most-recent v3 turn rather than guessing an alignment.
- * Returns `null` when the conversation has no v3 selections at all (v3 never
- * ran for it).
+ * `turn` is the inspected message's turn (the v2-activation log's turn). The
+ * selection is returned ONLY for that exact turn; when there are no v3 rows for
+ * it — including when `turn` is null (the message has no v2-activation turn) —
+ * this returns `null` rather than falling back to a different turn. A fallback
+ * would attribute another turn's selection (e.g. a later turn's pages and
+ * rendered block) to the inspected message, which corrupts shadow validation.
+ *
+ * Caveat: v3 rows are keyed by the orchestrator turn counter (`ctx.turnCount`)
+ * while `turn` here is the v2 memory-tracker turn. They coincide for normal
+ * turns, but if they diverge this simply yields `null` (no section) rather than
+ * wrong data. Tying v3 rows to a message id for exact per-message attribution
+ * regardless of counter drift is a documented follow-up.
  *
  * Selection rows are stored in `finalInjection` order (this turn's L2
  * selections, then carry-forward), so rendering them in row order reproduces
@@ -63,26 +58,11 @@ function latestTurn(conversationId: string): number | null {
  */
 export async function getMemoryV3SelectionForInspector(
   conversationId: string,
-  preferredTurn?: number | null,
+  turn: number | null | undefined,
 ): Promise<MemoryV3SelectionLog | null> {
-  let turn: number | null = null;
-  let rows: SelectionRow[] = [];
+  if (turn == null) return null;
 
-  if (preferredTurn != null) {
-    const preferred = rowsForTurn(conversationId, preferredTurn);
-    if (preferred.length > 0) {
-      turn = preferredTurn;
-      rows = preferred;
-    }
-  }
-
-  if (turn == null) {
-    const latest = latestTurn(conversationId);
-    if (latest == null) return null;
-    turn = latest;
-    rows = rowsForTurn(conversationId, latest);
-  }
-
+  const rows = rowsForTurn(conversationId, turn);
   if (rows.length === 0) return null;
 
   const config = getConfig();
