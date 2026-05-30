@@ -753,8 +753,7 @@ declare global {
  *     can pull canonical SSE schemas (`RelationshipStateUpdatedEventSchema`, …)
  *     out of the shipped bundle from the console.
  *   - `flags` — dev-toggleable feature flags
- *     (`toggleTranscriptScrollController`, `impersonateVersion`,
- *     `toggleProgressBadge`).
+ *     (`impersonateVersion`, `toggleProgressBadge`).
  *     Stable singleton; pure module exports backed by localStorage.
  *
  * Consolidating these into one installer guarantees they're set at the

@@ -9,7 +9,7 @@ import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/
 import {
   findConversation,
   patchConversation,
-} from "@/domains/conversations/conversation-queries";
+} from "@/utils/conversation-cache";
 import { useConversationStore } from "@/stores/conversation-store";
 import type { AssistantActivityStateEvent } from "@/types/event-types";
 import type {
