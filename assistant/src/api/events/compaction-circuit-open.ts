@@ -15,15 +15,13 @@
 
 import { z } from "zod";
 
-export const CompactionCircuitOpenEventSchema = z
-  .object({
-    type: z.literal("compaction_circuit_open"),
-    conversationId: z.string(),
-    reason: z.literal("3_consecutive_failures"),
-    /** Timestamp (ms since epoch) when the breaker will allow auto-compaction again. */
-    openUntil: z.number(),
-  })
-  .strict();
+export const CompactionCircuitOpenEventSchema = z.object({
+  type: z.literal("compaction_circuit_open"),
+  conversationId: z.string(),
+  reason: z.literal("3_consecutive_failures"),
+  /** Timestamp (ms since epoch) when the breaker will allow auto-compaction again. */
+  openUntil: z.number(),
+});
 
 export type CompactionCircuitOpenEvent = z.infer<
   typeof CompactionCircuitOpenEventSchema

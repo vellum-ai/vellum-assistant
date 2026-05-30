@@ -17,14 +17,12 @@
 
 import { z } from "zod";
 
-export const MessageRequestCompleteEventSchema = z
-  .object({
-    type: z.literal("message_request_complete"),
-    conversationId: z.string(),
-    requestId: z.string(),
-    runStillActive: z.boolean().optional(),
-  })
-  .strict();
+export const MessageRequestCompleteEventSchema = z.object({
+  type: z.literal("message_request_complete"),
+  conversationId: z.string(),
+  requestId: z.string(),
+  runStillActive: z.boolean().optional(),
+});
 
 export type MessageRequestCompleteEvent = z.infer<
   typeof MessageRequestCompleteEventSchema

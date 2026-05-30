@@ -11,15 +11,13 @@
 
 import { z } from "zod";
 
-export const ConversationTitleUpdatedEventSchema = z
-  .object({
-    type: z.literal("conversation_title_updated"),
-    /** Conversation whose title changed. */
-    conversationId: z.string(),
-    /** New title. */
-    title: z.string(),
-  })
-  .strict();
+export const ConversationTitleUpdatedEventSchema = z.object({
+  type: z.literal("conversation_title_updated"),
+  /** Conversation whose title changed. */
+  conversationId: z.string(),
+  /** New title. */
+  title: z.string(),
+});
 
 export type ConversationTitleUpdatedEvent = z.infer<
   typeof ConversationTitleUpdatedEventSchema

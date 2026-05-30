@@ -37,15 +37,13 @@ export type InteractionResolutionState = z.infer<
   typeof InteractionResolutionStateSchema
 >;
 
-export const InteractionResolvedEventSchema = z
-  .object({
-    type: z.literal("interaction_resolved"),
-    requestId: z.string(),
-    conversationId: z.string(),
-    state: InteractionResolutionStateSchema,
-    kind: z.string(),
-  })
-  .strict();
+export const InteractionResolvedEventSchema = z.object({
+  type: z.literal("interaction_resolved"),
+  requestId: z.string(),
+  conversationId: z.string(),
+  state: InteractionResolutionStateSchema,
+  kind: z.string(),
+});
 
 export type InteractionResolvedEvent = z.infer<
   typeof InteractionResolvedEventSchema

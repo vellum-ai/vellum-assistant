@@ -34,40 +34,34 @@
 
 import { z } from "zod";
 
-export const QuestionOptionSchema = z
-  .object({
-    id: z.string(),
-    label: z.string(),
-    description: z.string().optional(),
-  })
-  .strict();
+export const QuestionOptionSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+});
 
 export type QuestionOption = z.infer<typeof QuestionOptionSchema>;
 
-export const QuestionEntrySchema = z
-  .object({
-    id: z.string(),
-    question: z.string(),
-    description: z.string().optional(),
-    options: z.array(QuestionOptionSchema),
-    freeTextPlaceholder: z.string().optional(),
-  })
-  .strict();
+export const QuestionEntrySchema = z.object({
+  id: z.string(),
+  question: z.string(),
+  description: z.string().optional(),
+  options: z.array(QuestionOptionSchema),
+  freeTextPlaceholder: z.string().optional(),
+});
 
 export type QuestionEntry = z.infer<typeof QuestionEntrySchema>;
 
-export const QuestionRequestEventSchema = z
-  .object({
-    type: z.literal("question_request"),
-    requestId: z.string(),
-    questions: z.array(QuestionEntrySchema),
-    question: z.string(),
-    description: z.string().optional(),
-    options: z.array(QuestionOptionSchema),
-    freeTextPlaceholder: z.string().optional(),
-    conversationId: z.string().optional(),
-    toolUseId: z.string().optional(),
-  })
-  .strict();
+export const QuestionRequestEventSchema = z.object({
+  type: z.literal("question_request"),
+  requestId: z.string(),
+  questions: z.array(QuestionEntrySchema),
+  question: z.string(),
+  description: z.string().optional(),
+  options: z.array(QuestionOptionSchema),
+  freeTextPlaceholder: z.string().optional(),
+  conversationId: z.string().optional(),
+  toolUseId: z.string().optional(),
+});
 
 export type QuestionRequestEvent = z.infer<typeof QuestionRequestEventSchema>;

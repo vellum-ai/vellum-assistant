@@ -27,13 +27,11 @@ export type ConversationListInvalidatedReason = z.infer<
   typeof ConversationListInvalidatedReasonSchema
 >;
 
-export const ConversationListInvalidatedEventSchema = z
-  .object({
-    type: z.literal("conversation_list_invalidated"),
-    /** Categorical cause of invalidation. */
-    reason: ConversationListInvalidatedReasonSchema,
-  })
-  .strict();
+export const ConversationListInvalidatedEventSchema = z.object({
+  type: z.literal("conversation_list_invalidated"),
+  /** Categorical cause of invalidation. */
+  reason: ConversationListInvalidatedReasonSchema,
+});
 
 export type ConversationListInvalidatedEvent = z.infer<
   typeof ConversationListInvalidatedEventSchema

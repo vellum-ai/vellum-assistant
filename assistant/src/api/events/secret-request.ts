@@ -24,21 +24,19 @@
 
 import { z } from "zod";
 
-export const SecretRequestEventSchema = z
-  .object({
-    type: z.literal("secret_request"),
-    requestId: z.string(),
-    service: z.string(),
-    field: z.string(),
-    label: z.string(),
-    description: z.string().optional(),
-    placeholder: z.string().optional(),
-    conversationId: z.string().optional(),
-    purpose: z.string().optional(),
-    allowedTools: z.array(z.string()).optional(),
-    allowedDomains: z.array(z.string()).optional(),
-    allowOneTimeSend: z.boolean().optional(),
-  })
-  .strict();
+export const SecretRequestEventSchema = z.object({
+  type: z.literal("secret_request"),
+  requestId: z.string(),
+  service: z.string(),
+  field: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+  placeholder: z.string().optional(),
+  conversationId: z.string().optional(),
+  purpose: z.string().optional(),
+  allowedTools: z.array(z.string()).optional(),
+  allowedDomains: z.array(z.string()).optional(),
+  allowOneTimeSend: z.boolean().optional(),
+});
 
 export type SecretRequestEvent = z.infer<typeof SecretRequestEventSchema>;

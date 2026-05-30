@@ -15,12 +15,10 @@
 
 import { z } from "zod";
 
-export const AvatarUpdatedEventSchema = z
-  .object({
-    type: z.literal("avatar_updated"),
-    /** Absolute path to the updated avatar image file. */
-    avatarPath: z.string(),
-  })
-  .strict();
+export const AvatarUpdatedEventSchema = z.object({
+  type: z.literal("avatar_updated"),
+  /** Absolute path to the updated avatar image file. */
+  avatarPath: z.string(),
+});
 
 export type AvatarUpdatedEvent = z.infer<typeof AvatarUpdatedEventSchema>;

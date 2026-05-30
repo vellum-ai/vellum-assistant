@@ -35,42 +35,34 @@
 
 import { z } from "zod";
 
-export const AllowlistOptionSchema = z
-  .object({
-    label: z.string(),
-    description: z.string(),
-    pattern: z.string(),
-  })
-  .strict();
+export const AllowlistOptionSchema = z.object({
+  label: z.string(),
+  description: z.string(),
+  pattern: z.string(),
+});
 
 export type AllowlistOption = z.infer<typeof AllowlistOptionSchema>;
 
-export const ScopeOptionSchema = z
-  .object({
-    label: z.string(),
-    scope: z.string(),
-  })
-  .strict();
+export const ScopeOptionSchema = z.object({
+  label: z.string(),
+  scope: z.string(),
+});
 
 export type ScopeOption = z.infer<typeof ScopeOptionSchema>;
 
-export const DirectoryScopeOptionSchema = z
-  .object({
-    label: z.string(),
-    scope: z.string(),
-  })
-  .strict();
+export const DirectoryScopeOptionSchema = z.object({
+  label: z.string(),
+  scope: z.string(),
+});
 
 export type DirectoryScopeOption = z.infer<typeof DirectoryScopeOptionSchema>;
 
-export const ConfirmationDiffSchema = z
-  .object({
-    filePath: z.string(),
-    oldContent: z.string(),
-    newContent: z.string(),
-    isNewFile: z.boolean(),
-  })
-  .strict();
+export const ConfirmationDiffSchema = z.object({
+  filePath: z.string(),
+  oldContent: z.string(),
+  newContent: z.string(),
+  isNewFile: z.boolean(),
+});
 
 export type ConfirmationDiff = z.infer<typeof ConfirmationDiffSchema>;
 
@@ -83,13 +75,11 @@ export const ACPOptionKindSchema = z.enum([
 
 export type ACPOptionKind = z.infer<typeof ACPOptionKindSchema>;
 
-export const ACPOptionSchema = z
-  .object({
-    optionId: z.string(),
-    name: z.string(),
-    kind: ACPOptionKindSchema,
-  })
-  .strict();
+export const ACPOptionSchema = z.object({
+  optionId: z.string(),
+  name: z.string(),
+  kind: ACPOptionKindSchema,
+});
 
 export type ACPOption = z.infer<typeof ACPOptionSchema>;
 
@@ -99,27 +89,25 @@ export type ConfirmationExecutionTarget = z.infer<
   typeof ConfirmationExecutionTargetSchema
 >;
 
-export const ConfirmationRequestEventSchema = z
-  .object({
-    type: z.literal("confirmation_request"),
-    requestId: z.string(),
-    toolName: z.string(),
-    input: z.record(z.string(), z.unknown()),
-    riskLevel: z.string(),
-    riskReason: z.string().optional(),
-    isContainerized: z.boolean().optional(),
-    executionTarget: ConfirmationExecutionTargetSchema.optional(),
-    allowlistOptions: z.array(AllowlistOptionSchema),
-    scopeOptions: z.array(ScopeOptionSchema),
-    directoryScopeOptions: z.array(DirectoryScopeOptionSchema).optional(),
-    diff: ConfirmationDiffSchema.optional(),
-    conversationId: z.string().optional(),
-    persistentDecisionsAllowed: z.boolean().optional(),
-    toolUseId: z.string().optional(),
-    acpToolKind: z.string().optional(),
-    acpOptions: z.array(ACPOptionSchema).optional(),
-  })
-  .strict();
+export const ConfirmationRequestEventSchema = z.object({
+  type: z.literal("confirmation_request"),
+  requestId: z.string(),
+  toolName: z.string(),
+  input: z.record(z.string(), z.unknown()),
+  riskLevel: z.string(),
+  riskReason: z.string().optional(),
+  isContainerized: z.boolean().optional(),
+  executionTarget: ConfirmationExecutionTargetSchema.optional(),
+  allowlistOptions: z.array(AllowlistOptionSchema),
+  scopeOptions: z.array(ScopeOptionSchema),
+  directoryScopeOptions: z.array(DirectoryScopeOptionSchema).optional(),
+  diff: ConfirmationDiffSchema.optional(),
+  conversationId: z.string().optional(),
+  persistentDecisionsAllowed: z.boolean().optional(),
+  toolUseId: z.string().optional(),
+  acpToolKind: z.string().optional(),
+  acpOptions: z.array(ACPOptionSchema).optional(),
+});
 
 export type ConfirmationRequestEvent = z.infer<
   typeof ConfirmationRequestEventSchema

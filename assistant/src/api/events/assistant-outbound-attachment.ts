@@ -18,33 +18,31 @@
 
 import { z } from "zod";
 
-export const AssistantOutboundAttachmentSchema = z
-  .object({
-    /** Storage id assigned by the daemon's attachment store; absent on
-     *  in-memory drafts not backed by a stored row. */
-    id: z.string().optional(),
-    filename: z.string(),
-    mimeType: z.string(),
-    /** Base64-encoded file bytes. May be empty when `fileBacked` is
-     *  true and the client should hydrate via the /content endpoint. */
-    data: z.string(),
-    sourceType: z.enum(["sandbox_file", "host_file", "tool_block"]).optional(),
-    /** Original file size in bytes. Present when `data` was omitted to
-     *  keep payloads small. */
-    sizeBytes: z.number().optional(),
-    /** Base64-encoded JPEG thumbnail. Generated server-side for video
-     *  attachments. */
-    thumbnailData: z.string().optional(),
-    /** True when the attachment is stored on disk and clients should
-     *  hydrate via the /content endpoint instead of relying on `data`. */
-    fileBacked: z.boolean().optional(),
-    /** Local on-disk path for file-backed attachments. Used by the
-     *  macOS client to play recordings and render thumbnails directly
-     *  from the local file (see #9744 — eliminates the HTTP fetch +
-     *  ffmpeg dep for video). Web clients ignore this field. */
-    filePath: z.string().optional(),
-  })
-  .strict();
+export const AssistantOutboundAttachmentSchema = z.object({
+  /** Storage id assigned by the daemon's attachment store; absent on
+   *  in-memory drafts not backed by a stored row. */
+  id: z.string().optional(),
+  filename: z.string(),
+  mimeType: z.string(),
+  /** Base64-encoded file bytes. May be empty when `fileBacked` is
+   *  true and the client should hydrate via the /content endpoint. */
+  data: z.string(),
+  sourceType: z.enum(["sandbox_file", "host_file", "tool_block"]).optional(),
+  /** Original file size in bytes. Present when `data` was omitted to
+   *  keep payloads small. */
+  sizeBytes: z.number().optional(),
+  /** Base64-encoded JPEG thumbnail. Generated server-side for video
+   *  attachments. */
+  thumbnailData: z.string().optional(),
+  /** True when the attachment is stored on disk and clients should
+   *  hydrate via the /content endpoint instead of relying on `data`. */
+  fileBacked: z.boolean().optional(),
+  /** Local on-disk path for file-backed attachments. Used by the
+   *  macOS client to play recordings and render thumbnails directly
+   *  from the local file (see #9744 — eliminates the HTTP fetch +
+   *  ffmpeg dep for video). Web clients ignore this field. */
+  filePath: z.string().optional(),
+});
 
 export type AssistantOutboundAttachment = z.infer<
   typeof AssistantOutboundAttachmentSchema
