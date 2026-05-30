@@ -47,6 +47,7 @@ import { getTreeIndex } from "../../memory/v3/tree-index.js";
 import type { TreeValidationReport } from "../../memory/v3/validate.js";
 import { validateTree } from "../../memory/v3/validate.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // Re-export the loop trace/cost shapes so the CLI renderer can import them from
@@ -417,6 +418,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v3_validate",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v3/validate",
     handler: handleValidate,
     summary: "Validate the memory v3 tree structure (read-only)",
@@ -428,6 +433,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v3_tree",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v3/tree",
     handler: handleTree,
     summary: "Return a serializable view of the memory v3 tree DAG (read-only)",
@@ -439,6 +448,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v3_simulate",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v3/simulate",
     handler: handleSimulate,
     summary:
@@ -451,6 +464,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v3_shadow_diff",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v3/shadow-diff",
     handler: handleShadowDiff,
     summary:
@@ -463,6 +480,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v3_seed_edges",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v3/seed-edges",
     handler: handleSeedEdges,
     summary: "Seed the learned co-retrieval edge graph from v2 router history",

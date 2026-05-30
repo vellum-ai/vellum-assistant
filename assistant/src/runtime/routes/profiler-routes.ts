@@ -37,6 +37,7 @@ import {
 } from "../../daemon/profiler-run-store.js";
 import { getLogger } from "../../util/logger.js";
 import { getProfilerRunDir } from "../../util/platform.js";
+import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { createTarGz, MAX_ARCHIVE_BYTES } from "./archive-utils.js";
 import {
   BadRequestError,
@@ -232,11 +233,14 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "profiler_runs_get",
     endpoint: "profiler/runs",
     method: "GET",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "List profiler runs",
     description:
       "Enumerate all profiler run directories with manifest metadata, sorted newest-first.",
     tags: ["profiler"],
-    requirePolicyEnforcement: true,
     handler: handleListRuns,
     responseBody: z.object({
       runs: z.array(
@@ -257,11 +261,14 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "profiler_runs_by_runId_get",
     endpoint: "profiler/runs/:runId",
     method: "GET",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Get profiler run detail",
     description:
       "Return manifest metadata, Bun-generated markdown summary, and current retention state for a single profiler run.",
     tags: ["profiler"],
-    requirePolicyEnforcement: true,
     handler: handleGetRun,
     responseBody: z.object({
       runId: z.string(),
@@ -284,11 +291,14 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "profiler_runs_by_runId_export_post",
     endpoint: "profiler/runs/:runId/export",
     method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Export profiler run",
     description:
       "Package a single profiler run directory as a tar.gz bundle, subject to the same archive size limits used by runtime log exports.",
     tags: ["profiler"],
-    requirePolicyEnforcement: true,
     handler: handleExportRun,
     responseHeaders: ({ pathParams = {} }) => ({
       "Content-Type": "application/gzip",
@@ -299,11 +309,14 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "profiler_runs_by_runId_delete",
     endpoint: "profiler/runs/:runId",
     method: "DELETE",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Delete profiler run",
     description:
       "Delete a completed profiler run and recalculate disk-budget state. Rejects deletion of the currently active run.",
     tags: ["profiler"],
-    requirePolicyEnforcement: true,
     handler: handleDeleteRun,
     responseBody: z.object({
       deleted: z.boolean(),

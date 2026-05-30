@@ -14,6 +14,7 @@
 
 import { assistantEventHub } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
 import { UserRouteDispatcher } from "./user-route-dispatcher.js";
@@ -108,10 +109,13 @@ export const ROUTES: RouteDefinition[] = METHODS.map((method) => ({
   operationId: `user_route_${method.toLowerCase()}`,
   endpoint: "x/:path*",
   method,
-  policyKey: "x",
   summary: `User-defined ${method} route`,
   description: `Dispatches ${method} requests to user-defined handler files in the workspace routes directory.`,
   tags: ["user-routes"],
+  policy: {
+    requiredScopes: ["settings.read"],
+    allowedPrincipalTypes: ACTOR_PRINCIPALS,
+  },
   handler: async (args: RouteHandlerArgs) => {
     const request = synthesizeRequest(method, args);
     const response = await dispatcher.dispatch(

@@ -28,6 +28,7 @@ import type {
   RecordingStatus,
 } from "../../daemon/message-protocol.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   ConflictError,
@@ -207,8 +208,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "recordings_start",
     endpoint: "recordings/start",
     method: "POST",
-    policyKey: "recordings/start",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Start recording",
     description: "Start a screen recording for a conversation.",
     tags: ["recordings"],
@@ -230,8 +233,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "recordings_stop",
     endpoint: "recordings/stop",
     method: "POST",
-    policyKey: "recordings/stop",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Stop recording",
     description: "Stop the active screen recording.",
     tags: ["recordings"],
@@ -248,8 +253,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "recordings_pause",
     endpoint: "recordings/pause",
     method: "POST",
-    policyKey: "recordings/pause",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Pause recording",
     description: "Pause the active screen recording.",
     tags: ["recordings"],
@@ -266,8 +273,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "recordings_resume",
     endpoint: "recordings/resume",
     method: "POST",
-    policyKey: "recordings/resume",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Resume recording",
     description: "Resume a paused screen recording.",
     tags: ["recordings"],
@@ -284,8 +293,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "recordings_status_get",
     endpoint: "recordings/status",
     method: "GET",
-    policyKey: "recordings/status",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get recording status",
     description: "Return the current recording state.",
     tags: ["recordings"],
@@ -299,8 +310,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "recordings_status_post",
     endpoint: "recordings/status",
     method: "POST",
-    policyKey: "recordings/status:POST",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Post recording status",
     description: "Recording lifecycle callback from the client.",
     tags: ["recordings"],

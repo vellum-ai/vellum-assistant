@@ -13,6 +13,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -89,7 +90,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "inference_send",
     endpoint: "inference/send",
     method: "POST",
-    policyKey: "inference/send",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Send a message to the configured LLM",
     description:
       "Send a user message to the configured LLM provider and return the model response. " +

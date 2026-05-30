@@ -29,6 +29,7 @@ function defineRoute(overrides: Partial<RouteDefinition>): RouteDefinition {
     endpoint: "test",
     method: "GET",
     handler: noopHandler,
+    policy: null,
     ...overrides,
   };
 }
@@ -149,32 +150,52 @@ describe("routeDefinitionsToIpcMethods — schema shape", () => {
 // Policy resolution — the load-bearing piece
 // ---------------------------------------------------------------------------
 
-describe("routeDefinitionsToIpcMethods — policy resolution", () => {
-  test("routes with no registered policy ship policy: null", async () => {
-    // `random_unregistered_endpoint` has no `registerPolicy(...)` entry.
+describe("routeDefinitionsToIpcMethods — policy serialization", () => {
+  test("routes with policy: null ship policy: null", async () => {
+    // Unprotected route (e.g. health endpoint) carries policy: null
+    // and the adapter passes it through unchanged.
     const routes: RouteDefinition[] = [
       defineRoute({
         operationId: "z",
-        endpoint: "random_unregistered_endpoint",
+        endpoint: "unprotected_endpoint",
+        policy: null,
       }),
     ];
     const schema = await getSchema(routes);
     expect(schema[0].policy).toBeNull();
   });
 
-  test("routes with a registered method-specific policy resolve to it", async () => {
-    // `messages` is registered as `messages:GET` + `messages:POST` in
-    // runtime/auth/route-policy.ts.
+  test("routes with declared policy ship it verbatim", async () => {
+    // The adapter is now a straight pass-through: whatever policy the
+    // RouteDefinition declares, the wire schema reflects.
     const routes: RouteDefinition[] = [
       defineRoute({
         operationId: "m_get",
         endpoint: "messages",
         method: "GET",
+        policy: {
+          requiredScopes: ["chat.read"],
+          allowedPrincipalTypes: [
+            "actor",
+            "svc_gateway",
+            "svc_daemon",
+            "local",
+          ],
+        },
       }),
       defineRoute({
         operationId: "m_post",
         endpoint: "messages",
         method: "POST",
+        policy: {
+          requiredScopes: ["chat.write"],
+          allowedPrincipalTypes: [
+            "actor",
+            "svc_gateway",
+            "svc_daemon",
+            "local",
+          ],
+        },
       }),
     ];
     const schema = await getSchema(routes);
@@ -182,20 +203,42 @@ describe("routeDefinitionsToIpcMethods — policy resolution", () => {
     expect(schema[1].policy?.requiredScopes).toEqual(["chat.write"]);
   });
 
-  test("policy lookup respects explicit policyKey override", async () => {
-    // The `plugins` policyKey is shared across plugins:GET / plugins:DELETE.
-    // The route adapter should use the explicit policyKey, not the
-    // derived `plugins/:name` → `plugins` form.
+  test("schema is a structural pass-through (no derivation, no lookup)", async () => {
+    // Sibling routes with the same endpoint+different policy don't
+    // collide — each route's own .policy is used verbatim, exactly
+    // the property-on-entity guarantee ATL-315's followup buys us.
     const routes: RouteDefinition[] = [
+      defineRoute({
+        operationId: "plugins_install",
+        endpoint: "plugins/:name",
+        method: "POST",
+        policy: {
+          requiredScopes: ["settings.write"],
+          allowedPrincipalTypes: [
+            "actor",
+            "svc_gateway",
+            "svc_daemon",
+            "local",
+          ],
+        },
+      }),
       defineRoute({
         operationId: "plugins_uninstall",
         endpoint: "plugins/:name",
         method: "DELETE",
-        policyKey: "plugins",
+        policy: {
+          requiredScopes: ["settings.write"],
+          allowedPrincipalTypes: [
+            "actor",
+            "svc_gateway",
+            "svc_daemon",
+            "local",
+          ],
+        },
       }),
     ];
     const schema = await getSchema(routes);
-    expect(schema[0].policy).not.toBeNull();
     expect(schema[0].policy?.requiredScopes).toEqual(["settings.write"]);
+    expect(schema[1].policy?.requiredScopes).toEqual(["settings.write"]);
   });
 });

@@ -46,6 +46,7 @@ import type { BackupConfig, BackupDestination } from "../../config/schema.js";
 import { getMemoryCheckpoint } from "../../memory/checkpoints.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { DefaultPathResolver } from "../migrations/vbundle-import-analyzer.js";
 import { BadRequestError, RouteError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -493,6 +494,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "backups_list",
     endpoint: "backups",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleBackupList,
     summary: "List backup snapshots",
     description:
@@ -515,6 +520,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "backups_create",
     endpoint: "backups/create",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleBackupCreate,
     summary: "Create a backup snapshot immediately",
     description:
@@ -530,6 +539,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "backups_restore",
     endpoint: "backups/restore",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleBackupRestore,
     summary: "Restore from a backup snapshot",
     description:
@@ -549,6 +562,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "backups_verify",
     endpoint: "backups/verify",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleBackupVerify,
     summary: "Verify a backup snapshot",
     description:
@@ -567,6 +584,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "backup_enable",
     endpoint: "backup/enable",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleBackupEnable,
     summary: "Enable automated backups",
     description:
@@ -583,6 +604,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "backup_disable",
     endpoint: "backup/disable",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleBackupDisable,
     summary: "Disable automated backups",
     description:
@@ -596,6 +621,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "backup_destinations_list",
     endpoint: "backup/destinations",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleBackupDestinationsList,
     summary: "List configured offsite backup destinations",
     description:
@@ -614,6 +643,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "backup_destinations_add",
     endpoint: "backup/destinations/add",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleBackupDestinationsAdd,
     summary: "Add an offsite backup destination",
     description:
@@ -642,6 +675,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "backup_destinations_remove",
     endpoint: "backup/destinations/remove",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleBackupDestinationsRemove,
     summary: "Remove an offsite backup destination",
     description:
@@ -666,6 +703,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "backup_destinations_set_encrypt",
     endpoint: "backup/destinations/set-encrypt",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleBackupDestinationsSetEncrypt,
     summary: "Toggle encryption for an existing destination",
     description:
@@ -691,6 +732,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "backup_status",
     endpoint: "backup/status",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleBackupStatus,
     summary: "Show backup status and next-run timing",
     description:

@@ -45,7 +45,7 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "playgroundSeedConversation",
     endpoint: "playground/seed-conversation",
     method: "POST",
-    policyKey: "playground/seed-conversation",
+    policy: null,
     summary: "Create a synthetic seeded conversation for compaction testing",
     tags: ["playground"],
     requestBody: SeedBodySchema,

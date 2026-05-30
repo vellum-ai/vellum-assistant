@@ -11,6 +11,7 @@ import {
   publishCdpEvent,
 } from "../../browser-session/events.js";
 import { clearPinnedTabByTabId } from "../../tools/browser/pinned-tabs.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
@@ -324,6 +325,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "host_browser_result",
     endpoint: "host-browser-result",
     method: "POST",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     requireGuardian: true,
     summary: "Submit host browser result",
     description: "Resolve a pending host browser request by requestId.",
@@ -358,6 +363,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "host_browser_event",
     endpoint: "host-browser-event",
     method: "POST",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     requireGuardian: true,
     summary: "Forward a CDP event from the browser extension",
     description:
@@ -380,6 +389,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "host_browser_session_invalidated",
     endpoint: "host-browser-session-invalidated",
     method: "POST",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     requireGuardian: true,
     summary: "Notify runtime that a CDP session was invalidated",
     description:

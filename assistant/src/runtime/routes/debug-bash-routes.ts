@@ -17,6 +17,7 @@ import { z } from "zod";
 import { getIsContainerized } from "../../config/env-registry.js";
 import { buildSanitizedEnv } from "../../tools/terminal/safe-env.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -141,6 +142,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "debug_bash",
     endpoint: "debug/bash",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     requireGuardian: false,
     summary: "Execute a shell command in the assistant process",
     description:

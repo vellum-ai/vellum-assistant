@@ -27,6 +27,7 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -259,7 +260,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "listSchedules",
     endpoint: "schedules",
     method: "GET",
-    policyKey: "schedules",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List schedules",
     description: "Return all scheduled jobs.",
     tags: ["schedules"],
@@ -281,7 +285,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "createSchedule",
     endpoint: "schedules",
     method: "POST",
-    policyKey: "schedules",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Create schedule",
     description:
       "Create a new recurring schedule. Currently restricted to mode='execute'.",
@@ -310,7 +317,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "listScheduleRuns",
     endpoint: "schedules/:id/runs",
     method: "GET",
-    policyKey: "schedules",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List schedule runs",
     description: "Return recent invocation history for a schedule.",
     tags: ["schedules"],
@@ -331,7 +341,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "toggleSchedule",
     endpoint: "schedules/:id/toggle",
     method: "POST",
-    policyKey: "schedules/toggle",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Toggle schedule",
     description: "Enable or disable a schedule.",
     tags: ["schedules"],
@@ -348,7 +361,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "deleteSchedule",
     endpoint: "schedules/:id",
     method: "DELETE",
-    policyKey: "schedules",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete schedule",
     description: "Remove a schedule by ID.",
     tags: ["schedules"],
@@ -362,7 +378,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "updateSchedule",
     endpoint: "schedules/:id",
     method: "PATCH",
-    policyKey: "schedules",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Update schedule",
     description: "Partially update fields on a schedule.",
     tags: ["schedules"],
@@ -391,7 +410,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "cancelSchedule",
     endpoint: "schedules/:id/cancel",
     method: "POST",
-    policyKey: "schedules/cancel",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Cancel schedule",
     description: "Cancel a pending schedule.",
     tags: ["schedules"],
@@ -405,7 +427,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "runScheduleNow",
     endpoint: "schedules/:id/run",
     method: "POST",
-    policyKey: "schedules/run",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Run schedule now",
     description: "Trigger an immediate execution of a schedule.",
     tags: ["schedules"],

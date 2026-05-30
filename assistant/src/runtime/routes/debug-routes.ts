@@ -17,6 +17,7 @@ import {
 } from "../../providers/registry.js";
 import { countSchedules } from "../../schedule/schedule-store.js";
 import { getDbPath } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition } from "./types.js";
 
 /** Process start time — used to calculate uptime. */
@@ -91,6 +92,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "debug",
     endpoint: "debug",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: getDebugInfo,
     summary: "Debug introspection",
     description:

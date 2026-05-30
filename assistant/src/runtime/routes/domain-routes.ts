@@ -12,6 +12,7 @@ import {
   setNestedValue,
 } from "../../config/loader.js";
 import { VellumPlatformClient } from "../../platform/client.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, RouteError, UnauthorizedError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -194,6 +195,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "domain_register",
     endpoint: "domain/register",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleDomainRegister,
     summary: "Register a subdomain for this assistant",
     tags: ["domain"],
@@ -202,6 +207,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "domain_status",
     endpoint: "domain/status",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleDomainStatus,
     summary: "Show domain registration and health",
     tags: ["domain"],
@@ -210,6 +219,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "domain_verification_status",
     endpoint: "domain/verification-status",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleDomainVerificationStatus,
     summary: "Get live DNS verification status for a domain",
     tags: ["domain"],

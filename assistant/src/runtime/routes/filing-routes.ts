@@ -12,6 +12,7 @@ import { z } from "zod";
 import { getConfig } from "../../config/loader.js";
 import { FilingService } from "../../filing/filing-service.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -30,8 +31,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getFilingConfig",
     endpoint: "filing/config",
     method: "GET",
-    policyKey: "filing",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get filing config",
     description: "Return the current filing schedule configuration.",
     tags: ["filing"],
@@ -64,8 +67,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "runFilingNow",
     endpoint: "filing/run-now",
     method: "POST",
-    policyKey: "filing",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Run filing now",
     description: "Trigger an immediate filing run.",
     tags: ["filing"],

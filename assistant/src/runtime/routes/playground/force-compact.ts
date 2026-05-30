@@ -22,7 +22,7 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "playgroundForceCompact",
     endpoint: "conversations/:id/playground/compact",
     method: "POST",
-    policyKey: "conversations/playground/compact",
+    policy: null,
     summary: "Force compaction on a conversation (dev-only playground)",
     tags: ["playground"],
     pathParams: [{ name: "id", type: "uuid" }],

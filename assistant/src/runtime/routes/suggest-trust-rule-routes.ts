@@ -14,6 +14,7 @@ import {
   getConfiguredProvider,
   userMessage,
 } from "../../providers/provider-send-message.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Request / response shapes ─────────────────────────────────────────
@@ -264,6 +265,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "suggest_trust_rule",
     endpoint: "trust-rules/suggest",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleSuggestTrustRule,
     summary: "Suggest a trust rule",
     description:

@@ -23,6 +23,7 @@ import { getDb } from "../../memory/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -120,6 +121,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "bookmarks_list",
     endpoint: "bookmarks",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List bookmarks",
     description:
       "Return all bookmarks (newest first), joined with their parent message and conversation.",
@@ -131,6 +136,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "bookmarks_create",
     endpoint: "bookmarks",
     method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Create a bookmark",
     description:
       "Bookmark the given message. Idempotent on `messageId` — calling twice returns the same bookmark.",
@@ -146,6 +155,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "bookmarks_delete_by_message",
     endpoint: "bookmarks/by-message/:messageId",
     method: "DELETE",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete a bookmark by message id",
     description:
       "Delete the bookmark (if any) attached to the given message. Succeeds even if no row matched.",

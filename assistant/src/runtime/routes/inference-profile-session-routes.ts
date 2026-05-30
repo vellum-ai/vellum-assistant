@@ -8,6 +8,7 @@
 
 import { z } from "zod";
 
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import {
   closeInferenceProfileSession,
@@ -65,7 +66,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "inference_profile_open",
     endpoint: "conversations/inference-profile-session",
     method: "POST",
-    policyKey: "conversations/inference-profile-session/open",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Open an inference-profile session",
     description:
       "Open (or replace) a session-backed inference-profile override for a conversation. " +
@@ -97,7 +101,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "inference_profile_close",
     endpoint: "conversations/inference-profile-session/close",
     method: "POST",
-    policyKey: "conversations/inference-profile-session/close",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Close an inference-profile session",
     description:
       "Close the active session-backed inference-profile override for a conversation. " +
@@ -122,7 +129,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "inference_profile_list",
     endpoint: "conversations/inference-profile-sessions",
     method: "GET",
-    policyKey: "conversations/inference-profile-sessions",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List active inference-profile sessions",
     description:
       "List all active (non-expired) session-backed inference-profile overrides, " +

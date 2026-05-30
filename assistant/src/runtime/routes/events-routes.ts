@@ -39,6 +39,7 @@ import {
   AssistantEventHub,
   assistantEventHub,
 } from "../assistant-event-hub.js";
+import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import {
   BadRequestError,
@@ -486,6 +487,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "emit_event",
     endpoint: "events/emit",
     method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Emit an assistant event",
     description:
       "Trigger an in-process assistant event by kind. Used by the gateway after owning a write that the assistant runtime would normally emit.",
@@ -504,6 +509,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "subscribe_assistant_events",
     endpoint: "events",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Subscribe to assistant events",
     description: "Stream assistant events as Server-Sent Events (SSE).",
     tags: ["events"],

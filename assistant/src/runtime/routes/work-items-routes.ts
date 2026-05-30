@@ -36,6 +36,7 @@ import {
 } from "../../work-items/work-item-store.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   ConflictError,
@@ -414,7 +415,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "listWorkItems",
     endpoint: "work-items",
     method: "GET",
-    policyKey: "work-items",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List work items",
     description: "Return work items, optionally filtered by status.",
     tags: ["work-items"],
@@ -452,7 +456,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getWorkItem",
     endpoint: "work-items/:id",
     method: "GET",
-    policyKey: "work-items",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get a work item",
     description: "Return a single work item by ID.",
     tags: ["work-items"],
@@ -469,7 +476,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "updateWorkItem",
     endpoint: "work-items/:id",
     method: "PATCH",
-    policyKey: "work-items",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Update a work item",
     description:
       "Partially update a work item's title, notes, status, or priority.",
@@ -523,7 +533,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "completeWorkItem",
     endpoint: "work-items/:id/complete",
     method: "POST",
-    policyKey: "work-items/complete",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Complete a work item",
     description: "Transition a work item from awaiting_review to done.",
     tags: ["work-items"],
@@ -552,7 +565,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "deleteWorkItem",
     endpoint: "work-items/:id",
     method: "DELETE",
-    policyKey: "work-items",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete a work item",
     description: "Permanently remove a work item.",
     tags: ["work-items"],
@@ -572,7 +588,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "approveWorkItemPermissions",
     endpoint: "work-items/:id/approve-permissions",
     method: "POST",
-    policyKey: "work-items/approve-permissions",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Approve tool permissions",
     description: "Pre-approve a set of tools for a work item before it runs.",
     tags: ["work-items"],
@@ -601,7 +620,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "preflightWorkItem",
     endpoint: "work-items/:id/preflight",
     method: "POST",
-    policyKey: "work-items/preflight",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Preflight check",
     description: "Check tool permissions needed before running a work item.",
     tags: ["work-items"],
@@ -628,7 +650,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getWorkItemOutput",
     endpoint: "work-items/:id/output",
     method: "GET",
-    policyKey: "work-items/output",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get work item output",
     description: "Return the final output of a completed work item run.",
     tags: ["work-items"],
@@ -657,7 +682,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "cancelWorkItem",
     endpoint: "work-items/:id/cancel",
     method: "POST",
-    policyKey: "work-items/cancel",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Cancel a running work item",
     description: "Abort a running work item and set its status to cancelled.",
     tags: ["work-items"],
@@ -707,7 +735,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "runWorkItem",
     endpoint: "work-items/:id/run",
     method: "POST",
-    policyKey: "work-items/run",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Run a work item",
     description:
       "Execute the task associated with a work item. Returns immediately; execution happens in the background.",

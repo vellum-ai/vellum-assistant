@@ -45,6 +45,7 @@ import {
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import { getSecretsDeps } from "./secrets-deps.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -628,7 +629,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "secrets_add",
     endpoint: "secrets",
     method: "POST",
-    policyKey: "secrets",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Add a secret",
     description:
       "Store a new secret (API key, OAuth token, etc.) in the credential vault.",
@@ -649,7 +653,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "secrets_delete",
     endpoint: "secrets",
     method: "DELETE",
-    policyKey: "secrets",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete a secret",
     description: "Remove a secret from the credential vault by name.",
     tags: ["secrets"],
@@ -668,7 +675,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "secrets_list",
     endpoint: "secrets",
     method: "GET",
-    policyKey: "secrets",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List secrets",
     description: "Return the names (not values) of all stored secrets.",
     tags: ["secrets"],
@@ -684,7 +694,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "secrets_read",
     endpoint: "secrets/read",
     method: "POST",
-    policyKey: "secrets",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Read a secret value",
     description: "Retrieve the decrypted value of a stored secret by name.",
     tags: ["secrets"],

@@ -22,6 +22,7 @@ import {
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -446,12 +447,14 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "dictation_post",
     endpoint: "dictation",
     method: "POST",
-    policyKey: "dictation",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Process dictation",
     description:
       "Classify voice input as dictation or action, clean up text, and apply user style preferences.",
     tags: ["diagnostics"],
-    requirePolicyEnforcement: true,
     requestBody: z.object({
       transcription: z.string().describe("Raw speech transcription"),
       context: z

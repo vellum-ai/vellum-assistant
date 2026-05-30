@@ -30,6 +30,7 @@ import { getBindingsForConversations } from "../../memory/external-conversation-
 import { listGroups } from "../../memory/group-crud.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   buildConversationDetailResponse,
   serializeConversationSummary,
@@ -307,7 +308,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "listConversations",
     endpoint: "conversations",
     method: "GET",
-    policyKey: "conversations",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List conversations",
     description:
       "Paginated list of conversations with attention state and display metadata.",
@@ -341,7 +345,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "recordConversationSeen",
     endpoint: "conversations/seen",
     method: "POST",
-    policyKey: "conversations/seen",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Record a seen signal",
     description: "Mark a conversation as seen, advancing the attention cursor.",
     tags: ["conversations"],
@@ -362,7 +369,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "markConversationUnread",
     endpoint: "conversations/unread",
     method: "POST",
-    policyKey: "conversations/unread",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Mark conversation unread",
     description: "Reset the seen cursor so the conversation appears unread.",
     tags: ["conversations"],
@@ -376,6 +386,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getConversation",
     endpoint: "conversations/:id",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     pathParams: [{ name: "id", type: "uuid" }],
     summary: "Get conversation detail",
     description: "Retrieve a single conversation with full metadata.",

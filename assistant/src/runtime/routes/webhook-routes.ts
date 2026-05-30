@@ -17,6 +17,7 @@ import {
   resolvePlatformCallbackRegistrationContext,
 } from "../../inbound/platform-callback-registration.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   InternalError,
@@ -146,6 +147,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "webhooks_register",
     endpoint: "webhooks/register",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Register a webhook callback URL",
     description:
       "Resolves a stable callback URL for a webhook type. On platform-managed assistants, registers the route with the platform gateway. On self-hosted assistants, uses the configured ingress.publicBaseUrl.",
@@ -156,6 +161,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "webhooks_list",
     endpoint: "webhooks",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List registered webhook callback routes",
     description:
       "Lists all webhook callback routes registered with the platform for this assistant.",

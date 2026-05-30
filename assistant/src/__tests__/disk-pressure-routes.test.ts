@@ -52,9 +52,16 @@ const {
   evaluateDiskPressureNow,
 } = await import("../daemon/disk-pressure-guard.js");
 const { assistantEventHub } = await import("../runtime/assistant-event-hub.js");
-const { getPolicy } = await import("../runtime/auth/route-policy.js");
 const { RouteError } = await import("../runtime/routes/errors.js");
 const { ROUTES } = await import("../runtime/routes/disk-pressure-routes.js");
+
+/** Look up a route's policy by endpoint+method on the module's ROUTES. */
+function routePolicy(endpoint: string, method?: string) {
+  const route = ROUTES.find(
+    (r) => r.endpoint === endpoint && (!method || r.method === method),
+  );
+  return route?.policy ?? null;
+}
 
 type DiskPressureRouteResult = {
   status: {
@@ -161,7 +168,7 @@ describe("disk pressure routes", () => {
           (route) => route.endpoint === endpoint && route.method === method,
         ),
       ).toBe(true);
-      expect(getPolicy(endpoint)).toBeDefined();
+      expect(routePolicy(endpoint)).not.toBeNull();
     }
   });
 

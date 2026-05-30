@@ -22,6 +22,7 @@ import {
 import { resolveTtsConfig } from "../../tts/tts-config-resolver.js";
 import type { TtsUseCase } from "../../tts/types.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadGatewayError,
   BadRequestError,
@@ -229,8 +230,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "messages_tts",
     endpoint: "messages/:messageId/tts",
     method: "POST",
-    policyKey: "messages/tts",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Synthesize message to speech",
     description:
       "Synthesize a message's text content to audio using the configured TTS provider.",
@@ -249,8 +252,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "tts_synthesize",
     endpoint: "tts/synthesize",
     method: "POST",
-    policyKey: "tts/synthesize",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Synthesize text to speech",
     description:
       "Synthesize arbitrary text to audio using the configured TTS provider.",
@@ -275,8 +280,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "tts_synthesize_cli",
     endpoint: "tts/synthesize-cli",
     method: "POST",
-    policyKey: "tts/synthesize-cli",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Synthesize text to speech (CLI)",
     description:
       "Synthesize arbitrary text to audio. Returns base64-encoded audio + content type for CLI consumption.",

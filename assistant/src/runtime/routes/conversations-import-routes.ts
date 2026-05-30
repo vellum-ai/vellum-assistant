@@ -18,6 +18,7 @@ import {
   messages as messagesTable,
 } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -201,6 +202,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversations_import",
     endpoint: "conversations/import",
     method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleConversationsImport,
     summary: "Import conversations",
     description: "Import conversations from a standard JSON payload.",

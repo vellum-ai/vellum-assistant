@@ -13,6 +13,7 @@ import {
 } from "../../memory/conversation-crud.js";
 import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -81,6 +82,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "wipe_conversation",
     endpoint: "conversations/wipe",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleWipeConversation,
     summary: "Wipe a conversation",
     description:

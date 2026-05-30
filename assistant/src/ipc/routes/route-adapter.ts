@@ -2,14 +2,12 @@
  * Filters the ROUTES array down to IPC-eligible routes and appends the
  * meta-route used by the gateway for IPC proxy discovery.
  *
- * The schema includes the resolved scope/principal policy per route so
- * the gateway's IPC proxy can enforce policy without maintaining a
- * parallel table. See `resolveRoutePolicy` in `runtime/auth/route-policy.ts`
- * for the resolution rule (method-suffix key, then bare policyKey, then
- * null for intentionally unprotected routes).
+ * The schema includes each route's policy verbatim — the gateway's
+ * IPC proxy enforces equivalent scope/principal checks without
+ * maintaining a parallel table. The policy is a property of each
+ * RouteDefinition; no lookup or derivation happens here.
  */
 
-import { resolveRoutePolicy } from "../../runtime/auth/route-policy.js";
 import type { RouteDefinition } from "../../runtime/routes/types.js";
 
 function isIpcEligible(r: RouteDefinition): boolean {
@@ -36,22 +34,16 @@ interface IpcRouteSchemaEntry {
 }
 
 function toSchemaEntry(r: RouteDefinition): IpcRouteSchemaEntry {
-  const policy = resolveRoutePolicy({
-    endpoint: r.endpoint,
-    method: r.method,
-    policyKey: r.policyKey,
-  });
-
   return {
     operationId: r.operationId,
     endpoint: r.endpoint,
     method: r.method,
-    policy: policy
+    policy: r.policy
       ? {
           // Spread into mutable string[] for serialization — the wire
           // shape doesn't carry the `Scope` / `PrincipalType` narrowing.
-          requiredScopes: [...policy.requiredScopes],
-          allowedPrincipalTypes: [...policy.allowedPrincipalTypes],
+          requiredScopes: [...r.policy.requiredScopes],
+          allowedPrincipalTypes: [...r.policy.allowedPrincipalTypes],
         }
       : null,
   };
@@ -68,6 +60,10 @@ export function routeDefinitionsToIpcMethods(
     operationId: "get_route_schema",
     method: "GET",
     endpoint: "_internal/route-schema",
+    // The IPC route schema endpoint is the gateway's bootstrap call —
+    // it runs before any policy table is in scope and has no actor
+    // scopes attached. Explicitly unprotected.
+    policy: null,
     handler: async () => eligible.map(toSchemaEntry),
   };
 

@@ -44,6 +44,7 @@ import {
   PluginNotInstalledError,
   uninstallPlugin,
 } from "../../cli/lib/uninstall-plugin.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -256,8 +257,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "plugins_list",
     endpoint: "plugins",
     method: "GET",
-    policyKey: "plugins",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List installed plugins",
     description:
       "Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name, and description.",
@@ -277,8 +280,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "plugins_search",
     endpoint: "plugins/search",
     method: "GET",
-    policyKey: "plugins",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Search the plugin catalog",
     description:
       "List installable plugins from the canonical `vellum-ai/vellum-assistant` catalog at `experimental/plugins/`. The query is an ECMAScript regex matched case-insensitively against the directory name (e.g. `memory`, `^simple`). Empty query returns every entry. Mirrors the CLI's `assistant plugins search`.",
@@ -304,8 +309,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "plugins_uninstall",
     endpoint: "plugins/:name",
     method: "DELETE",
-    policyKey: "plugins",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Uninstall a plugin",
     description:
       "Remove the directory at `<workspaceDir>/plugins/<name>/`. Mirrors the CLI's `assistant plugins uninstall <name>` (without the interactive confirmation — the API caller is responsible for any prompt). The plugin name is sanitized by the same regex the CLI uses; `../escape`-style values, hidden names, and absolute paths return 400. Missing plugins return 404. The assistant must be restarted to drop the plugin from the running runtime.",

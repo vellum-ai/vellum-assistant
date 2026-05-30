@@ -18,6 +18,7 @@ import { basename, dirname, join } from "node:path";
 import { z } from "zod";
 
 import { getWorkspaceDir } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishSoundsConfigUpdated } from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
@@ -416,6 +417,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "workspace_tree",
     endpoint: "workspace/tree",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List workspace directory",
     description: "Return directory entries for a workspace path.",
     tags: ["workspace"],
@@ -439,6 +444,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "workspace_file",
     endpoint: "workspace/file",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get workspace file metadata",
     description:
       "Return file metadata and inline text content (if small enough).",
@@ -468,6 +477,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "workspace_write",
     endpoint: "workspace/write",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Write workspace file",
     description: "Create or overwrite a file in the workspace.",
     tags: ["workspace"],
@@ -489,6 +502,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "workspace_mkdir",
     endpoint: "workspace/mkdir",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Create workspace directory",
     description: "Create directories recursively in the workspace.",
     tags: ["workspace"],
@@ -504,6 +521,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "workspace_rename",
     endpoint: "workspace/rename",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Rename workspace entry",
     description: "Rename or move a file or directory in the workspace.",
     tags: ["workspace"],
@@ -521,6 +542,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "workspace_delete",
     endpoint: "workspace/delete",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete workspace entry",
     description: "Delete a file or directory from the workspace.",
     tags: ["workspace"],
@@ -536,6 +561,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "workspace_file_content",
     endpoint: "workspace/file/content",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get workspace file content",
     description: "Return raw file bytes with HTTP range support.",
     tags: ["workspace"],

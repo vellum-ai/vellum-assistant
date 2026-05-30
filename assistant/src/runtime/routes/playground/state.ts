@@ -59,7 +59,7 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "playgroundGetCompactionState",
     endpoint: "conversations/:id/playground/compaction-state",
     method: "GET",
-    policyKey: "conversations/playground/state",
+    policy: null,
     summary: "Read current compaction state for a conversation",
     tags: ["playground"],
     pathParams: [{ name: "id", type: "uuid" }],

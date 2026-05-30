@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
@@ -101,6 +102,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "host_file_result",
     endpoint: "host-file-result",
     method: "POST",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     requireGuardian: true,
     summary: "Submit host file result",
     description:

@@ -19,6 +19,7 @@ import type {
   HostAppControlResultPayload,
   HostAppControlState,
 } from "../../daemon/message-types/host-app-control.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
@@ -134,6 +135,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "host_app_control_result",
     endpoint: "host-app-control-result",
     method: "POST",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     requireGuardian: true,
     summary: "Submit host app-control result",
     description:

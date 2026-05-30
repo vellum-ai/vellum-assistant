@@ -107,6 +107,7 @@ import { getWorkspacePromptPath } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import type {
@@ -2418,6 +2419,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "messages_get",
     endpoint: "messages",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List messages",
     description:
       "Return messages for a conversation, including attachments and interface file metadata.",
@@ -2447,6 +2452,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "messages_post",
     endpoint: "messages",
     method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Send a message",
     description:
       "Send a user message to a conversation and trigger the assistant response.",
@@ -2479,6 +2488,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "search_get",
     endpoint: "search",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Search conversations",
     description: "Full-text search across all conversations.",
     tags: ["conversations"],
@@ -2492,6 +2505,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "suggestion_get",
     endpoint: "suggestion",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get reply suggestion",
     description:
       "Return an LLM-generated follow-up suggestion for the most recent assistant message.",

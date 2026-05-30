@@ -8,6 +8,7 @@
 import { z } from "zod";
 
 import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
@@ -248,7 +249,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "transfers_get_content",
     endpoint: "transfers/:transferId/content",
     method: "GET",
-    policyKey: "transfers/content",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     requireGuardian: true,
     summary: "Get transfer content",
     description:
@@ -270,7 +274,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "transfers_put_content",
     endpoint: "transfers/:transferId/content",
     method: "PUT",
-    policyKey: "transfers/content",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     requireGuardian: true,
     summary: "Put transfer content",
     description:
@@ -291,6 +298,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "host_transfer_result",
     endpoint: "host-transfer-result",
     method: "POST",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     requireGuardian: true,
     summary: "Submit host transfer result",
     description:

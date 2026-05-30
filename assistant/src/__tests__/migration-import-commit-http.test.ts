@@ -1129,10 +1129,10 @@ describe("commitImport — config sanitization", () => {
 
 describe("route policy registration", () => {
   test("migrations/import policy requires settings.write scope", async () => {
-    const { getPolicy } = await import("../runtime/auth/route-policy.js");
-    const policy = getPolicy("migrations/import");
+    const { ROUTES } = await import("../runtime/routes/index.js");
+    const policy = (ROUTES.find((r) => r.endpoint === "migrations/import")?.policy ?? null);
 
-    expect(policy).toBeDefined();
+    expect(policy).not.toBeNull();
     expect(policy?.requiredScopes).toContain("settings.write");
     expect(policy?.allowedPrincipalTypes).toContain("actor");
     expect(policy?.allowedPrincipalTypes).toContain("svc_gateway");
@@ -1140,11 +1140,11 @@ describe("route policy registration", () => {
   });
 
   test("import policy matches export/preflight but differs from validate on scopes", async () => {
-    const { getPolicy } = await import("../runtime/auth/route-policy.js");
-    const importPolicy = getPolicy("migrations/import");
-    const validatePolicy = getPolicy("migrations/validate");
-    const exportPolicy = getPolicy("migrations/export");
-    const preflightPolicy = getPolicy("migrations/import-preflight");
+    const { ROUTES } = await import("../runtime/routes/index.js");
+    const importPolicy = (ROUTES.find((r) => r.endpoint === "migrations/import")?.policy ?? null);
+    const validatePolicy = (ROUTES.find((r) => r.endpoint === "migrations/validate")?.policy ?? null);
+    const exportPolicy = (ROUTES.find((r) => r.endpoint === "migrations/export")?.policy ?? null);
+    const preflightPolicy = (ROUTES.find((r) => r.endpoint === "migrations/import-preflight")?.policy ?? null);
 
     // import, export, and preflight all require settings.write
     expect(importPolicy!.requiredScopes).toEqual(exportPolicy!.requiredScopes);

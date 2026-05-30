@@ -6,6 +6,7 @@ import {
   getDiskPressureStatus,
   overrideDiskPressureLock,
 } from "../../daemon/disk-pressure-guard.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { RouteError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -52,8 +53,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getDiskPressureStatus",
     endpoint: "disk-pressure/status",
     method: "GET",
-    policyKey: "disk-pressure/status",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get disk pressure status",
     description:
       "Return the current disk pressure status snapshot. When safe storage limits are disabled, returns a disabled status.",
@@ -65,8 +68,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "acknowledgeDiskPressure",
     endpoint: "disk-pressure/acknowledge",
     method: "POST",
-    policyKey: "disk-pressure/acknowledge",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Acknowledge disk pressure",
     description:
       "Acknowledge the current disk pressure lock and enter cleanup mode without overriding assistant protections.",
@@ -92,8 +97,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "overrideDiskPressure",
     endpoint: "disk-pressure/override",
     method: "POST",
-    policyKey: "disk-pressure/override",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Override disk pressure",
     description: `Override the current disk pressure lock only after confirming "${DISK_PRESSURE_OVERRIDE_CONFIRMATION}".`,
     tags: ["disk-pressure"],

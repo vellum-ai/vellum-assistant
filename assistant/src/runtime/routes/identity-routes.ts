@@ -22,6 +22,7 @@ import { APP_VERSION } from "../../version.js";
 import { resolveHatchedAtReadOnly } from "../../workspace/hatched-date.js";
 import { WORKSPACE_MIGRATIONS } from "../../workspace/migrations/registry.js";
 import { getLastWorkspaceMigrationId } from "../../workspace/migrations/runner.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
 import {
   getCachedIntro,
@@ -484,6 +485,7 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "health",
     endpoint: "health",
     method: "GET",
+    policy: null,
     handler: getDetailedHealth,
     summary: "Detailed health check",
     description:
@@ -499,8 +501,8 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "healthz",
     endpoint: "healthz",
     method: "GET",
+    policy: null,
     handler: getDetailedHealth,
-    policyKey: "health",
     summary: "Detailed health check (alias)",
     description:
       "Alias for /v1/health. Returns runtime health including version, disk, memory, CPU, and migration status.",
@@ -512,6 +514,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "identity",
     endpoint: "identity",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: getIdentity,
     summary: "Get assistant identity",
     description:
@@ -531,6 +537,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "identity_intro",
     endpoint: "identity/intro",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: getIdentityIntro,
     summary: "Get identity greetings",
     description:

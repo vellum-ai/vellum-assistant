@@ -42,6 +42,7 @@ import { seedV2SkillEntries } from "../../memory/v2/skill-store.js";
 import { createV3Retriever } from "../../memory/v3/retriever.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { RouteError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 import type { RouteHandlerArgs } from "./types.js";
@@ -669,6 +670,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v2_backfill",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v2/backfill",
     handler: handleBackfill,
     summary: "Enqueue a memory v2 backfill job",
@@ -680,6 +685,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v2_validate",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v2/validate",
     handler: handleValidate,
     summary: "Validate memory v2 workspace state",
@@ -691,6 +700,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v2_get_concept_page",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v2/concept-page",
     handler: handleGetConceptPage,
     summary: "Read a single memory v2 concept page",
@@ -702,6 +715,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v2_list_concept_pages",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v2/list-concept-pages",
     handler: handleListConceptPages,
     summary: "List all memory v2 concept pages with metadata",
@@ -713,6 +730,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v2_reembed_skills",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v2/reembed-skills",
     handler: handleReembedSkills,
     summary: "Re-seed v2 skill entries from the current skill catalog",
@@ -724,6 +745,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v2_concept_frequency",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v2/concept-frequency",
     handler: handleConceptFrequency,
     summary: "Aggregate per-concept injection frequency from activation logs",
@@ -735,6 +760,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v2_ema_scores",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v2/ema-scores",
     handler: handleEmaScores,
     summary: "List every concept page with its injection-frequency EMA score",
@@ -746,6 +775,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v2_simulate_router",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v2/simulate-router",
     handler: handleSimulateRouter,
     summary: "Dry-run the v4 router with config overrides (read-only)",
@@ -757,6 +790,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v2_compare_retrievers",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v2/compare-retrievers",
     handler: handleCompareRetrievers,
     summary:
@@ -769,6 +806,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v2_router_prompt_template",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v2/router-prompt-template",
     handler: handleGetRouterPromptTemplate,
     summary: "Return the bundled router system-prompt template",
@@ -779,6 +820,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v2_now_text",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "memory/v2/now-text",
     handler: handleGetNowText,
     summary: "Return the current rendered `<now>` body",

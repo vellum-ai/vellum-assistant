@@ -12,6 +12,7 @@ import type {
 } from "../../daemon/message-types/upgrades.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -124,6 +125,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "upgrade_broadcast",
     endpoint: "admin/upgrade-broadcast",
     method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Broadcast upgrade lifecycle event",
     description:
       "Publish a service group update lifecycle event (starting, progress, or complete) to all connected SSE clients.",

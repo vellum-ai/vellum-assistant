@@ -47,7 +47,15 @@ mock.module("../config/loader.js", () => ({
 import { addMessage, createConversation } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { getPolicy } from "../runtime/auth/route-policy.js";
+import { ROUTES } from "../runtime/routes/index.js";
+
+/** Look up a route's policy by endpoint+method via ROUTES. */
+function routePolicy(endpoint: string, method?: string) {
+  const route = ROUTES.find(
+    (r) => r.endpoint === endpoint && (!method || r.method === method),
+  );
+  return route?.policy ?? null;
+}
 import { mintToken } from "../runtime/auth/token-service.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
@@ -257,7 +265,7 @@ describe("POST /v1/conversations/fork", () => {
       body: JSON.stringify({ conversationId: source.id }),
     });
 
-    expect(getPolicy("conversations/fork")).toEqual({
+    expect(routePolicy("conversations/fork")).toEqual({
       requiredScopes: ["chat.write"],
       allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
     });

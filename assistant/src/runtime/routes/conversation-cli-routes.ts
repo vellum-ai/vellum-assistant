@@ -23,6 +23,7 @@ import { listConversations } from "../../memory/conversation-queries.js";
 import { getBindingByConversation } from "../../memory/external-conversation-store.js";
 import { sendSlackReply } from "../../messaging/providers/slack/send.js";
 import { getLogger } from "../../util/logger.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadGatewayError, BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -292,6 +293,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversation_list_cli",
     endpoint: "conversations/cli/list",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "List conversations (CLI)",
     description:
       "Simplified conversation list for CLI output — returns id, title, updatedAt.",
@@ -315,6 +320,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversation_create_cli",
     endpoint: "conversations/cli/create",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Create a conversation (CLI)",
     description:
       "Create a new conversation with an optional title and seeded messages.",
@@ -335,6 +344,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversation_export_cli",
     endpoint: "conversations/cli/export",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Export a conversation (CLI)",
     description:
       "Export a conversation as markdown or JSON. Returns the formatted output string.",
@@ -353,6 +366,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversations_clear_cli",
     endpoint: "conversations/cli/clear",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Clear all conversations (CLI)",
     description:
       "Tear down all active conversations and clear the database. " +
@@ -367,6 +384,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversation_slack_detach_cli",
     endpoint: "conversations/cli/slack/detach",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Detach the assistant from a Slack thread (CLI)",
     description:
       "Stops Slack active-thread listening for a Slack thread. The CLI resolves current conversation defaults.",
