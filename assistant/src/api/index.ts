@@ -7,12 +7,14 @@ import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
 import { ContactRequestEventSchema } from "./events/contact-request.js";
+import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
 import { ConversationTitleUpdatedEventSchema } from "./events/conversation-title-updated.js";
 import { DocumentCommentCreatedEventSchema } from "./events/document-comment-created.js";
 import { DocumentCommentDeletedEventSchema } from "./events/document-comment-deleted.js";
 import { DocumentCommentReopenedEventSchema } from "./events/document-comment-reopened.js";
 import { DocumentCommentResolvedEventSchema } from "./events/document-comment-resolved.js";
+import { ErrorEventSchema } from "./events/error.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
@@ -85,6 +87,12 @@ export {
   ContactRequestEventSchema,
 } from "./events/contact-request.js";
 export {
+  type ConversationErrorCode,
+  ConversationErrorCodeSchema,
+  type ConversationErrorEvent,
+  ConversationErrorEventSchema,
+} from "./events/conversation-error.js";
+export {
   type ConversationListInvalidatedEvent,
   ConversationListInvalidatedEventSchema,
   type ConversationListInvalidatedReason,
@@ -110,6 +118,7 @@ export {
   type DocumentCommentResolvedEvent,
   DocumentCommentResolvedEventSchema,
 } from "./events/document-comment-resolved.js";
+export { type ErrorEvent, ErrorEventSchema } from "./events/error.js";
 export {
   type GenerationCancelledEvent,
   GenerationCancelledEventSchema,
@@ -265,12 +274,14 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   CompactionCircuitOpenEventSchema,
   ConfirmationRequestEventSchema,
   ContactRequestEventSchema,
+  ConversationErrorEventSchema,
   ConversationListInvalidatedEventSchema,
   ConversationTitleUpdatedEventSchema,
   DocumentCommentCreatedEventSchema,
   DocumentCommentDeletedEventSchema,
   DocumentCommentReopenedEventSchema,
   DocumentCommentResolvedEventSchema,
+  ErrorEventSchema,
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
   HomeFeedUpdatedEventSchema,

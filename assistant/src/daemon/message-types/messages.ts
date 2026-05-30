@@ -3,6 +3,7 @@
 import type { AssistantTextDeltaEvent } from "../../api/events/assistant-text-delta.js";
 import type { AssistantTurnStartEvent } from "../../api/events/assistant-turn-start.js";
 import type { ConfirmationRequestEvent } from "../../api/events/confirmation-request.js";
+import type { ErrorEvent } from "../../api/events/error.js";
 import type { InteractionResolvedEvent } from "../../api/events/interaction-resolved.js";
 import type { MessageCompleteEvent } from "../../api/events/message-complete.js";
 import type { MessageDequeuedEvent } from "../../api/events/message-dequeued.js";
@@ -193,18 +194,6 @@ export interface ToolResult {
   activityMetadata?: ToolActivityMetadata;
 }
 
-export interface ErrorMessage {
-  type: "error";
-  conversationId?: string;
-  requestId?: string;
-  code?: string;
-  message: string;
-  /** Categorizes the error so the client can offer contextual actions (e.g. "Send Anyway" for secret_blocked). */
-  category?: string;
-  /** Machine-readable conversation error category for clients that need source-aware recovery UI. */
-  errorCategory?: string;
-}
-
 export interface MessageSteered {
   type: "message_steered";
   conversationId: string;
@@ -356,7 +345,7 @@ export type _MessagesServerMessages =
   | SecretRequestEvent
   | QuestionRequestEvent
   | MessageCompleteEvent
-  | ErrorMessage
+  | ErrorEvent
   | MessageQueuedEvent
   | MessageDequeuedEvent
   | MessageRequestCompleteEvent
