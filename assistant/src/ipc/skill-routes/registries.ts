@@ -22,35 +22,14 @@ import { z } from "zod";
 import type { MeetHostSupervisor } from "../../daemon/meet-host-supervisor.js";
 import { registerShutdownHook } from "../../daemon/shutdown-registry.js";
 import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
-import { resolveExecutionTarget } from "../../tools/execution-target.js";
 import { registerSkillTools } from "../../tools/registry.js";
-import type { ExecutionTarget, Tool } from "../../tools/types.js";
-import { RiskLevel } from "../../tools/types.js";
+import { finalizeTool } from "../../tools/tool-defaults.js";
+import { ToolDefinitionSchema } from "../../tools/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { SkillIpcRoute } from "../skill-ipc-types.js";
 import type { SkillIpcConnection } from "../skill-server.js";
 
 const log = getLogger("skill-routes-registries");
-
-// ── Wire-level schemas ────────────────────────────────────────────────
-
-/**
- * Serialized tool manifest entry sent over IPC. Mirrors the subset of
- * {@link Tool} a skill process can describe without carrying the tool's
- * executable closure across the socket; the closure is synthesized
- * daemon-side (see {@link buildProxyTool}) to forward invocations back
- * over IPC.
- */
-const ToolManifestSchema = z.object({
-  name: z.string().min(1),
-  description: z.string(),
-  input_schema: z.record(z.string(), z.unknown()),
-  defaultRiskLevel: z.enum(["low", "medium", "high"]),
-  category: z.string().min(1),
-  executionTarget: z.enum(["sandbox", "host"]).optional(),
-});
-
-export type ToolManifest = z.infer<typeof ToolManifestSchema>;
 
 // `skillId` lives at the params level rather than per-tool: a single
 // `register_tools` IPC frame is always one skill's batch, ownership flows
@@ -61,7 +40,7 @@ export type ToolManifest = z.infer<typeof ToolManifestSchema>;
 // in-process on the assistant side.
 const RegisterToolsParams = z.object({
   skillId: z.string().min(1),
-  tools: z.array(ToolManifestSchema).min(1),
+  tools: z.array(ToolDefinitionSchema).min(1),
 });
 
 const RegisterSkillRouteParams = z.object({
@@ -170,39 +149,6 @@ export function __getActiveSessionCountForTesting(): number {
   return activeSessions.size;
 }
 
-// ── Proxy-tool construction ───────────────────────────────────────────
-
-/**
- * Build a daemon-side {@link Tool} whose `execute` routes back to the
- * remote skill over IPC. PR 28 replaces the stub body with a real
- * `skill.dispatch_tool` round-trip; until then we keep a shape-complete
- * proxy in the registry so the rest of the tool-manifest plumbing can be
- * exercised end-to-end.
- */
-function buildProxyTool(manifest: ToolManifest): Tool {
-  // RiskLevel is a string enum whose values are "low" | "medium" | "high",
-  // matching the schema above exactly — the cast is a no-op at runtime.
-  return {
-    name: manifest.name,
-    description: manifest.description,
-    input_schema: manifest.input_schema as object,
-    category: manifest.category,
-    defaultRiskLevel: manifest.defaultRiskLevel as RiskLevel,
-    executionTarget: resolveExecutionTarget({
-      name: manifest.name,
-      executionTarget: manifest.executionTarget as ExecutionTarget | undefined,
-    }),
-    execute: async () => {
-      // Only reached when no supervisor is attached (tests/boot race);
-      // the supervisor short-circuit above replaces this with the
-      // manifest's dispatching execute closure on the production path.
-      throw new Error(
-        `Skill tool "${manifest.name}" invocation requires an attached MeetHostSupervisor`,
-      );
-    },
-  };
-}
-
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async function handleRegisterTools(
@@ -211,6 +157,16 @@ async function handleRegisterTools(
 ): Promise<{ registered: string[] }> {
   const { skillId, tools } = RegisterToolsParams.parse(params);
   const conn = connection as SkillIpcConnection | undefined;
+
+  // Finalize before branching so both the supervisor short-circuit and
+  // the in-memory registration path see a `Tool[]` with guaranteed
+  // `name`. Skills run `finalizeTool` locally before sending, so the
+  // `?? ""` is a defensive empty-string default — `registerSkillTools`
+  // will reject an empty name on the non-supervisor path with a clear
+  // error. The execute closure arrives as a no-op error closure from
+  // `finalizeTool`; the production (supervisor) path replaces it with
+  // the dispatching closure installed by the manifest loader at boot.
+  const proxies = tools.map((tool) => finalizeTool(tool, tool.name ?? ""));
 
   // Supervisor short-circuit: when a supervisor is registered, the
   // manifest loader has already installed proxy tools at daemon boot.
@@ -222,16 +178,15 @@ async function handleRegisterTools(
     if (conn) sessionSupervisor.setActiveConnection(conn);
     log.info(
       {
-        count: tools.length,
-        names: tools.map((t) => t.name),
+        count: proxies.length,
+        names: proxies.map((t) => t.name),
         ownerSkillId: skillId,
       },
       "Supervisor active: skipping in-memory tool re-registration; manifest proxies serve dispatches",
     );
-    return { registered: tools.map((t) => t.name) };
+    return { registered: proxies.map((t) => t.name) };
   }
 
-  const proxies = tools.map(buildProxyTool);
   // `registerExternalTools` is only consumed inside `initializeTools()` at
   // daemon boot; IPC children connect after boot, so route through
   // `registerSkillTools` into the live registry the agent-loop reads from.

@@ -17,7 +17,11 @@ import {
   setSecureKeyAsync,
 } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 import { credentialBroker } from "./broker.js";
 import {
   assertMetadataWritable,
@@ -69,115 +73,114 @@ function formatSlackChannelStatus(result: SlackChannelConfigResult): string {
   return "";
 }
 
-class CredentialStoreTool implements Tool {
-  name = "credential_store";
-  description =
-    "Store, list, delete, or prompt for credentials in the secure vault";
-  category = "credentials";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
+export const credentialStoreTool = {
+  name: "credential_store",
+  description:
+    "Store, list, delete, or prompt for credentials in the secure vault",
+  category: "credentials",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          action: {
-            type: "string",
-            enum: ["store", "list", "delete", "prompt"],
-            description:
-              'The operation to perform. Use "prompt" to request a secret via secure UI - the value never enters the conversation.',
-          },
-          service: {
-            type: "string",
-            description: "Service name, e.g. google, github",
-          },
-          account: {
-            type: "string",
-            description:
-              "Account identifier (e.g. email address) to target a specific connection when multiple accounts are connected for the same service. If omitted, uses the most recently connected account.",
-          },
-          field: {
-            type: "string",
-            description: "Field name, e.g. password, username, recovery_email",
-          },
-          value: {
-            type: "string",
-            description: "The credential value (only for store action)",
-          },
-          label: {
-            type: "string",
-            description:
-              'Display label for the prompt UI (only for prompt action), e.g. "GitHub Personal Access Token"',
-          },
-          description: {
-            type: "string",
-            description:
-              'Optional context shown in the prompt UI (only for prompt action), e.g. "Needed to push changes"',
-          },
-          placeholder: {
-            type: "string",
-            description:
-              'Placeholder text for the input field (only for prompt action), e.g. "ghp_xxxxxxxxxxxx"',
-          },
-          allowed_tools: {
-            type: "array",
-            items: { type: "string" },
-            description:
-              'Tools/capabilities allowed to use this credential (for store/prompt actions), e.g. ["assistant_browser_fill_credential"]. Empty = deny all.',
-          },
-          allowed_domains: {
-            type: "array",
-            items: { type: "string" },
-            description:
-              'Domains where this credential may be used (for store/prompt actions), e.g. ["github.com"]. Empty = deny all.',
-          },
-          usage_description: {
-            type: "string",
-            description:
-              'Human-readable description of intended usage (for store/prompt actions), e.g. "GitHub login for pushing changes"',
-          },
-          alias: {
-            type: "string",
-            description:
-              'Human-friendly name for this credential (only for store action), e.g. "fal-primary"',
-          },
-          injection_templates: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                hostPattern: {
-                  type: "string",
-                  description:
-                    'Glob pattern for matching request hosts, e.g. "*.fal.ai"',
-                },
-                injectionType: {
-                  type: "string",
-                  enum: ["header", "query"],
-                  description: "Where to inject the credential value",
-                },
-                headerName: {
-                  type: "string",
-                  description: 'Header name when injectionType is "header"',
-                },
-                valuePrefix: {
-                  type: "string",
-                  description:
-                    'Prefix prepended to the secret value, e.g. "Key ", "Bearer "',
-                },
-                queryParamName: {
-                  type: "string",
-                  description:
-                    'Query parameter name when injectionType is "query"',
-                },
-              },
-              required: ["hostPattern", "injectionType"],
+  input_schema: {
+    type: "object",
+    properties: {
+      action: {
+        type: "string",
+        enum: ["store", "list", "delete", "prompt"],
+        description:
+          'The operation to perform. Use "prompt" to request a secret via secure UI - the value never enters the conversation.',
+      },
+      service: {
+        type: "string",
+        description: "Service name, e.g. google, github",
+      },
+      account: {
+        type: "string",
+        description:
+          "Account identifier (e.g. email address) to target a specific connection when multiple accounts are connected for the same service. If omitted, uses the most recently connected account.",
+      },
+      field: {
+        type: "string",
+        description: "Field name, e.g. password, username, recovery_email",
+      },
+      value: {
+        type: "string",
+        description: "The credential value (only for store action)",
+      },
+      label: {
+        type: "string",
+        description:
+          'Display label for the prompt UI (only for prompt action), e.g. "GitHub Personal Access Token"',
+      },
+      description: {
+        type: "string",
+        description:
+          'Optional context shown in the prompt UI (only for prompt action), e.g. "Needed to push changes"',
+      },
+      placeholder: {
+        type: "string",
+        description:
+          'Placeholder text for the input field (only for prompt action), e.g. "ghp_xxxxxxxxxxxx"',
+      },
+      allowed_tools: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          'Tools/capabilities allowed to use this credential (for store/prompt actions), e.g. ["assistant_browser_fill_credential"]. Empty = deny all.',
+      },
+      allowed_domains: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          'Domains where this credential may be used (for store/prompt actions), e.g. ["github.com"]. Empty = deny all.',
+      },
+      usage_description: {
+        type: "string",
+        description:
+          'Human-readable description of intended usage (for store/prompt actions), e.g. "GitHub login for pushing changes"',
+      },
+      alias: {
+        type: "string",
+        description:
+          'Human-friendly name for this credential (only for store action), e.g. "fal-primary"',
+      },
+      injection_templates: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            hostPattern: {
+              type: "string",
+              description:
+                'Glob pattern for matching request hosts, e.g. "*.fal.ai"',
             },
-            description:
-              "Templates describing how to inject this credential into proxied requests (for store and prompt actions)",
+            injectionType: {
+              type: "string",
+              enum: ["header", "query"],
+              description: "Where to inject the credential value",
+            },
+            headerName: {
+              type: "string",
+              description: 'Header name when injectionType is "header"',
+            },
+            valuePrefix: {
+              type: "string",
+              description:
+                'Prefix prepended to the secret value, e.g. "Key ", "Bearer "',
+            },
+            queryParamName: {
+              type: "string",
+              description: 'Query parameter name when injectionType is "query"',
+            },
           },
+          required: ["hostPattern", "injectionType"],
         },
-        required: ["action"],
-      };
+        description:
+          "Templates describing how to inject this credential into proxied requests (for store and prompt actions)",
+      },
+    },
+    required: ["action"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -816,7 +819,5 @@ class CredentialStoreTool implements Tool {
       default:
         return { content: `Error: unknown action "${action}"`, isError: true };
     }
-  }
-}
-
-export const credentialStoreTool = new CredentialStoreTool();
+  },
+} satisfies ToolDefinition;

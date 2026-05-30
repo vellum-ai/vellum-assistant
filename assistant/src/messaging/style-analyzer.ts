@@ -49,7 +49,7 @@ Also identify recurring contacts (people appearing in 3+ messages) and note how 
 
 You MUST respond using the \`store_style_analysis\` tool. Do not respond with text.`;
 
-const storeStyleAnalysisTool: ToolDefinition = {
+const storeStyleAnalysisTool = {
   name: "store_style_analysis",
   description:
     "Store extracted writing style patterns and relationship observations",
@@ -94,7 +94,7 @@ const storeStyleAnalysisTool: ToolDefinition = {
     },
     required: ["style_patterns"],
   },
-};
+} satisfies ToolDefinition;
 
 /**
  * Build a text corpus from provider messages for LLM analysis.

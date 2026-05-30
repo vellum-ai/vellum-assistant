@@ -19,11 +19,11 @@ import type { ManageSecureCommandTool } from "@vellumai/service-contracts/rpc";
 
 import { RiskLevel } from "../../permissions/types.js";
 import { getLogger } from "../../util/logger.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
 
 const log = getLogger("ces-tool:manage-secure-command-tool");
 
-class ManageSecureCommandToolImpl implements Tool {
+class ManageSecureCommandToolImpl implements ToolDefinition {
   name = "manage_secure_command_tool";
   description =
     "Request installation, update, or removal of a secure command tool bundle. " +

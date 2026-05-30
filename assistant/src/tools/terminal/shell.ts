@@ -27,8 +27,8 @@ import { registerTool } from "../registry.js";
 import { formatShellOutput } from "../shared/shell-output.js";
 import type {
   ProxyEnvVars,
-  Tool,
   ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 import { buildSanitizedEnv } from "./safe-env.js";
@@ -44,14 +44,14 @@ function buildCredentialRefTrace(
 
 const log = getLogger("shell-tool");
 
-class ShellTool implements Tool {
-  name = "bash";
-  description = "Execute a shell command on the local machine";
-  category = "terminal";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Medium;
+export const shellTool = {
+  name: "bash",
+  description: "Execute a shell command on the local machine",
+  category: "terminal",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema = {
+  input_schema: {
     type: "object",
     properties: {
       command: {
@@ -87,7 +87,7 @@ class ShellTool implements Tool {
       },
     },
     required: ["command", "activity"],
-  };
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -558,8 +558,8 @@ class ShellTool implements Tool {
     });
 
     return result;
-  }
-}
+  },
+} satisfies ToolDefinition;
 
 /**
  * Structured teardown log. Pairs with the `"Executing shell command"`
@@ -652,5 +652,4 @@ function buildKillTree(
   };
 }
 
-export const shellTool: Tool = new ShellTool();
 registerTool(shellTool);

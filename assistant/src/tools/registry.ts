@@ -1,4 +1,3 @@
-import type { ToolDefinition } from "../providers/types.js";
 import { getLogger } from "../util/logger.js";
 import { coreAppProxyTools } from "./apps/definitions.js";
 import { registerAppTools } from "./apps/registry.js";
@@ -9,7 +8,8 @@ import { hostFileWriteTool } from "./host-filesystem/write.js";
 import { hostShellTool } from "./host-terminal/host-shell.js";
 import { toProviderSafeToolName } from "./provider-tool-name.js";
 import { registerSystemTools } from "./system/register.js";
-import type { OwnerInfo, Tool } from "./types.js";
+import { finalizeTool } from "./tool-defaults.js";
+import type { OwnerInfo, Tool, ToolDefinition } from "./types.js";
 import { allUiSurfaceTools } from "./ui-surface/definitions.js";
 import { registerUiSurfaceTools } from "./ui-surface/registry.js";
 
@@ -130,14 +130,34 @@ function withProviderSafeToolName(tool: Tool): Tool {
   };
 }
 
-export function registerTool(tool: Tool): void {
-  const existing = tools.get(tool.name);
-  if (existing) {
-    if (existing === tool) return; // same object, skip
-    log.warn({ name: tool.name }, "Tool already registered, overwriting");
+/**
+ * Memoize `finalizeTool(definition, name)` by the definition reference so
+ * idempotent re-registration (test reset helpers, module re-imports) stays a
+ * silent no-op — the same `ToolDefinition` always finalizes to the same `Tool`
+ * instance, and the existing `existing === tool` short-circuit below keeps
+ * working.
+ */
+const finalizedByDefinition = new WeakMap<ToolDefinition, Tool>();
+
+export function registerTool(definition: ToolDefinition): void {
+  const name = definition.name;
+  if (typeof name !== "string" || name.length === 0) {
+    throw new Error(
+      "registerTool: tool.name is required — set it on the literal or finalize through `finalizeTool(def, name)` first",
+    );
   }
-  tools.set(tool.name, tool);
-  log.info({ name: tool.name, category: tool.category }, "Tool registered");
+  let tool = finalizedByDefinition.get(definition);
+  if (!tool) {
+    tool = finalizeTool(definition, name);
+    finalizedByDefinition.set(definition, tool);
+  }
+  const existing = tools.get(name);
+  if (existing) {
+    if (existing === tool) return; // same definition re-registered, skip
+    log.warn({ name }, "Tool already registered, overwriting");
+  }
+  tools.set(name, tool);
+  log.info({ name, category: tool.category }, "Tool registered");
 }
 
 export function getTool(name: string): Tool | undefined {
@@ -423,7 +443,7 @@ export function unregisterAllMcpTools(): void {
  * Used by the session resolver to dynamically pick up MCP tools that
  * were registered after session creation (e.g. via `vellum mcp reload`).
  */
-export function getMcpToolDefinitions(): ToolDefinition[] {
+export function getMcpToolDefinitions(): Tool[] {
   return Array.from(tools.values()).filter(
     (t) => ownersByName.get(t.name)?.kind === "mcp",
   );
@@ -445,7 +465,7 @@ export function getSkillRefCount(skillId: string): number {
   return skillRefCount.get(skillId) ?? 0;
 }
 
-export function getAllToolDefinitions(): ToolDefinition[] {
+export function getAllToolDefinitions(): Tool[] {
   // Exclude skill-origin tools - they are managed by the session-level
   // skill projection system (projectSkillTools) and must not leak into
   // the base tool list, which is shared across sessions via the global
@@ -522,14 +542,17 @@ export async function initializeTools(): Promise<void> {
   // registered external skill tool).  This handles ESM cache hits where
   // eager-module tools are already in the registry before init ran.
   if (!coreToolsSnapshot) {
+    // Core tool literals always set `name` (verified by `registerTool` —
+    // it throws on missing name). The `!` assertions reflect that
+    // invariant at the iteration sites.
     const manifestToolNames = new Set<string>([
       ...eagerModuleToolNames,
-      ...explicitTools.map((t: Tool) => t.name),
+      ...explicitTools.map((t) => t.name!),
       ...extEntries.map(({ tool }) => tool.name),
-      ...hostTools.map((t: Tool) => t.name),
-      ...cesTools.map((t: Tool) => t.name),
-      ...allUiSurfaceTools.map((t: Tool) => t.name),
-      ...coreAppProxyTools.map((t: Tool) => t.name),
+      ...hostTools.map((t) => t.name!),
+      ...cesTools.map((t) => t.name!),
+      ...allUiSurfaceTools.map((t) => t.name!),
+      ...coreAppProxyTools.map((t) => t.name!),
     ]);
 
     coreToolsSnapshot = new Map<string, Tool>();

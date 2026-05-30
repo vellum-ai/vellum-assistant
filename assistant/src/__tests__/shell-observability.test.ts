@@ -16,7 +16,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { WakeOptions } from "../runtime/agent-wake.js";
 import type { BackgroundTool } from "../tools/background-tool-registry.js";
-import type { Tool } from "../tools/types.js";
 
 // ── Mock modules ────────────────────────────────────────────────────────────
 
@@ -113,6 +112,15 @@ mock.module("../tools/background-tool-registry.js", () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
+// `shellTool` is imported dynamically inside `beforeEach` so the logger
+// mock above lands before shell.ts evaluates and captures its `getLogger`
+// reference — static imports hoist past `mock.module()` and the test
+// would see the real pino logger instead of the in-memory `logCalls`
+// array. The shape type below mirrors the satisfies-narrowed export so
+// `shellTool.execute(...)` keeps its required-execute typing without a
+// `!` bang.
+let shellTool: (typeof import("../tools/terminal/shell.js"))["shellTool"];
+
 const baseContext = {
   workingDir: process.env.VELLUM_WORKSPACE_DIR ?? "/tmp",
   conversationId: "conv-obs-test",
@@ -159,8 +167,6 @@ const isKill = (reason: string) => (c: LogCall) =>
   c.fields.reason === reason;
 
 describe("shell observability logs", () => {
-  let shellTool: Tool;
-
   beforeEach(async () => {
     logCalls.length = 0;
     registeredTools.length = 0;

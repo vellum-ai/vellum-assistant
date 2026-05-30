@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import type { QuestionPromptResult } from "../../permissions/question-prompter.js";
 import type { ToolContext } from "../types.js";
-import { AskQuestionTool } from "./ask-question-tool.js";
+import { askQuestionTool, createAskQuestionTool } from "./ask-question-tool.js";
 
 type PromptParams = Parameters<
   import("../../permissions/question-prompter.js").QuestionPrompter["prompt"]
@@ -18,12 +18,12 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   };
 }
 
-function makeToolWithStub(result: QuestionPromptResult): {
-  tool: AskQuestionTool;
-  calls: PromptParams[];
-} {
+// Return type is inferred so the satisfies-narrowed shape of
+// `createAskQuestionTool()` carries through — letting the test call
+// `tool.execute(...)` without a `!` bang.
+function makeToolWithStub(result: QuestionPromptResult) {
   const calls: PromptParams[] = [];
-  const tool = new AskQuestionTool(() => ({
+  const tool = createAskQuestionTool(() => ({
     async prompt(params: PromptParams) {
       calls.push(params);
       return result;
@@ -49,9 +49,9 @@ const singleQ = {
   freeTextPlaceholder: validInput.freeTextPlaceholder,
 };
 
-describe("AskQuestionTool definition", () => {
+describe("askQuestionTool definition", () => {
   test("exposes the expected schema shape and description language", () => {
-    const def = new AskQuestionTool();
+    const def = askQuestionTool;
     expect(def.name).toBe("ask_question");
     expect(def.description).toContain("free-text fallback is always added");
     expect(def.description).toContain("do not");
@@ -461,9 +461,9 @@ describe("AskQuestionTool batched input", () => {
   });
 });
 
-describe("AskQuestionTool definition (batched schema)", () => {
+describe("askQuestionTool definition (batched schema)", () => {
   test("exposes `questions[]` shape, keeps legacy fields, omits per-question id", () => {
-    const def = new AskQuestionTool();
+    const def = askQuestionTool;
     const schema = def.input_schema as unknown as {
       properties: Record<
         string,

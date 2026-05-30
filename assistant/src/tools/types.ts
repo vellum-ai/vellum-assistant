@@ -3,13 +3,14 @@ import type {
   DiffInfo,
   ExecutionTarget,
   ProxyApprovalCallback,
-  RiskLevel,
   SensitiveOutputBinding,
   ToolExecutionErrorEvent,
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
   ToolPermissionPromptEvent,
 } from "@vellumai/skill-host-contracts";
+import { RiskLevel } from "@vellumai/skill-host-contracts";
+import { z } from "zod";
 
 import type { InterfaceId } from "../channels/types.js";
 import type { CesClient } from "../credential-execution/client.js";
@@ -317,32 +318,70 @@ export interface ToolContext {
 }
 
 /**
+ * Schema describing the serializable shape of a {@link ToolDefinition}.
+ * All fields are optional — loaders fill documented defaults for omitted
+ * fields via `finalizeTool` in `tool-defaults.ts`. The IPC layer parses
+ * incoming skill tools against this same schema and re-finalizes them
+ * locally, so author shape and wire shape are one schema.
+ *
+ * `execute` is intentionally absent from the schema (closures cannot
+ * cross IPC). It is added back as a TypeScript overlay on
+ * {@link ToolDefinition} so author literals can still set it.
+ */
+export const ToolDefinitionSchema = z.object({
+  /**
+   * Name the model sees when calling this tool. Loaders default to the
+   * source file basename (e.g. `tools/read.ts` → `read`) when omitted,
+   * so the literal only needs to set this when overriding the
+   * file-derived name.
+   */
+  name: z.string().min(1).optional(),
+  /** Human-readable description shown to the model in the tool catalog. */
+  description: z.string().optional(),
+  /** JSON schema describing the tool's input arguments. */
+  input_schema: z.record(z.string(), z.unknown()).optional(),
+  /** Author-asserted risk band — low / medium / high. Drives default permission gating. */
+  defaultRiskLevel: z.enum(RiskLevel).optional(),
+  /** Tool category used for Slack channel `allowedToolCategories` enforcement. */
+  category: z.string().min(1).optional(),
+  /** Where the tool runs — sandbox (assistant container) or host (guardian device via proxy). Resolved by `resolveExecutionTarget` if omitted. */
+  executionTarget: z.enum(["sandbox", "host"]).optional(),
+});
+
+/**
  * Author-facing tool spec — re-exported from `@vellumai/plugin-api`.
  * Loaders fill documented defaults for omitted fields via `finalizeTool`
- * in `tool-defaults.ts`.
+ * in `tool-defaults.ts`. Type is `z.infer<typeof ToolDefinitionSchema>`
+ * (serializable fields) plus overlays:
+ *   - `input_schema` is widened from `Record<string, unknown>` (the
+ *     parsed wire shape) to `object`, so authors can assign a typed
+ *     JSON-schema literal without `as Record<...>` gymnastics.
+ *   - `execute` is optional because some `ToolDefinition` instances are
+ *     schema-only (e.g. {@link ../memory/graph/tools.graphRememberDefinition},
+ *     {@link ../messaging/style-analyzer.storeStyleAnalysisTool},
+ *     {@link ../memory/v2/sweep-job.SWEEP_TOOL}) — handed to providers as
+ *     a function-calling schema without ever being registered for
+ *     execution. Closures also can't cross IPC, so the wire path drops
+ *     it and `finalizeTool` synthesizes a no-op error closure on arrival.
+ *     Tool sources use `satisfies ToolDefinition` (not `: ToolDefinition`)
+ *     so the inferred export type preserves `execute` as required at
+ *     call sites that statically import the literal.
  */
-export interface ToolDefinition {
-  /** Human-readable description shown to the model in the tool catalog. */
-  description?: string;
-  /** Author-asserted risk band — low / medium / high. Drives default permission gating. */
-  defaultRiskLevel?: RiskLevel;
+export type ToolDefinition = Omit<
+  z.infer<typeof ToolDefinitionSchema>,
+  "input_schema"
+> & {
   /** JSON schema describing the tool's input arguments. */
   input_schema?: object;
-  /** Where the tool runs — sandbox (assistant container) or host (guardian device via proxy). Resolved by `resolveExecutionTarget` if omitted. */
-  executionTarget?: ExecutionTarget;
   /** Implementation invoked when the model calls the tool. */
   execute?: (
     input: Record<string, unknown>,
     context: ToolContext,
   ) => Promise<ToolExecutionResult>;
-  /** Tool category used for Slack channel `allowedToolCategories` enforcement. */
-  category?: string;
-}
+};
 
 /** Tool after the loader has derived its name and filled defaults. */
-export type Tool = Required<ToolDefinition> & {
-  name: string;
-};
+export type Tool = Required<ToolDefinition>;
 
 /** The kind of extension that owns a tool. Core tools have no owner. */
 export type OwnerKind = "skill" | "mcp" | "plugin";
