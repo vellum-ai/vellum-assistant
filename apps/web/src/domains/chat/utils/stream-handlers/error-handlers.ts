@@ -6,11 +6,13 @@ import {
 import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import { patchConversation } from "@/utils/conversation-cache";
-import type { ConversationErrorEvent, StreamErrorEvent } from "@/types/event-types";
-
+import type {
+  ConversationErrorEvent,
+  ErrorEvent,
+} from "@vellumai/assistant-api";
 
 export function handleStreamError(
-  event: StreamErrorEvent,
+  event: ErrorEvent,
   ctx: StreamHandlerContext,
 ): void {
   const convId = ctx.streamContextRef.current?.conversationId;
@@ -48,6 +50,7 @@ export function handleConversationErrorEvent(
   // (which is a mirror that may be cleared by a stream teardown
   // racing the error event) — same fallback shape as the other
   // terminal handlers.
+<<<<<<< HEAD
   const convId =
     event.conversationId ?? ctx.streamContextRef.current?.conversationId;
   if (convId) {
@@ -57,6 +60,18 @@ export function handleConversationErrorEvent(
     });
   }
   ctx.endTurn({ conversationId: convId, reason: "error" });
+||||||| parent of 93e585ecce (api-events: canonicalize `error` family (APE.14, Batch 10))
+  ctx.endTurn({
+    conversationId: event.conversationId ?? ctx.streamContextRef.current?.conversationId,
+    reason: "error",
+  });
+=======
+  ctx.endTurn({
+    conversationId:
+      event.conversationId ?? ctx.streamContextRef.current?.conversationId,
+    reason: "error",
+  });
+>>>>>>> 93e585ecce (api-events: canonicalize `error` family (APE.14, Batch 10))
 
   ctx.setMessages(handleConversationError);
 

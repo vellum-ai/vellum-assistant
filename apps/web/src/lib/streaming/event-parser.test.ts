@@ -860,40 +860,155 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("parses error with code and message", () => {
+  // ---------------------------------------------------------------------
+  // error (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses error with all fields", () => {
     const event = parseAssistantEvent({
       type: "error",
-      code: "rate_limit_exceeded",
+      message: "Your balance has run out",
+      code: "PROVIDER_BILLING",
+      category: "secret_blocked",
+      errorCategory: "credits_exhausted",
+      requestId: "req-1",
+      conversationId: "conv-1",
+    });
+    expect(event).toEqual({
+      type: "error",
+      message: "Your balance has run out",
+      code: "PROVIDER_BILLING",
+      category: "secret_blocked",
+      errorCategory: "credits_exhausted",
+      requestId: "req-1",
+      conversationId: "conv-1",
+    });
+  });
+
+  test("parses error with required fields only", () => {
+    const event = parseAssistantEvent({
+      type: "error",
       message: "Too many requests",
     });
     expect(event).toEqual({
       type: "error",
-      code: "rate_limit_exceeded",
       message: "Too many requests",
     });
   });
 
-  test("preserves categorized stream error metadata", () => {
-    const event = parseAssistantEvent({
-      type: "error",
-      code: "PROVIDER_BILLING",
-      errorCategory: "credits_exhausted",
-      message: "Your balance has run out",
-    });
-    expect(event).toEqual({
-      type: "error",
-      code: "PROVIDER_BILLING",
-      errorCategory: "credits_exhausted",
-      message: "Your balance has run out",
+  test("returns unknown error when message is missing", () => {
+    const data = { type: "error", code: "rate_limit_exceeded" };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "error",
+      data,
     });
   });
 
-  test("defaults error message to 'Unknown error' when missing", () => {
-    const event = parseAssistantEvent({ type: "error" });
-    expect(event).toEqual({
+  test("returns unknown error when extra field is present", () => {
+    const data = {
       type: "error",
-      code: undefined,
-      message: "Unknown error",
+      message: "boom",
+      surpriseField: "boom",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "error",
+      data,
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // conversation_error (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses conversation_error with all fields", () => {
+    const event = parseAssistantEvent({
+      type: "conversation_error",
+      conversationId: "conv-1",
+      code: "PROVIDER_INVALID_KEY",
+      userMessage: "Your API key is invalid",
+      retryable: false,
+      debugDetails: "401 from provider",
+      errorCategory: "auth",
+      connectionName: "My OpenAI",
+      profileName: "Default",
+    });
+    expect(event).toEqual({
+      type: "conversation_error",
+      conversationId: "conv-1",
+      code: "PROVIDER_INVALID_KEY",
+      userMessage: "Your API key is invalid",
+      retryable: false,
+      debugDetails: "401 from provider",
+      errorCategory: "auth",
+      connectionName: "My OpenAI",
+      profileName: "Default",
+    });
+  });
+
+  test("parses conversation_error with required fields only", () => {
+    const event = parseAssistantEvent({
+      type: "conversation_error",
+      conversationId: "conv-2",
+      code: "PROVIDER_RATE_LIMIT",
+      userMessage: "Rate limited",
+      retryable: true,
+    });
+    expect(event).toEqual({
+      type: "conversation_error",
+      conversationId: "conv-2",
+      code: "PROVIDER_RATE_LIMIT",
+      userMessage: "Rate limited",
+      retryable: true,
+    });
+  });
+
+  test("returns unknown conversation_error when retryable is missing", () => {
+    const data = {
+      type: "conversation_error",
+      conversationId: "conv-3",
+      code: "UNKNOWN",
+      userMessage: "Something went wrong.",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "conversation_error",
+      data,
+      conversationId: "conv-3",
+    });
+  });
+
+  test("returns unknown conversation_error when code is not a known enum", () => {
+    const data = {
+      type: "conversation_error",
+      conversationId: "conv-4",
+      code: "rate_limit",
+      userMessage: "Rate limited",
+      retryable: true,
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "conversation_error",
+      data,
+      conversationId: "conv-4",
+    });
+  });
+
+  test("returns unknown conversation_error when extra field is present", () => {
+    const data = {
+      type: "conversation_error",
+      conversationId: "conv-5",
+      code: "UNKNOWN",
+      userMessage: "Something went wrong.",
+      retryable: false,
+      surpriseField: "boom",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "conversation_error",
+      data,
+      conversationId: "conv-5",
     });
   });
 
@@ -2745,20 +2860,19 @@ describe("envelope format parsing", () => {
 
   test("envelope-level conversationId is stamped onto legacy conversation-scoped events", () => {
     // Legacy fallback path: events not yet migrated to AssistantEventSchema
-    // (here: `error`) read the envelope-level conversationId via
-    // `mergeEnvelopeConversationId`. This codepath disappears as each
+    // (here: `navigate_settings`) read the envelope-level conversationId
+    // via `mergeEnvelopeConversationId`. This codepath disappears as each
     // legacy case migrates to a strict schema.
     const event = parseAssistantEvent({
       conversationId: "conv-from-envelope",
       message: {
-        type: "error",
-        message: "boom",
+        type: "navigate_settings",
+        tab: "general",
       },
     });
     expect(event).toEqual({
-      type: "error",
-      code: undefined,
-      message: "boom",
+      type: "navigate_settings",
+      tab: "general",
       conversationId: "conv-from-envelope",
     });
   });
@@ -2769,12 +2883,14 @@ describe("envelope format parsing", () => {
     const event = parseAssistantEvent({
       conversationId: "envelope-conv",
       message: {
-        type: "error",
-        message: "boom",
+        type: "navigate_settings",
+        tab: "general",
         conversationId: "event-conv",
       },
     });
-    if (event.type !== "error") throw new Error("expected error");
+    if (event.type !== "navigate_settings") {
+      throw new Error("expected navigate_settings");
+    }
     expect(event.conversationId).toBe("event-conv");
   });
 
