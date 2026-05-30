@@ -415,8 +415,6 @@ describe("managed proxy integration — credential precedence", () => {
       const provider = getProvider("gemini");
       const response = await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-        undefined,
-        undefined,
         {
           config: {
             callSite: "mainAgent",
@@ -464,8 +462,6 @@ describe("managed proxy integration — credential precedence", () => {
       const provider = getProvider("gemini");
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-        undefined,
-        undefined,
         { config: { model: "gemini-3.1-pro" } },
       );
 
@@ -581,10 +577,9 @@ describe("managed proxy integration — managed web search routing", () => {
       );
 
       const provider = getProvider("fireworks");
-      await provider.sendMessage(
-        [userMsg("Search using managed Brave")],
-        sampleTools,
-      );
+      await provider.sendMessage([userMsg("Search using managed Brave")], {
+        tools: sampleTools,
+      });
 
       const tools = lastOpenAIChatParams!.tools as Array<{
         type: string;

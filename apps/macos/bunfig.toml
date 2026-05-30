@@ -1,0 +1,9 @@
+[test]
+
+# Preloads the `electron` module mock so importing `src/main/` files in
+# tests doesn't crash. The Electron binary isn't available off-Electron
+# (CI runs `bun test` on plain Node Linux), and most main-process modules
+# `import { app, BrowserWindow, ipcMain, … } from "electron"` at top level.
+# The shim provides just enough surface that imports succeed; individual
+# tests still mock specific call sites they exercise.
+preload = ["./test-setup.ts"]

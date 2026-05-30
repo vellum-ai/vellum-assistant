@@ -39,7 +39,7 @@ import type {
   ContactSelection,
 } from "@/domains/contacts/types";
 import { fetchAssistantIdentity } from "@/assistant/identity";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 const ASSISTANT_SETUP_PROMPTS: Record<AssistantChannelState["key"], string> = {
   slack: "I want to reach you on Slack. Let's set it up.",

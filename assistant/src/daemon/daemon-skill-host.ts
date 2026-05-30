@@ -25,7 +25,6 @@ import type {
   EventsFacet,
   Filter,
   IdentityFacet,
-  InsertMessageFn,
   LlmProvidersFacet,
   Logger,
   LoggerFacet,
@@ -185,7 +184,7 @@ function buildProvidersFacet(): ProvidersFacet {
 
 function buildMemoryFacet(): MemoryFacet {
   return {
-    addMessage: addMessage as InsertMessageFn,
+    addMessage: addMessage,
     wakeAgentForOpportunity: async (req) => {
       // Contract returns `void`; daemon returns a `WakeResult` that
       // in-process callers don't need through the host surface.
@@ -224,10 +223,7 @@ function buildRegistriesFacet(skillId: string): RegistriesFacet {
     // adapter pairs the provider with the owner derived from the
     // surrounding {@link buildRegistriesFacet} closure.
     registerTools: (provider) =>
-      registerExternalTools(
-        { kind: "skill", id: skillId },
-        provider as never,
-      ),
+      registerExternalTools({ kind: "skill", id: skillId }, provider as never),
     registerSkillRoute: (route: SkillRoute): SkillRouteHandle =>
       registerSkillRoute(route) as unknown as SkillRouteHandle,
     // Namespace hook names by skillId so two skills using the same label

@@ -14,11 +14,7 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  AgentEvent,
-  CheckpointDecision,
-  CheckpointInfo,
-} from "../agent/loop.js";
+import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
 import type { LLMConfig } from "../config/schemas/llm.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -435,11 +431,7 @@ import {
 type AgentLoopRun = (
   messages: Message[],
   onEvent: (event: AgentEvent) => void,
-  signal?: AbortSignal,
-  requestId?: string,
-  onCheckpoint?: (
-    checkpoint: CheckpointInfo,
-  ) => CheckpointDecision | Promise<CheckpointDecision>,
+  options?: AgentLoopRunOptions,
 ) => Promise<Message[]>;
 
 function makeCtx(
@@ -1449,13 +1441,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       };
 
       let agentLoopCallCount = 0;
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _requestId,
-        onCheckpoint,
-      ) => {
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
         // Prime the assistant row anchor — production code emits this from
         // `AgentLoop.run` just before `provider.sendMessage`.
         await onEvent({ type: "llm_call_started" });
@@ -1515,8 +1501,8 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
           // Call onCheckpoint — this should trigger the mid-loop budget check
           // which sees 170_000 > 161_500 and returns "yield"
-          if (onCheckpoint) {
-            const decision = await onCheckpoint({
+          if (options?.onCheckpoint) {
+            const decision = await options.onCheckpoint({
               turnIndex: 0,
               toolCount: 1,
               hasToolUse: true,
@@ -1637,13 +1623,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       let agentLoopCallCount = 0;
       let contextTooLargeEmitted = false;
 
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _requestId,
-        onCheckpoint,
-      ) => {
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
         // Prime the assistant row anchor — production code emits this from
         // `AgentLoop.run` just before `provider.sendMessage`.
         await onEvent({ type: "llm_call_started" });
@@ -1692,8 +1672,8 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
               providerDurationMs: 100,
             });
 
-            if (onCheckpoint) {
-              const decision = await onCheckpoint({
+            if (options?.onCheckpoint) {
+              const decision = await options.onCheckpoint({
                 turnIndex: i,
                 toolCount: 1,
                 hasToolUse: true,
@@ -1815,13 +1795,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     };
 
     let agentLoopCallCount = 0;
-    const agentLoopRun: AgentLoopRun = async (
-      messages,
-      onEvent,
-      _signal,
-      _requestId,
-      onCheckpoint,
-    ) => {
+    const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
       await onEvent({ type: "llm_call_started" });
@@ -1879,8 +1853,8 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       });
 
       // Always yield at checkpoint — simulates compaction not helping
-      if (onCheckpoint) {
-        const decision = await onCheckpoint({
+      if (options?.onCheckpoint) {
+        const decision = await options.onCheckpoint({
           turnIndex: 0,
           toolCount: 1,
           hasToolUse: true,
@@ -1979,13 +1953,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     };
 
     let agentLoopCallCount = 0;
-    const agentLoopRun: AgentLoopRun = async (
-      messages,
-      onEvent,
-      _signal,
-      _requestId,
-      onCheckpoint,
-    ) => {
+    const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
       await onEvent({ type: "llm_call_started" });
@@ -2042,8 +2010,8 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       });
 
       // Always yield at checkpoint — simulates reduction not helping enough
-      if (onCheckpoint) {
-        const decision = await onCheckpoint({
+      if (options?.onCheckpoint) {
+        const decision = await options.onCheckpoint({
           turnIndex: 0,
           toolCount: 1,
           hasToolUse: true,
@@ -2320,13 +2288,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     mockOverflowAction = "auto_compress_latest_turn";
 
     let agentLoopCallCount = 0;
-    const agentLoopRun: AgentLoopRun = async (
-      messages,
-      onEvent,
-      _signal,
-      _requestId,
-      onCheckpoint,
-    ) => {
+    const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
       await onEvent({ type: "llm_call_started" });
@@ -2383,8 +2345,8 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       });
 
       // Every checkpoint yields — including the final auto_compress rerun.
-      if (onCheckpoint) {
-        const decision = await onCheckpoint({
+      if (options?.onCheckpoint) {
+        const decision = await options.onCheckpoint({
           turnIndex: 0,
           toolCount: 1,
           hasToolUse: true,

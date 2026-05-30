@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -646,7 +646,336 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Integration — all four hacks compose
+// Hack #5 — fail stale tool calls on assistant restart / silent daemon death
+// ---------------------------------------------------------------------------
+
+describe("sanitizeDisplayMessages · fail stale tool calls", () => {
+  const STALE_PREFIX = "Tool call exceeded the execution timeout";
+  // Mirrors `DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC` from @vellumai/assistant-api.
+  // Hard-coded in the test so a regression that changes the wire-contract
+  // default by accident shows up here too.
+  const DEFAULT_TIMEOUT_MS = 120_000;
+  // Mirrors `STALE_GRACE_MS` from the sanitizer. Same reasoning as above.
+  const GRACE_MS = 30_000;
+  // Convenience: just past the threshold a default-timeout running tool
+  // call becomes stale.
+  const PAST_DEFAULT_TIMEOUT_MS = DEFAULT_TIMEOUT_MS + GRACE_MS + 1_000;
+
+  // The sanitizer reads `Date.now()` once per call to produce a stable
+  // `nowMs` for Hack #5. Tests pin that clock via spyOn so the
+  // stale-detection window is deterministic. Each test sets up its own
+  // spy with `mockNow(...)`; the afterEach restores the real clock so
+  // unrelated tests in the file (and adjacent test files in the same
+  // worker) keep seeing real time.
+  let nowSpy: ReturnType<typeof spyOn> | null = null;
+  function mockNow(nowMs: number): void {
+    nowSpy = spyOn(Date, "now").mockReturnValue(nowMs);
+  }
+  afterEach(() => {
+    nowSpy?.mockRestore();
+    nowSpy = null;
+  });
+
+  test("marks a running tool call stale once default timeout + grace elapses", () => {
+    const started = 1_000;
+    const now = started + PAST_DEFAULT_TIMEOUT_MS;
+    const m = makeMessage({
+      id: "a",
+      role: "assistant",
+      timestamp: started,
+      toolCalls: [
+        makeToolCall({
+          id: "tc",
+          toolName: "web_search",
+          status: "running",
+          startedAt: started,
+        }),
+      ],
+    });
+    mockNow(now);
+    const [patched] = sanitizeDisplayMessages([m]);
+    expect(patched!.toolCalls![0]!.status).toBe("error");
+    expect(patched!.toolCalls![0]!.isError).toBe(true);
+    expect(patched!.toolCalls![0]!.result).toContain(STALE_PREFIX);
+  });
+
+  test("does NOT mark stale before timeout + grace elapses", () => {
+    const started = 1_000;
+    // Right at the threshold, NOT past it. Predicate is strict >.
+    const now = started + DEFAULT_TIMEOUT_MS + GRACE_MS;
+    const m = makeMessage({
+      id: "a",
+      role: "assistant",
+      timestamp: started,
+      toolCalls: [
+        makeToolCall({
+          id: "tc",
+          toolName: "web_search",
+          status: "running",
+          startedAt: started,
+        }),
+      ],
+    });
+    mockNow(now);
+    const result = sanitizeDisplayMessages([m]);
+    expect(result[0]).toBe(m);
+    expect(result[0]!.toolCalls![0]!.status).toBe("running");
+  });
+
+  test("uses progressTimeoutSec when the daemon advertised one", () => {
+    // Long-running shell tools advertise a 600s timeout via tool_progress.
+    // A run that's at 121s of elapsed time would tripping the DEFAULT
+    // ceiling but is still well under its real ceiling — must not fire.
+    const started = 1_000;
+    const now = started + 121_000;
+    const m = makeMessage({
+      id: "a",
+      role: "assistant",
+      timestamp: started,
+      toolCalls: [
+        makeToolCall({
+          id: "tc",
+          toolName: "bash",
+          status: "running",
+          startedAt: started,
+          progressTimeoutSec: 600,
+          lastProgressAt: started + 119_000,
+        }),
+      ],
+    });
+    mockNow(now);
+    const result = sanitizeDisplayMessages([m]);
+    expect(result[0]).toBe(m);
+    expect(result[0]!.toolCalls![0]!.status).toBe("running");
+  });
+
+  test("measures from lastProgressAt when it is more recent than startedAt", () => {
+    // A long-running bash command emitting tool_progress events. As long
+    // as those keep landing, the tool is alive. Started two hours ago,
+    // last progress one second ago → not stale.
+    const started = 1_000;
+    const now = started + 2 * 60 * 60 * 1_000;
+    const m = makeMessage({
+      id: "a",
+      role: "assistant",
+      timestamp: started,
+      toolCalls: [
+        makeToolCall({
+          id: "tc",
+          toolName: "bash",
+          status: "running",
+          startedAt: started,
+          progressTimeoutSec: 600,
+          lastProgressAt: now - 1_000,
+        }),
+      ],
+    });
+    mockNow(now);
+    const result = sanitizeDisplayMessages([m]);
+    expect(result[0]).toBe(m);
+    expect(result[0]!.toolCalls![0]!.status).toBe("running");
+  });
+
+  test("falls back to default timeout when progressTimeoutSec is zero / unknown", () => {
+    // Daemon ships `progressTimeoutSec: 0` to mean "unknown". The
+    // sanitizer must treat 0 the same as missing and use the canonical
+    // default constant.
+    const started = 1_000;
+    const now = started + PAST_DEFAULT_TIMEOUT_MS;
+    const m = makeMessage({
+      id: "a",
+      role: "assistant",
+      timestamp: started,
+      toolCalls: [
+        makeToolCall({
+          id: "tc",
+          toolName: "web_search",
+          status: "running",
+          startedAt: started,
+          progressTimeoutSec: 0,
+        }),
+      ],
+    });
+    mockNow(now);
+    const [patched] = sanitizeDisplayMessages([m]);
+    expect(patched!.toolCalls![0]!.status).toBe("error");
+    expect(patched!.toolCalls![0]!.result).toContain(STALE_PREFIX);
+  });
+
+  test("does NOT mark stale when pendingConfirmation is set", () => {
+    // A tool waiting on user approval is correctly stalled — the
+    // daemon's execution clock hasn't even started. Could sit here for
+    // arbitrarily long without being dead.
+    const started = 1_000;
+    const now = started + 24 * 60 * 60 * 1_000;
+    const m = makeMessage({
+      id: "a",
+      role: "assistant",
+      timestamp: started,
+      toolCalls: [
+        makeToolCall({
+          id: "tc",
+          toolName: "bash",
+          status: "running",
+          startedAt: started,
+          pendingConfirmation: {
+            requestId: "rq-1",
+            toolName: "bash",
+            input: {},
+          },
+        }),
+      ],
+    });
+    mockNow(now);
+    const result = sanitizeDisplayMessages([m]);
+    expect(result[0]).toBe(m);
+    expect(result[0]!.toolCalls![0]!.status).toBe("running");
+  });
+
+  test("does NOT mark stale when startedAt is missing (no clock to measure)", () => {
+    const m = makeMessage({
+      id: "a",
+      role: "assistant",
+      timestamp: 100,
+      toolCalls: [
+        makeToolCall({
+          id: "tc",
+          toolName: "bash",
+          status: "running",
+          // No startedAt — typically a pre-stamping history hydration.
+        }),
+      ],
+    });
+    mockNow(1_000_000_000);
+    const result = sanitizeDisplayMessages([m]);
+    expect(result[0]).toBe(m);
+    expect(result[0]!.toolCalls![0]!.status).toBe("running");
+  });
+
+  test("marks stale tools on the LAST assistant too (no subsequent-assistant requirement)", () => {
+    // Differs from hack #4 — for stale we don't require any later
+    // assistant message, because the timeout itself is the proof.
+    const started = 1_000;
+    const now = started + PAST_DEFAULT_TIMEOUT_MS;
+    const u = makeMessage({
+      id: "u",
+      role: "user",
+      content: "go",
+      timestamp: started - 100,
+    });
+    const lastAssistant = makeMessage({
+      id: "a-last",
+      role: "assistant",
+      timestamp: started,
+      toolCalls: [
+        makeToolCall({
+          id: "tc",
+          toolName: "web_search",
+          status: "running",
+          startedAt: started,
+        }),
+      ],
+    });
+    mockNow(now);
+    const result = sanitizeDisplayMessages([u, lastAssistant]);
+    expect(result[1]!.toolCalls![0]!.status).toBe("error");
+    expect(result[1]!.toolCalls![0]!.result).toContain(STALE_PREFIX);
+  });
+
+  test("leaves siblings on the same message alone when one is stale", () => {
+    const started = 1_000;
+    const now = started + PAST_DEFAULT_TIMEOUT_MS;
+    const m = makeMessage({
+      id: "a",
+      role: "assistant",
+      timestamp: started,
+      toolCalls: [
+        makeToolCall({
+          id: "tc-1",
+          toolName: "bash",
+          status: "completed",
+          startedAt: started,
+          result: "first ok",
+        }),
+        makeToolCall({
+          id: "tc-2",
+          toolName: "web_search",
+          status: "running",
+          startedAt: started,
+        }),
+        makeToolCall({
+          id: "tc-3",
+          toolName: "read_file",
+          status: "completed",
+          startedAt: started,
+          result: "third ok",
+        }),
+      ],
+    });
+    mockNow(now);
+    const [patched] = sanitizeDisplayMessages([m]);
+    expect(patched!.toolCalls![0]!.result).toBe("first ok");
+    expect(patched!.toolCalls![1]!.status).toBe("error");
+    expect(patched!.toolCalls![1]!.isError).toBe(true);
+    expect(patched!.toolCalls![1]!.result).toContain(STALE_PREFIX);
+    expect(patched!.toolCalls![2]!.result).toBe("third ok");
+  });
+
+  test("does not mutate the input messages or tool-call objects", () => {
+    const started = 1_000;
+    const now = started + PAST_DEFAULT_TIMEOUT_MS;
+    const tc = makeToolCall({
+      id: "tc",
+      toolName: "web_search",
+      status: "running",
+      startedAt: started,
+    });
+    const m = makeMessage({
+      id: "a",
+      role: "assistant",
+      timestamp: started,
+      toolCalls: [tc],
+    });
+    mockNow(now);
+    sanitizeDisplayMessages([m]);
+    expect(tc.status).toBe("running");
+    expect(tc.result).toBeUndefined();
+    expect(m.toolCalls![0]).toBe(tc);
+  });
+
+  test("preserves message identity when no tool calls are stale", () => {
+    // The sort step always returns a new outer array, so identity lives
+    // at the message level. Confirms hack #5 is COW at the message
+    // boundary when nothing needs patching.
+    const m1 = makeMessage({
+      id: "a1",
+      role: "assistant",
+      timestamp: 100,
+      toolCalls: [
+        makeToolCall({
+          id: "tc-1",
+          toolName: "bash",
+          status: "completed",
+          startedAt: 100,
+          result: "ok",
+        }),
+      ],
+    });
+    const m2 = makeMessage({
+      id: "a2",
+      role: "assistant",
+      content: "done",
+      timestamp: 200,
+    });
+    mockNow(10_000_000);
+    const result = sanitizeDisplayMessages([m1, m2]);
+    expect(result[0]).toBe(m1);
+    expect(result[1]).toBe(m2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Integration — all five hacks compose
 // ---------------------------------------------------------------------------
 
 describe("sanitizeDisplayMessages · integration", () => {

@@ -1,7 +1,7 @@
 import { Typography } from "@vellum/design-library";
 
 import { cn } from "@/utils/misc";
-import { getRiskBadgeWeakStyle } from "@/domains/chat/utils/risk-utils";
+import { getRiskBadgeWeakStyle } from "@/domains/chat/utils/risk";
 
 /**
  * Weak-background / strong-text risk pill matching the macOS `RiskBadgeView`

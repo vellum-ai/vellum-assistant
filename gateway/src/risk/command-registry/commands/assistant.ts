@@ -124,6 +124,9 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "credentials inspect",
   "credentials reveal",
   "credentials status",
+  "db",
+  "db status",
+  "db repair",
   "gateway",
   "gateway logs",
   "gateway logs tail",
@@ -413,6 +416,12 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "conversations rename", risk: "low" },
   { path: "conversations wake", risk: "low" },
   { path: "credential-execution grants revoke", risk: "medium" },
+  {
+    path: "db repair",
+    risk: "medium",
+    reason:
+      "Runs the database repair sequence. First step is a read-only integrity check; future steps will mutate the SQLite database to recover state.",
+  },
   { path: "domain register", risk: "medium" },
   { path: "email register", risk: "medium" },
   { path: "email unregister", risk: "medium" },

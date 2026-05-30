@@ -5,16 +5,14 @@
  * confirmations, contact lookups, user questions, and trust rules.
  */
 
-import type {
-  ConfirmationDecision,
-  QuestionSubmission,
-} from "@/domains/chat/api/event-types";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { QuestionSubmission } from "@/domains/chat/api/event-types";
+import { client } from "@/generated/api/client.gen";
 import {
   assertHasResponse,
-  client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client";
+} from "@/utils/api-errors";
 
 export async function getPendingInteractions(
   assistantId: string,

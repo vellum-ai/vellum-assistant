@@ -1,13 +1,13 @@
 import { useCallback } from "react";
 import { useNavigate } from "react-router";
 
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PageShell } from "@/components/page-shell";
 import { LibraryView } from "@/domains/library/library-view";
 import { routes } from "@/utils/routes";
 
 export function LibraryPage() {
-  const { assistantId } = useActiveAssistantContext();
+  const assistantId = useActiveAssistantId();
   const navigate = useNavigate();
 
   const handleNewConversation = useCallback(

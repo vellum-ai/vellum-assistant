@@ -80,7 +80,7 @@ enum AssistantFeatureFlagResolver {
     static func resolvedFlags(
         registryDefaults: [String: Bool]
     ) -> [String: Bool] {
-        let cached = readCachedFlags()
+        let cached = readCachedFlags().filter { registryDefaults[$0.key] != nil }
         // Priority: cached gateway flags > defaults
         return registryDefaults
             .merging(cached) { _, new in new }
@@ -99,6 +99,6 @@ enum AssistantFeatureFlagResolver {
         let resolved = resolvedFlags(
             registry: registry ?? loadFeatureFlagRegistry()
         )
-        return resolved[key] ?? true
+        return resolved[key] ?? false
     }
 }

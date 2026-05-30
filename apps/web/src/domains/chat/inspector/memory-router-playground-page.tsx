@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 
 import { Card } from "@vellum/design-library";
 
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
   useCurrentNowText,
@@ -17,7 +17,7 @@ import type {
   RecentTurnPair,
   RouterSource,
 } from "@/domains/chat/inspector/memory-router-simulator-api";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAuthStore } from "@/stores/auth-store";
 
 /**
@@ -76,7 +76,7 @@ const EMPTY_OVERRIDES: PaneOverrides = {
 };
 
 function PlaygroundView(): ReactNode {
-  const { assistantId } = useActiveAssistantContext();
+  const assistantId = useActiveAssistantId();
   const mutationA = useSimulateMemoryRouter(assistantId);
   const mutationB = useSimulateMemoryRouter(assistantId);
   const profilesQuery = useLlmProfiles(assistantId);

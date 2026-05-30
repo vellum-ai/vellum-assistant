@@ -62,22 +62,13 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext & {
     isProcessing: () => false,
     enqueueMessage: () => ({ queued: false, requestId: "req-1" }),
     getQueueDepth: () => 0,
-    processMessage: async (
-      content: string,
-      attachments: UserMessageAttachment[],
-      _onEvent: (msg: ServerMessage) => void,
-      requestId?: string,
-      activeSurfaceId?: string,
-      _currentPage?: string,
-      _options?: { isInteractive?: boolean },
-      displayContent?: string,
-    ) => {
+    processMessage: async (options) => {
       processMessageCalls.push({
-        content,
-        attachments,
-        requestId,
-        activeSurfaceId,
-        displayContent,
+        content: options.content,
+        attachments: options.attachments,
+        requestId: options.requestId,
+        activeSurfaceId: options.activeSurfaceId,
+        displayContent: options.displayContent,
       });
       return "msg-1";
     },

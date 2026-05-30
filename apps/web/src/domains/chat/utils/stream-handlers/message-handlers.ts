@@ -1,4 +1,4 @@
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
+import { recordDiagnostic } from "@/lib/diagnostics";
 import {
   appendTextDelta,
   finalizeMessageComplete,
@@ -6,14 +6,14 @@ import {
   stopStreaming,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { AssistantActivityStateEvent } from "@/domains/chat/api/event-types";
+import type { AssistantActivityStateEvent } from "@/types/event-types";
 import type {
   AssistantTextDeltaEvent,
   GenerationCancelledEvent,
   GenerationHandoffEvent,
   MessageCompleteEvent,
 } from "@vellumai/assistant-api";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 
 
 export function handleAssistantTextDelta(
@@ -46,7 +46,7 @@ export function handleAssistantActivityState(
     const lastSeen =
       ctx.lastActivityVersionRef.current.get(convId) ?? 0;
     if (event.activityVersion <= lastSeen) {
-      recordChatDiagnostic("sse_activity_state_version_skipped", {
+      recordDiagnostic("sse_activity_state_version_skipped", {
         convId,
         phase: event.phase,
         eventVersion: event.activityVersion,
@@ -59,7 +59,7 @@ export function handleAssistantActivityState(
 
   if (event.phase === "thinking") {
     ctx.turnActions.onActivityThinking(event.statusText);
-    recordChatDiagnostic("sse_activity_state_thinking_handled", {
+    recordDiagnostic("sse_activity_state_thinking_handled", {
       convId,
       reason: event.reason,
       activityVersion: event.activityVersion,
@@ -68,7 +68,7 @@ export function handleAssistantActivityState(
   }
 
   if (event.phase !== "idle") {
-    recordChatDiagnostic("sse_activity_state_non_idle", {
+    recordDiagnostic("sse_activity_state_non_idle", {
       convId,
       phase: event.phase,
       reason: event.reason,
@@ -80,7 +80,7 @@ export function handleAssistantActivityState(
   ctx.setMessages(finalizeOnIdle);
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.endTurn({ conversationId: convId, reason: "complete" });
-  recordChatDiagnostic("sse_activity_state_idle_handled", {
+  recordDiagnostic("sse_activity_state_idle_handled", {
     convId,
     reason: event.reason,
     activityVersion: event.activityVersion,
@@ -118,7 +118,7 @@ export function handleMessageComplete(
     event.conversationId ?? ctx.streamContextRef.current?.conversationId;
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.endTurn({ conversationId: convId, reason: "complete" });
-  recordChatDiagnostic("sse_message_complete_handled", {
+  recordDiagnostic("sse_message_complete_handled", {
     convId,
     turnPhaseBefore,
     messageId: event.messageId,

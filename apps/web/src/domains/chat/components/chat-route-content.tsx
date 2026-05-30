@@ -37,9 +37,9 @@ import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
-import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils";
+import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
+import type { AssistantState } from "@/assistant/types";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
@@ -50,6 +50,7 @@ import { IOSAppBanner } from "@/components/nudges/ios-app-banner";
 import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
 import { Loader2 } from "lucide-react";
 import { Button, Notice, ResizablePanel } from "@vellum/design-library";
+import { getLocalBool, setLocalBool, removeLocalSetting } from "@/utils/local-settings";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
 import { AppViewerContainer } from "@/components/app-viewer-container";
@@ -85,10 +86,10 @@ import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constant
 import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useDeployStore } from "@/stores/deploy-store";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
-import type { SubagentState } from "@/domains/subagents/subagent-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import type { SubagentState } from "@/domains/chat/subagent-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
@@ -101,8 +102,9 @@ import {
   isSendDisabled,
   shouldShowThinkingIndicator,
   type UIContext,
-} from "@/stores/turn-selectors";
+} from "@/domains/chat/turn-selectors";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
+import { getSlackConversationDisplay } from "@/domains/chat/utils/slack-conversation-display";
 
 import { useViewerStore, type MainView, type OpenedAppState, type OpenedDocumentState } from "@/stores/viewer-store";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
@@ -112,14 +114,16 @@ import { haptic } from "@/utils/haptics";
 import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
-import { type TurnState, useTurnStore } from "@/stores/turn-store";
-import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types";
+import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import type { Conversation } from "@/types/conversation-types";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1010,12 +1014,12 @@ export function ChatRouteContent({
 
   const [warningDismissed, setWarningDismissed] = useState(() => {
     if (!assistantId) return false;
-    return localStorage.getItem(`disk-pressure-warning-dismissed-${assistantId}`) === "true";
+    return getLocalBool(`vellum:diskPressureDismissed:${assistantId}`, false);
   });
 
   const dismissWarning = useCallback(() => {
     if (!assistantId) return;
-    localStorage.setItem(`disk-pressure-warning-dismissed-${assistantId}`, "true");
+    setLocalBool(`vellum:diskPressureDismissed:${assistantId}`, true);
     setWarningDismissed(true);
   }, [assistantId]);
 
@@ -1024,7 +1028,7 @@ export function ChatRouteContent({
     const st = diskPressure.status?.state;
     if (st && st !== "warning" && warningDismissed) {
       if (assistantId) {
-        localStorage.removeItem(`disk-pressure-warning-dismissed-${assistantId}`);
+        removeLocalSetting(`vellum:diskPressureDismissed:${assistantId}`);
       }
       setWarningDismissed(false);
     }
@@ -1055,24 +1059,21 @@ export function ChatRouteContent({
   // Billing composer banner
   // -------------------------------------------------------------------------
 
+  const billingBannerDecision = getChatBillingBannerDecision(error);
+
   const renderBillingComposerBanner = (): ReactNode => {
-    const decision = getChatBillingBannerDecision(error);
-    if (decision === "managed_credits") {
+    if (billingBannerDecision === "managed_credits") {
       return (
-        <div className="mb-2">
-          <CreditsExhaustedBanner
-            onAddFunds={() => setShowAddCreditsModal(true)}
-          />
-        </div>
+        <CreditsExhaustedBanner
+          onAddFunds={() => setShowAddCreditsModal(true)}
+        />
       );
     }
-    if (decision === "provider_billing") {
+    if (billingBannerDecision === "provider_billing") {
       return (
-        <div className="mb-2">
-          <ProviderBillingBanner
-            onOpenSettings={pushToAiSettings}
-          />
-        </div>
+        <ProviderBillingBanner
+          onOpenSettings={pushToAiSettings}
+        />
       );
     }
     return null;
@@ -1310,7 +1311,14 @@ export function ChatRouteContent({
       />
     ) : undefined,
     contextWindowIndicatorSlot: (
-      <ContextWindowIndicator usage={contextWindowUsage} />
+      <ContextWindowIndicator
+        usage={contextWindowUsage}
+        onClearContext={
+          activeConversation?.conversationId && !sendDisabled
+            ? () => void sendMessage("/clean")
+            : undefined
+        }
+      />
     ),
     noticesAboveFormSlot: (
       <ComposerNotices
@@ -1324,6 +1332,7 @@ export function ChatRouteContent({
       />
     ),
     suggestion,
+    hasBillingBanner: billingBannerDecision !== null,
   };
 
   const chatBodyScrollAreaPropsBase = {
@@ -1389,13 +1398,20 @@ export function ChatRouteContent({
     </div>
   ) : null;
 
-  const channelFooterSlot = (
+  const slackReadonlyBannerDisplay =
+    activeConversation?.originChannel === "slack"
+      ? getSlackConversationDisplay({
+          conversation: activeConversation,
+          messages: sanitizedMessages,
+        })
+      : null;
+  const slackReadonlyBannerSlot = slackReadonlyBannerDisplay ? (
     <SlackChannelFooter
       assistantId={assistantId ?? undefined}
       conversation={activeConversation}
       messages={sanitizedMessages}
     />
-  );
+  ) : null;
 
   // -------------------------------------------------------------------------
   // Render
@@ -1430,7 +1446,7 @@ export function ChatRouteContent({
             isChannelReadonly={isChannelReadonly}
             canStopGenerating={canStopGenerating}
             questionPromptSlot={questionPromptSlot}
-            channelFooterSlot={channelFooterSlot}
+            readonlyBannerSlot={slackReadonlyBannerSlot}
             startersSlot={startersSlot}
           />
         }
@@ -1504,7 +1520,7 @@ export function ChatRouteContent({
       bannerSlot={mainBannerSlot}
       queuedDrawerSlot={mainQueuedDrawerSlot}
       questionPromptSlot={questionPromptSlot}
-      channelFooterSlot={channelFooterSlot}
+      readonlyBannerSlot={slackReadonlyBannerSlot}
       startersSlot={startersSlot}
     />
   );

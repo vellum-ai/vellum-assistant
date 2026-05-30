@@ -72,8 +72,6 @@ describe("UsageTrackingProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Summarize" }] }],
-      undefined,
-      undefined,
       {
         config: {
           callSite: "conversationTitle",
@@ -131,8 +129,6 @@ describe("UsageTrackingProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Summarize" }] }],
-      undefined,
-      undefined,
       {
         config: {
           callSite: "conversationTitle",
@@ -188,8 +184,6 @@ describe("UsageTrackingProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
-      undefined,
-      undefined,
       {
         config: {
           model: "gpt-5.4-mini",

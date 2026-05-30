@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import type { TranscriptHandle } from "@/domains/chat/transcript/use-transcript-scroll";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
@@ -22,8 +22,8 @@ import {
 import {
   INITIAL_TURN_STATE,
   type TurnState,
-} from "@/stores/turn-store";
-import type { UIContext } from "@/stores/turn-selectors";
+} from "@/domains/chat/turn-store";
+import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------

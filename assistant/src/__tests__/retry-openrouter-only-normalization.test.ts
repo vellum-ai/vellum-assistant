@@ -25,7 +25,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "../providers/types.js";
 
 function setLlmConfig(raw: unknown): void {
@@ -45,8 +44,6 @@ function makePipeline(providerName: string): {
     name: providerName,
     async sendMessage(
       _messages: Message[],
-      _tools?: ToolDefinition[],
-      _systemPrompt?: string,
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
       captured = options?.config as Record<string, unknown> | undefined;
@@ -79,7 +76,7 @@ describe("retry normalization for openrouter.only", () => {
       },
     });
     const { provider, lastConfig } = makePipeline("openrouter");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: { callSite: "mainAgent" },
     });
     expect(lastConfig()?.openrouter).toEqual({ only: ["Anthropic"] });
@@ -93,7 +90,7 @@ describe("retry normalization for openrouter.only", () => {
       },
     });
     const { provider, lastConfig } = makePipeline("openrouter");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: { callSite: "mainAgent" },
     });
     expect(lastConfig()?.openrouter).toBe(undefined);
@@ -101,7 +98,7 @@ describe("retry normalization for openrouter.only", () => {
 
   test("strips openrouter from config for non-openrouter providers", async () => {
     const { provider, lastConfig } = makePipeline("anthropic");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: { openrouter: { only: ["Anthropic"] } },
     });
     const out = lastConfig();
@@ -110,7 +107,7 @@ describe("retry normalization for openrouter.only", () => {
 
   test("strips openrouter from config for openai provider", async () => {
     const { provider, lastConfig } = makePipeline("openai");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: { openrouter: { only: ["Anthropic"] } },
     });
     expect(lastConfig()?.openrouter).toBe(undefined);
@@ -128,7 +125,7 @@ describe("retry normalization for openrouter.only", () => {
       },
     });
     const { provider, lastConfig } = makePipeline("openrouter");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: { callSite: "mainAgent" },
     });
     expect(lastConfig()?.openrouter).toEqual({ only: ["Google"] });

@@ -35,7 +35,7 @@ import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.ge
 import type { ClassificationEnum } from "@/generated/api/types.gen";
 import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
 import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
-import { buildChatDiagnosticsSnapshot } from "@/domains/chat/utils/diagnostics";
+import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore } from "@/stores/auth-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
@@ -208,7 +208,7 @@ async function buildClientLogsFile(
   } catch {
     currentChatState = null;
   }
-  const chatDiagnostics = buildChatDiagnosticsSnapshot(currentChatState);
+  const chatDiagnostics = buildDiagnosticsSnapshot(currentChatState);
   const payload = {
     collected_at: now.toISOString(),
     time_range: timeRange,

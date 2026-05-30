@@ -2284,19 +2284,21 @@ export async function runAgentLoopImpl(
     // and overwrites `turnIndex` with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
-    let updatedHistory = await ctx.agentLoop.run(
-      runMessages,
-      eventHandler,
-      abortController.signal,
-      reqId,
-      onCheckpoint,
-      turnCallSite,
-      loopTurnCtx,
-      turnOverrideProfile,
-      resolveCurrentMaxInputTokens(),
-      resolveCurrentOverrideProfile,
-      resolveCurrentMaxInputTokens,
-    );
+    /** Shared closure: runs the agent loop with the orchestrator's turn context. */
+    const runAgentLoop = (msgs: Message[]) =>
+      ctx.agentLoop.run(msgs, eventHandler, {
+        signal: abortController.signal,
+        requestId: reqId,
+        onCheckpoint,
+        callSite: turnCallSite,
+        turnContext: loopTurnCtx,
+        overrideProfile: turnOverrideProfile,
+        effectiveMaxInputTokens: resolveCurrentMaxInputTokens(),
+        resolveOverrideProfile: resolveCurrentOverrideProfile,
+        resolveEffectiveMaxInputTokens: resolveCurrentMaxInputTokens,
+      });
+
+    let updatedHistory = await runAgentLoop(runMessages);
 
     rlog.info(
       { resultMessageCount: updatedHistory.length },
@@ -2440,19 +2442,7 @@ export async function runAgentLoopImpl(
       preRepairMessages = runMessages;
       preRunHistoryLength = runMessages.length;
 
-      updatedHistory = await ctx.agentLoop.run(
-        runMessages,
-        eventHandler,
-        abortController.signal,
-        reqId,
-        onCheckpoint,
-        turnCallSite,
-        loopTurnCtx,
-        turnOverrideProfile,
-        resolveCurrentMaxInputTokens(),
-        resolveCurrentOverrideProfile,
-        resolveCurrentMaxInputTokens,
-      );
+      updatedHistory = await runAgentLoop(runMessages);
     }
 
     // If mid-loop compaction exhausted all attempts but the agent loop
@@ -2500,19 +2490,7 @@ export async function runAgentLoopImpl(
       state.orderingErrorDetected = false;
       state.deferredOrderingError = null;
 
-      updatedHistory = await ctx.agentLoop.run(
-        runMessages,
-        eventHandler,
-        abortController.signal,
-        reqId,
-        onCheckpoint,
-        turnCallSite,
-        loopTurnCtx,
-        turnOverrideProfile,
-        resolveCurrentMaxInputTokens(),
-        resolveCurrentOverrideProfile,
-        resolveCurrentMaxInputTokens,
-      );
+      updatedHistory = await runAgentLoop(runMessages);
 
       if (state.orderingErrorDetected) {
         rlog.error(
@@ -2571,19 +2549,7 @@ export async function runAgentLoopImpl(
         };
       });
       runMessages = ctx.messages;
-      updatedHistory = await ctx.agentLoop.run(
-        runMessages,
-        eventHandler,
-        abortController.signal,
-        reqId,
-        onCheckpoint,
-        turnCallSite,
-        loopTurnCtx,
-        turnOverrideProfile,
-        resolveCurrentMaxInputTokens(),
-        resolveCurrentOverrideProfile,
-        resolveCurrentMaxInputTokens,
-      );
+      updatedHistory = await runAgentLoop(runMessages);
       if (state.imageTooLargeDetected) {
         rlog.error(
           { phase: "image-recovery" },
@@ -2831,19 +2797,7 @@ export async function runAgentLoopImpl(
         state.contextTooLargeDetected = false;
         yieldedForBudget = false;
 
-        updatedHistory = await ctx.agentLoop.run(
-          runMessages,
-          eventHandler,
-          abortController.signal,
-          reqId,
-          onCheckpoint,
-          turnCallSite,
-          loopTurnCtx,
-          turnOverrideProfile,
-          resolveCurrentMaxInputTokens(),
-          resolveCurrentOverrideProfile,
-          resolveCurrentMaxInputTokens,
-        );
+        updatedHistory = await runAgentLoop(runMessages);
 
         // If the rerun still yields at checkpoint, the turn is still
         // incomplete — continue reducing through the remaining tiers
@@ -2987,19 +2941,7 @@ export async function runAgentLoopImpl(
           preRunHistoryLength = runMessages.length;
           state.contextTooLargeDetected = false;
 
-          updatedHistory = await ctx.agentLoop.run(
-            runMessages,
-            eventHandler,
-            abortController.signal,
-            reqId,
-            onCheckpoint,
-            turnCallSite,
-            loopTurnCtx,
-            turnOverrideProfile,
-            resolveCurrentMaxInputTokens(),
-            resolveCurrentOverrideProfile,
-            resolveCurrentMaxInputTokens,
-          );
+          updatedHistory = await runAgentLoop(runMessages);
         }
         // action === "fail_gracefully" falls through to the final error below
       }

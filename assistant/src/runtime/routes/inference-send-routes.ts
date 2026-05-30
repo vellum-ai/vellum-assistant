@@ -55,18 +55,14 @@ async function handleInferenceSend({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const response = await provider.sendMessage(
-    [userMessage(message)],
-    undefined,
+  const response = await provider.sendMessage([userMessage(message)], {
     systemPrompt,
-    {
-      config: {
-        callSite: "inference",
-        max_tokens: maxTokens,
-        model,
-      },
+    config: {
+      callSite: "inference",
+      max_tokens: maxTokens,
+      model,
     },
-  );
+  });
 
   const text = extractAllText(response);
 

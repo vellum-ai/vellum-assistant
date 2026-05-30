@@ -147,7 +147,9 @@ class ProviderCommitMessageGenerator {
         return buildDeterministicResult(context, "missing_provider_api_key");
       }
       log.debug(
-        { provider: resolveCallSiteConfig("commitMessage", config.llm).provider },
+        {
+          provider: resolveCallSiteConfig("commitMessage", config.llm).provider,
+        },
         "Provider not initialized; falling back to deterministic",
       );
       return buildDeterministicResult(context, "provider_not_initialized");
@@ -234,23 +236,19 @@ class ProviderCommitMessageGenerator {
 
       let response;
       try {
-        response = await provider.sendMessage(
-          messages,
-          undefined,
-          SYSTEM_PROMPT,
-          {
-            signal: ac.signal,
-            config: {
-              // `callSite` lets the provider resolve model, max_tokens, and
-              // temperature from `llm.callSites.commitMessage` (with
-              // `llm.default` as the fallback). Operational fields
-              // (`enabled`, `timeoutMs`, `breaker`, `maxFilesInPrompt`,
-              // `maxDiffBytes`, `minRemainingTurnBudgetMs`) remain on
-              // `workspaceGit.commitMessageLLM` and are read above.
-              callSite: "commitMessage",
-            },
+        response = await provider.sendMessage(messages, {
+          systemPrompt: SYSTEM_PROMPT,
+          signal: ac.signal,
+          config: {
+            // `callSite` lets the provider resolve model, max_tokens, and
+            // temperature from `llm.callSites.commitMessage` (with
+            // `llm.default` as the fallback). Operational fields
+            // (`enabled`, `timeoutMs`, `breaker`, `maxFilesInPrompt`,
+            // `maxDiffBytes`, `minRemainingTurnBudgetMs`) remain on
+            // `workspaceGit.commitMessageLLM` and are read above.
+            callSite: "commitMessage",
           },
-        );
+        });
       } catch (err: unknown) {
         clearTimeout(timer);
         if (ac.signal.aborted) {

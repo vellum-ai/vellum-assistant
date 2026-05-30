@@ -1,6 +1,6 @@
 import { useNavigate } from "react-router";
 
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationStore } from "@/stores/conversation-store";
 import { IdentityPage } from "@/domains/intelligence/identity-page";
@@ -9,7 +9,7 @@ import { routes } from "@/utils/routes";
 
 export function IdentityPageRoute() {
   const navigate = useNavigate();
-  const { assistantId } = useActiveAssistantContext();
+  const assistantId = useActiveAssistantId();
 
   return (
     <IdentityPage

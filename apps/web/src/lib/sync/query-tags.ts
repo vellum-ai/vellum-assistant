@@ -66,6 +66,12 @@ export function homeFeedQueryKey(assistantId: string) {
   return [HOME_FEED_QUERY_KEY_PREFIX, assistantId] as const;
 }
 
+export const HOME_STATE_QUERY_KEY_PREFIX = "home-state" as const;
+
+export function homeStateQueryKey(assistantId: string) {
+  return [HOME_STATE_QUERY_KEY_PREFIX, assistantId] as const;
+}
+
 export function invalidateAssistantConfigQueries(
   queryClient: QueryClient,
   assistantId: string | null | undefined,

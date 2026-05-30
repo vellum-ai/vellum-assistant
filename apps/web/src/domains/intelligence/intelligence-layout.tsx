@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useOutletContext } from "react-router";
 import { cn } from "@vellum/design-library";
 
 import { PageShell } from "@/components/page-shell";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 

@@ -216,9 +216,7 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
 
     const response = await wrapped.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-      [],
-      undefined,
-      { config: { callSite: "replySuggestion" } },
+      { tools: [], config: { callSite: "replySuggestion" } },
     );
 
     // Hard gate #1: connection-resolution hook fired with the right name.
@@ -261,9 +259,7 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
 
     await wrapped.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-      [],
-      undefined,
-      { config: { callSite: "memoryRetrieval" } },
+      { tools: [], config: { callSite: "memoryRetrieval" } },
     );
 
     // No connection lookup attempted at all.
@@ -303,9 +299,7 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     try {
       await wrapped.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-        [],
-        undefined,
-        { config: { callSite: "memoryRetrieval" } },
+        { tools: [], config: { callSite: "memoryRetrieval" } },
       );
     } catch (err) {
       caught = err;
@@ -346,9 +340,7 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     try {
       await wrapped.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-        [],
-        undefined,
-        { config: { callSite: "conversationTitle" } },
+        { tools: [], config: { callSite: "conversationTitle" } },
       );
     } catch (err) {
       caught = err;
@@ -406,9 +398,7 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     try {
       await wrapped.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-        [],
-        undefined,
-        { config: { callSite: "replySuggestion" } },
+        { tools: [], config: { callSite: "replySuggestion" } },
       );
     } catch (err) {
       caught = err;
@@ -467,9 +457,7 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
     // This MUST NOT throw — the resolve failure is contained.
     await wrapped.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-      [],
-      undefined,
-      { config: { callSite: "replySuggestion" } },
+      { tools: [], config: { callSite: "replySuggestion" } },
     );
 
     // The resolver DID fire (we got past the connection lookup + validation).
@@ -498,9 +486,7 @@ describe("CallSiteRoutingProvider honors provider_connection (satellite gate)", 
 
     await wrapped.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "hello" }] }],
-      [],
-      undefined,
-      {},
+      { tools: [] },
     );
 
     expect(resolveProviderCalls.length).toBe(0);

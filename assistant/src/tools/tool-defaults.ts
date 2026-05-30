@@ -1,18 +1,18 @@
 /**
  * Single source of truth for the defaults applied when a `ToolDefinition`
  * omits one of the normally-required fields, plus the `finalizeTool`
- * helper that lifts a `ToolDefinition` into a `LoadedTool`.
+ * helper that lifts a `ToolDefinition` into a `Tool`.
  *
  * Plugins, external loaders, and any other registration boundary that
  * accepts loose `ToolDefinition` objects from authors must run them
  * through `finalizeTool` before handing the result to a `registerXxxTools`
  * call. The registry types make this a hard rule: every registered tool
- * is a `LoadedTool` (`Required<ToolDefinition> & { name }`).
+ * is a `Tool` (`Required<ToolDefinition> & { name }`).
  */
 
 import type {
-  LoadedTool,
   RiskLevel,
+  Tool,
   ToolDefinition,
   ToolExecutionResult,
 } from "./types.js";
@@ -31,6 +31,10 @@ import type {
  * - `executionTarget` defaults to `sandbox` — author-supplied tool code
  *   runs in the assistant container by default; opt in to `host` when
  *   the tool proxies work to the connected client.
+ * - `category` defaults to empty — Slack channel `allowedToolCategories`
+ *   policy denies uncategorized tools when a category allow-list is set,
+ *   which is the correct deny-by-default for tools the author didn't
+ *   explicitly bucket.
  *
  * `execute` has no constant default because the default closure needs to
  * close over the tool's name to produce a useful error message; see
@@ -45,12 +49,13 @@ export const TOOL_DEFAULTS = Object.freeze({
     additionalProperties: false,
   }) as object,
   executionTarget: "sandbox" as const,
+  category: "",
 });
 
 /**
- * Fill the four normally-required `ToolDefinition` fields with documented
+ * Fill the five normally-required `ToolDefinition` fields with documented
  * defaults when the author omitted them, attach the registration-time
- * `name`, and return a `LoadedTool` that is safe to hand to a
+ * `name`, and return a `Tool` that is safe to hand to a
  * `registerXxxTools` call.
  *
  * The default `execute` returns an error result so the model sees a clear
@@ -61,7 +66,7 @@ export const TOOL_DEFAULTS = Object.freeze({
 export function finalizeTool(
   tool: ToolDefinition,
   name: string,
-): LoadedTool {
+): Tool {
   const description =
     typeof tool.description === "string"
       ? tool.description
@@ -82,6 +87,7 @@ export function finalizeTool(
           isError: true,
         });
   const executionTarget = tool.executionTarget ?? TOOL_DEFAULTS.executionTarget;
+  const category = tool.category ?? TOOL_DEFAULTS.category;
   return {
     ...tool,
     name,
@@ -90,5 +96,6 @@ export function finalizeTool(
     input_schema,
     executionTarget,
     execute,
+    category,
   };
 }

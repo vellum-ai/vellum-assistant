@@ -32,6 +32,7 @@ import type {
   Message,
   Provider,
   ProviderResponse,
+  SendMessageOptions,
   ToolDefinition,
 } from "../providers/types.js";
 
@@ -80,8 +81,12 @@ function makeFakeProvider(
   return {
     name: "fake-provider",
     calls,
-    async sendMessage(messages, tools, systemPrompt, _options) {
-      calls.push({ messages, tools, systemPrompt });
+    async sendMessage(messages: Message[], options?: SendMessageOptions) {
+      calls.push({
+        messages,
+        tools: options?.tools,
+        systemPrompt: options?.systemPrompt,
+      });
       return response;
     },
   };
@@ -94,9 +99,7 @@ function makeArgs(
   return {
     provider,
     messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-    tools: undefined,
-    systemPrompt: "you are a helpful assistant",
-    options: { config: {} },
+    options: { systemPrompt: "you are a helpful assistant", config: {} },
     ...overrides,
   };
 }
@@ -106,12 +109,7 @@ function makeArgs(
 // transformation. Keeping it identical here means the test exercises the
 // exact call shape the real loop uses.
 const terminal = (args: LLMCallArgs): Promise<LLMCallResult> =>
-  args.provider.sendMessage(
-    args.messages,
-    args.tools,
-    args.systemPrompt,
-    args.options,
-  );
+  args.provider.sendMessage(args.messages, args.options);
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
@@ -177,7 +175,13 @@ describe("llmCall pipeline", () => {
         input_schema: { type: "object" },
       },
     ];
-    const args = makeArgs(provider, { tools });
+    const args = makeArgs(provider, {
+      options: {
+        tools,
+        systemPrompt: "you are a helpful assistant",
+        config: {},
+      },
+    });
 
     await runPipeline<LLMCallArgs, LLMCallResult>(
       "llmCall",
@@ -191,8 +195,10 @@ describe("llmCall pipeline", () => {
     expect(observed).toHaveLength(1);
     expect(observed[0]!.provider).toBe(provider);
     expect(observed[0]!.messages).toBe(args.messages);
-    expect(observed[0]!.tools).toBe(tools);
-    expect(observed[0]!.systemPrompt).toBe("you are a helpful assistant");
+    expect(observed[0]!.options?.tools).toBe(tools);
+    expect(observed[0]!.options?.systemPrompt).toBe(
+      "you are a helpful assistant",
+    );
     expect(provider.calls).toHaveLength(1);
   });
 

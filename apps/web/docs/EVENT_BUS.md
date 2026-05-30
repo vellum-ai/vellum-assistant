@@ -65,6 +65,11 @@ which is produced by the burst-limited reachability retry in
 | `app.online` | `{}` | `window.online` fired. Always accompanies a paired `app.resume{signal:"online"}`. |
 | `app.offline` | `{}` | `window.offline` fired. |
 | `reachability.retry-requested` | `{}` | Burst-limited reachability retry succeeded; the bus bounces its SSE. |
+| `power.suspend` | `{}` | Electron host: `powerMonitor` `suspend` — system going to sleep. Bus tears down its SSE so the daemon sees a clean disconnect. Off Electron (web / iOS) never fires. |
+| `power.resume` | `{}` | Electron host: `powerMonitor` `resume` — system woke. Bus bounces (teardown + reopen) its SSE regardless of `current` state — the renderer may have stayed visible during sleep (tray-resident / full-screen) so the socket may be half-dead. Off Electron never fires. |
+| `power.lock` | `{}` | Electron host: screen locked. No bus-owned action today. Off Electron never fires. |
+| `power.unlock` | `{}` | Electron host: screen unlocked. Bus bounces its SSE (same shape as `power.resume`). Off Electron never fires. |
+| `power.active` | `{}` | Electron host: `user-did-become-active` after idle. No bus-owned action today; future ticket may nudge stale state. Off Electron never fires. |
 
 ## Subscribing
 

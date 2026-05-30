@@ -5,12 +5,13 @@
  * switching users or orgs yields a fresh React Query cache instead of
  * leaking stale data.
  *
- * Only third-party library providers (React Query) belong here.
- * App state uses Zustand stores — see `src/stores/`.
+ * Only third-party library providers (React Query, Radix Tooltip) belong
+ * here. App state uses Zustand stores — see `src/stores/`.
  *
  * Reference: https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TooltipProvider } from "@vellum/design-library";
 import { useState, type ReactNode } from "react";
 
 import { useAuthStore } from "@/stores/auth-store";
@@ -76,10 +77,12 @@ export function AppProviders({ children }: { children: ReactNode }) {
     : "anonymous";
 
   return (
-    <AuthScopedQueryClientProvider key={authScopeKey}>
-      <ScopeKeyedQueryClientProvider>
-        {children}
-      </ScopeKeyedQueryClientProvider>
-    </AuthScopedQueryClientProvider>
+    <TooltipProvider delayDuration={200} skipDelayDuration={300}>
+      <AuthScopedQueryClientProvider key={authScopeKey}>
+        <ScopeKeyedQueryClientProvider>
+          {children}
+        </ScopeKeyedQueryClientProvider>
+      </AuthScopedQueryClientProvider>
+    </TooltipProvider>
   );
 }

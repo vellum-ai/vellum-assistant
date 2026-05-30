@@ -12,7 +12,7 @@ import { Modal } from "@vellum/design-library/components/modal";
 import { toast } from "@vellum/design-library/components/toast";
 import { client } from "@/generated/api/client.gen";
 import { reportError } from "@/utils/error-report";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { getDefaultModelForProvider, getModelsForProvider } from "@/assistant/llm-model-catalog";
 
 import { INFERENCE_PROVIDER_DISPLAY_NAMES, INFERENCE_PROVIDERS } from "@/domains/settings/ai/ai-page";

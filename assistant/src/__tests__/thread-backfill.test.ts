@@ -1284,7 +1284,7 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
         content: [
           {
             type: "text",
-            text: "[mar 4 2026 8:38 PM MT assistant] earlier assistant reply",
+            text: "earlier assistant reply",
           },
         ],
       },

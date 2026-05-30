@@ -284,8 +284,6 @@ describe("recordUsage", () => {
 
     await wrapped.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
-      undefined,
-      undefined,
       {
         config: {
           callSite: "mainAgent",

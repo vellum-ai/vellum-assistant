@@ -192,7 +192,6 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
-      _signal?: AbortSignal,
     ): Promise<Message[]> {
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
@@ -297,7 +296,10 @@ describe("abort tool result persistence", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Run tools", [], () => {});
+    await conversation.processMessage({
+      content: "Run tools",
+      attachments: [],
+    });
 
     // Find user messages in persisted data that contain tool_result
     const toolResultUserMessages = persistedMessages.filter((m) => {
@@ -356,7 +358,10 @@ describe("abort tool result persistence", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Run tools", [], () => {});
+    await conversation.processMessage({
+      content: "Run tools",
+      attachments: [],
+    });
 
     // Simulate reload: the in-memory messages should be valid after repair
     const messages = conversation.getMessages();

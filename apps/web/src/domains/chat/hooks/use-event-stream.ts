@@ -33,25 +33,25 @@ import {
   useRef,
 } from "react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types";
-import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils";
+import type { AssistantEvent } from "@/types/event-types";
+import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import {
   bucketMessagesAdded,
-  recordChatDiagnostic,
+  recordDiagnostic,
   resolvePlatformTag,
-} from "@/domains/chat/utils/diagnostics";
+} from "@/lib/diagnostics";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncRouter,
 } from "@/lib/sync/web-sync-router";
 
-import { endTurn } from "@/stores/turn-coordinator";
+import { endTurn } from "@/domains/chat/turn-coordinator";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   isSending,
   useTurnStore,
-} from "@/stores/turn-store";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+} from "@/domains/chat/turn-store";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import { useEventBusStore } from "@/stores/event-bus-store";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
 
@@ -245,7 +245,7 @@ export function useEventStream({
         eventConversationId === undefined ||
         eventConversationId !== activeConversationIdLatestRef.current
       ) {
-        recordChatDiagnostic("sse_event_wrong_conversation_filtered", {
+        recordDiagnostic("sse_event_wrong_conversation_filtered", {
           eventConversationId,
           activeConversationId: activeConversationIdLatestRef.current,
           eventType: event.type,
@@ -303,7 +303,7 @@ export function useEventStream({
       .subscribe("sse.opened", ({ assistantId: openedFor, cause }) => {
         if (openedFor !== capturedAssistantId) return;
         const epoch = ++streamEpochRef.current;
-        recordChatDiagnostic("sse_stream_opened", {
+        recordDiagnostic("sse_stream_opened", {
           assistantId: capturedAssistantId,
           conversationId: capturedConversationId,
           epoch,
@@ -328,7 +328,7 @@ export function useEventStream({
         // reconcile.
         if (cause === "watchdog" || cause === "error") {
           void (async () => {
-            recordChatDiagnostic("sse_stream_reconnect", {
+            recordDiagnostic("sse_stream_reconnect", {
               assistantId: capturedAssistantId,
               conversationId: capturedConversationId,
               epoch,
@@ -349,7 +349,7 @@ export function useEventStream({
             // would cancel the newer loop and then exit as stale,
             // leaving no active loop running.
             if (epoch !== streamEpochRef.current) {
-              recordChatDiagnostic("sse_post_reconnect_stale", {
+              recordDiagnostic("sse_post_reconnect_stale", {
                 assistantId: capturedAssistantId,
                 conversationId: capturedConversationId,
                 epoch,
@@ -361,7 +361,7 @@ export function useEventStream({
             startReconciliationLoopRef.current(epoch);
             if (cause !== "watchdog") return;
             const latencyMs = Date.now() - startedAt;
-            recordChatDiagnostic("sse_post_watchdog_reconcile_result", {
+            recordDiagnostic("sse_post_watchdog_reconcile_result", {
               assistantId: capturedAssistantId,
               conversationId: capturedConversationId,
               epoch,
@@ -442,7 +442,7 @@ export function useEventStream({
       .getState()
       .subscribe("sse.closed", ({ reason }) => {
         const hadActiveTurn = isSending(useTurnStore.getState());
-        recordChatDiagnostic("sse_stream_error", {
+        recordDiagnostic("sse_stream_error", {
           assistantId: capturedAssistantId,
           conversationId: capturedConversationId,
           epoch: streamEpochRef.current,

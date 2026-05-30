@@ -1,10 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  AgentEvent,
-  CheckpointDecision,
-  CheckpointInfo,
-} from "../agent/loop.js";
+import type { AgentEvent } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
@@ -250,11 +246,6 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
-      _signal?: AbortSignal,
-      _requestId?: string,
-      _onCheckpoint?: (
-        checkpoint: CheckpointInfo,
-      ) => CheckpointDecision | Promise<CheckpointDecision>,
     ): Promise<Message[]> {
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
@@ -336,7 +327,10 @@ describe("Conversation slash command — passthrough for unknown tokens", () => 
 
   test("unknown slash-like input passes through to agent loop", async () => {
     const conversation = makeConversation();
-    await conversation.processMessage("/not-a-skill", [], () => {});
+    await conversation.processMessage({
+      content: "/not-a-skill",
+      attachments: [],
+    });
 
     // Should go through the normal agent loop path
     expect(agentLoopRunCalled).toBe(true);
@@ -345,9 +339,11 @@ describe("Conversation slash command — passthrough for unknown tokens", () => 
   test("normal messages still go through standard path", async () => {
     const conversation = makeConversation();
     const events: ServerMessage[] = [];
-    await conversation.processMessage("hello world", [], (msg) =>
-      events.push(msg),
-    );
+    await conversation.processMessage({
+      content: "hello world",
+      attachments: [],
+      onEvent: (msg) => events.push(msg),
+    });
     expect(agentLoopRunCalled).toBe(true);
   });
 });

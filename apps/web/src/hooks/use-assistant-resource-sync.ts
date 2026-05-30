@@ -1,11 +1,13 @@
 /**
  * Bus consumer for assistant-level resource cache invalidation.
  *
- * Routes avatar, identity, config, sounds, and schedules
- * `sync_changed` tags — plus `home_feed_updated` and
- * `relationship_state_updated` events — into TanStack Query cache
- * invalidations. All operations are simple one-liner invalidations
- * with no debouncing or per-row patching.
+ * Routes `sync_changed` tags (avatar, identity, config, sounds,
+ * schedules) and discrete SSE events (`home_feed_updated`,
+ * `relationship_state_updated`, `identity_changed`, `avatar_updated`)
+ * into TanStack Query cache invalidations.
+ *
+ * All operations are stateless one-liner invalidations with no
+ * debouncing or per-row patching.
  *
  * More complex sync domains (conversations, feature flags) own their
  * own hooks:
@@ -29,6 +31,7 @@ import {
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
   HOME_FEED_QUERY_KEY_PREFIX,
+  HOME_STATE_QUERY_KEY_PREFIX,
 } from "@/lib/sync/query-tags";
 import { SYNC_TAGS } from "@/lib/sync/types";
 
@@ -36,10 +39,10 @@ import { SYNC_TAGS } from "@/lib/sync/types";
  * Subscribes to assistant-resource sync events via the event bus.
  *
  * Handles `sync_changed` tags for avatar, identity, config, sounds,
- * and schedules, plus `home_feed_updated` / `relationship_state_updated`
- * event types. These are all stateless invalidations — no reconnect
- * handling needed since the underlying `useQuery` hooks refetch
- * automatically when the query becomes stale.
+ * and schedules, plus discrete event types for home feed/state changes
+ * and identity/avatar pushes. These are all stateless invalidations —
+ * no reconnect handling needed since the underlying `useQuery` hooks
+ * refetch automatically when the query becomes stale.
  */
 export function useAssistantResourceSync(
   assistantId: string | null,
@@ -90,9 +93,29 @@ export function useAssistantResourceSync(
         return;
 
       case "home_feed_updated":
+        void queryClient.invalidateQueries({
+          queryKey: [HOME_FEED_QUERY_KEY_PREFIX],
+        });
+        return;
+
       case "relationship_state_updated":
         void queryClient.invalidateQueries({
           queryKey: [HOME_FEED_QUERY_KEY_PREFIX],
+        });
+        void queryClient.invalidateQueries({
+          queryKey: [HOME_STATE_QUERY_KEY_PREFIX],
+        });
+        return;
+
+      case "identity_changed":
+        void queryClient.invalidateQueries({
+          queryKey: assistantIdentityQueryKey(assistantId),
+        });
+        return;
+
+      case "avatar_updated":
+        void queryClient.invalidateQueries({
+          queryKey: avatarQueryKey(assistantId),
         });
         return;
     }

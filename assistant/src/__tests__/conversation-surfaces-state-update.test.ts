@@ -51,8 +51,11 @@ function makeContext(opts?: {
       return { queued: false, requestId: resolvedId };
     },
     getQueueDepth: () => 0,
-    processMessage: async (content, _attachments, _onEvent, requestId) => {
-      processCalls.push({ content, requestId });
+    processMessage: async (options) => {
+      processCalls.push({
+        content: options.content,
+        requestId: options.requestId,
+      });
       return "ok";
     },
     withSurface: createSurfaceMutex(),

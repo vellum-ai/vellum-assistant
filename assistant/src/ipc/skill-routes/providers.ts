@@ -39,7 +39,7 @@ import type { SkillIpcRoute } from "../skill-ipc-types.js";
 
 /**
  * LLM completion request. The IPC surface only accepts the serializable
- * subset of `Provider.sendMessage(messages, tools?, systemPrompt?, options?)`.
+ * subset of `Provider.sendMessage(messages, options?)`.
  * Non-serializable fields (`onEvent`, `signal`) are intentionally omitted —
  * streaming deltas and per-call cancellation belong on future streaming
  * routes, not this one-shot RPC.
@@ -76,12 +76,11 @@ async function handleLlmComplete(params?: Record<string, unknown>) {
       `host.providers.llm.complete: no provider configured for callSite '${callSite}'`,
     );
   }
-  return provider.sendMessage(
-    messages as Message[],
-    tools as ToolDefinition[] | undefined,
+  return provider.sendMessage(messages as Message[], {
+    tools: tools as ToolDefinition[] | undefined,
     systemPrompt,
-    { config: { ...((config as SendMessageConfig) ?? {}), callSite } },
-  );
+    config: { ...((config as SendMessageConfig) ?? {}), callSite },
+  });
 }
 
 function handleSttListProviderIds(): string[] {

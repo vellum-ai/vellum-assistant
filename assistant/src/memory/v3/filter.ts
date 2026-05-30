@@ -227,18 +227,15 @@ export async function filterDenseHits(
   const startedAt = Date.now();
   let response;
   try {
-    response = await provider.sendMessage(
-      [userMsg],
-      [filterTool],
+    response = await provider.sendMessage([userMsg], {
+      tools: [filterTool],
       systemPrompt,
-      {
-        config: {
-          callSite: "memoryV3Filter" as const,
-          tool_choice: { type: "tool" as const, name: FILTER_TOOL_NAME },
-        },
-        ...(input.signal ? { signal: input.signal } : {}),
+      config: {
+        callSite: "memoryV3Filter" as const,
+        tool_choice: { type: "tool" as const, name: FILTER_TOOL_NAME },
       },
-    );
+      ...(input.signal ? { signal: input.signal } : {}),
+    });
   } catch (err) {
     log.warn({ err }, "Filter provider call threw; failing open (keep all)");
     return buildResult(bypass, judged, judged, "api_error");

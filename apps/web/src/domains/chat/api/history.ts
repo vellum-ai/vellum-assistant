@@ -14,11 +14,9 @@ import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors";
-import {
-  recordChatDiagnostic,
-  summarizeDisplayMessages,
-} from "@/domains/chat/utils/diagnostics";
+} from "@/utils/api-errors";
+import { recordDiagnostic } from "@/lib/diagnostics";
+import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { dedupeDisplayMessages } from "@/domains/chat/utils/reconcile";
@@ -119,7 +117,7 @@ async function fetchPaginatedHistory(
 
   assertHasResponse(response, error, "Failed to fetch history");
   if (!response.ok) {
-    recordChatDiagnostic("history_page_fetch_error", {
+    recordDiagnostic("history_page_fetch_error", {
       assistantId,
       query,
       status: response.status,
@@ -133,7 +131,7 @@ async function fetchPaginatedHistory(
   }
 
   const result = parsePaginatedResponse(data ?? {});
-  recordChatDiagnostic("history_page_fetch", {
+  recordDiagnostic("history_page_fetch", {
     assistantId,
     query,
     status: response.status,

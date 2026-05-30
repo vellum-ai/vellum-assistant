@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { CollapsibleNavSection } from "@/components/collapsible-nav-section";
 import { PanelItem, SideMenu } from "@vellum/design-library";
 import type { Conversation } from "@/types/conversation-types";
-import type { SubGroup } from "@/domains/chat/utils/sub-group-utils";
+import type { SubGroup } from "@/domains/chat/utils/sub-group";
 
 // ---------------------------------------------------------------------------
 // SubGroupAccordion — shared sub-accordion for Background + Scheduled

@@ -2,7 +2,12 @@
 
 import type { AssistantTextDeltaEvent } from "../../api/events/assistant-text-delta.js";
 import type { AssistantTurnStartEvent } from "../../api/events/assistant-turn-start.js";
+import type { InteractionResolvedEvent } from "../../api/events/interaction-resolved.js";
 import type { MessageCompleteEvent } from "../../api/events/message-complete.js";
+import type { MessageDequeuedEvent } from "../../api/events/message-dequeued.js";
+import type { MessageQueuedEvent } from "../../api/events/message-queued.js";
+import type { MessageQueuedDeletedEvent } from "../../api/events/message-queued-deleted.js";
+import type { MessageRequestCompleteEvent } from "../../api/events/message-request-complete.js";
 import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
@@ -315,40 +320,6 @@ export interface ErrorMessage {
   errorCategory?: string;
 }
 
-export interface MessageQueued {
-  type: "message_queued";
-  conversationId: string;
-  requestId: string;
-  position: number;
-}
-
-export interface MessageDequeued {
-  type: "message_dequeued";
-  conversationId: string;
-  requestId: string;
-}
-
-/**
- * Request-level terminal signal for a user message lifecycle.
- *
- * Unlike `message_complete`, this does not imply the active assistant turn
- * has completed. It is used for paths that consume a request inline while a
- * separate in-flight turn may still be running.
- */
-export interface MessageRequestComplete {
-  type: "message_request_complete";
-  conversationId: string;
-  requestId: string;
-  /** True when an existing turn is still running after this request is finalized. */
-  runStillActive?: boolean;
-}
-
-export interface MessageQueuedDeleted {
-  type: "message_queued_deleted";
-  conversationId: string;
-  requestId: string;
-}
-
 export interface MessageSteered {
   type: "message_steered";
   conversationId: string;
@@ -380,39 +351,6 @@ export interface ConfirmationStateChanged {
   decisionText?: string;
   /** The tool_use block ID this confirmation applies to, for disambiguating parallel tool calls. */
   toolUseId?: string;
-}
-
-/**
- * Lifecycle states reported by `interaction_resolved`.
- *
- *  - `"approved"` / `"rejected"` — user-supplied verdict on a confirmation.
- *  - `"answered"` — user/client provided a response (secret value, question
- *    answer, host-proxy result).
- *  - `"cancelled"` — the interaction was torn down without a user response
- *    (timeout, abort, dispose, prompter shutdown).
- *  - `"superseded"` — invalidated by a newer event (auto-deny on enqueue, a
- *    fresh user message arriving while a confirmation was outstanding).
- */
-export type InteractionResolutionState =
-  | "approved"
-  | "rejected"
-  | "answered"
-  | "cancelled"
-  | "superseded";
-
-/**
- * Broadcast when a pending interaction (confirmation, secret, question,
- * host-proxy request) transitions to a resolved state. Clients use this to
- * drop attention/processing indicators without polling.
- */
-export interface InteractionResolved {
-  type: "interaction_resolved";
-  requestId: string;
-  /** Conversation id the interaction belongs to. */
-  conversationId: string;
-  state: InteractionResolutionState;
-  /** Kind of the resolved interaction (e.g. "confirmation", "secret", "host_bash"). */
-  kind: string;
 }
 
 /**
@@ -534,10 +472,10 @@ export type _MessagesServerMessages =
   | QuestionRequest
   | MessageCompleteEvent
   | ErrorMessage
-  | MessageQueued
-  | MessageDequeued
-  | MessageRequestComplete
-  | MessageQueuedDeleted
+  | MessageQueuedEvent
+  | MessageDequeuedEvent
+  | MessageRequestCompleteEvent
+  | MessageQueuedDeletedEvent
   | MessageSteered
   | SuggestionResponse
   | TraceEvent
@@ -545,4 +483,4 @@ export type _MessagesServerMessages =
   | AssistantActivityState
   | TurnProfileAutoRouted
   | ConversationInferenceProfileUpdated
-  | InteractionResolved;
+  | InteractionResolvedEvent;

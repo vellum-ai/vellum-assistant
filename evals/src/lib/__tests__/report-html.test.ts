@@ -135,6 +135,7 @@ const executionDetail: ReportRunDetail = {
   assistantEvents: [
     { message: { type: "assistant_text_delta", text: "hello" } },
   ],
+  ingestAssistantEvents: [],
   simulatorMessages: [{ content: "hello" }],
   progressEvents: [
     {
@@ -189,6 +190,40 @@ describe("report html", () => {
     expect(html).toContain("accuracy");
     // Breadcrumbs back to session.
     expect(html).toContain('href="/sessions/session-1"');
+  });
+
+  test("execution page renders the Memory-formation events section with the V1-empty placeholder", () => {
+    // Default fixture has `ingestAssistantEvents: []` (a V1-shaped run) —
+    // the section still renders so V1/V2 share one URL shape, and the
+    // empty-state copy is ingest-specific rather than the generic
+    // container-events default.
+    const html = renderReportPage({ kind: "execution", run: executionDetail });
+    expect(html).toContain("Memory-formation events");
+    expect(html).toContain("No memory-formation events recorded.");
+  });
+
+  test("execution page surfaces ingest-turn events in the Memory-formation section when present", () => {
+    const html = renderReportPage({
+      kind: "execution",
+      run: {
+        ...executionDetail,
+        ingestAssistantEvents: [
+          {
+            message: {
+              type: "assistant_text_delta",
+              text: "indexing-session-1",
+            },
+            emittedAt: "2026-05-15T12:00:00.250Z",
+          },
+        ],
+      },
+    });
+    // The Memory-formation section ships ingest events; the Container-logs
+    // section (question-turn) still ships the original "hello" event. Both
+    // strings appear, neither leaks across.
+    expect(html).toContain("indexing-session-1");
+    expect(html).toContain("hello");
+    expect(html).not.toContain("No memory-formation events recorded.");
   });
 
   test("execution page shows transcript, container logs, runner logs, and NO raw JSON section", () => {

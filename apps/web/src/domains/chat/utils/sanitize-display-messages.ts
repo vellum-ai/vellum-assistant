@@ -10,6 +10,8 @@
 // only have to delete one file when the backend is fixed.
 // -----------------------------------------------------------------------------
 
+import { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "@vellumai/assistant-api";
+
 import { sortedByTimestamp } from "@/domains/chat/utils/message-sorting";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -22,6 +24,7 @@ export function sanitizeDisplayMessages(
     removeInvalidMessages,
     removeDuplicateTrailingAssistant,
     repairDanglingToolCalls,
+    failStaleToolCalls,
   ];
   return pipeline.reduce((msgs, step) => step(msgs), messages);
 }
@@ -269,5 +272,130 @@ function repairIfDangling(tc: ChatMessageToolCall): ChatMessageToolCall {
     status: "error",
     isError: true,
     result: SYNTHETIC_DANGLING_RESULT,
+  };
+}
+
+// -----------------------------------------------------------------------------
+// Hack #5 — fail stale tool calls on assistant restart / silent daemon death
+// -----------------------------------------------------------------------------
+// Why it exists: when the assistant daemon restarts (or crashes silently)
+// mid-tool-execution, it never delivers the `tool_result` SSE for the call
+// it was running. Unlike Hack #4 — which patches dangling tools that have a
+// SUBSEQUENT assistant message proving the tool completed server-side —
+// this case has no subsequent activity at all. The bubble where the tool
+// started simply spins forever, even across page reloads.
+//
+// This step is the client-side last line of defense. It applies whenever
+// the elapsed time since the tool's last sign of life exceeds the
+// configured execution timeout (plus a small grace buffer to absorb
+// daemon-side delivery delay).
+//
+// Predicate (must ALL hold for a tool call to be patched):
+//   - `tool_call.status === "running"` (the UI's canonical "no result yet"
+//     signal — see `tool-call-chip.tsx`'s `isRunning`),
+//   - `tool_call.startedAt` is set (else we have no clock to measure
+//     against; typically only happens for tool calls hydrated from a
+//     pre-stamping history boundary),
+//   - `tool_call.pendingConfirmation` is null/undefined (a tool waiting on
+//     user approval is correctly stalled and must not be marked stale —
+//     the daemon's own execution timeout doesn't start until approval
+//     lands),
+//   - `(now - max(startedAt, lastProgressAt ?? 0)) > effectiveTimeoutMs +
+//     STALE_GRACE_MS`.
+//
+// `effectiveTimeoutMs` is `progressTimeoutSec * 1000` when the daemon
+// reported a non-zero per-tool timeout via `tool_progress`, falling back
+// to `DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC` (the canonical default the
+// daemon uses when no override is configured). The fallback constant is
+// exported from `@vellumai/assistant-api` so both backend enforcement
+// and frontend detection reference the same wire-contract default —
+// drift between them would let stale tools spin past the server-side
+// ceiling, or worse, fail tools the server still considers in-flight.
+//
+// When all four hold, mutate the tool call to:
+//   - `status: "error"`,
+//   - `isError: true`,
+//   - `result: SYNTHETIC_STALE_RESULT` (explains the client-side timeout
+//     so a feedback report shows the root cause).
+//
+// Pipeline placement: runs AFTER `repairDanglingToolCalls`. Hack #4 has
+// the stricter evidence (a later assistant message proves the server
+// continued past the tool); whatever it leaves still-running gets
+// evaluated against the timeout here. The two synthetic messages stay
+// distinct on purpose — Hack #4 says "the server continued without us",
+// Hack #5 says "we gave up waiting".
+//
+// SHORT TERM until: the assistant runtime survives restarts cleanly,
+// either by persisting an "in-flight tool" record so the new process
+// can emit a synthetic `tool_result` on boot, or by the gateway / host
+// proxy buffering `tool_result` events across a daemon restart.
+// -----------------------------------------------------------------------------
+const SYNTHETIC_STALE_RESULT =
+  "Tool call exceeded the execution timeout with no result. The assistant may have restarted while the tool was in flight — this is a client-side timeout, not a tool failure.";
+
+/**
+ * Grace period added on top of the configured execution timeout before a
+ * still-running tool call is treated as stale. Absorbs the daemon-side
+ * lag between hitting its own timeout (which produces a synthetic error
+ * tool_result) and that result actually crossing the SSE wire. Generous
+ * on purpose: false positives — marking a still-running tool as failed
+ * — are worse than a few seconds of extra spinner.
+ */
+const STALE_GRACE_MS = 30_000;
+
+function failStaleToolCalls(messages: DisplayMessage[]): DisplayMessage[] {
+  // Read the wall clock once at the top of this step so every tool
+  // call in this pass is evaluated against the same instant. Tests
+  // mock `Date.now` via `spyOn(Date, "now")` for deterministic
+  // stale-detection windows.
+  const nowMs = Date.now();
+  let result: DisplayMessage[] | null = null;
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i]!;
+    if (m.role !== "assistant" || !hasStaleToolCall(m, nowMs)) {
+      if (result) result.push(m);
+      continue;
+    }
+    if (!result) result = messages.slice(0, i);
+    result.push(withStaleToolCallsFailed(m, nowMs));
+  }
+  return result ?? messages;
+}
+
+function hasStaleToolCall(message: DisplayMessage, nowMs: number): boolean {
+  return message.toolCalls?.some((tc) => isStale(tc, nowMs)) ?? false;
+}
+
+function withStaleToolCallsFailed(
+  message: DisplayMessage,
+  nowMs: number,
+): DisplayMessage {
+  return {
+    ...message,
+    toolCalls: message.toolCalls!.map((tc) =>
+      isStale(tc, nowMs) ? markStale(tc) : tc,
+    ),
+  };
+}
+
+function isStale(tc: ChatMessageToolCall, nowMs: number): boolean {
+  if (tc.status !== "running") return false;
+  if (tc.pendingConfirmation) return false;
+  if (tc.startedAt === undefined) return false;
+  const lastSignOfLife = Math.max(tc.startedAt, tc.lastProgressAt ?? 0);
+  const configuredSec =
+    tc.progressTimeoutSec && tc.progressTimeoutSec > 0
+      ? tc.progressTimeoutSec
+      : DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC;
+  const effectiveTimeoutMs = configuredSec * 1000;
+  return nowMs - lastSignOfLife > effectiveTimeoutMs + STALE_GRACE_MS;
+}
+
+function markStale(tc: ChatMessageToolCall): ChatMessageToolCall {
+  return {
+    ...tc,
+    status: "error",
+    isError: true,
+    result: SYNTHETIC_STALE_RESULT,
   };
 }

@@ -62,6 +62,22 @@ The main-process handler itself lives in `apps/macos/src/main/`; that's a main-p
 
 ---
 
+## Cross-domain push signals route through the event bus, not directly via the bridge
+
+The runtime wrapper is the surface for **imperative** access (`setDockBadge(count)`, `getAppVersionInfo()`). For **push signals** — main-process events that multiple renderer domains care about — the wrapper publishes into the [event bus](./EVENT_BUS.md), and consumers subscribe via the bus.
+
+Example (`runtime/power-events.ts` + `BusEventMap`): the system's `powerMonitor` fires `suspend` / `resume` / `lock` / `unlock` / `active`. Multiple renderer subsystems care (SSE reconnect, future auth-refresh on wake, future reachability probe). The right shape is:
+
+1. `apps/macos/src/main/power-events.ts` — subscribes to `powerMonitor`, broadcasts to all renderers via `webContents.send`.
+2. `apps/macos/src/preload/index.ts` — `window.vellum.power.onEvent(callback) → unsubscribe`.
+3. `apps/web/src/runtime/power-events.ts` — `subscribeToPowerEvents(callback)` (the no-op-off-Electron wrapper).
+4. `apps/web/src/hooks/use-event-bus-init.ts` — calls the wrapper once at mount, fans events in as `power.suspend` / `power.resume` / etc. on the bus.
+5. Domain consumers subscribe to `bus.subscribe("power.resume", ...)` — never to the wrapper directly.
+
+The bus integration means the same subscriber code works whether the signal came from `powerMonitor` (Electron), `visibilitychange` (web), or Capacitor `appStateChange` (iOS). Wrappers that publish into the bus stay tiny — they're just signal sources.
+
+---
+
 ## See also
 
 - [`CONVENTIONS.md`](./CONVENTIONS.md) — architecture, code organization, component patterns.

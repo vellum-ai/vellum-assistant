@@ -76,8 +76,9 @@ mock.module("../memory/conversation-crud.js", () => ({
     conversationId: string,
     role: string,
     content: string,
-    metadata?: Record<string, unknown>,
+    options?: { metadata?: Record<string, unknown> },
   ) => {
+    const metadata = options?.metadata;
     const id = `mock-msg-${addMessageCalls.length + 1}`;
     addMessageCalls.push({ id, conversationId, role, content, metadata });
     persistedRows.push({

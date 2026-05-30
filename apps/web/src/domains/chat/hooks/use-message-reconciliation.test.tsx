@@ -18,7 +18,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { createElement, type Dispatch, type RefObject, type SetStateAction } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/stores/turn-store";
+import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------

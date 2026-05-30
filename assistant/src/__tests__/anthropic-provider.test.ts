@@ -180,7 +180,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // System prompt cache control
   // -----------------------------------------------------------------------
   test("system prompt has cache_control ephemeral with 1h TTL", async () => {
-    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.");
+    await provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+    });
 
     const system = lastStreamParams!.system as Array<{
       type: string;
@@ -198,7 +200,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   });
 
   test("sends disabled thinking config natively", async () => {
-    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("Hi")], {
       config: { thinking: { type: "disabled" } },
     });
 
@@ -230,7 +232,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   test("renders the system prompt as a single 1h-cached block", async () => {
     const prompt = "You are a helpful assistant.";
 
-    await provider.sendMessage([userMsg("Hi")], undefined, prompt);
+    await provider.sendMessage([userMsg("Hi")], { systemPrompt: prompt });
 
     const system = lastStreamParams!.system as Array<{
       type: string;
@@ -251,7 +253,10 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       toolUseMsg("tu_1", "bash"),
       toolResultMsg("tu_1", "output"),
     ];
-    await provider.sendMessage(messages, sampleTools, prompt);
+    await provider.sendMessage(messages, {
+      tools: sampleTools,
+      systemPrompt: prompt,
+    });
 
     const system = lastStreamParams!.system as Array<{
       type: string;
@@ -291,7 +296,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   // Tool cache control
   // -----------------------------------------------------------------------
   test("only last tool definition includes cache_control", async () => {
-    await provider.sendMessage([userMsg("Hi")], sampleTools);
+    await provider.sendMessage([userMsg("Hi")], { tools: sampleTools });
 
     const tools = lastStreamParams!.tools as Array<{
       name: string;
@@ -308,7 +313,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   });
 
   test("single tool gets cache_control", async () => {
-    await provider.sendMessage([userMsg("Hi")], [sampleTools[0]]);
+    await provider.sendMessage([userMsg("Hi")], { tools: [sampleTools[0]] });
 
     const tools = lastStreamParams!.tools as Array<{
       name: string;
@@ -409,14 +414,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     // per call with content that changes every time. Caching the turn-start
     // block would create unused entries — `disableTurnStartCache: true`
     // opts out.
-    await provider.sendMessage(
-      [userMsg("Pick relevant pages")],
-      undefined,
-      undefined,
-      {
-        config: { disableTurnStartCache: true },
-      },
-    );
+    await provider.sendMessage([userMsg("Pick relevant pages")], {
+      config: { disableTurnStartCache: true },
+    });
 
     const sent = lastStreamParams!.messages as Array<{
       role: string;
@@ -1537,7 +1537,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       { kind: "blockStop" },
     ];
     const emitted: string[] = [];
-    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
         if (event.type === "text_delta") emitted.push(event.text);
       },
@@ -1554,7 +1554,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       { kind: "blockStop" },
     ];
     const emitted: string[] = [];
-    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
         if (event.type === "text_delta") emitted.push(event.text);
       },
@@ -1569,7 +1569,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       { kind: "blockStop" },
     ];
     const emitted: string[] = [];
-    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
         if (event.type === "text_delta") emitted.push(event.text);
       },
@@ -1586,7 +1586,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       { kind: "blockStop" },
     ];
     const emitted: string[] = [];
-    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
         if (event.type === "text_delta") emitted.push(event.text);
       },
@@ -1605,7 +1605,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       { kind: "blockStop" },
     ];
     const emitted: string[] = [];
-    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
         if (event.type === "text_delta") emitted.push(event.text);
       },
@@ -1622,7 +1622,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       { kind: "blockStop" },
     ];
     const emitted: string[] = [];
-    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
         if (event.type === "text_delta") emitted.push(event.text);
       },
@@ -1640,7 +1640,7 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
       { kind: "blockStop" },
     ];
     const emitted: string[] = [];
-    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
         if (event.type === "text_delta") emitted.push(event.text);
       },
@@ -2120,11 +2120,10 @@ describe("AnthropicProvider — Managed Proxy Fallback", () => {
       baseURL: "https://platform.example.com/v1/runtime-proxy/anthropic",
     });
 
-    await provider.sendMessage(
-      [userMsg("Hi")],
-      sampleTools,
-      "You are helpful.",
-    );
+    await provider.sendMessage([userMsg("Hi")], {
+      tools: sampleTools,
+      systemPrompt: "You are helpful.",
+    });
 
     // System prompt cache control
     const system = lastStreamParams!.system as Array<{
@@ -2224,13 +2223,16 @@ describe("AnthropicProvider — Haiku Model Gating", () => {
   });
 
   test("max_tokens defaults to 8192 for Haiku", async () => {
-    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.");
+    await provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+    });
 
     expect(lastStreamParams!.max_tokens).toBe(8192);
   });
 
   test("caller max_tokens is clamped to 8192 for Haiku", async () => {
-    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.", {
+    await provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
       config: { max_tokens: 64000 },
     });
 
@@ -2238,7 +2240,8 @@ describe("AnthropicProvider — Haiku Model Gating", () => {
   });
 
   test("caller max_tokens below 8192 is preserved for Haiku", async () => {
-    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.", {
+    await provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
       config: { max_tokens: 128 },
     });
 
@@ -2250,18 +2253,18 @@ describe("AnthropicProvider — Haiku Model Gating", () => {
       "sk-ant-test",
       "claude-sonnet-4-6",
     );
-    await sonnetProvider.sendMessage(
-      [userMsg("Hi")],
-      undefined,
-      "You are helpful.",
-      { config: { max_tokens: 200 } },
-    );
+    await sonnetProvider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+      config: { max_tokens: 200 },
+    });
 
     expect(lastStreamParams!.max_tokens).toBe(200);
   });
 
   test("cache_control omits ttl for Haiku", async () => {
-    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.");
+    await provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+    });
 
     const system = lastStreamParams!.system as Array<{
       cache_control?: { type: string; ttl?: string };
@@ -2271,7 +2274,9 @@ describe("AnthropicProvider — Haiku Model Gating", () => {
   });
 
   test("betas array is empty for Haiku (no extended cache TTL)", async () => {
-    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.");
+    await provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+    });
 
     // When betas is empty, the non-beta stream path is used, so no betas
     // field should appear in lastStreamParams.
@@ -2279,7 +2284,8 @@ describe("AnthropicProvider — Haiku Model Gating", () => {
   });
 
   test("effort is stripped for Haiku even when provided in config", async () => {
-    await provider.sendMessage([userMsg("Hi")], undefined, "You are helpful.", {
+    await provider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
       config: { effort: "high" },
     });
 
@@ -2291,12 +2297,10 @@ describe("AnthropicProvider — Haiku Model Gating", () => {
       "sk-ant-test",
       "claude-sonnet-4-6",
     );
-    await sonnetProvider.sendMessage(
-      [userMsg("Hi")],
-      undefined,
-      "You are helpful.",
-      { config: { effort: "none" } },
-    );
+    await sonnetProvider.sendMessage([userMsg("Hi")], {
+      systemPrompt: "You are helpful.",
+      config: { effort: "none" },
+    });
 
     // mergedOutputConfig is empty when effort is "none" and no other
     // output_config fields were supplied, so output_config is not attached
@@ -2323,7 +2327,9 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
       "or-key",
       "anthropic/claude-sonnet-4.6",
     );
-    await provider.sendMessage([userMsg("hi")], undefined, "You are helpful.");
+    await provider.sendMessage([userMsg("hi")], {
+      systemPrompt: "You are helpful.",
+    });
 
     expect(lastConstructorArgs).toMatchObject({
       apiKey: null,
@@ -2358,7 +2364,7 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
       "or-key",
       "anthropic/claude-sonnet-4.6",
     );
-    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("hi")], {
       config: { thinking: { type: "adaptive" } },
     });
 
@@ -2375,7 +2381,7 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
       "or-key",
       "anthropic/claude-sonnet-4.6",
     );
-    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("hi")], {
       config: { thinking: { type: "disabled" } },
     });
 
@@ -2390,7 +2396,7 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
       "or-key",
       "anthropic/claude-sonnet-4.6",
     );
-    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("hi")], {
       config: {
         usageAttributionHeaders: {
           "Vellum-Organization-Id": "org-123",
@@ -2418,7 +2424,7 @@ describe("OpenRouterProvider — Anthropic dispatch", () => {
     // Default model is non-Anthropic, but the request overrides with an
     // Anthropic model — dispatch must honour the request-level model.
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
-    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("hi")], {
       config: { model: "anthropic/claude-haiku-4.5" },
     });
 
@@ -2488,7 +2494,10 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
       userMsg("And what is 3+3?"),
     ];
 
-    await provider.sendMessage(messages, sampleTools, "system");
+    await provider.sendMessage(messages, {
+      tools: sampleTools,
+      systemPrompt: "system",
+    });
     expect(lastStreamParams).toBeTruthy();
 
     const sent = lastStreamParams!.messages as Anthropic.MessageParam[];
@@ -2514,7 +2523,10 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
       userMsg("And what is 3+3?"),
     ];
 
-    await provider.sendMessage(messages, sampleTools, "system");
+    await provider.sendMessage(messages, {
+      tools: sampleTools,
+      systemPrompt: "system",
+    });
     expect(lastStreamParams).toBeTruthy();
 
     const sent = lastStreamParams!.messages as Anthropic.MessageParam[];
@@ -2540,7 +2552,10 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
       toolResultMsg("tu-1", "file contents here"),
     ];
 
-    await provider.sendMessage(messages, sampleTools, "system");
+    await provider.sendMessage(messages, {
+      tools: sampleTools,
+      systemPrompt: "system",
+    });
     expect(lastStreamParams).toBeTruthy();
 
     const sent = lastStreamParams!.messages as Anthropic.MessageParam[];
@@ -2573,7 +2588,10 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
       toolResultMsg("tu-2", "file contents"),
     ];
 
-    await provider.sendMessage(messages, sampleTools, "system");
+    await provider.sendMessage(messages, {
+      tools: sampleTools,
+      systemPrompt: "system",
+    });
     expect(lastStreamParams).toBeTruthy();
 
     const sent = lastStreamParams!.messages as Anthropic.MessageParam[];
@@ -2610,7 +2628,10 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
       userMsg("What did you conclude?"),
     ];
 
-    await provider.sendMessage(messages, sampleTools, "system");
+    await provider.sendMessage(messages, {
+      tools: sampleTools,
+      systemPrompt: "system",
+    });
     expect(lastStreamParams).toBeTruthy();
 
     const sent = lastStreamParams!.messages as Anthropic.MessageParam[];
@@ -2648,7 +2669,10 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
       toolResultMsg("tu-b", "result b"),
     ];
 
-    await provider.sendMessage(messages, sampleTools, "system");
+    await provider.sendMessage(messages, {
+      tools: sampleTools,
+      systemPrompt: "system",
+    });
     expect(lastStreamParams).toBeTruthy();
 
     const sent = lastStreamParams!.messages as Anthropic.MessageParam[];
