@@ -94,6 +94,7 @@ export class RadioAudioController {
   private pausedByUser = false;
   private operationGeneration = 0;
   private readonly pendingRampFrames = new Set<number>();
+  private readonly pendingEndedWaiters = new Set<() => void>();
 
   constructor(options: RadioAudioControllerOptions = {}) {
     this.createAudio = options.createAudio ?? defaultCreateFetchedAudio;
@@ -177,19 +178,23 @@ export class RadioAudioController {
     this.djAudio = djAudio;
     djAudio.volume = 1;
     nextAudio.volume = 0;
+    const djEndedWaiter = this.createAudioEndedWaiter(
+      djAudio,
+      operationToken,
+    );
 
     if (outgoingAudio) {
-      this.rampVolume(outgoingAudio, this.duckVolume, this.rampDurationMs, () => {
-        this.disposeAudio(outgoingAudio);
-      });
+      this.rampVolume(outgoingAudio, this.duckVolume, this.rampDurationMs);
     }
 
     const djPlayResult = await this.playAudio(djAudio, operationToken);
     if (djPlayResult === "inactive") {
+      djEndedWaiter.cancel();
       this.disposeAudio(nextAudio);
       return;
     }
     if (djPlayResult === "paused") {
+      djEndedWaiter.cancel();
       this.attachNextTrackPaused(nextAudio, params.nextTrack);
       return;
     }
@@ -201,11 +206,30 @@ export class RadioAudioController {
     this.attachCurrentAudioListeners(nextAudio);
     const nextPlayResult = await this.playAudio(nextAudio, operationToken);
     if (nextPlayResult === "inactive") {
+      djEndedWaiter.cancel();
       return;
     }
     if (nextPlayResult === "paused") {
+      djEndedWaiter.cancel();
       nextAudio.volume = 1;
       return;
+    }
+    this.rampVolume(nextAudio, this.duckVolume, this.rampDurationMs);
+
+    const djEndedResult = await djEndedWaiter.promise;
+    if (djEndedResult === "inactive") return;
+
+    this.disposeAudio(djAudio);
+    if (this.djAudio === djAudio) {
+      this.djAudio = null;
+    }
+    if (outgoingAudio && this.outgoingAudio === outgoingAudio) {
+      this.rampVolume(outgoingAudio, 0, this.rampDurationMs, () => {
+        this.disposeAudio(outgoingAudio);
+        if (this.outgoingAudio === outgoingAudio) {
+          this.outgoingAudio = null;
+        }
+      });
     }
     this.rampVolume(nextAudio, 1, this.rampDurationMs);
   }
@@ -215,6 +239,7 @@ export class RadioAudioController {
     this.pausedByUser = false;
     this.operationGeneration += 1;
     this.cancelPendingRamps();
+    this.resolvePendingEndedWaiters();
     this.detachCurrentAudioListeners();
     this.disposeAudio(this.currentAudio);
     this.disposeAudio(this.djAudio);
@@ -226,6 +251,7 @@ export class RadioAudioController {
   }
 
   private beginOperation(): number {
+    this.resolvePendingEndedWaiters();
     this.disposed = false;
     this.pausedByUser = false;
     this.operationGeneration += 1;
@@ -396,6 +422,48 @@ export class RadioAudioController {
       this.cancelFrame(frameId);
     }
     this.pendingRampFrames.clear();
+  }
+
+  private createAudioEndedWaiter(
+    audio: RadioAudioLike,
+    operationToken: number,
+  ): {
+    promise: Promise<"ended" | "inactive">;
+    cancel: () => void;
+  } {
+    if (!audio.addEventListener) {
+      return {
+        promise: Promise.resolve("ended"),
+        cancel: () => {},
+      };
+    }
+
+    let cancel: () => void = () => {};
+    const promise = new Promise<"ended" | "inactive">((resolve) => {
+      let settled = false;
+      const finish = (result: "ended" | "inactive"): void => {
+        if (settled) return;
+        settled = true;
+        audio.removeEventListener?.("ended", handleEnded);
+        this.pendingEndedWaiters.delete(cancel);
+        resolve(result);
+      };
+      const handleEnded = (): void => {
+        finish(this.isActiveOperation(operationToken) ? "ended" : "inactive");
+      };
+      cancel = () => finish("inactive");
+      this.pendingEndedWaiters.add(cancel);
+      audio.addEventListener?.("ended", handleEnded);
+    });
+
+    return { promise, cancel };
+  }
+
+  private resolvePendingEndedWaiters(): void {
+    for (const cancel of Array.from(this.pendingEndedWaiters)) {
+      cancel();
+    }
+    this.pendingEndedWaiters.clear();
   }
 }
 

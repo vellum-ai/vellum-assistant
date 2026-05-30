@@ -85,6 +85,12 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+async function flushMicrotasks(count = 5): Promise<void> {
+  for (let index = 0; index < count; index += 1) {
+    await Promise.resolve();
+  }
+}
+
 const track: ResolvedRadioTrack = {
   id: "soft-launch",
   title: "Soft Launch",
@@ -186,7 +192,7 @@ describe("RadioAudioController", () => {
     });
 
     const playPromise = controller.playInitial(track);
-    await Promise.resolve();
+    await flushMicrotasks();
 
     const audio = new FakeAudio(track.audioUrl);
     expect(audio.playCalls).toBe(0);
@@ -214,18 +220,19 @@ describe("RadioAudioController", () => {
     expect(endedCalls).toBe(1);
   });
 
-  it("ducks outgoing music, plays the DJ break, fades in the next track, and stops the old track", async () => {
+  it("keeps music ducked until the DJ break finishes", async () => {
     const controller = createController();
 
     await controller.playInitial(track);
     const [outgoing] = createdAudio;
 
-    await controller.applyTransition({
+    const transitionPromise = controller.applyTransition({
       outgoingTrack: track,
       djBreak,
       nextTrack,
       playbackPlan,
     });
+    await flushMicrotasks();
 
     const [, djAudio, incoming] = createdAudio;
     expect(djAudio.src).toBe(djBreak.audioUrl);
@@ -233,11 +240,28 @@ describe("RadioAudioController", () => {
     expect(incoming.src).toBe(nextTrack.audioUrl);
     expect(incoming.volume).toBe(0);
     expect(incoming.playCalls).toBe(1);
+    await flushMicrotasks();
 
     scheduler.run(0);
     scheduler.run(1_000);
+    scheduler.run(2_000);
 
     expect(outgoing.volume).toBeCloseTo(0.18, 2);
+    expect(incoming.volume).toBeCloseTo(0.18, 2);
+    expect(outgoing.pauseCalls).toBe(0);
+
+    let resolved = false;
+    void transitionPromise.then(() => {
+      resolved = true;
+    });
+    await flushMicrotasks(10);
+    expect(resolved).toBe(false);
+
+    djAudio.dispatch("ended");
+    await transitionPromise;
+    scheduler.run(3_000);
+    scheduler.run(4_000);
+
     expect(incoming.volume).toBeCloseTo(1, 2);
     expect(outgoing.pauseCalls).toBe(1);
   });
@@ -247,12 +271,13 @@ describe("RadioAudioController", () => {
 
     await controller.playInitial(track);
     const [outgoing] = createdAudio;
-    await controller.applyTransition({
+    const transitionPromise = controller.applyTransition({
       outgoingTrack: track,
       djBreak,
       nextTrack,
       playbackPlan,
     });
+    await flushMicrotasks(10);
 
     const [, djAudio, incoming] = createdAudio;
     controller.pause();
@@ -260,6 +285,9 @@ describe("RadioAudioController", () => {
     expect(outgoing.pauseCalls).toBe(1);
     expect(djAudio.pauseCalls).toBeGreaterThanOrEqual(1);
     expect(incoming.pauseCalls).toBe(1);
+
+    controller.dispose();
+    await transitionPromise;
   });
 
   it("does not resurrect playback when disposed while DJ audio play is pending", async () => {
@@ -284,9 +312,7 @@ describe("RadioAudioController", () => {
       nextTrack,
       playbackPlan,
     });
-    for (let i = 0; i < 5; i += 1) {
-      await Promise.resolve();
-    }
+    await flushMicrotasks();
 
     const [, djAudio, incoming] = createdAudio;
     expect(djAudio.playCalls).toBe(1);
@@ -325,7 +351,7 @@ describe("RadioAudioController", () => {
       nextTrack,
       playbackPlan,
     });
-    await Promise.resolve();
+    await flushMicrotasks();
 
     const [, djAudio, incoming] = createdAudio;
     controller.pause();
@@ -428,7 +454,7 @@ describe("RadioAudioController", () => {
       nextTrack,
       playbackPlan,
     });
-    await Promise.resolve();
+    await flushMicrotasks(10);
 
     const [, djAudio, incoming] = createdAudio;
     controller.pause();
@@ -449,12 +475,13 @@ describe("RadioAudioController", () => {
     await controller.playInitial(track);
     const [outgoing] = createdAudio;
 
-    await controller.applyTransition({
+    const transitionPromise = controller.applyTransition({
       outgoingTrack: track,
       djBreak,
       nextTrack,
       playbackPlan,
     });
+    await flushMicrotasks(10);
 
     const [, djAudio, incoming] = createdAudio;
     controller.dispose();
@@ -471,5 +498,6 @@ describe("RadioAudioController", () => {
     expect(outgoing.volume).toBe(outgoingVolume);
     expect(incoming.volume).toBe(incomingVolume);
     expect(progress).toEqual([]);
+    await transitionPromise;
   });
 });
