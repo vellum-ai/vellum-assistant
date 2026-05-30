@@ -1,24 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, renderHook, act } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 
 import {
-  __resetEventBusForTesting,
-  useEventBusStore,
-} from "@/stores/event-bus-store";
-
-// Capture the navigate callback so we can assert on navigation
-// targets without standing up a real router.
-const navigateMock = mock((_to: string) => undefined);
-mock.module("react-router", () => ({
-  useNavigate: () => navigateMock,
-}));
-
-// `ensureMainWindowVisible` is the bridge wrapper; replace with a spy
-// so we can assert each handler fires it.
-const ensureMainWindowVisibleMock = mock(async () => undefined);
-mock.module("@/runtime/main-window", () => ({
-  ensureMainWindowVisible: ensureMainWindowVisibleMock,
-}));
+  __resetPendingDeepLinkForTesting,
+  usePendingDeepLinkStore,
+} from "@/stores/pending-deep-link-store";
 
 const sentryBreadcrumbMock = mock((_args: unknown) => undefined);
 mock.module("@sentry/browser", () => ({
@@ -38,152 +24,79 @@ const renderConsumer = (
   );
 
 beforeEach(() => {
-  __resetEventBusForTesting();
-  navigateMock.mockClear();
-  ensureMainWindowVisibleMock.mockClear();
+  __resetPendingDeepLinkForTesting();
   sentryBreadcrumbMock.mockClear();
 });
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetPendingDeepLinkForTesting();
 });
 
-describe("deeplink.send", () => {
-  test("pre-fills the composer when input is empty", () => {
+describe("pending message consumption", () => {
+  test("pre-fills the composer when a pending message exists and input is empty", () => {
     const setComposerInput = mock((_next: string) => undefined);
+    // Stash a message before render — the consumer sees it on mount.
+    usePendingDeepLinkStore.getState().setPendingComposerMessage("hello");
+
     renderConsumer("", setComposerInput);
 
-    act(() => {
-      useEventBusStore.getState().publish("deeplink.send", { message: "hi" });
-    });
-
-    expect(setComposerInput).toHaveBeenCalledWith("hi");
-    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+    expect(setComposerInput).toHaveBeenCalledWith("hello");
+    // Consumed → store is cleared.
+    expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
+      null,
+    );
   });
 
-  test("preserves in-progress typing — drops the link with a Sentry breadcrumb", () => {
+  test("preserves in-progress typing — drops with a Sentry breadcrumb", () => {
     const setComposerInput = mock((_next: string) => undefined);
-    renderConsumer("user already typing", setComposerInput);
+    usePendingDeepLinkStore
+      .getState()
+      .setPendingComposerMessage("from link");
 
-    act(() => {
-      useEventBusStore
-        .getState()
-        .publish("deeplink.send", { message: "from link" });
-    });
+    renderConsumer("user already typing", setComposerInput);
 
     expect(setComposerInput).not.toHaveBeenCalled();
     expect(sentryBreadcrumbMock).toHaveBeenCalled();
-    // ensureMainWindowVisible still fires — the window should come
-    // forward so the user sees Vellum even when we declined to overwrite.
-    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+    // Message is consumed (cleared) either way — we don't want it to
+    // sit and resurface on the next render.
+    expect(usePendingDeepLinkStore.getState().pendingComposerMessage).toBe(
+      null,
+    );
   });
 
   test("whitespace-only composer input counts as empty", () => {
     const setComposerInput = mock((_next: string) => undefined);
+    usePendingDeepLinkStore.getState().setPendingComposerMessage("hello");
+
     renderConsumer("   \n  ", setComposerInput);
 
-    act(() => {
-      useEventBusStore.getState().publish("deeplink.send", { message: "hi" });
-    });
-
-    expect(setComposerInput).toHaveBeenCalledWith("hi");
+    expect(setComposerInput).toHaveBeenCalledWith("hello");
   });
-});
 
-describe("deeplink.openThread", () => {
-  test("navigates to the conversation route and ensures the window is visible", () => {
-    renderConsumer("", () => undefined);
-
-    act(() => {
-      useEventBusStore
-        .getState()
-        .publish("deeplink.openThread", { threadId: "abc-123" });
-    });
-
-    expect(navigateMock).toHaveBeenCalledWith(
-      "/assistant/conversations/abc-123",
-    );
-    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("deeplink.unknown", () => {
-  test("records a Sentry breadcrumb with the URL and takes no other action", () => {
+  test("no-op when no message is pending", () => {
     const setComposerInput = mock((_next: string) => undefined);
+
     renderConsumer("", setComposerInput);
 
-    act(() => {
-      useEventBusStore
-        .getState()
-        .publish("deeplink.unknown", { url: "javascript:alert(1)" });
-    });
-
-    expect(sentryBreadcrumbMock).toHaveBeenCalled();
-    const args = sentryBreadcrumbMock.mock.calls[0]?.[0] as {
-      data?: { url?: string };
-    };
-    expect(args.data?.url).toBe("javascript:alert(1)");
-    // No navigation, no composer set, no main-window activation —
-    // unknown links don't do anything user-visible.
-    expect(navigateMock).not.toHaveBeenCalled();
     expect(setComposerInput).not.toHaveBeenCalled();
-    expect(ensureMainWindowVisibleMock).not.toHaveBeenCalled();
-  });
-});
-
-describe("subscription lifecycle", () => {
-  test("re-renders with new composerInput don't tear down + resubscribe the bus listeners", () => {
-    // If the effect's dep array included composerInput, every
-    // keystroke would unsubscribe + resubscribe. Verify it
-    // doesn't by counting subscriber registrations across a
-    // re-render — should stay 3 (one per event).
-    const setComposerInput = mock((_next: string) => undefined);
-    const { rerender } = renderConsumer("", setComposerInput);
-
-    // After mount we expect 3 subscriptions registered on the bus.
-    // Publish each event and assert handlers fired exactly once.
-    act(() => {
-      useEventBusStore.getState().publish("deeplink.send", { message: "x" });
-    });
-    expect(setComposerInput).toHaveBeenCalledTimes(1);
-
-    // Trigger a re-render with new input. If the effect re-runs,
-    // the next publish would see the dep-array reset + handlers
-    // mounting + unmounting — and the assert below could either
-    // dupe or drop the event in a race. The stable subscription
-    // makes it deterministic.
-    rerender({ input: "typing", set: setComposerInput });
-
-    act(() => {
-      useEventBusStore
-        .getState()
-        .publish("deeplink.openThread", { threadId: "z" });
-    });
-    expect(navigateMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("unsubscribes on unmount", () => {
-    const setComposerInput = mock((_next: string) => undefined);
-    const { unmount } = renderConsumer("", setComposerInput);
-
-    unmount();
-
-    // After unmount, publishing shouldn't reach the handlers.
-    act(() => {
-      useEventBusStore
-        .getState()
-        .publish("deeplink.send", { message: "post-unmount" });
-      useEventBusStore
-        .getState()
-        .publish("deeplink.openThread", { threadId: "z" });
-      useEventBusStore
-        .getState()
-        .publish("deeplink.unknown", { url: "x" });
-    });
-
-    expect(setComposerInput).not.toHaveBeenCalled();
-    expect(navigateMock).not.toHaveBeenCalled();
     expect(sentryBreadcrumbMock).not.toHaveBeenCalled();
+  });
+
+  test("a pending message arriving after mount fires the effect on the next render", () => {
+    const setComposerInput = mock((_next: string) => undefined);
+    renderConsumer("", setComposerInput);
+    expect(setComposerInput).not.toHaveBeenCalled();
+
+    // Simulate the global consumer parking a message after the
+    // chat page is already mounted. The Zustand atomic selector
+    // re-renders the hook and the effect fires.
+    act(() => {
+      usePendingDeepLinkStore
+        .getState()
+        .setPendingComposerMessage("late arrival");
+    });
+
+    expect(setComposerInput).toHaveBeenCalledWith("late arrival");
   });
 });

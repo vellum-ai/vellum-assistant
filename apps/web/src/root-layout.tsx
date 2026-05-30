@@ -2,6 +2,7 @@ import { Outlet, useNavigate } from "react-router";
 
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
+import { useGlobalDeepLinkConsumer } from "@/hooks/use-global-deep-link-consumer";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
@@ -81,6 +82,13 @@ export function RootLayout() {
   useDocumentEditorSync();
 
   useEventBusInit({ assistantId, isAssistantActive });
+  // Inbound deep-link navigation + window activation. Mounted here
+  // (not in `ChatPage`) so a `vellum://thread/...` arriving while
+  // the user is on `/assistant/settings`, `/logs`, etc. still
+  // navigates. The composer-pre-fill half lives in `ChatPage`'s
+  // `useDeepLinkConsumer` because it owns `setInput`; the two
+  // hand off via `pending-deep-link-store`.
+  useGlobalDeepLinkConsumer();
 
   const keyboardOpen =
     isMobile &&
