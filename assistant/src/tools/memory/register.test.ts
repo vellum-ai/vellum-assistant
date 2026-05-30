@@ -148,7 +148,7 @@ describe("recallTool.execute", () => {
   });
 
   test("allows guardian recall to invoke the agentic runner", async () => {
-    const result = await recallTool.execute(
+    const result = await recallTool.execute!(
       { query: "guardian recall" },
       makeContext({ trustClass: "guardian" }),
     );
@@ -164,7 +164,7 @@ describe("recallTool.execute", () => {
   test.each(["trusted_contact", "unknown"] as const)(
     "blocks %s recall before invoking the agentic runner",
     async (trustClass) => {
-      const result = await recallTool.execute(
+      const result = await recallTool.execute!(
         { query: "sensitive local search", sources: ["workspace"] },
         makeContext({ trustClass }),
       );
@@ -176,7 +176,7 @@ describe("recallTool.execute", () => {
   );
 
   test("passes source filtering input through to agentic recall", async () => {
-    const result = await recallTool.execute(
+    const result = await recallTool.execute!(
       {
         query: "release notes",
         sources: ["memory", "workspace"],
@@ -202,7 +202,7 @@ describe("recallTool.execute", () => {
   test("returns deterministic fallback content directly", async () => {
     recallContent = "Found evidence:\n\n- [workspace] fallback note";
 
-    const result = await recallTool.execute(
+    const result = await recallTool.execute!(
       { query: "fallback search", sources: ["workspace"], depth: "fast" },
       makeContext(),
     );
@@ -216,7 +216,7 @@ describe("recallTool.execute", () => {
   test("propagates tool context", async () => {
     const controller = new AbortController();
 
-    await recallTool.execute(
+    await recallTool.execute!(
       { query: "context propagation" },
       makeContext({
         workingDir: "/workspace/project",
@@ -237,7 +237,7 @@ describe("recallTool.execute", () => {
 
 describe("rememberTool.execute — finish_turn", () => {
   test("omits yieldToUser when finish_turn is not provided", async () => {
-    const result = await rememberTool.execute(
+    const result = await rememberTool.execute!(
       { content: "no finish_turn provided" },
       makeContext(),
     );
@@ -246,7 +246,7 @@ describe("rememberTool.execute — finish_turn", () => {
   });
 
   test("omits yieldToUser when finish_turn is false", async () => {
-    const result = await rememberTool.execute(
+    const result = await rememberTool.execute!(
       { content: "finish_turn=false", finish_turn: false },
       makeContext(),
     );
@@ -255,7 +255,7 @@ describe("rememberTool.execute — finish_turn", () => {
   });
 
   test("sets yieldToUser=true when finish_turn is true", async () => {
-    const result = await rememberTool.execute(
+    const result = await rememberTool.execute!(
       { content: "finish_turn=true", finish_turn: true },
       makeContext(),
     );
@@ -264,7 +264,7 @@ describe("rememberTool.execute — finish_turn", () => {
   });
 
   test("sets yieldToUser=true even when the write fails (empty content)", async () => {
-    const result = await rememberTool.execute(
+    const result = await rememberTool.execute!(
       { content: "", finish_turn: true },
       makeContext(),
     );
@@ -280,7 +280,7 @@ describe("rememberTool.execute — PKB re-index enqueue", () => {
   });
 
   test("enqueues re-index jobs for both buffer and daily archive paths", async () => {
-    const result = await rememberTool.execute(
+    const result = await rememberTool.execute!(
       { content: "index me please" },
       makeContext(),
     );
@@ -311,7 +311,7 @@ describe("rememberTool.execute — PKB re-index enqueue", () => {
   });
 
   test("does not enqueue when content is empty (write was skipped)", async () => {
-    const result = await rememberTool.execute(
+    const result = await rememberTool.execute!(
       { content: "   " },
       makeContext(),
     );
@@ -322,7 +322,7 @@ describe("rememberTool.execute — PKB re-index enqueue", () => {
   test("thrown enqueue does not surface; remember still writes files", async () => {
     enqueueShouldThrow = true;
 
-    const result = await rememberTool.execute(
+    const result = await rememberTool.execute!(
       { content: "enqueue will throw" },
       makeContext(),
     );

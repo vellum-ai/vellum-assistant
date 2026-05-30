@@ -152,7 +152,7 @@ describe("E2E: secure store and list lifecycle", () => {
   });
 
   test("store persists credential and returns metadata-only confirmation", async () => {
-    const result = await credentialStoreTool.execute(
+    const result = await credentialStoreTool.execute!(
       {
         action: "store",
         service: "github",
@@ -183,7 +183,7 @@ describe("E2E: secure store and list lifecycle", () => {
       field: "access_key",
     });
 
-    const result = await credentialStoreTool.execute(
+    const result = await credentialStoreTool.execute!(
       { action: "list" },
       makeContext(),
     );
@@ -198,7 +198,7 @@ describe("E2E: secure store and list lifecycle", () => {
   test("delete removes credential from credential store", async () => {
     storedKeys.set("credential/github/token", "secret1");
 
-    const result = await credentialStoreTool.execute(
+    const result = await credentialStoreTool.execute!(
       { action: "delete", service: "github", field: "token" },
       makeContext(),
     );
@@ -225,7 +225,7 @@ describe("E2E: one-time send override", () => {
         delivery: "transient_send" as const,
       }),
     });
-    const result = await credentialStoreTool.execute(
+    const result = await credentialStoreTool.execute!(
       { action: "prompt", service: "svc", field: "key", label: "Key" },
       ctx,
     );
@@ -242,7 +242,7 @@ describe("E2E: one-time send override", () => {
         delivery: "transient_send" as const,
       }),
     });
-    const result = await credentialStoreTool.execute(
+    const result = await credentialStoreTool.execute!(
       { action: "prompt", service: "svc", field: "key", label: "Key" },
       ctx,
     );
@@ -262,7 +262,7 @@ describe("E2E: one-time send override", () => {
         delivery: "store" as const,
       }),
     });
-    const result = await credentialStoreTool.execute(
+    const result = await credentialStoreTool.execute!(
       { action: "prompt", service: "svc", field: "key", label: "Key" },
       ctx,
     );
@@ -337,7 +337,7 @@ describe("E2E: cross-cutting secret leak prevention", () => {
 
   test("store output never contains the stored value", async () => {
     const secret = ["sk", "-proj-", "abc123xyz"].join("");
-    const result = await credentialStoreTool.execute(
+    const result = await credentialStoreTool.execute!(
       { action: "store", service: "openai", field: "api_key", value: secret },
       makeContext(),
     );
@@ -353,7 +353,7 @@ describe("E2E: cross-cutting secret leak prevention", () => {
         delivery: "transient_send" as const,
       }),
     });
-    const result = await credentialStoreTool.execute(
+    const result = await credentialStoreTool.execute!(
       { action: "prompt", service: "svc", field: "key", label: "Key" },
       ctx,
     );

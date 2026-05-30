@@ -229,7 +229,7 @@ async function executeVault(
     }
 
     case "list":
-      return credentialStoreTool.execute({ action: "list" }, _ctx);
+      return credentialStoreTool.execute!({ action: "list" }, _ctx);
 
     case "delete": {
       const service = input.service as string | undefined;
@@ -356,7 +356,7 @@ describe("credential_store tool", () => {
     });
 
     test("store success includes credential_id via credentialStoreTool", async () => {
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         {
           action: "store",
           service: "test-cred-id",
@@ -380,7 +380,7 @@ describe("credential_store tool", () => {
   // -----------------------------------------------------------------------
   describe("list action", () => {
     test("lists stored credentials with credential_id, service, field", async () => {
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "gmail",
@@ -389,7 +389,7 @@ describe("credential_store tool", () => {
         },
         _ctx,
       );
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "github",
@@ -399,7 +399,7 @@ describe("credential_store tool", () => {
         _ctx,
       );
 
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         { action: "list" },
         _ctx,
       );
@@ -427,7 +427,7 @@ describe("credential_store tool", () => {
     });
 
     test("list output includes alias when set", async () => {
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "fal",
@@ -438,7 +438,7 @@ describe("credential_store tool", () => {
         _ctx,
       );
 
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         { action: "list" },
         _ctx,
       );
@@ -451,7 +451,7 @@ describe("credential_store tool", () => {
     });
 
     test("list output includes template summary with host patterns", async () => {
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "fal",
@@ -474,7 +474,7 @@ describe("credential_store tool", () => {
         _ctx,
       );
 
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         { action: "list" },
         _ctx,
       );
@@ -493,7 +493,7 @@ describe("credential_store tool", () => {
 
     test("list does not include credential values", async () => {
       const testValue = "test-dummy-value-for-list";
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "test",
@@ -503,7 +503,7 @@ describe("credential_store tool", () => {
         _ctx,
       );
 
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         { action: "list" },
         _ctx,
       );
@@ -519,7 +519,7 @@ describe("credential_store tool", () => {
     });
 
     test("returns empty array when no credentials exist", async () => {
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         { action: "list" },
         _ctx,
       );
@@ -528,7 +528,7 @@ describe("credential_store tool", () => {
     });
 
     test("lists multiple credentials", async () => {
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "gmail",
@@ -537,7 +537,7 @@ describe("credential_store tool", () => {
         },
         _ctx,
       );
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "github",
@@ -547,7 +547,7 @@ describe("credential_store tool", () => {
         },
         _ctx,
       );
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "fal",
@@ -565,7 +565,7 @@ describe("credential_store tool", () => {
         _ctx,
       );
 
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         { action: "list" },
         _ctx,
       );
@@ -591,7 +591,7 @@ describe("credential_store tool", () => {
 
     test("works with metadata store fallback when listing secrets", async () => {
       // Store a credential first (on encrypted backend)
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "keychain-test",
@@ -601,7 +601,7 @@ describe("credential_store tool", () => {
         _ctx,
       );
 
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         { action: "list" },
         _ctx,
       );
@@ -622,7 +622,7 @@ describe("credential_store tool", () => {
         "utf-8",
       );
 
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         { action: "list" },
         _ctx,
       );
@@ -632,7 +632,7 @@ describe("credential_store tool", () => {
 
     test("excludes metadata entries whose secret was deleted from secure storage", async () => {
       // Store two credentials so both metadata and secrets exist
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "svc-a",
@@ -641,7 +641,7 @@ describe("credential_store tool", () => {
         },
         _ctx,
       );
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "svc-b",
@@ -655,7 +655,7 @@ describe("credential_store tool", () => {
       // a divergence where metadata write failed after secret deletion)
       await deleteSecureKeyAsync(credentialKey("svc-a", "key"));
 
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         { action: "list" },
         _ctx,
       );
@@ -668,7 +668,7 @@ describe("credential_store tool", () => {
 
     test("recovers from corrupt secure storage by resetting and returning empty list", async () => {
       // Store a credential so metadata exists
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "svc-x",
@@ -682,7 +682,7 @@ describe("credential_store tool", () => {
       // backing up the corrupt file and creating a fresh store
       writeFileSync(STORE_PATH, "not-valid-json!!!", "utf-8");
 
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         { action: "list" },
         _ctx,
       );
@@ -742,7 +742,7 @@ describe("credential_store tool", () => {
 
     test("delete also disconnects OAuth connection for the service", async () => {
       // Store a credential via the real tool so metadata exists
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "google",
@@ -760,7 +760,7 @@ describe("credential_store tool", () => {
         expiresAt: Date.now() + 3600_000,
       });
 
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         {
           action: "delete",
           service: "google",
@@ -805,7 +805,7 @@ describe("credential_store tool", () => {
     });
 
     test("store with policy fields persists metadata", async () => {
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         {
           action: "store",
           service: "github",
@@ -826,7 +826,7 @@ describe("credential_store tool", () => {
     });
 
     test("store without policy fields defaults to empty arrays", async () => {
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         {
           action: "store",
           service: "slack",
@@ -843,7 +843,7 @@ describe("credential_store tool", () => {
     });
 
     test("store rejects invalid policy input", async () => {
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         {
           action: "store",
           service: "test",
@@ -858,7 +858,7 @@ describe("credential_store tool", () => {
     });
 
     test("list action entries do not expose policy metadata", async () => {
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "myservice",
@@ -871,7 +871,7 @@ describe("credential_store tool", () => {
         _ctx,
       );
 
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         { action: "list" },
         _ctx,
       );
@@ -896,7 +896,7 @@ describe("credential_store tool", () => {
   // -----------------------------------------------------------------------
   describe("alias and injection template fields", () => {
     test("store with valid alias and templates persists metadata", async () => {
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         {
           action: "store",
           service: "fal",
@@ -926,7 +926,7 @@ describe("credential_store tool", () => {
     });
 
     test("store with alias only (no templates)", async () => {
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         {
           action: "store",
           service: "openai",
@@ -944,7 +944,7 @@ describe("credential_store tool", () => {
     });
 
     test("store with templates only (no alias)", async () => {
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         {
           action: "store",
           service: "replicate",
@@ -970,7 +970,7 @@ describe("credential_store tool", () => {
     });
 
     test("rejects template missing headerName for header type", async () => {
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         {
           action: "store",
           service: "fal",
@@ -991,7 +991,7 @@ describe("credential_store tool", () => {
     });
 
     test("rejects template missing queryParamName for query type", async () => {
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         {
           action: "store",
           service: "mapbox",
@@ -1012,7 +1012,7 @@ describe("credential_store tool", () => {
     });
 
     test("round-trip: store then list shows the credential", async () => {
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "anthropic",
@@ -1030,7 +1030,7 @@ describe("credential_store tool", () => {
         _ctx,
       );
 
-      const listResult = await credentialStoreTool.execute(
+      const listResult = await credentialStoreTool.execute!(
         { action: "list" },
         _ctx,
       );
@@ -1050,7 +1050,7 @@ describe("credential_store tool", () => {
     });
 
     test("update alias on existing credential", async () => {
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "fal",
@@ -1065,7 +1065,7 @@ describe("credential_store tool", () => {
       expect(metadata!.alias).toBe("fal-old");
 
       // Re-store same credential with updated alias
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "fal",
@@ -1081,7 +1081,7 @@ describe("credential_store tool", () => {
     });
 
     test("store with query injection template", async () => {
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         {
           action: "store",
           service: "mapbox",
@@ -1112,7 +1112,7 @@ describe("credential_store tool", () => {
   // -----------------------------------------------------------------------
   describe("multi-key same-service storage", () => {
     test("stores two credentials with same service but different aliases", async () => {
-      const result1 = await credentialStoreTool.execute(
+      const result1 = await credentialStoreTool.execute!(
         {
           action: "store",
           service: "openai",
@@ -1124,7 +1124,7 @@ describe("credential_store tool", () => {
       );
       expect(result1.isError).toBe(false);
 
-      const result2 = await credentialStoreTool.execute(
+      const result2 = await credentialStoreTool.execute!(
         {
           action: "store",
           service: "openai",
@@ -1146,7 +1146,7 @@ describe("credential_store tool", () => {
     });
 
     test("listing shows both same-service credentials independently", async () => {
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "openai",
@@ -1156,7 +1156,7 @@ describe("credential_store tool", () => {
         },
         _ctx,
       );
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "openai",
@@ -1167,7 +1167,7 @@ describe("credential_store tool", () => {
         _ctx,
       );
 
-      const result = await credentialStoreTool.execute(
+      const result = await credentialStoreTool.execute!(
         { action: "list" },
         _ctx,
       );
@@ -1186,7 +1186,7 @@ describe("credential_store tool", () => {
     });
 
     test("each same-service credential has its own credential_id", async () => {
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "openai",
@@ -1196,7 +1196,7 @@ describe("credential_store tool", () => {
         },
         _ctx,
       );
-      await credentialStoreTool.execute(
+      await credentialStoreTool.execute!(
         {
           action: "store",
           service: "openai",

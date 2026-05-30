@@ -141,7 +141,7 @@ describe("FileListTool", () => {
     writeFileSync(join(dir, "README.md"), "# Hello");
     writeFileSync(join(dir, "index.ts"), "export {}");
 
-    const result = await fileListTool.execute(
+    const result = await fileListTool.execute!(
       { path: dir, activity: "listing test dir" },
       makeToolContext(dir),
     );
@@ -157,7 +157,7 @@ describe("FileListTool", () => {
 
   test("execute() returns error for invalid path input", async () => {
     const dir = makeTempDir();
-    const result = await fileListTool.execute(
+    const result = await fileListTool.execute!(
       { path: 123, activity: "test" },
       makeToolContext(dir),
     );
@@ -167,7 +167,7 @@ describe("FileListTool", () => {
 
   test("execute() returns error for nonexistent directory", async () => {
     const dir = makeTempDir();
-    const result = await fileListTool.execute(
+    const result = await fileListTool.execute!(
       { path: join(dir, "nope"), activity: "test" },
       makeToolContext(dir),
     );
