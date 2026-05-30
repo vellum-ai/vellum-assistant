@@ -89,6 +89,9 @@ beforeEach(() => {
   setSelfHostedConnectionMock.mockClear();
   // Re-baseline implementations every test so a `mockImplementationOnce`
   // or `mockImplementation` from a prior test doesn't leak.
+  // `mockClear` resets only the call history, not the implementation —
+  // any new mocked dep added here MUST re-set its baseline below or
+  // tests will silently inherit the previous test's stub.
   isGatewayAuthModeMock.mockImplementation(() => false);
   isLocalModeMock.mockImplementation(() => false);
   hatchAssistantMock.mockImplementation(async () => ({
@@ -317,17 +320,11 @@ describe("lifecycleService — stuck-initializing watchdog", () => {
 
       // Subsequent polls that re-confirm initializing must NOT
       // rearm the watchdog (would reset the clock and the recovery
-      // path would never run).
-      await lifecycleService.applyServerResult({
-        ok: true,
-        status: 200,
-        data: { id: "asst-init", status: "initializing" },
-      });
-      await lifecycleService.applyServerResult({
-        ok: true,
-        status: 200,
-        data: { id: "asst-init", status: "initializing" },
-      });
+      // path would never run). Driving through `checkAssistant`
+      // exercises the same `applyServerStateUpdate` path the
+      // background poll takes.
+      await lifecycleService.checkAssistant();
+      await lifecycleService.checkAssistant();
 
       const armCallsAfter = setTimeoutSpy.mock.calls.filter(
         (call) => typeof call[1] === "number" && call[1] > 1000,
