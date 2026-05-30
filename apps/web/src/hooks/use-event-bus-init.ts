@@ -162,9 +162,16 @@ export function useEventBusInit({
       }
     };
     const unsubDeepLinks = subscribeToDeepLinks(publishDeepLink);
-    void drainPendingDeepLinks().then((pending) => {
-      for (const link of pending) publishDeepLink(link);
-    });
+    void drainPendingDeepLinks()
+      .then((pending) => {
+        for (const link of pending) publishDeepLink(link);
+      })
+      .catch((err) => {
+        Sentry.captureException(err, {
+          level: "warning",
+          tags: { context: "deep_link_drain" },
+        });
+      });
 
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
