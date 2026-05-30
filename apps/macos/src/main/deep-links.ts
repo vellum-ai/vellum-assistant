@@ -1,5 +1,7 @@
 import { BrowserWindow, app, ipcMain } from "electron";
 
+import { ensureVisible as ensureMainWindowVisible } from "./main-window";
+
 /**
  * Inbound deep links — `vellum://` and `vellum-assistant://` URL
  * schemes. The OS routes any user click on a `vellum://send?message=hi`
@@ -131,14 +133,27 @@ const broadcast = (link: DeepLink): void => {
 };
 
 /**
- * Main entry — parse, buffer-if-no-subscribers, broadcast. Internal
- * to this module; exposed via the `open-url` / `second-instance`
+ * Main entry — parse, buffer-if-no-subscribers, broadcast, and
+ * bring the main window forward for actionable kinds. Internal to
+ * this module; exposed via the `open-url` / `second-instance`
  * event handlers and exported for tests.
+ *
+ * Window activation lives HERE (not only in the renderer-side
+ * consumer) because on macOS the app keeps running after the main
+ * window closes (`window-all-closed` doesn't quit on Darwin). In
+ * that state the renderer doesn't exist, so a renderer-only
+ * `ensureMainWindowVisible()` would never fire; the buffered link
+ * would sit forever. `unknown` kinds skip activation: an attacker
+ * who could induce the OS to route a `javascript:` URL to us
+ * shouldn't get a UI side effect.
  */
 export const handleDeepLink = (input: string): void => {
   const link = parseVellumUrl(input);
   if (subscriberCount === 0) pending.push(link);
   broadcast(link);
+  if (link.kind !== "unknown") {
+    void ensureMainWindowVisible();
+  }
 };
 
 let installed = false;

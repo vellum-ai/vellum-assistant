@@ -30,6 +30,15 @@ mock.module("electron", () => ({
   BrowserWindow: { getAllWindows: () => windows },
 }));
 
+// `./main-window` is called from `handleDeepLink` to bring the main
+// window forward for actionable kinds. Stub so we can assert on the
+// call without standing up the full lifecycle module (which
+// transitively imports electron-store).
+const ensureMainWindowVisibleMock = mock(async () => undefined);
+mock.module("./main-window", () => ({
+  ensureVisible: ensureMainWindowVisibleMock,
+}));
+
 const {
   __resetForTesting,
   extractDeepLinkFromArgv,
@@ -51,6 +60,7 @@ beforeEach(() => {
   setAsDefaultProtocolClientMock.mockClear();
   ipcHandleMock.mockClear();
   ipcOnMock.mockClear();
+  ensureMainWindowVisibleMock.mockClear();
   windows = [];
 });
 
@@ -340,5 +350,51 @@ describe("handleDeepLink — broadcast", () => {
       kind: "unknown",
       url: "javascript:alert(1)",
     });
+  });
+});
+
+describe("handleDeepLink — window activation", () => {
+  test("brings the main window forward for `send` (covers the no-renderer case on Darwin)", () => {
+    handleDeepLink("vellum://send?message=hi");
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("brings the main window forward for `openThread`", () => {
+    handleDeepLink("vellum://thread/abc");
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("does NOT activate the window for unknown kinds (no UI side effect for foreign schemes)", () => {
+    handleDeepLink("javascript:alert(1)");
+    handleDeepLink("file:///etc/passwd");
+    handleDeepLink("not a url");
+
+    expect(ensureMainWindowVisibleMock).not.toHaveBeenCalled();
+  });
+
+  test("buffers the link AND activates so the renderer-on-mount drain still delivers it", () => {
+    // Simulating the macOS path: app alive, main window closed,
+    // user clicks vellum://send → main handles it. The link must
+    // both (a) be parked in the buffer for the freshly-created
+    // renderer to drain, and (b) trigger window creation so the
+    // renderer actually mounts.
+    handleDeepLink("vellum://send?message=delivered");
+
+    // Activation fired.
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+    // Link buffered (no subscribers yet — the new window hasn't
+    // mounted).
+    const drainHandler = ipcHandleMock.mock.calls.find(
+      (c) => c[0] === "vellum:deepLinks:drain",
+    );
+    // installDeepLinks hasn't run in this test, so register the
+    // handler via a fresh install before draining.
+    if (!drainHandler) {
+      installDeepLinks();
+    }
+    const drain = ipcHandleMock.mock.calls.find(
+      (c) => c[0] === "vellum:deepLinks:drain",
+    )![1] as () => unknown[];
+    expect(drain()).toEqual([{ kind: "send", message: "delivered" }]);
   });
 });
