@@ -2352,6 +2352,230 @@ describe("parseAssistantEvent", () => {
       data,
     });
   });
+
+  // ---------------------------------------------------------------------
+  // subagent_spawned (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses subagent_spawned with all fields", () => {
+    const event = parseAssistantEvent({
+      type: "subagent_spawned",
+      subagentId: "sa-1",
+      parentConversationId: "conv-1",
+      label: "Research",
+      objective: "Find weather data",
+      isFork: false,
+      parentToolUseId: "tu-1",
+    });
+    expect(event).toEqual({
+      type: "subagent_spawned",
+      subagentId: "sa-1",
+      parentConversationId: "conv-1",
+      label: "Research",
+      objective: "Find weather data",
+      isFork: false,
+      parentToolUseId: "tu-1",
+    });
+  });
+
+  test("parses subagent_spawned with required fields only", () => {
+    const event = parseAssistantEvent({
+      type: "subagent_spawned",
+      subagentId: "sa-2",
+      parentConversationId: "conv-2",
+      label: "Research",
+      objective: "Find weather data",
+    });
+    expect(event).toEqual({
+      type: "subagent_spawned",
+      subagentId: "sa-2",
+      parentConversationId: "conv-2",
+      label: "Research",
+      objective: "Find weather data",
+    });
+  });
+
+  test("returns unknown subagent_spawned when parentConversationId is missing", () => {
+    const data = {
+      type: "subagent_spawned",
+      subagentId: "sa-3",
+      label: "Research",
+      objective: "Find weather data",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "subagent_spawned",
+      data,
+    });
+  });
+
+  test("returns unknown subagent_spawned when extra field is present", () => {
+    const data = {
+      type: "subagent_spawned",
+      subagentId: "sa-4",
+      parentConversationId: "conv-4",
+      label: "Research",
+      objective: "Find weather data",
+      surpriseField: "boom",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "subagent_spawned",
+      data,
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // subagent_status_changed (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses subagent_status_changed with all fields", () => {
+    const event = parseAssistantEvent({
+      type: "subagent_status_changed",
+      subagentId: "sa-1",
+      status: "completed",
+      error: undefined,
+      usage: { inputTokens: 100, outputTokens: 50, estimatedCost: 0.012 },
+    });
+    expect(event).toEqual({
+      type: "subagent_status_changed",
+      subagentId: "sa-1",
+      status: "completed",
+      usage: { inputTokens: 100, outputTokens: 50, estimatedCost: 0.012 },
+    });
+  });
+
+  test("parses subagent_status_changed with required fields only", () => {
+    const event = parseAssistantEvent({
+      type: "subagent_status_changed",
+      subagentId: "sa-2",
+      status: "running",
+    });
+    expect(event).toEqual({
+      type: "subagent_status_changed",
+      subagentId: "sa-2",
+      status: "running",
+    });
+  });
+
+  test("accepts subagent_status_changed with `aborted` terminal status", () => {
+    const event = parseAssistantEvent({
+      type: "subagent_status_changed",
+      subagentId: "sa-3",
+      status: "aborted",
+    });
+    expect(event).toEqual({
+      type: "subagent_status_changed",
+      subagentId: "sa-3",
+      status: "aborted",
+    });
+  });
+
+  test("returns unknown subagent_status_changed when status is invalid", () => {
+    const data = {
+      type: "subagent_status_changed",
+      subagentId: "sa-4",
+      status: "bogus",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "subagent_status_changed",
+      data,
+    });
+  });
+
+  test("returns unknown subagent_status_changed when extra field is present", () => {
+    const data = {
+      type: "subagent_status_changed",
+      subagentId: "sa-5",
+      status: "running",
+      surpriseField: "boom",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "subagent_status_changed",
+      data,
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // subagent_event (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses subagent_event wrapping an inner event", () => {
+    const event = parseAssistantEvent({
+      type: "subagent_event",
+      conversationId: "conv-1",
+      subagentId: "sa-1",
+      event: {
+        type: "assistant_text_delta",
+        text: "hello",
+      },
+    });
+    expect(event).toEqual({
+      type: "subagent_event",
+      conversationId: "conv-1",
+      subagentId: "sa-1",
+      event: {
+        type: "assistant_text_delta",
+        text: "hello",
+      },
+    });
+  });
+
+  test("parses subagent_event with an inner tool_use_start envelope", () => {
+    const event = parseAssistantEvent({
+      type: "subagent_event",
+      conversationId: "conv-2",
+      subagentId: "sa-2",
+      event: {
+        type: "tool_use_start",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        input: { command: "ls" },
+      },
+    });
+    expect(event).toEqual({
+      type: "subagent_event",
+      conversationId: "conv-2",
+      subagentId: "sa-2",
+      event: {
+        type: "tool_use_start",
+        toolName: "bash",
+        toolUseId: "tu-1",
+        input: { command: "ls" },
+      },
+    });
+  });
+
+  test("returns unknown subagent_event when conversationId is missing", () => {
+    const data = {
+      type: "subagent_event",
+      subagentId: "sa-3",
+      event: { type: "assistant_text_delta", text: "hi" },
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "subagent_event",
+      data,
+    });
+  });
+
+  test("returns unknown subagent_event when extra field is present", () => {
+    const data = {
+      type: "subagent_event",
+      conversationId: "conv-4",
+      subagentId: "sa-4",
+      event: { type: "assistant_text_delta", text: "hi" },
+      surpriseField: "boom",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "subagent_event",
+      data,
+      conversationId: "conv-4",
+    });
+  });
 });
 
 describe("envelope format parsing", () => {

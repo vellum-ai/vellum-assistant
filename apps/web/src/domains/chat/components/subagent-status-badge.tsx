@@ -1,4 +1,4 @@
-import type { SubagentStatus } from "@/types/interaction-ui-types";
+import type { SubagentStatus } from "@vellumai/assistant-api";
 import {
   statusColor,
   statusLabel,

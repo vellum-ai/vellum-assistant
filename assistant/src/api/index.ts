@@ -27,6 +27,9 @@ import { OpenUrlEventSchema } from "./events/open-url.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
 import { SecretRequestEventSchema } from "./events/secret-request.js";
+import { SubagentEventEventSchema } from "./events/subagent-event.js";
+import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
+import { SubagentStatusChangedEventSchema } from "./events/subagent-status-changed.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
@@ -167,6 +170,24 @@ export {
   SecretRequestEventSchema,
 } from "./events/secret-request.js";
 export {
+  type SubagentEventEvent,
+  SubagentEventEventSchema,
+  type SubagentInnerEvent,
+  SubagentInnerEventSchema,
+} from "./events/subagent-event.js";
+export {
+  type SubagentSpawnedEvent,
+  SubagentSpawnedEventSchema,
+} from "./events/subagent-spawned.js";
+export {
+  type SubagentStatus,
+  type SubagentStatusChangedEvent,
+  SubagentStatusChangedEventSchema,
+  SubagentStatusSchema,
+  type SubagentUsageStats,
+  SubagentUsageStatsSchema,
+} from "./events/subagent-status-changed.js";
+export {
   type ToolUseStartEvent,
   ToolUseStartEventSchema,
 } from "./events/tool-use-start.js";
@@ -264,6 +285,9 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   QuestionRequestEventSchema,
   RelationshipStateUpdatedEventSchema,
   SecretRequestEventSchema,
+  SubagentEventEventSchema,
+  SubagentSpawnedEventSchema,
+  SubagentStatusChangedEventSchema,
   ToolUseStartEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,

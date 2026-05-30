@@ -4,7 +4,7 @@
  * Shared by subagent-inline-progress-card, subagent-detail-panel, and subagent-status-badge.
  */
 
-import type { SubagentStatus } from "@/types/interaction-ui-types";
+import type { SubagentStatus } from "@vellumai/assistant-api";
 
 /** Whether the subagent is in an active (non-terminal) state. */
 export function isActiveStatus(status: SubagentStatus): boolean {
