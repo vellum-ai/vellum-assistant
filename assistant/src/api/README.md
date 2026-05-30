@@ -30,20 +30,20 @@ one at a time — the per-batch overhead is the same regardless of count.
 
 ### 1. Add the canonical schema
 
-One file per event under `./events/`. Each schema is `.strict()` so unknown
-fields surface as `UnknownEvent` rather than silently passing through.
+One file per event under `./events/`. Schemas use Zod's default strip
+mode — unknown fields are silently discarded during parsing so the
+server can add transport-level metadata (e.g. `seq`) without breaking
+client validation.
 
 ```ts
 // assistant/src/api/events/my-event.ts
 import { z } from "zod";
 
-export const MyEventSchema = z
-  .object({
-    type: z.literal("my_event"),
-    conversationId: z.string(),
-    // …
-  })
-  .strict();
+export const MyEventSchema = z.object({
+  type: z.literal("my_event"),
+  conversationId: z.string(),
+  // …
+});
 
 export type MyEvent = z.infer<typeof MyEventSchema>;
 ```
@@ -95,7 +95,7 @@ Add parser tests for each migrated event covering:
 - happy path with all fields
 - minimal required only
 - missing required field → `UnknownEvent`
-- strict mode rejects an unknown extra field → `UnknownEvent`
+- unknown extra field is silently stripped, event still parses
 
 For happy-path tests, inline the discriminator literal in both the input and
 the expected object. `const data = { type: "my_event", … }` widens

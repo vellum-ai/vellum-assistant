@@ -20,16 +20,14 @@
 
 import { z } from "zod";
 
-export const ContactRequestEventSchema = z
-  .object({
-    type: z.literal("contact_request"),
-    requestId: z.string(),
-    channel: z.string().optional(),
-    placeholder: z.string().optional(),
-    label: z.string().optional(),
-    description: z.string().optional(),
-    role: z.string().optional(),
-  })
-  .strict();
+export const ContactRequestEventSchema = z.object({
+  type: z.literal("contact_request"),
+  requestId: z.string(),
+  channel: z.string().optional(),
+  placeholder: z.string().optional(),
+  label: z.string().optional(),
+  description: z.string().optional(),
+  role: z.string().optional(),
+});
 
 export type ContactRequestEvent = z.infer<typeof ContactRequestEventSchema>;

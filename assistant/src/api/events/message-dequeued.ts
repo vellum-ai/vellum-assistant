@@ -12,12 +12,10 @@
 
 import { z } from "zod";
 
-export const MessageDequeuedEventSchema = z
-  .object({
-    type: z.literal("message_dequeued"),
-    conversationId: z.string(),
-    requestId: z.string(),
-  })
-  .strict();
+export const MessageDequeuedEventSchema = z.object({
+  type: z.literal("message_dequeued"),
+  conversationId: z.string(),
+  requestId: z.string(),
+});
 
 export type MessageDequeuedEvent = z.infer<typeof MessageDequeuedEventSchema>;

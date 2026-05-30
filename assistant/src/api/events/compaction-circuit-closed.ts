@@ -16,12 +16,10 @@
 
 import { z } from "zod";
 
-export const CompactionCircuitClosedEventSchema = z
-  .object({
-    type: z.literal("compaction_circuit_closed"),
-    conversationId: z.string(),
-  })
-  .strict();
+export const CompactionCircuitClosedEventSchema = z.object({
+  type: z.literal("compaction_circuit_closed"),
+  conversationId: z.string(),
+});
 
 export type CompactionCircuitClosedEvent = z.infer<
   typeof CompactionCircuitClosedEventSchema

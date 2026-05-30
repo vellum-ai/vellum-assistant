@@ -16,13 +16,11 @@
 
 import { z } from "zod";
 
-export const UISurfaceUpdateEventSchema = z
-  .object({
-    type: z.literal("ui_surface_update"),
-    conversationId: z.string(),
-    surfaceId: z.string(),
-    data: z.record(z.string(), z.unknown()),
-  })
-  .strict();
+export const UISurfaceUpdateEventSchema = z.object({
+  type: z.literal("ui_surface_update"),
+  conversationId: z.string(),
+  surfaceId: z.string(),
+  data: z.record(z.string(), z.unknown()),
+});
 
 export type UISurfaceUpdateEvent = z.infer<typeof UISurfaceUpdateEventSchema>;
