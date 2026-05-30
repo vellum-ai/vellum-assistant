@@ -1,6 +1,7 @@
 import type { ApprovalRequired } from "@vellumai/service-contracts/credential-rpc";
 import type {
   DiffInfo,
+  ExecutionTarget,
   ProxyApprovalCallback,
   SensitiveOutputBinding,
   ToolExecutionErrorEvent,
@@ -368,13 +369,27 @@ export const WireToolDefinitionSchema = ToolDefinitionSchema.required({
  * Author-facing tool spec — re-exported from `@vellumai/plugin-api`.
  * Loaders fill documented defaults for omitted fields via `finalizeTool`
  * in `tool-defaults.ts`. Type is `z.infer<typeof ToolDefinitionSchema>`
- * (serializable fields) plus an `execute` overlay (non-serializable
- * closure) so a single schema is the source of truth for both the
- * in-process author shape and the IPC wire shape.
+ * (serializable fields) plus overlays for `input_schema` and `execute`
+ * — both required at author time, but represented differently from the
+ * wire schema:
+ *   - `input_schema` is widened from `Record<string, unknown>` (the
+ *     parsed wire shape) to `object`, so authors can assign a typed
+ *     JSON-schema literal (e.g. `as const`) without `as Record<...>`
+ *     gymnastics. The wire form still parses to `Record<string,
+ *     unknown>` via {@link WireToolDefinitionSchema}.
+ *   - `execute` is required at the in-process layer (every tool a
+ *     literal author writes has one) but absent from the schema
+ *     (closures cannot cross IPC; `buildProxyTool` synthesizes one on
+ *     the daemon side).
  */
-export type ToolDefinition = z.infer<typeof ToolDefinitionSchema> & {
+export type ToolDefinition = Omit<
+  z.infer<typeof ToolDefinitionSchema>,
+  "input_schema"
+> & {
+  /** JSON schema describing the tool's input arguments. */
+  input_schema?: object;
   /** Implementation invoked when the model calls the tool. */
-  execute?: (
+  execute: (
     input: Record<string, unknown>,
     context: ToolContext,
   ) => Promise<ToolExecutionResult>;
