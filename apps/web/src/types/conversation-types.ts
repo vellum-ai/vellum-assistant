@@ -45,6 +45,8 @@ export interface Conversation {
   originChannel?: string;
   /** True for optimistic stubs not yet confirmed by the server. */
   draft?: boolean;
+  /** Server-seeded flag mirroring the daemon's `Conversation.isProcessing()`. Optional: pre-0.8.7 daemons and optimistic drafts omit it. */
+  isProcessing?: boolean;
 }
 
 export interface ConversationChannelBinding {

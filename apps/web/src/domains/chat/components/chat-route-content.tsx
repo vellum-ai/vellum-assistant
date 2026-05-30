@@ -56,6 +56,7 @@ import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { isProgressBadgeEnabled } from "@/lib/feature-flags/progress-badge-flag";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 // SubagentDetailPanel is only rendered when the user opens a subagent's
@@ -625,8 +626,21 @@ export function ChatRouteContent({
     return false;
   }, [messages]);
 
+  // Derive "is this conversation processing?" as an OR of the local
+  // optimistic set (driven by `useSendMessage` and the SSE start
+  // handlers) and the server's cached snapshot (`isProcessing` on the
+  // conversation row, mirroring the daemon's `Conversation.isProcessing()`).
+  //
+  // Either signal is sufficient to light the avatar progress badge.
+  // They converge via terminal SSE handlers (which clear the local set
+  // AND patch the cached snapshot via `patchConversation`) and the
+  // next list/detail GET refreshing the server snapshot. The OR also
+  // makes us robust to pre-0.8.7 daemons that omit `isProcessing` on
+  // the wire — the fallback to the local set still drives the badge.
   const activeConversationIsProcessing =
-    activeConversationId != null && processingConversationIds.has(activeConversationId);
+    (activeConversationId != null &&
+      processingConversationIds.has(activeConversationId)) ||
+    !!activeConversation?.isProcessing;
 
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(messages),
@@ -646,7 +660,13 @@ export function ChatRouteContent({
     hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
   };
 
-  const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
+  // When the `useProgressBadge` debug flag is on, suppress the
+  // transcript-trailer thinking dots — the avatar badge takes over the
+  // "the assistant is working" affordance. Default (flag off) keeps the
+  // long-standing dots in charge.
+  const showThinking =
+    !isProgressBadgeEnabled() &&
+    shouldShowThinkingIndicator(turnState, uiContext);
   const isAssistantStreaming =
     showThinking || hasStreamingAssistantMessage;
   const canStopGenerating = canStopGeneration(turnState, uiContext);
@@ -1258,6 +1278,7 @@ export function ChatRouteContent({
               size={56}
               interactive
               isStreaming={isAssistantStreaming}
+              isProcessing={activeConversationIsProcessing}
             />
           )
         : undefined,
