@@ -11093,6 +11093,12 @@ paths:
                 imageData:
                   type: string
                   description: Optional base64-encoded image bytes for successful image reads
+                audioData:
+                  type: string
+                  description: Optional base64-encoded audio bytes for successful audio reads
+                audioMimeType:
+                  type: string
+                  description: MIME type for audioData (e.g. audio/mpeg)
               required:
                 - requestId
               additionalProperties: false

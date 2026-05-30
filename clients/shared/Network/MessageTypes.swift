@@ -1723,12 +1723,23 @@ public struct HostFileResultPayload: Codable, Sendable {
     public let content: String
     public let isError: Bool
     public let imageData: String?
+    public let audioData: String?
+    public let audioMimeType: String?
 
-    public init(requestId: String, content: String, isError: Bool, imageData: String? = nil) {
+    public init(
+        requestId: String,
+        content: String,
+        isError: Bool,
+        imageData: String? = nil,
+        audioData: String? = nil,
+        audioMimeType: String? = nil
+    ) {
         self.requestId = requestId
         self.content = content
         self.isError = isError
         self.imageData = imageData
+        self.audioData = audioData
+        self.audioMimeType = audioMimeType
     }
 }
 
