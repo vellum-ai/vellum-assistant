@@ -45,6 +45,15 @@ describe("LLM call-site catalog", () => {
     );
   });
 
+  test("registers the radioDj call site as Radio DJ under the ui domain", () => {
+    expect(LLMCallSiteEnum.options).toContain("radioDj");
+
+    const entry = CALL_SITE_CATALOG.find(({ id }) => id === "radioDj");
+    expect(entry).toBeDefined();
+    expect(entry?.domain).toBe("ui");
+    expect(entry?.displayName).toBe("Radio DJ");
+  });
+
   test("memoryRouter is addressable as a call-site override key in LLMSchema", () => {
     const parsed = LLMSchema.parse({
       callSites: { memoryRouter: { model: "claude-sonnet-4-6" } },
@@ -54,9 +63,7 @@ describe("LLM call-site catalog", () => {
 
   test("CALL_SITE_DEFAULTS covers every LLMCallSite enum value", () => {
     const defaultIds = new Set(Object.keys(CALL_SITE_DEFAULTS));
-    const missing = LLMCallSiteEnum.options.filter(
-      (id) => !defaultIds.has(id),
-    );
+    const missing = LLMCallSiteEnum.options.filter((id) => !defaultIds.has(id));
     expect(missing).toEqual([]);
   });
 

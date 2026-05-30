@@ -10,13 +10,13 @@
  *      send/stop button, disabled attribute).
  */
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { createRef } from "react";
+import { createElement, createRef } from "react";
+import type { ReactNode } from "react";
 import { cleanup, render } from "@testing-library/react";
 
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
-import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
-
-import { ChatComposer, computeGhostSuffix, shouldSubmitOnEnter } from "@/domains/chat/components/chat-composer/chat-composer";
+import type { TurnState } from "@/domains/chat/turn-store";
+import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 
 let mockIsMobile = false;
 mock.module("@/hooks/use-is-mobile", () => ({
@@ -24,11 +24,137 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
+const passthrough = ({ children }: { children?: ReactNode }) =>
+  createElement("div", null, children);
+
+mock.module("@vellum/design-library", () => ({
+  Button: ({
+    children,
+    iconOnly,
+    leftIcon,
+    onClick,
+    active: _active,
+    tintColor: _tintColor,
+    variant: _variant,
+    size: _size,
+    ...props
+  }: {
+    children?: ReactNode;
+    iconOnly?: ReactNode;
+    leftIcon?: ReactNode;
+    onClick?: () => void;
+  } & Record<string, unknown>) =>
+    createElement(
+      "button",
+      { onClick, ...props },
+      iconOnly as ReactNode,
+      leftIcon as ReactNode,
+      children as ReactNode
+    ),
+  PanelItem: ({
+    children,
+    asChild: _asChild,
+    active: _active,
+    label,
+    ...props
+  }: {
+    children?: ReactNode;
+    label?: ReactNode;
+  } & Record<string, unknown>) =>
+    children
+      ? createElement("div", props, children)
+      : createElement("div", props, label),
+  Popover: {
+    Root: passthrough,
+    Anchor: passthrough,
+    Content: passthrough,
+  },
+  Typography: ({
+    children,
+    ...props
+  }: {
+    children?: ReactNode;
+  } & Record<string, unknown>) => createElement("span", props, children),
+}));
+
+mock.module(
+  "@/domains/chat/components/chat-attachments/chat-attachments.js",
+  () => ({
+    AttachFileButton: ({
+      disabled,
+      onFilesSelected: _onFilesSelected,
+      ...props
+    }: {
+      disabled?: boolean;
+      onFilesSelected?: unknown;
+    } & Record<string, unknown>) =>
+      createElement("button", {
+        type: "button",
+        disabled,
+        "aria-label": "Attach file",
+        ...props,
+      }),
+    ChatAttachmentsStrip: ({
+      attachments,
+    }: {
+      attachments: ChatAttachment[];
+    }) =>
+      attachments.length > 0
+        ? createElement(
+            "div",
+            null,
+            attachments.map((attachment) =>
+              createElement(
+                "span",
+                { key: attachment.localId },
+                attachment.filename
+              )
+            )
+          )
+        : null,
+  })
+);
+
+mock.module("@/domains/chat/components/voice-input-button.js", () => ({
+  VoiceInputButton: () =>
+    createElement("button", {
+      type: "button",
+      "aria-label": "Start voice input",
+    }),
+}));
+
+mock.module(
+  "@/domains/chat/components/chat-composer/slash-command-popup.js",
+  () => ({
+    SlashCommandPopup: () =>
+      createElement("div", { role: "listbox", "data-testid": "slash-popup" }),
+  })
+);
+
+mock.module(
+  "@/domains/chat/components/chat-composer/emoji-picker-popup.js",
+  () => ({
+    EmojiPickerPopup: () =>
+      createElement("div", { role: "listbox", "data-testid": "emoji-popup" }),
+  })
+);
+
+const { ChatComposer, computeGhostSuffix, shouldSubmitOnEnter } = await import(
+  "@/domains/chat/components/chat-composer/chat-composer"
+);
+
 // ---------------------------------------------------------------------------
 // shouldSubmitOnEnter — keyboard policy
 // ---------------------------------------------------------------------------
 
-const ENTER = { key: "Enter", shiftKey: false, metaKey: false, ctrlKey: false, isComposing: false, keyCode: 13 };
+const ENTER = {
+  key: "Enter",
+  shiftKey: false,
+  metaKey: false,
+  ctrlKey: false,
+  isComposing: false,
+  keyCode: 13,
+};
 const ENTER_WITH_SHIFT = { ...ENTER, shiftKey: true };
 const ENTER_DURING_IME = { ...ENTER, isComposing: true };
 const ENTER_IME_KEYCODE = { ...ENTER, keyCode: 229 };
@@ -54,19 +180,19 @@ describe("shouldSubmitOnEnter — desktop submit", () => {
 
   test("Shift+Enter is ignored even on desktop", () => {
     expect(shouldSubmitOnEnter(ENTER_WITH_SHIFT, false, READY_POLICY)).toBe(
-      "ignore",
+      "ignore"
     );
   });
 
   test("IME composition Enter is ignored (isComposing)", () => {
     expect(shouldSubmitOnEnter(ENTER_DURING_IME, false, READY_POLICY)).toBe(
-      "ignore",
+      "ignore"
     );
   });
 
   test("IME composition Enter is ignored (keyCode 229 fallback)", () => {
     expect(shouldSubmitOnEnter(ENTER_IME_KEYCODE, false, READY_POLICY)).toBe(
-      "ignore",
+      "ignore"
     );
   });
 });
@@ -80,7 +206,7 @@ describe("shouldSubmitOnEnter — guards still preventDefault but skip submit", 
         sendDisabled: false,
         attachmentsUploadingCount: 0,
         cmdEnterMode: false,
-      }),
+      })
     ).toBe("prevent");
   });
 
@@ -89,7 +215,7 @@ describe("shouldSubmitOnEnter — guards still preventDefault but skip submit", 
       shouldSubmitOnEnter(ENTER, false, {
         ...READY_POLICY,
         sendDisabled: true,
-      }),
+      })
     ).toBe("prevent");
   });
 
@@ -98,7 +224,7 @@ describe("shouldSubmitOnEnter — guards still preventDefault but skip submit", 
       shouldSubmitOnEnter(ENTER, false, {
         ...READY_POLICY,
         attachmentsUploadingCount: 2,
-      }),
+      })
     ).toBe("prevent");
   });
 
@@ -110,7 +236,7 @@ describe("shouldSubmitOnEnter — guards still preventDefault but skip submit", 
         sendDisabled: false,
         attachmentsUploadingCount: 0,
         cmdEnterMode: false,
-      }),
+      })
     ).toBe("submit");
   });
 });
@@ -119,10 +245,17 @@ describe("shouldSubmitOnEnter — non-Enter keys", () => {
   test("Space is ignored (key !== 'Enter')", () => {
     expect(
       shouldSubmitOnEnter(
-        { key: " ", shiftKey: false, metaKey: false, ctrlKey: false, isComposing: false, keyCode: 32 },
+        {
+          key: " ",
+          shiftKey: false,
+          metaKey: false,
+          ctrlKey: false,
+          isComposing: false,
+          keyCode: 32,
+        },
         false,
-        READY_POLICY,
-      ),
+        READY_POLICY
+      )
     ).toBe("ignore");
   });
 });
@@ -139,11 +272,15 @@ describe("shouldSubmitOnEnter — cmdEnterMode=true", () => {
   });
 
   test("Cmd+Enter with content submits", () => {
-    expect(shouldSubmitOnEnter(CMD_ENTER, false, CMD_ENTER_POLICY)).toBe("submit");
+    expect(shouldSubmitOnEnter(CMD_ENTER, false, CMD_ENTER_POLICY)).toBe(
+      "submit"
+    );
   });
 
   test("Ctrl+Enter with content submits (Windows/Linux)", () => {
-    expect(shouldSubmitOnEnter(CTRL_ENTER, false, CMD_ENTER_POLICY)).toBe("submit");
+    expect(shouldSubmitOnEnter(CTRL_ENTER, false, CMD_ENTER_POLICY)).toBe(
+      "submit"
+    );
   });
 
   test("Cmd+Enter when sendDisabled returns 'prevent'", () => {
@@ -151,7 +288,7 @@ describe("shouldSubmitOnEnter — cmdEnterMode=true", () => {
       shouldSubmitOnEnter(CMD_ENTER, false, {
         ...CMD_ENTER_POLICY,
         sendDisabled: true,
-      }),
+      })
     ).toBe("prevent");
   });
 
@@ -161,20 +298,26 @@ describe("shouldSubmitOnEnter — cmdEnterMode=true", () => {
         ...CMD_ENTER_POLICY,
         input: "   ",
         canSendAttachments: false,
-      }),
+      })
     ).toBe("prevent");
   });
 
   test("Shift+Enter is still ignored in cmdEnterMode", () => {
-    expect(shouldSubmitOnEnter(ENTER_WITH_SHIFT, false, CMD_ENTER_POLICY)).toBe("ignore");
+    expect(shouldSubmitOnEnter(ENTER_WITH_SHIFT, false, CMD_ENTER_POLICY)).toBe(
+      "ignore"
+    );
   });
 
   test("IME composition is still ignored in cmdEnterMode", () => {
-    expect(shouldSubmitOnEnter(ENTER_DURING_IME, false, CMD_ENTER_POLICY)).toBe("ignore");
+    expect(shouldSubmitOnEnter(ENTER_DURING_IME, false, CMD_ENTER_POLICY)).toBe(
+      "ignore"
+    );
   });
 
   test("pointer:coarse is still ignored in cmdEnterMode", () => {
-    expect(shouldSubmitOnEnter(CMD_ENTER, true, CMD_ENTER_POLICY)).toBe("ignore");
+    expect(shouldSubmitOnEnter(CMD_ENTER, true, CMD_ENTER_POLICY)).toBe(
+      "ignore"
+    );
   });
 });
 
@@ -190,7 +333,7 @@ describe("computeGhostSuffix", () => {
         suggestion: "Hello world",
         input: "",
         hasAttachments: false,
-      }),
+      })
     ).toBe("Hello world");
   });
 
@@ -201,7 +344,7 @@ describe("computeGhostSuffix", () => {
         suggestion: "Hello world",
         input: "Hell",
         hasAttachments: false,
-      }),
+      })
     ).toBe("o world");
   });
 
@@ -212,7 +355,7 @@ describe("computeGhostSuffix", () => {
         suggestion: "Hello world",
         input: "Goodbye",
         hasAttachments: false,
-      }),
+      })
     ).toBeNull();
   });
 
@@ -223,7 +366,7 @@ describe("computeGhostSuffix", () => {
         suggestion: "Hello world",
         input: "",
         hasAttachments: true,
-      }),
+      })
     ).toBeNull();
   });
 
@@ -234,7 +377,7 @@ describe("computeGhostSuffix", () => {
         suggestion: null,
         input: "anything",
         hasAttachments: false,
-      }),
+      })
     ).toBeNull();
   });
 
@@ -245,7 +388,7 @@ describe("computeGhostSuffix", () => {
         suggestion: "Hello",
         input: "Hello",
         hasAttachments: false,
-      }),
+      })
     ).toBeNull();
   });
 
@@ -259,7 +402,7 @@ describe("computeGhostSuffix", () => {
         suggestion: "Hello world",
         input: "",
         hasAttachments: false,
-      }),
+      })
     ).toBeNull();
     expect(
       computeGhostSuffix({
@@ -267,7 +410,7 @@ describe("computeGhostSuffix", () => {
         suggestion: "Hello world",
         input: "Hell",
         hasAttachments: false,
-      }),
+      })
     ).toBeNull();
   });
 });
@@ -278,7 +421,9 @@ describe("computeGhostSuffix", () => {
 
 afterEach(cleanup);
 
-function renderComposer(props: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
+function renderComposer(
+  props: Partial<Parameters<typeof ChatComposer>[0]> = {}
+) {
   const { container } = render(
     <ChatComposer
       input=""
@@ -296,7 +441,7 @@ function renderComposer(props: Partial<Parameters<typeof ChatComposer>[0]> = {})
       onStopGenerating={() => {}}
       assistantId="asst_test"
       {...props}
-    />,
+    />
   );
   return container.innerHTML;
 }
@@ -467,6 +612,22 @@ describe("ChatComposer — optional slots", () => {
     expect(html).toContain(">CTX<");
   });
 
+  test("radioSlot renders at the start of the bottom-left action row", () => {
+    const html = renderComposer({
+      radioSlot: <span>RADIO</span>,
+      thresholdPickerSlot: <span>THR</span>,
+      contextWindowIndicatorSlot: <span>CTX</span>,
+    });
+    const radioIdx = html.indexOf(">RADIO<");
+    const thresholdIdx = html.indexOf(">THR<");
+    const contextIdx = html.indexOf(">CTX<");
+    expect(radioIdx).toBeGreaterThan(-1);
+    expect(thresholdIdx).toBeGreaterThan(-1);
+    expect(contextIdx).toBeGreaterThan(-1);
+    expect(radioIdx).toBeLessThan(thresholdIdx);
+    expect(thresholdIdx).toBeLessThan(contextIdx);
+  });
+
   test("voice button is omitted when voiceInputRef/onVoiceTranscript are not provided (app-editing variant)", () => {
     const html = renderComposer();
     // VoiceInputButton renders aria-label="Start voice input" / "Stop voice input".
@@ -484,7 +645,7 @@ describe("ChatComposer — attachments strip", () => {
     const html = renderComposer({ chatAttachments: [] });
     // ChatAttachmentsStrip renders nothing when the list is empty — sanity
     // check that no obvious attachment chip markup leaks in.
-    expect(html).not.toContain("aria-label=\"Remove attachment\"");
+    expect(html).not.toContain('aria-label="Remove attachment"');
   });
 
   test("with attachments, renders the strip wrapper", () => {

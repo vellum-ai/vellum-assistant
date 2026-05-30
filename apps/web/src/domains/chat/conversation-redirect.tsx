@@ -5,12 +5,19 @@
  */
 import * as Sentry from "@sentry/react";
 import { useEffect } from "react";
+import type { ReactNode } from "react";
 import { Navigate, useSearchParams } from "react-router";
 
 import { ChatPage } from "@/domains/chat/chat-page";
 import { routes } from "@/utils/routes";
 
-export function ConversationRedirect() {
+interface ConversationRedirectProps {
+  renderChatPage?: () => ReactNode;
+}
+
+export function ConversationRedirect({
+  renderChatPage,
+}: ConversationRedirectProps = {}) {
   const [searchParams] = useSearchParams();
   // Both params are checked intentionally: `conversationKey` predates the
   // `conversationId` cutover. Ancient saved/shared URLs only have `conversationKey`.
@@ -28,7 +35,7 @@ export function ConversationRedirect() {
       scope.setTag("legacy_param", param);
       Sentry.captureMessage(
         "[ConversationRedirect] Legacy search param redirect",
-        "warning",
+        "warning"
       );
     });
   }, [param]);
@@ -45,5 +52,5 @@ export function ConversationRedirect() {
       />
     );
   }
-  return <ChatPage />;
+  return renderChatPage?.() ?? <ChatPage />;
 }

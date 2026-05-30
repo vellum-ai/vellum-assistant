@@ -204,6 +204,12 @@ const CATALOG_RECORD: CatalogRecord = {
       "Generates the tab-to-accept reply hint shown in the chat composer after each assistant turn.",
     domain: "ui",
   },
+  radioDj: {
+    id: "radioDj",
+    displayName: "Radio DJ",
+    description: "Chooses radio tracks and writes short spoken DJ breaks.",
+    domain: "ui",
+  },
   conversationTitle: {
     id: "conversationTitle",
     displayName: "Conversation Title",

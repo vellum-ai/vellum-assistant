@@ -38,6 +38,7 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
+  radioDj: { profile: "balanced" },
 
   filingAgent: { profile: "cost-optimized" },
   proactiveArtifactDecision: { profile: "cost-optimized" },

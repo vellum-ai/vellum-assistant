@@ -54,11 +54,16 @@ const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  * `maintenance-mode/`, `system-events/`, `terminal/`, `doctor/` when a
  * new one is added on the backend.
  *
- * Today's only consumer is the chat-page bootstrap — `conversations/`
- * has to land on the gateway so the chat surface can fail-and-render the
- * error state. Add segments here as additional self-hosted flows light up.
+ * `conversations/` has to land on the gateway so the chat surface can
+ * fail-and-render the error state. `radio/` and `audio/` are also runtime
+ * paths; the radio player fetches them as blobs so media playback can carry
+ * the same gateway auth headers as normal API calls.
  */
-const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
+const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
+  "audio",
+  "conversations",
+  "radio",
+]);
 
 const ASSISTANT_PATH_RE =
   /^\/v1\/assistants\/[^/]+\/([^/?#]+)(?:\/.*)?$/;
