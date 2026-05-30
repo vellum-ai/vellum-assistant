@@ -67,34 +67,7 @@ export interface PendingQuestionState {
 }
 
 // ---------------------------------------------------------------------------
-// Subagent event types — used by subagent domain and chat SSE stream
-// ---------------------------------------------------------------------------
-
-export type SubagentStatus =
-  | "pending"
-  | "running"
-  | "awaiting_input"
-  | "completed"
-  | "failed"
-  | "aborted";
-
-export interface SubagentInnerEvent {
-  type: string;
-  content?: string;
-  /** `assistant_text_delta` events carry text in `text`, not `content`. */
-  text?: string;
-  /** `tool_result` events carry output in `result`, not `content`. */
-  result?: string;
-  /** `tool_use_start` events carry a JSON object with tool arguments. */
-  input?: Record<string, unknown>;
-  toolName?: string;
-  isError?: boolean;
-  /**
-   * Tool-use block ID for client-side correlation. Present on
-   * `tool_use_start` and `tool_result` envelopes; used to pair a result
-   * with its originating call when a subagent emits parallel calls to
-   * the same tool (e.g. two `bash` calls) which `toolName` alone cannot
-   * disambiguate.
-   */
-  toolUseId?: string;
-}
+// Subagent event types — canonical types now live in
+// `@vellumai/assistant-api` (see `subagent-event.ts` /
+// `subagent-status-changed.ts`). Re-imported by consumers from
+// that package directly.

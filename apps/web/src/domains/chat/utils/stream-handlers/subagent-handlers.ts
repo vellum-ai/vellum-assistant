@@ -1,6 +1,11 @@
+import type {
+  SubagentEventEvent,
+  SubagentSpawnedEvent,
+  SubagentStatusChangedEvent,
+} from "@vellumai/assistant-api";
+
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { SubagentSpawnedEvent, SubagentStatusChangedEvent, SubagentEventWrapperEvent } from "@/types/event-types";
 
 export function handleSubagentSpawned(
   event: SubagentSpawnedEvent,
@@ -25,14 +30,14 @@ export function handleSubagentStatusChanged(
     subagentId: event.subagentId,
     status: event.status,
     error: event.error,
-    inputTokens: event.inputTokens,
-    outputTokens: event.outputTokens,
-    totalCost: event.totalCost,
+    inputTokens: event.usage?.inputTokens,
+    outputTokens: event.usage?.outputTokens,
+    totalCost: event.usage?.estimatedCost,
   });
 }
 
 export function handleSubagentEvent(
-  event: SubagentEventWrapperEvent,
+  event: SubagentEventEvent,
   _ctx: StreamHandlerContext,
 ): void {
   const store = useSubagentStore.getState();

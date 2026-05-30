@@ -9,7 +9,6 @@
  *
  * Legacy coercion is split across focused sub-modules by event group:
  *   - `parse-tool-events`        — tool execution lifecycle
- *   - `parse-subagent-events`    — subagent orchestration
  *   - `parse-resource-events`    — cache invalidation / push signals
  *
  * Events that migrate to `@vellumai/assistant-api` Zod schemas bypass
@@ -30,11 +29,6 @@ import {
   parseToolResult,
 } from "@/lib/streaming/parse-tool-events";
 
-import {
-  parseSubagentSpawned,
-  parseSubagentStatusChanged,
-  parseSubagentEvent,
-} from "@/lib/streaming/parse-subagent-events";
 import {
   parseSyncChanged,
   parseNotificationIntent,
@@ -132,14 +126,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       return parseToolUseStart(data);
     case "tool_result":
       return parseToolResult(data);
-
-    // --- Subagent orchestration ---
-    case "subagent_spawned":
-      return parseSubagentSpawned(data);
-    case "subagent_status_changed":
-      return parseSubagentStatusChanged(data);
-    case "subagent_event":
-      return parseSubagentEvent(data);
 
     // --- Resource invalidation / push signals ---
     case "sync_changed":

@@ -36,6 +36,7 @@ interface FakeChunk {
   usageMetadata?: {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
+    cachedContentTokenCount?: number;
   };
   modelVersion?: string;
 }
@@ -98,10 +99,15 @@ function finishChunk(
   reason: string,
   prompt: number,
   output: number,
+  cached?: number,
 ): FakeChunk {
   return {
     candidates: [{ finishReason: reason }],
-    usageMetadata: { promptTokenCount: prompt, candidatesTokenCount: output },
+    usageMetadata: {
+      promptTokenCount: prompt,
+      candidatesTokenCount: output,
+      ...(cached !== undefined ? { cachedContentTokenCount: cached } : {}),
+    },
     modelVersion: "gemini-3-flash-preview-001",
   };
 }
@@ -1447,6 +1453,36 @@ describe("GeminiProvider", () => {
     ]);
 
     expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
+  });
+
+  // -----------------------------------------------------------------------
+  // Implicit prompt caching (cache reads)
+  // -----------------------------------------------------------------------
+  test("surfaces cachedContentTokenCount as cacheReadInputTokens", async () => {
+    // Gemini reports cached tokens as a subset already included in
+    // promptTokenCount, so inputTokens stays the inclusive total and the
+    // cached subset is reported separately for the discounted cache-read rate.
+    fakeChunks = [textChunk("Hi back"), finishChunk("STOP", 100, 20, 30)];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      cacheReadInputTokens: 30,
+    });
+  });
+
+  test("omits cacheReadInputTokens when no tokens were cached", async () => {
+    fakeChunks = [textChunk("Hi back"), finishChunk("STOP", 100, 20, 0)];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.usage).toEqual({ inputTokens: 100, outputTokens: 20 });
   });
 
   // -----------------------------------------------------------------------

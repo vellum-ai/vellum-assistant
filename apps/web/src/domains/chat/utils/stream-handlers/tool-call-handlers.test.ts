@@ -50,6 +50,62 @@ describe("handleToolUseStart", () => {
     expect(next[0]?.toolCalls).toHaveLength(1);
     expect(next[0]?.toolCalls[0]?.id).toBe("tc-1");
   });
+
+  it("forwards event.messageId to the new bubble (adopts as row id, no isOptimistic)", () => {
+    // Anchor protocol: tool_use_start carries messageId from event zero —
+    // the daemon has committed to the assistant message existing. The new
+    // bubble adopts that id rather than being stamped optimistic.
+    const ctx = makeCtx();
+    handleToolUseStart(
+      {
+        type: "tool_use_start",
+        toolName: "web_search",
+        input: {},
+        toolUseId: "tc-1",
+        messageId: "server-msg-1",
+      },
+      ctx,
+    );
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>).mock.calls[0][0] as (
+      prev: never[],
+    ) => Array<{ id: string; isOptimistic?: boolean }>;
+    const next = updater([]);
+    expect(next[0]?.id).toBe("server-msg-1");
+    expect(next[0]?.isOptimistic).toBeUndefined();
+  });
+
+  it("folds three sequential tool_use_starts with the same messageId into one bubble", () => {
+    // Concrete reproduction of the bug behind the screenshot: three
+    // tool_use_starts arriving back-to-back with the same anchor messageId
+    // must produce ONE assistant row with three tool calls, not three
+    // overlapping bubbles or a duplicate.
+    const ctx = makeCtx();
+    let current: Array<{ id: string; toolCalls?: Array<{ id: string }>; isOptimistic?: boolean }> = [];
+    const setMessages = ctx.setMessages as unknown as { mock: { calls: unknown[][] } };
+
+    for (const [i, toolUseId] of ["tc-1", "tc-2", "tc-3"].entries()) {
+      handleToolUseStart(
+        {
+          type: "tool_use_start",
+          toolName: "web_search",
+          input: {},
+          toolUseId,
+          messageId: "anchor-1",
+        },
+        ctx,
+      );
+      const updater = setMessages.mock.calls[i]![0] as (
+        prev: typeof current,
+      ) => typeof current;
+      current = updater(current);
+    }
+
+    expect(current).toHaveLength(1);
+    expect(current[0]!.id).toBe("anchor-1");
+    expect(current[0]!.isOptimistic).toBeUndefined();
+    expect(current[0]!.toolCalls).toHaveLength(3);
+    expect(current[0]!.toolCalls!.map((tc) => tc.id)).toEqual(["tc-1", "tc-2", "tc-3"]);
+  });
 });
 
 describe("handleToolResult", () => {

@@ -363,6 +363,7 @@ export class GeminiProvider implements Provider {
       let finishReason = "unknown";
       let promptTokens = 0;
       let outputTokens = 0;
+      let cachedTokens = 0;
       let responseModel = activeModel;
 
       try {
@@ -410,6 +411,11 @@ export class GeminiProvider implements Provider {
           if (chunk.usageMetadata) {
             promptTokens = chunk.usageMetadata.promptTokenCount ?? 0;
             outputTokens = chunk.usageMetadata.candidatesTokenCount ?? 0;
+            // Gemini 2.5+/3.x cache a stable request prefix implicitly (on by
+            // default). promptTokenCount already includes these cached tokens,
+            // so cachedContentTokenCount is the read subset — surface it so the
+            // pricing layer applies the discounted cache-read rate.
+            cachedTokens = chunk.usageMetadata.cachedContentTokenCount ?? 0;
           }
 
           if (chunk.modelVersion) {
@@ -453,13 +459,18 @@ export class GeminiProvider implements Provider {
         usageMetadata: {
           promptTokenCount: promptTokens,
           candidatesTokenCount: outputTokens,
+          cachedContentTokenCount: cachedTokens,
         },
       };
 
       return {
         content,
         model: responseModel,
-        usage: { inputTokens: promptTokens, outputTokens },
+        usage: {
+          inputTokens: promptTokens,
+          outputTokens,
+          ...(cachedTokens > 0 ? { cacheReadInputTokens: cachedTokens } : {}),
+        },
         stopReason: finishReason,
         rawRequest,
         rawResponse,

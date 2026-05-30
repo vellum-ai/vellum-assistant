@@ -21,11 +21,10 @@ import type {
   AllowlistOption,
   DirectoryScopeOption,
   ScopeOption,
+  SubagentEventEvent,
+  SubagentSpawnedEvent,
+  SubagentStatusChangedEvent,
 } from "@vellumai/assistant-api";
-import type {
-  SubagentInnerEvent,
-  SubagentStatus,
-} from "@/types/interaction-ui-types";
 
 // ---------------------------------------------------------------------------
 // SSE event interfaces
@@ -142,45 +141,6 @@ export interface AssistantActivityStateEvent {
 export interface NavigateSettingsEvent {
   type: "navigate_settings";
   tab: string;
-  conversationId?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Subagent event types
-// ---------------------------------------------------------------------------
-
-export interface SubagentSpawnedEvent {
-  type: "subagent_spawned";
-  subagentId: string;
-  parentConversationId?: string;
-  label: string;
-  objective: string;
-  isFork?: boolean;
-  /**
-   * Tool-use block ID of the spawning tool call in the parent conversation.
-   * Lets the client anchor the inline subagent card to its exact spawn tool
-   * call (survives optimistic→reconciled message id swaps). Optional — older
-   * daemons omit it.
-   */
-  parentToolUseId?: string;
-  conversationId?: string;
-}
-
-export interface SubagentStatusChangedEvent {
-  type: "subagent_status_changed";
-  subagentId: string;
-  status: SubagentStatus;
-  error?: string;
-  inputTokens?: number;
-  outputTokens?: number;
-  totalCost?: number;
-  conversationId?: string;
-}
-
-export interface SubagentEventWrapperEvent {
-  type: "subagent_event";
-  subagentId: string;
-  event: SubagentInnerEvent;
   conversationId?: string;
 }
 
@@ -333,7 +293,7 @@ export type AssistantEvent =
   | AssistantSyncChangedEvent
   | SubagentSpawnedEvent
   | SubagentStatusChangedEvent
-  | SubagentEventWrapperEvent
+  | SubagentEventEvent
   | DocumentEditorUpdateEvent
   | TurnProfileAutoRoutedEvent
   | UnknownEvent;
