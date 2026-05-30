@@ -604,15 +604,16 @@ All feature flags (assistant-scoped and client-scoped) are declared in the unifi
 | Assistant feature flags (`scope: "assistant"`) | Gateway-managed, protected file | `GATEWAY_SECURITY_DIR/feature-flags.json` | Gateway `get_feature_flags` IPC (assistant) + `/v1/feature-flags` REST API (macOS clients) |
 | Client feature flags (`scope: "client"`)       | Local-only, per-device          | UserDefaults (plist)                      | macOS app directly                                                                         |
 
-**Unified registry:** The canonical source is `meta/feature-flags/feature-flag-registry.json`. Bundled copies are maintained at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. Labels come from the registry. Flags not declared in the registry default to enabled (open by default).
+**Unified registry:** The canonical source is `meta/feature-flags/feature-flag-registry.json`. Bundled copies are maintained at `assistant/src/config/feature-flag-registry.json` and `gateway/src/feature-flag-registry.json`. Labels come from the registry. Declared flags use their `defaultEnabled` value when no override is present. Flags not declared in the registry default to disabled (fail closed).
 
 **Canonical key format:** Simple kebab-case (e.g., `browser`, `ces-tools`). The legacy `feature_flags.<id>.enabled` and `skills.<id>.enabled` formats are no longer supported.
 
 **Resolution priority:** When determining whether an assistant flag is enabled, the resolver checks (highest priority first):
 
 1. `~/.vellum/protected/feature-flags.json` overrides (local) or gateway IPC socket (Docker)
-2. Defaults registry `defaultEnabled`
-3. `true` (unknown flags are open by default)
+2. Remote platform feature-flag snapshot, when a value is explicitly present
+3. Defaults registry `defaultEnabled`
+4. `false` (unknown flags fail closed)
 
 **Domain docs:**
 

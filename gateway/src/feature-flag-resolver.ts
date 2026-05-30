@@ -1,28 +1,28 @@
 import { loadFeatureFlagDefaults } from "./feature-flag-defaults.js";
-import {
-  hasRemoteFeatureFlagSnapshot,
-  readRemoteFeatureFlags,
-} from "./feature-flag-remote-store.js";
+import { readRemoteFeatureFlags } from "./feature-flag-remote-store.js";
 import { readPersistedFeatureFlags } from "./feature-flag-store.js";
 
 /**
  * Resolve the effective enabled/disabled state for a feature flag.
  *
  * Priority: persisted (user-toggled) > remote (platform-pushed) > registry default.
- * Undeclared keys with no override return `false` (fail closed).
+ * Undeclared keys return `false` (fail closed), even if stale local/remote
+ * state contains a value for them.
  */
 export function isFeatureFlagEnabled(key: string): boolean {
+  const defaults = loadFeatureFlagDefaults();
+  const defaultDef = defaults[key];
+  if (defaultDef === undefined) return false;
+
   const persisted = readPersistedFeatureFlags();
   const persistedValue = persisted[key];
   if (persistedValue !== undefined) return persistedValue;
 
-  if (hasRemoteFeatureFlagSnapshot()) {
-    const remote = readRemoteFeatureFlags();
-    return remote[key] ?? false;
-  }
+  const remote = readRemoteFeatureFlags();
+  const remoteValue = remote[key];
+  if (remoteValue !== undefined) return remoteValue;
 
-  const defaults = loadFeatureFlagDefaults();
-  return defaults[key]?.defaultEnabled ?? false;
+  return defaultDef.defaultEnabled;
 }
 
 function isPlatformMode(): boolean {
