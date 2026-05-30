@@ -4,6 +4,7 @@ import type {
   AgentEvent,
   CheckpointDecision,
   CheckpointInfo,
+  CompactionStrategy,
 } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type {
@@ -1056,6 +1057,155 @@ describe("AgentLoop", () => {
     expect(history).toHaveLength(2);
     expect(history[1].content).toEqual([
       { type: "text", text: "Just a text response" },
+    ]);
+  });
+
+  // ---------------------------------------------------------------------------
+  // Inline mid-loop compaction strategy tests
+  // ---------------------------------------------------------------------------
+
+  test("inline compaction continues in place and feeds the compacted history to the next turn", async () => {
+    // GIVEN a provider that requests one tool call and then finishes
+    const { provider, calls } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("Done"),
+    ]);
+    const toolExecutor = async () => ({ content: "data", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    // AND a strategy that compacts once, replacing history with a marker
+    const compactedHistory: Message[] = [
+      { role: "user", content: [{ type: "text", text: "COMPACTED" }] },
+    ];
+    let shouldCompactCalls = 0;
+    const compactInputs: Message[][] = [];
+    const compactionStrategy: CompactionStrategy = {
+      shouldCompact: () => {
+        shouldCompactCalls++;
+        return shouldCompactCalls === 1;
+      },
+      compact: async (history) => {
+        compactInputs.push(history);
+        return { ok: true, history: compactedHistory };
+      },
+    };
+
+    // WHEN the loop runs with the strategy
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events), {
+      compactionStrategy,
+    });
+
+    // THEN compaction ran once against the in-flight history
+    expect(compactInputs).toHaveLength(1);
+    // AND the loop continued in place — the next provider call sees the
+    // compacted history rather than a fresh run's seed messages
+    expect(calls).toHaveLength(2);
+    expect(calls[1].messages[0].content).toEqual([
+      { type: "text", text: "COMPACTED" },
+    ]);
+    // AND the turn completed normally without a terminal exhaustion exit
+    expect(history[history.length - 1].content).toEqual([
+      { type: "text", text: "Done" },
+    ]);
+    expect(
+      events.some(
+        (e) =>
+          e.type === "agent_loop_exit" &&
+          e.reason === "context_exhausted_mid_loop",
+      ),
+    ).toBe(false);
+  });
+
+  test("inline compaction failure terminates the loop with context_exhausted_mid_loop", async () => {
+    // GIVEN a provider that would continue past the first tool turn
+    const { provider, calls } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("should not reach"),
+    ]);
+    const toolExecutor = async () => ({ content: "data", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    // AND a strategy whose compaction cannot bring context under budget
+    const compactionStrategy: CompactionStrategy = {
+      shouldCompact: () => true,
+      compact: async () => ({ ok: false, reason: "exhausted" }),
+    };
+
+    // WHEN the loop runs
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events), {
+      compactionStrategy,
+    });
+
+    // THEN the loop stopped after the first tool turn — no further calls
+    expect(calls).toHaveLength(1);
+    // AND it emitted exactly one terminal mid-loop exhaustion exit reason
+    const exitEvents = events.filter((e) => e.type === "agent_loop_exit");
+    expect(exitEvents).toHaveLength(1);
+    expect(exitEvents[0]).toMatchObject({
+      reason: "context_exhausted_mid_loop",
+    });
+    // AND history ends at the tool result, not a final assistant message
+    expect(history[history.length - 1].role).toBe("user");
+  });
+
+  test("inline compaction is skipped when shouldCompact declines, and the checkpoint still runs", async () => {
+    // GIVEN a provider that requests one tool call and then finishes
+    const { provider, calls } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("Done"),
+    ]);
+    const toolExecutor = async () => ({ content: "data", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    // AND a strategy that never wants to compact
+    let compactCalled = false;
+    const compactionStrategy: CompactionStrategy = {
+      shouldCompact: () => false,
+      compact: async () => {
+        compactCalled = true;
+        return { ok: true, history: [] };
+      },
+    };
+    const checkpoints: CheckpointInfo[] = [];
+    const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
+      checkpoints.push(checkpoint);
+      return "continue";
+    };
+
+    // WHEN the loop runs with both a declining strategy and a checkpoint
+    const history = await loop.run([userMessage], () => {}, {
+      compactionStrategy,
+      onCheckpoint,
+    });
+
+    // THEN compaction never ran
+    expect(compactCalled).toBe(false);
+    // AND the checkpoint was still consulted after the tool turn
+    expect(checkpoints).toHaveLength(1);
+    // AND the turn completed normally
+    expect(calls).toHaveLength(2);
+    expect(history[history.length - 1].content).toEqual([
+      { type: "text", text: "Done" },
     ]);
   });
 

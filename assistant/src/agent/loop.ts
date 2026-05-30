@@ -69,6 +69,34 @@ export interface CheckpointInfo {
 export type CheckpointDecision = "continue" | "yield";
 
 /**
+ * Outcome of a mid-loop compaction attempt.
+ *
+ * `ok: true` carries the post-compaction history the loop continues from.
+ * `ok: false` signals the compactor could not bring the context back under
+ * budget (`exhausted`) or did not finish in time (`timeout`); the loop then
+ * terminates with `context_exhausted_mid_loop` and the orchestrator escalates
+ * to its more aggressive reducer tiers.
+ */
+export type CompactionOutcome =
+  | { ok: true; history: Message[] }
+  | { ok: false; reason: "exhausted" | "timeout" };
+
+/**
+ * Compaction the loop runs inline when context approaches the budget.
+ *
+ * Supplied by the orchestrator so the inner tool-use iteration — which is the
+ * natural compaction boundary — can compact in place and `continue` rather
+ * than unwinding to the orchestrator and re-entering a fresh `run()` (which
+ * would reset the loop's per-run counters). The loop stays ignorant of *how*
+ * compaction works (history stripping, summarization, runtime re-injection
+ * all live behind these two methods); it only decides *when* to ask.
+ */
+export interface CompactionStrategy {
+  shouldCompact(history: Message[]): boolean | Promise<boolean>;
+  compact(history: Message[]): Promise<CompactionOutcome>;
+}
+
+/**
  * Why an agent turn reached a terminal state.
  *
  * Emitted as part of an {@link AgentEvent} of type `agent_loop_exit`, then
@@ -111,6 +139,14 @@ export type AgentLoopExitReason =
    * leaving `agent_loop_exit_reason` NULL.
    */
   | "budget_yield_unrecovered"
+  /**
+   * Mid-loop compaction (via {@link CompactionStrategy}) could not bring the
+   * context back under budget — the compactor exhausted its internal retry
+   * budget or timed out. The loop terminates so the orchestrator can escalate
+   * to its more aggressive reducer tiers. Distinct from a non-terminal budget
+   * yield, which transfers control to the orchestrator and re-enters the loop.
+   */
+  | "context_exhausted_mid_loop"
   /** Provider stopped because the configured output-token limit was reached. */
   | "max_tokens_reached"
   /** User cancellation landed after a non-terminal checkpoint yield. */
@@ -384,6 +420,15 @@ export interface AgentLoopRunOptions {
   onCheckpoint?: (
     checkpoint: CheckpointInfo,
   ) => CheckpointDecision | Promise<CheckpointDecision>;
+  /**
+   * Optional inline compaction the loop runs when context approaches the
+   * budget. When supplied, the loop compacts in place at the tool-use
+   * iteration boundary and continues (preserving its per-run counters)
+   * instead of leaving budget handling to a post-`run()` orchestrator
+   * ceremony. When omitted, budget handling falls back to the orchestrator
+   * via {@link onCheckpoint} yielding.
+   */
+  compactionStrategy?: CompactionStrategy;
   callSite?: LLMCallSite;
   /**
    * Per-turn context supplied by the orchestrator. Every pipeline
@@ -528,6 +573,7 @@ export class AgentLoop {
       signal,
       requestId,
       onCheckpoint,
+      compactionStrategy,
       callSite,
       turnContext,
       overrideProfile,
@@ -536,8 +582,11 @@ export class AgentLoop {
       resolveEffectiveMaxInputTokens,
       mutableLatestUserMessage,
     } = options ?? {};
-    const history = [...messages];
-    const initialHistoryLength = messages.length;
+    let history = [...messages];
+    // Lower bound for "messages produced during this run" scans. Reset after
+    // a mid-loop compaction collapses `history` so the scan boundary tracks
+    // the post-compaction context rather than the original seed length.
+    let initialHistoryLength = messages.length;
     let toolUseTurns = 0;
     let consecutiveErrorTurns = 0;
     let emptyResponseRetries = 0;
@@ -1376,6 +1425,27 @@ export class AgentLoop {
 
         // Add tool results as a user message and continue the loop
         history.push({ role: "user", content: resultBlocks });
+
+        // Mid-loop compaction. The tool-use iteration boundary is the natural
+        // place to compact: tool results have just landed, so this is where
+        // context bloat accrues. Running it here — rather than yielding to the
+        // orchestrator and re-entering a fresh `run()` — keeps `toolUseTurns`,
+        // `consecutiveErrorTurns`, and `emptyResponseRetries` intact across the
+        // compaction. `shouldCompact` declines when a handoff is pending, so
+        // the handoff branch in `onCheckpoint` below retains priority.
+        if (
+          compactionStrategy &&
+          (await compactionStrategy.shouldCompact(history))
+        ) {
+          const outcome = await compactionStrategy.compact(history);
+          if (outcome.ok) {
+            history = outcome.history;
+            initialHistoryLength = history.length;
+            continue;
+          }
+          await emitExit("context_exhausted_mid_loop");
+          break;
+        }
 
         // Invoke checkpoint callback after tool results are in history.
         // The callback may be async — the mid-loop budget check delegates
