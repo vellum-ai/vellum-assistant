@@ -459,6 +459,128 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
   });
 
   // -----------------------------------------------------------------------
+  // mutableLatestUserMessage — volatile trailing user message cache anchor
+  // -----------------------------------------------------------------------
+  test("mutableLatestUserMessage: first-of-turn skips the volatile turn-start anchor and anchors the previous stable user message", async () => {
+    // The latest user message carries per-turn-volatile content (e.g. an
+    // injected memory block). The long-TTL anchor must move off it onto the
+    // most recent stable user message so the cached prefix stays reusable.
+    const messages: Message[] = [
+      userMsg("Turn 1"),
+      assistantMsg("Response 1"),
+      userMsg("Turn 2 (volatile)"),
+    ];
+    await provider.sendMessage(messages, {
+      config: { mutableLatestUserMessage: true },
+    });
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        text: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const userMessages = sent.filter((m) => m.role === "user");
+
+    // Latest (turn-start) user message gets NO long-TTL breakpoint — it's volatile.
+    const latest = userMessages[userMessages.length - 1];
+    for (const block of latest.content) {
+      expect(block.cache_control).toBeUndefined();
+    }
+
+    // Previous stable user message (Turn 1) becomes the primary anchor.
+    const prev = userMessages[userMessages.length - 2];
+    const prevLast = prev.content[prev.content.length - 1];
+    expect(prevLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
+  test("mutableLatestUserMessage absent: breakpoint placement is byte-identical to default behavior (v2 regression guard)", async () => {
+    const messages: Message[] = [
+      userMsg("Turn 1"),
+      assistantMsg("Response 1"),
+      userMsg("Turn 2"),
+    ];
+    await provider.sendMessage(messages);
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    const userMessages = sent.filter((m) => m.role === "user");
+
+    // Current-turn (latest) anchor keeps 1h.
+    const latest = userMessages[userMessages.length - 1];
+    const latestLast = latest.content[latest.content.length - 1];
+    expect(latestLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+    // Previous-turn anchor keeps 1h.
+    const prev = userMessages[userMessages.length - 2];
+    const prevLast = prev.content[prev.content.length - 1];
+    expect(prevLast.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
+  test("mutableLatestUserMessage: during a tool-use loop placement is unchanged (block is fixed within the turn)", async () => {
+    // Turn-start is not the last message (tool_result follows), so the
+    // turn-start block is fixed for the rest of the turn — the flag must not
+    // move the anchor.
+    const messages: Message[] = [
+      userMsg("Turn 1"),
+      assistantMsg("Response 1"),
+      userMsg("Turn 2"),
+      toolUseMsg("tu_1", "bash"),
+      toolResultMsg("tu_1", "output"),
+    ];
+    await provider.sendMessage(messages, {
+      config: { mutableLatestUserMessage: true },
+    });
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+
+    // Turn-start (Turn 2, index 2) still gets the 1h anchor — within a tool-use
+    // loop the block is fixed, so the volatile-latest flag must not move it.
+    const turn2 = sent[2];
+    const turn2Last = turn2.content[turn2.content.length - 1];
+    expect(turn2Last.cache_control).toEqual({ type: "ephemeral", ttl: "1h" });
+  });
+
+  test("mutableLatestUserMessage: first turn with no previous user message does not throw and applies no long-TTL anchor", async () => {
+    await provider.sendMessage([userMsg("First ever turn (volatile)")], {
+      config: { mutableLatestUserMessage: true },
+    });
+
+    const sent = lastStreamParams!.messages as Array<{
+      role: string;
+      content: Array<{
+        type: string;
+        cache_control?: { type: string; ttl?: string };
+      }>;
+    }>;
+    // Only user message is volatile and there is no prior stable one, so no
+    // long-TTL breakpoint lands on any user message — graceful, no throw.
+    const lastBlock = sent[0].content[sent[0].content.length - 1];
+    expect(lastBlock.cache_control).toBeUndefined();
+  });
+
+  test("mutableLatestUserMessage is not forwarded to the Anthropic API", async () => {
+    await provider.sendMessage([userMsg("Hi")], {
+      config: { mutableLatestUserMessage: true },
+    });
+    expect(
+      (lastStreamParams as Record<string, unknown>).mutableLatestUserMessage,
+    ).toBeUndefined();
+  });
+
+  // -----------------------------------------------------------------------
   // Negative: assistant messages never get cache_control
   // -----------------------------------------------------------------------
   test("assistant messages do not get cache_control", async () => {

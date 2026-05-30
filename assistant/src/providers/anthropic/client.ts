@@ -824,6 +824,13 @@ export class AnthropicProvider implements Provider {
     const disableTurnStartCache =
       (config as Record<string, unknown> | undefined)?.disableTurnStartCache ===
       true;
+    // When true, the latest user message carries per-turn-volatile content
+    // (e.g. an injected memory block), so the long-TTL anchor must skip it and
+    // land on the most recent stable user message instead. See the breakpoint
+    // block below.
+    const mutableLatestUserMessage =
+      (config as Record<string, unknown> | undefined)
+        ?.mutableLatestUserMessage === true;
     let sentMessages: Anthropic.MessageParam[] | undefined;
     const startedAt = Date.now();
     // Hoisted so the catch block can distinguish our inner stream timeout
@@ -1012,6 +1019,7 @@ export class AnthropicProvider implements Provider {
         output_config,
         cacheTtl: _cacheTtl,
         disableTurnStartCache: _disableTurnStartCache,
+        mutableLatestUserMessage: _mutableLatestUserMessage,
         max_tokens: callerMaxTokens,
         usageAttributionHeaders,
         ...restConfig
@@ -1142,7 +1150,21 @@ export class AnthropicProvider implements Provider {
         }
       };
       const turnStartIdx = findUserTextMsgIdx(msgs.length - 1);
-      if (turnStartIdx >= 0 && !disableTurnStartCache) {
+      // When the latest user message is volatile (`mutableLatestUserMessage`)
+      // and it is itself the turn-start (first-of-turn, no tool-use loop yet),
+      // skip the long-TTL anchor here — it would land on per-turn-varying
+      // content and never hit again. The previous-turn anchor below becomes the
+      // primary stable breakpoint. During tool-use loops (`turnStartIdx <
+      // msgs.length - 1`) the turn-start block is fixed within the turn, so
+      // behavior is unchanged. Independent from `disableTurnStartCache`, which
+      // expresses a different intent (one-shot callers with no future hit).
+      const skipVolatileTurnStartAnchor =
+        mutableLatestUserMessage && turnStartIdx === msgs.length - 1;
+      if (
+        turnStartIdx >= 0 &&
+        !disableTurnStartCache &&
+        !skipVolatileTurnStartAnchor
+      ) {
         applyCacheControlToLastBlock(turnStartIdx);
       }
 
