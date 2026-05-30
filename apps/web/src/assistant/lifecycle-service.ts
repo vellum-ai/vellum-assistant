@@ -124,6 +124,28 @@ class AssistantLifecycleService {
   }
 
   /**
+   * Synchronously drop the selection + lifecycle state. Called from
+   * `auth-store.logout()` before `isLoggedIn` flips, so subscribers
+   * to either store don't observe a stale id in their first
+   * re-render after logout. The `respondToInputs` `!isLoggedIn`
+   * branch is the safety net for cases where auth flips without
+   * going through the explicit logout call (e.g. token expiry
+   * detected by an interceptor and surfaced as a state change
+   * rather than an action).
+   *
+   * Guarded resets avoid spurious subscriber wake-ups when the
+   * stores are already at defaults.
+   */
+  resetForLogout(): void {
+    if (useAssistantSelectionStore.getState().activeAssistantId !== null) {
+      useAssistantSelectionStore.getState().setActiveAssistantId(null);
+    }
+    if (this.state.kind !== "loading") {
+      this.transition({ kind: "loading" });
+    }
+  }
+
+  /**
    * Reconcile against the current inputs — drives initial bootstrap
    * (post-login `checkAssistant`), logout reset, and the local-mode
    * branches. Safe to call on every input change.
@@ -131,16 +153,10 @@ class AssistantLifecycleService {
   async respondToInputs(): Promise<void> {
     if (!this.ready) return;
     if (!this.inputs.isLoggedIn || this.inputs.isLoading) {
-      // Logout / pre-auth boot. Drop selection + lifecycle state
-      // so a returning login doesn't observe the previous user's id.
-      // Guarded resets avoid spurious subscriber wake-ups when the
-      // stores are already at defaults.
-      if (useAssistantSelectionStore.getState().activeAssistantId !== null) {
-        useAssistantSelectionStore.getState().setActiveAssistantId(null);
-      }
-      if (this.state.kind !== "loading") {
-        this.transition({ kind: "loading" });
-      }
+      // Logout / pre-auth boot — same reset as `resetForLogout` but
+      // reachable from the input-driven path for token-expiry style
+      // flips that don't call `logout()` explicitly.
+      this.resetForLogout();
       return;
     }
 

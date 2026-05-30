@@ -13,6 +13,7 @@
  */
 import { create } from "zustand";
 
+import { lifecycleService } from "@/assistant/lifecycle-service";
 import { createSelectors } from "@/utils/create-selectors";
 
 import {
@@ -235,6 +236,11 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOnboardingFlags();
       clearOrganization();
       clearUserScopedStorage();
+      // Clear lifecycle state BEFORE flipping `isLoggedIn` so the
+      // assistant sync hooks don't observe a stale assistant id in
+      // their first re-render. The `respondToInputs` `!isLoggedIn`
+      // branch is the safety net for token-expiry-style flips.
+      lifecycleService.resetForLogout();
       set({ isLoggedIn: false, user: null, hasPlatformSession: false });
       broadcastAuthChange();
       return;
@@ -247,6 +253,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOnboardingFlags();
       clearOrganization();
       clearUserScopedStorage();
+      lifecycleService.resetForLogout();
       set({ isLoggedIn: false, user: null, hasPlatformSession: false });
       broadcastAuthChange();
     }

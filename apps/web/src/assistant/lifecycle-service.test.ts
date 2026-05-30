@@ -230,6 +230,38 @@ describe("lifecycleService — bootstrap branches", () => {
     });
   });
 
+  test("resetForLogout clears both stores synchronously without needing setInputs", async () => {
+    // Drive into active first via the normal flow.
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-prev",
+        status: "active",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+    expect(
+      useAssistantSelectionStore.getState().activeAssistantId,
+    ).toBe("asst-prev");
+
+    // Synchronous reset — no `await`, no input flip needed.
+    lifecycleService.resetForLogout();
+
+    expect(
+      useAssistantSelectionStore.getState().activeAssistantId,
+    ).toBeNull();
+    expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
+      kind: "loading",
+    });
+  });
+
   test("gateway-auth short-circuit writes active state without calling the server", async () => {
     isGatewayAuthModeMock.mockImplementation(() => true);
 
