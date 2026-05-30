@@ -698,16 +698,16 @@ type DebugWindow = Window & {
     chat?: unknown;
     events?: { getClients: unknown; getEvents: unknown };
     flags?: {
-      toggleTranscriptScrollController?: (v?: boolean) => boolean;
       impersonateVersion?: (v?: string | null) => string | null;
+      toggleProgressBadge?: (v?: boolean | null) => boolean;
     };
     other?: unknown;
   };
 };
 
 const makeFlagsApi = () => ({
-  toggleTranscriptScrollController: (_value?: boolean): boolean => false,
   impersonateVersion: (_value?: string | null): string | null => null,
+  toggleProgressBadge: (_value?: boolean | null): boolean => false,
 });
 
 describe("installVellumDebugApi", () => {
@@ -720,10 +720,8 @@ describe("installVellumDebugApi", () => {
     expect(root?.events).toBeDefined();
     expect(typeof root?.events?.getClients).toBe("function");
     expect(typeof root?.events?.getEvents).toBe("function");
-    expect(typeof root?.flags?.toggleTranscriptScrollController).toBe(
-      "function",
-    );
     expect(typeof root?.flags?.impersonateVersion).toBe("function");
+    expect(typeof root?.flags?.toggleProgressBadge).toBe("function");
     uninstall();
   });
 

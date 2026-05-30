@@ -5,6 +5,7 @@ import {
 } from "@/domains/chat/hooks/stream-message-updaters";
 import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import { patchConversation } from "@/utils/conversation-cache";
 import type { ConversationErrorEvent, StreamErrorEvent } from "@/types/event-types";
 
 
@@ -12,10 +13,16 @@ export function handleStreamError(
   event: StreamErrorEvent,
   ctx: StreamHandlerContext,
 ): void {
-  ctx.endTurn({
-    conversationId: ctx.streamContextRef.current?.conversationId,
-    reason: "error",
-  });
+  const convId = ctx.streamContextRef.current?.conversationId;
+  if (convId) {
+    // Mirrors the cache patch in `handleMessageComplete` — terminal
+    // errors must also clear the cached `isProcessing: true` snapshot
+    // so the OR derivation in chat-route-content can't latch.
+    patchConversation(ctx.queryClient, ctx.assistantIdRef.current, convId, {
+      isProcessing: false,
+    });
+  }
+  ctx.endTurn({ conversationId: convId, reason: "error" });
   ctx.setMessages((prev) => stopStreaming(prev));
   const detail =
     (event.code && ERROR_MESSAGES[event.code]) ||
@@ -41,10 +48,15 @@ export function handleConversationErrorEvent(
   // (which is a mirror that may be cleared by a stream teardown
   // racing the error event) — same fallback shape as the other
   // terminal handlers.
-  ctx.endTurn({
-    conversationId: event.conversationId ?? ctx.streamContextRef.current?.conversationId,
-    reason: "error",
-  });
+  const convId =
+    event.conversationId ?? ctx.streamContextRef.current?.conversationId;
+  if (convId) {
+    // See `handleStreamError` for the stale-snapshot rationale.
+    patchConversation(ctx.queryClient, ctx.assistantIdRef.current, convId, {
+      isProcessing: false,
+    });
+  }
+  ctx.endTurn({ conversationId: convId, reason: "error" });
 
   ctx.setMessages(handleConversationError);
 

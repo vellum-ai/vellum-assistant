@@ -56,6 +56,12 @@ import {
   conversationsQueryKey,
 } from "@/lib/sync/query-tags";
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+import {
+  findConversation,
+  getConversations,
+  patchConversation,
+  updateConversationsCache,
+} from "@/utils/conversation-cache";
 
 import {
   CONVERSATION_NOT_FOUND,
@@ -369,79 +375,15 @@ const EMPTY_GROUPS: ConversationGroup[] = [];
 // ---------------------------------------------------------------------------
 // Cache helpers — conversations
 //
-// These mutate the conversations query cache (a flat `Conversation[]`).
-// They are the domain-level "change this conversation locally" operations;
-// `queryClient.setQueryData` is implementation detail.
+// The low-level `Conversation[]` cache primitives (`updateConversationsCache`,
+// `findConversation`, `getConversations`, `patchConversation`) live in
+// `@/utils/conversation-cache` so the chat stream handlers can share them
+// without a cross-domain import. They're re-exported here so existing
+// conversations-domain consumers keep their import site. The domain-level
+// mutations below build on `updateConversationsCache`.
 // ---------------------------------------------------------------------------
 
-function updateConversationsCache(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  updater: (conversations: Conversation[]) => Conversation[],
-): void {
-  queryClient.setQueryData<Conversation[]>(
-    conversationsQueryKey(assistantId),
-    (prev) => {
-      const list = prev ?? [];
-      const next = updater(list);
-      if (next === list) return prev;
-      return next;
-    },
-  );
-}
-
-/**
- * Read a single conversation from the conversations query cache. Used by
- * imperative callers (send pipeline, attention tracking) that need the
- * current value without subscribing to re-renders.
- */
-export function findConversation(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  key: string,
-): Conversation | undefined {
-  const list =
-    queryClient.getQueryData<Conversation[]>(
-      conversationsQueryKey(assistantId),
-    ) ?? [];
-  return list.find((c) => c.conversationId === key);
-}
-
-/**
- * Read all conversations from the conversations query cache. Returns an
- * empty array when the query hasn't populated yet.
- */
-export function getConversations(
-  queryClient: QueryClient,
-  assistantId: string | null,
-): Conversation[] {
-  return (
-    queryClient.getQueryData<Conversation[]>(
-      conversationsQueryKey(assistantId),
-    ) ?? []
-  );
-}
-
-/**
- * Immutably patch the conversation matching `key`, leaving all others
- * untouched. No-op when the key is not in the cache.
- */
-export function patchConversation(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  key: string,
-  patch: Partial<Conversation>,
-): void {
-  updateConversationsCache(queryClient, assistantId, (conversations) => {
-    let changed = false;
-    const next = conversations.map((c) => {
-      if (c.conversationId !== key) return c;
-      changed = true;
-      return { ...c, ...patch };
-    });
-    return changed ? next : conversations;
-  });
-}
+export { findConversation, getConversations, patchConversation };
 
 /**
  * Mark the conversation as seen in the local cache. The matching server
