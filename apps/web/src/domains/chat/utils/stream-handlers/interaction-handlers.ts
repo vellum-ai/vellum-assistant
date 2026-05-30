@@ -2,7 +2,12 @@ import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import type { PendingConfirmationState } from "@/domains/chat/types";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { ConfirmationRequestEvent, ContactRequestEvent, QuestionRequestEvent, SecretRequestEvent } from "@/types/event-types";
+import type {
+  ConfirmationRequestEvent,
+  ContactRequestEvent,
+  QuestionRequestEvent,
+  SecretRequestEvent,
+} from "@vellumai/assistant-api";
 import { normalizeQuestionRequest } from "@/domains/chat/api/event-types";
 
 export function handleSecretRequest(
@@ -29,10 +34,6 @@ export function handleConfirmationRequest(
   ctx.turnActions.onConfirmationRequest();
   const confData: PendingConfirmationState = {
     requestId: event.requestId,
-    title: event.title,
-    description: event.description,
-    confirmLabel: event.confirmLabel,
-    denyLabel: event.denyLabel,
     toolName: event.toolName,
     riskLevel: event.riskLevel,
     riskReason: event.riskReason,
@@ -45,11 +46,16 @@ export function handleConfirmationRequest(
   };
   useInteractionStore.getState().showConfirmation(confData);
 
-  const result = attachConfirmationToToolCall(ctx.messagesRef.current, confData);
+  const result = attachConfirmationToToolCall(
+    ctx.messagesRef.current,
+    confData,
+  );
   ctx.setMessages(() => result.updatedMessages);
 
   if (result.attachedToolCallId) {
-    useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
+    useInteractionStore
+      .getState()
+      .setInlineConfirmationToolCallId(result.attachedToolCallId);
     ctx.confirmationToolCallMapRef.current.set(
       confData.requestId,
       result.attachedToolCallId,

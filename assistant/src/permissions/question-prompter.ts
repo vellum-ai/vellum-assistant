@@ -1,11 +1,11 @@
 import { v4 as uuid } from "uuid";
 
-import { getConfig } from "../config/loader.js";
 import type {
   QuestionOption,
-  QuestionRequest,
-  ServerMessage,
-} from "../daemon/message-protocol.js";
+  QuestionRequestEvent,
+} from "../api/events/question-request.js";
+import { getConfig } from "../config/loader.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -161,9 +161,7 @@ export interface QuestionBatchMetadata {
  * secret prompts, so they share the same idle-timeout knob.
  */
 export class QuestionPrompter {
-  constructor(
-    private deps: { broadcastMessage(msg: ServerMessage): void },
-  ) {}
+  constructor(private deps: { broadcastMessage(msg: ServerMessage): void }) {}
 
   async prompt(params: QuestionPromptParams): Promise<QuestionPromptResult> {
     const { conversationId, questions, toolUseId, signal } = params;
@@ -279,7 +277,7 @@ export class QuestionPrompter {
       // batched payload, and the flat fields mirror `questions[0]` for
       // backwards compat with clients that haven't adopted `questions[]`.
       const head = entries[0]!;
-      const msg: QuestionRequest = {
+      const msg: QuestionRequestEvent = {
         type: "question_request",
         requestId,
         questions: entries,

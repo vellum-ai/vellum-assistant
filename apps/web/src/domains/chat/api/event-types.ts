@@ -12,9 +12,9 @@ import type {
   AllowlistOption,
   DirectoryScopeOption,
   QuestionEntry,
+  QuestionRequestEvent,
   ScopeOption,
-} from "@/types/interaction-ui-types";
-import type { QuestionRequestEvent } from "@/types/event-types";
+} from "@vellumai/assistant-api";
 
 /** Data needed to render an inline permission prompt inside a ToolCallChip. */
 export interface PendingToolConfirmation {

@@ -220,10 +220,6 @@ export interface ConversationInfo {
   inferenceProfile?: string;
 }
 
-// `conversation_title_updated` is now the canonical
-// `ConversationTitleUpdatedEvent` defined in
-// `assistant/src/api/events/conversation-title-updated.ts` and imported above.
-
 /** Channel binding metadata exposed in conversation list APIs. */
 interface ChannelBinding {
   sourceChannel: ChannelId;
@@ -558,13 +554,6 @@ export interface ConversationErrorMessage {
    */
   profileName?: string;
 }
-
-// `conversation_list_invalidated` is now the canonical
-// `ConversationListInvalidatedEvent` defined in
-// `assistant/src/api/events/conversation-list-invalidated.ts` and imported
-// above. The `reason` enum (`ConversationListInvalidatedReason`) lives
-// there too; the one daemon consumer
-// (`runtime/sync/resource-sync-events.ts`) imports it directly.
 
 /** Server push — broadcast when a schedule creates a conversation. */
 export interface ScheduleConversationCreated {

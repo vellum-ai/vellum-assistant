@@ -2,12 +2,15 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { AssistantIdentity } from "@/assistant/identity";
 import type { Conversation } from "@/types/conversation-types";
 import type { AssistantEvent } from "@/types/event-types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type {
+  AllowlistOption,
+  DirectoryScopeOption,
+  ScopeOption,
+} from "@/types/interaction-ui-types";
 import type { PendingToolConfirmation } from "@/domains/chat/api/event-types";
 
 export const ERROR_MESSAGES: Record<string, string> = {
-  rate_limit_exceeded:
-    "Too many requests. Please wait a moment and try again.",
+  rate_limit_exceeded: "Too many requests. Please wait a moment and try again.",
   invalid_api_key:
     "The API key for this provider is invalid or expired. Please check your settings.",
 };
@@ -22,6 +25,11 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "disk_pressure_status_changed",
   "home_feed_updated",
   "relationship_state_updated",
+  // Workspace-scoped prompt — the `contacts/prompt` IPC route fires it
+  // from settings or skill flows that have no conversation binding, so
+  // the wire payload has no `conversationId` and the conversation gate
+  // would drop it.
+  "contact_request",
   // Subagent lifecycle events route by `subagentId` into the global subagent
   // store, not by the parent stream's `conversationId`. They carry
   // `parentConversationId` (spawn) or nothing (`subagent_status_changed`) at the
@@ -54,7 +62,9 @@ export function isConversationScopedStreamEvent(
   return !GLOBAL_STREAM_EVENT_TYPES.has(event.type);
 }
 
-export function hasPendingAssistantResponse(messages: DisplayMessage[]): boolean {
+export function hasPendingAssistantResponse(
+  messages: DisplayMessage[],
+): boolean {
   let lastNonQueuedUserIndex = -1;
 
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -77,9 +87,9 @@ const VOICE_ERROR_MESSAGES: Readonly<Record<string, string>> = {
     "Microphone is blocked in your browser settings. Click the lock icon in your address bar and allow microphone access, then reload.",
   "audio-capture":
     "No microphone detected. Connect a microphone and try again.",
-  "network":
+  network:
     "Speech recognition couldn\u2019t reach its service. Check your network and try again.",
-  "aborted": "Recording was interrupted. Try again.",
+  aborted: "Recording was interrupted. Try again.",
   "stt-not-configured":
     "Speech-to-text isn\u2019t set up for this assistant. Open Settings \u2192 Voice to choose a provider.",
   "stt-audio-rejected":
@@ -119,7 +129,9 @@ const BACKGROUND_CONVERSATION_SOURCES: ReadonlySet<string> = new Set([
 
 /** Whether a conversation should return to Background on unpin (macOS parity). */
 export function shouldReturnToBackground(c: Conversation): boolean {
-  return c.source !== undefined && BACKGROUND_CONVERSATION_SOURCES.has(c.source);
+  return (
+    c.source !== undefined && BACKGROUND_CONVERSATION_SOURCES.has(c.source)
+  );
 }
 
 // Shallow per-field equality check — used to skip re-renders when an identity
@@ -147,7 +159,10 @@ function applyConfirmationToToolCall(
   messageIndex: number,
   toolCallIndex: number,
   pending: PendingToolConfirmation,
-): { updatedMessages: DisplayMessage[]; attachedToolCallId: string | undefined } {
+): {
+  updatedMessages: DisplayMessage[];
+  attachedToolCallId: string | undefined;
+} {
   const msg = messages[messageIndex]!;
   const tc = msg.toolCalls![toolCallIndex]!;
   const updatedToolCalls = [...msg.toolCalls!];
@@ -182,7 +197,10 @@ export function attachConfirmationToToolCall(
     persistentDecisionsAllowed?: boolean;
     toolUseId?: string;
   },
-): { updatedMessages: DisplayMessage[]; attachedToolCallId: string | undefined } {
+): {
+  updatedMessages: DisplayMessage[];
+  attachedToolCallId: string | undefined;
+} {
   const { toolUseId, ...pendingFields } = conf;
   const pending: PendingToolConfirmation = pendingFields;
 

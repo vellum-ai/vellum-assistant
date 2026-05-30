@@ -1326,166 +1326,6 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("parses secret_request with all fields", () => {
-    const event = parseAssistantEvent({
-      type: "secret_request",
-      requestId: "req-1",
-      service: "github",
-      field: "token",
-      label: "GitHub Token",
-      description: "Enter your personal access token",
-      placeholder: "ghp_...",
-      allowOneTimeSend: true,
-    });
-    expect(event).toEqual({
-      type: "secret_request",
-      requestId: "req-1",
-      service: "github",
-      field: "token",
-      label: "GitHub Token",
-      description: "Enter your personal access token",
-      placeholder: "ghp_...",
-      allowOneTimeSend: true,
-    });
-  });
-
-  test("defaults secret_request requestId to empty string", () => {
-    const event = parseAssistantEvent({ type: "secret_request" });
-    expect(event).toEqual({
-      type: "secret_request",
-      requestId: "",
-      service: undefined,
-      field: undefined,
-      label: undefined,
-      description: undefined,
-      placeholder: undefined,
-      allowOneTimeSend: undefined,
-    });
-  });
-
-  describe("confirmation_request", () => {
-    test("parses confirmation_request with toolUseId", () => {
-      const event = parseAssistantEvent({
-        type: "confirmation_request",
-        requestId: "req-1",
-        title: "Allow file write?",
-        toolName: "write_file",
-        toolUseId: "tool-use-42",
-        riskLevel: "high",
-      });
-      expect(event).toEqual({
-        type: "confirmation_request",
-        requestId: "req-1",
-        title: "Allow file write?",
-        description: undefined,
-        confirmLabel: undefined,
-        denyLabel: undefined,
-        toolName: "write_file",
-        executionTarget: undefined,
-        riskLevel: "high",
-        riskReason: undefined,
-        allowlistOptions: undefined,
-        scopeOptions: undefined,
-        directoryScopeOptions: undefined,
-        persistentDecisionsAllowed: undefined,
-        input: undefined,
-        toolUseId: "tool-use-42",
-      });
-    });
-
-    test("parses confirmation_request without toolUseId", () => {
-      const event = parseAssistantEvent({
-        type: "confirmation_request",
-        requestId: "req-2",
-        title: "Allow shell command?",
-        toolName: "bash",
-      });
-      expect(event.type).toBe("confirmation_request");
-      if (event.type === "confirmation_request") {
-        expect(event.requestId).toBe("req-2");
-        expect(event.toolUseId).toBeUndefined();
-      }
-    });
-
-    test("ignores non-string toolUseId", () => {
-      const event = parseAssistantEvent({
-        type: "confirmation_request",
-        requestId: "req-3",
-        toolUseId: 12345,
-      });
-      expect(event.type).toBe("confirmation_request");
-      if (event.type === "confirmation_request") {
-        expect(event.toolUseId).toBeUndefined();
-      }
-    });
-
-    test("parses full confirmation_request with allowlist and scope options", () => {
-      const event = parseAssistantEvent({
-        type: "confirmation_request",
-        requestId: "req-full",
-        title: "Allow bash command?",
-        description: "ls -la /tmp",
-        confirmLabel: "Allow",
-        denyLabel: "Deny",
-        toolName: "bash",
-        executionTarget: "sandbox",
-        riskLevel: "medium",
-        riskReason: "Filesystem access",
-        toolUseId: "tool-use-99",
-        allowlistOptions: [
-          { pattern: "Bash(*)", label: "Allow all bash commands" },
-        ],
-        scopeOptions: [{ scope: "workspace", label: "Current workspace" }],
-        directoryScopeOptions: [{ scope: "/src", label: "Source directory" }],
-        persistentDecisionsAllowed: true,
-        input: { command: "ls -la /tmp" },
-      });
-      expect(event.type).toBe("confirmation_request");
-      if (event.type === "confirmation_request") {
-        expect(event.requestId).toBe("req-full");
-        expect(event.toolUseId).toBe("tool-use-99");
-        expect(event.allowlistOptions).toEqual([
-          { pattern: "Bash(*)", label: "Allow all bash commands" },
-        ]);
-        expect(event.scopeOptions).toEqual([
-          { scope: "workspace", label: "Current workspace" },
-        ]);
-        expect(event.directoryScopeOptions).toEqual([
-          { scope: "/src", label: "Source directory" },
-        ]);
-        expect(event.persistentDecisionsAllowed).toBe(true);
-        expect(event.input).toEqual({ command: "ls -la /tmp" });
-      }
-    });
-
-    test("defaults requestId to empty string when missing", () => {
-      const event = parseAssistantEvent({
-        type: "confirmation_request",
-        title: "Confirm?",
-      });
-      expect(event.type).toBe("confirmation_request");
-      if (event.type === "confirmation_request") {
-        expect(event.requestId).toBe("");
-      }
-    });
-
-    test("ignores non-array allowlistOptions and non-boolean persistentDecisionsAllowed", () => {
-      const event = parseAssistantEvent({
-        type: "confirmation_request",
-        requestId: "req-invalid",
-        allowlistOptions: "not-an-array",
-        persistentDecisionsAllowed: "yes",
-        input: [1, 2, 3],
-      });
-      expect(event.type).toBe("confirmation_request");
-      if (event.type === "confirmation_request") {
-        expect(event.allowlistOptions).toBeUndefined();
-        expect(event.persistentDecisionsAllowed).toBeUndefined();
-        expect(event.input).toBeUndefined();
-      }
-    });
-  });
-
   describe("tool_result", () => {
     test("maps riskAllowlistOptions → allowlistOptions (Minimatch save-path) and riskDirectoryScopeOptions → directoryScopeOptions", () => {
       const event = parseAssistantEvent({
@@ -1958,6 +1798,360 @@ describe("parseAssistantEvent", () => {
       conversationId: "conv-1",
     });
   });
+
+  // ---------------------------------------------------------------------
+  // secret_request (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses secret_request with all fields", () => {
+    const event = parseAssistantEvent({
+      type: "secret_request",
+      requestId: "sr-1",
+      service: "github",
+      field: "token",
+      label: "GitHub Token",
+      description: "Personal access token",
+      placeholder: "ghp_...",
+      conversationId: "conv-1",
+      purpose: "push",
+      allowedTools: ["bash"],
+      allowedDomains: ["github.com"],
+      allowOneTimeSend: true,
+    });
+    expect(event).toEqual({
+      type: "secret_request",
+      requestId: "sr-1",
+      service: "github",
+      field: "token",
+      label: "GitHub Token",
+      description: "Personal access token",
+      placeholder: "ghp_...",
+      conversationId: "conv-1",
+      purpose: "push",
+      allowedTools: ["bash"],
+      allowedDomains: ["github.com"],
+      allowOneTimeSend: true,
+    });
+  });
+
+  test("parses secret_request with required fields only", () => {
+    const event = parseAssistantEvent({
+      type: "secret_request",
+      requestId: "sr-2",
+      service: "openai",
+      field: "api_key",
+      label: "OpenAI API Key",
+    });
+    expect(event).toEqual({
+      type: "secret_request",
+      requestId: "sr-2",
+      service: "openai",
+      field: "api_key",
+      label: "OpenAI API Key",
+    });
+  });
+
+  test("returns unknown secret_request when service is missing", () => {
+    const data = {
+      type: "secret_request",
+      requestId: "sr-3",
+      field: "api_key",
+      label: "Missing service",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "secret_request",
+      data,
+    });
+  });
+
+  test("returns unknown secret_request when extra field is present", () => {
+    const data = {
+      type: "secret_request",
+      requestId: "sr-4",
+      service: "openai",
+      field: "api_key",
+      label: "Extra",
+      surpriseField: "boom",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "secret_request",
+      data,
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // confirmation_request (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses confirmation_request with all fields", () => {
+    const event = parseAssistantEvent({
+      type: "confirmation_request",
+      requestId: "cr-1",
+      toolName: "bash",
+      input: { command: "ls -la" },
+      riskLevel: "medium",
+      riskReason: "Filesystem read",
+      isContainerized: false,
+      executionTarget: "sandbox",
+      allowlistOptions: [
+        {
+          label: "Allow all bash",
+          description: "All commands",
+          pattern: "Bash(*)",
+        },
+      ],
+      scopeOptions: [{ label: "This workspace", scope: "workspace" }],
+      directoryScopeOptions: [{ label: "/src", scope: "/src" }],
+      diff: {
+        filePath: "/tmp/x",
+        oldContent: "a",
+        newContent: "b",
+        isNewFile: false,
+      },
+      conversationId: "conv-1",
+      persistentDecisionsAllowed: true,
+      toolUseId: "tu-1",
+      acpToolKind: "fs",
+      acpOptions: [{ optionId: "o1", name: "Allow once", kind: "allow_once" }],
+    });
+    expect(event).toEqual({
+      type: "confirmation_request",
+      requestId: "cr-1",
+      toolName: "bash",
+      input: { command: "ls -la" },
+      riskLevel: "medium",
+      riskReason: "Filesystem read",
+      isContainerized: false,
+      executionTarget: "sandbox",
+      allowlistOptions: [
+        {
+          label: "Allow all bash",
+          description: "All commands",
+          pattern: "Bash(*)",
+        },
+      ],
+      scopeOptions: [{ label: "This workspace", scope: "workspace" }],
+      directoryScopeOptions: [{ label: "/src", scope: "/src" }],
+      diff: {
+        filePath: "/tmp/x",
+        oldContent: "a",
+        newContent: "b",
+        isNewFile: false,
+      },
+      conversationId: "conv-1",
+      persistentDecisionsAllowed: true,
+      toolUseId: "tu-1",
+      acpToolKind: "fs",
+      acpOptions: [{ optionId: "o1", name: "Allow once", kind: "allow_once" }],
+    });
+  });
+
+  test("parses confirmation_request with required fields only", () => {
+    const event = parseAssistantEvent({
+      type: "confirmation_request",
+      requestId: "cr-2",
+      toolName: "write_file",
+      input: { path: "/tmp/y" },
+      riskLevel: "low",
+      allowlistOptions: [],
+      scopeOptions: [],
+    });
+    expect(event).toEqual({
+      type: "confirmation_request",
+      requestId: "cr-2",
+      toolName: "write_file",
+      input: { path: "/tmp/y" },
+      riskLevel: "low",
+      allowlistOptions: [],
+      scopeOptions: [],
+    });
+  });
+
+  test("returns unknown confirmation_request when toolName is missing", () => {
+    const data = {
+      type: "confirmation_request",
+      requestId: "cr-3",
+      input: {},
+      riskLevel: "low",
+      allowlistOptions: [],
+      scopeOptions: [],
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "confirmation_request",
+      data,
+    });
+  });
+
+  test("returns unknown confirmation_request when extra field is present", () => {
+    const data = {
+      type: "confirmation_request",
+      requestId: "cr-4",
+      toolName: "bash",
+      input: {},
+      riskLevel: "low",
+      allowlistOptions: [],
+      scopeOptions: [],
+      title: "Allow?",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "confirmation_request",
+      data,
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // contact_request (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses contact_request with all fields", () => {
+    const event = parseAssistantEvent({
+      type: "contact_request",
+      requestId: "ctc-1",
+      channel: "email",
+      placeholder: "you@example.com",
+      label: "Email",
+      description: "How can we reach you?",
+      role: "primary",
+    });
+    expect(event).toEqual({
+      type: "contact_request",
+      requestId: "ctc-1",
+      channel: "email",
+      placeholder: "you@example.com",
+      label: "Email",
+      description: "How can we reach you?",
+      role: "primary",
+    });
+  });
+
+  test("parses contact_request with required fields only", () => {
+    const event = parseAssistantEvent({
+      type: "contact_request",
+      requestId: "ctc-2",
+    });
+    expect(event).toEqual({
+      type: "contact_request",
+      requestId: "ctc-2",
+    });
+  });
+
+  test("returns unknown contact_request when requestId is missing", () => {
+    const data = { type: "contact_request", channel: "email" };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "contact_request",
+      data,
+    });
+  });
+
+  test("returns unknown contact_request when extra field is present", () => {
+    const data = {
+      type: "contact_request",
+      requestId: "ctc-3",
+      surpriseField: "boom",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "contact_request",
+      data,
+    });
+  });
+
+  // ---------------------------------------------------------------------
+  // question_request (schema-validated)
+  // ---------------------------------------------------------------------
+
+  test("parses question_request with all fields", () => {
+    const event = parseAssistantEvent({
+      type: "question_request",
+      requestId: "qr-1",
+      questions: [
+        {
+          id: "q1",
+          question: "Pick one",
+          description: "Choose carefully",
+          options: [{ id: "a", label: "A", description: "first" }],
+          freeTextPlaceholder: "or type",
+        },
+      ],
+      question: "Pick one",
+      description: "Choose carefully",
+      options: [{ id: "a", label: "A", description: "first" }],
+      freeTextPlaceholder: "or type",
+      conversationId: "conv-1",
+      toolUseId: "tu-1",
+    });
+    expect(event).toEqual({
+      type: "question_request",
+      requestId: "qr-1",
+      questions: [
+        {
+          id: "q1",
+          question: "Pick one",
+          description: "Choose carefully",
+          options: [{ id: "a", label: "A", description: "first" }],
+          freeTextPlaceholder: "or type",
+        },
+      ],
+      question: "Pick one",
+      description: "Choose carefully",
+      options: [{ id: "a", label: "A", description: "first" }],
+      freeTextPlaceholder: "or type",
+      conversationId: "conv-1",
+      toolUseId: "tu-1",
+    });
+  });
+
+  test("parses question_request with required fields only", () => {
+    const event = parseAssistantEvent({
+      type: "question_request",
+      requestId: "qr-2",
+      questions: [{ id: "q1", question: "Continue?", options: [] }],
+      question: "Continue?",
+      options: [],
+    });
+    expect(event).toEqual({
+      type: "question_request",
+      requestId: "qr-2",
+      questions: [{ id: "q1", question: "Continue?", options: [] }],
+      question: "Continue?",
+      options: [],
+    });
+  });
+
+  test("returns unknown question_request when questions array is missing", () => {
+    const data = {
+      type: "question_request",
+      requestId: "qr-3",
+      question: "Continue?",
+      options: [],
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "question_request",
+      data,
+    });
+  });
+
+  test("returns unknown question_request when extra field is present", () => {
+    const data = {
+      type: "question_request",
+      requestId: "qr-4",
+      questions: [{ id: "q1", question: "?", options: [] }],
+      question: "?",
+      options: [],
+      surpriseField: "boom",
+    };
+    expect(parseAssistantEvent(data)).toEqual({
+      type: "unknown",
+      rawType: "question_request",
+      data,
+    });
+  });
 });
 
 describe("envelope format parsing", () => {
@@ -2202,5 +2396,3 @@ describe("RuntimeMessage metadata types", () => {
     expect(msg.metadata).toEqual({ source: "test" });
   });
 });
-
-

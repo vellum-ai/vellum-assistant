@@ -20,9 +20,9 @@ import type { SyncChangedEvent } from "@/lib/sync/types";
 import type {
   AllowlistOption,
   DirectoryScopeOption,
-  QuestionEntry,
-  QuestionOption,
   ScopeOption,
+} from "@vellumai/assistant-api";
+import type {
   SubagentInnerEvent,
   SubagentStatus,
 } from "@/types/interaction-ui-types";
@@ -39,70 +39,8 @@ export interface StreamErrorEvent {
   conversationId?: string;
 }
 
-export interface SecretRequestEvent {
-  type: "secret_request";
-  requestId: string;
-  service?: string;
-  field?: string;
-  label?: string;
-  description?: string;
-  placeholder?: string;
-  allowOneTimeSend?: boolean;
-  allowedTools?: string[];
-  allowedDomains?: string[];
-  purpose?: string;
-  conversationId?: string;
-}
-
 /** Valid decisions accepted by the assistant runtime's POST /v1/confirm endpoint. */
 export type ConfirmationDecision = "allow" | "deny";
-
-export interface ConfirmationRequestEvent {
-  type: "confirmation_request";
-  requestId: string;
-  title?: string;
-  description?: string;
-  confirmLabel?: string;
-  denyLabel?: string;
-  conversationId?: string;
-  toolName?: string;
-  executionTarget?: string;
-  riskLevel?: string;
-  riskReason?: string;
-  allowlistOptions?: AllowlistOption[];
-  scopeOptions?: ScopeOption[];
-  directoryScopeOptions?: DirectoryScopeOption[];
-  persistentDecisionsAllowed?: boolean;
-  input?: Record<string, unknown>;
-  toolUseId?: string;
-}
-
-export interface ContactRequestEvent {
-  type: "contact_request";
-  requestId: string;
-  /** Suggested channel type hint (e.g. "phone", "email", "telegram"). */
-  channel?: string;
-  placeholder?: string;
-  label?: string;
-  description?: string;
-  /** Suggested role for the new contact. */
-  role?: string;
-  conversationId?: string;
-}
-
-export interface QuestionRequestEvent {
-  type: "question_request";
-  requestId: string;
-  /** New shape — present when the daemon ships the batched-questions PR. */
-  questions?: QuestionEntry[];
-  /** Legacy flat fields — still emitted by older daemons. */
-  question?: string;
-  description?: string;
-  options?: QuestionOption[];
-  freeTextPlaceholder?: string;
-  conversationId?: string;
-  toolUseId?: string;
-}
 
 export interface UISurfaceShowEvent {
   type: "ui_surface_show";
@@ -437,10 +375,6 @@ export const USER_FACING_INTERACTION_KINDS: ReadonlySet<string> =
 export type AssistantEvent =
   | APIAssistantEvent
   | StreamErrorEvent
-  | SecretRequestEvent
-  | ConfirmationRequestEvent
-  | ContactRequestEvent
-  | QuestionRequestEvent
   | UISurfaceShowEvent
   | UISurfaceUpdateEvent
   | UISurfaceDismissEvent

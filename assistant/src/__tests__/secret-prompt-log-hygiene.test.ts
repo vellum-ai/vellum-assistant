@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  SecretRequest,
-  ServerMessage,
-} from "../daemon/message-protocol.js";
+import type { SecretRequestEvent } from "../api/events/secret-request.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 
 // Capture all logger calls so we can verify secret values never appear
 const logCalls: Array<{ level: string; args: unknown[] }> = [];
@@ -43,7 +41,11 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 const _piStore = new Map<string, object>();
 mock.module("../runtime/pending-interactions.js", () => ({
   register: (id: string, entry: object) => _piStore.set(id, entry),
-  resolve: (id: string) => { const e = _piStore.get(id); _piStore.delete(id); return e; },
+  resolve: (id: string) => {
+    const e = _piStore.get(id);
+    _piStore.delete(id);
+    return e;
+  },
   get: (id: string) => _piStore.get(id),
   getAll: () => [..._piStore.values()],
   getByConversation: () => [],
@@ -83,7 +85,7 @@ describe("secret prompt log hygiene", () => {
   test("resolveSecret never logs the secret value", async () => {
     const secret = "sv42";
     const promise = prompter.prompt("myservice", "apikey", "API Key");
-    const requestId = (broadcastedMessages[0] as SecretRequest).requestId;
+    const requestId = (broadcastedMessages[0] as SecretRequestEvent).requestId;
     prompter.resolveSecret(requestId, secret, "store");
     const result = await promise;
 
@@ -124,7 +126,9 @@ describe("secret prompt log hygiene", () => {
 
   test("sent message contains value=undefined (value flows through event, not logs)", async () => {
     const promise = prompter.prompt("svc", "tok", "Token");
-    const msg = broadcastedMessages[0] as SecretRequest & { value?: unknown };
+    const msg = broadcastedMessages[0] as SecretRequestEvent & {
+      value?: unknown;
+    };
     // The message should NOT contain a value field
     expect(msg.value).toBeUndefined();
     prompter.resolveSecret(msg.requestId, undefined);

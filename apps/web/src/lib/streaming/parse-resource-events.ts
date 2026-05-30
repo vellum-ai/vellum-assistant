@@ -27,22 +27,13 @@ export function parseSyncChanged(
     return unknownEvent("sync_changed", data);
   }
   const rawOriginClientId =
-    typeof data.originClientId === "string"
-      ? data.originClientId.trim()
-      : "";
+    typeof data.originClientId === "string" ? data.originClientId.trim() : "";
   return {
     type: "sync_changed",
     tags: tags as SyncInvalidationTag[],
     ...(rawOriginClientId ? { originClientId: rawOriginClientId } : {}),
   };
 }
-
-// `identity_changed`, `avatar_updated`, `conversation_title_updated`, and
-// `conversation_list_invalidated` are now schema-validated via canonical
-// schemas in `@vellumai/assistant-api`. The legacy parser functions
-// previously here are gone — `event-parser.ts` no longer dispatches
-// these cases; `parseAssistantEvent` resolves them through
-// `AssistantEventSchema` before reaching the legacy switch.
 
 export function parseNotificationIntent(
   data: Record<string, unknown>,
@@ -81,28 +72,21 @@ export function parseDiskPressureStatusChanged(
   return {
     type: "disk_pressure_status_changed",
     status: parseDiskPressureStatus(
-      Object.prototype.hasOwnProperty.call(data, "status")
-        ? data.status
-        : data,
+      Object.prototype.hasOwnProperty.call(data, "status") ? data.status : data,
     ),
     conversationId:
-      typeof data.conversationId === "string"
-        ? data.conversationId
-        : undefined,
+      typeof data.conversationId === "string" ? data.conversationId : undefined,
   };
 }
 
 export function parseDocumentEditorUpdate(
   data: Record<string, unknown>,
 ): AssistantEvent {
-  const surfaceId =
-    typeof data.surfaceId === "string" ? data.surfaceId : "";
+  const surfaceId = typeof data.surfaceId === "string" ? data.surfaceId : "";
   const markdown = typeof data.markdown === "string" ? data.markdown : "";
   const mode = typeof data.mode === "string" ? data.mode : "replace";
   const conversationId =
-    typeof data.conversationId === "string"
-      ? data.conversationId
-      : undefined;
+    typeof data.conversationId === "string" ? data.conversationId : undefined;
   if (!surfaceId) {
     return unknownEvent("document_editor_update", data);
   }

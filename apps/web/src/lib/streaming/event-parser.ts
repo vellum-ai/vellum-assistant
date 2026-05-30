@@ -8,7 +8,6 @@
  * coercion for legacy events not yet covered by a schema.
  *
  * Legacy coercion is split across focused sub-modules by event group:
- *   - `parse-interaction-events` — user-facing prompts
  *   - `parse-tool-events`        — tool execution lifecycle
  *   - `parse-surface-events`     — daemon-driven UI surfaces
  *   - `parse-subagent-events`    — subagent orchestration
@@ -27,12 +26,6 @@ import type {
 import { AssistantEventSchema } from "@vellumai/assistant-api";
 import { unknownEvent } from "@/lib/streaming/parse-helpers";
 
-import {
-  parseSecretRequest,
-  parseConfirmationRequest,
-  parseContactRequest,
-  parseQuestionRequest,
-} from "@/lib/streaming/parse-interaction-events";
 import {
   parseToolUseStart,
   parseToolResult,
@@ -141,16 +134,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
   const rawType = typeof data.type === "string" ? data.type : "";
 
   switch (rawType) {
-    // --- Interaction prompts ---
-    case "secret_request":
-      return parseSecretRequest(data);
-    case "confirmation_request":
-      return parseConfirmationRequest(data);
-    case "contact_request":
-      return parseContactRequest(data);
-    case "question_request":
-      return parseQuestionRequest(data);
-
     // --- Tool execution lifecycle ---
     case "tool_use_start":
       return parseToolUseStart(data);

@@ -29,9 +29,6 @@ export interface ClientSettingsUpdate {
   value: string;
 }
 
-// `avatar_updated` is now the canonical `AvatarUpdatedEvent` defined in
-// `assistant/src/api/events/avatar-updated.ts` and imported above.
-
 /** Sent by the daemon when workspace config.json changes on disk. */
 export interface ConfigChanged {
   type: "config_changed";
