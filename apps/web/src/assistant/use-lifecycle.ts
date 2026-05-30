@@ -105,7 +105,9 @@ export function useAssistantLifecycle({
     useAssistantLifecycleStore.use.setAssistantState();
   const registerImperativeActions =
     useAssistantLifecycleStore.use.registerImperativeActions();
-  const assistantStateKind = useAssistantLifecycleStore.use.assistantState().kind;
+  const assistantStateKind = useAssistantLifecycleStore(
+    (s) => s.assistantState.kind,
+  );
   // The active assistant id lives in `useAssistantSelectionStore` so
   // cross-domain consumers (RootLayout sync hooks, page routes)
   // subscribe via atomic selectors. The hook drives the writes; readers

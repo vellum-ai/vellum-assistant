@@ -2,7 +2,6 @@ import * as Sentry from "@sentry/react";
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -20,7 +19,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
-import type { ChatLayoutContextValue } from "@/components/layout/chat-layout-context";
+import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -142,20 +141,20 @@ interface SideMenuRenderArgs {
 /**
  * Chat-specific layout route providing sidebar rail, mobile drawer,
  * keyboard shortcuts (Ctrl+\, Ctrl+K, Ctrl+[/]), and the chat header
- * bar. Reads the resolved assistant from `useAssistantSelectionStore`
- * and the lifecycle phase from `useAssistantLifecycleStore`. Exposes
- * header-slot setters (`ChatLayoutContextValue`) to child routes via
- * outlet context.
+ * bar. Reads the resolved assistant from `useAssistantSelectionStore`,
+ * the lifecycle phase from `useAssistantLifecycleStore`, and header
+ * slot content from `useChatLayoutSlotsStore` (which child routes
+ * write to from their own effects).
  *
  * @see https://reactrouter.com/start/data/routing
- * @see https://reactrouter.com/start/framework/outlet
  */
 export function ChatLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
-  const assistantStateKind =
-    useAssistantLifecycleStore.use.assistantState().kind;
+  const assistantStateKind = useAssistantLifecycleStore(
+    (s) => s.assistantState.kind,
+  );
   const isAssistantActive = assistantStateKind === "active";
 
   // Subscribe to the sidebar conversation list at the layout level so every
@@ -227,26 +226,17 @@ export function ChatLayout() {
   // `./hooks/use-electron-dock-sync.ts`.
   useElectronDockSync(conversations);
 
-  // --- Layout slot state for child route content ---
-  const [topBarCenter, setTopBarCenter] = useState<ReactNode>(null);
-  const [topBarRightSlot, setTopBarRightSlot] = useState<ReactNode>(null);
-  const onSearchClickRef = useRef<(() => void) | null>(null);
-  const setOnSearchClick = useCallback((cb: (() => void) | null) => {
-    onSearchClickRef.current = cb;
-  }, []);
+  // Header slots come from a module-level store so gated routes
+  // (which see `ActiveAssistantGate`'s `<Outlet />` as their
+  // nearest outlet) can register content without the lost-Provider
+  // problem outlet context has across intermediate routes.
+  const topBarCenter = useChatLayoutSlotsStore.use.topBarCenter();
+  const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
+  const onSearchClick = useChatLayoutSlotsStore.use.onSearchClick();
 
   // --- Assistant identity from store (written by ChatPage) ---
   const assistantName = useAssistantIdentityStore.use.name();
   const assistantVersion = useAssistantIdentityStore.use.version();
-
-  const chatLayoutContext = useMemo<ChatLayoutContextValue>(
-    () => ({
-      setTopBarCenter,
-      setTopBarRightSlot,
-      setOnSearchClick,
-    }),
-    [setOnSearchClick],
-  );
 
   // --- History tracking for back/forward nav ---
   const historyIndexRef = useRef(0);
@@ -648,14 +638,14 @@ export function ChatLayout() {
         onOpenHome={handleOpenHome}
         isHomeActive={isHomeActive}
         hasUnreadHome={hasUnreadHome}
-        onSearchClick={() => onSearchClickRef.current?.()}
+        onSearchClick={onSearchClick ?? undefined}
       />
 
       <OfflineBanner />
 
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
-          <Outlet context={chatLayoutContext} />
+          <Outlet  />
           {drawerVisible ? (
             <div
               ref={drawerRef}
@@ -684,7 +674,7 @@ export function ChatLayout() {
                   collapsed: false,
                   variant: "overlay",
                   onClose: () => setDrawerOpen(false),
-                  onSearch: () => onSearchClickRef.current?.(),
+                  onSearch: onSearchClick ?? undefined,
                 })}
               </aside>
             </div>
@@ -697,10 +687,10 @@ export function ChatLayout() {
             className="shrink-0"
             aria-label="Navigation"
           >
-            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange, onSearch: () => onSearchClickRef.current?.() })}
+            {renderSideMenu({ collapsed, variant: "rail", width: sidebarWidth, onWidthChange: handleSidebarWidthChange, onSearch: onSearchClick ?? undefined })}
           </aside>
           <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
-            <Outlet context={chatLayoutContext} />
+            <Outlet  />
           </main>
         </div>
       )}

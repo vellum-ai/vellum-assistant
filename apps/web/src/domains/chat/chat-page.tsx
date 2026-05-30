@@ -22,7 +22,7 @@ import * as Sentry from "@sentry/react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAuthStore } from "@/stores/auth-store";
-import { useChatLayoutContext } from "@/components/layout/chat-layout-context";
+import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -159,15 +159,21 @@ export function ChatPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
-  const { setTopBarCenter, setTopBarRightSlot, setOnSearchClick } =
-    useChatLayoutContext();
+  const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
+  const setTopBarRightSlot =
+    useChatLayoutSlotsStore.use.setTopBarRightSlot();
+  const setOnSearchClick = useChatLayoutSlotsStore.use.setOnSearchClick();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
-  // Imperative callbacks are stable refs registered by `useAssistantLifecycle`
-  // on mount; read once at the top of the render body via atomic selector.
-  const checkAssistant = useAssistantLifecycleStore.use.checkAssistant();
-  const retryAssistant = useAssistantLifecycleStore.use.retryAssistant();
-  const hatchVersion = useAssistantLifecycleStore.use.hatchVersion();
+  // Imperative callbacks are stable after `useAssistantLifecycle`'s
+  // register-actions effect runs in `RootLayout`; we read once at
+  // render time rather than subscribing — the identity doesn't flip
+  // in practice and consumers shouldn't re-render if it ever did.
+  const checkAssistant =
+    useAssistantLifecycleStore.getState().checkAssistant;
+  const retryAssistant =
+    useAssistantLifecycleStore.getState().retryAssistant;
+  const hatchVersion = useAssistantLifecycleStore.getState().hatchVersion;
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const doctor = useClientFeatureFlagStore.use.doctor();

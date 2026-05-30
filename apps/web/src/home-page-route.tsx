@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 
 import { Typography } from "@vellum/design-library";
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { useChatLayoutContext } from "@/components/layout/chat-layout-context";
+import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationListQuery } from "@/domains/conversations/conversation-queries";
@@ -16,7 +16,7 @@ import { routes } from "@/utils/routes";
 export function HomePageRoute() {
   const navigate = useNavigate();
   const assistantId = useActiveAssistantId();
-  const { setTopBarCenter } = useChatLayoutContext();
+  const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
   const isMobile = useIsMobile();
   const { conversations } = useConversationListQuery(assistantId);
   const validConversationIds = useMemo(

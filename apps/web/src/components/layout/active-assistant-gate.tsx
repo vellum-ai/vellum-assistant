@@ -30,8 +30,9 @@ import { useAssistantSelectionStore } from "@/assistant/selection-store";
  */
 export function ActiveAssistantGate() {
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
-  const assistantStateKind =
-    useAssistantLifecycleStore.use.assistantState().kind;
+  const assistantStateKind = useAssistantLifecycleStore(
+    (s) => s.assistantState.kind,
+  );
 
   if (!assistantId || assistantStateKind !== "active") {
     return <ActiveAssistantPlaceholder />;

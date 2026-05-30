@@ -105,7 +105,10 @@ export function PreChatFlow() {
   const firstName = user?.firstName ?? "";
   const lastName = user?.lastName ?? "";
   const isNative = useIsNativePlatform();
-  const checkAssistant = useAssistantLifecycleStore.use.checkAssistant();
+  // Stable callback registered by `useAssistantLifecycle` on mount —
+  // read via `.getState()` to skip the unnecessary subscription.
+  const checkAssistant =
+    useAssistantLifecycleStore.getState().checkAssistant;
   const activeAssistantId =
     useAssistantSelectionStore.use.activeAssistantId();
   const [, setOnboardingCompleted] = useOnboardingCompleted();

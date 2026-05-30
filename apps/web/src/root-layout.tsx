@@ -69,8 +69,9 @@ export function RootLayout() {
   });
 
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
-  const assistantStateKind =
-    useAssistantLifecycleStore.use.assistantState().kind;
+  const assistantStateKind = useAssistantLifecycleStore(
+    (s) => s.assistantState.kind,
+  );
   const isAssistantActive = assistantStateKind === "active";
   useAssistantFeatureFlagSync(hasPlatformSession ? assistantId : null);
   useAssistantResourceSync(assistantId, isAssistantActive);

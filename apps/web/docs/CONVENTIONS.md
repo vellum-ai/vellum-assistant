@@ -65,19 +65,23 @@ context provider mounted in `<App />`.
 
 `ChatLayout` owns a shared `ChatLayoutHeader` that renders on every
 child route (home, chat, library, identity, etc.). Child routes
-populate the header's center and right sections via
-`setTopBarCenter` / `setTopBarRightSlot` from
-`useChatLayoutContext()` (the chat-layout outlet context — its
-sole remaining job after assistant lifecycle moved to Zustand
-stores). Register content in a `useEffect` and clear it on unmount:
+populate the header's center and right sections via the
+`useChatLayoutSlotsStore` setters. Register content in a `useEffect`
+and clear it on unmount:
 
 ```ts
-const { setTopBarCenter } = useChatLayoutContext();
+const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
 useEffect(() => {
   setTopBarCenter(<span>Page Title</span>);
   return () => { setTopBarCenter(null); };
 }, [setTopBarCenter]);
 ```
+
+A Zustand store rather than outlet context because `ActiveAssistantGate`
+sits between `ChatLayout` and gated routes — outlet context value
+flowing through an intermediate `<Outlet />` resolves to `undefined`
+([React Router source](https://github.com/remix-run/react-router/blob/main/packages/react-router/lib/hooks.tsx)
+wraps every `<Outlet>` in its own `OutletContext.Provider`).
 
 Every child route under `ChatLayout` should register its title this
 way. Without it the header center is empty, which is especially

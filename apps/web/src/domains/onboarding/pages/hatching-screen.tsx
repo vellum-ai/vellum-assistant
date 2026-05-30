@@ -112,7 +112,10 @@ export function HatchingScreen() {
   const userId = useAuthStore.use.user()?.id ?? null;
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isAuthLoading = useAuthStore.use.isLoading();
-  const checkAssistant = useAssistantLifecycleStore.use.checkAssistant();
+  // Stable callback registered by `useAssistantLifecycle` on mount —
+  // read via `.getState()` to skip the unnecessary subscription.
+  const checkAssistant =
+    useAssistantLifecycleStore.getState().checkAssistant;
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [hatchTraits] = useState<CharacterTraits>(() =>
     randomCharacterTraits(BUNDLED_COMPONENTS),
