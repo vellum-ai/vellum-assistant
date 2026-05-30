@@ -15,14 +15,13 @@
  * please tell me everything that's wrong".
  *
  * The step never mutates the database. If corruption is found the step
- * returns a non-halting error — subsequent steps (conversation backfill,
- * etc.) may still produce useful work even on a partially-corrupt DB.
+ * returns a non-halting error — subsequent steps may still produce useful
+ * work even on a partially-corrupt DB.
  */
 
 import { Database } from "bun:sqlite";
 
 import type { RepairContext, RepairStep, StepResult } from "./repair-steps.js";
-import { withDb } from "./repair-steps.js";
 
 /**
  * Maximum number of corruption error lines to surface in the human output
@@ -33,76 +32,95 @@ import { withDb } from "./repair-steps.js";
 const MAX_REPORTED_ERROR_LINES = 20;
 
 async function runIntegrityCheck(ctx: RepairContext): Promise<StepResult> {
-  return withDb<StepResult>(
-    () => new Database(ctx.dbPath, { readonly: true }),
-    async (db) => {
-      // `PRAGMA integrity_check` returns rows of a single TEXT column also
-      // named `integrity_check`. When the DB is healthy this is exactly one
-      // row whose value is the literal "ok"; any other shape means errors.
-      //
-      // Severely corrupted DBs (header damaged, b-tree root unreadable)
-      // can cause the pragma itself to throw "database disk image is
-      // malformed" before yielding any rows. We catch that and surface it
-      // as the corruption signal it actually is — it's not a bug in the
-      // step, it's the DB telling us it's structurally invalid.
-      let messages: string[];
-      try {
-        const rows = db
-          .query<{ integrity_check: string }, []>("PRAGMA integrity_check")
-          .all();
-        messages = rows.map((r) => r.integrity_check);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const pageCount = safePageCount(db);
-        return {
-          status: "error",
-          summary: "database is too corrupt to complete integrity check",
-          detailLines: [
-            msg,
-            `page count: ${pageCount.toLocaleString("en-US")}`,
-          ],
-          data: {
-            pageCount,
-            errorCount: 1,
-            errors: [msg],
-            checkFailed: true,
-          },
-        };
-      }
+  // Open-failure (file unreadable, file is a directory, header so corrupt
+  // SQLite refuses to attach) needs to surface as a normal step error, not
+  // get caught by the runner's generic "step threw — this is a bug"
+  // fallback. Catch the constructor failure and convert it into a
+  // structured diagnostic.
+  let db: Database;
+  try {
+    db = new Database(ctx.dbPath, { readonly: true });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      status: "error",
+      summary: "could not open database for integrity check",
+      detailLines: [msg],
+      data: {
+        pageCount: 0,
+        errorCount: 1,
+        errors: [msg],
+        openFailed: true,
+      },
+    };
+  }
 
-      const healthy = messages.length === 1 && messages[0] === "ok";
+  try {
+    // `PRAGMA integrity_check` returns rows of a single TEXT column also
+    // named `integrity_check`. When the DB is healthy this is exactly one
+    // row whose value is the literal "ok"; any other shape means errors.
+    //
+    // Severely corrupted DBs (header damaged, b-tree root unreadable) can
+    // cause the pragma itself to throw "database disk image is malformed"
+    // before yielding any rows. Catch that and surface it as the
+    // corruption signal it actually is — not a step bug, the DB telling
+    // us it's structurally invalid.
+    let messages: string[];
+    try {
+      const rows = db
+        .query<{ integrity_check: string }, []>("PRAGMA integrity_check")
+        .all();
+      messages = rows.map((r) => r.integrity_check);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       const pageCount = safePageCount(db);
-
-      if (healthy) {
-        return {
-          status: "ok",
-          summary: "no corruption detected",
-          detailLines: [`scanned ${pageCount.toLocaleString("en-US")} pages`],
-          data: { pageCount, errorCount: 0 },
-        };
-      }
-
-      const truncated = messages.slice(0, MAX_REPORTED_ERROR_LINES);
-      const detailLines =
-        messages.length > MAX_REPORTED_ERROR_LINES
-          ? [
-              ...truncated,
-              `+ ${messages.length - MAX_REPORTED_ERROR_LINES} more (use --json for full list)`,
-            ]
-          : truncated;
-
       return {
         status: "error",
-        summary: `${messages.length} integrity violation${messages.length === 1 ? "" : "s"} reported`,
-        detailLines,
+        summary: "database is too corrupt to complete integrity check",
+        detailLines: [msg, `page count: ${pageCount.toLocaleString("en-US")}`],
         data: {
           pageCount,
-          errorCount: messages.length,
-          errors: messages,
+          errorCount: 1,
+          errors: [msg],
+          checkFailed: true,
         },
       };
-    },
-  );
+    }
+
+    const healthy = messages.length === 1 && messages[0] === "ok";
+    const pageCount = safePageCount(db);
+
+    if (healthy) {
+      return {
+        status: "ok",
+        summary: "no corruption detected",
+        detailLines: [`scanned ${pageCount.toLocaleString("en-US")} pages`],
+        data: { pageCount, errorCount: 0 },
+      };
+    }
+
+    const truncated = messages.slice(0, MAX_REPORTED_ERROR_LINES);
+    const detailLines =
+      messages.length > MAX_REPORTED_ERROR_LINES
+        ? [
+            ...truncated,
+            `+ ${messages.length - MAX_REPORTED_ERROR_LINES} more (use --json for full list)`,
+          ]
+        : truncated;
+
+    return {
+      status: "error",
+      summary: `${messages.length} integrity violation${messages.length === 1 ? "" : "s"} reported`,
+      detailLines,
+      data: {
+        pageCount,
+        errorCount: messages.length,
+        errors: messages,
+      },
+    };
+  } finally {
+    db.close();
+  }
 }
 
 /**
@@ -110,7 +128,7 @@ async function runIntegrityCheck(ctx: RepairContext): Promise<StepResult> {
  * from the header), but on truly malformed files it can throw too. Wrap
  * it so the integrity step always has a number to report.
  */
-function safePageCount(db: import("bun:sqlite").Database): number {
+function safePageCount(db: Database): number {
   try {
     return (
       db.query<{ page_count: number }, []>("PRAGMA page_count").get()
