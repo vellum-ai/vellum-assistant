@@ -5,7 +5,7 @@ import type {
   QuestionRequestEvent,
 } from "../api/events/question-request.js";
 import { getConfig } from "../config/loader.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
@@ -161,7 +161,6 @@ export interface QuestionBatchMetadata {
  * secret prompts, so they share the same idle-timeout knob.
  */
 export class QuestionPrompter {
-  constructor(private deps: { broadcastMessage(msg: ServerMessage): void }) {}
 
   async prompt(params: QuestionPromptParams): Promise<QuestionPromptResult> {
     const { conversationId, questions, toolUseId, signal } = params;
@@ -289,7 +288,7 @@ export class QuestionPrompter {
         toolUseId,
       };
 
-      this.deps.broadcastMessage(msg);
+      broadcastMessage(msg);
     });
   }
 }
