@@ -288,3 +288,94 @@ describe("lifecycleService — auto-hatch cascade", () => {
   });
 });
 
+describe("lifecycleService — stuck-initializing watchdog", () => {
+  test("redundant initializing→initializing transitions do not reset the 5-minute clock", async () => {
+    const setTimeoutSpy = mock(globalThis.setTimeout);
+    const clearTimeoutSpy = mock(globalThis.clearTimeout);
+    const originalSet = globalThis.setTimeout;
+    const originalClear = globalThis.clearTimeout;
+    globalThis.setTimeout = setTimeoutSpy as unknown as typeof setTimeout;
+    globalThis.clearTimeout = clearTimeoutSpy as unknown as typeof clearTimeout;
+    try {
+      getAssistantMock.mockImplementation(async () => ({
+        ok: true,
+        status: 200,
+        data: { id: "asst-init", status: "initializing" },
+      }));
+      lifecycleService.setInputs({
+        ...baseInputs,
+        queryClient: makeQueryClient(),
+      });
+
+      // First check: loading → initializing → arms the watchdog
+      // (one setTimeout for INITIALIZING_TIMEOUT_MS).
+      await lifecycleService.checkAssistant();
+      const armCalls = setTimeoutSpy.mock.calls.filter(
+        (call) => typeof call[1] === "number" && call[1] > 1000,
+      ).length;
+      const clearCallsAfterFirst = clearTimeoutSpy.mock.calls.length;
+
+      // Subsequent polls that re-confirm initializing must NOT
+      // rearm the watchdog (would reset the clock and the recovery
+      // path would never run).
+      await lifecycleService.applyServerResult({
+        ok: true,
+        status: 200,
+        data: { id: "asst-init", status: "initializing" },
+      });
+      await lifecycleService.applyServerResult({
+        ok: true,
+        status: 200,
+        data: { id: "asst-init", status: "initializing" },
+      });
+
+      const armCallsAfter = setTimeoutSpy.mock.calls.filter(
+        (call) => typeof call[1] === "number" && call[1] > 1000,
+      ).length;
+      const clearCallsAfter = clearTimeoutSpy.mock.calls.length;
+
+      expect(armCallsAfter).toBe(armCalls);
+      expect(clearCallsAfter).toBe(clearCallsAfterFirst);
+    } finally {
+      globalThis.setTimeout = originalSet;
+      globalThis.clearTimeout = originalClear;
+    }
+  });
+});
+
+describe("lifecycleService — retry budget exhaustion", () => {
+  test("3 recoverable hatch failures in the auto-hatch poll loop surface as error", async () => {
+    // Server says 404 (no assistant) → service hits the auto_hatch
+    // branch → calls hatchAssistant. The mock returns a recoverable
+    // 5xx, so each pass increments `hatchRetryCount` without ever
+    // succeeding. Three failed `checkAssistant`s reach the budget;
+    // the fourth surfaces the terminal error state.
+    getAssistantMock.mockImplementation(async () => ({
+      ok: false,
+      status: 404,
+    }));
+    hatchAssistantMock.mockImplementation(async () => ({
+      ok: false,
+      status: 502,
+      error: { message: "bad gateway" },
+    }));
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+
+    await lifecycleService.checkAssistant();
+    await lifecycleService.checkAssistant();
+    await lifecycleService.checkAssistant();
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "initializing",
+    );
+
+    await lifecycleService.checkAssistant();
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "error",
+    );
+  });
+});
+

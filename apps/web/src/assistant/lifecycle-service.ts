@@ -221,32 +221,34 @@ class AssistantLifecycleService {
   // ---------------------------------------------------------------------------
 
   private transition(next: AssistantState): void {
+    const prevKind = this.state.kind;
     this.state = next;
     useAssistantLifecycleStore.setState({ assistantState: next });
-    this.syncInitializingWatchdog(next.kind);
+    // Watchdog edge-trigger: entering `initializing` arms it,
+    // leaving clears it. A repeat `initializing → initializing`
+    // is a no-op so back-to-back poll results that re-confirm
+    // the same phase don't reset the 5-minute clock — only a
+    // fresh hatch attempt should, and `hatchAndCheck` calls
+    // `armInitializingWatchdog()` explicitly for that.
+    if (next.kind !== "initializing") {
+      if (this.initializingTimeout) {
+        clearTimeout(this.initializingTimeout);
+        this.initializingTimeout = null;
+      }
+    } else if (prevKind !== "initializing") {
+      this.armInitializingWatchdog();
+    }
   }
 
-  /**
-   * Owns the 5-minute stuck-initializing timer. Entering
-   * `initializing` arms it; leaving clears it. A re-entry during an
-   * active hatch attempt (e.g. retry → initializing again) clears
-   * the prior timer and starts a fresh one, matching the previous
-   * React implementation's `initializingCycle`-driven re-arming.
-   */
-  private syncInitializingWatchdog(kind: AssistantState["kind"]): void {
-    if (this.initializingTimeout) {
-      clearTimeout(this.initializingTimeout);
-      this.initializingTimeout = null;
-    }
-    if (kind === "initializing") {
-      this.initializingTimeout = setTimeout(() => {
-        Sentry.captureMessage("Assistant hatch stuck in initializing state", {
-          level: "warning",
-          extra: { timeoutMs: INITIALIZING_TIMEOUT_MS },
-        });
-        void this.recoverStuckInitializingAssistant();
-      }, INITIALIZING_TIMEOUT_MS);
-    }
+  private armInitializingWatchdog(): void {
+    if (this.initializingTimeout) clearTimeout(this.initializingTimeout);
+    this.initializingTimeout = setTimeout(() => {
+      Sentry.captureMessage("Assistant hatch stuck in initializing state", {
+        level: "warning",
+        extra: { timeoutMs: INITIALIZING_TIMEOUT_MS },
+      });
+      void this.recoverStuckInitializingAssistant();
+    }, INITIALIZING_TIMEOUT_MS);
   }
 
   /**
@@ -255,6 +257,60 @@ class AssistantLifecycleService {
    * token directly. Mount-time init and imperative `checkAssistant`
    * both short-circuit through this; keep them in lockstep.
    */
+  /**
+   * Project a managed-active server result. Drops any stale
+   * self-hosted connection (runtime calls belong on the platform
+   * now, and we don't want a leftover token attached), sets the
+   * id BEFORE the kind flips so the conversation list query and
+   * the unreachable-bus interceptor have a target on first
+   * `kind === "active"` render, then transitions.
+   */
+  private projectActive(
+    result: GetAssistantResult & { ok: true },
+  ): void {
+    const mm = result.data.maintenance_mode;
+    setSelfHostedConnection(null);
+    useAssistantSelectionStore
+      .getState()
+      .setActiveAssistantId(result.data.id);
+    this.transition({
+      kind: "active",
+      isLocal: result.data.is_local ?? false,
+      maintenanceMode: { enabled: mm?.enabled },
+    });
+  }
+
+  /**
+   * Project a self-hosted server result. Records the user's
+   * gateway + actor token so the request interceptor can rewrite
+   * runtime-proxied calls to the gateway and attach
+   * `Authorization: Bearer`. The slots have to be primed before
+   * `assistantId` flips, otherwise the first conversation list
+   * fetch races us and hits the platform.
+   *
+   * Both `ingress_url` and `platform_actor_token` are nullable
+   * in the serializer:
+   *   - `ingress_url`: an assistant can be `is_local=true` before
+   *     its gateway hostname is known. In that case the URL slot
+   *     stays null and the platform's proxy view 404s cleanly.
+   *   - `platform_actor_token`: brief window after hatch where
+   *     `bootstrap_platform_actor_token` is still in-flight. The
+   *     request fires unauthenticated, the gateway responds 401,
+   *     and the chat surface lands on its error state.
+   */
+  private projectSelfHosted(
+    result: GetAssistantResult & { ok: true },
+  ): void {
+    setSelfHostedConnection({
+      url: result.data.ingress_url,
+      token: result.data.platform_actor_token,
+    });
+    useAssistantSelectionStore
+      .getState()
+      .setActiveAssistantId(result.data.id);
+    this.transition({ kind: "self_hosted" });
+  }
+
   private applyGatewayAuthShortCircuit(): void {
     let ingressUrl = window.location.origin;
     let resolvedAssistantId = "self";
@@ -307,60 +363,16 @@ class AssistantLifecycleService {
     }
 
     if (nextState.kind === "active" && result.ok) {
-      const mm = result.data.maintenance_mode;
       this.initializingRecoveryCount = 0;
       this.hatchingVersion = undefined;
-      // Drop any stale self-hosted connection: the server says the
-      // assistant is now managed-active, so runtime calls belong on
-      // the platform and we don't want a leftover token attached.
-      setSelfHostedConnection(null);
-      // Set the assistant id BEFORE the kind flips. The `init`
-      // effect that fetches conversations gates on
-      // `assistantState.kind === "active"`, and that fetch is what
-      // the unreachable-bus interceptor is meant to notice. If we
-      // wait until after the conversation list query succeeds to
-      // set this, the reachability hook's probe() has no target
-      // assistant when the 503 arrives and the connecting overlay
-      // never shows.
-      useAssistantSelectionStore
-        .getState()
-        .setActiveAssistantId(result.data.id);
-      this.transition({
-        kind: "active",
-        isLocal: result.data.is_local ?? false,
-        maintenanceMode: { enabled: mm?.enabled },
-      });
+      this.projectActive(result);
       return;
     }
 
     if (nextState.kind === "self_hosted" && result.ok) {
       this.initializingRecoveryCount = 0;
       this.hatchingVersion = undefined;
-      // Record the user's gateway + actor token so the request
-      // interceptor can rewrite runtime-proxied calls to the
-      // gateway and attach `Authorization: Bearer`. The slots have
-      // to be primed before `assistantId` flips, otherwise the
-      // first conversation list fetch races us and hits the
-      // platform.
-      //
-      // Both fields are nullable in the serializer:
-      //   - `ingress_url`: an assistant can be `is_local=true`
-      //     before its gateway hostname is known. In that case the
-      //     URL slot stays null and the platform's proxy view 404s
-      //     cleanly.
-      //   - `platform_actor_token`: there's a brief window after
-      //     hatch where `bootstrap_platform_actor_token` is still
-      //     in-flight. In that case the request fires
-      //     unauthenticated, the gateway responds 401, and the
-      //     chat surface lands on its error state.
-      setSelfHostedConnection({
-        url: result.data.ingress_url,
-        token: result.data.platform_actor_token,
-      });
-      useAssistantSelectionStore
-        .getState()
-        .setActiveAssistantId(result.data.id);
-      this.transition({ kind: "self_hosted" });
+      this.projectSelfHosted(result);
       return;
     }
 
@@ -386,6 +398,10 @@ class AssistantLifecycleService {
     this.hatchingVersion = version;
     const generation = this.generation;
     this.transition({ kind: "initializing" });
+    // Restart the 5-minute watchdog for every fresh hatch attempt
+    // (transition is a no-op kind-wise when we were already
+    // initializing, but a new attempt deserves a new clock).
+    this.armInitializingWatchdog();
     try {
       const result = await hatchAssistant(version ? { version } : undefined);
       if (generation !== this.generation) return;
@@ -511,34 +527,23 @@ class AssistantLifecycleService {
           if (nextState.kind === "auto_hatch") {
             await this.hatchAndCheck(this.hatchingVersion);
           } else if (nextState.kind === "active" && result.ok) {
-            const mm = result.data.maintenance_mode;
             this.initializingRecoveryCount = 0;
-            setSelfHostedConnection(null);
-            useAssistantSelectionStore
-              .getState()
-              .setActiveAssistantId(result.data.id);
-            this.transition({
-              kind: "active",
-              isLocal: result.data.is_local ?? false,
-              maintenanceMode: { enabled: mm?.enabled },
-            });
+            this.projectActive(result);
+            // Note: `hatchingVersion` is intentionally not cleared
+            // on the recovery path's active landing — matches the
+            // shape this code carried before being extracted. Not
+            // observable to consumers either way (only `hatchAndCheck`
+            // reads it, and we won't re-enter that until the next
+            // user-driven retry).
           } else if (nextState.kind === "self_hosted" && result.ok) {
-            // Mirror `applyServerStateUpdate`'s `self_hosted`
-            // branch: an assistant can graduate from `initializing`
-            // straight into `is_local: true` once it registers its
-            // gateway. Without this the recovery path leaves
+            // An assistant can graduate from `initializing` straight
+            // into `is_local: true` once it registers its gateway.
+            // Without this branch the recovery path leaves
             // `assistantId` null and the chat surface keeps showing
             // the initializing-timeout error after the assistant
-            // has actually come up.
+            // has come up.
             this.initializingRecoveryCount = 0;
-            setSelfHostedConnection({
-              url: result.data.ingress_url,
-              token: result.data.platform_actor_token,
-            });
-            useAssistantSelectionStore
-              .getState()
-              .setActiveAssistantId(result.data.id);
-            this.transition({ kind: "self_hosted" });
+            this.projectSelfHosted(result);
           } else if (nextState.kind !== "active") {
             this.transition(nextState);
           }
