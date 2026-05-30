@@ -17,6 +17,11 @@ import {
   ContextOverflowError,
   extractOverflowTokensFromMessage,
 } from "../types.js";
+import {
+  base64ByteLength,
+  GEMINI_MAX_INLINE_AUDIO_BYTES,
+  normalizeGeminiAudioMime,
+} from "./inline-media.js";
 
 /**
  * Token/context-specific phrases that reliably indicate context-overflow
@@ -496,14 +501,27 @@ export class GeminiProvider implements Provider {
             },
           });
           break;
-        case "file":
+        case "file": {
           if (this.supportsGeminiInlineFile(block.source.media_type)) {
-            parts.push({
-              inlineData: {
-                mimeType: block.source.media_type,
-                data: block.source.data,
-              },
-            });
+            // Normalize audio MIME onto Gemini's spelling (e.g. audio/mpeg →
+            // audio/mp3); PDFs pass through unchanged. Guard the 20 MB inline
+            // request limit for audio so an oversize clip degrades to a text
+            // note rather than 400ing the whole request.
+            const audioMime = normalizeGeminiAudioMime(block.source.media_type);
+            const rawBytes = base64ByteLength(block.source.data);
+            if (audioMime && rawBytes > GEMINI_MAX_INLINE_AUDIO_BYTES) {
+              const approxMb = Math.round(rawBytes / (1024 * 1024));
+              parts.push({
+                text: `[Audio file too large to send inline: ${block.source.filename} (${block.source.media_type}, ~${approxMb}MB). Gemini's inline request limit is 20MB; this file was omitted. Ask the user for a shorter clip.]`,
+              });
+            } else {
+              parts.push({
+                inlineData: {
+                  mimeType: audioMime ?? block.source.media_type,
+                  data: block.source.data,
+                },
+              });
+            }
           } else {
             const fallback = block.extracted_text?.trim()
               ? `[Attached file: ${block.source.filename} (${block.source.media_type})]\n${block.extracted_text}`
@@ -511,6 +529,7 @@ export class GeminiProvider implements Provider {
             parts.push({ text: fallback });
           }
           break;
+        }
         case "tool_use":
           {
             const functionCallPart: genai.Part = {
@@ -598,6 +617,9 @@ export class GeminiProvider implements Provider {
   }
 
   private supportsGeminiInlineFile(mimeType: string): boolean {
-    return mimeType === "application/pdf";
+    return (
+      mimeType === "application/pdf" ||
+      normalizeGeminiAudioMime(mimeType) !== null
+    );
   }
 }

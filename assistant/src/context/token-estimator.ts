@@ -1,3 +1,7 @@
+import {
+  estimateGeminiAudioTokens,
+  normalizeGeminiAudioMime,
+} from "../providers/gemini/inline-media.js";
 import type {
   ContentBlock,
   Message,
@@ -114,6 +118,16 @@ function estimateFileDataTokens(
     block.source.media_type === "application/pdf"
   ) {
     return estimateAnthropicPdfTokens(block.source.data);
+  }
+
+  // Gemini hears audio natively (inline base64) but bills it at ~32 tokens/sec.
+  // Estimate from duration, not payload size, to avoid a ~170x over-count that
+  // would trigger spurious compaction.
+  if (
+    providerName === "gemini" &&
+    normalizeGeminiAudioMime(block.source.media_type) !== null
+  ) {
+    return estimateGeminiAudioTokens(block.source.data);
   }
 
   // Gemini sends certain file types inline as base64
