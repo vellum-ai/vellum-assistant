@@ -170,45 +170,6 @@ describe("sortByTimestamp · tool-call tiebreaker", () => {
     expect(messages.map((m) => m.id)).toEqual(["earlier", "later"]);
   });
 
-  test("uses lastProgressAt for long-running tools without completedAt", () => {
-    const sharedTs = 100;
-    const messages: DisplayMessage[] = [
-      make({
-        id: "later-progress",
-        timestamp: sharedTs,
-        toolCalls: [
-          {
-            id: "t2",
-            toolName: "x",
-            input: {},
-            status: "running",
-            startedAt: 200,
-            lastProgressAt: 900,
-          },
-        ],
-      }),
-      make({
-        id: "earlier-progress",
-        timestamp: sharedTs,
-        toolCalls: [
-          {
-            id: "t1",
-            toolName: "x",
-            input: {},
-            status: "running",
-            startedAt: 200,
-            lastProgressAt: 500,
-          },
-        ],
-      }),
-    ];
-    sortByTimestamp(messages);
-    expect(messages.map((m) => m.id)).toEqual([
-      "earlier-progress",
-      "later-progress",
-    ]);
-  });
-
   test("picks max activity timestamp across multiple tool calls per message", () => {
     // A message with multiple tools — the tiebreaker is the LATEST activity
     // across all of them, not the first or last array position.

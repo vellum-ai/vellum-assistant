@@ -4,7 +4,6 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import {
   appendTextDelta,
-  applyToolProgress,
   applyToolResult,
   createStreamingBubble,
   finalizeMessageComplete,
@@ -538,74 +537,6 @@ describe("applyToolResult — activityMetadata", () => {
       result: "...",
     });
     expect(result[0]!.toolCalls![0]!.activityMetadata).toEqual(metadata);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// applyToolProgress
-// ---------------------------------------------------------------------------
-
-describe("applyToolProgress", () => {
-  const runningToolCall: ChatMessageToolCall = {
-    id: "tc-1",
-    toolName: "bash",
-    input: {},
-    status: "running",
-    startedAt: 1000,
-  };
-
-  function msgWithRunning(): DisplayMessage {
-    return makeAssistantMsg({
-      toolCalls: [runningToolCall],
-      contentOrder: [{ type: "toolCall", id: "tc-1" }],
-    });
-  }
-
-  it("stamps progressElapsedSec/progressTimeoutSec/lastProgressAt on matching tool call", () => {
-    const result = applyToolProgress([msgWithRunning()], {
-      toolUseId: "tc-1",
-      elapsedSec: 15,
-      timeoutSec: 60,
-    });
-    const tc = result[0]!.toolCalls![0]!;
-    expect(tc.progressElapsedSec).toBe(15);
-    expect(tc.progressTimeoutSec).toBe(60);
-    expect(typeof tc.lastProgressAt).toBe("number");
-  });
-
-  it("falls back to the last running tool call when toolUseId is missing", () => {
-    const result = applyToolProgress([msgWithRunning()], {
-      elapsedSec: 10,
-      timeoutSec: 30,
-    });
-    expect(result[0]!.toolCalls![0]!.progressElapsedSec).toBe(10);
-  });
-
-  it("is a no-op when no message with tool calls exists", () => {
-    const prev = [userMsg];
-    const result = applyToolProgress(prev, {
-      toolUseId: "tc-1",
-      elapsedSec: 5,
-      timeoutSec: 30,
-    });
-    expect(result).toBe(prev);
-  });
-
-  it("is a no-op when the matching tool call isn't running", () => {
-    const completed: ChatMessageToolCall = {
-      ...runningToolCall,
-      status: "completed",
-    };
-    const msg = makeAssistantMsg({
-      toolCalls: [completed],
-      contentOrder: [{ type: "toolCall", id: "tc-1" }],
-    });
-    const result = applyToolProgress([msg], {
-      toolUseId: "tc-1",
-      elapsedSec: 5,
-      timeoutSec: 30,
-    });
-    expect(result[0]!.toolCalls![0]!.progressElapsedSec).toBeUndefined();
   });
 });
 

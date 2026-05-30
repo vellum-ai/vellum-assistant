@@ -3,7 +3,7 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 /**
  * Returns the most recent activity timestamp inside a message — the max
  * across the top-level `timestamp` and every tool call's
- * `startedAt` / `completedAt` / `lastProgressAt`.
+ * `startedAt` / `completedAt`.
  *
  * Used as a tiebreaker when two messages share the same top-level
  * `timestamp`. This happens when the daemon emits a multi-row server
@@ -21,7 +21,6 @@ function lastContentPartTimestamp(m: DisplayMessage): number | undefined {
       const candidates: Array<number | undefined> = [
         tc.startedAt,
         tc.completedAt,
-        tc.lastProgressAt,
       ];
       for (const ts of candidates) {
         if (ts != null && (max == null || ts > max)) {

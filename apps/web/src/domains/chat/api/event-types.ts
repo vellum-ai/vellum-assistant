@@ -69,12 +69,6 @@ export interface ChatMessageToolCall {
    * `web-activity-types.ts`.
    */
   activityMetadata?: ToolActivityMetadata;
-  /** Seconds elapsed since tool started, updated by tool_progress events. */
-  progressElapsedSec?: number;
-  /** Configured timeout in seconds, updated by tool_progress events (0 if unknown). */
-  progressTimeoutSec?: number;
-  /** ms since epoch of the last tool_progress event for this tool call. */
-  lastProgressAt?: number;
 }
 
 export interface ChatMessage {

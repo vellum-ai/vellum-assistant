@@ -300,17 +300,14 @@ function repairIfDangling(tc: ChatMessageToolCall): ChatMessageToolCall {
 //     user approval is correctly stalled and must not be marked stale —
 //     the daemon's own execution timeout doesn't start until approval
 //     lands),
-//   - `(now - max(startedAt, lastProgressAt ?? 0)) > effectiveTimeoutMs +
-//     STALE_GRACE_MS`.
+//   - `now - startedAt > DEFAULT_TOOL_EXECUTION_TIMEOUT_MS + STALE_GRACE_MS`.
 //
-// `effectiveTimeoutMs` is `progressTimeoutSec * 1000` when the daemon
-// reported a non-zero per-tool timeout via `tool_progress`, falling back
-// to `DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC` (the canonical default the
-// daemon uses when no override is configured). The fallback constant is
-// exported from `@vellumai/assistant-api` so both backend enforcement
-// and frontend detection reference the same wire-contract default —
-// drift between them would let stale tools spin past the server-side
-// ceiling, or worse, fail tools the server still considers in-flight.
+// The timeout uses `DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC` (the canonical
+// default the daemon uses when no override is configured), exported from
+// `@vellumai/assistant-api` so backend enforcement and frontend detection
+// reference the same wire-contract default — drift between them would let
+// stale tools spin past the server-side ceiling, or worse, fail tools the
+// server still considers in-flight.
 //
 // When all four hold, mutate the tool call to:
 //   - `status: "error"`,
@@ -382,13 +379,8 @@ function isStale(tc: ChatMessageToolCall, nowMs: number): boolean {
   if (tc.status !== "running") return false;
   if (tc.pendingConfirmation) return false;
   if (tc.startedAt === undefined) return false;
-  const lastSignOfLife = Math.max(tc.startedAt, tc.lastProgressAt ?? 0);
-  const configuredSec =
-    tc.progressTimeoutSec && tc.progressTimeoutSec > 0
-      ? tc.progressTimeoutSec
-      : DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC;
-  const effectiveTimeoutMs = configuredSec * 1000;
-  return nowMs - lastSignOfLife > effectiveTimeoutMs + STALE_GRACE_MS;
+  const effectiveTimeoutMs = DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC * 1000;
+  return nowMs - tc.startedAt > effectiveTimeoutMs + STALE_GRACE_MS;
 }
 
 function markStale(tc: ChatMessageToolCall): ChatMessageToolCall {

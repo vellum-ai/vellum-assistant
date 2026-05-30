@@ -722,64 +722,9 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     expect(result[0]!.toolCalls![0]!.status).toBe("running");
   });
 
-  test("uses progressTimeoutSec when the daemon advertised one", () => {
-    // Long-running shell tools advertise a 600s timeout via tool_progress.
-    // A run that's at 121s of elapsed time would tripping the DEFAULT
-    // ceiling but is still well under its real ceiling — must not fire.
-    const started = 1_000;
-    const now = started + 121_000;
-    const m = makeMessage({
-      id: "a",
-      role: "assistant",
-      timestamp: started,
-      toolCalls: [
-        makeToolCall({
-          id: "tc",
-          toolName: "bash",
-          status: "running",
-          startedAt: started,
-          progressTimeoutSec: 600,
-          lastProgressAt: started + 119_000,
-        }),
-      ],
-    });
-    mockNow(now);
-    const result = sanitizeDisplayMessages([m]);
-    expect(result[0]).toBe(m);
-    expect(result[0]!.toolCalls![0]!.status).toBe("running");
-  });
-
-  test("measures from lastProgressAt when it is more recent than startedAt", () => {
-    // A long-running bash command emitting tool_progress events. As long
-    // as those keep landing, the tool is alive. Started two hours ago,
-    // last progress one second ago → not stale.
-    const started = 1_000;
-    const now = started + 2 * 60 * 60 * 1_000;
-    const m = makeMessage({
-      id: "a",
-      role: "assistant",
-      timestamp: started,
-      toolCalls: [
-        makeToolCall({
-          id: "tc",
-          toolName: "bash",
-          status: "running",
-          startedAt: started,
-          progressTimeoutSec: 600,
-          lastProgressAt: now - 1_000,
-        }),
-      ],
-    });
-    mockNow(now);
-    const result = sanitizeDisplayMessages([m]);
-    expect(result[0]).toBe(m);
-    expect(result[0]!.toolCalls![0]!.status).toBe("running");
-  });
-
-  test("falls back to default timeout when progressTimeoutSec is zero / unknown", () => {
-    // Daemon ships `progressTimeoutSec: 0` to mean "unknown". The
-    // sanitizer must treat 0 the same as missing and use the canonical
-    // default constant.
+  test("marks stale after the default execution timeout elapses", () => {
+    // No daemon-side progress signal exists. Every running tool is
+    // measured against the canonical DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC.
     const started = 1_000;
     const now = started + PAST_DEFAULT_TIMEOUT_MS;
     const m = makeMessage({
@@ -792,7 +737,6 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
           toolName: "web_search",
           status: "running",
           startedAt: started,
-          progressTimeoutSec: 0,
         }),
       ],
     });
