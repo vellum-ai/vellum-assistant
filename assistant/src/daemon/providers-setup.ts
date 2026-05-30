@@ -18,6 +18,7 @@ import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { initializeTools, registerMcpTools } from "../tools/registry.js";
+import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import { getLogger } from "../util/logger.js";
 import { initWatcherEngine } from "../watcher/engine.js";
 import { registerWatcherProvider } from "../watcher/provider-registry.js";
@@ -120,6 +121,16 @@ export async function initializeProvidersAndTools(
 
   await initializeProviders(config);
   await initializeTools();
+
+  // Load workspace tool overrides from `<workspaceDir>/tools/<name>.{ts,js,json}`
+  // immediately after core tools have settled, before MCP / plugin
+  // registrations get a chance to claim names. This ordering is what
+  // makes workspace tools the canonical owner per name:
+  //   core registrations (initializeTools) → workspace tools → MCP → plugins.
+  // The loader owns its own per-tool isolation contract; a thrown error
+  // here is unexpected and we let it surface so startup fails loudly
+  // rather than silently mounting half a tools layout.
+  await loadWorkspaceTools();
 
   // Start MCP servers and register their tools
   if (config.mcp?.servers && Object.keys(config.mcp.servers).length > 0) {

@@ -1,5 +1,11 @@
 # Plugin authoring guide
 
+> **Note:** This guide describes the legacy plugin architecture. The
+> modern plugin schema is under active development at
+> [`experimental/plugins/README.md`](../../experimental/plugins/README.md).
+> New plugins should follow the modern schema; the legacy surface
+> documented here is preserved for already-shipped plugins.
+
 Plugins let you extend the assistant by hooking middleware into named
 runtime pipelines, contributing tools/routes/skills, and injecting
 system-prompt content. This guide is the authoritative reference for how
@@ -552,6 +558,12 @@ tool registry after `init()` succeeds, stamping `origin: "plugin"` and
 namespace disjoint from real skills (a plugin whose `manifest.name`
 happens to match a skill id cannot collide with that skill's
 registrations).
+
+> **Looking to override a single core tool?** Plugins can't — same-name
+> collisions with core tools are warn-and-skipped to keep ownership
+> unambiguous. Use a [workspace tool override](workspace-tools.md)
+> instead: drop a single `<name>.{ts,js,json}` file under
+> `<workspaceDir>/tools/` and it authoritatively replaces the core tool.
 
 ```typescript
 const myPlugin: Plugin = {

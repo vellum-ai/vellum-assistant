@@ -6,17 +6,26 @@ import {
   __resetRegistryForTesting,
   getAllToolDefinitions,
   getAllTools,
+  getCoreToolOverride,
   getSkillRefCount,
   getSkillToolNames,
   getTool,
   getToolOwner,
+  getWorkspaceToolNames,
   initializeTools,
+  registerPluginTools,
   registerSkillTools,
   registerTool,
+  registerWorkspaceTools,
   unregisterSkillTools,
+  unregisterWorkspaceTool,
 } from "../tools/registry.js";
 import { eagerModuleToolNames, explicitTools } from "../tools/tool-manifest.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
+import type {
+  Tool,
+  ToolContext,
+  ToolExecutionResult,
+} from "../tools/types.js";
 
 // Clean up global registry after this file completes to prevent
 // contamination of subsequent test files in combined runs.
@@ -412,5 +421,235 @@ describe("skill tool reference counting", () => {
   test("unregister with no prior registration is a no-op", () => {
     unregisterSkillTools("nonexistent-skill");
     expect(getSkillRefCount("nonexistent-skill")).toBe(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// Workspace tool overrides
+//
+// Tests the registry surface exposed by registerWorkspaceTools /
+// unregisterWorkspaceTool / getCoreToolOverride / getWorkspaceToolNames.
+// The loader (workspace-tools/loader.ts) is tested separately — these
+// tests treat the registry contract as the source of truth and exercise
+// it directly with synthetic tool objects.
+// ─────────────────────────────────────────────────────────────────────
+
+function makeWorkspaceInput(
+  name: string,
+  workspacePath = `/workspace/tools/${name}.ts`,
+): { tool: Tool; workspacePath: string } {
+  return {
+    workspacePath,
+    tool: {
+      name,
+      category: "workspace",
+      description: `Workspace ${name}`,
+      defaultRiskLevel: RiskLevel.Low,
+      executionTarget: "sandbox",
+      input_schema: { type: "object", properties: {}, required: [] },
+      async execute(
+        _input: Record<string, unknown>,
+        _context: ToolContext,
+      ): Promise<ToolExecutionResult> {
+        return { content: `workspace ${name}`, isError: false };
+      },
+    },
+  };
+}
+
+function makeLoadedPluginTool(name: string): Tool {
+  return {
+    name,
+    category: "plugin",
+    description: `Plugin ${name}`,
+    defaultRiskLevel: RiskLevel.Low,
+    executionTarget: "sandbox",
+    input_schema: { type: "object", properties: {}, required: [] },
+    async execute(
+      _input: Record<string, unknown>,
+      _context: ToolContext,
+    ): Promise<ToolExecutionResult> {
+      return { content: `plugin ${name}`, isError: false };
+    },
+  };
+}
+
+describe("workspace tool registry", () => {
+  beforeEach(() => {
+    __resetRegistryForTesting();
+  });
+
+  test("net-new workspace tool registers without stashing anything", () => {
+    __clearRegistryForTesting();
+
+    const accepted = registerWorkspaceTools([makeWorkspaceInput("new_tool")]);
+
+    expect(accepted).toHaveLength(1);
+    const tool = getTool("new_tool");
+    expect(tool).toBeDefined();
+    expect(getToolOwner("new_tool")).toEqual({
+      kind: "workspace",
+      id: "/workspace/tools/new_tool.ts",
+    });
+    expect(getCoreToolOverride("new_tool")).toBeUndefined();
+    expect(getWorkspaceToolNames()).toEqual(["new_tool"]);
+  });
+
+  test("workspace tool with same name as core stashes the original", () => {
+    __clearRegistryForTesting();
+    const coreTool = makeFakeTool("override_target");
+    registerTool(coreTool);
+    expect(getTool("override_target")).toEqual(coreTool);
+
+    registerWorkspaceTools([makeWorkspaceInput("override_target")]);
+
+    // Live registry now points at the workspace tool.
+    const live = getTool("override_target");
+    expect(live).toBeDefined();
+    expect(getToolOwner("override_target")?.kind).toBe("workspace");
+    expect(getToolOwner("override_target")?.kind).toBe("workspace");
+
+    // Stash preserves the original for later restoration.
+    expect(getCoreToolOverride("override_target")).toEqual(coreTool);
+  });
+
+  test("unregister restores the stashed core tool when one exists", () => {
+    __clearRegistryForTesting();
+    const coreTool = makeFakeTool("restore_me");
+    registerTool(coreTool);
+    registerWorkspaceTools([makeWorkspaceInput("restore_me")]);
+    expect(getToolOwner("restore_me")?.kind).toBe("workspace");
+
+    unregisterWorkspaceTool("restore_me");
+
+    expect(getTool("restore_me")).toEqual(coreTool);
+    expect(getCoreToolOverride("restore_me")).toBeUndefined();
+    expect(getWorkspaceToolNames()).toEqual([]);
+  });
+
+  test("unregister deletes the tool when no core counterpart was stashed", () => {
+    __clearRegistryForTesting();
+    registerWorkspaceTools([makeWorkspaceInput("only_workspace")]);
+    expect(getTool("only_workspace")).toBeDefined();
+
+    unregisterWorkspaceTool("only_workspace");
+
+    expect(getTool("only_workspace")).toBeUndefined();
+    expect(getCoreToolOverride("only_workspace")).toBeUndefined();
+  });
+
+  test("unregister is a no-op on a non-workspace name", () => {
+    __clearRegistryForTesting();
+    const coreTool = makeFakeTool("not_workspace");
+    registerTool(coreTool);
+
+    unregisterWorkspaceTool("not_workspace");
+    unregisterWorkspaceTool("never_existed");
+
+    expect(getTool("not_workspace")).toEqual(coreTool);
+  });
+
+  test("re-registering an existing workspace tool throws (single canonical source)", () => {
+    __clearRegistryForTesting();
+    registerWorkspaceTools([
+      makeWorkspaceInput("dupe", "/workspace/tools/dupe"),
+    ]);
+
+    expect(() =>
+      registerWorkspaceTools([
+        makeWorkspaceInput("dupe", "/workspace/tools/dupe"),
+      ]),
+    ).toThrow(/already registered/);
+  });
+
+  test("duplicate names within a single batch throw (no partial application)", () => {
+    __clearRegistryForTesting();
+
+    expect(() =>
+      registerWorkspaceTools([
+        makeWorkspaceInput("twin"),
+        makeWorkspaceInput("twin", "/workspace/tools/twin-alt"),
+      ]),
+    ).toThrow(/duplicate name/);
+
+    // Mutation phase never ran — registry stays empty for this name.
+    expect(getTool("twin")).toBeUndefined();
+    expect(getWorkspaceToolNames()).toEqual([]);
+  });
+
+  test("batch rejection leaves earlier-batch tools un-mutated", () => {
+    __clearRegistryForTesting();
+
+    // Pre-occupy "guarded" as a skill tool — workspace tools cannot
+    // override skill tools (only core), so the batch must throw and
+    // leave the otherwise-fine "ok_a" / "ok_b" entries unregistered.
+    registerSkillTools("skill-a", [makeSkillTool("guarded")]);
+
+    expect(() =>
+      registerWorkspaceTools([
+        makeWorkspaceInput("ok_a"),
+        makeWorkspaceInput("guarded"),
+        makeWorkspaceInput("ok_b"),
+      ]),
+    ).toThrow(/conflicts with an existing/);
+
+    expect(getTool("ok_a")).toBeUndefined();
+    expect(getTool("ok_b")).toBeUndefined();
+    // The skill tool is still in the registry, untouched.
+    expect(getToolOwner("guarded")?.kind).toBe("skill");
+  });
+
+  test("workspace tool blocks subsequent plugin registration with same name", () => {
+    __clearRegistryForTesting();
+    registerWorkspaceTools([makeWorkspaceInput("contested")]);
+
+    // Plugin attempts to register over a workspace-owned name. The
+    // registry's plugin-registration path warn-skips rather than
+    // throwing, mirroring the core-conflict behavior.
+    const accepted = registerPluginTools("some-plugin", [
+      makeLoadedPluginTool("contested"),
+    ]);
+
+    expect(accepted).toEqual([]);
+    expect(getToolOwner("contested")?.kind).toBe("workspace");
+  });
+
+  test("workspace tool blocks subsequent skill registration with same name", () => {
+    __clearRegistryForTesting();
+    registerWorkspaceTools([makeWorkspaceInput("skill_attempt")]);
+
+    const accepted = registerSkillTools("some-skill", [
+      makeSkillTool("skill_attempt"),
+    ]);
+
+    expect(accepted).toEqual([]);
+    expect(getToolOwner("skill_attempt")?.kind).toBe("workspace");
+    expect(getSkillToolNames()).toEqual([]);
+  });
+
+  test("__resetRegistryForTesting clears the override stash", () => {
+    __clearRegistryForTesting();
+    const coreTool = makeFakeTool("baseline_tool");
+    registerTool(coreTool);
+    registerWorkspaceTools([makeWorkspaceInput("baseline_tool")]);
+    expect(getCoreToolOverride("baseline_tool")).toEqual(coreTool);
+
+    __resetRegistryForTesting();
+
+    expect(getCoreToolOverride("baseline_tool")).toBeUndefined();
+  });
+
+  test("workspace tool overrides surface as the live tool in getAllToolDefinitions", () => {
+    __clearRegistryForTesting();
+    const coreTool = makeFakeTool("listed_tool");
+    registerTool(coreTool);
+    registerWorkspaceTools([makeWorkspaceInput("listed_tool")]);
+
+    const definitions = getAllToolDefinitions();
+    const ours = definitions.find((d) => d.name === "listed_tool");
+    expect(ours).toBeDefined();
+    // The live workspace tool defines its own description; ensure the
+    // definition does not leak the core tool's description.
+    expect(ours?.description).toBe("Workspace listed_tool");
   });
 });

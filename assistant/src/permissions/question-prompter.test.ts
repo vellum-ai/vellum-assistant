@@ -11,7 +11,12 @@ import type {
 const mockConfig = {
   timeouts: { permissionTimeoutSec: 0.05 },
 };
+// Preserve every other export from the real config/loader so other
+// tests in the same `bun test` run (which share module-level mocks)
+// don't lose access to e.g. `setNestedValue`.
+const realConfigLoader = await import("../config/loader.js");
 mock.module("../config/loader.js", () => ({
+  ...realConfigLoader,
   getConfig: () => mockConfig,
   loadConfig: () => mockConfig,
   invalidateConfigCache: () => {},
@@ -61,14 +66,26 @@ mock.module("../runtime/pending-interactions.js", () => ({
   clear: () => _piStore.clear(),
 }));
 
+// `QuestionPrompter` imports `broadcastMessage` directly from
+// assistant-event-hub now (the constructor-injection seam was removed).
+// Intercept that one export so each test instance can observe what the
+// prompter would have broadcast — but preserve every other export from
+// the real module so other tests in the same `bun test` run (which
+// share module-level mocks) still see e.g. `assistantEventHub`.
+let _sentBuffer: ServerMessage[] = [];
+const realEventHub = await import("../runtime/assistant-event-hub.js");
+mock.module("../runtime/assistant-event-hub.js", () => ({
+  ...realEventHub,
+  broadcastMessage: (msg: ServerMessage) => _sentBuffer.push(msg),
+}));
+
 const { QuestionPrompter, QuestionBatchValidationError, buildBatchEntries } =
   await import("./question-prompter.js");
 
 function makePrompter() {
   const sent: ServerMessage[] = [];
-  const prompter = new QuestionPrompter({
-    broadcastMessage: (msg) => sent.push(msg),
-  });
+  _sentBuffer = sent;
+  const prompter = new QuestionPrompter();
   return { prompter, sent };
 }
 

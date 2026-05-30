@@ -397,16 +397,30 @@ export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 /** Tool after the loader has derived its name and filled defaults. */
 export type Tool = Required<ToolDefinition>;
 
-/** The kind of extension that owns a tool. Core tools have no owner. */
-export type OwnerKind = "skill" | "mcp" | "plugin";
+/**
+ * The kind of extension that owns a tool. Core tools have no owner.
+ *
+ * `workspace`-kind tools are sourced from `<workspaceDir>/tools/<name>.{ts,js,json}`
+ * and authoritatively replace same-named core tools — the original core
+ * tool is stashed so it can be restored on unregister. Plugins, skills,
+ * and MCP servers cannot register a tool whose name collides with a
+ * workspace tool: workspace ownership wins.
+ */
+export type OwnerKind = "skill" | "mcp" | "plugin" | "workspace";
 
 /**
- * Identifies which extension owns a tool (skill / plugin / MCP server).
- * Tracked by the tool registry keyed by tool name, not stored on the `Tool`
- * object itself — query via {@link ../tools/registry.getToolOwner}.
+ * Identifies which extension owns a tool (skill / plugin / MCP server /
+ * workspace override). Tracked by the tool registry keyed by tool name,
+ * not stored on the `Tool` object itself — query via
+ * {@link ../tools/registry.getToolOwner}.
+ *
+ * For workspace tools, `id` is the absolute path to the owning file
+ * under `<workspaceDir>/tools/<name>.{ts,js,json}` — captured at
+ * registration for diagnostic logging only. The loader is the source of
+ * truth for which entries currently exist on disk.
  */
 export interface OwnerInfo {
   kind: OwnerKind;
-  /** ID of the owning extension (skill id / plugin name / MCP server id). */
+  /** ID of the owning extension (skill id / plugin name / MCP server id / workspace path). */
   id: string;
 }
