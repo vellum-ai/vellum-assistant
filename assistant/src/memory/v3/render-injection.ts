@@ -1,3 +1,4 @@
+import { wrapMemoryBlock } from "../memory-marker.js";
 import { Slug } from "./types.js";
 
 /**
@@ -6,8 +7,8 @@ import { Slug } from "./types.js";
  *
  * Pure and side-effect-free: all I/O is delegated to the injected
  * `pageContent` resolver, which is awaited once per slug in input order. The
- * resulting block reuses the same `<memory>\n…\n</memory>` marker that the v2
- * graph-memory path emits, so the existing strip machinery in
+ * resulting block uses the shared {@link wrapMemoryBlock} marker — the same
+ * wrapper the v2 graph-memory path emits — so the existing strip machinery in
  * `conversation-graph-memory.ts` already recognizes (and evicts) it.
  *
  * Resolution is concurrent; the rendered block preserves `finalInjection`
@@ -27,5 +28,5 @@ export async function renderMemoryBlock(
 
   const contents = await Promise.all(finalInjection.map(pageContent));
 
-  return `<memory>\n${contents.join("\n")}\n</memory>`;
+  return wrapMemoryBlock(contents.join("\n"));
 }

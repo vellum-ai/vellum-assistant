@@ -24,9 +24,9 @@
  *
  * Everything after the flag read is wrapped in try/catch — any failure is
  * logged and swallowed so it can never affect the live turn. In live mode a
- * failure returns `null` (no v3 injection); v2 suppression (a later PR) keys
- * off the FLAG, not off whether `produce()` returned a block, so a v3 failure
- * falls back to v2 memory rather than dropping all memory.
+ * failure returns `null` (no v3 injection); v2 suppression keys off BOTH the
+ * flag AND whether `produce()` actually returned a block, so a v3 failure (or
+ * empty selection) falls back to v2 memory rather than dropping all memory.
  */
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
@@ -54,12 +54,13 @@ import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
 import { renderMemoryBlock } from "./render-injection.js";
 import { coreSlugs, loadLeafTree, resolveDataDir } from "./tree.js";
-import type {
-  LeafPath,
-  LeafTree,
-  SelectionSource,
-  Slug,
-  TurnContext,
+import {
+  type LeafPath,
+  type LeafTree,
+  MEMORY_V3_BLOCK_ID,
+  type SelectionSource,
+  type Slug,
+  type TurnContext,
 } from "./types.js";
 import { WorkingSet } from "./working-set.js";
 
@@ -293,9 +294,12 @@ async function observeTurn(
 }
 
 /**
- * Core shadow observation: run v3 orchestration for one turn and log the
- * selection set. Exported for unit testing. Never throws — all failures are
- * logged and swallowed so the live turn is unaffected.
+ * Test-facing shadow wrapper: gate on the shadow flag, then run v3
+ * orchestration for one turn and log the selection set. Production injection
+ * goes through `produce()` → {@link observeTurn} directly (which checks both
+ * flags); this wrapper exists so tests can drive shadow observation in
+ * isolation. Never throws — all failures are logged and swallowed so the live
+ * turn is unaffected.
  */
 export async function runShadowObservation(
   conversationId: string,
@@ -313,8 +317,9 @@ export async function runShadowObservation(
  *   - both off → return `null` (no orchestration).
  *
  * Empty selection and any failure return `null` (no v3 injection). v2
- * suppression (a later PR) keys off the FLAG, not off this return value, so a
- * v3 failure falls back to v2 memory rather than dropping all memory.
+ * suppression keys off BOTH the flag AND this return value, so a `null` here
+ * (failure or empty selection) falls back to v2 memory rather than dropping all
+ * memory.
  */
 const memoryV3Injector: Injector = {
   name: "memory-v3-shadow",
@@ -336,7 +341,7 @@ const memoryV3Injector: Injector = {
       const text = await renderMemoryBlock(result.finalInjection, pageContent);
       if (text.length === 0) return null;
       return {
-        id: "memory-v3",
+        id: MEMORY_V3_BLOCK_ID,
         text,
         // Mirror v2's dynamic `<memory>` block placement.
         placement: "after-memory-prefix",
