@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  QuestionRequest,
-  ServerMessage,
-} from "../daemon/message-protocol.js";
+import type { QuestionRequestEvent } from "../api/events/question-request.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import type {
   QuestionBatchSubmission,
   QuestionPromptResult,
@@ -63,11 +61,8 @@ mock.module("../runtime/pending-interactions.js", () => ({
   clear: () => _piStore.clear(),
 }));
 
-const {
-  QuestionPrompter,
-  QuestionBatchValidationError,
-  buildBatchEntries,
-} = await import("./question-prompter.js");
+const { QuestionPrompter, QuestionBatchValidationError, buildBatchEntries } =
+  await import("./question-prompter.js");
 
 function makePrompter() {
   const sent: ServerMessage[] = [];
@@ -176,7 +171,7 @@ describe("QuestionPrompter", () => {
     const promise = prompter.prompt(singleQuestionParams);
 
     expect(sent).toHaveLength(1);
-    const req = sent[0] as QuestionRequest;
+    const req = sent[0] as QuestionRequestEvent;
     expect(req.type).toBe("question_request");
     expect(req.questions).toHaveLength(1);
     expect(req.questions[0]?.id).toBe("q1");
@@ -207,7 +202,7 @@ describe("QuestionPrompter", () => {
       ],
     });
 
-    const req = sent[0] as QuestionRequest;
+    const req = sent[0] as QuestionRequestEvent;
     expect(req.freeTextPlaceholder).toBe("Type a fruit");
     expect(req.questions[0]?.freeTextPlaceholder).toBe("Type a fruit");
 
@@ -228,7 +223,7 @@ describe("QuestionPrompter", () => {
     void prompter.prompt(threeQuestionParams);
 
     expect(sent).toHaveLength(1);
-    const req = sent[0] as QuestionRequest;
+    const req = sent[0] as QuestionRequestEvent;
     expect(req.questions.map((q) => q.id)).toEqual(["q1", "q2", "q3"]);
     // Flat fields mirror the first entry for backwards compat.
     expect(req.question).toBe("Q1?");
@@ -239,7 +234,7 @@ describe("QuestionPrompter", () => {
     const { prompter, sent } = makePrompter();
 
     const promise = prompter.prompt(threeQuestionParams);
-    const req = sent[0] as QuestionRequest;
+    const req = sent[0] as QuestionRequestEvent;
 
     resolveBatch(req.requestId, [
       { questionId: "q2", kind: "option", optionId: "y" },
@@ -262,7 +257,7 @@ describe("QuestionPrompter", () => {
     const { prompter, sent } = makePrompter();
 
     const promise = prompter.prompt(threeQuestionParams);
-    const req = sent[0] as QuestionRequest;
+    const req = sent[0] as QuestionRequestEvent;
 
     resolveBatch(req.requestId, [
       { questionId: "q1", kind: "skip" },
@@ -279,7 +274,7 @@ describe("QuestionPrompter", () => {
     const { prompter, sent } = makePrompter();
 
     const promise = prompter.prompt(threeQuestionParams);
-    const req = sent[0] as QuestionRequest;
+    const req = sent[0] as QuestionRequestEvent;
 
     closeBatch(req.requestId);
 
@@ -294,12 +289,9 @@ describe("QuestionPrompter", () => {
 
   test("buildBatchEntries rejects unknown questionId", () => {
     expect(() =>
-      buildBatchEntries(
-        ["q1"],
-        () => true,
-        new Set(["q1"]),
-        [{ questionId: "qX", kind: "option", optionId: "a" }],
-      ),
+      buildBatchEntries(["q1"], () => true, new Set(["q1"]), [
+        { questionId: "qX", kind: "option", optionId: "a" },
+      ]),
     ).toThrow(QuestionBatchValidationError);
   });
 
@@ -347,7 +339,7 @@ describe("QuestionPrompter", () => {
       ...threeQuestionParams,
       signal: ac.signal,
     });
-    const req = sent[0] as QuestionRequest;
+    const req = sent[0] as QuestionRequestEvent;
     expect(_piStore.has(req.requestId)).toBe(true);
 
     ac.abort();
@@ -377,7 +369,7 @@ describe("QuestionPrompter", () => {
       ...threeQuestionParams,
       signal: ac.signal,
     });
-    const req = sent[0] as QuestionRequest;
+    const req = sent[0] as QuestionRequestEvent;
     expect(_piStore.has(req.requestId)).toBe(true);
 
     // Simulate `removeByConversation` clearing the registry entry before
