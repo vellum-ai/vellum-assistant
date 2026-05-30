@@ -10,7 +10,7 @@ import Foundation
 ///
 /// Only the leaves the macOS UI exposes are modeled here: `provider`,
 /// `model`, `maxTokens`, `effort`, `speed`, `verbosity`, `temperature`,
-/// the two `thinking` sub-fields, and `contextWindow.maxInputTokens`.
+/// the three `thinking` sub-fields, and `contextWindow.maxInputTokens`.
 /// Other `LLMConfigFragment` leaves (e.g. `openrouter` and non-UI
 /// `contextWindow` sub-fields) are preserved by the JSON mapper so edits
 /// can round-trip profile fragments without clobbering hidden settings.
@@ -81,6 +81,10 @@ public struct InferenceProfile: Hashable, Identifiable {
     /// Maps to `thinking.streamThinking` in the fragment JSON.
     public var thinkingStreamThinking: Bool?
 
+    /// Maps to `thinking.level` in the fragment JSON. Gemini's reasoning-depth
+    /// knob (`minimal`/`low`/`medium`/`high`); other providers ignore it.
+    public var thinkingLevel: String?
+
     private var preservedJSON: [String: Any]
 
     public var id: String { name }
@@ -117,7 +121,8 @@ public struct InferenceProfile: Hashable, Identifiable {
         contextWindowMaxInputTokens: Int? = nil,
         temperature: TemperatureValue = .unset,
         thinkingEnabled: Bool? = nil,
-        thinkingStreamThinking: Bool? = nil
+        thinkingStreamThinking: Bool? = nil,
+        thinkingLevel: String? = nil
     ) {
         self.name = name
         self.source = source
@@ -135,6 +140,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         self.temperature = temperature
         self.thinkingEnabled = thinkingEnabled
         self.thinkingStreamThinking = thinkingStreamThinking
+        self.thinkingLevel = thinkingLevel
         self.preservedJSON = [:]
     }
 
@@ -157,7 +163,8 @@ public struct InferenceProfile: Hashable, Identifiable {
         contextWindowMaxInputTokens: Int? = nil,
         temperature: Double?,
         thinkingEnabled: Bool? = nil,
-        thinkingStreamThinking: Bool? = nil
+        thinkingStreamThinking: Bool? = nil,
+        thinkingLevel: String? = nil
     ) {
         self.init(
             name: name,
@@ -175,7 +182,8 @@ public struct InferenceProfile: Hashable, Identifiable {
             contextWindowMaxInputTokens: contextWindowMaxInputTokens,
             temperature: TemperatureValue(value: temperature),
             thinkingEnabled: thinkingEnabled,
-            thinkingStreamThinking: thinkingStreamThinking
+            thinkingStreamThinking: thinkingStreamThinking,
+            thinkingLevel: thinkingLevel
         )
     }
 
@@ -204,6 +212,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         let thinking = json["thinking"] as? [String: Any]
         self.thinkingEnabled = thinking?["enabled"] as? Bool
         self.thinkingStreamThinking = thinking?["streamThinking"] as? Bool
+        self.thinkingLevel = (thinking?["level"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         self.preservedJSON = Self.preservedJSON(from: json)
     }
 
@@ -226,6 +235,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         if fragment.temperature != .unset { merged.temperature = fragment.temperature }
         if let v = fragment.thinkingEnabled { merged.thinkingEnabled = v }
         if let v = fragment.thinkingStreamThinking { merged.thinkingStreamThinking = v }
+        if let v = fragment.thinkingLevel { merged.thinkingLevel = v }
         return merged
     }
 
@@ -271,6 +281,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         var thinking: [String: Any] = [:]
         if let thinkingEnabled { thinking["enabled"] = thinkingEnabled }
         if let thinkingStreamThinking { thinking["streamThinking"] = thinkingStreamThinking }
+        if let thinkingLevel { thinking["level"] = thinkingLevel }
         if !thinking.isEmpty {
             result["thinking"] = thinking
         }
@@ -341,6 +352,7 @@ public struct InferenceProfile: Hashable, Identifiable {
             && lhs.temperature == rhs.temperature
             && lhs.thinkingEnabled == rhs.thinkingEnabled
             && lhs.thinkingStreamThinking == rhs.thinkingStreamThinking
+            && lhs.thinkingLevel == rhs.thinkingLevel
     }
 
     public func hash(into hasher: inout Hasher) {
@@ -360,6 +372,7 @@ public struct InferenceProfile: Hashable, Identifiable {
         hasher.combine(temperature)
         hasher.combine(thinkingEnabled)
         hasher.combine(thinkingStreamThinking)
+        hasher.combine(thinkingLevel)
     }
 }
 

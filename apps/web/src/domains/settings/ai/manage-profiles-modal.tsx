@@ -57,7 +57,7 @@ export interface Profile {
   speed?: string;
   verbosity?: string;
   temperature?: number | null;
-  thinking?: { enabled?: boolean; streamThinking?: boolean };
+  thinking?: { enabled?: boolean; streamThinking?: boolean; level?: string };
   contextWindow?: { maxInputTokens?: number };
 }
 
