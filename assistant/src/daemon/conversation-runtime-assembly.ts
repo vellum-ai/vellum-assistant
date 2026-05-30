@@ -19,6 +19,7 @@ import {
 import {
   countMemoryPrefixBlocks,
   extractMemoryPrefixBlocks,
+  stripAllMemoryInjections,
 } from "../memory/graph/conversation-graph-memory.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import {
@@ -2100,6 +2101,20 @@ export interface RuntimeInjectionOptions {
   activeDocuments?: TurnInjectionInputs["activeDocuments"];
   mode?: InjectionMode;
   /**
+   * memory-v3-live: when true AND the v3 injector produced a `<memory>` block
+   * this turn (placement `after-memory-prefix`, id `memory-v3`), the v2
+   * `<memory>` injection that `graphMemory.prepareMemory` prepended to the
+   * tail is stripped from EVERY user message before the v3 block is spliced —
+   * so v3 becomes the sole `<memory>` source and history stays byte-stable for
+   * prompt caching.
+   *
+   * The strip is keyed off whether v3 ACTUALLY produced a block, not off the
+   * flag alone: when v3 errors or selects nothing (its injector returns
+   * `null`), v2's block is left in place so the turn still ships memory rather
+   * than dropping it (fallback-to-v2). Default false — v2 untouched.
+   */
+  suppressV2MemoryForV3?: boolean;
+  /**
    * Per-turn {@link TurnContext} forwarded to plugin-registered
    * {@link Injector}s via {@link collectInjectorBlocks}. When omitted,
    * `applyRuntimeInjections` synthesizes an ephemeral context (with a
@@ -2308,7 +2323,26 @@ export async function applyRuntimeInjections(
       ? injectorChainPieces.join("\n\n")
       : undefined;
 
-  let result = runMessages;
+  // ── Step 0: memory-v3-live v2 suppression ──
+  // When v3 live mode is on AND the v3 injector actually produced a block this
+  // turn, v3 is the sole `<memory>` source. v2's `prepareMemory` already
+  // prepended its own `<memory>` block to the tail user message (and historical
+  // turns may carry v2 blocks from earlier turns). Strip every user message's
+  // memory prefix here so:
+  //   1. The v3 `after-memory-prefix` block (Step 2) lands at the top of the
+  //      tail with no v2 prefix ahead of it — exactly one `<memory>` block.
+  //   2. History is byte-stable across turns for prompt caching.
+  // Keyed off the v3 block being present (not the flag alone) so a v3 failure
+  // (`produce()` → null) leaves v2's block intact — fallback rather than a
+  // memory-less turn. Idempotent: re-injection sites that already stripped
+  // see no change.
+  const v3ProducedBlock = afterMemory.some((b) => b.id === "memory-v3");
+  let runMessagesForAssembly = runMessages;
+  if (options.suppressV2MemoryForV3 && v3ProducedBlock) {
+    runMessagesForAssembly = stripAllMemoryInjections(runMessages);
+  }
+
+  let result = runMessagesForAssembly;
 
   // ── Step 1: Slack chronological replacement (chain "replace" block) ──
   if (replaceBlock && replaceBlock.messagesOverride) {
@@ -2317,7 +2351,9 @@ export async function applyRuntimeInjections(
     // runtime assembly runs. The Slack transcript is freshly rendered
     // from persisted rows and has no such prefix, so swap it in and then
     // re-prepend the captured prefix onto the new tail user message.
-    const carriedMemoryBlocks = extractMemoryPrefixBlocks(runMessages);
+    const carriedMemoryBlocks = extractMemoryPrefixBlocks(
+      runMessagesForAssembly,
+    );
     result = replaceBlock.messagesOverride;
     if (carriedMemoryBlocks.length > 0) {
       const slackTail = result[result.length - 1];
