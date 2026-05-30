@@ -26,6 +26,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
   type EffectiveContextWindow,
@@ -1760,8 +1761,21 @@ export async function runAgentLoopImpl(
     // to the reduced `ctx.messages`.
     let reducerCompacted = compactedThisTurn;
 
+    // memory-v3-live: route the turn's `<memory>` block to the v3 injector.
+    // When on, runtime assembly suppresses v2's `<memory>` injection (only
+    // when the v3 injector actually produced a block — otherwise v2 stays as a
+    // fallback) and the provider anchors its long-TTL cache breakpoint on the
+    // most recent STABLE user message, since the latest user message now
+    // carries the volatile per-turn memory block. Flag off → bit-for-bit
+    // identical to today's v2 path.
+    const memoryV3Live = isAssistantFeatureFlagEnabled(
+      "memory-v3-live",
+      getConfig(),
+    );
+
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
+      suppressV2MemoryForV3: memoryV3Live,
       diskPressureContext,
       activeSurface,
       activeDocuments,
@@ -2296,6 +2310,10 @@ export async function runAgentLoopImpl(
         effectiveMaxInputTokens: resolveCurrentMaxInputTokens(),
         resolveOverrideProfile: resolveCurrentOverrideProfile,
         resolveEffectiveMaxInputTokens: resolveCurrentMaxInputTokens,
+        // memory-v3-live: the latest user message carries the volatile v3
+        // `<memory>` block, so anchor the provider's long-TTL cache breakpoint
+        // on the most recent stable message instead.
+        mutableLatestUserMessage: memoryV3Live,
       });
 
     let updatedHistory = await runAgentLoop(runMessages);

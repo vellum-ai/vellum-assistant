@@ -405,6 +405,15 @@ export interface AgentLoopRunOptions {
   effectiveMaxInputTokens?: number;
   resolveOverrideProfile?: () => string | undefined;
   resolveEffectiveMaxInputTokens?: () => number | undefined;
+  /**
+   * When true, the latest user message carries a volatile per-turn block
+   * (e.g. a memory-v3 `<memory>` injection) that varies across otherwise
+   * identical turns. Forwarded to each `SendMessageOptions.config` so the
+   * provider anchors its long-TTL cache breakpoint on the most recent STABLE
+   * user message instead of the volatile latest one, keeping the cached
+   * prefix reusable. Default unset → existing behavior.
+   */
+  mutableLatestUserMessage?: boolean;
 }
 
 /**
@@ -525,6 +534,7 @@ export class AgentLoop {
       effectiveMaxInputTokens,
       resolveOverrideProfile,
       resolveEffectiveMaxInputTokens,
+      mutableLatestUserMessage,
     } = options ?? {};
     const history = [...messages];
     const initialHistoryLength = messages.length;
@@ -628,6 +638,15 @@ export class AgentLoop {
 
         if (this.config.cacheTtl) {
           providerConfig.cacheTtl = this.config.cacheTtl;
+        }
+
+        // Cache-anchor signal for volatile latest-user-message turns (e.g.
+        // memory-v3 injects its `<memory>` block into the latest user
+        // message). Not part of the call-site schema, so it is always sourced
+        // from the per-run option regardless of `callSite`. Only set when true
+        // so the wire/config stays byte-identical when off.
+        if (mutableLatestUserMessage) {
+          providerConfig.mutableLatestUserMessage = true;
         }
 
         // Per-call LLM call-site identifier. Surfaces on the per-call
