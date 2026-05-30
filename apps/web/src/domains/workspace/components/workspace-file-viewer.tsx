@@ -301,6 +301,7 @@ function EditFooter({
 
 function ContentActionBar({
   content,
+  downloadContent,
   fileName,
   mimeType,
   showEdit,
@@ -308,6 +309,7 @@ function ContentActionBar({
   onToggleEdit,
 }: {
   content: string;
+  downloadContent?: string;
   fileName: string;
   mimeType: string;
   showEdit: boolean;
@@ -327,15 +329,16 @@ function ContentActionBar({
     });
   }, [content]);
 
+  const rawContent = downloadContent ?? content;
   const handleDownload = useCallback(() => {
-    const blob = new Blob([content], { type: mimeType });
+    const blob = new Blob([rawContent], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
-  }, [content, fileName, mimeType]);
+  }, [rawContent, fileName, mimeType]);
 
   useEffect(() => {
     return () => {
@@ -664,6 +667,7 @@ export function WorkspaceFileViewer({
         <div className="relative flex-1 overflow-hidden">
           <ContentActionBar
             content={viewMode === "preview" ? previewContent : sourceContent}
+            downloadContent={sourceContent}
             fileName={name}
             mimeType={mimeType}
             showEdit={!readOnly && viewMode === "source"}
