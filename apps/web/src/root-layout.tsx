@@ -30,13 +30,12 @@ const KEYBOARD_OPEN_THRESHOLD_PX = 100;
  *
  * 1. Safe-area insets and iOS visual-viewport keyboard tracking.
  * 2. The single assistant lifecycle (`useAssistantLifecycle`). Mounted
- *    here as a side effect — the hook publishes `assistantState`,
- *    `autoGreetPending`, and stable imperative callbacks into
- *    `useAssistantLifecycleStore`, and the active assistant id into
- *    `useAssistantSelectionStore`. Resolving lifecycle here means
- *    `SettingsLayout` / `LogsLayout` / onboarding routes can read the
- *    current assistant via store selectors without each running a
- *    duplicate polling state machine.
+ *    here as a side effect — the hook publishes `assistantState` and
+ *    stable imperative callbacks into `useAssistantLifecycleStore`,
+ *    and the active assistant id into `useAssistantSelectionStore`.
+ *    Mounting once at the app root means every layout / route can
+ *    read the current assistant via store selectors without each
+ *    running a duplicate polling state machine.
  * 3. The event-bus owner (`useEventBusInit`). Bus producers (SSE
  *    connection, visibility / online / offline listeners, Capacitor
  *    app-state) need to be alive on every authenticated route — not

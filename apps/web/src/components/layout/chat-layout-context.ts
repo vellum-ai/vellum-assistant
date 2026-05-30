@@ -5,21 +5,17 @@
  * `ChatLayout` owns three `useState`-backed slot fields (header
  * center, header right, search-icon handler) and exposes setters
  * through this context. Child routes register their content from a
- * `useEffect` and clear it on unmount. The pattern stays
- * intentionally low-tech — it's a slot/portal, not application
- * state — so we don't promote it to Zustand (a `ReactNode` slot is
- * not store-shaped data, and the React-state-via-setters pattern
- * is the React-idiomatic way to do header slots).
+ * `useEffect` and clear it on unmount.
  *
- * The assistant lifecycle used to ride along here but lives in
- * `useAssistantLifecycleStore` and `useAssistantSelectionStore`
- * now — see `apps/web/src/assistant/lifecycle-store.ts`. The
- * context's only remaining job is header slot wiring, hence the
- * narrower name.
+ * Slots stay in outlet context rather than a Zustand store on
+ * purpose: a `ReactNode` slot is component-shaped (closures,
+ * children) not store-shaped, and the React-state-via-setters
+ * pattern is the idiomatic React way to do header slots.
+ * Application state (the assistant lifecycle, the active id) lives
+ * in stores under `src/assistant/`.
  *
- * References:
- * - https://reactrouter.com/start/framework/outlet
- * - https://reactrouter.com/start/framework/routing#layout-routes
+ * @see https://reactrouter.com/start/framework/outlet
+ * @see https://reactrouter.com/start/framework/routing#layout-routes
  */
 import type { ReactNode } from "react";
 import { useOutletContext } from "react-router";

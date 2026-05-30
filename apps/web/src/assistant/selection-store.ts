@@ -1,23 +1,15 @@
 /**
  * Active-assistant selection.
  *
- * Single source of truth for "which assistant is the app acting on
- * right now." Selection state — not server state — so it lives in
- * Zustand, not in TanStack Query. `use-lifecycle.ts` writes here in
- * response to server resolutions (`active` / `self_hosted` /
- * gateway-auth short-circuit branches); every other consumer reads
- * via atomic selectors so each subscriber only re-renders when the
- * id flips.
+ * Single source of truth for which assistant the app is acting on.
+ * Selection state, not server state — lives in Zustand, not
+ * TanStack Query. `use-lifecycle.ts` writes here when server
+ * resolutions resolve (`active` / `self_hosted` / gateway-auth
+ * short-circuit branches); every other consumer reads via atomic
+ * selectors so each subscriber only re-renders when the id flips.
  *
- * Sits next to `lifecycle-store.ts` and `queries.ts` rather than
- * under `src/stores/` because the assistant domain owns the
- * selection concept — selection only changes via lifecycle
- * transitions, and keeping the writer and reader in the same folder
- * makes the data flow obvious to the next reader.
- *
- * Once routes encode `:assistantId` as a path segment, this store
- * collapses to a `useParams` read — until then it's the canonical
- * selection.
+ * If routes ever encode `:assistantId` as a path segment, this
+ * store collapses to a `useParams` read.
  *
  * @see {@link https://zustand.docs.pmnd.rs/guides/auto-generating-selectors}
  */

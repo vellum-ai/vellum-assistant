@@ -144,12 +144,11 @@ interface SideMenuRenderArgs {
  * keyboard shortcuts (Ctrl+\, Ctrl+K, Ctrl+[/]), and the chat header
  * bar. Reads the resolved assistant from `useAssistantSelectionStore`
  * and the lifecycle phase from `useAssistantLifecycleStore`. Exposes
- * its header-slot setters to child routes via outlet context (the
- * remaining role of `ChatLayoutContextValue`).
+ * header-slot setters (`ChatLayoutContextValue`) to child routes via
+ * outlet context.
  *
- * References:
- * - React Router nested layouts: https://reactrouter.com/start/data/routing
- * - React Router outlet context: https://reactrouter.com/start/framework/outlet
+ * @see https://reactrouter.com/start/data/routing
+ * @see https://reactrouter.com/start/framework/outlet
  */
 export function ChatLayout() {
   const navigate = useNavigate();

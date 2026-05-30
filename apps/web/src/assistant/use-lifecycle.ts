@@ -59,9 +59,9 @@ interface UseAssistantLifecycleOptions {
  * rendering.
  *
  * Returns `void` — all output flows through Zustand stores:
- *   - `useAssistantLifecycleStore` for `assistantState`,
- *     `autoGreetPending`, and the imperative actions
- *     (`checkAssistant` / `retryAssistant` / `hatchVersion`).
+ *   - `useAssistantLifecycleStore` for `assistantState` and the
+ *     imperative actions (`checkAssistant` / `retryAssistant` /
+ *     `hatchVersion`).
  *   - `useAssistantSelectionStore` for the active assistant id.
  *
  * Cross-domain consumers subscribe to those stores via atomic

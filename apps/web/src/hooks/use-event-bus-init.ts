@@ -1,5 +1,5 @@
 /**
- * Owns the bus's event sources at chat-layout scope.
+ * Owns the bus's event sources at app-root scope.
  *
  * Two concerns, two effects:
  *
