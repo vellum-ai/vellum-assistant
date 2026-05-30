@@ -165,7 +165,13 @@ export function useEventBusInit({
 
     let current: ChatEventStream | null = null;
     let cancelled = false;
-    let lastResumeAt = 0;
+    // Independent dedup windows per handler. A shared timestamp was
+    // wrong: `app.resume`'s no-op (current already non-null) would
+    // update the shared mark and then suppress a `power.resume` that
+    // genuinely needed to bounce a half-dead socket. Each handler now
+    // self-dedups against its own action's recency.
+    let lastAppResumeAt = 0;
+    let lastPowerActionAt = 0;
     let nextOpenCause: "fresh" | "error" | "watchdog" | "resume" = "fresh";
 
     const open = () => {
@@ -217,14 +223,14 @@ export function useEventBusInit({
     open();
 
     // App lifecycle (renderer-visibility resume): tear down on hidden,
-    // reopen on resume IF the connection was already torn down. The 1s
-    // dedup window collapses double-fires from visibilitychange +
+    // reopen on resume IF the connection was already torn down. The
+    // self-dedup window collapses double-fires from visibilitychange +
     // Capacitor appStateChange (both arrive in close succession on
     // foregrounding the iOS native shell).
     const handleAppResume = () => {
       const now = Date.now();
-      if (now - lastResumeAt < RESUME_DEDUP_WINDOW_MS) return;
-      lastResumeAt = now;
+      if (now - lastAppResumeAt < RESUME_DEDUP_WINDOW_MS) return;
+      lastAppResumeAt = now;
       checkAssistant();
       // App-resume means the renderer became visible; if a connection
       // is already live, it was either never torn down or just opened
@@ -237,13 +243,15 @@ export function useEventBusInit({
     // system sleep (tray-resident, full-screen) so there's no
     // app.hidden → app.resume cycle; `current` is still non-null
     // but the socket may be half-dead because the remote side
-    // TCP-RST'd while we slept. The shared dedup window collapses
-    // overlap with `app.resume` so a sleep that ALSO triggered a
-    // visibility change doesn't double-bounce.
+    // TCP-RST'd while we slept. Self-dedups against close-together
+    // `power.resume` + `power.unlock` (sleep → wake → unlock).
+    // Independent from `lastAppResumeAt` because an `app.resume`
+    // no-op (current non-null) MUST NOT suppress a power-driven
+    // bounce — that was the bug this PR exists to fix.
     const handlePowerResume = () => {
       const now = Date.now();
-      if (now - lastResumeAt < RESUME_DEDUP_WINDOW_MS) return;
-      lastResumeAt = now;
+      if (now - lastPowerActionAt < RESUME_DEDUP_WINDOW_MS) return;
+      lastPowerActionAt = now;
       checkAssistant();
       teardown();
       open();

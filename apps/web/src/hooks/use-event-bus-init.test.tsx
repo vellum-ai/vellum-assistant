@@ -317,7 +317,43 @@ describe("useEventBusInit — SSE ownership", () => {
     expect(checkAssistant).toHaveBeenCalledTimes(1);
   }, 5_000);
 
-  test("app.resume then power.resume within the dedup window only opens once", async () => {
+  test("app.resume no-op (current non-null) does NOT suppress a follow-up power.resume bounce", () => {
+    // Real-world trace: tray-resident Electron, system sleeps, wifi
+    // reconnects on wake → `online` event → `app.resume(signal:"online")`
+    // → handleAppResume runs but bails because `current` is still
+    // non-null (renderer never went hidden). 50ms later `power.resume`
+    // arrives. The handler MUST bounce — that's the entire point of
+    // this PR. Independent dedup windows ensure the noop'd
+    // app.resume doesn't suppress it.
+    const checkAssistant = mock(() => {});
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+        checkAssistant,
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+
+    // Fire app.resume — current is non-null, so this is a no-op.
+    useEventBusStore.getState().publish("app.resume", { signal: "online" });
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+
+    // Power.resume arrives within the dedup window. MUST still bounce.
+    useEventBusStore.getState().publish("power.resume", {});
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("app.resume then power.resume — fresh SSE gets bounced (wasted bounce, but the correctness tradeoff)", async () => {
+    // Independent dedup windows mean the two handlers don't observe
+    // each other's timestamps. In the rare case where the renderer
+    // both went hidden AND received a system-power signal on wake,
+    // app.resume opens a fresh SSE and power.resume then bounces it.
+    // One extra teardown + reopen, <100ms — acceptable cost for
+    // closing the missed-bounce bug in the more common tray-resident
+    // case.
     const checkAssistant = mock(() => {});
     renderHook(() =>
       useEventBusInit({
@@ -329,10 +365,10 @@ describe("useEventBusInit — SSE ownership", () => {
     useEventBusStore.getState().publish("app.hidden", { signal: "visibility" });
     await new Promise((resolve) => setTimeout(resolve, 1100));
     useEventBusStore.getState().publish("app.resume", { signal: "visibility" });
-    // Inside the dedup window — would otherwise double-open the SSE.
-    useEventBusStore.getState().publish("power.resume", {});
     expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
-    expect(checkAssistant).toHaveBeenCalledTimes(1);
+    useEventBusStore.getState().publish("power.resume", {});
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(3);
+    expect(cancelMock).toHaveBeenCalledTimes(2); // app.hidden + power.resume bounce
   }, 5_000);
 
   test("reachability.retry-requested bounces the SSE connection", () => {
