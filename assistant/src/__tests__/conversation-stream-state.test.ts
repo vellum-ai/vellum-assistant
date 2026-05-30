@@ -151,7 +151,7 @@ describe("conversation-stream-state", () => {
   describe("getReplayWindow", () => {
     test("returns events with seq > lastSeenSeq in order", () => {
       const events = Array.from({ length: 5 }, () => mkEvent());
-      events.forEach(stampAndBuffer);
+      events.forEach((e) => stampAndBuffer(e));
       const replay = getReplayWindow(CONV, 2);
       expect(replay).not.toBeNull();
       expect(replay!.map((e) => e.seq)).toEqual([3, 4, 5]);
