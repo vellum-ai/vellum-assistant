@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 
-import { runtimeAudioUrl } from "@/domains/radio/api.js";
+import {
+  fetchRadioAudioObjectUrl,
+  runtimeAudioUrl,
+} from "@/domains/radio/api.js";
 
 describe("runtimeAudioUrl", () => {
   it("encodes assistant ids and path segments", () => {
@@ -43,5 +46,47 @@ describe("runtimeAudioUrl", () => {
     expect(() => runtimeAudioUrl("assistant-1", "radio/tracks")).toThrow(
       "Unsupported radio audio path.",
     );
+  });
+});
+
+describe("fetchRadioAudioObjectUrl", () => {
+  it("loads audio through the API client and returns a revokable blob URL", async () => {
+    const blob = new Blob(["wav-bytes"], { type: "audio/wav" });
+    const calls: unknown[] = [];
+    const revokedUrls: string[] = [];
+
+    const result = await fetchRadioAudioObjectUrl(
+      "/v1/assistants/assistant-1/radio/tracks/soft-launch/",
+      {
+        get: async (options) => {
+          calls.push(options);
+          return {
+            data: blob,
+            response: new Response(blob, {
+              headers: { "Content-Type": "audio/wav" },
+            }),
+          };
+        },
+        createObjectURL: (audioBlob) => {
+          expect(audioBlob).toBe(blob);
+          return "blob:radio-audio";
+        },
+        revokeObjectURL: (url) => {
+          revokedUrls.push(url);
+        },
+      },
+    );
+
+    expect(calls).toEqual([
+      expect.objectContaining({
+        url: "/v1/assistants/assistant-1/radio/tracks/soft-launch/",
+        parseAs: "blob",
+        throwOnError: false,
+      }),
+    ]);
+    expect(result.url).toBe("blob:radio-audio");
+
+    result.revoke();
+    expect(revokedUrls).toEqual(["blob:radio-audio"]);
   });
 });
