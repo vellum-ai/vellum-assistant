@@ -105,10 +105,11 @@ export function PreChatFlow() {
   const firstName = user?.firstName ?? "";
   const lastName = user?.lastName ?? "";
   const isNative = useIsNativePlatform();
-  // Stable callback registered by `useAssistantLifecycle` on mount —
-  // read via `.getState()` to skip the unnecessary subscription.
-  const checkAssistant =
-    useAssistantLifecycleStore.getState().checkAssistant;
+  // Subscribe via the selector — the lifecycle hook registers the
+  // real callback in a passive `useEffect`, which commits AFTER this
+  // screen renders on a cold onboarding mount. Reading via
+  // `.getState()` here would capture the no-op default.
+  const checkAssistant = useAssistantLifecycleStore.use.checkAssistant();
   const activeAssistantId =
     useAssistantSelectionStore.use.activeAssistantId();
   const [, setOnboardingCompleted] = useOnboardingCompleted();

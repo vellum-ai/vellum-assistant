@@ -3,8 +3,8 @@
  *
  * `use-lifecycle.ts` runs the behavior (mount-time init, polling,
  * recovery timers, mutation calls). This store holds the state it
- * produces: the discriminated `AssistantState` and stable references
- * to the hook's imperative callbacks.
+ * produces: the discriminated `AssistantState` and the hook's
+ * imperative callbacks.
  *
  * The store-not-context choice: every page that decides "what should
  * I render right now?" reads `assistantState`. Pushing it through
@@ -13,6 +13,17 @@
  * selectors mean a route reading only `checkAssistant` doesn't
  * re-render when the state machine transitions. See
  * `apps/web/docs/STATE_MANAGEMENT.md` for the boundary rule.
+ *
+ * **Reading the imperative actions: use the selectors, not
+ * `.getState()`.** The store ships no-op defaults that
+ * `useAssistantLifecycle` overwrites in a passive `useEffect` after
+ * its first render. Children of `RootLayout` (chat, onboarding,
+ * version-selection) render in the same commit, so any consumer that
+ * reads `useAssistantLifecycleStore.getState().checkAssistant` at
+ * render time captures the no-op. Subscribing via
+ * `useAssistantLifecycleStore.use.checkAssistant()` causes a single
+ * additional render when registration lands and keeps the captured
+ * ref current — the right trade vs. silently awaiting a no-op.
  *
  * @see {@link ./use-lifecycle.ts}
  * @see {@link ./selection-store.ts}

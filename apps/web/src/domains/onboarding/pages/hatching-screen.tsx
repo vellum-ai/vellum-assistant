@@ -112,10 +112,12 @@ export function HatchingScreen() {
   const userId = useAuthStore.use.user()?.id ?? null;
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isAuthLoading = useAuthStore.use.isLoading();
-  // Stable callback registered by `useAssistantLifecycle` on mount —
-  // read via `.getState()` to skip the unnecessary subscription.
-  const checkAssistant =
-    useAssistantLifecycleStore.getState().checkAssistant;
+  // Subscribe via the selector — the lifecycle hook registers the
+  // real callback in a passive `useEffect`, which commits AFTER this
+  // screen renders on a cold onboarding mount. Reading via
+  // `.getState()` here would capture the no-op default. The
+  // subscription causes one extra render when registration lands.
+  const checkAssistant = useAssistantLifecycleStore.use.checkAssistant();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [hatchTraits] = useState<CharacterTraits>(() =>
     randomCharacterTraits(BUNDLED_COMPONENTS),

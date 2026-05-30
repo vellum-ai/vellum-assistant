@@ -165,15 +165,13 @@ export function ChatPage() {
   const setOnSearchClick = useChatLayoutSlotsStore.use.setOnSearchClick();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
-  // Imperative callbacks are stable after `useAssistantLifecycle`'s
-  // register-actions effect runs in `RootLayout`; we read once at
-  // render time rather than subscribing — the identity doesn't flip
-  // in practice and consumers shouldn't re-render if it ever did.
-  const checkAssistant =
-    useAssistantLifecycleStore.getState().checkAssistant;
-  const retryAssistant =
-    useAssistantLifecycleStore.getState().retryAssistant;
-  const hatchVersion = useAssistantLifecycleStore.getState().hatchVersion;
+  // Subscribe via the selectors — `useAssistantLifecycle` registers
+  // the real callbacks in a passive `useEffect` that commits after
+  // this child renders on a cold mount. `.getState()` here would
+  // capture the no-op defaults instead.
+  const checkAssistant = useAssistantLifecycleStore.use.checkAssistant();
+  const retryAssistant = useAssistantLifecycleStore.use.retryAssistant();
+  const hatchVersion = useAssistantLifecycleStore.use.hatchVersion();
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const doctor = useClientFeatureFlagStore.use.doctor();
