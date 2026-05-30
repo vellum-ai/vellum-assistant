@@ -431,7 +431,7 @@ const useRadioStoreBase = create<RadioStore>()((set, get) => ({
   resume: async () => {
     if (!controller) return;
     await controller.resume();
-    set({ status: "playing" });
+    set({ status: get().nextTrack ? "transitioning" : "playing" });
   },
 
   skip: async (assistantId) => {

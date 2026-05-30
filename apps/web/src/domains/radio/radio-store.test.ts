@@ -286,6 +286,32 @@ describe("useRadioStore", () => {
     expect(store.getState().nextTrack).toBeNull();
   });
 
+  it("keeps transition state after resuming a paused DJ break", async () => {
+    const store = await loadStore();
+    await store.getState().start("assistant-1");
+    advanceRadioMock.mockImplementationOnce(async () => transitionResponse);
+    const transition = deferred<void>();
+    controllers[0]!.applyTransition.mockImplementationOnce(
+      async () => transition.promise,
+    );
+
+    const skipPromise = store.getState().skip("assistant-1");
+    await Promise.resolve();
+
+    store.getState().pause();
+    await store.getState().resume();
+
+    expect(store.getState().status).toBe("transitioning");
+
+    transition.resolve();
+    await skipPromise;
+
+    expect(store.getState().status).toBe("playing");
+    expect(store.getState().displayCue).toBe("song");
+    expect(store.getState().currentTrack?.id).toBe("buffer-bloom");
+    expect(store.getState().nextTrack).toBeNull();
+  });
+
   it("hides and shows without resetting playback state", async () => {
     const store = await loadStore();
     await store.getState().start("assistant-1");
