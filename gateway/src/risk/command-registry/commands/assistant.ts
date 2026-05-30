@@ -546,8 +546,11 @@ const riskOverrides: AssistantRiskOverride[] = [
   },
   {
     path: "schedules execute",
-    risk: "medium",
-    reason: "Triggers immediate schedule execution with assistant-side effects",
+    risk: "high",
+    reason:
+      "Triggers immediate schedule execution. Script-mode schedules shell out " +
+      "via sh -c on the host, and the schedule ID arg is opaque to the " +
+      "classifier — must conservatively assume host shell execution",
   },
   { path: "sequence pause", risk: "medium" },
   { path: "sequence resume", risk: "medium" },
