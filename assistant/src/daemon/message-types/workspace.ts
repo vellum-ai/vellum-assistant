@@ -119,9 +119,6 @@ export interface ToolNamesListResponse {
   schemas?: Record<string, ToolInputSchema>;
 }
 
-// `identity_changed` is now the canonical `IdentityChangedEvent` defined in
-// `assistant/src/api/events/identity-changed.ts` and imported above.
-
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _WorkspaceClientMessages =

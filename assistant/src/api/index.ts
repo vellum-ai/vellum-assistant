@@ -5,6 +5,8 @@ import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js"
 import { AvatarUpdatedEventSchema } from "./events/avatar-updated.js";
 import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-closed.js";
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
+import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
+import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
 import { ConversationTitleUpdatedEventSchema } from "./events/conversation-title-updated.js";
 import { DocumentCommentCreatedEventSchema } from "./events/document-comment-created.js";
@@ -22,7 +24,9 @@ import { MessageQueuedEventSchema } from "./events/message-queued.js";
 import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
+import { QuestionRequestEventSchema } from "./events/question-request.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
+import { SecretRequestEventSchema } from "./events/secret-request.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 
 export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
@@ -51,6 +55,28 @@ export {
   type CompactionCircuitOpenEvent,
   CompactionCircuitOpenEventSchema,
 } from "./events/compaction-circuit-open.js";
+export {
+  type ACPOption,
+  type ACPOptionKind,
+  ACPOptionKindSchema,
+  ACPOptionSchema,
+  type AllowlistOption,
+  AllowlistOptionSchema,
+  type ConfirmationDiff,
+  ConfirmationDiffSchema,
+  type ConfirmationExecutionTarget,
+  ConfirmationExecutionTargetSchema,
+  type ConfirmationRequestEvent,
+  ConfirmationRequestEventSchema,
+  type DirectoryScopeOption,
+  DirectoryScopeOptionSchema,
+  type ScopeOption,
+  ScopeOptionSchema,
+} from "./events/confirmation-request.js";
+export {
+  type ContactRequestEvent,
+  ContactRequestEventSchema,
+} from "./events/contact-request.js";
 export {
   type ConversationListInvalidatedEvent,
   ConversationListInvalidatedEventSchema,
@@ -121,9 +147,21 @@ export {
 } from "./events/message-request-complete.js";
 export { type OpenUrlEvent, OpenUrlEventSchema } from "./events/open-url.js";
 export {
+  type QuestionEntry,
+  QuestionEntrySchema,
+  type QuestionOption,
+  QuestionOptionSchema,
+  type QuestionRequestEvent,
+  QuestionRequestEventSchema,
+} from "./events/question-request.js";
+export {
   type RelationshipStateUpdatedEvent,
   RelationshipStateUpdatedEventSchema,
 } from "./events/relationship-state-updated.js";
+export {
+  type SecretRequestEvent,
+  SecretRequestEventSchema,
+} from "./events/secret-request.js";
 export {
   type ToolUseStartEvent,
   ToolUseStartEventSchema,
@@ -182,6 +220,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   AvatarUpdatedEventSchema,
   CompactionCircuitClosedEventSchema,
   CompactionCircuitOpenEventSchema,
+  ConfirmationRequestEventSchema,
+  ContactRequestEventSchema,
   ConversationListInvalidatedEventSchema,
   ConversationTitleUpdatedEventSchema,
   DocumentCommentCreatedEventSchema,
@@ -199,7 +239,9 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageQueuedDeletedEventSchema,
   MessageRequestCompleteEventSchema,
   OpenUrlEventSchema,
+  QuestionRequestEventSchema,
   RelationshipStateUpdatedEventSchema,
+  SecretRequestEventSchema,
   ToolUseStartEventSchema,
 ]);
 

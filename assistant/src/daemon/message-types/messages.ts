@@ -2,12 +2,15 @@
 
 import type { AssistantTextDeltaEvent } from "../../api/events/assistant-text-delta.js";
 import type { AssistantTurnStartEvent } from "../../api/events/assistant-turn-start.js";
+import type { ConfirmationRequestEvent } from "../../api/events/confirmation-request.js";
 import type { InteractionResolvedEvent } from "../../api/events/interaction-resolved.js";
 import type { MessageCompleteEvent } from "../../api/events/message-complete.js";
 import type { MessageDequeuedEvent } from "../../api/events/message-dequeued.js";
 import type { MessageQueuedEvent } from "../../api/events/message-queued.js";
 import type { MessageQueuedDeletedEvent } from "../../api/events/message-queued-deleted.js";
 import type { MessageRequestCompleteEvent } from "../../api/events/message-request-complete.js";
+import type { QuestionRequestEvent } from "../../api/events/question-request.js";
+import type { SecretRequestEvent } from "../../api/events/secret-request.js";
 import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
@@ -168,7 +171,7 @@ export interface ToolResult {
    * Allowlist options for the rule editor save path (narrowest to
    * broadest). Each `pattern` is a Minimatch-glob compatible string —
    * what the gateway actually matches against. Mirrors the
-   * `allowlistOptions` field on `ConfirmationRequest`. May be absent
+   * `allowlistOptions` field on `ConfirmationRequestEvent`. May be absent
    * for tools whose classifier does not produce an allowlist (e.g.
    * web-risk classifier, MCP tools without classifier coverage).
    */
@@ -188,124 +191,6 @@ export interface ToolResult {
   /** Structured activity metadata for rich client rendering. Optional; old
    *  clients that key off `result` continue to work unchanged. */
   activityMetadata?: ToolActivityMetadata;
-}
-
-export interface ConfirmationRequest {
-  type: "confirmation_request";
-  requestId: string;
-  toolName: string;
-  input: Record<string, unknown>;
-  riskLevel: string;
-  /** Human-readable reason for the risk classification (e.g. "Modifies remote repository state"). */
-  riskReason?: string;
-  /** Whether the daemon is running in a containerized (Docker) environment. */
-  isContainerized?: boolean;
-  executionTarget?: "sandbox" | "host";
-  allowlistOptions: Array<{
-    label: string;
-    description: string;
-    pattern: string;
-  }>;
-  scopeOptions: Array<{ label: string; scope: string }>;
-  directoryScopeOptions?: Array<{ scope: string; label: string }>;
-  diff?: {
-    filePath: string;
-    oldContent: string;
-    newContent: string;
-    isNewFile: boolean;
-  };
-  conversationId?: string;
-  /** When false, the client should hide "always allow" / trust-rule persistence affordances. */
-  persistentDecisionsAllowed?: boolean;
-  /** The tool_use block ID for client-side correlation with specific tool calls. */
-  toolUseId?: string;
-  /** ACP tool kind from the agent (e.g. "read", "edit", "execute"). Present only for ACP permission requests. */
-  acpToolKind?: string;
-  /** ACP permission options from the agent. Present only for ACP permission requests. Clients should use these to render the correct buttons. */
-  acpOptions?: Array<{
-    optionId: string;
-    name: string;
-    kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
-  }>;
-}
-
-export interface SecretRequest {
-  type: "secret_request";
-  requestId: string;
-  service: string;
-  field: string;
-  label: string;
-  description?: string;
-  placeholder?: string;
-  conversationId?: string;
-  /** Intended purpose of the credential (displayed to user). */
-  purpose?: string;
-  /** Tools allowed to use this credential. */
-  allowedTools?: string[];
-  /** Domains where this credential may be used. */
-  allowedDomains?: string[];
-  /** Whether one-time send override is available. */
-  allowOneTimeSend?: boolean;
-}
-
-export interface QuestionOption {
-  id: string;
-  label: string;
-  description?: string;
-}
-
-/**
- * One entry in a batched ask-question request.
- *
- * `id` is daemon-assigned (e.g. `q1`, `q2`...) — the LLM neither sees nor
- * supplies it. It exists so the client has a stable handle to post the
- * user's answer back against. See `QuestionRequest` for the batching
- * contract.
- */
-export interface QuestionEntry {
-  id: string;
-  question: string;
-  description?: string;
-  /** LLM-supplied options, capped at 4. The client always renders a fixed
-   *  5th "Type something else" slot wired to a free-text response — so this
-   *  array never represents the full choice set the user sees. */
-  options: QuestionOption[];
-  /** Optional placeholder shown in the free-text input. */
-  freeTextPlaceholder?: string;
-}
-
-/**
- * A single broadcast that carries either one or a small batch (≤5) of
- * clarifying questions. The whole batch is one card lifecycle on the client:
- * one render, one state machine, one response submission.
- *
- * Wire-compat plan: both shapes are populated on every broadcast.
- *  - `questions[]` is the canonical shape new clients should consume.
- *  - The flat `question` / `description` / `options` / `freeTextPlaceholder`
- *    fields mirror `questions[0]` for backwards compat with the existing
- *    web client, which keys off the flat fields. Once that client adopts
- *    `questions[]`, the flat fields can be dropped (separate cleanup).
- *
- * Daemon callers that don't supply a batch get a one-element `questions`
- * array synthesized from the flat fields.
- */
-export interface QuestionRequest {
-  type: "question_request";
-  requestId: string;
-  /** Batched-question payload. Always populated (single questions are sent
-   *  as a one-element array). Each entry's `id` is daemon-assigned. */
-  questions: QuestionEntry[];
-  /** Legacy: mirrors `questions[0].question`. Kept populated for clients
-   *  that haven't adopted the batched `questions[]` shape yet. */
-  question: string;
-  /** Legacy: mirrors `questions[0].description`. */
-  description?: string;
-  /** Legacy: mirrors `questions[0].options`. */
-  options: QuestionOption[];
-  /** Legacy: mirrors `questions[0].freeTextPlaceholder`. */
-  freeTextPlaceholder?: string;
-  conversationId?: string;
-  toolUseId?: string;
 }
 
 export interface ErrorMessage {
@@ -467,9 +352,9 @@ export type _MessagesServerMessages =
   | ToolOutputChunk
   | ToolInputDelta
   | ToolResult
-  | ConfirmationRequest
-  | SecretRequest
-  | QuestionRequest
+  | ConfirmationRequestEvent
+  | SecretRequestEvent
+  | QuestionRequestEvent
   | MessageCompleteEvent
   | ErrorMessage
   | MessageQueuedEvent
