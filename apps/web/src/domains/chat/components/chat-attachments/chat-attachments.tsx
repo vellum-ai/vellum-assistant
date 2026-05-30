@@ -1,13 +1,14 @@
 
-import { AlertCircle, Paperclip } from "lucide-react";
+import { AlertCircle, FolderUp, Paperclip } from "lucide-react";
 import type { ChangeEvent, FC } from "react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@vellum/design-library";
 
 import { AttachmentChip } from "@/domains/chat/components/chat-attachments/attachment-chip";
 import { AttachmentLoadingChip } from "@/domains/chat/components/chat-attachments/attachment-loading-chip";
 import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal";
+import { filterFolderFiles } from "@/domains/chat/components/chat-attachments/folder-files";
 import type { ChatAttachment, UploadedAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import { formatAttachmentSize, middleTruncate } from "@/domains/chat/components/chat-attachments/utils";
 
@@ -101,24 +102,48 @@ export const ChatAttachmentsStrip: FC<ChatAttachmentsStripProps> = ({
 
 interface AttachFileButtonProps {
   disabled?: boolean;
-  onFilesSelected: (files: FileList) => void;
+  onFilesSelected: (files: FileList | File[]) => void;
   /** Tooltip override; defaults to "Attach file" when unset. */
   title?: string;
+  /**
+   * When true (default), render a second button that opens a directory picker
+   * so the user can attach an entire folder at once. The folder's files are
+   * filtered (junk dirs/files removed, count capped) before being forwarded to
+   * `onFilesSelected`.
+   */
+  enableFolderUpload?: boolean;
 }
 
 /**
- * Paperclip button that triggers a hidden file input. Lives in the lower-left
- * of the composer action bar to match the macOS layout.
+ * Paperclip button that triggers a hidden file input, plus an optional folder
+ * button that opens a directory picker. Lives in the lower-left of the composer
+ * action bar to match the macOS layout.
  */
 export const AttachFileButton: FC<AttachFileButtonProps> = ({
   disabled = false,
   onFilesSelected,
   title = "Attach file",
+  enableFolderUpload = true,
 }) => {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
+
+  // `webkitdirectory` is a non-standard attribute that React/TS won't accept as
+  // a JSX prop, so set it imperatively on the hidden folder input once mounted.
+  useEffect(() => {
+    const input = folderInputRef.current;
+    if (input) {
+      input.setAttribute("webkitdirectory", "");
+      input.setAttribute("directory", "");
+    }
+  }, []);
 
   const handleClick = useCallback(() => {
     inputRef.current?.click();
+  }, []);
+
+  const handleFolderClick = useCallback(() => {
+    folderInputRef.current?.click();
   }, []);
 
   const handleChange = useCallback(
@@ -133,26 +158,66 @@ export const AttachFileButton: FC<AttachFileButtonProps> = ({
     [onFilesSelected],
   );
 
+  const handleFolderChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const { files } = event.target;
+      if (files && files.length > 0) {
+        // The directory picker returns every descendant file; drop noise and
+        // cap the count before staging uploads.
+        const { accepted } = filterFolderFiles(Array.from(files));
+        if (accepted.length > 0) {
+          onFilesSelected(accepted);
+        }
+      }
+      event.target.value = "";
+    },
+    [onFilesSelected],
+  );
+
   return (
-    <div className="relative">
-      <input
-        ref={inputRef}
-        type="file"
-        multiple
-        className="absolute inset-0 opacity-0 pointer-events-none"
-        onChange={handleChange}
-        aria-hidden="true"
-        tabIndex={-1}
-      />
-      <Button
-        variant="ghost"
-        iconOnly={<Paperclip />}
-        onClick={handleClick}
-        disabled={disabled}
-        aria-label="Attach file"
-        title={title}
-        className="[--vbtn-fg:var(--content-secondary)]"
-      />
-    </div>
+    <>
+      <div className="relative">
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          className="absolute inset-0 opacity-0 pointer-events-none"
+          onChange={handleChange}
+          aria-hidden="true"
+          tabIndex={-1}
+        />
+        <Button
+          variant="ghost"
+          iconOnly={<Paperclip />}
+          onClick={handleClick}
+          disabled={disabled}
+          aria-label="Attach file"
+          title={title}
+          className="[--vbtn-fg:var(--content-secondary)]"
+        />
+      </div>
+      {enableFolderUpload && (
+        <div className="relative">
+          <input
+            ref={folderInputRef}
+            type="file"
+            multiple
+            className="absolute inset-0 opacity-0 pointer-events-none"
+            onChange={handleFolderChange}
+            aria-hidden="true"
+            tabIndex={-1}
+          />
+          <Button
+            variant="ghost"
+            iconOnly={<FolderUp />}
+            onClick={handleFolderClick}
+            disabled={disabled}
+            aria-label="Attach folder"
+            title={disabled ? title : "Attach folder"}
+            className="[--vbtn-fg:var(--content-secondary)]"
+          />
+        </div>
+      )}
+    </>
   );
 };
