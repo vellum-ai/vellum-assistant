@@ -45,7 +45,10 @@ function getDebugInfo() {
   const now = Date.now();
   const uptimeSeconds = Math.floor((now - startedAt) / 1000);
 
-  const conversationCount = countConversations();
+  // Debug view counts every standard conversation, archived or not, so the
+  // diagnostics report doesn't undercount after the route-level default
+  // moved to "active".
+  const conversationCount = countConversations(false, "all");
   const memoryItemCount = getMemoryItemCount();
   const dbSizeBytes = getDatabaseSizeBytes();
 

@@ -12,6 +12,13 @@ export function conversationsQueryKey(assistantId: string | null) {
   return [CONVERSATIONS_QUERY_KEY, assistantId ?? ""] as const;
 }
 
+export const ARCHIVED_CONVERSATIONS_QUERY_KEY =
+  "archived-conversations" as const;
+
+export function archivedConversationsQueryKey(assistantId: string | null) {
+  return [ARCHIVED_CONVERSATIONS_QUERY_KEY, assistantId ?? ""] as const;
+}
+
 export function assistantDaemonConfigQueryKey(
   assistantId: string | null | undefined,
 ) {
