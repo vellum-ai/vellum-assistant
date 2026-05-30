@@ -30,7 +30,7 @@ import {
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
 import { resolveEditChatDraftConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
+import { recordDiagnostic } from "@/lib/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -66,7 +66,7 @@ import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 
 // Re-export pure utilities so existing consumers don't break.
@@ -309,7 +309,7 @@ export function useSendMessage({
       }
       if (!postResult.ok) {
         if (!isCurrentSendScope()) {
-          recordChatDiagnostic("send_error_ignored_inactive_conversation", {
+          recordDiagnostic("send_error_ignored_inactive_conversation", {
             assistantId: requestAssistantId,
             conversationId: requestConversationId,
             activeAssistantId: assistantIdRef.current,
@@ -351,7 +351,7 @@ export function useSendMessage({
       const effectiveConversationId = postResult.conversationId;
 
       if (!isCurrentSendScope(effectiveConversationId)) {
-        recordChatDiagnostic("send_result_ignored_inactive_conversation", {
+        recordDiagnostic("send_result_ignored_inactive_conversation", {
           assistantId: postResult.assistantId,
           conversationId: requestConversationId,
           resolvedConversationId: effectiveConversationId,
@@ -392,7 +392,7 @@ export function useSendMessage({
       pollForResponse(postResult.assistantId, postResult.messageId, effectiveConversationId)
         .then(async (reply) => {
           if (!isCurrentSendScope(effectiveConversationId)) {
-            recordChatDiagnostic("poll_response_ignored_inactive_conversation", {
+            recordDiagnostic("poll_response_ignored_inactive_conversation", {
               assistantId: postResult.assistantId,
               conversationId: requestConversationId,
               resolvedConversationId: effectiveConversationId,

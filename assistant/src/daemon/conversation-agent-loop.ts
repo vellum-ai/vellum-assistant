@@ -26,6 +26,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
   type EffectiveContextWindow,
@@ -1760,8 +1761,21 @@ export async function runAgentLoopImpl(
     // to the reduced `ctx.messages`.
     let reducerCompacted = compactedThisTurn;
 
+    // memory-v3-live: route the turn's `<memory>` block to the v3 injector.
+    // When on, runtime assembly suppresses v2's `<memory>` injection (only
+    // when the v3 injector actually produced a block — otherwise v2 stays as a
+    // fallback) and the provider anchors its long-TTL cache breakpoint on the
+    // most recent STABLE user message, since the latest user message now
+    // carries the volatile per-turn memory block. Flag off → bit-for-bit
+    // identical to today's v2 path.
+    const memoryV3Live = isAssistantFeatureFlagEnabled(
+      "memory-v3-live",
+      getConfig(),
+    );
+
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
+      suppressV2MemoryForV3: memoryV3Live,
       diskPressureContext,
       activeSurface,
       activeDocuments,
@@ -2284,19 +2298,25 @@ export async function runAgentLoopImpl(
     // and overwrites `turnIndex` with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
-    let updatedHistory = await ctx.agentLoop.run(
-      runMessages,
-      eventHandler,
-      abortController.signal,
-      reqId,
-      onCheckpoint,
-      turnCallSite,
-      loopTurnCtx,
-      turnOverrideProfile,
-      resolveCurrentMaxInputTokens(),
-      resolveCurrentOverrideProfile,
-      resolveCurrentMaxInputTokens,
-    );
+    /** Shared closure: runs the agent loop with the orchestrator's turn context. */
+    const runAgentLoop = (msgs: Message[]) =>
+      ctx.agentLoop.run(msgs, eventHandler, {
+        signal: abortController.signal,
+        requestId: reqId,
+        onCheckpoint,
+        callSite: turnCallSite,
+        turnContext: loopTurnCtx,
+        overrideProfile: turnOverrideProfile,
+        effectiveMaxInputTokens: resolveCurrentMaxInputTokens(),
+        resolveOverrideProfile: resolveCurrentOverrideProfile,
+        resolveEffectiveMaxInputTokens: resolveCurrentMaxInputTokens,
+        // memory-v3-live: the latest user message carries the volatile v3
+        // `<memory>` block, so anchor the provider's long-TTL cache breakpoint
+        // on the most recent stable message instead.
+        mutableLatestUserMessage: memoryV3Live,
+      });
+
+    let updatedHistory = await runAgentLoop(runMessages);
 
     rlog.info(
       { resultMessageCount: updatedHistory.length },
@@ -2440,19 +2460,7 @@ export async function runAgentLoopImpl(
       preRepairMessages = runMessages;
       preRunHistoryLength = runMessages.length;
 
-      updatedHistory = await ctx.agentLoop.run(
-        runMessages,
-        eventHandler,
-        abortController.signal,
-        reqId,
-        onCheckpoint,
-        turnCallSite,
-        loopTurnCtx,
-        turnOverrideProfile,
-        resolveCurrentMaxInputTokens(),
-        resolveCurrentOverrideProfile,
-        resolveCurrentMaxInputTokens,
-      );
+      updatedHistory = await runAgentLoop(runMessages);
     }
 
     // If mid-loop compaction exhausted all attempts but the agent loop
@@ -2500,19 +2508,7 @@ export async function runAgentLoopImpl(
       state.orderingErrorDetected = false;
       state.deferredOrderingError = null;
 
-      updatedHistory = await ctx.agentLoop.run(
-        runMessages,
-        eventHandler,
-        abortController.signal,
-        reqId,
-        onCheckpoint,
-        turnCallSite,
-        loopTurnCtx,
-        turnOverrideProfile,
-        resolveCurrentMaxInputTokens(),
-        resolveCurrentOverrideProfile,
-        resolveCurrentMaxInputTokens,
-      );
+      updatedHistory = await runAgentLoop(runMessages);
 
       if (state.orderingErrorDetected) {
         rlog.error(
@@ -2571,19 +2567,7 @@ export async function runAgentLoopImpl(
         };
       });
       runMessages = ctx.messages;
-      updatedHistory = await ctx.agentLoop.run(
-        runMessages,
-        eventHandler,
-        abortController.signal,
-        reqId,
-        onCheckpoint,
-        turnCallSite,
-        loopTurnCtx,
-        turnOverrideProfile,
-        resolveCurrentMaxInputTokens(),
-        resolveCurrentOverrideProfile,
-        resolveCurrentMaxInputTokens,
-      );
+      updatedHistory = await runAgentLoop(runMessages);
       if (state.imageTooLargeDetected) {
         rlog.error(
           { phase: "image-recovery" },
@@ -2831,19 +2815,7 @@ export async function runAgentLoopImpl(
         state.contextTooLargeDetected = false;
         yieldedForBudget = false;
 
-        updatedHistory = await ctx.agentLoop.run(
-          runMessages,
-          eventHandler,
-          abortController.signal,
-          reqId,
-          onCheckpoint,
-          turnCallSite,
-          loopTurnCtx,
-          turnOverrideProfile,
-          resolveCurrentMaxInputTokens(),
-          resolveCurrentOverrideProfile,
-          resolveCurrentMaxInputTokens,
-        );
+        updatedHistory = await runAgentLoop(runMessages);
 
         // If the rerun still yields at checkpoint, the turn is still
         // incomplete — continue reducing through the remaining tiers
@@ -2987,19 +2959,7 @@ export async function runAgentLoopImpl(
           preRunHistoryLength = runMessages.length;
           state.contextTooLargeDetected = false;
 
-          updatedHistory = await ctx.agentLoop.run(
-            runMessages,
-            eventHandler,
-            abortController.signal,
-            reqId,
-            onCheckpoint,
-            turnCallSite,
-            loopTurnCtx,
-            turnOverrideProfile,
-            resolveCurrentMaxInputTokens(),
-            resolveCurrentOverrideProfile,
-            resolveCurrentMaxInputTokens,
-          );
+          updatedHistory = await runAgentLoop(runMessages);
         }
         // action === "fail_gracefully" falls through to the final error below
       }

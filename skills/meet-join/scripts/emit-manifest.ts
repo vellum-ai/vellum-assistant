@@ -140,9 +140,7 @@ function buildCollectorHost(captured: Captured): SkillHost {
       secureKeys: { getProviderKey: async () => null },
     },
     memory: {
-      addMessage: (async () => ({
-        id: "manifest-emitter",
-      })) as SkillHost["memory"]["addMessage"],
+      addMessage: async () => ({ id: "manifest-emitter" }),
       wakeAgentForOpportunity: async () => {},
     },
     events: {

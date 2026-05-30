@@ -10,8 +10,6 @@
 import type { HomeFeedUpdatedEvent } from "../../api/events/home-feed-updated.js";
 import type { RelationshipStateUpdatedEvent } from "../../api/events/relationship-state-updated.js";
 
-export type HomeFeedUpdated = HomeFeedUpdatedEvent;
-
 export type _HomeServerMessages =
   | RelationshipStateUpdatedEvent
-  | HomeFeedUpdated;
+  | HomeFeedUpdatedEvent;

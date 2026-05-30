@@ -28,7 +28,9 @@
 //   impersonateVersion(null)     — clear + reload
 //   impersonateVersion()         — log + return current value, no reload
 
-const STORAGE_KEY = "vellumDebug.flags.impersonateAssistantVersion";
+import { getLocalSetting, setLocalSetting, removeLocalSetting } from "@/utils/local-settings";
+
+const STORAGE_KEY = "vellum:debug:impersonateAssistantVersion";
 
 /**
  * Read the impersonated version synchronously. Safe to call at any
@@ -39,13 +41,8 @@ const STORAGE_KEY = "vellumDebug.flags.impersonateAssistantVersion";
  * or localStorage access throws (private browsing / sandboxed iframes).
  */
 export function getImpersonatedAssistantVersion(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    return raw && raw.length > 0 ? raw : null;
-  } catch {
-    return null;
-  }
+  const raw = getLocalSetting(STORAGE_KEY, "");
+  return raw.length > 0 ? raw : null;
 }
 
 /**
@@ -79,25 +76,30 @@ export function setImpersonatedAssistantVersion(
     return current;
   }
 
-  try {
-    if (value === null || value === "") {
-      window.localStorage.removeItem(STORAGE_KEY);
-      console.info(
-        "[vellumDebug] impersonateAssistantVersion = null (cleared) — reloading…",
+  if (value === null || value === "") {
+    removeLocalSetting(STORAGE_KEY);
+    if (getImpersonatedAssistantVersion() !== null) {
+      console.warn(
+        "[vellumDebug] failed to clear impersonateAssistantVersion flag",
       );
-    } else {
-      window.localStorage.setItem(STORAGE_KEY, value);
-      console.info(
-        `[vellumDebug] impersonateAssistantVersion = ${JSON.stringify(
-          value,
-        )} — reloading…`,
-      );
+      return getImpersonatedAssistantVersion();
     }
-  } catch {
-    console.warn(
-      "[vellumDebug] failed to persist impersonateAssistantVersion flag",
+    console.info(
+      "[vellumDebug] impersonateAssistantVersion = null (cleared) — reloading…",
     );
-    return getImpersonatedAssistantVersion();
+  } else {
+    setLocalSetting(STORAGE_KEY, value);
+    if (getImpersonatedAssistantVersion() !== value) {
+      console.warn(
+        "[vellumDebug] failed to persist impersonateAssistantVersion flag",
+      );
+      return getImpersonatedAssistantVersion();
+    }
+    console.info(
+      `[vellumDebug] impersonateAssistantVersion = ${JSON.stringify(
+        value,
+      )} — reloading…`,
+    );
   }
   window.location.reload();
   return value === "" ? null : value;

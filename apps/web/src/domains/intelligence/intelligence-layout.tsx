@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useLocation, useOutletContext } from "react-router";
+import { NavLink, Outlet, useLocation } from "react-router";
 
 import { cn } from "@vellum/design-library";
 
@@ -33,16 +33,13 @@ const PLUGINS_TAB: IntelligenceTab = {
  * routes keep their existing URL paths (`/assistant/identity`, etc.)
  * while inheriting the shared chrome.
  *
- * References:
- * - React Router layout routes: https://reactrouter.com/start/framework/routing#layout-routes
- * - Platform source: AssistantPageClient.tsx lines 2250-2290
+ * @see https://reactrouter.com/start/framework/routing#layout-routes
  */
 export function IntelligenceLayout() {
   const assistantName = useAssistantIdentityStore.use.name();
   const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
   const externalPlugins = useAssistantFeatureFlagStore.use.externalPlugins();
   const { pathname } = useLocation();
-  const outletContext = useOutletContext();
 
   // Insert the Plugins tab between Identity and Skills when the
   // `external-plugins` flag is on. Gated on `hasHydrated` so we don't
@@ -91,7 +88,7 @@ export function IntelligenceLayout() {
       </nav>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <Outlet context={outletContext} />
+        <Outlet />
       </div>
     </PageShell>
   );

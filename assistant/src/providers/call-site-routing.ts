@@ -39,7 +39,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "./types.js";
 
 export class CallSiteRoutingProvider implements Provider {
@@ -93,20 +92,13 @@ export class CallSiteRoutingProvider implements Provider {
 
   async sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const target = await this.selectProvider(options);
     const isRouted = target !== this.defaultProvider;
 
     const doSend = async (): Promise<ProviderResponse> => {
-      const response = await target.sendMessage(
-        messages,
-        tools,
-        systemPrompt,
-        options,
-      );
+      const response = await target.sendMessage(messages, options);
       // Also stamp actualProvider on the response so that handleUsage /
       // llm_call_finished (which read event.actualProvider, not provider.name)
       // attribute the call to the right provider.

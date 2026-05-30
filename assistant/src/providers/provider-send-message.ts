@@ -22,7 +22,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
   ToolUseContent,
 } from "./types.js";
 
@@ -56,16 +55,14 @@ export class CallSiteConfiguredProvider implements Provider {
 
   sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const config = options?.config;
     if (config?.callSite) {
-      return this.inner.sendMessage(messages, tools, systemPrompt, options);
+      return this.inner.sendMessage(messages, options);
     }
 
-    return this.inner.sendMessage(messages, tools, systemPrompt, {
+    return this.inner.sendMessage(messages, {
       ...options,
       config: {
         ...config,
@@ -141,7 +138,10 @@ export async function resolveConfiguredProvider(
             resolved.model,
           );
           if (incompatMsg) {
-            log.warn({ callSite, inferenceProvider, model: resolved.model }, incompatMsg);
+            log.warn(
+              { callSite, inferenceProvider, model: resolved.model },
+              incompatMsg,
+            );
           }
         }
       } catch {

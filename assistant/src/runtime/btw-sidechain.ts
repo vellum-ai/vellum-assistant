@@ -89,7 +89,9 @@ export async function runBtwSidechain(
   let hadTextDeltas = false;
 
   try {
-    const response = await provider.sendMessage(messages, tools, systemPrompt, {
+    const response = await provider.sendMessage(messages, {
+      tools,
+      systemPrompt,
       config: {
         max_tokens: params.maxTokens ?? 1024,
         tool_choice: { type: "none" },

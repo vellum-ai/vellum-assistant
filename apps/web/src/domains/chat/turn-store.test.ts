@@ -894,6 +894,82 @@ describe("POLL_RECONCILED", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Polling / SSE race conditions
+// ---------------------------------------------------------------------------
+
+describe("polling / SSE race conditions", () => {
+  test("SSE completes before poll — poll for same turnId is no-op", () => {
+    let state = turnReducer(INITIAL_TURN_STATE, {
+      type: "USER_SEND_REQUESTED",
+      turnId: "t-race-1",
+    });
+    state = turnReducer(state, { type: "ASSISTANT_TEXT_DELTA" });
+    state = turnReducer(state, { type: "MESSAGE_COMPLETE" });
+    expect(state.phase).toBe("idle");
+    expect(state.activeTurnId).toBeNull();
+
+    const afterPoll = turnReducer(state, {
+      type: "POLL_RECONCILED",
+      turnId: "t-race-1",
+    });
+    expect(afterPoll).toEqual(state);
+  });
+
+  test("poll completes before SSE — SSE message_complete is idempotent", () => {
+    let state = turnReducer(INITIAL_TURN_STATE, {
+      type: "USER_SEND_REQUESTED",
+      turnId: "t-race-2",
+    });
+    state = turnReducer(state, {
+      type: "POLL_RECONCILED",
+      turnId: "t-race-2",
+    });
+    expect(state.phase).toBe("idle");
+
+    const afterSSE = turnReducer(state, { type: "MESSAGE_COMPLETE" });
+    expect(afterSSE.phase).toBe("idle");
+    expect(afterSSE.lastTerminalReason).toBe("complete");
+  });
+
+  test("TOOL_USE_START re-activates idle when activeTurnId is set", () => {
+    const forcedIdle: TurnState = {
+      ...INITIAL_TURN_STATE,
+      phase: "idle",
+      activeTurnId: "t-guard-4",
+    };
+    const afterTool = turnReducer(forcedIdle, { type: "TOOL_USE_START" });
+    expect(afterTool.phase).toBe("thinking");
+    expect(afterTool.activeToolCallCount).toBe(1);
+  });
+
+  test("POLL_RECONCILED → stale delta → new send works end-to-end", () => {
+    let state = turnReducer(INITIAL_TURN_STATE, {
+      type: "USER_SEND_REQUESTED",
+      turnId: "t-race-bg",
+    });
+    state = turnReducer(state, { type: "ASSISTANT_TEXT_DELTA" });
+    expect(state.phase).toBe("streaming");
+
+    state = turnReducer(state, {
+      type: "POLL_RECONCILED",
+      turnId: "t-race-bg",
+    });
+    expect(state.phase).toBe("idle");
+    expect(state.activeTurnId).toBeNull();
+
+    state = turnReducer(state, { type: "ASSISTANT_TEXT_DELTA" });
+    expect(state.phase).toBe("idle");
+
+    state = turnReducer(state, {
+      type: "USER_SEND_REQUESTED",
+      turnId: "t-race-new",
+    });
+    expect(state.phase).toBe("thinking");
+    expect(state.activeTurnId).toBe("t-race-new");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // TURN_RESET
 // ---------------------------------------------------------------------------
 

@@ -43,6 +43,7 @@ import {
   migrateActivationState,
   migrateActivationStateFkCascade,
   migrateAddConversationInferenceProfile,
+  migrateAddMemoryV3Selections,
   migrateAddSourceTypeColumns,
   migrateAssistantContactMetadata,
   migrateBackfillAudioAttachmentMimeTypes,
@@ -468,6 +469,7 @@ export function initializeDb(): void {
     migrateDropProviderConnectionStatus,
     migrateMessagesClientMessageId,
     migrateLlmUsageEventsAddAssistantVersion,
+    migrateAddMemoryV3Selections,
   ];
 
   // Run each migration step, catching and logging individual failures so one

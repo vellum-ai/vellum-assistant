@@ -203,8 +203,6 @@ describe("GeminiProvider", () => {
     const events: ProviderEvent[] = [];
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { onEvent: (e) => events.push(e) },
     );
 
@@ -221,8 +219,7 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      "You are a helpful assistant.",
+      { systemPrompt: "You are a helpful assistant." },
     );
 
     const config = lastStreamParams!.config as Record<string, unknown>;
@@ -248,8 +245,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       {
         config: {
           thinking: {
@@ -273,8 +268,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { thinking: { type: "disabled" } } },
     );
 
@@ -298,8 +291,6 @@ describe("GeminiProvider", () => {
     );
     await liteProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       {
         config: {
           thinking: { type: "adaptive", level: "high", streamThinking: false },
@@ -316,8 +307,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { thinking: { type: "adaptive" } } },
     );
 
@@ -347,7 +336,7 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Read /tmp/test" }] }],
-      tools,
+      { tools: tools },
     );
 
     const config = lastStreamParams!.config as Record<string, unknown>;
@@ -740,8 +729,6 @@ describe("GeminiProvider", () => {
           ],
         },
       ],
-      undefined,
-      undefined,
       { config: { model: "models/gemini-3.1-pro-preview" } },
     );
 
@@ -886,8 +873,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { max_tokens: 64000 } },
     );
 
@@ -904,8 +889,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { signal: controller.signal },
     );
 
@@ -925,8 +908,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { signal: controller.signal },
     );
 
@@ -1046,8 +1027,6 @@ describe("GeminiProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);
@@ -1066,8 +1045,6 @@ describe("GeminiProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);
@@ -1085,8 +1062,6 @@ describe("GeminiProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);

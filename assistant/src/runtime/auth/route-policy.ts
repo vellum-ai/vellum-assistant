@@ -524,11 +524,6 @@ const ACTOR_ENDPOINTS: Array<{ endpoint: string; scopes: Scope[] }> = [
     scopes: ["settings.read"],
   },
   { endpoint: "memory/v2/now-text:GET", scopes: ["settings.read"] },
-  { endpoint: "memory/v3/validate:POST", scopes: ["settings.read"] },
-  { endpoint: "memory/v3/tree:POST", scopes: ["settings.read"] },
-  { endpoint: "memory/v3/simulate:POST", scopes: ["settings.read"] },
-  { endpoint: "memory/v3/shadow-diff:POST", scopes: ["settings.read"] },
-  { endpoint: "memory/v3/seed-edges:POST", scopes: ["settings.write"] },
 
   // Trust rule listing
   { endpoint: "trust-rules/manage:GET", scopes: ["settings.read"] },

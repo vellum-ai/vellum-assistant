@@ -318,42 +318,6 @@ export interface UnknownEvent {
 // ---------------------------------------------------------------------------
 
 /**
- * Reasons the server may invalidate a client's conversation list — mirrors
- * `ConversationListInvalidatedReason` on the daemon.
- */
-export type ConversationListInvalidatedReason =
-  | "created"
-  | "renamed"
-  | "deleted"
-  | "reordered"
-  | "seen_changed";
-
-/**
- * Server push notifying clients that their sidebar conversation list is
- * stale and should be refetched (e.g. after a create/rename/delete/reorder
- * from another client). Global to the assistant — not scoped to a single
- * conversationId.
- */
-export interface ConversationListInvalidatedEvent {
-  type: "conversation_list_invalidated";
-  reason: ConversationListInvalidatedReason;
-  conversationId?: string;
-}
-
-/**
- * Server push notifying clients that a single conversation's title has
- * changed. Emitted on auto-title generation (agent loop, first turn),
- * auto-title regeneration (after 3 turns), and explicit renames. Clients
- * should update the matching conversation's title in-place rather than
- * refetching the whole list.
- */
-export interface ConversationTitleUpdatedEvent {
-  type: "conversation_title_updated";
-  conversationId: string;
-  title: string;
-}
-
-/**
  * Server push asking the client to display a native notification. Mirrors
  * the daemon's `NotificationIntent` message (see
  * `assistant/src/daemon/message-types/notifications.ts`). The macOS client
@@ -374,18 +338,6 @@ export interface NotificationIntentEvent {
   body: string;
   deepLinkMetadata?: Record<string, unknown>;
   targetGuardianPrincipalId?: string;
-  conversationId?: string;
-}
-
-/** Cache-invalidation signal: refetch identity from the canonical endpoint. */
-export interface IdentityChangedEvent {
-  type: "identity_changed";
-  conversationId?: string;
-}
-
-/** Broadcast by the daemon when avatar files change on disk. */
-export interface AvatarUpdatedEvent {
-  type: "avatar_updated";
   conversationId?: string;
 }
 
@@ -495,14 +447,10 @@ export type AssistantEvent =
   | UISurfaceCompleteEvent
   | ToolResultEvent
   | ToolProgressEvent
-  | ConversationListInvalidatedEvent
-  | ConversationTitleUpdatedEvent
   | NotificationIntentEvent
   | UsageUpdateEvent
   | AssistantActivityStateEvent
   | NavigateSettingsEvent
-  | IdentityChangedEvent
-  | AvatarUpdatedEvent
   | ConversationErrorEvent
   | DiskPressureStatusChangedEvent
   | AssistantSyncChangedEvent

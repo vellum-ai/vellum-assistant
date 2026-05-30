@@ -29,7 +29,7 @@ import {
 } from "@/utils/ptt-activator";
 import { routes } from "@/utils/routes";
 
-const LS_CONVERSATION_TIMEOUT = "voice:conversationTimeoutSeconds";
+const LS_CONVERSATION_TIMEOUT = "vellum:voice:conversationTimeoutSeconds";
 
 const PTT_PRESETS: ReadonlyArray<{ label: string; activator: PTTActivator }> = [
   {
@@ -91,9 +91,10 @@ function SpeechServicesBanner() {
 }
 
 function PushToTalkCard() {
-  const [activator, setActivator] = useState<PTTActivator>(() =>
-    parseActivator(getLocalSetting(LS_PTT_ACTIVATION_KEY, "")),
-  );
+  const [activator, setActivator] = useState<PTTActivator>(() => {
+    const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
+    return raw ? parseActivator(raw) : { kind: "off" };
+  });
   const [isRecording, setIsRecording] = useState(false);
   const [pendingModifiers, setPendingModifiers] = useState<PTTModifier[]>([]);
   const recordingZoneRef = useRef<HTMLDivElement | null>(null);

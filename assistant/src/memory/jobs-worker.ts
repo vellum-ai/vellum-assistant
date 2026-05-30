@@ -84,9 +84,6 @@ import {
   memoryV2ConsolidateJob,
 } from "./v2/consolidation-job.js";
 import { memoryV2SweepJob } from "./v2/sweep-job.js";
-import { memoryV3ConsolidateJob } from "./v3/consolidation-job.js";
-import { memoryV3EdgeLearningJob } from "./v3/edge-learning-job.js";
-import { memoryV3IndexMaintenanceJob } from "./v3/maintenance.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -126,6 +123,11 @@ const LEGACY_JOB_TYPES = new Set([
   "generate_capability_cards",
   "generate_thread_starters",
   "memory_v2_rebuild_edges",
+  // Retired memory-v3 job types — handlers were removed in the v3 rip. Kept
+  // here so pre-upgrade rows enqueued by the old write path drop gracefully.
+  "memory_v3_consolidate",
+  "memory_v3_index_maintenance",
+  "memory_v3_edge_learning",
 ]);
 
 export const POLL_INTERVAL_MIN_MS = 1_500;
@@ -607,16 +609,6 @@ async function processJob(
     case "memory_v2_consolidate":
       await memoryV2ConsolidateJob(job, config);
       return;
-    case "memory_v3_consolidate":
-      await memoryV3ConsolidateJob(job, config);
-      return;
-    case "memory_v3_index_maintenance":
-      await memoryV3IndexMaintenanceJob(job);
-      return;
-    case "memory_v3_edge_learning":
-      // Fast lane: bounded DB work (decay + reinforce + read), no LLM.
-      memoryV3EdgeLearningJob(job);
-      return;
     case "memory_v2_migrate":
       await memoryV2MigrateJob(job, config);
       return;
@@ -695,7 +687,6 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   patternScan: "graph_maintenance:pattern_scan:last_run",
   narrative: "graph_maintenance:narrative:last_run",
   memoryV2Consolidate: "memory_v2_consolidate_last_run",
-  memoryV3Consolidate: "memory_v3_consolidate_last_run",
 } as const;
 
 /**
@@ -707,15 +698,9 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
  *   - v2 inactive → the four v1 entries (decay, consolidate, pattern_scan,
  *     narrative) are scheduled instead.
  *
- * **Buffer-drainer retarget (v2 vs v3).** The `memory/buffer.md` is shared, so
- * exactly one consolidator may own the drain at a time. When
- * `memory.v3.write.enabled` is on, the v3 consolidator (`memory_v3_consolidate`)
- * is scheduled INSTEAD of `memory_v2_consolidate` — same shared buffer +
- * standing-context files, additionally authored into the v3 tree. When the v3
- * write flag is off (default) the v2 consolidator stays the sole drainer,
- * unchanged. The retarget is a clean conditional, fully reversible via the flag.
- * Concept pages stay the shared canonical store, so the v2 router keeps working
- * off pages v3 writes regardless of which consolidator ran.
+ * The `memory/buffer.md` is shared, so exactly one consolidator owns the drain
+ * at a time. When v2 is active, the v2 consolidator (`memory_v2_consolidate`)
+ * is the sole buffer-drainer.
  *
  * Read/write paths route to v2 when the flag is on, so v1 graph data goes
  * unread; running v1 maintenance alongside v2 is wasted compute and LLM
@@ -733,22 +718,14 @@ export function maybeEnqueueGraphMaintenanceJobs(
   nowMs = Date.now(),
 ): void {
   const v2Active = config.memory.v2.enabled;
-  const v3WriteActive = config.memory.v3.write.enabled;
 
-  // The single buffer-drainer entry for the v2-active branch: v3 when the v3
-  // write flag owns the drain, v2 otherwise. Same shared buffer either way.
-  const consolidateEntry = v3WriteActive
-    ? {
-        key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV3Consolidate,
-        intervalMs: config.memory.v3.write.consolidateIntervalMs,
-        jobType: "memory_v3_consolidate" as MemoryJobType,
-      }
-    : {
-        key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
-        intervalMs:
-          config.memory.v2.consolidation_interval_hours * 60 * 60 * 1000,
-        jobType: "memory_v2_consolidate" as MemoryJobType,
-      };
+  // The single buffer-drainer entry for the v2-active branch. Referenced again
+  // below by the size-based trigger.
+  const consolidateEntry = {
+    key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV2Consolidate,
+    intervalMs: config.memory.v2.consolidation_interval_hours * 60 * 60 * 1000,
+    jobType: "memory_v2_consolidate" as MemoryJobType,
+  };
 
   const schedule: Array<{
     key: string;

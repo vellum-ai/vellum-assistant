@@ -8,66 +8,11 @@ import {
   savePinnedApps,
   unpinApp,
 } from "@/utils/app-pin-storage";
+import { installMemoryStorage } from "@/utils/memory-storage.test-helper";
 
 const STORAGE_KEY = "vellum:pinnedApps";
 
-class MemoryStorage implements Storage {
-  private store = new Map<string, string>();
-
-  get length(): number {
-    return this.store.size;
-  }
-
-  clear(): void {
-    this.store.clear();
-  }
-
-  getItem(key: string): string | null {
-    return this.store.has(key) ? (this.store.get(key) ?? null) : null;
-  }
-
-  key(index: number): string | null {
-    return Array.from(this.store.keys())[index] ?? null;
-  }
-
-  removeItem(key: string): void {
-    this.store.delete(key);
-  }
-
-  setItem(key: string, value: string): void {
-    this.store.set(key, String(value));
-  }
-}
-
-const memoryStorage = new MemoryStorage();
-const ORIGINAL_WINDOW_DESCRIPTOR = Object.getOwnPropertyDescriptor(
-  globalThis,
-  "window",
-);
-
-beforeAll(() => {
-  Object.defineProperty(globalThis, "window", {
-    value: { localStorage: memoryStorage },
-    configurable: true,
-    writable: true,
-  });
-});
-
-afterAll(() => {
-  if (ORIGINAL_WINDOW_DESCRIPTOR) {
-    Object.defineProperty(globalThis, "window", ORIGINAL_WINDOW_DESCRIPTOR);
-  } else {
-    delete (globalThis as { window?: unknown }).window;
-  }
-});
-
-beforeEach(() => {
-  memoryStorage.clear();
-});
-
-afterEach(() => {
-  memoryStorage.clear();
-});
+const memoryStorage = installMemoryStorage({ beforeAll, afterAll, beforeEach, afterEach });
 
 function makeApp(overrides: Partial<AppSummary> & { id: string }): AppSummary {
   return {

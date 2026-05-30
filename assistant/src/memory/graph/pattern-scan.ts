@@ -161,9 +161,9 @@ export async function runPatternScan(
         "Analyze this memory sample for recurring patterns. Only report patterns you're confident about.",
       ),
     ],
-    [PATTERN_TOOL_SCHEMA],
-    systemPrompt,
     {
+      tools: [PATTERN_TOOL_SCHEMA],
+      systemPrompt,
       config: {
         callSite: "patternScan" as const,
         tool_choice: { type: "tool" as const, name: "detect_patterns" },

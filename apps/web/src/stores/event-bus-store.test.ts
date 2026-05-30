@@ -7,7 +7,7 @@ import {
 } from "@/stores/event-bus-store";
 
 function avatarEvent(): AssistantEvent {
-  return { type: "avatar_updated" } as AssistantEvent;
+  return { type: "avatar_updated", avatarPath: "/tmp/avatar.png" };
 }
 
 beforeEach(() => {

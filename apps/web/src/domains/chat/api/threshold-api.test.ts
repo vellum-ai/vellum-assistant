@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { client } from "@/domains/chat/api/client";
+import { client } from "@/generated/api/client.gen";
 import { getConversationOverride } from "@/lib/threshold-api";
 
 // ---------------------------------------------------------------------------

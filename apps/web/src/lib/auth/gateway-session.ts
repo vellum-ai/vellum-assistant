@@ -3,9 +3,15 @@ import {
   getLocalGatewayUrl,
 } from "@/lib/local-mode";
 
-const LS_TOKEN_KEY = "gw:token";
-const LS_EXPIRES_KEY = "gw:expiresAt";
-const LS_TOKEN_SOURCE_KEY = "gw:tokenSource";
+const LS_TOKEN_KEY = "vellum:gw:token";
+const LS_EXPIRES_KEY = "vellum:gw:expiresAt";
+const LS_TOKEN_SOURCE_KEY = "vellum:gw:tokenSource";
+
+// Legacy key names kept as read fallbacks in case the startup migration
+// in storage-migration.ts failed (e.g. QuotaExceededError on setItem).
+const LEGACY_TOKEN_KEY = "gw:token";
+const LEGACY_EXPIRES_KEY = "gw:expiresAt";
+const LEGACY_TOKEN_SOURCE_KEY = "gw:tokenSource";
 
 let cachedToken: string | null = null;
 let cachedExpiresAt: number = 0;
@@ -29,8 +35,12 @@ export function getGatewayToken(): string | null {
   }
   cachedToken = null;
   try {
-    const token = localStorage.getItem(LS_TOKEN_KEY);
-    const expiresAtRaw = localStorage.getItem(LS_EXPIRES_KEY);
+    const token =
+      localStorage.getItem(LS_TOKEN_KEY) ??
+      localStorage.getItem(LEGACY_TOKEN_KEY);
+    const expiresAtRaw =
+      localStorage.getItem(LS_EXPIRES_KEY) ??
+      localStorage.getItem(LEGACY_EXPIRES_KEY);
     if (token && expiresAtRaw) {
       const expiresAt = Number(expiresAtRaw);
       if (!isTokenExpired(expiresAt)) {
@@ -74,7 +84,10 @@ async function acquireGatewayToken(tokenUrl?: string, guardianToken?: string): P
 
 export async function ensureGatewayToken(tokenUrl?: string, guardianToken?: string): Promise<string> {
   const source = tokenUrl ?? "/auth/token";
-  const storedSource = cachedTokenSource ?? localStorage.getItem(LS_TOKEN_SOURCE_KEY);
+  const storedSource =
+    cachedTokenSource ??
+    localStorage.getItem(LS_TOKEN_SOURCE_KEY) ??
+    localStorage.getItem(LEGACY_TOKEN_SOURCE_KEY);
   if (storedSource && storedSource !== source) {
     clearGatewayToken();
   }
@@ -97,6 +110,9 @@ export function clearGatewayToken(): void {
     localStorage.removeItem(LS_TOKEN_KEY);
     localStorage.removeItem(LS_EXPIRES_KEY);
     localStorage.removeItem(LS_TOKEN_SOURCE_KEY);
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+    localStorage.removeItem(LEGACY_EXPIRES_KEY);
+    localStorage.removeItem(LEGACY_TOKEN_SOURCE_KEY);
   } catch {
     // localStorage unavailable
   }

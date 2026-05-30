@@ -42,8 +42,6 @@ function createMockProvider(responses: ProviderResponse[]): {
     name: "mock",
     async sendMessage(
       _messages: Message[],
-      _tools?: ToolDefinition[],
-      _systemPrompt?: string,
       _options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
       const response = responses[callIndex] ?? responses[responses.length - 1];
@@ -221,7 +219,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       (e) => {
         events.push(e);
       },
-      controller.signal,
+      { signal: controller.signal },
     );
 
     expect(countExitEvents(events)).toBe(1);
@@ -276,9 +274,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       (e) => {
         events.push(e);
       },
-      undefined,
-      undefined,
-      onCheckpoint,
+      { onCheckpoint },
     );
 
     expect(countExitEvents(events)).toBe(0);
@@ -355,7 +351,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
       (e) => {
         events.push(e);
       },
-      controller.signal,
+      { signal: controller.signal },
     );
 
     expect(countExitEvents(events)).toBe(1);

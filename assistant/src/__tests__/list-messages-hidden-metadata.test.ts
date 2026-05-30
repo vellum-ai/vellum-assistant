@@ -65,7 +65,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
       conv.id,
       "assistant",
       JSON.stringify([{ type: "text", text: "internal scaffolding" }]),
-      { hidden: true },
+      { metadata: { hidden: true } },
     );
     await addMessage(
       conv.id,
@@ -102,7 +102,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
       conv.id,
       "assistant",
       JSON.stringify([{ type: "text", text: "hidden false" }]),
-      { hidden: false },
+      { metadata: { hidden: false } },
     );
 
     const response = handleListMessages({
@@ -131,7 +131,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
         conv.id,
         "assistant",
         JSON.stringify([{ type: "text", text: `hidden ${i}` }]),
-        { hidden: true },
+        { metadata: { hidden: true } },
       );
     }
     for (let i = 0; i < 2; i++) {
@@ -275,7 +275,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
         conv.id,
         "assistant",
         JSON.stringify([{ type: "text", text: `hidden ${i}` }]),
-        { hidden: true },
+        { metadata: { hidden: true } },
       );
     }
 

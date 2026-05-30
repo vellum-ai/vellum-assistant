@@ -26,6 +26,7 @@ import { registerContactsCommand } from "./commands/contacts.js";
 import { registerConversationsCommand } from "./commands/conversations.js";
 import { registerCredentialExecutionCommand } from "./commands/credential-execution.js";
 import { registerCredentialsCommand } from "./commands/credentials.js";
+import { registerDbCommand } from "./commands/db/index.js";
 import { registerDefaultAction } from "./commands/default-action.js";
 import { registerDomainCommand } from "./commands/domain.js";
 import { registerEmailCommand } from "./commands/email.js";
@@ -35,7 +36,6 @@ import { registerInferenceCommand } from "./commands/inference.js";
 import { registerKeysCommand } from "./commands/keys.js";
 import { registerMcpCommand } from "./commands/mcp.js";
 import { registerMemoryV2Command } from "./commands/memory-v2.js";
-import { registerMemoryV3Command } from "./commands/memory-v3.js";
 import { registerNotificationsCommand } from "./commands/notifications.js";
 import { registerOAuthCommand } from "./commands/oauth/index.js";
 import { registerPendingCommand } from "./commands/pending.js";
@@ -122,6 +122,7 @@ Examples:
   registerConversationsCommand(program);
   registerCredentialExecutionCommand(program);
   registerCredentialsCommand(program);
+  registerDbCommand(program);
   if (isEmailEnabled(getConfigReadOnly())) {
     registerDomainCommand(program);
     registerEmailCommand(program);
@@ -132,7 +133,6 @@ Examples:
   registerKeysCommand(program);
   registerMcpCommand(program);
   registerMemoryV2Command(program);
-  registerMemoryV3Command(program);
   registerNotificationsCommand(program);
   registerOAuthCommand(program);
   registerPendingCommand(program);

@@ -2,12 +2,12 @@
  * Surface action submission, content fetching, and artifact download.
  */
 
+import { client } from "@/generated/api/client.gen";
 import {
   assertHasResponse,
-  client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client";
+} from "@/utils/api-errors";
 
 export async function submitSurfaceAction(
   assistantId: string,

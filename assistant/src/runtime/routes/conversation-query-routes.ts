@@ -71,6 +71,7 @@ import { type LogRow } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
+import { getMemoryV3SelectionForInspector } from "../../memory/v3/selection-log-store.js";
 import {
   createConnection,
   listConnections,
@@ -921,6 +922,12 @@ async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   // turn finishes — see `assistant/src/memory/conversation-crud.ts`.
   const conversationTotalEstimatedCostUsd =
     conversation?.totalEstimatedCost ?? null;
+  const memoryV3Selection = message
+    ? await getMemoryV3SelectionForInspector(
+        message.conversationId,
+        memoryV2Activation?.turn ?? null,
+      )
+    : null;
   return {
     messageId,
     conversationKind,
@@ -928,6 +935,7 @@ async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
     logs: logs.map(normalizeLlmContextLog),
     memoryRecall: memoryRecallLog ?? null,
     memoryV2Activation: memoryV2Activation ?? null,
+    memoryV3Selection,
   };
 }
 
@@ -953,6 +961,7 @@ async function handleGetConversationLlmContext({
         logs: [],
         memoryRecall: null,
         memoryV2Activation: null,
+        memoryV3Selection: null,
       };
     }
     throw new BadRequestError(
@@ -971,6 +980,7 @@ async function handleGetConversationLlmContext({
         logs: [],
         memoryRecall: null,
         memoryV2Activation: null,
+        memoryV3Selection: null,
       };
     }
     throw new NotFoundError(`Conversation ${conversationId} not found`);
@@ -993,6 +1003,7 @@ async function handleGetConversationLlmContext({
     logs: logs.map(normalizeLlmContextLog),
     memoryRecall: null,
     memoryV2Activation: null,
+    memoryV3Selection: null,
   };
 }
 
@@ -1279,6 +1290,7 @@ export const ROUTES: RouteDefinition[] = [
       logs: z.array(z.unknown()),
       memoryRecall: z.object({}).passthrough().nullable(),
       memoryV2Activation: z.object({}).passthrough().nullable(),
+      memoryV3Selection: z.object({}).passthrough().nullable().optional(),
     }),
     handler: handleGetConversationLlmContext,
   },
@@ -1298,6 +1310,7 @@ export const ROUTES: RouteDefinition[] = [
       logs: z.array(z.unknown()),
       memoryRecall: z.object({}).passthrough().nullable(),
       memoryV2Activation: z.object({}).passthrough().nullable(),
+      memoryV3Selection: z.object({}).passthrough().nullable().optional(),
     }),
     handler: handleGetLlmContext,
   },

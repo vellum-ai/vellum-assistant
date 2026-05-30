@@ -56,7 +56,7 @@ final class AssistantFeatureFlagStore {
     }
 
     func isEnabled(_ key: String) -> Bool {
-        resolvedFlags[key] ?? registryDefaults[key] ?? true
+        resolvedFlags[key] ?? registryDefaults[key] ?? false
     }
 
     /// Reload flags from local disk + UserDefaults cache.

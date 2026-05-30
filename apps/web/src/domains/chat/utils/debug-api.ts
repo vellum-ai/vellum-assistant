@@ -33,14 +33,14 @@ import {
   fetchConversationMessages as defaultFetchConversationMessages,
   type RuntimeMessage,
 } from "@/domains/chat/api/messages";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import type {
   PendingConfirmationState,
   PendingContactRequestState,
   PendingQuestionState,
   PendingSecretState,
 } from "@/types/interaction-ui-types";
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
+import { recordDiagnostic } from "@/lib/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
@@ -495,7 +495,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     // true. If this ever drifts we want the test suite (and DevTools users) to
     // notice immediately rather than chasing a confusing report.
     if (visible !== (failingConditions.length === 0)) {
-      recordChatDiagnostic("debug_thinking_indicator_drift", {
+      recordDiagnostic("debug_thinking_indicator_drift", {
         visible,
         failingConditionCount: failingConditions.length,
       });
@@ -538,12 +538,12 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
   }
 
   async function forceReconcile(): Promise<ReconcileActiveConversationResult> {
-    recordChatDiagnostic("debug_force_reconcile_start", {
+    recordDiagnostic("debug_force_reconcile_start", {
       activeConversationId: useConversationStore.getState().activeConversationId,
       assistantId: refs.getAssistantId(),
     });
     const result = await refs.reconcileActiveConversation();
-    recordChatDiagnostic("debug_force_reconcile_result", {
+    recordDiagnostic("debug_force_reconcile_result", {
       activeConversationId: useConversationStore.getState().activeConversationId,
       changed: result.changed,
       messagesAdded: result.messagesAdded,

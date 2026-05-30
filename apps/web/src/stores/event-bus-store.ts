@@ -89,6 +89,41 @@ export interface BusEventMap {
   "app.online": Record<string, never>;
   /** Browser reported the network went away. */
   "app.offline": Record<string, never>;
+  /**
+   * System-level power events from the Electron host. Distinct from
+   * `app.resume` / `app.hidden` because a tray-resident or
+   * full-screen Electron app stays "visible" during system sleep —
+   * the renderer never sees `visibilitychange`, but `powerMonitor`
+   * does. Long-running consumers (SSE, WebSockets, refresh timers)
+   * use these to bounce-and-reconnect because browser timers freeze
+   * during system suspend and sockets may appear "open" but be
+   * half-dead on wake.
+   *
+   * Off Electron (web build, Capacitor iOS) these never fire — the
+   * platform's resume signals come through `app.resume` instead.
+   */
+  "power.suspend": Record<string, never>;
+  "power.resume": Record<string, never>;
+  "power.lock": Record<string, never>;
+  "power.unlock": Record<string, never>;
+  "power.active": Record<string, never>;
+  /**
+   * Inbound deep links from the Electron host — `vellum://` and
+   * `vellum-assistant://` URL schemes the OS routed to us. Parsed
+   * into discriminated payloads in `apps/macos/src/main/deep-links.ts`.
+   * Domain consumers (chat composer, conversation router) subscribe
+   * here to take action.
+   *
+   * `deeplink.unknown` covers parser fallbacks — foreign schemes,
+   * malformed URLs, unrecognized hosts. Consumers typically log
+   * and drop these; useful as a no-action signal so the bridge
+   * surface is exhaustive.
+   *
+   * Off Electron these never fire.
+   */
+  "deeplink.send": { message: string };
+  "deeplink.openThread": { threadId: string };
+  "deeplink.unknown": { url: string };
 }
 
 export type BusEventName = keyof BusEventMap;

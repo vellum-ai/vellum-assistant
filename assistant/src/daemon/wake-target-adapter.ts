@@ -208,7 +208,7 @@ export function conversationToWakeTarget(
         conversation.conversationId,
         message.role,
         JSON.stringify(message.content),
-        metadata,
+        { metadata },
       );
       if (message.role === "assistant") {
         try {

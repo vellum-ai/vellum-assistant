@@ -18,7 +18,7 @@ import {
 } from "@/lib/backwards-compat/impersonate-version-flag";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
-const STORAGE_KEY = "vellumDebug.flags.impersonateAssistantVersion";
+const STORAGE_KEY = "vellum:debug:impersonateAssistantVersion";
 
 describe("impersonate-version-flag", () => {
   let originalReload: typeof window.location.reload;

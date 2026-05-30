@@ -39,7 +39,7 @@ import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcrip
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
+import type { AssistantState } from "@/assistant/types";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
@@ -50,6 +50,7 @@ import { IOSAppBanner } from "@/components/nudges/ios-app-banner";
 import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
 import { Loader2 } from "lucide-react";
 import { Button, Notice, ResizablePanel } from "@vellum/design-library";
+import { getLocalBool, setLocalBool, removeLocalSetting } from "@/utils/local-settings";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
 import { AppViewerContainer } from "@/components/app-viewer-container";
@@ -103,6 +104,7 @@ import {
   type UIContext,
 } from "@/domains/chat/turn-selectors";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
+import { getSlackConversationDisplay } from "@/domains/chat/utils/slack-conversation-display";
 
 import { useViewerStore, type MainView, type OpenedAppState, type OpenedDocumentState } from "@/stores/viewer-store";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
@@ -121,7 +123,7 @@ import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import type { Conversation } from "@/types/conversation-types";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1010,33 +1012,58 @@ export function ChatRouteContent({
   // Disk pressure banner
   // -------------------------------------------------------------------------
 
+  // `dismissed` clears when disk pressure exits the warning state; `suppressed`
+  // is the "Don't show again" choice and persists across state transitions.
+  const dismissedKey = assistantId
+    ? `vellum:diskPressureDismissed:${assistantId}`
+    : null;
+  const suppressedKey = assistantId
+    ? `vellum:diskPressureSuppressed:${assistantId}`
+    : null;
+
   const [warningDismissed, setWarningDismissed] = useState(() => {
-    if (!assistantId) return false;
-    return localStorage.getItem(`disk-pressure-warning-dismissed-${assistantId}`) === "true";
+    if (!dismissedKey) return false;
+    return getLocalBool(dismissedKey, false);
+  });
+  const [warningSuppressed, setWarningSuppressed] = useState(() => {
+    if (!suppressedKey) return false;
+    return getLocalBool(suppressedKey, false);
   });
 
-  const dismissWarning = useCallback(() => {
-    if (!assistantId) return;
-    localStorage.setItem(`disk-pressure-warning-dismissed-${assistantId}`, "true");
-    setWarningDismissed(true);
-  }, [assistantId]);
+  const dismissWarning = useCallback(
+    (permanent: boolean) => {
+      if (permanent) {
+        if (suppressedKey) {
+          setLocalBool(suppressedKey, true);
+        }
+        setWarningSuppressed(true);
+        return;
+      }
+      if (dismissedKey) {
+        setLocalBool(dismissedKey, true);
+      }
+      setWarningDismissed(true);
+    },
+    [dismissedKey, suppressedKey],
+  );
 
-  // Reset dismiss when state escalates to critical or drops below warning
+  // Clear the per-episode dismiss on state change; the suppressed flag is
+  // intentionally not cleared here so "Don't show again" actually sticks.
   useEffect(() => {
     const st = diskPressure.status?.state;
     if (st && st !== "warning" && warningDismissed) {
-      if (assistantId) {
-        localStorage.removeItem(`disk-pressure-warning-dismissed-${assistantId}`);
+      if (dismissedKey) {
+        removeLocalSetting(dismissedKey);
       }
       setWarningDismissed(false);
     }
-  }, [diskPressure.status?.state, warningDismissed, assistantId]);
+  }, [diskPressure.status?.state, warningDismissed, dismissedKey]);
 
   const renderDiskPressureBanner = useCallback((): ReactNode => {
     if (!diskPressure.status) return null;
     const mode = diskPressure.mode === "inactive" ? null : (diskPressure.mode as DiskPressureBannerMode | null);
     if (!mode) return null;
-    if (mode === "warning" && warningDismissed) return null;
+    if (mode === "warning" && (warningDismissed || warningSuppressed)) return null;
     return (
       <DiskPressureBanner
         status={diskPressure.status}
@@ -1051,7 +1078,7 @@ export function ChatRouteContent({
         onUpgradeStorage={assistantState.kind === "active" ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`) : null}
       />
     );
-  }, [diskPressure, navigate, assistantState.kind, warningDismissed, dismissWarning]);
+  }, [diskPressure, navigate, assistantState.kind, warningDismissed, warningSuppressed, dismissWarning]);
 
   // -------------------------------------------------------------------------
   // Billing composer banner
@@ -1396,13 +1423,20 @@ export function ChatRouteContent({
     </div>
   ) : null;
 
-  const channelFooterSlot = (
+  const slackReadonlyBannerDisplay =
+    activeConversation?.originChannel === "slack"
+      ? getSlackConversationDisplay({
+          conversation: activeConversation,
+          messages: sanitizedMessages,
+        })
+      : null;
+  const slackReadonlyBannerSlot = slackReadonlyBannerDisplay ? (
     <SlackChannelFooter
       assistantId={assistantId ?? undefined}
       conversation={activeConversation}
       messages={sanitizedMessages}
     />
-  );
+  ) : null;
 
   // -------------------------------------------------------------------------
   // Render
@@ -1437,7 +1471,7 @@ export function ChatRouteContent({
             isChannelReadonly={isChannelReadonly}
             canStopGenerating={canStopGenerating}
             questionPromptSlot={questionPromptSlot}
-            channelFooterSlot={channelFooterSlot}
+            readonlyBannerSlot={slackReadonlyBannerSlot}
             startersSlot={startersSlot}
           />
         }
@@ -1511,7 +1545,7 @@ export function ChatRouteContent({
       bannerSlot={mainBannerSlot}
       queuedDrawerSlot={mainQueuedDrawerSlot}
       questionPromptSlot={questionPromptSlot}
-      channelFooterSlot={channelFooterSlot}
+      readonlyBannerSlot={slackReadonlyBannerSlot}
       startersSlot={startersSlot}
     />
   );

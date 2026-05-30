@@ -175,7 +175,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     _convId: string,
     role: string,
     content: string,
-    metadata?: Record<string, unknown>,
+    options?: { metadata?: Record<string, unknown> },
   ) => {
     // Simulate a persist failure for tests that need to exercise the
     // tail-persist-failed path in drainBatch. Triggered by matching any
@@ -186,7 +186,12 @@ mock.module("../memory/conversation-crud.js", () => ({
       }
     }
     const id = `msg-${Date.now()}-${capturedAddMessages.length}`;
-    capturedAddMessages.push({ id, role, content, metadata });
+    capturedAddMessages.push({
+      id,
+      role,
+      content,
+      metadata: options?.metadata,
+    });
     return { id };
   },
   updateConversationUsage: () => {},
@@ -340,14 +345,20 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void | Promise<void>,
-      _signal?: AbortSignal,
-      _requestId?: string,
-      onCheckpoint?: (
-        checkpoint: CheckpointInfo,
-      ) => CheckpointDecision | Promise<CheckpointDecision>,
+      options?: {
+        onCheckpoint?: (
+          checkpoint: CheckpointInfo,
+        ) => CheckpointDecision | Promise<CheckpointDecision>;
+      },
     ): Promise<Message[]> {
       return new Promise<Message[]>((resolve, reject) => {
-        pendingRuns.push({ resolve, reject, messages, onEvent, onCheckpoint });
+        pendingRuns.push({
+          resolve,
+          reject,
+          messages,
+          onEvent,
+          onCheckpoint: options?.onCheckpoint,
+        });
       });
     }
   },

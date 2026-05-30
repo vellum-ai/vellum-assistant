@@ -327,11 +327,11 @@ struct MessageInspectorView: View {
         case .overview:
             MessageInspectorOverviewTab(entry: entry)
         case .memory:
-            if let activation = viewState.memoryV2Activation {
-                MessageInspectorMemoryV2Tab(activation: activation)
-            } else {
-                MessageInspectorMemoryTab(memoryRecall: viewState.memoryRecall)
-            }
+            MessageInspectorMemoryTabContent(
+                recall: viewState.memoryRecall,
+                v2: viewState.memoryV2Activation,
+                v3: viewState.memoryV3Selection
+            )
         case .prompt:
             MessageInspectorPromptTab(entry: entry)
         case .response:
@@ -653,6 +653,7 @@ struct MessageInspectorViewState {
     private(set) var logs: [LLMRequestLogEntry] = []
     private(set) var memoryRecall: MemoryRecallData?
     private(set) var memoryV2Activation: MemoryV2ActivationData?
+    private(set) var memoryV3Selection: MemoryV3SelectionData?
     private(set) var conversationKind: ConversationKind?
     private(set) var selectedLogID: String?
     private(set) var selectedDetailTab: MessageInspectorDetailTab = .overview
@@ -692,6 +693,7 @@ struct MessageInspectorViewState {
             logs = orderedLogs
             memoryRecall = response.memoryRecall
             memoryV2Activation = response.memoryV2Activation
+            memoryV3Selection = response.memoryV3Selection
             conversationKind = response.conversationKind
 
             guard !orderedLogs.isEmpty else {
@@ -710,6 +712,7 @@ struct MessageInspectorViewState {
             logs = []
             memoryRecall = nil
             memoryV2Activation = nil
+            memoryV3Selection = nil
             conversationKind = nil
             loadState = .failed
             selectedLogID = nil
@@ -736,6 +739,99 @@ struct MessageInspectorViewState {
             }
 
             return lhs.id < rhs.id
+        }
+    }
+}
+
+// MARK: - Memory tab container
+
+/// The detail pane's Memory tab. Switches between the v3 selection, v2
+/// activation, and v1 recall views with a segment control when more than one
+/// is present; renders the single available view directly otherwise. Mirrors
+/// the web inspector's memory pill switcher.
+private enum MemorySubview: String, CaseIterable, Hashable {
+    case v3
+    case v2
+    case recall
+
+    var label: String {
+        switch self {
+        case .v3: return "Memory V3"
+        case .v2: return "Memory V2"
+        case .recall: return "Recall (v1)"
+        }
+    }
+}
+
+private struct MessageInspectorMemoryTabContent: View {
+    let recall: MemoryRecallData?
+    let v2: MemoryV2ActivationData?
+    let v3: MemoryV3SelectionData?
+
+    @State private var selection: MemorySubview
+
+    init(
+        recall: MemoryRecallData?,
+        v2: MemoryV2ActivationData?,
+        v3: MemoryV3SelectionData?
+    ) {
+        self.recall = recall
+        self.v2 = v2
+        self.v3 = v3
+        // Default to v2 — the live memory source today; v3/recall reachable via
+        // the segment control.
+        _selection = State(
+            initialValue: v2 != nil ? .v2 : (v3 != nil ? .v3 : .recall)
+        )
+    }
+
+    private var available: [MemorySubview] {
+        var result: [MemorySubview] = []
+        if v3 != nil { result.append(.v3) }
+        if v2 != nil { result.append(.v2) }
+        if recall != nil { result.append(.recall) }
+        return result
+    }
+
+    private var activeSelection: MemorySubview {
+        available.contains(selection) ? selection : (available.first ?? .recall)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if available.count > 1 {
+                HStack {
+                    VSegmentControl(
+                        items: available.map { (label: $0.label, tag: $0) },
+                        selection: Binding(
+                            get: { activeSelection },
+                            set: { selection = $0 }
+                        )
+                    )
+                    .fixedSize()
+
+                    Spacer()
+                }
+                .padding(.horizontal, VSpacing.lg)
+                .padding(.vertical, VSpacing.sm)
+
+                Divider()
+            }
+
+            section(activeSelection)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func section(_ sub: MemorySubview) -> some View {
+        switch sub {
+        case .v3:
+            MessageInspectorMemoryV3Tab(selection: v3)
+        case .v2:
+            MessageInspectorMemoryV2Tab(activation: v2)
+        case .recall:
+            MessageInspectorMemoryTab(memoryRecall: recall)
         }
     }
 }

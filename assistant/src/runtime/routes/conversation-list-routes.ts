@@ -9,6 +9,7 @@
 
 import { z } from "zod";
 
+import { findConversation } from "../../daemon/conversation-store.js";
 import {
   type Confidence,
   getAttentionStateByConversationIds,
@@ -131,6 +132,12 @@ export const conversationSummarySchema = z.object({
   forkParent: forkParentSchema.optional(),
   archivedAt: z.number().optional(),
   inferenceProfile: z.string().optional(),
+  /**
+   * True when the agent loop is currently mid-turn for this conversation.
+   * Mirrors the in-memory `Conversation.isProcessing()` flag on the daemon
+   * — `false` for rows that are cold (not currently resident in memory).
+   */
+  isProcessing: z.boolean(),
 });
 
 const groupSummarySchema = z.object({
@@ -199,6 +206,12 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
         attentionState: attentionStates.get(conversation.id),
         displayMeta: displayMeta.get(conversation.id),
         parentCache,
+        // Cold (evicted / never-loaded) rows aren't in the in-memory
+        // store, so `findConversation` returns `undefined` and they
+        // report `isProcessing: false` — by definition they aren't
+        // mid-turn since the agent loop only runs on resident convs.
+        isProcessing:
+          findConversation(conversation.id)?.isProcessing() ?? false,
       }),
     ),
     nextOffset,

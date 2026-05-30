@@ -132,7 +132,7 @@ struct FeatureFlagsCard: View {
                 key: flag.key,
                 label: flag.displayName,
                 description: flag.description ?? "",
-                defaultEnabled: flag.defaultEnabled ?? true,
+                defaultEnabled: flag.defaultEnabled ?? false,
                 enabled: flag.enabled,
                 scope: .assistant
             )

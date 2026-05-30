@@ -248,21 +248,18 @@ export async function runBackgroundJob(
         conversation.id,
         "user",
         opts.assistantSandwich.preamble,
-        undefined,
         { skipIndexing: true },
       );
       await addMessage(
         conversation.id,
         "assistant",
         opts.assistantSandwich.content,
-        undefined,
         { skipIndexing: true },
       );
       await addMessage(
         conversation.id,
         "user",
         opts.assistantSandwich.postamble,
-        undefined,
         { skipIndexing: true },
       );
     }

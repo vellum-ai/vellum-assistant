@@ -295,44 +295,44 @@ Bad → Good (incomplete phrase → complete):
           "Generate personalized conversation starters based on my context.",
         ),
       ],
-      [
-        {
-          name: "store_conversation_starters",
-          description: "Store generated conversation starter suggestions",
-          input_schema: {
-            type: "object" as const,
-            properties: {
-              starters: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    label: {
-                      type: "string",
-                      description:
-                        "User-voice chip label (2-7 words, max 40 chars, verb-first)",
+      {
+        tools: [
+          {
+            name: "store_conversation_starters",
+            description: "Store generated conversation starter suggestions",
+            input_schema: {
+              type: "object" as const,
+              properties: {
+                starters: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      label: {
+                        type: "string",
+                        description:
+                          "User-voice chip label (2-7 words, max 40 chars, verb-first)",
+                      },
+                      prompt: {
+                        type: "string",
+                        description:
+                          "Full message sent on click (1-2 natural sentences, as the user would say it)",
+                      },
+                      category: {
+                        type: "string",
+                        enum: [...CONVERSATION_STARTER_CATEGORIES],
+                        description: "Capability category for grouping",
+                      },
                     },
-                    prompt: {
-                      type: "string",
-                      description:
-                        "Full message sent on click (1-2 natural sentences, as the user would say it)",
-                    },
-                    category: {
-                      type: "string",
-                      enum: [...CONVERSATION_STARTER_CATEGORIES],
-                      description: "Capability category for grouping",
-                    },
+                    required: ["label", "prompt", "category"],
                   },
-                  required: ["label", "prompt", "category"],
                 },
               },
+              required: ["starters"],
             },
-            required: ["starters"],
           },
-        },
-      ],
-      systemPrompt,
-      {
+        ],
+        systemPrompt,
         config: {
           callSite: "conversationStarters" as const,
           max_tokens: 2048,

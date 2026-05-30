@@ -379,8 +379,6 @@ describe("OpenAIProvider", () => {
     const events: ProviderEvent[] = [];
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { onEvent: (e) => events.push(e) },
     );
 
@@ -422,7 +420,7 @@ describe("OpenAIProvider", () => {
     ];
 
     const events: ProviderEvent[] = [];
-    await provider.sendMessage([userMsg("Hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("Hi")], {
       onEvent: (e) => events.push(e),
     });
 
@@ -470,14 +468,9 @@ describe("OpenAIProvider", () => {
     ];
 
     const events: ProviderEvent[] = [];
-    const result = await provider.sendMessage(
-      [userMsg("Hi")],
-      undefined,
-      undefined,
-      {
-        onEvent: (e) => events.push(e),
-      },
-    );
+    const result = await provider.sendMessage([userMsg("Hi")], {
+      onEvent: (e) => events.push(e),
+    });
 
     expect(result.content).toHaveLength(2);
     expect(result.content[0]).toEqual({
@@ -504,14 +497,9 @@ describe("OpenAIProvider", () => {
     ];
 
     const events: ProviderEvent[] = [];
-    const result = await provider.sendMessage(
-      [userMsg("Hi")],
-      undefined,
-      undefined,
-      {
-        onEvent: (e) => events.push(e),
-      },
-    );
+    const result = await provider.sendMessage([userMsg("Hi")], {
+      onEvent: (e) => events.push(e),
+    });
 
     expect(result.content).toHaveLength(2);
     expect(result.content[0]).toEqual({
@@ -544,8 +532,7 @@ describe("OpenAIProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      "You are a helpful assistant.",
+      { systemPrompt: "You are a helpful assistant." },
     );
 
     const messages = lastCreateParams!.messages as Array<
@@ -578,7 +565,7 @@ describe("OpenAIProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Read /tmp/test" }] }],
-      tools,
+      { tools: tools },
     );
 
     const sentTools = lastCreateParams!.tools as Array<Record<string, unknown>>;
@@ -903,8 +890,6 @@ describe("OpenAIProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { max_tokens: 64000 } },
     );
 
@@ -947,8 +932,6 @@ describe("OpenAIProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { signal: controller.signal },
     );
 
@@ -967,8 +950,6 @@ describe("OpenAIProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { signal: controller.signal },
     );
 
@@ -1024,8 +1005,6 @@ describe("OpenAIProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false); // should not reach
@@ -1044,8 +1023,6 @@ describe("OpenAIProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);
@@ -1063,8 +1040,6 @@ describe("OpenAIProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);
@@ -1412,7 +1387,7 @@ describe("effort config passthrough", () => {
   ): Provider {
     return {
       name,
-      async sendMessage(_messages, _tools, _systemPrompt, options) {
+      async sendMessage(_messages: Message[], options?: SendMessageOptions) {
         onCall(options);
         return makeResponse();
       },
@@ -1426,7 +1401,7 @@ describe("effort config passthrough", () => {
     });
     const retry = new RetryProvider(inner);
 
-    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await retry.sendMessage(DUMMY_MESSAGES, {
       config: { effort: "high" },
     });
 
@@ -1441,7 +1416,7 @@ describe("effort config passthrough", () => {
     });
     const retry = new RetryProvider(inner);
 
-    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await retry.sendMessage(DUMMY_MESSAGES, {
       config: { effort: "medium" },
     });
 
@@ -1456,7 +1431,7 @@ describe("effort config passthrough", () => {
     });
     const retry = new RetryProvider(inner);
 
-    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await retry.sendMessage(DUMMY_MESSAGES, {
       config: { effort: "low" },
     });
 
@@ -1471,7 +1446,7 @@ describe("effort config passthrough", () => {
     });
     const retry = new RetryProvider(inner);
 
-    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await retry.sendMessage(DUMMY_MESSAGES, {
       config: { effort: "high" },
     });
 
@@ -1486,7 +1461,7 @@ describe("effort config passthrough", () => {
     });
     const retry = new RetryProvider(inner);
 
-    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await retry.sendMessage(DUMMY_MESSAGES, {
       config: { effort: "high" },
     });
 
@@ -1501,7 +1476,7 @@ describe("effort config passthrough", () => {
     });
     const retry = new RetryProvider(inner);
 
-    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await retry.sendMessage(DUMMY_MESSAGES, {
       config: {
         thinking: { enabled: true, budgetTokens: 10000 },
         effort: "high",
@@ -1520,7 +1495,7 @@ describe("effort config passthrough", () => {
     });
     const retry = new RetryProvider(inner);
 
-    await retry.sendMessage(DUMMY_MESSAGES, undefined, undefined, {
+    await retry.sendMessage(DUMMY_MESSAGES, {
       config: {
         thinking: { type: "adaptive" },
       },
@@ -1546,7 +1521,7 @@ describe("OpenRouterProvider reasoning", () => {
 
   test("sends reasoning.enabled=true with default detailed summary when thinking config is present", async () => {
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
-    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("hi")], {
       config: { thinking: { type: "adaptive" } },
     });
 
@@ -1559,7 +1534,7 @@ describe("OpenRouterProvider reasoning", () => {
 
   test("omits reasoning when thinking is explicitly disabled", async () => {
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
-    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("hi")], {
       config: { thinking: { type: "disabled" } },
     });
 
@@ -1569,7 +1544,7 @@ describe("OpenRouterProvider reasoning", () => {
 
   test("omits reasoning when thinking config is absent", async () => {
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
-    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("hi")], {
       config: {},
     });
 
@@ -1587,7 +1562,7 @@ describe("OpenRouterProvider reasoning", () => {
 
   test("sends OpenRouter app-attribution headers on OpenAI-compatible requests", async () => {
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
-    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("hi")], {
       config: {
         usageAttributionHeaders: {
           "Vellum-Organization-Id": "org-123",
@@ -1614,7 +1589,7 @@ describe("OpenRouterProvider reasoning", () => {
     const retry = new RetryProvider(provider);
 
     // thinking enabled at loop-level → config.thinking set
-    await retry.sendMessage([userMsg("hi")], undefined, undefined, {
+    await retry.sendMessage([userMsg("hi")], {
       config: { thinking: { type: "adaptive" } },
     });
     expect(lastCreateParams!.reasoning).toEqual({
@@ -1627,7 +1602,7 @@ describe("OpenRouterProvider reasoning", () => {
     const provider = new OpenRouterProvider("or-key", "x-ai/grok-4");
     const retry = new RetryProvider(provider);
 
-    await retry.sendMessage([userMsg("hi")], undefined, undefined, {
+    await retry.sendMessage([userMsg("hi")], {
       config: { thinking: { type: "disabled" } },
     });
     expect(lastCreateParams!.reasoning).toBeUndefined();
@@ -1635,7 +1610,7 @@ describe("OpenRouterProvider reasoning", () => {
 
   test("nests effort under reasoning and omits top-level reasoning_effort", async () => {
     const provider = new OpenRouterProvider("or-key", "moonshotai/kimi-k2.6");
-    await provider.sendMessage([userMsg("hi")], undefined, undefined, {
+    await provider.sendMessage([userMsg("hi")], {
       config: { thinking: { enabled: true }, effort: "max" },
     });
 
@@ -1709,7 +1684,8 @@ describe("OpenAIProvider reasoning_effort", () => {
   });
 
   test('effort: "low" maps to reasoning_effort: "low"', async () => {
-    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+    await provider.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "low" },
     });
     expect(lastCreateParams).toBeTruthy();
@@ -1717,35 +1693,40 @@ describe("OpenAIProvider reasoning_effort", () => {
   });
 
   test('effort: "medium" maps to reasoning_effort: "medium"', async () => {
-    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+    await provider.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "medium" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("medium");
   });
 
   test('effort: "high" maps to reasoning_effort: "high"', async () => {
-    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+    await provider.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "high" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("high");
   });
 
   test('effort: "max" maps to reasoning_effort: "xhigh"', async () => {
-    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+    await provider.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "max" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("xhigh");
   });
 
   test('effort: "xhigh" maps to reasoning_effort: "xhigh"', async () => {
-    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+    await provider.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "xhigh" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("xhigh");
   });
 
   test("no effort config means no reasoning_effort in params", async () => {
-    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+    await provider.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: {},
     });
     expect(lastCreateParams).toBeTruthy();
@@ -1756,7 +1737,8 @@ describe("OpenAIProvider reasoning_effort", () => {
     // OpenAI defaults `reasoning_effort` to "medium" when the field is
     // omitted, so the user's opt-out is only honored when we send the
     // explicit "none" value on the wire.
-    await provider.sendMessage([userMsg("hi")], undefined, "system", {
+    await provider.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "none" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("none");
@@ -1766,7 +1748,8 @@ describe("OpenAIProvider reasoning_effort", () => {
     const providerWithExtra = new OpenAIProvider("test-key", "gpt-5", {
       extraCreateParams: { reasoning_effort: "medium" },
     });
-    await providerWithExtra.sendMessage([userMsg("hi")], undefined, "system", {
+    await providerWithExtra.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: {},
     });
     expect(lastCreateParams!.reasoning_effort).toBe("medium");
@@ -1776,15 +1759,18 @@ describe("OpenAIProvider reasoning_effort", () => {
     const capped = new OpenAIProvider("test-key", "gpt-5", {
       maxReasoningEffort: "high",
     });
-    await capped.sendMessage([userMsg("hi")], undefined, "system", {
+    await capped.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "xhigh" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("high");
-    await capped.sendMessage([userMsg("hi")], undefined, "system", {
+    await capped.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "max" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("high");
-    await capped.sendMessage([userMsg("hi")], undefined, "system", {
+    await capped.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "medium" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("medium");
@@ -1794,11 +1780,13 @@ describe("OpenAIProvider reasoning_effort", () => {
     const uncapped = new OpenAIProvider("test-key", "gpt-5", {
       maxReasoningEffort: "max",
     });
-    await uncapped.sendMessage([userMsg("hi")], undefined, "system", {
+    await uncapped.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "max" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("max");
-    await uncapped.sendMessage([userMsg("hi")], undefined, "system", {
+    await uncapped.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "xhigh" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("xhigh");
@@ -1816,7 +1804,8 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
       "fw-key",
       "accounts/fireworks/models/deepseek-v4-pro",
     );
-    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+    await fw.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "max" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("max");
@@ -1827,7 +1816,8 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
       "fw-key",
       "accounts/fireworks/models/deepseek-v4-pro",
     );
-    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+    await fw.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "xhigh" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("xhigh");
@@ -1838,11 +1828,13 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
       "fw-key",
       "accounts/fireworks/models/kimi-k2p6",
     );
-    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+    await fw.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "xhigh" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("high");
-    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+    await fw.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "max" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("high");
@@ -1853,7 +1845,8 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
       "fw-key",
       "accounts/fireworks/models/some-future-model",
     );
-    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+    await fw.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "max" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("high");
@@ -1864,7 +1857,8 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
       "fw-key",
       "accounts/fireworks/models/deepseek-v4-pro",
     );
-    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+    await fw.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "medium" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("medium");
@@ -1875,7 +1869,8 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
       "fw-key",
       "accounts/fireworks/models/kimi-k2p6",
     );
-    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+    await fw.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: { effort: "none" },
     });
     expect(lastCreateParams!.reasoning_effort).toBe("none");
@@ -1886,7 +1881,8 @@ describe("FireworksProvider reasoning_effort ceiling", () => {
       "fw-key",
       "accounts/fireworks/models/kimi-k2p6",
     );
-    await fw.sendMessage([userMsg("hi")], undefined, "system", {
+    await fw.sendMessage([userMsg("hi")], {
+      systemPrompt: "system",
       config: {
         effort: "max",
         model: "accounts/fireworks/models/deepseek-v4-pro",

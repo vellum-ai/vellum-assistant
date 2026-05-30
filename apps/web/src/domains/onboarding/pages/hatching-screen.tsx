@@ -20,7 +20,7 @@ import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-lay
 import { extractErrorMessage } from "@/utils/api-errors";
 import { isLocalMode, hatchLocalAssistant, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection, getLocalGatewayUrl } from "@/lib/local-mode";
 import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
-import { useRootOutletContext } from "@/root-layout";
+import { lifecycleService } from "@/assistant/lifecycle-service";
 import {
   readAiDataConsent,
   readOnboardingCompleted,
@@ -112,9 +112,6 @@ export function HatchingScreen() {
   const userId = useAuthStore.use.user()?.id ?? null;
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isAuthLoading = useAuthStore.use.isLoading();
-  const {
-    lifecycle: { checkAssistant },
-  } = useRootOutletContext();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [hatchTraits] = useState<CharacterTraits>(() =>
     randomCharacterTraits(BUNDLED_COMPONENTS),
@@ -195,7 +192,7 @@ export function HatchingScreen() {
       navigateTimer = setTimeout(() => {
         if (cancelled) return;
         void (async () => {
-          await checkAssistant();
+          await lifecycleService.checkAssistant();
           if (cancelled) return;
           if (isNativePlatform()) {
             try {
@@ -412,7 +409,6 @@ export function HatchingScreen() {
     isAuthLoading,
     isLoggedIn,
     isReplay,
-    checkAssistant,
     navigate,
     setOnboardingCompleted,
     transitionPhase,

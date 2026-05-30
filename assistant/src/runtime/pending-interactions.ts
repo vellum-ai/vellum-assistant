@@ -18,14 +18,14 @@
  * resolve the interaction.
  */
 
-import type { InteractionResolutionState } from "../daemon/message-types/messages.js";
+import type { InteractionResolutionState } from "../api/events/interaction-resolved.js";
 import type { UserDecision } from "../permissions/types.js";
 import { getLogger } from "../util/logger.js";
 import { broadcastMessage } from "./assistant-event-hub.js";
 
 const log = getLogger("pending-interactions");
 
-export type { InteractionResolutionState } from "../daemon/message-types/messages.js";
+export type { InteractionResolutionState } from "../api/events/interaction-resolved.js";
 
 export interface ConfirmationDetails {
   toolName: string;

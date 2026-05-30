@@ -277,7 +277,6 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
-      _signal?: AbortSignal,
     ): Promise<Message[]> {
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.

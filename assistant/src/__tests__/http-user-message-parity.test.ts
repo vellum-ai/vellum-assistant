@@ -98,8 +98,8 @@ mock.module("../memory/conversation-crud.js", () => ({
     conversationId: string,
     role: string,
     content: string,
-    metadata?: Record<string, unknown>,
-  ) => addMessageMock(conversationId, role, content, metadata),
+    options?: { metadata?: Record<string, unknown> },
+  ) => addMessageMock(conversationId, role, content, options),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
