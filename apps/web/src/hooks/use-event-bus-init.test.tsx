@@ -211,6 +211,45 @@ describe("useEventBusInit — SSE ownership", () => {
     expect(checkAssistant).toHaveBeenCalledTimes(1);
   }, 5_000);
 
+  test("power.resume bounces a LIVE SSE (no preceding app.hidden) — the tray-resident case", () => {
+    const checkAssistant = mock(() => {});
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+        checkAssistant,
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+
+    // No app.hidden first — the renderer stayed visible during system
+    // sleep (tray-resident / full-screen). power.resume must tear down
+    // and reopen, otherwise the half-dead socket persists.
+    useEventBusStore.getState().publish("power.resume", {});
+
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(checkAssistant).toHaveBeenCalledTimes(1);
+  });
+
+  test("power.unlock bounces a LIVE SSE — screen lock can outlast TCP timeouts", () => {
+    const checkAssistant = mock(() => {});
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+        checkAssistant,
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+
+    useEventBusStore.getState().publish("power.unlock", {});
+
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+  });
+
   test("power.resume reopens the SSE after teardown — same dedup window as app.resume", async () => {
     const checkAssistant = mock(() => {});
     renderHook(() =>

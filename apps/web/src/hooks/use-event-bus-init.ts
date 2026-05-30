@@ -211,32 +211,45 @@ export function useEventBusInit({
 
     open();
 
-    // App lifecycle: tear down on hidden, reopen on resume. The 1s
+    // App lifecycle (renderer-visibility resume): tear down on hidden,
+    // reopen on resume IF the connection was already torn down. The 1s
     // dedup window collapses double-fires from visibilitychange +
     // Capacitor appStateChange (both arrive in close succession on
-    // foregrounding the iOS native shell), and from a system wake
-    // also surfacing as `power.resume` shortly after `app.resume`
-    // on the Electron host.
-    const handleResume = () => {
+    // foregrounding the iOS native shell).
+    const handleAppResume = () => {
       const now = Date.now();
       if (now - lastResumeAt < RESUME_DEDUP_WINDOW_MS) return;
       lastResumeAt = now;
       checkAssistant();
+      // App-resume means the renderer became visible; if a connection
+      // is already live, it was either never torn down or just opened
+      // moments ago — either way, leave it alone.
       if (current) return;
+      open();
+    };
+    // System-level resume (Electron host): bounce the connection
+    // UNCONDITIONALLY. The renderer may have stayed visible during
+    // system sleep (tray-resident, full-screen) so there's no
+    // app.hidden → app.resume cycle; `current` is still non-null
+    // but the socket may be half-dead because the remote side
+    // TCP-RST'd while we slept. The shared dedup window collapses
+    // overlap with `app.resume` so a sleep that ALSO triggered a
+    // visibility change doesn't double-bounce.
+    const handlePowerResume = () => {
+      const now = Date.now();
+      if (now - lastResumeAt < RESUME_DEDUP_WINDOW_MS) return;
+      lastResumeAt = now;
+      checkAssistant();
+      teardown();
       open();
     };
     const unsubHidden = bus.subscribe("app.hidden", () => {
       if (!current) return;
       teardown();
     });
-    const unsubResume = bus.subscribe("app.resume", handleResume);
-    // Electron-only: system wake / screen unlock signal a reconnect
-    // even when the renderer never went hidden (tray-resident /
-    // full-screen). Browser timers freeze during system suspend and
-    // sockets may appear "open" but be half-dead on wake. The dedup
-    // window above collapses overlap with `app.resume`.
-    const unsubPowerResume = bus.subscribe("power.resume", handleResume);
-    const unsubPowerUnlock = bus.subscribe("power.unlock", handleResume);
+    const unsubResume = bus.subscribe("app.resume", handleAppResume);
+    const unsubPowerResume = bus.subscribe("power.resume", handlePowerResume);
+    const unsubPowerUnlock = bus.subscribe("power.unlock", handlePowerResume);
     const unsubReachabilityRetry = bus.subscribe(
       "reachability.retry-requested",
       () => {
