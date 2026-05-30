@@ -11,6 +11,7 @@ import { join } from "node:path";
 
 import { v4 as uuid } from "uuid";
 
+import { invokeCompactionPipeline } from "../agent/compaction.js";
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
 import type {
   AgentEvent,
@@ -96,7 +97,6 @@ import {
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
-import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
 import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
 import {
   asDefaultGraphPayload,
@@ -112,8 +112,6 @@ import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CircuitBreakerArgs,
   CircuitBreakerResult,
-  CompactionArgs,
-  CompactionResult,
   EstimateArgs,
   EstimateResult,
   HistoryRepairArgs,
@@ -477,7 +475,7 @@ const FALLBACK_TURN_TRUST: TrustContext = {
  *   don't need it can ignore it; the default compaction plugin reads it
  *   via the typed optional field on `TurnContext`.
  */
-function buildPluginTurnContext(
+export function buildPluginTurnContext(
   ctx: AgentLoopConversationContext,
   requestId: string,
 ): PluginTurnContext {
@@ -1257,39 +1255,23 @@ export async function runAgentLoopImpl(
       ReturnType<typeof ctx.contextWindowManager.maybeCompact>
     > | null = null;
     if (autoCompactAllowed) {
-      try {
-        compacted = (await runPipeline<CompactionArgs, CompactionResult>(
-          "compaction",
-          getMiddlewaresFor("compaction"),
-          (args) =>
-            defaultCompactionTerminal(args, buildPluginTurnContext(ctx, reqId)),
-          {
-            messages: messagesForStartOfTurnCompaction,
-            signal: abortController.signal,
-            options: compactionOptions,
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.compaction,
-        )) as Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>;
-      } catch (err) {
-        if (err instanceof PluginTimeoutError) {
-          // Pipeline exceeded its budget. Record the failure so the circuit
-          // breaker tracks consecutive timeouts (it trips after three),
-          // then degrade gracefully by skipping compaction this turn —
-          // the turn proceeds with the un-compacted history rather than
-          // hard-failing. The inner summary call has been aborted by the
-          // runner's signal-linking, so updateSummary's local fallback
-          // also ran before this catch block is reached.
-          rlog.warn(
-            { err, phase: "start-of-turn-compaction" },
-            "Compaction pipeline timed out — skipping compaction this turn",
-          );
-          await trackCompactionOutcome(ctx, true, onEvent);
-          compacted = null;
-        } else {
-          throw err;
-        }
-      }
+      // Pipeline timeout degrades gracefully — turn proceeds with the
+      // un-compacted history rather than hard-failing. The inner summary
+      // call has already been aborted by the runner's signal-linking, so
+      // `updateSummary`'s local fallback also ran before the helper's
+      // catch block was reached. The helper records the circuit-breaker
+      // failure for us (3-strike counter).
+      const outcome = await invokeCompactionPipeline({
+        ctx,
+        requestId: reqId,
+        phase: "start-of-turn-compaction",
+        messages: messagesForStartOfTurnCompaction,
+        signal: abortController.signal,
+        options: compactionOptions,
+        onEvent,
+        logger: rlog,
+      });
+      compacted = outcome.ok ? outcome.result : null;
     }
     // Only track circuit-breaker state when a summary LLM call actually ran.
     // `summaryFailed` is `undefined` on early returns (compaction disabled,
@@ -1998,54 +1980,43 @@ export async function runAgentLoopImpl(
           // bookkeeping. On timeout, record the failure and return a
           // `compacted: false` result so the reducer falls through to the
           // next tier.
-          try {
-            return (await runPipeline<CompactionArgs, CompactionResult>(
-              "compaction",
-              getMiddlewaresFor("compaction"),
-              (args) =>
-                defaultCompactionTerminal(
-                  args,
-                  buildPluginTurnContext(ctx, reqId),
-                ),
-              {
-                messages: msgs,
-                signal,
-                options: {
-                  ...(opts ?? {}),
-                  overrideProfile: resolveCurrentOverrideProfile() ?? null,
-                },
-              },
-              buildPluginTurnContext(ctx, reqId),
-              DEFAULT_TIMEOUTS.compaction,
-            )) as Awaited<
-              ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-            >;
-          } catch (err) {
-            if (err instanceof PluginTimeoutError) {
-              rlog.warn(
-                { err, phase: "overflow-reducer-forced-compaction" },
-                "Compaction pipeline timed out — falling through to next reducer tier",
-              );
-              await trackCompactionOutcome(ctx, true, onEvent);
-              return {
-                messages: msgs,
-                compacted: false,
-                previousEstimatedInputTokens: 0,
-                estimatedInputTokens: 0,
-                maxInputTokens: 0,
-                thresholdTokens: 0,
-                compactedMessages: 0,
-                compactedPersistedMessages: 0,
-                summaryCalls: 0,
-                summaryInputTokens: 0,
-                summaryOutputTokens: 0,
-                summaryModel: "",
-                summaryText: "",
-                reason: "compaction pipeline timed out",
-              };
-            }
-            throw err;
+          const outcome = await invokeCompactionPipeline({
+            ctx,
+            requestId: reqId,
+            phase: "overflow-reducer-forced-compaction",
+            messages: msgs,
+            signal,
+            options: {
+              ...(opts ?? {}),
+              overrideProfile: resolveCurrentOverrideProfile() ?? null,
+            },
+            onEvent,
+            logger: rlog,
+          });
+          if (outcome.ok) {
+            return outcome.result;
           }
+          // Timeout — return a `compacted: false` result so the reducer
+          // falls through to the next tier (tool-result truncation, media
+          // stubbing, injection downgrade). Bubbling would abort the
+          // overflow-reducer tier loop entirely. The helper already
+          // recorded the circuit-breaker failure.
+          return {
+            messages: msgs,
+            compacted: false,
+            previousEstimatedInputTokens: 0,
+            estimatedInputTokens: 0,
+            maxInputTokens: 0,
+            thresholdTokens: 0,
+            compactedMessages: 0,
+            compactedPersistedMessages: 0,
+            summaryCalls: 0,
+            summaryInputTokens: 0,
+            summaryOutputTokens: 0,
+            summaryModel: "",
+            summaryText: "",
+            reason: "compaction pipeline timed out",
+          };
         },
         emitActivityState: () => {
           ctx.emitActivityState(
@@ -2387,50 +2358,35 @@ export async function runAgentLoopImpl(
         reqId,
         "Compacting context",
       );
-      let midLoopCompact: Awaited<
-        ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-      >;
-      try {
-        midLoopCompact = (await runPipeline<CompactionArgs, CompactionResult>(
-          "compaction",
-          getMiddlewaresFor("compaction"),
-          (args) =>
-            defaultCompactionTerminal(args, buildPluginTurnContext(ctx, reqId)),
-          {
-            messages: ctx.messages,
-            signal: abortController.signal,
-            options: {
-              lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-              force: true,
-              targetInputTokensOverride:
-                resolveCurrentContextBudget().preflightBudget,
-              conversationOriginChannel:
-                getConversationOriginChannel(ctx.conversationId) ?? undefined,
-              overrideProfile: resolveCurrentOverrideProfile() ?? null,
-            },
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.compaction,
-        )) as Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>;
-      } catch (err) {
-        if (err instanceof PluginTimeoutError) {
-          // Mid-loop compaction timed out. Record the failure for the
-          // circuit breaker and escalate to the convergence loop's more
-          // aggressive reducer tiers (tool-result truncation, media
-          // stubbing, injection downgrade) by flipping the overflow flag
-          // and breaking out of the mid-loop retry. The existing
-          // "exhausted all attempts" block further down handles the
-          // escalation.
-          rlog.warn(
-            { err, phase: "mid-loop-compact" },
-            "Compaction pipeline timed out — escalating to convergence loop",
-          );
-          await trackCompactionOutcome(ctx, true, onEvent);
-          state.contextTooLargeDetected = true;
-          break;
-        }
-        throw err;
+      const midLoopOutcome = await invokeCompactionPipeline({
+        ctx,
+        requestId: reqId,
+        phase: "mid-loop-compact",
+        messages: ctx.messages,
+        signal: abortController.signal,
+        options: {
+          lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+          force: true,
+          targetInputTokensOverride:
+            resolveCurrentContextBudget().preflightBudget,
+          conversationOriginChannel:
+            getConversationOriginChannel(ctx.conversationId) ?? undefined,
+          overrideProfile: resolveCurrentOverrideProfile() ?? null,
+        },
+        onEvent,
+        logger: rlog,
+      });
+      if (!midLoopOutcome.ok) {
+        // Timeout — escalate to the convergence loop's more aggressive
+        // reducer tiers (tool-result truncation, media stubbing,
+        // injection downgrade) by flipping the overflow flag and
+        // breaking out of the mid-loop retry. The existing "exhausted
+        // all attempts" block further down handles the escalation. The
+        // helper already recorded the circuit-breaker failure.
+        state.contextTooLargeDetected = true;
+        break;
       }
+      const midLoopCompact = midLoopOutcome.result;
       // `force: true` bypasses the cooldown/threshold gates but early returns
       // for "no eligible messages" / "insufficient messages" still leave
       // `summaryFailed` undefined. Only track when the summary LLM actually ran.
@@ -2895,53 +2851,29 @@ export async function runAgentLoopImpl(
             "assistant_turn",
             reqId,
           );
-          let emergencyCompact: Awaited<
-            ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-          > | null = null;
-          try {
-            emergencyCompact = (await runPipeline<
-              CompactionArgs,
-              CompactionResult
-            >(
-              "compaction",
-              getMiddlewaresFor("compaction"),
-              (args) =>
-                defaultCompactionTerminal(
-                  args,
-                  buildPluginTurnContext(ctx, reqId),
-                ),
-              {
-                messages: ctx.messages,
-                signal: abortController.signal,
-                options: {
-                  lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-                  force: true,
-                  minKeepRecentUserTurns: 0,
-                  targetInputTokensOverride: correctedTarget,
-                  overrideProfile: resolveCurrentOverrideProfile() ?? null,
-                },
-              },
-              buildPluginTurnContext(ctx, reqId),
-              DEFAULT_TIMEOUTS.compaction,
-            )) as Awaited<
-              ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-            >;
-          } catch (err) {
-            if (err instanceof PluginTimeoutError) {
-              // Emergency compaction timed out. Record the circuit-breaker
-              // failure and fall through to the graceful-error path below
-              // (the unsuccessful-compaction fallback) rather than hard-
-              // failing the turn.
-              rlog.warn(
-                { err, phase: "emergency-compaction" },
-                "Emergency compaction pipeline timed out — continuing with overflow fallback",
-              );
-              await trackCompactionOutcome(ctx, true, onEvent);
-              emergencyCompact = null;
-            } else {
-              throw err;
-            }
-          }
+          // Pipeline timeout falls through to the graceful-error path
+          // below (the unsuccessful-compaction fallback) rather than
+          // hard-failing the turn. The helper already recorded the
+          // circuit-breaker failure.
+          const emergencyOutcome = await invokeCompactionPipeline({
+            ctx,
+            requestId: reqId,
+            phase: "emergency-compaction",
+            messages: ctx.messages,
+            signal: abortController.signal,
+            options: {
+              lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+              force: true,
+              minKeepRecentUserTurns: 0,
+              targetInputTokensOverride: correctedTarget,
+              overrideProfile: resolveCurrentOverrideProfile() ?? null,
+            },
+            onEvent,
+            logger: rlog,
+          });
+          const emergencyCompact = emergencyOutcome.ok
+            ? emergencyOutcome.result
+            : null;
           // Only track when the summary LLM actually ran; `force: true`
           // bypasses the cooldown but not the early-return paths.
           if (
