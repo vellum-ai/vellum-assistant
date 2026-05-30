@@ -56,11 +56,29 @@ export const resolveRelativePath = (
 export const resolveAppProtocolPath = (
   rendererRoot: string,
   requestUrl: string,
+  mountPrefix?: string,
 ): ResolveResult => {
   const url = new URL(requestUrl);
+  // `apps/web/vite.config.ts` sets `base: "/assistant/"`, so the
+  // built HTML references assets under `/assistant/assets/...`. The
+  // renderer files on disk live directly under `rendererRoot` — they
+  // are NOT nested in a `/assistant/` subdirectory. Stripping the
+  // mount prefix here maps `/assistant/<rest>` requests to
+  // `rendererRoot/<rest>`. A `mountPrefix` of `"/assistant"` matches
+  // both the bare `/assistant` (mapped to the root) and
+  // `/assistant/<rest>` paths; other top-level requests pass
+  // through untouched (and 404 or land in `forbidden`).
+  let pathname = url.pathname;
+  if (mountPrefix) {
+    if (pathname === mountPrefix) {
+      pathname = "/";
+    } else if (pathname.startsWith(`${mountPrefix}/`)) {
+      pathname = pathname.slice(mountPrefix.length);
+    }
+  }
   let relativePath: string;
   try {
-    relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, "");
+    relativePath = decodeURIComponent(pathname).replace(/^\/+/, "");
   } catch {
     // Malformed percent-encoding (e.g. `%ZZ`) throws `URIError`.
     // Convert to `forbidden` so the protocol handler returns a clean

@@ -55,6 +55,19 @@ mock.module("electron", () => ({
     buildFromTemplate: () => ({ popup: () => undefined }),
     setApplicationMenu: () => undefined,
   },
+  Tray: class {
+    setIgnoreDoubleClickEvents() {}
+    setToolTip() {}
+    on() {
+      return this;
+    }
+    popUpContextMenu() {}
+    destroy() {}
+  },
+  nativeImage: {
+    createFromBitmap: () => ({ setTemplateImage: () => undefined }),
+    createFromPath: () => ({ setTemplateImage: () => undefined }),
+  },
   protocol: {
     handle: () => undefined,
     registerSchemesAsPrivileged: () => undefined,
