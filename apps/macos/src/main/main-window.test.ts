@@ -98,6 +98,13 @@ const makeWindow = (): StubWindow => {
   return stub;
 };
 
+const ipcHandlers = new Map<string, (...args: unknown[]) => unknown>();
+const ipcHandleMock = mock(
+  (channel: string, handler: (...args: unknown[]) => unknown) => {
+    ipcHandlers.set(channel, handler);
+  },
+);
+
 mock.module("electron", () => ({
   app: {
     isPackaged: false,
@@ -107,6 +114,7 @@ mock.module("electron", () => ({
       Object.assign(this, makeWindow());
     }
   },
+  ipcMain: { handle: ipcHandleMock },
   shell: { openExternal: () => Promise.resolve() },
 }));
 
@@ -115,7 +123,7 @@ mock.module("./window-state", () => ({
   track: () => undefined,
 }));
 
-const { current, dispatchToMain, ensureVisible, hide, installMainWindow, isVisibleAndFocused, toggleVisibility } =
+const { __resetForTesting, current, dispatchToMain, ensureVisible, hide, installMainWindow, isVisibleAndFocused, toggleVisibility } =
   await import("./main-window");
 
 const reset = (): void => {
@@ -130,6 +138,9 @@ const reset = (): void => {
 
 beforeEach(() => {
   reset();
+  __resetForTesting();
+  ipcHandlers.clear();
+  ipcHandleMock.mockClear();
 });
 
 afterEach(() => {
@@ -356,6 +367,33 @@ describe("installMainWindow", () => {
     installMainWindow();
     installMainWindow();
     expect(constructed).toHaveLength(1);
+  });
+
+  test("registers the vellum:mainWindow:ensureVisible IPC handler", () => {
+    installMainWindow();
+    expect(ipcHandlers.has("vellum:mainWindow:ensureVisible")).toBe(true);
+  });
+
+  test("the IPC handler routes through ensureVisible (recreating if destroyed, showing + focusing otherwise)", async () => {
+    installMainWindow();
+    const win = constructed[0];
+    if (!win) throw new Error("expected a window");
+    // The initial install fires ensureVisible too — settle its readiness
+    // gate before exercising the IPC path so the assertion isolates the
+    // IPC-driven calls.
+    win.stub.webContents.emit("did-finish-load");
+    win.stub.emit("ready-to-show");
+    const showsBefore = win.stub.show.mock.calls.length;
+    const focusBefore = win.stub.focus.mock.calls.length;
+
+    const handler = ipcHandlers.get("vellum:mainWindow:ensureVisible");
+    const promise = (handler as () => Promise<void>)();
+    // ensureVisible on the existing-but-not-focused window returns
+    // immediately (ALREADY_READY for the already-loaded window).
+    await promise;
+
+    expect(win.stub.show.mock.calls.length).toBeGreaterThan(showsBefore);
+    expect(win.stub.focus.mock.calls.length).toBeGreaterThan(focusBefore);
   });
 });
 

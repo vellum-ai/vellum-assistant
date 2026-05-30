@@ -118,6 +118,18 @@ export interface VellumBridge {
      */
     setSignedIn(signedIn: boolean): Promise<void>;
   };
+  mainWindow: {
+    /**
+     * Bring the main window to the foreground: recreate if destroyed,
+     * restore from minimize, show, focus. Used by feature consumers
+     * reacting to inbound signals (deep links, future notification
+     * clicks) that should be accompanied by the window becoming
+     * user-visible. Resolves once the renderer is loaded and the
+     * window is focused — same readiness gate as the main-process
+     * `ensureVisible`.
+     */
+    ensureVisible(): Promise<void>;
+  };
   power: {
     /**
      * Subscribe to system power-state events: sleep, wake, screen
@@ -195,6 +207,10 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:dock:setBadge", count) as Promise<void>,
     setSignedIn: (signedIn: boolean): Promise<void> =>
       ipcRenderer.invoke("vellum:dock:setSignedIn", signedIn) as Promise<void>,
+  },
+  mainWindow: {
+    ensureVisible: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:mainWindow:ensureVisible") as Promise<void>,
   },
   power: {
     onEvent: (callback) => {

@@ -4,6 +4,28 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // from `app.on` so tests can fire them. `setAsDefaultProtocolClient`
 // is also captured to verify scheme registration.
 type Listener = (...args: unknown[]) => void;
+
+// Synthetic WebContents stub for the subscriber-tracking tests.
+// `once("destroyed", …)` captures the cleanup handler so tests can
+// fire it to simulate a renderer crash / window close.
+const makeSender = (): {
+  sender: { once: (event: string, handler: () => void) => void };
+  fireDestroyed: () => void;
+} => {
+  let destroyedHandler: (() => void) | null = null;
+  return {
+    sender: {
+      once: (event, handler) => {
+        if (event === "destroyed") destroyedHandler = handler;
+      },
+    },
+    fireDestroyed: () => destroyedHandler?.(),
+  };
+};
+const subscribeWith = (s: ReturnType<typeof makeSender>) =>
+  ipcOnListeners.get("vellum:deepLinks:subscribe")?.({ sender: s.sender });
+const unsubscribeWith = (s: ReturnType<typeof makeSender>) =>
+  ipcOnListeners.get("vellum:deepLinks:unsubscribe")?.({ sender: s.sender });
 const appListeners = new Map<string, Listener>();
 const appOnMock = mock((event: string, listener: Listener) => {
   appListeners.set(event, listener);
@@ -21,13 +43,24 @@ let windows: Array<{
   webContents: { send: ReturnType<typeof mock> };
 }> = [];
 
+let appIsReady = true;
 mock.module("electron", () => ({
   app: {
     on: appOnMock,
     setAsDefaultProtocolClient: setAsDefaultProtocolClientMock,
+    isReady: () => appIsReady,
   },
   ipcMain: { handle: ipcHandleMock, on: ipcOnMock },
   BrowserWindow: { getAllWindows: () => windows },
+}));
+
+// `./main-window` is called from `handleDeepLink` to bring the main
+// window forward for actionable kinds. Stub so we can assert on the
+// call without standing up the full lifecycle module (which
+// transitively imports electron-store).
+const ensureMainWindowVisibleMock = mock(async () => undefined);
+mock.module("./main-window", () => ({
+  ensureVisible: ensureMainWindowVisibleMock,
 }));
 
 const {
@@ -51,7 +84,9 @@ beforeEach(() => {
   setAsDefaultProtocolClientMock.mockClear();
   ipcHandleMock.mockClear();
   ipcOnMock.mockClear();
+  ensureMainWindowVisibleMock.mockClear();
   windows = [];
+  appIsReady = true;
 });
 
 afterEach(() => {
@@ -232,7 +267,8 @@ describe("installDeepLinks", () => {
     handleDeepLink("vellum://send?message=backlog");
 
     // Renderer mounts: subscribes, drains.
-    ipcOnListeners.get("vellum:deepLinks:subscribe")?.();
+    const s1 = makeSender();
+    subscribeWith(s1);
     expect(drainHandler()).toEqual([{ kind: "send", message: "backlog" }]);
 
     // Live link arrives while subscribed — broadcasts only.
@@ -240,8 +276,9 @@ describe("installDeepLinks", () => {
 
     // Renderer hard-navigates: unsubscribe, then a new renderer
     // mounts and drains. The live link must NOT be replayed.
-    ipcOnListeners.get("vellum:deepLinks:unsubscribe")?.();
-    ipcOnListeners.get("vellum:deepLinks:subscribe")?.();
+    unsubscribeWith(s1);
+    const s2 = makeSender();
+    subscribeWith(s2);
     expect(drainHandler()).toEqual([]);
   });
 
@@ -251,33 +288,30 @@ describe("installDeepLinks", () => {
       (c) => c[0] === "vellum:deepLinks:drain",
     )![1] as () => unknown[];
 
-    // Renderer mounted and drained the initial empty backlog.
-    ipcOnListeners.get("vellum:deepLinks:subscribe")?.();
+    const s1 = makeSender();
+    subscribeWith(s1);
     expect(drainHandler()).toEqual([]);
 
-    // User logs out — renderer unmounts.
-    ipcOnListeners.get("vellum:deepLinks:unsubscribe")?.();
+    unsubscribeWith(s1);
 
-    // A deep link arrives during the auth flow. No subscribers,
-    // so it must be buffered.
     handleDeepLink("vellum://thread/post-logout");
 
-    // User logs in — renderer mounts again, subscribes, drains.
-    ipcOnListeners.get("vellum:deepLinks:subscribe")?.();
+    const s2 = makeSender();
+    subscribeWith(s2);
     expect(drainHandler()).toEqual([
       { kind: "openThread", threadId: "post-logout" },
     ]);
   });
 
-  test("subscribe/unsubscribe IPC accounting is reference-counted and never goes negative", () => {
+  test("unsubscribe with no matching subscriber is a no-op (idempotent delete)", () => {
     installDeepLinks();
     const drainHandler = ipcHandleMock.mock.calls.find(
       (c) => c[0] === "vellum:deepLinks:drain",
     )![1] as () => unknown[];
 
-    // Unsubscribe before any subscribe — should clamp to 0, not -1.
-    ipcOnListeners.get("vellum:deepLinks:unsubscribe")?.();
-    ipcOnListeners.get("vellum:deepLinks:unsubscribe")?.();
+    const s = makeSender();
+    unsubscribeWith(s);
+    unsubscribeWith(s);
 
     handleDeepLink("vellum://send?message=should-buffer");
     expect(drainHandler()).toEqual([
@@ -287,7 +321,8 @@ describe("installDeepLinks", () => {
 
   test("post-drain live links still broadcast (live subscribers still get them)", () => {
     installDeepLinks();
-    ipcOnListeners.get("vellum:deepLinks:subscribe")?.();
+    const s = makeSender();
+    subscribeWith(s);
 
     const w = makeWindow();
     windows = [w];
@@ -297,6 +332,32 @@ describe("installDeepLinks", () => {
       kind: "send",
       message: "live",
     });
+  });
+
+  test("destroyed webContents auto-clears its subscription (no leak when React cleanup misses)", () => {
+    // The real bug this guards against: window close on Darwin
+    // can tear down the JS context before React effect cleanups
+    // flush, so `vellum:deepLinks:unsubscribe` never fires.
+    // The `destroyed` listener cleans up regardless, so future
+    // links buffer correctly.
+    installDeepLinks();
+    const drainHandler = ipcHandleMock.mock.calls.find(
+      (c) => c[0] === "vellum:deepLinks:drain",
+    )![1] as () => unknown[];
+
+    const s = makeSender();
+    subscribeWith(s);
+    expect(drainHandler()).toEqual([]);
+
+    // Simulate window close without React cleanup running — only
+    // the webContents `destroyed` event fires.
+    s.fireDestroyed();
+
+    // No subscribers now → next link is buffered.
+    handleDeepLink("vellum://send?message=after-crash");
+    expect(drainHandler()).toEqual([
+      { kind: "send", message: "after-crash" },
+    ]);
   });
 });
 
@@ -340,5 +401,74 @@ describe("handleDeepLink — broadcast", () => {
       kind: "unknown",
       url: "javascript:alert(1)",
     });
+  });
+});
+
+describe("handleDeepLink — window activation", () => {
+  test("brings the main window forward for `send` (covers the no-renderer case on Darwin)", () => {
+    handleDeepLink("vellum://send?message=hi");
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("brings the main window forward for `openThread`", () => {
+    handleDeepLink("vellum://thread/abc");
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("does NOT activate the window for unknown kinds (no UI side effect for foreign schemes)", () => {
+    handleDeepLink("javascript:alert(1)");
+    handleDeepLink("file:///etc/passwd");
+    handleDeepLink("not a url");
+
+    expect(ensureMainWindowVisibleMock).not.toHaveBeenCalled();
+  });
+
+  test("defers activation when app is not yet ready (cold-launch via vellum://)", () => {
+    // Cold launch path: `will-finish-launching` → `open-url` fires
+    // BEFORE `app.whenReady()`. `new BrowserWindow()` pre-ready
+    // would race Electron init; the link is buffered above and the
+    // initial `installMainWindow` in the whenReady chain creates
+    // the window which drains it on mount.
+    appIsReady = false;
+    handleDeepLink("vellum://send?message=cold-launch");
+
+    expect(ensureMainWindowVisibleMock).not.toHaveBeenCalled();
+  });
+
+  test("activates after app becomes ready (warm path: subsequent links)", () => {
+    appIsReady = false;
+    handleDeepLink("vellum://send?message=cold");
+    expect(ensureMainWindowVisibleMock).not.toHaveBeenCalled();
+
+    // Simulate whenReady having fired.
+    appIsReady = true;
+    handleDeepLink("vellum://thread/warm");
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("buffers the link AND activates so the renderer-on-mount drain still delivers it", () => {
+    // Simulating the macOS path: app alive, main window closed,
+    // user clicks vellum://send → main handles it. The link must
+    // both (a) be parked in the buffer for the freshly-created
+    // renderer to drain, and (b) trigger window creation so the
+    // renderer actually mounts.
+    handleDeepLink("vellum://send?message=delivered");
+
+    // Activation fired.
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+    // Link buffered (no subscribers yet — the new window hasn't
+    // mounted).
+    const drainHandler = ipcHandleMock.mock.calls.find(
+      (c) => c[0] === "vellum:deepLinks:drain",
+    );
+    // installDeepLinks hasn't run in this test, so register the
+    // handler via a fresh install before draining.
+    if (!drainHandler) {
+      installDeepLinks();
+    }
+    const drain = ipcHandleMock.mock.calls.find(
+      (c) => c[0] === "vellum:deepLinks:drain",
+    )![1] as () => unknown[];
+    expect(drain()).toEqual([{ kind: "send", message: "delivered" }]);
   });
 });
