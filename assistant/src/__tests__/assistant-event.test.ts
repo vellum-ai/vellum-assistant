@@ -111,6 +111,28 @@ describe("formatSseFrame", () => {
     const frame = formatSseFrame(baseEvent);
     expect(frame.endsWith("\n\n")).toBe(true);
   });
+
+  test("uses event.seq as the SSE id when set (B7 Last-Event-ID)", () => {
+    const event: AssistantEvent = {
+      ...baseEvent,
+      id: "uuid-fallback",
+      seq: 42,
+    };
+    const frame = formatSseFrame(event);
+    const idLine = frame.split("\n").find((l) => l.startsWith("id: "))!;
+    expect(idLine).toBe("id: 42");
+    // UUID stays in the JSON payload for per-event uniqueness.
+    expect(frame).toContain('"id":"uuid-fallback"');
+    expect(frame).toContain('"seq":42');
+  });
+
+  test("falls back to event.id when seq is absent (unscoped broadcasts)", () => {
+    const event: AssistantEvent = { ...baseEvent, id: "uuid-only" };
+    expect(event.seq).toBeUndefined();
+    const frame = formatSseFrame(event);
+    const idLine = frame.split("\n").find((l) => l.startsWith("id: "))!;
+    expect(idLine).toBe("id: uuid-only");
+  });
 });
 
 // ── Heartbeat tests ───────────────────────────────────────────────────────────

@@ -43,6 +43,7 @@ import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantEvent } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
+import { stampAndBuffer } from "./conversation-stream-state.js";
 
 const log = getLogger("assistant-event-hub");
 
@@ -578,6 +579,10 @@ export function broadcastMessage(
       ? undefined
       : resolvedConversationId;
   const event = buildAssistantEvent(msg, scopedConversationId);
+  // Stamp per-conversation seq and push onto the ring buffer for
+  // Last-Event-ID replay (B7). Mutates `event.seq` in place. No-op for
+  // unscoped broadcasts (no conversationId).
+  stampAndBuffer(event);
   const targetCapability = capabilityForMessageType(msg.type);
   // Self-echo suppression: a `sync_changed` carrying an `originClientId`
   // means a specific client just mutated the resource. The hub must not
@@ -658,7 +663,6 @@ function resolveCanonicalRequestSourceType(
   return "channel";
 }
 
-
 /**
  * Lazily load heavy dependencies and create a canonical guardian request +
  * bridge for a confirmation_request message. Called fire-and-forget from
@@ -732,4 +736,3 @@ async function createCanonicalRequestForConfirmation(
     );
   }
 }
-
