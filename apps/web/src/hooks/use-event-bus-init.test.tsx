@@ -211,6 +211,37 @@ describe("useEventBusInit — SSE ownership", () => {
     expect(checkAssistant).toHaveBeenCalledTimes(1);
   }, 5_000);
 
+  test("power.suspend tears down a live SSE so the daemon sees us go away cleanly", () => {
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+        checkAssistant: () => {},
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+
+    useEventBusStore.getState().publish("power.suspend", {});
+
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("power.suspend is a no-op when no SSE is open", () => {
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: null,
+        isAssistantActive: false,
+        checkAssistant: () => {},
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(0);
+
+    useEventBusStore.getState().publish("power.suspend", {});
+
+    // Nothing to tear down — cancel was never wired in the first place.
+    expect(cancelMock).toHaveBeenCalledTimes(0);
+  });
+
   test("power.resume bounces a LIVE SSE (no preceding app.hidden) — the tray-resident case", () => {
     const checkAssistant = mock(() => {});
     renderHook(() =>

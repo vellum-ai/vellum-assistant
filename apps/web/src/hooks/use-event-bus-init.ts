@@ -15,9 +15,14 @@
  *    `/v1/events` stream per assistant and re-broadcasts every event
  *    on `"sse.event"`. Publishes `"sse.opened"` after each successful
  *    open and `"sse.closed"` on transport errors. Tears down on
- *    `"app.hidden"` and reopens on `"app.resume"` / `"power.resume"`
- *    / `"power.unlock"` (with a 1s dedup window) and on
- *    `"reachability.retry-requested"`.
+ *    `"app.hidden"` and `"power.suspend"`. Reopens on `"app.resume"`
+ *    (only if torn down). Force-bounces (teardown + reopen) on
+ *    `"power.resume"` / `"power.unlock"` because the renderer may
+ *    have stayed visible during system sleep — the SSE looks "open"
+ *    but the remote may have TCP-RST'd. All resume paths share a 1s
+ *    dedup window so a sleep that ALSO triggered a visibility change
+ *    doesn't double-bounce. `"reachability.retry-requested"` also
+ *    bounces.
  *
  * The daemon dedups SSE subscribers by `clientId`, so this hook MUST
  * be the only place that opens a connection. Consumers subscribe to
@@ -243,10 +248,18 @@ export function useEventBusInit({
       teardown();
       open();
     };
-    const unsubHidden = bus.subscribe("app.hidden", () => {
+    const teardownIfOpen = () => {
       if (!current) return;
       teardown();
-    });
+    };
+    const unsubHidden = bus.subscribe("app.hidden", teardownIfOpen);
+    // System-level suspend: gracefully close the SSE so the daemon
+    // sees us go away cleanly instead of waiting for TCP timeouts.
+    // The resume / unlock handlers above will reopen on wake; if the
+    // teardown here is missed (suspend events occasionally drop on
+    // macOS), the bounce-on-resume path still recovers a half-dead
+    // socket.
+    const unsubPowerSuspend = bus.subscribe("power.suspend", teardownIfOpen);
     const unsubResume = bus.subscribe("app.resume", handleAppResume);
     const unsubPowerResume = bus.subscribe("power.resume", handlePowerResume);
     const unsubPowerUnlock = bus.subscribe("power.unlock", handlePowerResume);
@@ -265,6 +278,7 @@ export function useEventBusInit({
     return () => {
       cancelled = true;
       unsubHidden();
+      unsubPowerSuspend();
       unsubResume();
       unsubPowerResume();
       unsubPowerUnlock();
