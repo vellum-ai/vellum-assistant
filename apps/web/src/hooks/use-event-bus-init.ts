@@ -243,7 +243,7 @@ export function useEventBusInit({
     // `power.resume` + `power.unlock` (sleep → wake → unlock).
     // Independent from `lastAppResumeAt` because an `app.resume`
     // no-op (current non-null) MUST NOT suppress a power-driven
-    // bounce — that was the bug this PR exists to fix.
+    // bounce — half-dead sockets persist otherwise.
     const handlePowerResume = () => {
       const now = Date.now();
       if (now - lastPowerActionAt < RESUME_DEDUP_WINDOW_MS) return;
