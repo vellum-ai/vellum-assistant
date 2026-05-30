@@ -233,7 +233,7 @@ describe("disk pressure cleanup tool restrictions", () => {
   });
 
   test("background shell modes are blocked during cleanup mode", async () => {
-    const shellResult = await shellTool.execute!(
+    const shellResult = await shellTool.execute(
       {
         command: "sleep 100",
         activity: "check disk usage",
@@ -252,7 +252,7 @@ describe("disk pressure cleanup tool restrictions", () => {
       "background shell commands are not available",
     );
 
-    const hostResult = await hostShellTool.execute!(
+    const hostResult = await hostShellTool.execute(
       {
         command: "sleep 100",
         activity: "check disk usage",

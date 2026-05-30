@@ -169,7 +169,7 @@ describe("CES tool execution without client", () => {
   };
 
   test("make_authenticated_request fails gracefully when CES client is absent", async () => {
-    const result = await makeAuthenticatedRequestTool.execute!(
+    const result = await makeAuthenticatedRequestTool.execute(
       {
         credentialHandle: "local_static:test/key",
         method: "GET",
@@ -183,7 +183,7 @@ describe("CES tool execution without client", () => {
   });
 
   test("run_authenticated_command fails gracefully when CES client is absent", async () => {
-    const result = await runAuthenticatedCommandTool.execute!(
+    const result = await runAuthenticatedCommandTool.execute(
       {
         credentialHandle: "local_static:test/key",
         command: "echo hello",

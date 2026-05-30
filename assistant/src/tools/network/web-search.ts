@@ -773,7 +773,7 @@ const WEB_SEARCH_FALLBACK_ORDER: readonly WebSearchProvider[] = Object.values(
   .sort((a, b) => a.fallbackOrder - b.fallbackOrder)
   .map((adapter) => adapter.id);
 
-export const webSearchTool: ToolDefinition = {
+export const webSearchTool = {
   name: "web_search",
   description:
     "Search the web and return results. Useful for looking up current information, documentation, or anything the assistant doesn't know.",
@@ -907,6 +907,6 @@ export const webSearchTool: ToolDefinition = {
       );
     }
   },
-};
+} satisfies ToolDefinition;
 
 registerTool(webSearchTool);

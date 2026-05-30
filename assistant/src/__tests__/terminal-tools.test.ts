@@ -1,8 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-import type { ShellOutputResult } from "../tools/shared/shell-output.js";
-import type { ToolDefinition } from "../tools/types.js";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mock modules ────────────────────────────────────────────────────────────
 
@@ -64,6 +61,7 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
+import { formatShellOutput } from "../tools/shared/shell-output.js";
 import {
   ALWAYS_INJECTED_ENV_VARS,
   buildSanitizedEnv,
@@ -71,6 +69,7 @@ import {
   KATA_SAFE_ENV_VARS,
   SAFE_ENV_VARS,
 } from "../tools/terminal/safe-env.js";
+import { shellTool } from "../tools/terminal/shell.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Safe Environment — buildSanitizedEnv()
@@ -210,13 +209,6 @@ describe("buildSanitizedEnv", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("Shell tool input validation", () => {
-  let shellTool: ToolDefinition;
-
-  beforeEach(async () => {
-    const mod = await import("../tools/terminal/shell.js");
-    shellTool = mod.shellTool;
-  });
-
   const baseContext = {
     workingDir: testTmpDir,
     conversationId: "test-conv-1",
@@ -225,7 +217,7 @@ describe("Shell tool input validation", () => {
   };
 
   test("rejects empty command", async () => {
-    const result = await shellTool.execute!(
+    const result = await shellTool.execute(
       { command: "", reason: "test" },
       baseContext,
     );
@@ -234,7 +226,7 @@ describe("Shell tool input validation", () => {
   });
 
   test("rejects non-string command", async () => {
-    const result = await shellTool.execute!(
+    const result = await shellTool.execute(
       { command: 123, reason: "test" },
       baseContext,
     );
@@ -243,7 +235,7 @@ describe("Shell tool input validation", () => {
   });
 
   test("rejects command with null bytes", async () => {
-    const result = await shellTool.execute!(
+    const result = await shellTool.execute(
       { command: "echo hello\0world", reason: "test" },
       baseContext,
     );
@@ -252,13 +244,13 @@ describe("Shell tool input validation", () => {
   });
 
   test("rejects missing command", async () => {
-    const result = await shellTool.execute!({ reason: "test" }, baseContext);
+    const result = await shellTool.execute({ reason: "test" }, baseContext);
     expect(result.isError).toBe(true);
     expect(result.content).toContain("command is required");
   });
 
   test("executes simple command successfully", async () => {
-    const result = await shellTool.execute!(
+    const result = await shellTool.execute(
       { command: "echo test_output_12345", reason: "testing" },
       baseContext,
     );
@@ -267,7 +259,7 @@ describe("Shell tool input validation", () => {
   });
 
   test("returns error for failed command", async () => {
-    const result = await shellTool.execute!(
+    const result = await shellTool.execute(
       { command: "false", reason: "testing failure" },
       baseContext,
     );
@@ -279,7 +271,7 @@ describe("Shell tool input validation", () => {
     // Verify by checking that the proxy session is never started — the
     // observable effect of network_mode defaulting to 'off'.
     proxyGetOrStartSession.mockClear();
-    const result = await shellTool.execute!(
+    const result = await shellTool.execute(
       { command: "echo network_default", reason: "testing" },
       baseContext,
     );
@@ -308,19 +300,6 @@ describe("Shell tool input validation", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("formatShellOutput", () => {
-  let formatShellOutput: (
-    stdout: string,
-    stderr: string,
-    code: number | null,
-    timedOut: boolean,
-    timeoutSec: number,
-  ) => ShellOutputResult;
-
-  beforeEach(async () => {
-    const mod = await import("../tools/shared/shell-output.js");
-    formatShellOutput = mod.formatShellOutput;
-  });
-
   test("successful command with output", () => {
     const result = formatShellOutput("hello world", "", 0, false, 120);
     expect(result.content).toBe("hello world");

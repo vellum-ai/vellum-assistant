@@ -110,7 +110,7 @@ describe("one-time send override", () => {
       }),
     };
 
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       { action: "prompt", service: "svc", field: "key", label: "Key" },
       context,
     );
@@ -132,7 +132,7 @@ describe("one-time send override", () => {
       }),
     };
 
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       { action: "prompt", service: "svc", field: "key", label: "Key" },
       context,
     );
@@ -151,7 +151,7 @@ describe("one-time send override", () => {
       requestSecret: async () => ({ value: "v1", delivery: "store" as const }),
     };
 
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       { action: "prompt", service: "svc", field: "key", label: "Key" },
       context,
     );
@@ -173,7 +173,7 @@ describe("one-time send override", () => {
       }),
     };
 
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       { action: "prompt", service: "svc", field: "key", label: "Key" },
       context,
     );

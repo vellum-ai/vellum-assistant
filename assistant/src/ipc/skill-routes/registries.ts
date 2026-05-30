@@ -22,23 +22,14 @@ import { z } from "zod";
 import type { MeetHostSupervisor } from "../../daemon/meet-host-supervisor.js";
 import { registerShutdownHook } from "../../daemon/shutdown-registry.js";
 import { registerSkillRoute } from "../../runtime/skill-route-registry.js";
-import { resolveExecutionTarget } from "../../tools/execution-target.js";
 import { registerSkillTools } from "../../tools/registry.js";
-import type { Tool } from "../../tools/types.js";
-import { WireToolDefinitionSchema } from "../../tools/types.js";
+import { finalizeTool } from "../../tools/tool-defaults.js";
+import { ToolDefinitionSchema } from "../../tools/types.js";
 import { getLogger } from "../../util/logger.js";
 import type { SkillIpcRoute } from "../skill-ipc-types.js";
 import type { SkillIpcConnection } from "../skill-server.js";
 
 const log = getLogger("skill-routes-registries");
-
-// ── Wire-level schemas ────────────────────────────────────────────────
-//
-// `WireToolDefinitionSchema` is the single source of truth for the wire
-// form of a tool. It lives in `tools/types.ts` alongside the loose
-// `ToolDefinitionSchema` that `ToolDefinition` is inferred from, so both
-// the in-process author shape and the IPC wire shape derive from one
-// schema declaration.
 
 // `skillId` lives at the params level rather than per-tool: a single
 // `register_tools` IPC frame is always one skill's batch, ownership flows
@@ -49,7 +40,7 @@ const log = getLogger("skill-routes-registries");
 // in-process on the assistant side.
 const RegisterToolsParams = z.object({
   skillId: z.string().min(1),
-  tools: z.array(WireToolDefinitionSchema).min(1),
+  tools: z.array(ToolDefinitionSchema).min(1),
 });
 
 const RegisterSkillRouteParams = z.object({
@@ -158,45 +149,6 @@ export function __getActiveSessionCountForTesting(): number {
   return activeSessions.size;
 }
 
-// ── Proxy-tool construction ───────────────────────────────────────────
-
-/**
- * Build a daemon-side {@link Tool} whose `execute` routes back to the
- * remote skill over IPC. PR 28 replaces the stub body with a real
- * `skill.dispatch_tool` round-trip; until then we keep a shape-complete
- * proxy in the registry so the rest of the tool-manifest plumbing can be
- * exercised end-to-end.
- */
-type WireToolDefinition = z.infer<typeof WireToolDefinitionSchema>;
-
-function buildProxyTool(definition: WireToolDefinition): Tool {
-  // The Zod schema (`WireToolDefinitionSchema`) requires name, description,
-  // input_schema, defaultRiskLevel, and category — `definition` arrives via
-  // that parse, so every field below is guaranteed present at runtime.
-  // `defaultRiskLevel` is `z.enum(RiskLevel)` so the inferred type IS
-  // `RiskLevel` (the native enum), no cast needed.
-  const { name } = definition;
-  return {
-    name,
-    description: definition.description,
-    input_schema: definition.input_schema,
-    category: definition.category,
-    defaultRiskLevel: definition.defaultRiskLevel,
-    executionTarget: resolveExecutionTarget({
-      name,
-      executionTarget: definition.executionTarget,
-    }),
-    execute: async () => {
-      // Only reached when no supervisor is attached (tests/boot race);
-      // the supervisor short-circuit above replaces this with the
-      // definition's dispatching execute closure on the production path.
-      throw new Error(
-        `Skill tool "${name}" invocation requires an attached MeetHostSupervisor`,
-      );
-    },
-  };
-}
-
 // ── Handlers ──────────────────────────────────────────────────────────
 
 async function handleRegisterTools(
@@ -225,7 +177,13 @@ async function handleRegisterTools(
     return { registered: tools.map((t) => t.name) };
   }
 
-  const proxies = tools.map(buildProxyTool);
+  // Skills run `finalizeTool` locally before sending, so name is set —
+  // `?? ""` is a defensive default that will fail in registerSkillTools
+  // with a clear error if a skill ever forgets. The execute closure
+  // arrives as a no-op error closure from `finalizeTool`; the production
+  // path replaces it via the supervisor short-circuit above, so this
+  // fallback is only reached in tests / boot race.
+  const proxies = tools.map((tool) => finalizeTool(tool, tool.name ?? ""));
   // `registerExternalTools` is only consumed inside `initializeTools()` at
   // daemon boot; IPC children connect after boot, so route through
   // `registerSkillTools` into the live registry the agent-loop reads from.

@@ -189,7 +189,7 @@ describe("host_bash background mode — proxy path", () => {
 
     const ctx = makeContext({});
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       { command: "echo bg-proxy", background: true },
       ctx,
     );
@@ -209,7 +209,7 @@ describe("host_bash background mode — proxy path", () => {
 
     const ctx = makeContext({});
 
-    await hostShellTool.execute!(
+    await hostShellTool.execute(
       { command: "echo bg-proxy", background: true },
       ctx,
     );
@@ -232,7 +232,7 @@ describe("host_bash background mode — proxy path", () => {
 
     const ctx = makeContext({});
 
-    await hostShellTool.execute!(
+    await hostShellTool.execute(
       { command: "echo bg-proxy", background: true },
       ctx,
     );
@@ -261,7 +261,7 @@ describe("host_bash background mode — proxy path", () => {
 
     const ctx = makeContext({});
 
-    await hostShellTool.execute!(
+    await hostShellTool.execute(
       { command: "bad-command", background: true },
       ctx,
     );
@@ -283,7 +283,7 @@ describe("host_bash background mode — proxy path", () => {
 
     const ctx = makeContext({});
 
-    await hostShellTool.execute!(
+    await hostShellTool.execute(
       { command: "echo fail", background: true },
       ctx,
     );
@@ -307,7 +307,7 @@ describe("host_bash background mode — proxy path", () => {
 
     const ctx = makeContext({});
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       { command: "echo bg-proxy", background: true },
       ctx,
     );
@@ -330,7 +330,7 @@ describe("host_bash background mode — direct execution path", () => {
   test("returns immediately with backgrounded response", async () => {
     const ctx = makeContext();
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       { command: "echo bg-local", background: true },
       ctx,
     );
@@ -344,7 +344,7 @@ describe("host_bash background mode — direct execution path", () => {
   test("registers background tool in the registry", async () => {
     const ctx = makeContext();
 
-    await hostShellTool.execute!(
+    await hostShellTool.execute(
       { command: "echo bg-local", background: true },
       ctx,
     );
@@ -362,7 +362,7 @@ describe("host_bash background mode — direct execution path", () => {
   test("calls wakeAgentForOpportunity on process exit", async () => {
     const ctx = makeContext();
 
-    await hostShellTool.execute!(
+    await hostShellTool.execute(
       { command: "echo bg-local", background: true },
       ctx,
     );
@@ -388,7 +388,7 @@ describe("host_bash background mode — direct execution path", () => {
   test("calls wakeAgentForOpportunity with error hint on non-zero exit", async () => {
     const ctx = makeContext();
 
-    await hostShellTool.execute!({ command: "false", background: true }, ctx);
+    await hostShellTool.execute({ command: "false", background: true }, ctx);
 
     expect(latestChild).toBeDefined();
 
@@ -407,7 +407,7 @@ describe("host_bash background mode — direct execution path", () => {
   test("calls wakeAgentForOpportunity on spawn error", async () => {
     const ctx = makeContext();
 
-    await hostShellTool.execute!(
+    await hostShellTool.execute(
       { command: "echo bg-error", background: true },
       ctx,
     );
@@ -429,7 +429,7 @@ describe("host_bash background mode — direct execution path", () => {
   test("removes background tool from registry on process exit", async () => {
     const ctx = makeContext();
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       { command: "echo bg-local", background: true },
       ctx,
     );
@@ -447,7 +447,7 @@ describe("host_bash background mode — direct execution path", () => {
   test("removes background tool from registry on spawn error", async () => {
     const ctx = makeContext();
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       { command: "echo bg-error", background: true },
       ctx,
     );

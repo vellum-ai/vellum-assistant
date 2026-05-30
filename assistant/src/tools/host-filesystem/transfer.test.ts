@@ -105,7 +105,7 @@ describe("host_file_transfer local mode", () => {
     const srcFile = join(srcDir, "source.md");
     writeFileSync(srcFile, "hello world");
 
-    const result = await hostFileTransferTool.execute!(
+    const result = await hostFileTransferTool.execute(
       {
         source_path: srcFile,
         dest_path: "scratch/out.md",
@@ -127,7 +127,7 @@ describe("host_file_transfer local mode", () => {
 
     const destFile = join(workingDir, "out.md");
 
-    const result = await hostFileTransferTool.execute!(
+    const result = await hostFileTransferTool.execute(
       {
         source_path: srcFile,
         dest_path: destFile,
@@ -146,7 +146,7 @@ describe("host_file_transfer local mode", () => {
     const srcFile = join(srcDir, "source.txt");
     writeFileSync(srcFile, "content");
 
-    const result = await hostFileTransferTool.execute!(
+    const result = await hostFileTransferTool.execute(
       {
         source_path: srcFile,
         dest_path: "../../etc/shadow",
@@ -166,7 +166,7 @@ describe("host_file_transfer local mode", () => {
     const srcFile = join(srcDir, "source.txt");
     writeFileSync(srcFile, "content");
 
-    const result = await hostFileTransferTool.execute!(
+    const result = await hostFileTransferTool.execute(
       {
         source_path: srcFile,
         dest_path: "/workspace/out.md",
@@ -193,7 +193,7 @@ describe("host_file_transfer local mode to_host", () => {
     const destDir = makeTempDir();
     const destFile = join(destDir, "report.pdf");
 
-    const result = await hostFileTransferTool.execute!(
+    const result = await hostFileTransferTool.execute(
       {
         source_path: "report.pdf",
         dest_path: destFile,
@@ -211,7 +211,7 @@ describe("host_file_transfer local mode to_host", () => {
     const destDir = makeTempDir();
     const destFile = join(destDir, "out.txt");
 
-    const result = await hostFileTransferTool.execute!(
+    const result = await hostFileTransferTool.execute(
       {
         source_path: "../../etc/passwd",
         dest_path: destFile,
@@ -231,7 +231,7 @@ describe("host_file_transfer local mode to_host", () => {
     const destDir = makeTempDir();
     const destFile = join(destDir, "data.txt");
 
-    const result = await hostFileTransferTool.execute!(
+    const result = await hostFileTransferTool.execute(
       {
         source_path: "/workspace/data.txt",
         dest_path: destFile,
@@ -257,7 +257,7 @@ describe("host_file_transfer managed mode", () => {
     const srcFile = join(srcDir, "source.txt");
     writeFileSync(srcFile, "content");
 
-    await hostFileTransferTool.execute!(
+    await hostFileTransferTool.execute(
       {
         source_path: srcFile,
         dest_path: "relative/file.txt",
@@ -277,7 +277,7 @@ describe("host_file_transfer managed mode", () => {
     const workingDir = makeTempDir();
     writeFileSync(join(workingDir, "doc.md"), "content");
 
-    await hostFileTransferTool.execute!(
+    await hostFileTransferTool.execute(
       {
         source_path: "doc.md",
         dest_path: "/Users/someone/Desktop/doc.md",
@@ -297,7 +297,7 @@ describe("host_file_transfer managed mode", () => {
     const srcFile = join(srcDir, "source.txt");
     writeFileSync(srcFile, "content");
 
-    const result = await hostFileTransferTool.execute!(
+    const result = await hostFileTransferTool.execute(
       {
         source_path: srcFile,
         dest_path: "/etc/passwd",
@@ -324,7 +324,7 @@ describe("host_file_transfer cross-client guards", () => {
     const srcFile = join(srcDir, "source.txt");
     writeFileSync(srcFile, "content");
 
-    const result = await hostFileTransferTool.execute!(
+    const result = await hostFileTransferTool.execute(
       {
         source_path: srcFile,
         dest_path: "out.txt",
@@ -346,7 +346,7 @@ describe("host_file_transfer cross-client guards", () => {
     const srcFile = join(srcDir, "source.txt");
     writeFileSync(srcFile, "content");
 
-    const result = await hostFileTransferTool.execute!(
+    const result = await hostFileTransferTool.execute(
       {
         source_path: srcFile,
         dest_path: "out.txt",
@@ -370,7 +370,7 @@ describe("host_file_transfer cross-client guards", () => {
     writeFileSync(srcFile, "content");
     const destFile = join(workingDir, "should-not-exist.txt");
 
-    const result = await hostFileTransferTool.execute!(
+    const result = await hostFileTransferTool.execute(
       {
         source_path: srcFile,
         dest_path: destFile,
@@ -399,7 +399,7 @@ describe("host_file_transfer cross-client guards", () => {
     writeFileSync(srcFile, "content");
     const destFile = join(workingDir, "stale-target.txt");
 
-    const result = await hostFileTransferTool.execute!(
+    const result = await hostFileTransferTool.execute(
       {
         source_path: srcFile,
         dest_path: destFile,

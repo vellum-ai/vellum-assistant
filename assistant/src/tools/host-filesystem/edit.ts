@@ -11,7 +11,7 @@ import type {
   ToolExecutionResult,
 } from "../types.js";
 
-export const hostFileEditTool: ToolDefinition = {
+export const hostFileEditTool = {
   name: "host_file_edit",
   description:
     "Replace exact text in a file on your guardian's device with new text. For files on your own machine, use file_edit instead.",
@@ -234,4 +234,4 @@ export const hostFileEditTool: ToolDefinition = {
       diff: { filePath, oldContent, newContent, isNewFile: false },
     };
   },
-};
+} satisfies ToolDefinition;

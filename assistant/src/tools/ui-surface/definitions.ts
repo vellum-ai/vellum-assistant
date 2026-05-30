@@ -8,7 +8,11 @@
  */
 
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -39,7 +43,7 @@ function proxyExecute(toolName: string) {
 // ui_show
 // ---------------------------------------------------------------------------
 
-export const uiShowTool: ToolDefinition = {
+export const uiShowTool = {
   name: "ui_show",
   description:
     "Surface structured data or UI in the conversation. For long-form writing use the document skill; for interactive apps use the app-builder skill.\n\n" +
@@ -121,13 +125,13 @@ export const uiShowTool: ToolDefinition = {
   },
 
   execute: proxyExecute("ui_show"),
-};
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // ui_update
 // ---------------------------------------------------------------------------
 
-const uiUpdateTool: ToolDefinition = {
+const uiUpdateTool = {
   name: "ui_update",
   description:
     "Update an existing surface's data. The provided data object is merged into the surface's current data.\n" +
@@ -152,13 +156,13 @@ const uiUpdateTool: ToolDefinition = {
   },
 
   execute: proxyExecute("ui_update"),
-};
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // ui_dismiss
 // ---------------------------------------------------------------------------
 
-const uiDismissTool: ToolDefinition = {
+const uiDismissTool = {
   name: "ui_dismiss",
   description: "Dismiss a currently displayed surface.",
   category: "ui-surface",
@@ -177,7 +181,7 @@ const uiDismissTool: ToolDefinition = {
   },
 
   execute: proxyExecute("ui_dismiss"),
-};
+} satisfies ToolDefinition;
 
 export const allUiSurfaceTools: ToolDefinition[] = [
   uiShowTool,

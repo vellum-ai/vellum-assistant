@@ -9,7 +9,7 @@ import type {
   ToolExecutionResult,
 } from "../types.js";
 
-export const fileEditTool: ToolDefinition = {
+export const fileEditTool = {
   name: "file_edit",
   description:
     "Replace an exact string in a file on your own machine with a new string. Use this for surgical edits instead of rewriting entire files. Use host_file_edit for files on your guardian's device instead.",
@@ -157,6 +157,6 @@ export const fileEditTool: ToolDefinition = {
       diff: { filePath, oldContent, newContent, isNewFile: false },
     };
   },
-};
+} satisfies ToolDefinition;
 
 registerTool(fileEditTool);

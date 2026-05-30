@@ -516,7 +516,7 @@ describe("credential_store tool — unknown action", () => {
   });
 
   test("returns error for unknown action", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       { action: "unknown_action" },
       _ctx,
     );
@@ -546,7 +546,7 @@ describe("credential_store tool — prompt action", () => {
   });
 
   test("returns error when requestSecret is not available", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       { action: "prompt", service: "svc", field: "key", label: "API Key" },
       _ctx, // no requestSecret
     );
@@ -555,7 +555,7 @@ describe("credential_store tool — prompt action", () => {
   });
 
   test("returns error when service is missing for prompt", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       { action: "prompt", field: "key" },
       _ctx,
     );
@@ -564,7 +564,7 @@ describe("credential_store tool — prompt action", () => {
   });
 
   test("returns error when field is missing for prompt", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       { action: "prompt", service: "svc" },
       _ctx,
     );
@@ -580,7 +580,7 @@ describe("credential_store tool — prompt action", () => {
         delivery: "store" as const,
       }),
     };
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       { action: "prompt", service: "svc", field: "key", label: "Test" },
       ctxWithPrompt,
     );
@@ -596,7 +596,7 @@ describe("credential_store tool — prompt action", () => {
         delivery: "store" as const,
       }),
     };
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "prompt",
         service: "test-prompt",
@@ -623,7 +623,7 @@ describe("credential_store tool — prompt action", () => {
         delivery: "store" as const,
       }),
     };
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "prompt",
         service: "github",
@@ -656,7 +656,7 @@ describe("credential_store tool — prompt action", () => {
       }),
     };
 
-    const appResult = await credentialStoreTool.execute!(
+    const appResult = await credentialStoreTool.execute(
       {
         action: "prompt",
         service: "slack_channel",
@@ -670,7 +670,7 @@ describe("credential_store tool — prompt action", () => {
     expect(slackChannelConfigCalls).toEqual([{ appToken: "xapp-test-token" }]);
     expect(appResult.content).toContain("connection incomplete");
 
-    const botResult = await credentialStoreTool.execute!(
+    const botResult = await credentialStoreTool.execute(
       {
         action: "prompt",
         service: "slack_channel",
@@ -699,7 +699,7 @@ describe("credential_store tool — prompt action", () => {
       }),
     };
 
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "prompt",
         service: "slack_channel",
@@ -724,7 +724,7 @@ describe("credential_store tool — prompt action", () => {
       }),
     };
 
-    const appResult = await credentialStoreTool.execute!(
+    const appResult = await credentialStoreTool.execute(
       {
         action: "prompt",
         service: "slack_channel",
@@ -735,7 +735,7 @@ describe("credential_store tool — prompt action", () => {
     );
     expect(appResult.isError).toBe(false);
 
-    const botResult = await credentialStoreTool.execute!(
+    const botResult = await credentialStoreTool.execute(
       {
         action: "prompt",
         service: "slack_channel",
@@ -761,7 +761,7 @@ describe("credential_store tool — prompt action", () => {
       }),
     };
 
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "prompt",
         service: "slack_channel",
@@ -795,7 +795,7 @@ describe("credential_store tool — prompt action", () => {
       }),
     };
 
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "prompt",
         service: "slack_channel",
@@ -822,7 +822,7 @@ describe("credential_store tool — prompt action", () => {
       ..._ctx,
       requestSecret: async () => ({ value: "val", delivery: "store" as const }),
     };
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "prompt",
         service: "svc",
@@ -857,7 +857,7 @@ describe("credential_store tool — slack_channel store routing", () => {
   });
 
   test("store with user_token routes to setSlackChannelConfig as third positional arg", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "store",
         service: "slack_channel",
@@ -883,7 +883,7 @@ describe("credential_store tool — slack_channel store routing", () => {
   });
 
   test("store with user_token surfaces handler rejection for malformed token", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "store",
         service: "slack_channel",
@@ -906,7 +906,7 @@ describe("credential_store tool — slack_channel store routing", () => {
   });
 
   test("store with bot_token still routes via first positional arg", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "store",
         service: "slack_channel",
@@ -927,7 +927,7 @@ describe("credential_store tool — slack_channel store routing", () => {
   });
 
   test("store with app_token still routes via second positional arg", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "store",
         service: "slack_channel",
@@ -968,7 +968,7 @@ describe("credential_store tool — store validation edge cases", () => {
   });
 
   test("rejects alias that is not a string", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "store",
         service: "svc",
@@ -983,7 +983,7 @@ describe("credential_store tool — store validation edge cases", () => {
   });
 
   test("rejects injection_templates that is not an array", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "store",
         service: "svc",
@@ -998,7 +998,7 @@ describe("credential_store tool — store validation edge cases", () => {
   });
 
   test("rejects template with invalid injectionType", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "store",
         service: "svc",
@@ -1017,7 +1017,7 @@ describe("credential_store tool — store validation edge cases", () => {
   });
 
   test("rejects template with empty hostPattern", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "store",
         service: "svc",
@@ -1038,7 +1038,7 @@ describe("credential_store tool — store validation edge cases", () => {
   });
 
   test("rejects template with non-string valuePrefix", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "store",
         service: "svc",
@@ -1060,7 +1060,7 @@ describe("credential_store tool — store validation edge cases", () => {
   });
 
   test("reports multiple template errors at once", async () => {
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "store",
         service: "svc",
@@ -1079,7 +1079,7 @@ describe("credential_store tool — store validation edge cases", () => {
   });
 
   test("delete removes both secret and metadata", async () => {
-    await credentialStoreTool.execute!(
+    await credentialStoreTool.execute(
       {
         action: "store",
         service: "del-test",
@@ -1098,7 +1098,7 @@ describe("credential_store tool — store validation edge cases", () => {
     expect(getCredentialMetadata("del-test", "key")).toBeDefined();
 
     // Delete
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "delete",
         service: "del-test",
@@ -1154,7 +1154,7 @@ describe("credential_store tool — slack_channel delete routing", () => {
     upsertCredentialMetadata("slack_channel", "user_token", {});
     manualConnectionStore["slack_channel"] = "active";
 
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "delete",
         service: "slack_channel",
@@ -1202,7 +1202,7 @@ describe("credential_store tool — slack_channel delete routing", () => {
     upsertCredentialMetadata("slack_channel", "app_token", {});
     manualConnectionStore["slack_channel"] = "active";
 
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "delete",
         service: "slack_channel",
@@ -1238,7 +1238,7 @@ describe("credential_store tool — slack_channel delete routing", () => {
     upsertCredentialMetadata("slack_channel", "app_token", {});
     manualConnectionStore["slack_channel"] = "active";
 
-    const result = await credentialStoreTool.execute!(
+    const result = await credentialStoreTool.execute(
       {
         action: "delete",
         service: "slack_channel",

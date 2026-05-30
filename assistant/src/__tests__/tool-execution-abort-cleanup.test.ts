@@ -112,7 +112,7 @@ describe("shell tool — process cleanup on AbortSignal", () => {
     const dir = makeTempDir();
     const ac = new AbortController();
 
-    const promise = hostShellTool.execute!(
+    const promise = hostShellTool.execute(
       { command: "sleep 30", reason: "test" },
       makeToolContext(dir, ac.signal),
     );
@@ -134,7 +134,7 @@ describe("shell tool — process cleanup on AbortSignal", () => {
     const ac = new AbortController();
     ac.abort(); // pre-aborted
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       { command: "sleep 30", reason: "test" },
       makeToolContext(dir, ac.signal),
     );
@@ -148,7 +148,7 @@ describe("shell tool — process cleanup on AbortSignal", () => {
     const dir = makeTempDir();
     const ac = new AbortController();
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       { command: "echo completed", reason: "test" },
       makeToolContext(dir, ac.signal),
     );
@@ -165,7 +165,7 @@ describe("shell tool — process cleanup on AbortSignal", () => {
     const dir = makeTempDir();
     const ac = new AbortController();
 
-    await hostShellTool.execute!(
+    await hostShellTool.execute(
       { command: "echo done", reason: "test" },
       makeToolContext(dir, ac.signal),
     );
@@ -184,7 +184,7 @@ describe("shell tool — process cleanup on AbortSignal", () => {
     const ac = new AbortController();
     const chunks: string[] = [];
 
-    const promise = hostShellTool.execute!(
+    const promise = hostShellTool.execute(
       {
         command: "for i in 1 2 3 4 5; do echo $i; sleep 2; done",
         reason: "test",

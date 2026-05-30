@@ -136,7 +136,7 @@ Run the custom lifecycle verification procedure.
     expect(catalogSkill!.source).toBe("managed");
     expect(catalogSkill!.displayName).toBe("E2E Custom Skill");
 
-    const loadResult = await skillLoadTool.execute!(
+    const loadResult = await skillLoadTool.execute(
       { skill: skillId },
       makeContext(),
     );
@@ -294,7 +294,7 @@ Run the custom lifecycle verification procedure.
     expect(scaffoldData.created).toBe(true);
 
     // Step 2: Call skill_load tool to load the created skill
-    const loadResult = await skillLoadTool.execute!(
+    const loadResult = await skillLoadTool.execute(
       { skill: "chain-test" },
       ctx,
     );
@@ -314,7 +314,7 @@ Run the custom lifecycle verification procedure.
     expect(deleteResult.isError).not.toBe(true);
 
     // Step 4: Verify skill_load returns error for deleted skill
-    const loadAfterDelete = await skillLoadTool.execute!(
+    const loadAfterDelete = await skillLoadTool.execute(
       { skill: "chain-test" },
       ctx,
     );

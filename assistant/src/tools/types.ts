@@ -320,9 +320,9 @@ export interface ToolContext {
 /**
  * Schema describing the serializable shape of a {@link ToolDefinition}.
  * All fields are optional — loaders fill documented defaults for omitted
- * fields via `finalizeTool` in `tool-defaults.ts`. The IPC layer derives
- * a stricter wire schema (`WireToolDefinitionSchema`) where the
- * skill-finalized fields become required.
+ * fields via `finalizeTool` in `tool-defaults.ts`. The IPC layer parses
+ * incoming skill tools against this same schema and re-finalizes them
+ * locally, so author shape and wire shape are one schema.
  *
  * `execute` is intentionally absent from the schema (closures cannot
  * cross IPC). It is added back as a TypeScript overlay on
@@ -349,40 +349,23 @@ export const ToolDefinitionSchema = z.object({
 });
 
 /**
- * Wire form of a {@link ToolDefinition} sent over IPC by a skill process.
- * Skills run `finalizeTool` locally before sending, so name, description,
- * input_schema, defaultRiskLevel, and category are required on arrival;
- * `executionTarget` stays optional because the daemon resolves it via
- * `resolveExecutionTarget`. `execute` is dropped — closures cannot cross
- * the socket, so {@link buildProxyTool} synthesizes one that forwards
- * invocations back over IPC.
- */
-export const WireToolDefinitionSchema = ToolDefinitionSchema.required({
-  name: true,
-  description: true,
-  input_schema: true,
-  defaultRiskLevel: true,
-  category: true,
-});
-
-/**
  * Author-facing tool spec — re-exported from `@vellumai/plugin-api`.
  * Loaders fill documented defaults for omitted fields via `finalizeTool`
  * in `tool-defaults.ts`. Type is `z.infer<typeof ToolDefinitionSchema>`
  * (serializable fields) plus overlays:
  *   - `input_schema` is widened from `Record<string, unknown>` (the
  *     parsed wire shape) to `object`, so authors can assign a typed
- *     JSON-schema literal without `as Record<...>` gymnastics. The
- *     wire form still parses to `Record<string, unknown>` via
- *     {@link WireToolDefinitionSchema}.
- *   - `execute` is optional because some `ToolDefinition` instances
- *     are schema-only (e.g. {@link ../memory/graph/tools.graphRememberDefinition},
+ *     JSON-schema literal without `as Record<...>` gymnastics.
+ *   - `execute` is optional because some `ToolDefinition` instances are
+ *     schema-only (e.g. {@link ../memory/graph/tools.graphRememberDefinition},
  *     {@link ../messaging/style-analyzer.storeStyleAnalysisTool},
- *     {@link ../memory/v2/sweep-job.SWEEP_TOOL}) — handed to providers
- *     as a function-calling schema without ever being registered for
- *     execution. Closures also can't cross IPC, so the wire path
- *     drops it and `buildProxyTool` synthesizes a new one on arrival.
- *     Callers that invoke `execute` should treat it as `tool.execute!(...)`.
+ *     {@link ../memory/v2/sweep-job.SWEEP_TOOL}) — handed to providers as
+ *     a function-calling schema without ever being registered for
+ *     execution. Closures also can't cross IPC, so the wire path drops
+ *     it and `finalizeTool` synthesizes a no-op error closure on arrival.
+ *     Tool sources use `satisfies ToolDefinition` (not `: ToolDefinition`)
+ *     so the inferred export type preserves `execute` as required at
+ *     call sites that statically import the literal.
  */
 export type ToolDefinition = Omit<
   z.infer<typeof ToolDefinitionSchema>,

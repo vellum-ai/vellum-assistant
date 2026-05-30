@@ -16,7 +16,7 @@ import type {
   ToolExecutionResult,
 } from "../types.js";
 
-export const hostFileReadTool: ToolDefinition = {
+export const hostFileReadTool = {
   name: "host_file_read",
   description:
     "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP). For files on your own machine, use file_read instead.",
@@ -188,4 +188,4 @@ export const hostFileReadTool: ToolDefinition = {
 
     return { content: result.value.content, isError: false };
   },
-};
+} satisfies ToolDefinition;

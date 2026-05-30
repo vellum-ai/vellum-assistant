@@ -61,7 +61,7 @@ function makeContext(
 describe("host_file_read cross-client guards", () => {
   test("returns 'no client' error on web transport when proxy unavailable and no targetClientId", async () => {
     const workingDir = makeTempDir();
-    const result = await hostFileReadTool.execute!(
+    const result = await hostFileReadTool.execute(
       { path: "/some/host/path.txt" },
       makeContext(workingDir, "web"),
     );
@@ -73,7 +73,7 @@ describe("host_file_read cross-client guards", () => {
 
   test("returns 'specified client disconnected' error when targetClientId set but proxy unavailable on web", async () => {
     const workingDir = makeTempDir();
-    const result = await hostFileReadTool.execute!(
+    const result = await hostFileReadTool.execute(
       { path: "/some/host/path.txt", target_client_id: "abc-123" },
       makeContext(workingDir, "web"),
     );
@@ -85,7 +85,7 @@ describe("host_file_read cross-client guards", () => {
 
   test("falls through to local fs on macos transport when proxy unavailable and path is non-image", async () => {
     const workingDir = makeTempDir();
-    const result = await hostFileReadTool.execute!(
+    const result = await hostFileReadTool.execute(
       { path: "/nonexistent/x.txt" },
       makeContext(workingDir, "macos"),
     );
@@ -97,7 +97,7 @@ describe("host_file_read cross-client guards", () => {
 
   test("does NOT reject on macos transport with a stale target_client_id when proxy unavailable (regression: P2 fix)", async () => {
     const workingDir = makeTempDir();
-    const result = await hostFileReadTool.execute!(
+    const result = await hostFileReadTool.execute(
       { path: "/nonexistent/x.txt", target_client_id: "stale-mac" },
       makeContext(workingDir, "macos"),
     );
@@ -113,7 +113,7 @@ describe("host_file_read cross-client guards", () => {
 
   test("rejects when target_client_id is set but transport metadata is missing (legacy/backwards-compat path)", async () => {
     const workingDir = makeTempDir();
-    const result = await hostFileReadTool.execute!(
+    const result = await hostFileReadTool.execute(
       { path: "/some/host/path.txt", target_client_id: "abc-123" },
       // transportInterface intentionally undefined (legacy callers).
       makeContext(workingDir, undefined),

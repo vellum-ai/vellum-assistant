@@ -12,7 +12,8 @@ let mockFileProxyRequestFn: (
   input: HostFileInput,
   conversationId: string,
   signal?: AbortSignal,
-) => Promise<ToolExecutionResult> = () => Promise.resolve({ content: "", isError: false });
+) => Promise<ToolExecutionResult> = () =>
+  Promise.resolve({ content: "", isError: false });
 
 mock.module("../daemon/host-file-proxy.js", () => ({
   HostFileProxy: {
@@ -43,12 +44,13 @@ afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   }
   mockFileProxyAvailable = false;
-  mockFileProxyRequestFn = () => Promise.resolve({ content: "", isError: false });
+  mockFileProxyRequestFn = () =>
+    Promise.resolve({ content: "", isError: false });
 });
 
 describe("host_file_write tool", () => {
   test("rejects relative paths", async () => {
-    const result = await hostFileWriteTool.execute!(
+    const result = await hostFileWriteTool.execute(
       { path: "relative.txt", content: "hi" },
       makeContext(),
     );
@@ -61,7 +63,7 @@ describe("host_file_write tool", () => {
     testDirs.push(dir);
     const filePath = join(dir, "out.txt");
 
-    const result = await hostFileWriteTool.execute!(
+    const result = await hostFileWriteTool.execute(
       { path: filePath, content: 42 },
       makeContext(),
     );
@@ -76,7 +78,7 @@ describe("host_file_write tool", () => {
     testDirs.push(dir);
     const filePath = join(dir, "nested", "new.txt");
 
-    const result = await hostFileWriteTool.execute!(
+    const result = await hostFileWriteTool.execute(
       { path: filePath, content: "new content" },
       makeContext(),
     );
@@ -97,11 +99,11 @@ describe("host_file_write tool", () => {
     testDirs.push(dir);
     const filePath = join(dir, "existing.txt");
 
-    await hostFileWriteTool.execute!(
+    await hostFileWriteTool.execute(
       { path: filePath, content: "old" },
       makeContext(),
     );
-    const result = await hostFileWriteTool.execute!(
+    const result = await hostFileWriteTool.execute(
       { path: filePath, content: "updated" },
       makeContext(),
     );
@@ -117,7 +119,7 @@ describe("host_file_write tool", () => {
   });
 
   test("rejects missing path parameter", async () => {
-    const result = await hostFileWriteTool.execute!(
+    const result = await hostFileWriteTool.execute(
       { content: "data" },
       makeContext(),
     );
@@ -126,7 +128,7 @@ describe("host_file_write tool", () => {
   });
 
   test("rejects non-string path", async () => {
-    const result = await hostFileWriteTool.execute!(
+    const result = await hostFileWriteTool.execute(
       { path: 123, content: "data" },
       makeContext(),
     );
@@ -139,7 +141,7 @@ describe("host_file_write tool", () => {
     testDirs.push(dir);
     const filePath = join(dir, "msg-check.txt");
 
-    const result = await hostFileWriteTool.execute!(
+    const result = await hostFileWriteTool.execute(
       { path: filePath, content: "check" },
       makeContext(),
     );
@@ -152,7 +154,7 @@ describe("host_file_write tool", () => {
     testDirs.push(dir);
     const filePath = join(dir, "lines.txt");
 
-    const result = await hostFileWriteTool.execute!(
+    const result = await hostFileWriteTool.execute(
       {
         path: filePath,
         content: "line1\nline2\nline3",
@@ -170,7 +172,7 @@ describe("host_file_write tool", () => {
     testDirs.push(dir);
     const filePath = join(dir, "empty.txt");
 
-    const result = await hostFileWriteTool.execute!(
+    const result = await hostFileWriteTool.execute(
       { path: filePath, content: "" },
       makeContext(),
     );
@@ -184,7 +186,7 @@ describe("host_file_write tool", () => {
     testDirs.push(dir);
     const filePath = join(dir, "a", "b", "c", "deep.txt");
 
-    const result = await hostFileWriteTool.execute!(
+    const result = await hostFileWriteTool.execute(
       { path: filePath, content: "deep" },
       makeContext(),
     );
@@ -201,8 +203,12 @@ describe("host_file_write tool", () => {
       return { content: "proxied write", isError: false };
     };
 
-    await hostFileWriteTool.execute!(
-      { path: "/host/output.txt", content: "hello", target_client_id: "client-x" },
+    await hostFileWriteTool.execute(
+      {
+        path: "/host/output.txt",
+        content: "hello",
+        target_client_id: "client-x",
+      },
       makeContext(),
     );
 

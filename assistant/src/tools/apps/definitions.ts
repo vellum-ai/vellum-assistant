@@ -9,7 +9,11 @@
  */
 
 import { RiskLevel } from "../../permissions/types.js";
-import type { ToolContext, ToolDefinition, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -40,7 +44,7 @@ function proxyExecute(toolName: string) {
 // app_open
 // ---------------------------------------------------------------------------
 
-const appOpenTool: ToolDefinition = {
+const appOpenTool = {
   name: "app_open",
   description:
     "Open a persistent app in a dynamic_page surface on the connected client.",
@@ -66,7 +70,7 @@ const appOpenTool: ToolDefinition = {
   },
 
   execute: proxyExecute("app_open"),
-};
+} satisfies ToolDefinition;
 
 // ---------------------------------------------------------------------------
 // Proxy-only tools registered in the core daemon registry

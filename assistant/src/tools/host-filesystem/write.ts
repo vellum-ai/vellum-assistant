@@ -11,7 +11,7 @@ import type {
   ToolExecutionResult,
 } from "../types.js";
 
-export const hostFileWriteTool: ToolDefinition = {
+export const hostFileWriteTool = {
   name: "host_file_write",
   description:
     "Write content to a file on your guardian's device, creating it if it does not exist. For files on your own machine, use file_write instead.",
@@ -168,4 +168,4 @@ export const hostFileWriteTool: ToolDefinition = {
       diff: { filePath, oldContent, newContent, isNewFile },
     };
   },
-};
+} satisfies ToolDefinition;

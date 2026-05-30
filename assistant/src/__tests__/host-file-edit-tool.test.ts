@@ -12,7 +12,8 @@ let mockFileProxyRequestFn: (
   input: HostFileInput,
   conversationId: string,
   signal?: AbortSignal,
-) => Promise<ToolExecutionResult> = () => Promise.resolve({ content: "", isError: false });
+) => Promise<ToolExecutionResult> = () =>
+  Promise.resolve({ content: "", isError: false });
 
 mock.module("../daemon/host-file-proxy.js", () => ({
   HostFileProxy: {
@@ -43,12 +44,13 @@ afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   }
   mockFileProxyAvailable = false;
-  mockFileProxyRequestFn = () => Promise.resolve({ content: "", isError: false });
+  mockFileProxyRequestFn = () =>
+    Promise.resolve({ content: "", isError: false });
 });
 
 describe("host_file_edit tool", () => {
   test("rejects relative paths", async () => {
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: "relative.txt",
         old_string: "a",
@@ -66,7 +68,7 @@ describe("host_file_edit tool", () => {
     const filePath = join(dir, "sample.txt");
     writeFileSync(filePath, "hello world\n");
 
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: filePath,
         old_string: "hello world",
@@ -86,7 +88,7 @@ describe("host_file_edit tool", () => {
     const filePath = join(dir, "sample.txt");
     writeFileSync(filePath, "x\ny\nx\n");
 
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: filePath,
         old_string: "x",
@@ -108,7 +110,7 @@ describe("host_file_edit tool", () => {
     // Content has a typo-level difference from oldString
     writeFileSync(filePath, "function fooo() {\n  return 1;\n}\n");
 
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: filePath,
         old_string: "function foo() {\n  return 1;\n}",
@@ -128,7 +130,7 @@ describe("host_file_edit tool", () => {
     const filePath = join(dir, "sample.txt");
     writeFileSync(filePath, "repeat\nrepeat\n");
 
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: filePath,
         old_string: "repeat",
@@ -142,7 +144,7 @@ describe("host_file_edit tool", () => {
   });
 
   test("rejects missing path parameter", async () => {
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         old_string: "a",
         new_string: "b",
@@ -159,7 +161,7 @@ describe("host_file_edit tool", () => {
     const filePath = join(dir, "sample.txt");
     writeFileSync(filePath, "content\n");
 
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: filePath,
         old_string: 42,
@@ -177,7 +179,7 @@ describe("host_file_edit tool", () => {
     const filePath = join(dir, "sample.txt");
     writeFileSync(filePath, "content\n");
 
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: filePath,
         old_string: "content",
@@ -195,7 +197,7 @@ describe("host_file_edit tool", () => {
     const filePath = join(dir, "sample.txt");
     writeFileSync(filePath, "content\n");
 
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: filePath,
         old_string: "",
@@ -213,7 +215,7 @@ describe("host_file_edit tool", () => {
     const filePath = join(dir, "sample.txt");
     writeFileSync(filePath, "content\n");
 
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: filePath,
         old_string: "content",
@@ -232,7 +234,7 @@ describe("host_file_edit tool", () => {
     testDirs.push(dir);
     const filePath = join(dir, "missing.txt");
 
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: filePath,
         old_string: "a",
@@ -250,7 +252,7 @@ describe("host_file_edit tool", () => {
     const filePath = join(dir, "sample.txt");
     writeFileSync(filePath, "before\n");
 
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: filePath,
         old_string: "before",
@@ -274,7 +276,7 @@ describe("host_file_edit tool", () => {
     // File has tab indentation
     writeFileSync(filePath, "function foo() {\n\treturn 1;\n}\n");
 
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: filePath,
         // old_string uses spaces instead of tabs — should whitespace-normalize
@@ -301,7 +303,7 @@ describe("host_file_edit tool", () => {
       return { content: "proxied edit", isError: false };
     };
 
-    await hostFileEditTool.execute!(
+    await hostFileEditTool.execute(
       {
         path: "/host/file.txt",
         old_string: "old",

@@ -19,7 +19,7 @@ import type {
 
 // ── remember ────────────────────────────────────────────────────────
 
-export const rememberTool: ToolDefinition = {
+export const rememberTool = {
   name: "remember",
   description: graphRememberDefinition.description,
   category: "memory",
@@ -44,11 +44,11 @@ export const rememberTool: ToolDefinition = {
       ...(typedInput.finish_turn === true ? { yieldToUser: true } : {}),
     };
   },
-};
+} satisfies ToolDefinition;
 
 // ── recall ──────────────────────────────────────────────────────────
 
-export const recallTool: ToolDefinition = {
+export const recallTool = {
   name: "recall",
   description: graphRecallDefinition.description,
   category: "memory",
@@ -78,4 +78,4 @@ export const recallTool: ToolDefinition = {
 
     return { content: result.content, isError: false };
   },
-};
+} satisfies ToolDefinition;

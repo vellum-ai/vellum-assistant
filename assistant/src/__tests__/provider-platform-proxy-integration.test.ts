@@ -600,7 +600,7 @@ describe("managed proxy integration — managed web search routing", () => {
       });
 
       const { webSearchTool } = await import("../tools/network/web-search.js");
-      const result = await webSearchTool.execute!(
+      const result = await webSearchTool.execute(
         { query: "managed kimi query", count: 1, offset: 2, freshness: "pw" },
         {
           conversationId: "conv-123",

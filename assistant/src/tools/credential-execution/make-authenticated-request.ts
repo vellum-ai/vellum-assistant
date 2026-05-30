@@ -25,7 +25,7 @@ import type {
 
 const log = getLogger("ces-tool:make-authenticated-request");
 
-export const makeAuthenticatedRequestTool: ToolDefinition = {
+export const makeAuthenticatedRequestTool = {
   name: "make_authenticated_request",
   description:
     "Execute an authenticated HTTP request through CES. CES injects the credential and returns the response - the assistant never sees raw secrets.",
@@ -194,4 +194,4 @@ export const makeAuthenticatedRequestTool: ToolDefinition = {
       };
     }
   },
-};
+} satisfies ToolDefinition;

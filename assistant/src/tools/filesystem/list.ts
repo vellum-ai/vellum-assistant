@@ -8,7 +8,7 @@ import type {
   ToolExecutionResult,
 } from "../types.js";
 
-export const fileListTool: ToolDefinition = {
+export const fileListTool = {
   name: "file_list",
   description:
     "List the contents of a directory on your own machine. Returns file and subdirectory names with type indicators and sizes.",
@@ -85,6 +85,6 @@ export const fileListTool: ToolDefinition = {
 
     return { content: result.value.listing, isError: false };
   },
-};
+} satisfies ToolDefinition;
 
 registerTool(fileListTool);

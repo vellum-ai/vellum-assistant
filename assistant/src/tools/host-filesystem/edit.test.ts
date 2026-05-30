@@ -61,7 +61,7 @@ function makeContext(
 describe("host_file_edit cross-client guards", () => {
   test("returns 'no client' error on web transport when proxy unavailable and no targetClientId", async () => {
     const workingDir = makeTempDir();
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: "/some/host/path.txt",
         old_string: "foo",
@@ -77,7 +77,7 @@ describe("host_file_edit cross-client guards", () => {
 
   test("returns 'specified client disconnected' error when targetClientId set but proxy unavailable on web", async () => {
     const workingDir = makeTempDir();
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: "/some/host/path.txt",
         old_string: "foo",
@@ -94,7 +94,7 @@ describe("host_file_edit cross-client guards", () => {
 
   test("falls through to local fs on macos transport when proxy unavailable", async () => {
     const workingDir = makeTempDir();
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: "/nonexistent/x.txt",
         old_string: "foo",
@@ -110,7 +110,7 @@ describe("host_file_edit cross-client guards", () => {
 
   test("does NOT reject on macos transport with a stale target_client_id when proxy unavailable (regression: P2 fix)", async () => {
     const workingDir = makeTempDir();
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: "/nonexistent/x.txt",
         old_string: "foo",
@@ -131,7 +131,7 @@ describe("host_file_edit cross-client guards", () => {
 
   test("rejects when target_client_id is set but transport metadata is missing (legacy/backwards-compat path)", async () => {
     const workingDir = makeTempDir();
-    const result = await hostFileEditTool.execute!(
+    const result = await hostFileEditTool.execute(
       {
         path: "/some/host/path.txt",
         old_string: "foo",

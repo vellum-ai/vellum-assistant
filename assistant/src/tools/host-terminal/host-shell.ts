@@ -95,7 +95,7 @@ function buildHostBashProxyEnv(
   return env;
 }
 
-export const hostShellTool: ToolDefinition = {
+export const hostShellTool = {
   name: "host_bash",
   description:
     "LAST RESORT — Execute a shell command directly on the host machine. You MUST strongly prefer the regular `bash` tool for all commands. Only use `host_bash` when you are absolutely certain the command MUST run on the host machine and CANNOT run in the workspace (e.g., managing host-level system services, accessing host-only peripherals, or interacting with host paths outside the workspace). If in doubt, use `bash` instead. Approval-gated: each invocation must be explicitly approved. Do not use for commands that require injected credentials or secrets.",
@@ -570,4 +570,4 @@ export const hostShellTool: ToolDefinition = {
       });
     });
   },
-};
+} satisfies ToolDefinition;

@@ -89,7 +89,7 @@ describe("computer_use_click (unified)", () => {
   });
 
   test("execute returns isError when no proxy resolver is configured", async () => {
-    const result = await computerUseClickTool.execute!({}, ctx);
+    const result = await computerUseClickTool.execute({}, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/No proxy resolver/);
   });
@@ -104,7 +104,7 @@ describe("computer_use_type_text", () => {
   });
 
   test("execute returns isError when no proxy resolver is configured", async () => {
-    const result = await computerUseTypeTextTool.execute!({}, ctx);
+    const result = await computerUseTypeTextTool.execute({}, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/No proxy resolver/);
   });
@@ -119,7 +119,7 @@ describe("computer_use_key", () => {
   });
 
   test("execute returns isError when no proxy resolver is configured", async () => {
-    const result = await computerUseKeyTool.execute!({}, ctx);
+    const result = await computerUseKeyTool.execute({}, ctx);
     expect(result.isError).toBe(true);
     expect(result.content).toMatch(/No proxy resolver/);
   });

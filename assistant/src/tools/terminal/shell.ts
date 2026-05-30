@@ -44,7 +44,7 @@ function buildCredentialRefTrace(
 
 const log = getLogger("shell-tool");
 
-export const shellTool: ToolDefinition = {
+export const shellTool = {
   name: "bash",
   description: "Execute a shell command on the local machine",
   category: "terminal",
@@ -559,7 +559,7 @@ export const shellTool: ToolDefinition = {
 
     return result;
   },
-};
+} satisfies ToolDefinition;
 
 /**
  * Structured teardown log. Pairs with the `"Executing shell command"`

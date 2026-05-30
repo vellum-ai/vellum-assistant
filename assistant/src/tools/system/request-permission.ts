@@ -53,7 +53,7 @@ const FRIENDLY_NAMES: Record<PermissionType, string> = {
   camera: "Camera",
 };
 
-export const requestSystemPermissionTool: ToolDefinition = {
+export const requestSystemPermissionTool = {
   name: "request_system_permission",
   description:
     "Request a macOS system permission via System Settings. " +
@@ -107,6 +107,6 @@ export const requestSystemPermissionTool: ToolDefinition = {
       isError: false,
     };
   },
-};
+} satisfies ToolDefinition;
 
 registerTool(requestSystemPermissionTool);

@@ -85,7 +85,7 @@ describe("host.registries.register_tools", () => {
     });
   });
 
-  test("proxy execute throws when no supervisor is attached", async () => {
+  test("proxy execute surfaces an error result when no supervisor is attached", async () => {
     await registerToolsRoute.handler({
       skillId: "stub-skill",
       tools: [
@@ -101,16 +101,19 @@ describe("host.registries.register_tools", () => {
 
     const installed = getTool("skill_stub_tool");
     expect(installed).toBeDefined();
-    await expect(
-      installed!.execute(
-        {},
-        {
-          workingDir: "/tmp",
-          conversationId: "c",
-          trustClass: "guardian",
-        },
-      ),
-    ).rejects.toThrow(/requires an attached MeetHostSupervisor/i);
+    // Skill tools arrive without an `execute` closure (closures don't cross
+    // IPC). `finalizeTool` synthesizes a no-op error result so unsupervised
+    // invocations surface a clear "not wired up" signal to the model.
+    const result = await installed!.execute(
+      {},
+      {
+        workingDir: "/tmp",
+        conversationId: "c",
+        trustClass: "guardian",
+      },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toMatch(/no execute implementation/i);
   });
 
   test("rejects empty tool list", async () => {
@@ -119,13 +122,19 @@ describe("host.registries.register_tools", () => {
     ).rejects.toThrow();
   });
 
-  test("rejects missing required fields", async () => {
-    await expect(
-      registerToolsRoute.handler({
-        skillId: "any-skill",
-        tools: [{ name: "missing_rest" }],
-      }),
-    ).rejects.toThrow();
+  test("fills defaults for partial tool entries", async () => {
+    // Wire and author share one schema (`ToolDefinitionSchema`, all-optional)
+    // and the daemon runs `finalizeTool` on every incoming tool. So a
+    // partial entry doesn't reject — defaults fill in for missing fields.
+    const result = (await registerToolsRoute.handler({
+      skillId: "partial-skill",
+      tools: [{ name: "partial_tool" }],
+    })) as { registered: string[] };
+    expect(result.registered).toEqual(["partial_tool"]);
+    const installed = getTool("partial_tool");
+    expect(installed).toBeDefined();
+    expect(installed!.defaultRiskLevel).toBe("medium");
+    expect(installed!.executionTarget).toBe("sandbox");
   });
 
   test("rejects missing skillId", async () => {

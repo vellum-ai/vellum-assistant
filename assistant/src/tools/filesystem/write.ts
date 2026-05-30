@@ -33,7 +33,7 @@ function isInsidePkbRoot(absPath: string, pkbRoot: string): boolean {
   return normalized.startsWith(rootWithSep);
 }
 
-export const fileWriteTool: ToolDefinition = {
+export const fileWriteTool = {
   name: "file_write",
   description:
     "Write content to a file on your own machine, creating it if it does not exist. Use host_file_write for files on your guardian's device instead.",
@@ -149,6 +149,6 @@ export const fileWriteTool: ToolDefinition = {
       diff: { filePath, oldContent, newContent, isNewFile },
     };
   },
-};
+} satisfies ToolDefinition;
 
 registerTool(fileWriteTool);

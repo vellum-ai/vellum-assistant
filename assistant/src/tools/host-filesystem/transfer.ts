@@ -13,7 +13,7 @@ import type {
   ToolExecutionResult,
 } from "../types.js";
 
-export const hostFileTransferTool: ToolDefinition = {
+export const hostFileTransferTool = {
   name: "host_file_transfer",
 
   description:
@@ -229,7 +229,7 @@ export const hostFileTransferTool: ToolDefinition = {
     // here, matching the read/write/edit pattern.
     return executeLocal(resolvedSourcePath, resolvedDestPath, overwrite);
   },
-};
+} satisfies ToolDefinition;
 
 /**
  * Local-mode filesystem copy. Module-level so the `host_file_transfer`

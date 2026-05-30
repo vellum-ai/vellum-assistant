@@ -73,7 +73,7 @@ function formatSlackChannelStatus(result: SlackChannelConfigResult): string {
   return "";
 }
 
-export const credentialStoreTool: ToolDefinition = {
+export const credentialStoreTool = {
   name: "credential_store",
   description:
     "Store, list, delete, or prompt for credentials in the secure vault",
@@ -820,4 +820,4 @@ export const credentialStoreTool: ToolDefinition = {
         return { content: `Error: unknown action "${action}"`, isError: true };
     }
   },
-};
+} satisfies ToolDefinition;

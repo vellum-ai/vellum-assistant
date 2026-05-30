@@ -35,7 +35,7 @@ export async function executeSubagentNotifyParent(
   };
 }
 
-export const notifyParentTool: ToolDefinition = {
+export const notifyParentTool = {
   name: "notify_parent",
   description:
     "Send a notification to the parent conversation. Use this for important findings, when you're blocked, or when you have preliminary results the parent should know about. Do not overuse — notify for significant findings, not after every tool call.",
@@ -71,6 +71,6 @@ export const notifyParentTool: ToolDefinition = {
   ): Promise<ToolExecutionResult> {
     return executeSubagentNotifyParent(input, context);
   },
-};
+} satisfies ToolDefinition;
 
 registerTool(notifyParentTool);

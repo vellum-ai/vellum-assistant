@@ -56,7 +56,13 @@ mock.module("../util/logger.js", () => ({
 // Mock the host-bash-proxy singleton so proxy delegation tests can control it.
 let mockProxyAvailable = false;
 let mockProxyRequestFn: (
-  input: { command: string; working_dir?: string; timeout_seconds?: number; env?: Record<string, string>; targetClientId?: string },
+  input: {
+    command: string;
+    working_dir?: string;
+    timeout_seconds?: number;
+    env?: Record<string, string>;
+    targetClientId?: string;
+  },
   conversationId: string,
   signal?: AbortSignal,
 ) => Promise<ToolExecutionResult> = () =>
@@ -96,7 +102,7 @@ afterEach(() => {
 
 describe("host_bash tool", () => {
   test("rejects relative working_dir", async () => {
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "pwd",
         working_dir: "relative/path",
@@ -112,7 +118,7 @@ describe("host_bash tool", () => {
     const dir = mkdtempSync(join(tmpdir(), "host-shell-test-"));
     testDirs.push(dir);
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "pwd",
         working_dir: dir,
@@ -125,7 +131,7 @@ describe("host_bash tool", () => {
   });
 
   test("returns error for non-zero exit commands", async () => {
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       { command: "exit 12" },
       makeContext(),
     );
@@ -137,7 +143,7 @@ describe("host_bash tool", () => {
     const dir = mkdtempSync(join(tmpdir(), "host-shell-nosandbox-"));
     testDirs.push(dir);
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo isolation-test",
         working_dir: dir,
@@ -155,7 +161,7 @@ describe("host_bash tool", () => {
 
     spawnCalls.length = 0;
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo hello",
         working_dir: dir,
@@ -182,7 +188,7 @@ describe("host_bash — baseline: no sandbox isolation", () => {
 
     spawnCalls.length = 0;
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo baseline",
         working_dir: dir,
@@ -203,7 +209,7 @@ describe("host_bash — baseline: no sandbox isolation", () => {
 
     spawnCalls.length = 0;
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo no-native-sandbox",
         working_dir: dir,
@@ -222,7 +228,7 @@ describe("host_bash — baseline: no sandbox isolation", () => {
 
     spawnCalls.length = 0;
 
-    await hostShellTool.execute!(
+    await hostShellTool.execute(
       {
         command: "ls -la /tmp",
         working_dir: dir,
@@ -242,7 +248,7 @@ describe("host_bash — baseline: no sandbox isolation", () => {
 
     spawnCalls.length = 0;
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo sandbox-enabled-irrelevant",
         working_dir: dir,
@@ -296,7 +302,7 @@ describe("host_bash — regression: no proxied-mode additions", () => {
 
     // Pass network_mode as if the model hallucinated the parameter —
     // host_bash must ignore it and run the command normally.
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo should-work",
         working_dir: dir,
@@ -319,7 +325,7 @@ describe("host_bash — regression: no proxied-mode additions", () => {
 
     spawnCalls.length = 0;
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo creds-ignored",
         working_dir: dir,
@@ -352,7 +358,7 @@ describe("host_bash — regression: no proxied-mode additions", () => {
 
 describe("host_bash — input validation", () => {
   test("rejects null bytes in command", async () => {
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo \0evil",
       },
@@ -364,7 +370,7 @@ describe("host_bash — input validation", () => {
   });
 
   test("rejects null bytes in working_dir", async () => {
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo test",
         working_dir: "/tmp/\0evil",
@@ -377,7 +383,7 @@ describe("host_bash — input validation", () => {
   });
 
   test("rejects empty command", async () => {
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "",
       },
@@ -389,7 +395,7 @@ describe("host_bash — input validation", () => {
   });
 
   test("rejects non-string command", async () => {
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: 42,
       },
@@ -403,7 +409,7 @@ describe("host_bash — input validation", () => {
   });
 
   test("rejects non-string working_dir", async () => {
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo test",
         working_dir: 123,
@@ -423,7 +429,7 @@ describe("host_bash — input validation", () => {
 describe("host_bash — environment setup", () => {
   test("defaults working_dir to user home when not provided", async () => {
     const { homedir } = await import("node:os");
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "pwd",
       },
@@ -438,7 +444,7 @@ describe("host_bash — environment setup", () => {
     const { homedir } = await import("node:os");
     const home = homedir();
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: 'echo "$PATH"',
       },
@@ -457,7 +463,7 @@ describe("host_bash — environment setup", () => {
     process.env[varName] = "should-not-appear";
 
     try {
-      const result = await hostShellTool.execute!(
+      const result = await hostShellTool.execute(
         {
           command: "env",
         },
@@ -477,7 +483,7 @@ describe("host_bash — environment setup", () => {
   });
 
   test("includes safe env vars like HOME and TERM", async () => {
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: 'echo "HOME=$HOME"',
       },
@@ -493,7 +499,7 @@ describe("host_bash — environment setup", () => {
     const originalGatewayPort = process.env.GATEWAY_PORT;
     process.env.GATEWAY_PORT = "9000";
     try {
-      const result = await hostShellTool.execute!(
+      const result = await hostShellTool.execute(
         {
           command: 'echo "$INTERNAL_GATEWAY_BASE_URL"',
         },
@@ -517,7 +523,7 @@ describe("host_bash — environment setup", () => {
 
 describe("host_bash — timeout handling", () => {
   test("respects custom timeout_seconds", async () => {
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "sleep 5",
         timeout_seconds: 1,
@@ -531,7 +537,7 @@ describe("host_bash — timeout handling", () => {
 
   test("clamps timeout to at least 1 second", async () => {
     // A timeout_seconds of 0 should be clamped to 1
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo fast",
         timeout_seconds: 0,
@@ -546,7 +552,7 @@ describe("host_bash — timeout handling", () => {
 
   test("clamps timeout to max configured value", async () => {
     // Request a timeout larger than the configured max (600)
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo capped",
         timeout_seconds: 9999,
@@ -571,7 +577,7 @@ describe("host_bash — streaming and cancellation", () => {
       onOutput: (chunk: string) => chunks.push(chunk),
     };
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo streamed-output",
       },
@@ -589,7 +595,7 @@ describe("host_bash — streaming and cancellation", () => {
       onOutput: (chunk: string) => chunks.push(chunk),
     };
 
-    await hostShellTool.execute!(
+    await hostShellTool.execute(
       {
         command: "echo stderr-data >&2",
       },
@@ -603,7 +609,7 @@ describe("host_bash — streaming and cancellation", () => {
     const ac = new AbortController();
 
     // Start a long-running command then abort it quickly
-    const promise = hostShellTool.execute!(
+    const promise = hostShellTool.execute(
       {
         command: "sleep 30",
       },
@@ -623,7 +629,7 @@ describe("host_bash — streaming and cancellation", () => {
     const ac = new AbortController();
     ac.abort();
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "sleep 30",
       },
@@ -640,7 +646,7 @@ describe("host_bash — streaming and cancellation", () => {
 
 describe("host_bash — spawn error handling", () => {
   test("reports error when working_dir does not exist", async () => {
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo test",
         working_dir: "/nonexistent/path/that/does/not/exist",
@@ -653,7 +659,7 @@ describe("host_bash — spawn error handling", () => {
   });
 
   test("captures both stdout and stderr in output", async () => {
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "echo out && echo err >&2",
       },
@@ -665,7 +671,7 @@ describe("host_bash — spawn error handling", () => {
   });
 
   test("returns completed marker for successful empty output", async () => {
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: "true",
       },
@@ -677,7 +683,7 @@ describe("host_bash — spawn error handling", () => {
   });
 
   test("injects __CONVERSATION_ID for local host_bash execution", async () => {
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       {
         command: 'echo "$__CONVERSATION_ID"',
       },
@@ -754,7 +760,7 @@ describe("host_bash — proxy delegation", () => {
     };
 
     spawnCalls.length = 0;
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       { command: "echo hello", working_dir: "/tmp", timeout_seconds: 30 },
       ctx,
     );
@@ -780,7 +786,7 @@ describe("host_bash — proxy delegation", () => {
       ...makeContext(),
     };
 
-    const result = await hostShellTool.execute!({ command: "echo \0evil" }, ctx);
+    const result = await hostShellTool.execute({ command: "echo \0evil" }, ctx);
 
     expect(result.isError).toBe(true);
     expect(result.content).toContain("null bytes");
@@ -799,7 +805,7 @@ describe("host_bash — proxy delegation", () => {
       ...makeContext(),
     };
 
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       { command: "echo test", working_dir: "relative/path" },
       ctx,
     );
@@ -819,7 +825,7 @@ describe("host_bash — proxy delegation", () => {
     };
 
     spawnCalls.length = 0;
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       { command: "echo local-fallback", working_dir: dir },
       ctx,
     );
@@ -834,7 +840,7 @@ describe("host_bash — proxy delegation", () => {
     // mockProxyAvailable defaults to false — simulates client disconnecting
     // after tool definitions were built (targetClientId already resolved).
     spawnCalls.length = 0;
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       { command: "echo should-not-run", target_client_id: "client-mac-abc123" },
       { ...makeContext(), transportInterface: "web" },
     );
@@ -851,7 +857,7 @@ describe("host_bash — proxy delegation", () => {
     testDirs.push(dir);
 
     spawnCalls.length = 0;
-    const result = await hostShellTool.execute!(
+    const result = await hostShellTool.execute(
       { command: "echo no-proxy", working_dir: dir },
       makeContext(),
     );
@@ -863,9 +869,8 @@ describe("host_bash — proxy delegation", () => {
 
   test("propagates VELLUM_UNTRUSTED_SHELL env to proxy under CES lockdown", async () => {
     // Enable CES shell lockdown via the override cache
-    const { setOverridesForTesting } = await import(
-  "./feature-flag-test-helpers.js"
-);
+    const { setOverridesForTesting } =
+      await import("./feature-flag-test-helpers.js");
     setOverridesForTesting({
       "ces-shell-lockdown": true,
     });
@@ -888,7 +893,7 @@ describe("host_bash — proxy delegation", () => {
         trustClass: "trusted_contact", // untrusted actor
       };
 
-      const result = await hostShellTool.execute!(
+      const result = await hostShellTool.execute(
         { command: "echo lockdown" },
         ctx,
       );
@@ -923,7 +928,7 @@ describe("host_bash — proxy delegation", () => {
         trustClass: "guardian", // trusted actor — no lockdown
       };
 
-      const result = await hostShellTool.execute!(
+      const result = await hostShellTool.execute(
         { command: "echo no-lockdown" },
         ctx,
       );
@@ -961,7 +966,7 @@ describe("host_bash — proxy delegation", () => {
         trustClass: "guardian", // trusted actor — no lockdown
       };
 
-      const result = await hostShellTool.execute!(
+      const result = await hostShellTool.execute(
         { command: "assistant browser status --json" },
         ctx,
       );

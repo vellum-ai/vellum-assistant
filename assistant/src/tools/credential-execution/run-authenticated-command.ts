@@ -25,7 +25,7 @@ import type {
 
 const log = getLogger("ces-tool:run-authenticated-command");
 
-export const runAuthenticatedCommandTool: ToolDefinition = {
+export const runAuthenticatedCommandTool = {
   name: "run_authenticated_command",
   description:
     "Execute a command with credential environment variables injected by CES. The command runs inside the CES sandbox - the assistant never sees raw secrets.",
@@ -257,4 +257,4 @@ export const runAuthenticatedCommandTool: ToolDefinition = {
       };
     }
   },
-};
+} satisfies ToolDefinition;

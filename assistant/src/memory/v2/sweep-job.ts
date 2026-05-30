@@ -76,7 +76,7 @@ const MAX_BUFFER_CHARS = 16_000;
 // returns the tool input as `unknown`. The two must stay in sync.
 const SWEEP_TOOL_NAME = "emit_remember_entries";
 
-const SWEEP_TOOL: ToolDefinition = {
+const SWEEP_TOOL = {
   name: SWEEP_TOOL_NAME,
   description:
     "Emit zero or more remember()-style entries the assistant should commit to long-term memory.",
@@ -92,7 +92,7 @@ const SWEEP_TOOL: ToolDefinition = {
     },
     required: ["entries"],
   },
-};
+} satisfies ToolDefinition;
 
 const SweepResultSchema = z.object({
   entries: z.array(z.string()),
