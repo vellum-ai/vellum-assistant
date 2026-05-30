@@ -349,6 +349,189 @@ export function mergeLatestHistoryMessage(
   return merged;
 }
 
+/**
+ * Concatenate two arrays, returning whichever side is populated when the
+ * other is empty / undefined. Used by the adjacent-assistant fold to avoid
+ * materialising `[...undefined, ...x]` and stripping the undefined slot in
+ * the spread output.
+ */
+function concatOptionalArrays<T>(
+  current: T[] | undefined,
+  incoming: T[] | undefined,
+): T[] | undefined {
+  if (!current || current.length === 0) return incoming;
+  if (!incoming || incoming.length === 0) return current;
+  return [...current, ...incoming];
+}
+
+/**
+ * Remap a paginated assistant message's `contentOrder` entries when the
+ * message is being folded onto an older sibling whose `textSegments` /
+ * `attachments` arrays already occupy indices 0..N-1.
+ *
+ * Server contentOrder entries reference `textSegments` and `attachments`
+ * by numeric index (`{ type: "text", id: "0" }`, `{ type: "attachment",
+ * id: "2" }`). When we concatenate the donor's segments / attachments
+ * onto the survivor's, every numeric reference in the donor's
+ * contentOrder has to shift by the survivor's array length so it still
+ * resolves to the right segment / attachment in the merged arrays.
+ *
+ * Tool-call and surface entries reference their target by globally
+ * unique id (not by position), so they pass through untouched.
+ */
+function remapAdjacentContentOrder(
+  entries: Array<{ type: string; id: string }> | undefined,
+  textOffset: number,
+  attachmentOffset: number,
+): Array<{ type: string; id: string }> | undefined {
+  if (!entries || entries.length === 0) return entries;
+  if (textOffset === 0 && attachmentOffset === 0) return entries;
+  return entries.map((entry) => {
+    if (entry.type === "text") {
+      const idx = parseInt(entry.id, 10);
+      if (Number.isFinite(idx)) {
+        return { ...entry, id: String(idx + textOffset) };
+      }
+      return entry;
+    }
+    if (entry.type === "attachment") {
+      const idx = parseInt(entry.id, 10);
+      if (Number.isFinite(idx)) {
+        return { ...entry, id: String(idx + attachmentOffset) };
+      }
+      return entry;
+    }
+    return entry;
+  });
+}
+
+function canFoldAdjacentAssistant(
+  survivor: DisplayMessage,
+  donor: DisplayMessage,
+): boolean {
+  if (survivor.role !== "assistant" || donor.role !== "assistant") return false;
+  // The streaming bubble owns its own identity until message_complete
+  // lands — folding it onto an older sibling would lose the SSE-event
+  // accumulation slot keyed by id.
+  if (survivor.isStreaming || donor.isStreaming) return false;
+  // Optimistic ids are client UUIDs not yet echoed by the server; the
+  // tail content-match swap in `reconcileMessages` needs them to stay
+  // standalone until the server snapshot lands.
+  if (survivor.isOptimistic || donor.isOptimistic) return false;
+  // Subagent notification rows are state-reconstruction metadata that
+  // `build-items.ts` filters out of the rendered transcript — folding
+  // them into a real assistant turn would either lose the flag or
+  // suppress the merged turn entirely.
+  if (survivor.isSubagentNotification || donor.isSubagentNotification) {
+    return false;
+  }
+  return true;
+}
+
+function foldAdjacentAssistant(
+  survivor: DisplayMessage,
+  donor: DisplayMessage,
+): DisplayMessage {
+  const survivorTextLen = survivor.textSegments?.length ?? 0;
+  const survivorAttachLen = survivor.attachments?.length ?? 0;
+
+  const textSegments = concatOptionalArrays(
+    survivor.textSegments,
+    donor.textSegments,
+  );
+  const remappedDonorContentOrder = remapAdjacentContentOrder(
+    donor.contentOrder,
+    survivorTextLen,
+    survivorAttachLen,
+  );
+  const contentOrder = concatOptionalArrays(
+    survivor.contentOrder,
+    remappedDonorContentOrder,
+  );
+  // Tool calls + surfaces use globally-unique ids; concat is safe.
+  const toolCalls = concatOptionalArrays(survivor.toolCalls, donor.toolCalls);
+  const surfaces = concatOptionalArrays(survivor.surfaces, donor.surfaces);
+  const attachments = concatOptionalArrays(
+    survivor.attachments,
+    donor.attachments,
+  );
+
+  // Donor's id becomes a merged alias on the survivor so subsequent
+  // reconcile / SSE lookups by donor id still resolve to the survivor.
+  const mergedMessageIds = mergeStringArrays(
+    survivor.mergedMessageIds,
+    [donor.id, ...(donor.mergedMessageIds ?? [])].filter(
+      (id): id is string => typeof id === "string" && id.length > 0,
+    ),
+  );
+
+  const content =
+    survivor.content && donor.content
+      ? `${survivor.content}${donor.content}`
+      : survivor.content || donor.content;
+
+  const merged: DisplayMessage = {
+    ...survivor,
+    content,
+  };
+  if (textSegments) merged.textSegments = textSegments;
+  if (contentOrder) merged.contentOrder = contentOrder;
+  if (toolCalls) merged.toolCalls = toolCalls;
+  if (surfaces) merged.surfaces = surfaces;
+  if (attachments) merged.attachments = attachments;
+  if (mergedMessageIds) merged.mergedMessageIds = mergedMessageIds;
+  // metadata / slackMessage / timestamp come from the survivor (older
+  // anchor) via the spread — matches the backend's
+  // `mergeConsecutiveAssistantMessages` which keeps the anchor's
+  // metadata, createdAt, and id.
+  return merged;
+}
+
+/**
+ * Fold runs of adjacent `role: "assistant"` rows onto the first row of
+ * each run, mirroring the backend's
+ * `mergeConsecutiveAssistantMessages` so a single logical assistant turn
+ * shows up as one client object regardless of how pagination split it.
+ *
+ * The backend's read-side merge only sees rows within one paginated
+ * page. When a long turn spans N pages, the backend produces N display
+ * messages — each anchored on its page's oldest assistant row — and the
+ * client's dedupe-by-id pass can't reconcile them because the anchors
+ * have distinct ids. Walking adjacency once on the client closes that
+ * gap: identical to what the backend would have produced if it had all
+ * the rows in one query.
+ *
+ * Skipped (conservatively) for streaming / optimistic / subagent-
+ * notification rows — see `canFoldAdjacentAssistant` for why.
+ *
+ * Returns the input array unchanged when no run exists, so referential
+ * equality short-circuits downstream memos.
+ */
+export function mergeAdjacentAssistantMessages(
+  messages: DisplayMessage[],
+): DisplayMessage[] {
+  let firstFoldIdx = -1;
+  for (let i = 1; i < messages.length; i++) {
+    if (canFoldAdjacentAssistant(messages[i - 1]!, messages[i]!)) {
+      firstFoldIdx = i;
+      break;
+    }
+  }
+  if (firstFoldIdx === -1) return messages;
+
+  const result: DisplayMessage[] = messages.slice(0, firstFoldIdx);
+  for (let i = firstFoldIdx; i < messages.length; i++) {
+    const msg = messages[i]!;
+    const survivor = result[result.length - 1];
+    if (survivor && canFoldAdjacentAssistant(survivor, msg)) {
+      result[result.length - 1] = foldAdjacentAssistant(survivor, msg);
+    } else {
+      result.push(msg);
+    }
+  }
+  return result;
+}
+
 function dedupeMessagesByKey(
   messages: DisplayMessage[],
   getKey: (message: DisplayMessage) => string | undefined,
