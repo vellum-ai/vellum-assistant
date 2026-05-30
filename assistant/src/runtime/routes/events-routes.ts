@@ -29,11 +29,7 @@ import { emitContactChange } from "../../contacts/contact-events.js";
 import { getConversation } from "../../memory/conversation-crud.js";
 import { getOrCreateConversation } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  buildAssistantEvent,
-  formatSseFrame,
-  formatSseHeartbeat,
-} from "../assistant-event.js";
+import { formatSseFrame, formatSseHeartbeat } from "../assistant-event.js";
 import type {
   AssistantEventCallback,
   AssistantEventFilter,
@@ -467,22 +463,16 @@ export function handleSubscribeAssistantEvents(
 
         // Reconnect replay: when the caller passed lastSeenSeq and the
         // subscription is scoped to a single conversation, deliver any
-        // buffered events the client missed (or signal a snapshot resync
-        // when the cursor is too old) before the first heartbeat.
+        // buffered events the client missed before the first heartbeat.
+        //
+        // If the cursor is older than the ring's oldest entry,
+        // `getReplayWindow` returns `null`. We do not surface that to
+        // the client over the wire -- the connection just goes live.
+        // The client detects the gap from the seq jump on its first
+        // live event and refetches via the existing messages API.
         if (lastSeenSeq != null && filter.conversationId) {
-          const replayConversationId = filter.conversationId;
-          const window = getReplayWindow(replayConversationId, lastSeenSeq);
-          if (window === null) {
-            const resyncEvent = buildAssistantEvent(
-              {
-                type: "stream_resync_required",
-                conversationId: replayConversationId,
-              },
-              replayConversationId,
-            );
-            controller.enqueue(encoder.encode(formatSseFrame(resyncEvent)));
-            instrumentation.eventsDelivered += 1;
-          } else {
+          const window = getReplayWindow(filter.conversationId, lastSeenSeq);
+          if (window !== null) {
             for (const replayed of window) {
               controller.enqueue(encoder.encode(formatSseFrame(replayed)));
               instrumentation.eventsDelivered += 1;
@@ -591,7 +581,7 @@ export const ROUTES: RouteDefinition[] = [
       {
         name: "lastSeenSeq",
         description:
-          "Optional reconnect cursor: the highest per-conversation event seq the client has already applied. When set together with a conversation scope, the daemon replays any buffered events with seq > lastSeenSeq before going live, or emits a stream_resync_required event if the cursor is older than the ring buffer's oldest entry. Must be a non-negative integer.",
+          "Optional reconnect cursor: the highest per-conversation event seq the client has already applied. When set together with a conversation scope, the daemon replays any buffered events with seq > lastSeenSeq before going live. If the cursor is older than the ring buffer's oldest entry the connection simply goes live; the client is expected to detect the gap from the next event's seq and refetch via the messages API. Must be a non-negative integer.",
       },
     ],
     responseHeaders: {

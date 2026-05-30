@@ -9068,8 +9068,9 @@ paths:
           description:
             "Optional reconnect cursor: the highest per-conversation event seq the client has already applied. When set
             together with a conversation scope, the daemon replays any buffered events with seq > lastSeenSeq before
-            going live, or emits a stream_resync_required event if the cursor is older than the ring buffer's oldest
-            entry. Must be a non-negative integer."
+            going live. If the cursor is older than the ring buffer's oldest entry the connection simply goes live; the
+            client is expected to detect the gap from the next event's seq and refetch via the messages API. Must be a
+            non-negative integer."
   /v1/events/emit:
     post:
       operationId: events_emit_post

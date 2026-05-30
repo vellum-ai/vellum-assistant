@@ -3,7 +3,9 @@
  *
  * Covers:
  *   - replay of buffered events when `lastSeenSeq` is in-window
- *   - snapshot-resync signal when `lastSeenSeq` is older than the ring
+ *   - cursor older than the ring -> connection goes live without any
+ *     extra wire signal (client is expected to detect the seq jump
+ *     and refetch via the messages API)
  *   - omitted `lastSeenSeq` falls through to legacy live-only behavior
  *   - dedup against live events that race in mid-replay
  *   - malformed `lastSeenSeq` query param rejected with 400
@@ -103,28 +105,36 @@ describe("SSE reconnect replay (B7.2)", () => {
     ac.abort();
   });
 
-  test("emits stream_resync_required when lastSeenSeq is older than the ring's oldest entry", async () => {
-    const { conversationId } = getOrCreateConversation("reconnect-resync");
+  test("connects live without replay when lastSeenSeq is older than the ring's oldest entry", async () => {
+    // When the client's cursor is older than the ring can serve, the
+    // route deliberately does NOT signal anything special over the
+    // wire -- the connection just goes live. The client is expected to
+    // detect the gap from the seq jump on its first live event and
+    // refetch via the existing messages API.
+    const { conversationId } = getOrCreateConversation(
+      "reconnect-out-of-window",
+    );
 
     // Push 202 events through stampAndBuffer so the ring's natural
-    // count-based eviction (cap 200) drops seqs 1 and 2. The ring
-    // window becomes [seq 3..seq 202] and a cursor of 0 is older
-    // than oldest - 1 (= 2) -> snapshot fallback.
+    // count-based eviction (cap 200) drops seqs 1 and 2. A cursor of
+    // 0 then falls outside what getReplayWindow can serve.
     for (let i = 0; i < 202; i++) {
       stampAndBuffer(buildAssistantEvent({ type: "pong" }, conversationId));
     }
-    const { _peekStreamForTesting } =
-      await import("../runtime/conversation-stream-state.js");
+    const { _peekStreamForTesting } = await import(
+      "../runtime/conversation-stream-state.js"
+    );
     const peek = _peekStreamForTesting(conversationId);
     expect(peek?.oldestSeq).toBe(3);
     expect(peek?.newestSeq).toBe(202);
 
     const ac = new AbortController();
-    const { handleSubscribeAssistantEvents } =
-      await import("../runtime/routes/events-routes.js");
+    const { handleSubscribeAssistantEvents } = await import(
+      "../runtime/routes/events-routes.js"
+    );
     const stream = handleSubscribeAssistantEvents({
       queryParams: {
-        conversationKey: "reconnect-resync",
+        conversationKey: "reconnect-out-of-window",
         lastSeenSeq: "0",
       },
       abortSignal: ac.signal,
@@ -132,13 +142,8 @@ describe("SSE reconnect replay (B7.2)", () => {
 
     const reader = stream.getReader();
 
-    // First frame is the resync signal.
-    const resyncFrame = await readFrame(reader);
-    expect(resyncFrame).toContain("event: assistant_event");
-    expect(resyncFrame).toContain('"type":"stream_resync_required"');
-    expect(resyncFrame).toContain(`"conversationId":"${conversationId}"`);
-
-    // Then the heartbeat.
+    // No replay events ahead of the heartbeat -- the cursor was
+    // unserviceable so the route emits nothing extra.
     const heartbeat = await readFrame(reader);
     expect(heartbeat).toBe(": heartbeat\n\n");
 
