@@ -3,17 +3,21 @@
  *
  * Two concerns, two effects:
  *
- * 1. DOM / Capacitor lifecycle. Listens to `document.visibilitychange`,
- *    `window.online` / `window.offline`, and Capacitor
- *    `App.appStateChange`; publishes `"app.resume"` / `"app.hidden"` /
- *    `"app.online"` / `"app.offline"` on the bus.
+ * 1. DOM / Capacitor / Electron lifecycle. Listens to
+ *    `document.visibilitychange`, `window.online` / `window.offline`,
+ *    Capacitor `App.appStateChange`, and (on the Electron host) the
+ *    main-process `powerMonitor` bridge. Publishes `"app.resume"` /
+ *    `"app.hidden"` / `"app.online"` / `"app.offline"` and
+ *    `"power.suspend"` / `"power.resume"` / `"power.lock"` /
+ *    `"power.unlock"` / `"power.active"` on the bus.
  *
  * 2. Single assistant-scoped SSE connection. Opens one unfiltered
  *    `/v1/events` stream per assistant and re-broadcasts every event
  *    on `"sse.event"`. Publishes `"sse.opened"` after each successful
- *    open and `"sse.closed"` on transport errors. Tears down +
- *    reopens on `"app.hidden"` / `"app.resume"` (with a 1s dedup
- *    window) and on `"reachability.retry-requested"`.
+ *    open and `"sse.closed"` on transport errors. Tears down on
+ *    `"app.hidden"` and reopens on `"app.resume"` / `"power.resume"`
+ *    / `"power.unlock"` (with a 1s dedup window) and on
+ *    `"reachability.retry-requested"`.
  *
  * The daemon dedups SSE subscribers by `clientId`, so this hook MUST
  * be the only place that opens a connection. Consumers subscribe to
@@ -25,6 +29,7 @@ import type { PluginListenerHandle } from "@capacitor/core";
 
 import { subscribeChatEvents } from "@/lib/streaming/stream-transport";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
+import { subscribeToPowerEvents } from "@/runtime/power-events";
 import { useEventBusStore } from "@/stores/event-bus-store";
 import { isNativePlatform } from "@/runtime/native-auth";
 
@@ -104,12 +109,37 @@ export function useEventBusInit({
         });
     }
 
+    // Electron host: subscribe to `powerMonitor` via the runtime
+    // wrapper. The bridge fans every system-level event in as a
+    // typed bus event. Off Electron the wrapper is a no-op and the
+    // unsubscribe-noop is returned — no effect on web / iOS.
+    const unsubPower = subscribeToPowerEvents(({ kind }) => {
+      switch (kind) {
+        case "suspend":
+          bus.publish("power.suspend", {});
+          break;
+        case "resume":
+          bus.publish("power.resume", {});
+          break;
+        case "lock":
+          bus.publish("power.lock", {});
+          break;
+        case "unlock":
+          bus.publish("power.unlock", {});
+          break;
+        case "active":
+          bus.publish("power.active", {});
+          break;
+      }
+    });
+
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
       appStateCancelled = true;
       void appStateHandle?.remove();
+      unsubPower();
     };
   }, []);
 
@@ -184,19 +214,29 @@ export function useEventBusInit({
     // App lifecycle: tear down on hidden, reopen on resume. The 1s
     // dedup window collapses double-fires from visibilitychange +
     // Capacitor appStateChange (both arrive in close succession on
-    // foregrounding the iOS native shell).
-    const unsubHidden = bus.subscribe("app.hidden", () => {
-      if (!current) return;
-      teardown();
-    });
-    const unsubResume = bus.subscribe("app.resume", () => {
+    // foregrounding the iOS native shell), and from a system wake
+    // also surfacing as `power.resume` shortly after `app.resume`
+    // on the Electron host.
+    const handleResume = () => {
       const now = Date.now();
       if (now - lastResumeAt < RESUME_DEDUP_WINDOW_MS) return;
       lastResumeAt = now;
       checkAssistant();
       if (current) return;
       open();
+    };
+    const unsubHidden = bus.subscribe("app.hidden", () => {
+      if (!current) return;
+      teardown();
     });
+    const unsubResume = bus.subscribe("app.resume", handleResume);
+    // Electron-only: system wake / screen unlock signal a reconnect
+    // even when the renderer never went hidden (tray-resident /
+    // full-screen). Browser timers freeze during system suspend and
+    // sockets may appear "open" but be half-dead on wake. The dedup
+    // window above collapses overlap with `app.resume`.
+    const unsubPowerResume = bus.subscribe("power.resume", handleResume);
+    const unsubPowerUnlock = bus.subscribe("power.unlock", handleResume);
     const unsubReachabilityRetry = bus.subscribe(
       "reachability.retry-requested",
       () => {
@@ -213,6 +253,8 @@ export function useEventBusInit({
       cancelled = true;
       unsubHidden();
       unsubResume();
+      unsubPowerResume();
+      unsubPowerUnlock();
       unsubReachabilityRetry();
       current?.cancel();
       current = null;

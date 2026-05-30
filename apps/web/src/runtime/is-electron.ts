@@ -50,6 +50,13 @@ declare global {
         setBadge(count: number): Promise<void>;
         setSignedIn(signedIn: boolean): Promise<void>;
       };
+      power: {
+        onEvent(
+          callback: (event: {
+            kind: "suspend" | "resume" | "lock" | "unlock" | "active";
+          }) => void,
+        ): () => void;
+      };
     };
   }
 }

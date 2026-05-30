@@ -211,6 +211,60 @@ describe("useEventBusInit — SSE ownership", () => {
     expect(checkAssistant).toHaveBeenCalledTimes(1);
   }, 5_000);
 
+  test("power.resume reopens the SSE after teardown — same dedup window as app.resume", async () => {
+    const checkAssistant = mock(() => {});
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+        checkAssistant,
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    useEventBusStore.getState().publish("app.hidden", { signal: "visibility" });
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    useEventBusStore.getState().publish("power.resume", {});
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(checkAssistant).toHaveBeenCalledTimes(1);
+  }, 5_000);
+
+  test("power.unlock reopens the SSE after teardown", async () => {
+    const checkAssistant = mock(() => {});
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+        checkAssistant,
+      }),
+    );
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+    useEventBusStore.getState().publish("app.hidden", { signal: "visibility" });
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    useEventBusStore.getState().publish("power.unlock", {});
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(checkAssistant).toHaveBeenCalledTimes(1);
+  }, 5_000);
+
+  test("app.resume then power.resume within the dedup window only opens once", async () => {
+    const checkAssistant = mock(() => {});
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: "asst-1",
+        isAssistantActive: true,
+        checkAssistant,
+      }),
+    );
+    useEventBusStore.getState().publish("app.hidden", { signal: "visibility" });
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    useEventBusStore.getState().publish("app.resume", { signal: "visibility" });
+    // Inside the dedup window — would otherwise double-open the SSE.
+    useEventBusStore.getState().publish("power.resume", {});
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+    expect(checkAssistant).toHaveBeenCalledTimes(1);
+  }, 5_000);
+
   test("reachability.retry-requested bounces the SSE connection", () => {
     renderHook(() =>
       useEventBusInit({

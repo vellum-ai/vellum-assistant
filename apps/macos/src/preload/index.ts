@@ -32,6 +32,25 @@ export interface AppVersionInfo {
   website: string;
 }
 
+/**
+ * Mirror of `PowerEventKind` in `apps/macos/src/main/power-events.ts`.
+ * Inlined for the same reason as `VellumCommand` / `AppVersionInfo`:
+ * preload + main + renderer each have their own TS project; cheaper
+ * to maintain a tiny literal union three places than to wire
+ * cross-project imports. Drift surfaces as a renderer handler not
+ * narrowing on a new kind — graceful no-op, not a crash.
+ */
+export type PowerEventKind =
+  | "suspend"
+  | "resume"
+  | "lock"
+  | "unlock"
+  | "active";
+
+export interface PowerEvent {
+  kind: PowerEventKind;
+}
+
 export interface VellumBridge {
   platform: "electron";
   app: {
@@ -86,6 +105,22 @@ export interface VellumBridge {
      */
     setSignedIn(signedIn: boolean): Promise<void>;
   };
+  power: {
+    /**
+     * Subscribe to system power-state events: sleep, wake, screen
+     * lock/unlock, user-did-become-active-after-idle. Returns an
+     * unsubscribe function; callers should invoke it on cleanup
+     * (e.g. `useEffect` return) to avoid leaks on window close or
+     * hot reload.
+     *
+     * Long-running renderer consumers (SSE, WebSocket clients, auth
+     * refresh timers) subscribe to bounce-and-reconnect on `resume`
+     * / `unlock` — browser timers freeze during system suspend and
+     * sockets may appear "open" but be half-dead because the remote
+     * side has TCP-RST'd while we slept.
+     */
+    onEvent(callback: (event: PowerEvent) => void): () => void;
+  };
 }
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -129,6 +164,17 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:dock:setBadge", count) as Promise<void>,
     setSignedIn: (signedIn: boolean): Promise<void> =>
       ipcRenderer.invoke("vellum:dock:setSignedIn", signedIn) as Promise<void>,
+  },
+  power: {
+    onEvent: (callback) => {
+      const handler = (_event: IpcRendererEvent, payload: PowerEvent) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:power:event", handler);
+      return () => {
+        ipcRenderer.off("vellum:power:event", handler);
+      };
+    },
   },
 };
 
