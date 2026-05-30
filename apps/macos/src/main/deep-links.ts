@@ -1,4 +1,9 @@
-import { BrowserWindow, app, ipcMain } from "electron";
+import {
+  BrowserWindow,
+  app,
+  ipcMain,
+  type WebContents,
+} from "electron";
 
 import { ensureVisible as ensureMainWindowVisible } from "./main-window";
 
@@ -104,18 +109,19 @@ export const extractDeepLinkFromArgv = (argv: readonly string[]): string | null 
 
 const pending: DeepLink[] = [];
 
-// Active renderer subscribers. Renderer calls `vellum:deepLinks:subscribe`
-// when its `onLink` handler is registered and `vellum:deepLinks:unsubscribe`
-// on cleanup. Buffer when count is zero (no subscribers to receive the
-// broadcast); broadcast-only when count > 0.
+// Active renderer subscribers tracked by their `WebContents` rather
+// than a counter. Renderer calls `vellum:deepLinks:subscribe` when
+// its `onLink` handler registers; we add the `event.sender` and
+// listen for that webContents's `destroyed` event so cleanup runs
+// even when React effect teardown doesn't fire (window-close kills
+// the JS context before `useEffect` cleanups flush — a leaked
+// counter would flip buffering off and silently drop later links).
+// `vellum:deepLinks:unsubscribe` covers the common mount/unmount
+// path; the `destroyed` listener is the defense-in-depth.
 //
-// This is what closes both the Codex P2 (live-link replay on renderer
-// reload — broadcast doesn't enter the buffer when a subscriber is
-// listening) AND the logout-relogin gap (after the renderer unmounts,
-// links arriving during the auth flip land in the buffer and the next
-// renderer drains them on mount). A "drained once, never buffer
-// again" flag is wrong because it conflates "has ever drained" with
-// "is subscribed right now."
+// Buffer when the set is empty; broadcast-only when non-empty. This
+// keeps both the live-link-replay defense AND the
+// renderer-down-link-buffers behavior the consumer relies on.
 //
 // Residual race (sub-microsecond, not realistically triggerable by
 // user action): a link arriving between the renderer's
@@ -123,7 +129,7 @@ const pending: DeepLink[] = [];
 // `subscribe` IPC could be buffered AND broadcast. A single
 // renderer-side dedup would catch this if it ever bit; today the
 // timing makes it theoretical.
-let subscriberCount = 0;
+const subscribers = new Set<WebContents>();
 
 const broadcast = (link: DeepLink): void => {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -155,9 +161,16 @@ const broadcast = (link: DeepLink): void => {
  */
 export const handleDeepLink = (input: string): void => {
   const link = parseVellumUrl(input);
-  if (subscriberCount === 0) pending.push(link);
+  if (subscribers.size === 0) pending.push(link);
   broadcast(link);
-  if (link.kind !== "unknown") {
+  // Activation is gated on `app.isReady()`. On cold launch, the
+  // `will-finish-launching` → `open-url` path fires BEFORE
+  // `app.whenReady()`, and `new BrowserWindow()` pre-ready races
+  // Electron's init. The link is already buffered above; the
+  // initial `installMainWindow()` in the `whenReady` chain in
+  // `index.ts` creates the first window, which drains the link
+  // on mount.
+  if (link.kind !== "unknown" && app.isReady()) {
     void ensureMainWindowVisible();
   }
 };
@@ -196,15 +209,22 @@ export const installDeepLinks = (): void => {
     return pending.splice(0, pending.length);
   });
 
-  // Subscriber tracking — see the `subscriberCount` comment above
-  // for the model. `ipcMain.on` (fire-and-forget) is sufficient —
-  // these are accounting messages, no return value expected. The
-  // preload sends them inside `onLink` registration / cleanup.
-  ipcMain.on("vellum:deepLinks:subscribe", () => {
-    subscriberCount++;
+  // Subscriber tracking — see the `subscribers` comment above for
+  // the model. `ipcMain.on` (fire-and-forget) is sufficient — these
+  // are accounting messages, no return value expected. The preload
+  // sends them inside `onLink` registration / cleanup; the
+  // `destroyed` listener is the defense-in-depth for the cases
+  // where the React effect cleanup doesn't run before the
+  // webContents is torn down.
+  ipcMain.on("vellum:deepLinks:subscribe", (event) => {
+    if (subscribers.has(event.sender)) return;
+    subscribers.add(event.sender);
+    event.sender.once("destroyed", () => {
+      subscribers.delete(event.sender);
+    });
   });
-  ipcMain.on("vellum:deepLinks:unsubscribe", () => {
-    subscriberCount = Math.max(0, subscriberCount - 1);
+  ipcMain.on("vellum:deepLinks:unsubscribe", (event) => {
+    subscribers.delete(event.sender);
   });
 };
 
@@ -212,6 +232,6 @@ export const installDeepLinks = (): void => {
 // uses `installDeepLinks` instead.
 export const __resetForTesting = (): void => {
   installed = false;
-  subscriberCount = 0;
+  subscribers.clear();
   pending.length = 0;
 };
