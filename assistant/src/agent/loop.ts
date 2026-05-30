@@ -583,13 +583,14 @@ export class AgentLoop {
       mutableLatestUserMessage,
     } = options ?? {};
     let history = [...messages];
-    // Lower bound for "messages produced during this run" scans. Reset after
-    // a mid-loop compaction collapses `history` so the scan boundary tracks
-    // the post-compaction context rather than the original seed length.
-    let initialHistoryLength = messages.length;
     let toolUseTurns = 0;
     let consecutiveErrorTurns = 0;
     let emptyResponseRetries = 0;
+    // Whether the model has already delivered user-visible text during this
+    // run. A flag rather than a scan over `history` so the signal survives a
+    // mid-loop compaction that collapses the message array — an empty turn
+    // following earlier visible text must not be nudged into re-summarizing.
+    let producedVisibleTextThisRun = false;
     let lastLlmCallTime = 0;
     const rlog = requestId ? log.child({ requestId }) : log;
 
@@ -1023,26 +1024,21 @@ export class AgentLoop {
         // the message is persisted.
         //
         // Only nudge when the model hasn't already delivered text to the user
-        // earlier in this tool-use chain. If a prior assistant turn in history
-        // contained visible text (e.g. the model said its piece before calling
-        // a side-effect tool like `remember`), an empty follow-up is the model
+        // earlier in this run. If any prior assistant turn this run contained
+        // visible text (e.g. the model said its piece before calling a
+        // side-effect tool like `remember`), an empty follow-up is the model
         // correctly ending its turn — nudging would mislead it into thinking
-        // its earlier text didn't land and cause a verbatim re-send.
+        // its earlier text didn't land and cause a verbatim re-send. This
+        // covers multi-step tool-use chains (say-something → call-tool →
+        // call-another-tool → end), where the visible text lives on an earlier
+        // turn than the final pure tool_use.
         //
-        // Note: we check ANY prior assistant turn from this run()
-        // invocation, not just the most recent one. In multi-step tool-use
-        // chains (say-something → call-tool → call-another-tool → end),
-        // the "say-something" text lives on an earlier assistant turn while
-        // the most recent assistant turn is a pure tool_use with no text.
-        // Restricting the check to the most recent assistant turn would
-        // falsely nudge in that case and trigger a duplicate re-send of
-        // text the user already saw.
-        //
-        // Scope the scan to messages appended during this run() call only.
-        // Assistant text from prior conversation turns (earlier run()
-        // invocations passed in via `messages`) must NOT suppress the
-        // nudge — those turns completed long ago and have no bearing on
-        // whether the current tool-use chain has delivered text yet.
+        // `producedVisibleTextThisRun` carries this across the whole run,
+        // including a mid-loop compaction that collapses `history`: text the
+        // user already saw stays acknowledged even after the messages that
+        // carried it are summarized away. The flag starts false, so visible
+        // text from prior conversation turns (earlier run() invocations passed
+        // in via `messages`) never suppresses the nudge on its own.
         //
         // The actual decision (nudge vs. accept vs. error) is delegated to
         // the `emptyResponse` plugin pipeline. The pipeline returns a
@@ -1052,20 +1048,8 @@ export class AgentLoop {
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
-        const priorAssistantHadVisibleText = (() => {
-          for (let i = history.length - 1; i >= initialHistoryLength; i--) {
-            const msg = history[i];
-            if (msg.role !== "assistant") continue;
-            const hasText = msg.content.some(
-              (block) =>
-                block.type === "text" &&
-                typeof (block as { text?: unknown }).text === "string" &&
-                (block as { text: string }).text.trim().length > 0,
-            );
-            if (hasText) return true;
-          }
-          return false;
-        })();
+        const priorAssistantHadVisibleText = producedVisibleTextThisRun;
+        if (hasVisibleText) producedVisibleTextThisRun = true;
 
         const emptyResponseArgs: EmptyResponseArgs = {
           responseContent: response.content,
@@ -1440,7 +1424,6 @@ export class AgentLoop {
           const outcome = await compactionStrategy.compact(history);
           if (outcome.ok) {
             history = outcome.history;
-            initialHistoryLength = history.length;
             continue;
           }
           await emitExit("context_exhausted_mid_loop");

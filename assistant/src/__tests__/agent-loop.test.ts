@@ -2048,6 +2048,90 @@ describe("AgentLoop", () => {
     ]);
   });
 
+  // Regression: the "prior visible text" signal must survive a mid-loop
+  // compaction. The model says its piece, calls a tool, the tool result
+  // triggers compaction (which collapses the messages that carried the text),
+  // then the model ends with an empty turn. Because the visible text is no
+  // longer present in `history` after compaction, a scan-based check would
+  // wrongly nudge; the loop tracks the signal as run-scoped state instead.
+  test("does not nudge empty response when visible text preceded a compaction", async () => {
+    // GIVEN a first turn that delivers visible text and calls a tool
+    const textPlusToolUseResponse: ProviderResponse = {
+      content: [
+        { type: "text", text: "your move, husband." },
+        {
+          type: "tool_use",
+          id: "t1",
+          name: "read_file",
+          input: { path: "/note.txt" },
+        },
+      ],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 5 },
+      stopReason: "tool_use",
+    };
+    // AND a second turn that is empty (the model correctly ending its turn)
+    const emptyResponse: ProviderResponse = {
+      content: [],
+      model: "mock-model",
+      usage: { inputTokens: 10, outputTokens: 0 },
+      stopReason: "end_turn",
+    };
+    const { provider, calls } = createMockProvider([
+      textPlusToolUseResponse,
+      emptyResponse,
+    ]);
+    const toolExecutor = async () => ({ content: "noted", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    // AND a strategy that compacts once after the tool result, replacing the
+    // history with a summary that no longer contains the visible text
+    let shouldCompactCalls = 0;
+    const compactionStrategy: CompactionStrategy = {
+      shouldCompact: () => {
+        shouldCompactCalls++;
+        return shouldCompactCalls === 1;
+      },
+      compact: async () => ({
+        ok: true,
+        history: [
+          { role: "user", content: [{ type: "text", text: "SUMMARY" }] },
+        ],
+      }),
+    };
+
+    // WHEN the loop runs with the compaction strategy
+    const events: AgentEvent[] = [];
+    const history = await loop.run([userMessage], collectEvents(events), {
+      compactionStrategy,
+    });
+
+    // THEN the provider is called exactly twice — no third (retry) call,
+    // because the visible text delivered before compaction suppresses the nudge
+    expect(calls).toHaveLength(2);
+
+    // AND no nudge message is appended to history
+    const nudgeInHistory = history.some(
+      (m) =>
+        m.role === "user" &&
+        m.content.some(
+          (b) =>
+            b.type === "text" &&
+            "text" in b &&
+            (b as { text: string }).text.includes(
+              "previous response was empty",
+            ),
+        ),
+    );
+    expect(nudgeInHistory).toBe(false);
+  });
+
   test("gives up after max empty response retries", async () => {
     const emptyResponse: ProviderResponse = {
       content: [],
