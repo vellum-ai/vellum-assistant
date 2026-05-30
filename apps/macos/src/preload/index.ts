@@ -33,6 +33,19 @@ export interface AppVersionInfo {
 }
 
 /**
+ * Mirror of `DeepLink` in `apps/macos/src/main/deep-links.ts`. Inlined
+ * (same convention as the other bridge types) — preload + main +
+ * renderer each have their own TS project; cheaper to maintain a tiny
+ * literal union three places than to wire cross-project imports. Drift
+ * surfaces as a renderer handler not narrowing on a new kind, which
+ * is a graceful no-op rather than a crash.
+ */
+export type DeepLink =
+  | { kind: "send"; message: string }
+  | { kind: "openThread"; threadId: string }
+  | { kind: "unknown"; url: string };
+
+/**
  * Mirror of `PowerEventKind` in `apps/macos/src/main/power-events.ts`.
  * Inlined for the same reason as `VellumCommand` / `AppVersionInfo`:
  * preload + main + renderer each have their own TS project; cheaper
@@ -121,6 +134,24 @@ export interface VellumBridge {
      */
     onEvent(callback: (event: PowerEvent) => void): () => void;
   };
+  deepLinks: {
+    /**
+     * Drain and return the buffer of deep links that arrived before
+     * the renderer was ready. Returns ALL pending links and clears
+     * the buffer. The renderer wrapper does subscribe-then-drain to
+     * avoid losing a live link that arrives between `onLink`
+     * subscription and `drain` completion.
+     */
+    drain(): Promise<DeepLink[]>;
+    /**
+     * Subscribe to live deep links (links arriving after the
+     * renderer is up). Returns an unsubscribe function; callers
+     * invoke it on cleanup. Links arriving before subscription are
+     * captured by `drain`; subscribe BEFORE drain to cover the
+     * narrow race where a link lands in flight.
+     */
+    onLink(callback: (link: DeepLink) => void): () => void;
+  };
 }
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -173,6 +204,19 @@ const bridge: VellumBridge = {
       ipcRenderer.on("vellum:power:event", handler);
       return () => {
         ipcRenderer.off("vellum:power:event", handler);
+      };
+    },
+  },
+  deepLinks: {
+    drain: (): Promise<DeepLink[]> =>
+      ipcRenderer.invoke("vellum:deepLinks:drain") as Promise<DeepLink[]>,
+    onLink: (callback) => {
+      const handler = (_event: IpcRendererEvent, payload: DeepLink) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:deepLinks:event", handler);
+      return () => {
+        ipcRenderer.off("vellum:deepLinks:event", handler);
       };
     },
   },

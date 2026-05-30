@@ -107,6 +107,23 @@ export interface BusEventMap {
   "power.lock": Record<string, never>;
   "power.unlock": Record<string, never>;
   "power.active": Record<string, never>;
+  /**
+   * Inbound deep links from the Electron host — `vellum://` and
+   * `vellum-assistant://` URL schemes the OS routed to us. Parsed
+   * into discriminated payloads in `apps/macos/src/main/deep-links.ts`.
+   * Domain consumers (chat composer, conversation router) subscribe
+   * here to take action.
+   *
+   * `deeplink.unknown` covers parser fallbacks — foreign schemes,
+   * malformed URLs, unrecognized hosts. Consumers typically log
+   * and drop these; useful as a no-action signal so the bridge
+   * surface is exhaustive.
+   *
+   * Off Electron these never fire.
+   */
+  "deeplink.send": { message: string };
+  "deeplink.openThread": { threadId: string };
+  "deeplink.unknown": { url: string };
 }
 
 export type BusEventName = keyof BusEventMap;

@@ -70,6 +70,9 @@ which is produced by the burst-limited reachability retry in
 | `power.lock` | `{}` | Electron host: screen locked. No bus-owned action today. Off Electron never fires. |
 | `power.unlock` | `{}` | Electron host: screen unlocked. Bus bounces its SSE (same shape as `power.resume`). Off Electron never fires. |
 | `power.active` | `{}` | Electron host: `user-did-become-active` after idle. No bus-owned action today; future ticket may nudge stale state. Off Electron never fires. |
+| `deeplink.send` | `{ message }` | Electron host: inbound `vellum://send?message=…` URL routed by Launch Services. Chat domain consumes to pre-fill the composer. |
+| `deeplink.openThread` | `{ threadId }` | Electron host: inbound `vellum://thread/<id>` URL. Chat domain consumes to navigate. |
+| `deeplink.unknown` | `{ url }` | Parser fallback for foreign schemes / malformed URLs. Consumers typically log + drop; exists so the bridge surface is exhaustive. |
 
 ## Subscribing
 

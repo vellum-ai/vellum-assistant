@@ -48,6 +48,30 @@ mock.module("@/assistant/lifecycle-store", () => ({
   },
 }));
 
+// Capture the deep-link subscription callback so tests can fire
+// "live" links. Allow each test to seed the drain return value.
+type DeepLink =
+  | { kind: "send"; message: string }
+  | { kind: "openThread"; threadId: string }
+  | { kind: "unknown"; url: string };
+let activeDeepLinkCallback: ((link: DeepLink) => void) | null = null;
+let pendingDeepLinksFixture: DeepLink[] = [];
+const subscribeToDeepLinksMock = mock((cb: (link: DeepLink) => void) => {
+  activeDeepLinkCallback = cb;
+  return () => {
+    activeDeepLinkCallback = null;
+  };
+});
+const drainPendingDeepLinksMock = mock(async (): Promise<DeepLink[]> => {
+  const drained = pendingDeepLinksFixture;
+  pendingDeepLinksFixture = [];
+  return drained;
+});
+mock.module("@/runtime/deep-links", () => ({
+  drainPendingDeepLinks: drainPendingDeepLinksMock,
+  subscribeToDeepLinks: subscribeToDeepLinksMock,
+}));
+
 const { useEventBusInit } = await import("@/hooks/use-event-bus-init");
 
 beforeEach(() => {
@@ -56,9 +80,13 @@ beforeEach(() => {
   activeOnError = null;
   activeOnReconnect = null;
   lastSubscribeArgs = null;
+  activeDeepLinkCallback = null;
+  pendingDeepLinksFixture = [];
   cancelMock.mockClear();
   subscribeChatEventsMock.mockClear();
   checkAssistantMock.mockClear();
+  subscribeToDeepLinksMock.mockClear();
+  drainPendingDeepLinksMock.mockClear();
 });
 
 afterEach(() => {
@@ -533,5 +561,116 @@ describe("useEventBusInit — DOM event sources", () => {
     );
     window.dispatchEvent(new Event("offline"));
     expect(offlineHandler).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("useEventBusInit — deep links", () => {
+  test("publishes deeplink.send for live `send` links via the wrapper subscription", () => {
+    const handler = mock(() => {});
+    useEventBusStore.getState().subscribe("deeplink.send", handler);
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: null,
+        isAssistantActive: false,
+      }),
+    );
+
+    activeDeepLinkCallback?.({ kind: "send", message: "hi" });
+
+    expect(handler).toHaveBeenCalledWith({ message: "hi" });
+  });
+
+  test("publishes deeplink.openThread for live `openThread` links", () => {
+    const handler = mock(() => {});
+    useEventBusStore.getState().subscribe("deeplink.openThread", handler);
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: null,
+        isAssistantActive: false,
+      }),
+    );
+
+    activeDeepLinkCallback?.({ kind: "openThread", threadId: "abc" });
+
+    expect(handler).toHaveBeenCalledWith({ threadId: "abc" });
+  });
+
+  test("publishes deeplink.unknown for parser-fallback links", () => {
+    const handler = mock(() => {});
+    useEventBusStore.getState().subscribe("deeplink.unknown", handler);
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: null,
+        isAssistantActive: false,
+      }),
+    );
+
+    activeDeepLinkCallback?.({ kind: "unknown", url: "javascript:alert(1)" });
+
+    expect(handler).toHaveBeenCalledWith({ url: "javascript:alert(1)" });
+  });
+
+  test("drains the pending buffer at mount and publishes each link in order", async () => {
+    const sendHandler = mock(() => {});
+    const threadHandler = mock(() => {});
+    useEventBusStore.getState().subscribe("deeplink.send", sendHandler);
+    useEventBusStore.getState().subscribe("deeplink.openThread", threadHandler);
+    pendingDeepLinksFixture = [
+      { kind: "send", message: "one" },
+      { kind: "openThread", threadId: "thread-1" },
+    ];
+
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: null,
+        isAssistantActive: false,
+      }),
+    );
+
+    // Drain is awaited; let the microtasks settle.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sendHandler).toHaveBeenCalledWith({ message: "one" });
+    expect(threadHandler).toHaveBeenCalledWith({ threadId: "thread-1" });
+  });
+
+  test("subscribes BEFORE draining so a link arriving mid-drain isn't lost", async () => {
+    // Trace the subscribe-before-drain order: `subscribeToDeepLinks`
+    // must be called before `drainPendingDeepLinks` so a link that
+    // lands in the in-flight window between the two calls still
+    // reaches the renderer.
+    renderHook(() =>
+      useEventBusInit({
+        assistantId: null,
+        isAssistantActive: false,
+      }),
+    );
+
+    expect(subscribeToDeepLinksMock).toHaveBeenCalled();
+    expect(drainPendingDeepLinksMock).toHaveBeenCalled();
+    const subscribeOrder =
+      subscribeToDeepLinksMock.mock.invocationCallOrder[0]!;
+    const drainOrder = drainPendingDeepLinksMock.mock.invocationCallOrder[0]!;
+    expect(subscribeOrder).toBeLessThan(drainOrder);
+  });
+
+  test("unsubscribes on unmount so live links stop firing into the bus", () => {
+    const handler = mock(() => {});
+    useEventBusStore.getState().subscribe("deeplink.send", handler);
+    const { unmount } = renderHook(() =>
+      useEventBusInit({
+        assistantId: null,
+        isAssistantActive: false,
+      }),
+    );
+
+    unmount();
+
+    // After unmount, the captured callback is cleared by the
+    // unsubscribe-noop returned by `subscribeToDeepLinks`. Verify
+    // by attempting to fire — should not deliver.
+    activeDeepLinkCallback?.({ kind: "send", message: "post-unmount" });
+    expect(handler).not.toHaveBeenCalled();
   });
 });

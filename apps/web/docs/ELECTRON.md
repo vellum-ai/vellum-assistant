@@ -76,6 +76,15 @@ Example (`runtime/power-events.ts` + `BusEventMap`): the system's `powerMonitor`
 
 The bus integration means the same subscriber code works whether the signal came from `powerMonitor` (Electron), `visibilitychange` (web), or Capacitor `appStateChange` (iOS). Wrappers that publish into the bus stay tiny — they're just signal sources.
 
+### When signals can arrive before the renderer exists
+
+A subset of push signals — inbound deep links being the canonical case — can arrive at the main process BEFORE the renderer has loaded (the OS launches the app via a `vellum://` click → `open-url` fires before `whenReady`). The renderer wrapper grows a second surface for these:
+
+- **`subscribe<X>(callback)`** — live subscription for post-mount signals.
+- **`drainPending<X>()`** — returns and clears the main-side buffer of signals that arrived during startup.
+
+`use-event-bus-init` calls `subscribe` BEFORE `drainPending` so a signal arriving in flight between the two calls isn't lost. Example: `apps/web/src/runtime/deep-links.ts` paired with the main-side buffer in `apps/macos/src/main/deep-links.ts`.
+
 ---
 
 ## See also

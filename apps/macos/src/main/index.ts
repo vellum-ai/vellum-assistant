@@ -7,6 +7,11 @@ import path from "node:path";
 import { installAbout, openAboutWindow } from "./about";
 import { APP_PROTOCOL } from "./app-config";
 import { resolveAppProtocolPath } from "./app-protocol";
+import {
+  extractDeepLinkFromArgv,
+  handleDeepLink,
+  installDeepLinks,
+} from "./deep-links";
 import { installDock } from "./dock";
 import {
   ensureVisible as ensureMainWindowVisible,
@@ -68,6 +73,13 @@ protocol.registerSchemesAsPrivileged([
     },
   },
 ]);
+
+// Deep-link plumbing — register at module top-level so the
+// `will-finish-launching` subscription captures URLs delivered AT
+// launch (the OS opens the app via a `vellum://` click → `open-url`
+// can fire before `whenReady`). Registering in `whenReady` misses
+// the launching URL — the #1 deep-link bug in Electron apps.
+installDeepLinks();
 
 // Serve apps/web/dist/ as static files via `app://vellum.ai/...`. Route-like
 // paths (no file extension, or `.html`) fall back to index.html so React
@@ -273,12 +285,19 @@ app
     console.error("[app] whenReady setup failed:", err);
   });
 
-app.on("second-instance", () => {
+app.on("second-instance", (_event, argv) => {
   // Behavior change vs prior code path: previously a second-instance
   // launch was a no-op when the main window had been destroyed. Now
   // we recreate so the user always sees a window in response to
   // re-launching the app.
   ensureMainWindowVisible();
+  // Cross-platform deep-link delivery: macOS routes second-launch
+  // deep links via a fresh `open-url` on the primary instance (argv
+  // is empty). Windows / Linux deliver the URL via argv and
+  // `open-url` never fires. Always check argv here so the buffered
+  // / broadcast pipeline is platform-agnostic.
+  const deepLink = extractDeepLinkFromArgv(argv);
+  if (deepLink) handleDeepLink(deepLink);
 });
 
 app.on("web-contents-created", (_event, contents) => {

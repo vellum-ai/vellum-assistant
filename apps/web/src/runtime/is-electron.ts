@@ -57,6 +57,23 @@ declare global {
           }) => void,
         ): () => void;
       };
+      deepLinks: {
+        drain(): Promise<
+          Array<
+            | { kind: "send"; message: string }
+            | { kind: "openThread"; threadId: string }
+            | { kind: "unknown"; url: string }
+          >
+        >;
+        onLink(
+          callback: (
+            link:
+              | { kind: "send"; message: string }
+              | { kind: "openThread"; threadId: string }
+              | { kind: "unknown"; url: string },
+          ) => void,
+        ): () => void;
+      };
     };
   }
 }

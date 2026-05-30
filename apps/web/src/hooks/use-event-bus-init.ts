@@ -3,13 +3,15 @@
  *
  * Two concerns, two effects:
  *
- * 1. DOM / Capacitor / Electron lifecycle. Listens to
- *    `document.visibilitychange`, `window.online` / `window.offline`,
- *    Capacitor `App.appStateChange`, and (on the Electron host) the
- *    main-process `powerMonitor` bridge. Publishes `"app.resume"` /
- *    `"app.hidden"` / `"app.online"` / `"app.offline"` and
- *    `"power.suspend"` / `"power.resume"` / `"power.lock"` /
- *    `"power.unlock"` / `"power.active"` on the bus.
+ * 1. DOM / Capacitor / Electron lifecycle + inbound deep links.
+ *    Listens to `document.visibilitychange`, `window.online` /
+ *    `window.offline`, Capacitor `App.appStateChange`, and (on the
+ *    Electron host) the main-process `powerMonitor` and deep-link
+ *    bridges. Publishes `"app.resume"` / `"app.hidden"` /
+ *    `"app.online"` / `"app.offline"` /  `"power.suspend"` /
+ *    `"power.resume"` / `"power.lock"` / `"power.unlock"` /
+ *    `"power.active"` / `"deeplink.send"` / `"deeplink.openThread"` /
+ *    `"deeplink.unknown"` on the bus.
  *
  * 2. Single assistant-scoped SSE connection. Opens one unfiltered
  *    `/v1/events` stream per assistant and re-broadcasts every event
@@ -35,6 +37,11 @@ import type { PluginListenerHandle } from "@capacitor/core";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { subscribeChatEvents } from "@/lib/streaming/stream-transport";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
+import {
+  drainPendingDeepLinks,
+  subscribeToDeepLinks,
+  type DeepLink,
+} from "@/runtime/deep-links";
 import { subscribeToPowerEvents } from "@/runtime/power-events";
 import { useEventBusStore } from "@/stores/event-bus-store";
 import { isNativePlatform } from "@/runtime/native-auth";
@@ -131,6 +138,34 @@ export function useEventBusInit({
       }
     });
 
+    // Electron host: deep-link bridge. Subscribe-then-drain order
+    // matters — a link arriving between drain completion and
+    // subscription would be lost otherwise. Subscribe first, drain
+    // second; any in-flight link is delivered via `onLink` and the
+    // drained buffer carries the pre-renderer-ready backlog. The
+    // bus delivers handlers in registration order so duplicate
+    // delivery (live link also enqueued in main between subscribe
+    // and drain) is consumer's problem if it ever happens — the
+    // current main-side implementation buffers + broadcasts, so
+    // drain after subscribe sees no duplicates in practice.
+    const publishDeepLink = (link: DeepLink) => {
+      switch (link.kind) {
+        case "send":
+          bus.publish("deeplink.send", { message: link.message });
+          break;
+        case "openThread":
+          bus.publish("deeplink.openThread", { threadId: link.threadId });
+          break;
+        case "unknown":
+          bus.publish("deeplink.unknown", { url: link.url });
+          break;
+      }
+    };
+    const unsubDeepLinks = subscribeToDeepLinks(publishDeepLink);
+    void drainPendingDeepLinks().then((pending) => {
+      for (const link of pending) publishDeepLink(link);
+    });
+
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("online", handleOnline);
@@ -138,6 +173,7 @@ export function useEventBusInit({
       appStateCancelled = true;
       void appStateHandle?.remove();
       unsubPower();
+      unsubDeepLinks();
     };
   }, []);
 
