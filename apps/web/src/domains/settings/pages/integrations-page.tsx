@@ -30,7 +30,7 @@ import {
   setLocalSetting,
 } from "@/utils/local-settings";
 
-const BANNER_STORAGE_KEY = "integrations.bannerDismissed";
+const BANNER_STORAGE_KEY = "vellum:integrations:bannerDismissed";
 
 type IntegrationFilter = "all" | "enabled" | "not-enabled";
 

@@ -4,71 +4,12 @@ import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
 } from "@/utils/last-viewed-conversation-storage";
+import { installMemoryStorage } from "@/utils/memory-storage.test-helper";
 
 const ASSISTANT_ID = "asst_123";
 const STORAGE_KEY = `vellum:lastViewedConversation:${ASSISTANT_ID}`;
 
-class MemoryStorage implements Storage {
-  private store = new Map<string, string>();
-
-  get length(): number {
-    return this.store.size;
-  }
-
-  clear(): void {
-    this.store.clear();
-  }
-
-  getItem(key: string): string | null {
-    return this.store.has(key) ? (this.store.get(key) ?? null) : null;
-  }
-
-  key(index: number): string | null {
-    return Array.from(this.store.keys())[index] ?? null;
-  }
-
-  removeItem(key: string): void {
-    this.store.delete(key);
-  }
-
-  setItem(key: string, value: string): void {
-    this.store.set(key, String(value));
-  }
-}
-
-const memoryStorage = new MemoryStorage();
-// Track the original `window` descriptor so we can restore it after this test
-// file finishes. Other tests in the same bun worker rely on `typeof window ===
-// "undefined"` to pick a baseUrl for the HTTP client, so we must not leak a
-// defined `window` into unrelated suites.
-const ORIGINAL_WINDOW_DESCRIPTOR = Object.getOwnPropertyDescriptor(
-  globalThis,
-  "window",
-);
-
-beforeAll(() => {
-  Object.defineProperty(globalThis, "window", {
-    value: { localStorage: memoryStorage },
-    configurable: true,
-    writable: true,
-  });
-});
-
-afterAll(() => {
-  if (ORIGINAL_WINDOW_DESCRIPTOR) {
-    Object.defineProperty(globalThis, "window", ORIGINAL_WINDOW_DESCRIPTOR);
-  } else {
-    delete (globalThis as { window?: unknown }).window;
-  }
-});
-
-beforeEach(() => {
-  memoryStorage.clear();
-});
-
-afterEach(() => {
-  memoryStorage.clear();
-});
+const memoryStorage = installMemoryStorage({ beforeAll, afterAll, beforeEach, afterEach });
 
 describe("loadLastViewedConversationId", () => {
   test("returns null when no value is stored", () => {

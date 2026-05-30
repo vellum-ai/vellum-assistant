@@ -325,22 +325,22 @@ export function reconcileFromDaemonConfig(config: DaemonConfig): DaemonConfigRec
 // Local-storage keys
 // ---------------------------------------------------------------------------
 
-const LS_IMAGE_GEN_MODE = "vellum_image_gen_mode";
-const LS_IMAGE_GEN_MODEL = "vellum_image_gen_model";
-const LS_WEB_SEARCH_MODE = "vellum_web_search_mode";
-const LS_WEB_SEARCH_PROVIDER = "vellum_web_search_provider";
-const LS_EMAIL_MODE = "vellum_email_mode";
-const LS_EMAIL_BYO_PROVIDER = "vellum_email_byo_provider";
+const LS_IMAGE_GEN_MODE = "vellum:ai:imageGenMode";
+const LS_IMAGE_GEN_MODEL = "vellum:ai:imageGenModel";
+const LS_WEB_SEARCH_MODE = "vellum:ai:webSearchMode";
+const LS_WEB_SEARCH_PROVIDER = "vellum:ai:webSearchProvider";
+const LS_EMAIL_MODE = "vellum:ai:emailMode";
+const LS_EMAIL_BYO_PROVIDER = "vellum:ai:emailByoProvider";
 
 // TTS / STT localStorage keys (shared with the Voice settings tab)
-const LS_TTS_PROVIDER = "voice:ttsProvider";
-const LS_TTS_API_KEY_PREFIX = "voice:ttsApiKey:";
-const LS_TTS_VOICE_ID_PREFIX = "voice:ttsVoiceId:";
-const LS_STT_PROVIDER = "voice:sttProvider";
-const LS_STT_API_KEY_PREFIX = "voice:sttApiKey:";
+const LS_TTS_PROVIDER = "vellum:voice:ttsProvider";
+const LS_TTS_API_KEY_PREFIX = "vellum:voice:ttsApiKey:";
+const LS_TTS_VOICE_ID_PREFIX = "vellum:voice:ttsVoiceId:";
+const LS_STT_PROVIDER = "vellum:voice:sttProvider";
+const LS_STT_API_KEY_PREFIX = "vellum:voice:sttApiKey:";
 
 // localStorage key for the image generation credential (matching service-keys page)
-const LS_IMAGE_GEN_CREDENTIAL = "vellum_gemini_key";
+const LS_IMAGE_GEN_CREDENTIAL = "vellum:ai:geminiKey";
 
 // Per-web-search-provider localStorage keys live in the generated catalog
 // (`WEB_SEARCH_PROVIDER_KEY_STORAGE`). Returns "" for managed providers

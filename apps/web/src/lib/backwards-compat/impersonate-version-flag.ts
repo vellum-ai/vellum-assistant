@@ -28,7 +28,7 @@
 //   impersonateVersion(null)     — clear + reload
 //   impersonateVersion()         — log + return current value, no reload
 
-const STORAGE_KEY = "vellumDebug.flags.impersonateAssistantVersion";
+const STORAGE_KEY = "vellum:debug:impersonateAssistantVersion";
 
 /**
  * Read the impersonated version synchronously. Safe to call at any

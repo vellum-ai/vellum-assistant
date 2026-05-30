@@ -200,7 +200,7 @@ describe("renderSlackTranscript — basics", () => {
         "user",
         "[mar 4 2026 8:37 PM MT aaron] nm, i wonder how my assistant is doing",
       ),
-      textMsg("assistant", "[mar 4 2026 8:38 PM MT assistant] i'm good"),
+      textMsg("assistant", "i'm good"),
       textMsg("user", "[mar 4 2026 8:39 PM MT jordan (ET)] ayeeeee"),
     ]);
   });

@@ -21,22 +21,24 @@ import {
   setLocalSetting,
 } from "@/utils/local-settings";
 import { getDeviceSetting } from "@/utils/device-settings";
+import {
+  KEY_TOS_ACCEPTED,
+  KEY_AI_DATA_CONSENT,
+  KEY_COMPLETED,
+} from "@/utils/onboarding-cleanup";
 import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 
 // ---------------------------------------------------------------------------
 // Storage keys (non-boolean — boolean keys live in onboarding-store.ts)
 // ---------------------------------------------------------------------------
 
-const KEY_TOS_ACCEPTED = "onboarding.tosAccepted";
-const KEY_AI_DATA_CONSENT = "onboarding.aiDataConsent";
-const KEY_COMPLETED = "onboarding.completed";
 /**
  * Onboarding-only, nonprod-only: pinned release version for the hatch.
  * Written by the privacy screen's dev-tools version picker, read by the
  * hatching screen and forwarded to `hatchAssistant({ version })`. Empty
  * string / absent means "latest" (the normal managed default).
  */
-const KEY_SELECTED_VERSION = "onboarding.selectedVersion";
+const KEY_SELECTED_VERSION = "vellum:onboarding:selectedVersion";
 
 // ---------------------------------------------------------------------------
 // Public hooks — thin wrappers around the Zustand store

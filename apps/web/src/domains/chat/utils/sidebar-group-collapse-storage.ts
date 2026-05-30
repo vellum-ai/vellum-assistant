@@ -2,102 +2,57 @@
 // so that the user's last-known toggle state for each collapsible group
 // (Scheduled, Background, Slack, and custom groups) survives page reloads.
 //
-// Shape on disk: string[] — the list of currently-open category keys, one entry
-// per expanded group. The format mirrors the Radix Accordion `value` prop for
-// `type="multiple"`. Defaults to [] when no stored state exists.
-//
 // Built-in sections (scheduled / background / slack) and custom groups
 // are stored under SEPARATE keys so each CollapsibleNavSection.Root manages only
 // its own items — sharing a single array across two Radix roots would cause one
 // root's onValueChange to clobber the other.
 
-const STORAGE_KEY_PREFIX = "vellum:sidebar-open-categories:";
-const STORAGE_KEY_PREFIX_CUSTOM = "vellum:sidebar-open-custom-groups:";
-const DEFAULT_OPEN_CATEGORIES: string[] = [];
-const DEFAULT_OPEN_CUSTOM_GROUPS: string[] = [];
+import { parseStringArray } from "@/domains/chat/utils/storage-validators";
+import { createKeyedStorageAccessor } from "@/utils/typed-storage";
+
 const OPEN_CATEGORY_KEYS = new Set([
   "scheduled",
   "background",
   "slack",
 ]);
 
-function storageKey(assistantId: string): string {
-  return `${STORAGE_KEY_PREFIX}${assistantId}`;
-}
+const categoriesStorage = createKeyedStorageAccessor<string[]>({
+  keyFn: (assistantId) => `vellum:sidebar-open-categories:${assistantId}`,
+  scope: "user",
+  parse: parseStringArray,
+  serialize: JSON.stringify,
+  fallback: [],
+});
 
-function storageKeyCustom(assistantId: string): string {
-  return `${STORAGE_KEY_PREFIX_CUSTOM}${assistantId}`;
-}
+const customGroupsStorage = createKeyedStorageAccessor<string[]>({
+  keyFn: (assistantId) => `vellum:sidebar-open-custom-groups:${assistantId}`,
+  scope: "user",
+  parse: parseStringArray,
+  serialize: JSON.stringify,
+  fallback: [],
+});
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((v) => typeof v === "string");
-}
-
-function readFromStorage(key: string, defaultValue: string[]): string[] {
-  if (typeof window === "undefined") {
-    return defaultValue;
-  }
-  try {
-    const raw = window.localStorage.getItem(key);
-    if (!raw) {
-      return defaultValue;
-    }
-    const parsed: unknown = JSON.parse(raw);
-    if (isStringArray(parsed)) {
-      return parsed;
-    }
-    return defaultValue;
-  } catch {
-    return defaultValue;
-  }
-}
-
-function writeToStorage(key: string, value: string[]): void {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Storage can fail in private browsing / quota-exceeded cases. Silently
-    // drop; the in-memory selection still works for the current session.
-  }
-}
-
-/**
- * Load the list of open built-in sidebar category keys for a given assistant.
- * Returns `[]` when no stored state exists or on any parse error.
- */
+/** Load open built-in sidebar category keys, filtering stale values. */
 export function loadOpenCategories(assistantId: string): string[] {
-  return readFromStorage(storageKey(assistantId), DEFAULT_OPEN_CATEGORIES).filter(
+  return categoriesStorage.load(assistantId).filter(
     (category) => OPEN_CATEGORY_KEYS.has(category),
   );
 }
 
-/**
- * Persist the list of open built-in sidebar category keys for a given assistant.
- */
 export function saveOpenCategories(
   assistantId: string,
   openCategories: string[],
 ): void {
-  writeToStorage(storageKey(assistantId), openCategories);
+  categoriesStorage.save(assistantId, openCategories);
 }
 
-/**
- * Load the list of open custom group IDs for a given assistant.
- * Returns `[]` when no stored state exists or on any parse error.
- */
 export function loadOpenCustomGroups(assistantId: string): string[] {
-  return readFromStorage(storageKeyCustom(assistantId), DEFAULT_OPEN_CUSTOM_GROUPS);
+  return customGroupsStorage.load(assistantId);
 }
 
-/**
- * Persist the list of open custom group IDs for a given assistant.
- */
 export function saveOpenCustomGroups(
   assistantId: string,
   openGroups: string[],
 ): void {
-  writeToStorage(storageKeyCustom(assistantId), openGroups);
+  customGroupsStorage.save(assistantId, openGroups);
 }

@@ -29,7 +29,7 @@ import {
 } from "@/utils/ptt-activator";
 import { routes } from "@/utils/routes";
 
-const LS_CONVERSATION_TIMEOUT = "voice:conversationTimeoutSeconds";
+const LS_CONVERSATION_TIMEOUT = "vellum:voice:conversationTimeoutSeconds";
 
 const PTT_PRESETS: ReadonlyArray<{ label: string; activator: PTTActivator }> = [
   {

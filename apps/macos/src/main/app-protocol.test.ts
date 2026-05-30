@@ -122,3 +122,81 @@ describe("resolveRelativePath — startsWith guard", () => {
     });
   });
 });
+
+// `apps/web/vite.config.ts` sets `base: "/assistant/"`, so the
+// built HTML emits asset URLs like `/assistant/assets/index.js`.
+// The renderer files on disk live directly under `rendererRoot`,
+// NOT under a `/assistant/` subdirectory. The protocol handler
+// passes `mountPrefix: "/assistant"` so these tests pin the
+// stripping behavior.
+describe("resolveAppProtocolPath — mount-prefix stripping", () => {
+  test("maps `/assistant` to the root itself", () => {
+    expect(
+      resolveAppProtocolPath(ROOT, "app://vellum.ai/assistant", "/assistant"),
+    ).toEqual({ kind: "ok", resolved: ROOT });
+  });
+
+  test("maps `/assistant/<rest>` to `rendererRoot/<rest>`", () => {
+    expect(
+      resolveAppProtocolPath(
+        ROOT,
+        "app://vellum.ai/assistant/assets/index.js",
+        "/assistant",
+      ),
+    ).toEqual({ kind: "ok", resolved: path.join(ROOT, "assets/index.js") });
+  });
+
+  test("a nested deep path under the mount maps cleanly", () => {
+    expect(
+      resolveAppProtocolPath(
+        ROOT,
+        "app://vellum.ai/assistant/assets/css/app.css",
+        "/assistant",
+      ),
+    ).toEqual({
+      kind: "ok",
+      resolved: path.join(ROOT, "assets/css/app.css"),
+    });
+  });
+
+  test("a path that doesn't start with the mount is passed through (and 404s as usual)", () => {
+    // `/favicon.ico` lives at the bare protocol root. Stays under
+    // `rendererRoot/favicon.ico` (where Vite emits favicon).
+    expect(
+      resolveAppProtocolPath(
+        ROOT,
+        "app://vellum.ai/favicon.ico",
+        "/assistant",
+      ),
+    ).toEqual({ kind: "ok", resolved: path.join(ROOT, "favicon.ico") });
+  });
+
+  test("a sibling that shares the mount prefix as a string is NOT stripped", () => {
+    // `/assistantfoo` shares `/assistant` as a string prefix but
+    // isn't under the mount. The strip only fires for exact match or
+    // `/assistant/` prefix.
+    expect(
+      resolveAppProtocolPath(
+        ROOT,
+        "app://vellum.ai/assistantfoo/bar",
+        "/assistant",
+      ),
+    ).toEqual({
+      kind: "ok",
+      resolved: path.join(ROOT, "assistantfoo/bar"),
+    });
+  });
+
+  test("path-traversal guard still fires for stripped paths", () => {
+    // `/assistant/../etc/passwd` — URL normalization collapses to
+    // `/etc/passwd`, which doesn't start with the mount, so no strip.
+    // The result lands at `rendererRoot/etc/passwd` (in-root, ok).
+    expect(
+      resolveAppProtocolPath(
+        ROOT,
+        "app://vellum.ai/assistant/../etc/passwd",
+        "/assistant",
+      ),
+    ).toEqual({ kind: "ok", resolved: path.join(ROOT, "etc/passwd") });
+  });
+});
