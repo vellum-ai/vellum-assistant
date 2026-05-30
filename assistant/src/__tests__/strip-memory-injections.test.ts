@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import { stripExistingMemoryInjections } from "../memory/graph/conversation-graph-memory.js";
+import {
+  stripAllMemoryInjections,
+  stripExistingMemoryInjections,
+} from "../memory/graph/conversation-graph-memory.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -79,7 +82,13 @@ describe("stripExistingMemoryInjections", () => {
 
   test("strips 3-block memory image (marker + image + close)", () => {
     const messages = [
-      userMsg(memoryTextBlock, memoryImageMarker, memoryImage, memoryImageClose, textBlock("hi")),
+      userMsg(
+        memoryTextBlock,
+        memoryImageMarker,
+        memoryImage,
+        memoryImageClose,
+        textBlock("hi"),
+      ),
     ];
     const result = stripExistingMemoryInjections(messages);
     expect(result[0].content).toEqual([textBlock("hi")]);
@@ -104,7 +113,12 @@ describe("stripExistingMemoryInjections", () => {
 
   test("strips legacy 2-block memory image (no closing tag)", () => {
     const messages = [
-      userMsg(memoryTextBlock, legacyMemoryImageMarker, memoryImage, textBlock("hi")),
+      userMsg(
+        memoryTextBlock,
+        legacyMemoryImageMarker,
+        memoryImage,
+        textBlock("hi"),
+      ),
     ];
     const result = stripExistingMemoryInjections(messages);
     expect(result[0].content).toEqual([textBlock("hi")]);
@@ -119,10 +133,7 @@ describe("stripExistingMemoryInjections", () => {
   test("preserves user-attached image with text", () => {
     const messages = [userMsg(imageBlock, textBlock("what is this?"))];
     const result = stripExistingMemoryInjections(messages);
-    expect(result[0].content).toEqual([
-      imageBlock,
-      textBlock("what is this?"),
-    ]);
+    expect(result[0].content).toEqual([imageBlock, textBlock("what is this?")]);
   });
 
   test("preserves user image after stripping 3-block memory blocks", () => {
@@ -137,10 +148,7 @@ describe("stripExistingMemoryInjections", () => {
       ),
     ];
     const result = stripExistingMemoryInjections(messages);
-    expect(result[0].content).toEqual([
-      imageBlock,
-      textBlock("look at this"),
-    ]);
+    expect(result[0].content).toEqual([imageBlock, textBlock("look at this")]);
   });
 
   test("preserves user image-only message after stripping memory blocks", () => {
@@ -151,7 +159,11 @@ describe("stripExistingMemoryInjections", () => {
 
   test("does not modify earlier messages", () => {
     const earlier = userMsg(textBlock("first"));
-    const messages = [earlier, assistantMsg("ok"), userMsg(memoryTextBlock, textBlock("second"))];
+    const messages = [
+      earlier,
+      assistantMsg("ok"),
+      userMsg(memoryTextBlock, textBlock("second")),
+    ];
     const result = stripExistingMemoryInjections(messages);
     expect(result[0]).toBe(earlier);
     expect(result[2].content).toEqual([textBlock("second")]);
@@ -165,10 +177,17 @@ describe("stripExistingMemoryInjections", () => {
 
   test("does not strip </memory_image> after memory text block (no image context)", () => {
     const messages = [
-      userMsg(memoryTextBlock, textBlock("</memory_image>"), textBlock("hello")),
+      userMsg(
+        memoryTextBlock,
+        textBlock("</memory_image>"),
+        textBlock("hello"),
+      ),
     ];
     const result = stripExistingMemoryInjections(messages);
-    expect(result[0].content).toEqual([textBlock("</memory_image>"), textBlock("hello")]);
+    expect(result[0].content).toEqual([
+      textBlock("</memory_image>"),
+      textBlock("hello"),
+    ]);
   });
 
   test("strips images-first then text (actual injectMemoryBlock order)", () => {
@@ -183,5 +202,74 @@ describe("stripExistingMemoryInjections", () => {
     ];
     const result = stripExistingMemoryInjections(messages);
     expect(result[0].content).toEqual([textBlock("hello")]);
+  });
+
+  // Regression guard: the v2 helper must remain last-message-only even after
+  // the shared per-message strip is extracted for stripAllMemoryInjections.
+  test("strips ONLY the last user message, leaving earlier ones injected", () => {
+    const messages = [
+      userMsg(memoryTextBlock, textBlock("first")),
+      assistantMsg("ok"),
+      userMsg(memoryTextBlock, textBlock("second")),
+    ];
+    const result = stripExistingMemoryInjections(messages);
+    // Earlier user message keeps its injected memory block.
+    expect(result[0].content).toEqual([memoryTextBlock, textBlock("first")]);
+    // Last user message is stripped.
+    expect(result[2].content).toEqual([textBlock("second")]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stripAllMemoryInjections — removes memory-injected blocks from EVERY user
+// message (memory-v3 live mode). Reuses the same per-message strip logic.
+// ---------------------------------------------------------------------------
+
+describe("stripAllMemoryInjections", () => {
+  test("strips memory blocks from multiple historical user messages", () => {
+    const messages = [
+      userMsg(memoryTextBlock, textBlock("first")),
+      assistantMsg("ok"),
+      userMsg(
+        memoryImageMarker,
+        memoryImage,
+        memoryImageClose,
+        memoryTextBlock,
+        textBlock("second"),
+      ),
+      assistantMsg("sure"),
+      userMsg(memoryTextBlock, textBlock("third")),
+    ];
+    const result = stripAllMemoryInjections(messages);
+    expect(result[0].content).toEqual([textBlock("first")]);
+    expect(result[1]).toBe(messages[1]); // assistant message untouched
+    expect(result[2].content).toEqual([textBlock("second")]);
+    expect(result[3]).toBe(messages[3]);
+    expect(result[4].content).toEqual([textBlock("third")]);
+  });
+
+  test("preserves non-memory content and user-attached images", () => {
+    const messages = [
+      userMsg(memoryTextBlock, imageBlock, textBlock("what is this?")),
+      userMsg(textBlock("plain message")),
+    ];
+    const result = stripAllMemoryInjections(messages);
+    expect(result[0].content).toEqual([imageBlock, textBlock("what is this?")]);
+    expect(result[1].content).toEqual([textBlock("plain message")]);
+  });
+
+  test("no-op (same reference) when no user message carries a memory block", () => {
+    const messages = [
+      userMsg(textBlock("hello")),
+      assistantMsg("hi"),
+      userMsg(imageBlock),
+    ];
+    const result = stripAllMemoryInjections(messages);
+    expect(result).toBe(messages);
+  });
+
+  test("no-op for empty messages array", () => {
+    const result = stripAllMemoryInjections([]);
+    expect(result).toEqual([]);
   });
 });
