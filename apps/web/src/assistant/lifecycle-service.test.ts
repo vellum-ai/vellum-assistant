@@ -11,6 +11,20 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import type { QueryClient } from "@tanstack/react-query";
 
+// Import the real helpers from `@/assistant/lifecycle` before mocking
+// the module — we need the actual resolver / error-builder logic in
+// the mocked surface but with `INITIALIZING_TIMEOUT_MS` shrunk so the
+// 5-minute watchdog is reachable from a test.
+import {
+  buildInitializingTimeoutError,
+  isPlatformHostedDisabled,
+  PLATFORM_HOSTED_DISABLED_MESSAGE,
+  resolveAssistantLifecycleState,
+  shouldRecoverFromHatchFailure,
+} from "@/assistant/lifecycle";
+
+const TEST_INITIALIZING_TIMEOUT_MS = 30;
+
 // --- module mocks --- //
 
 const getAssistantMock = mock(async () => ({ ok: false, status: 404 }));
@@ -53,6 +67,15 @@ mock.module("@/lib/local-mode", () => ({
 mock.module("@sentry/react", () => ({
   captureException: () => {},
   captureMessage: () => {},
+}));
+
+mock.module("@/assistant/lifecycle", () => ({
+  buildInitializingTimeoutError,
+  INITIALIZING_TIMEOUT_MS: TEST_INITIALIZING_TIMEOUT_MS,
+  isPlatformHostedDisabled,
+  PLATFORM_HOSTED_DISABLED_MESSAGE,
+  resolveAssistantLifecycleState,
+  shouldRecoverFromHatchFailure,
 }));
 
 // --- imports under test --- //
@@ -395,4 +418,135 @@ describe("lifecycleService — retry budget exhaustion", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Watchdog → recovery flow (LUM-2067)
+//
+// These tests shrink `INITIALIZING_TIMEOUT_MS` to 30ms (via the
+// `@/assistant/lifecycle` mock above) so the recovery path is
+// reachable from a unit test without time-travel reasoning. The same
+// 5-minute watchdog runs in production; only the timeout constant
+// differs here.
+// ---------------------------------------------------------------------------
+
+/**
+ * Spin until `predicate()` returns true or `timeoutMs` elapses. Bun
+ * doesn't ship fake-timer helpers we can rely on for setTimeout, so
+ * the watchdog tests use a small real timer and a poll loop.
+ */
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 1000,
+): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) {
+      throw new Error("waitFor: condition not met within timeout");
+    }
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+function initializingResult(id: string) {
+  return {
+    ok: true as const,
+    status: 200,
+    data: {
+      id,
+      status: "initializing",
+      is_local: false,
+      maintenance_mode: { enabled: false },
+    },
+  };
+}
+
+describe("lifecycleService — watchdog → recovery", () => {
+  test("watchdog firing on a still-initializing assistant retires and re-hatches", async () => {
+    // checkAssistant fetches → initializing → applyServerStateUpdate
+    // → transitions to initializing → arms the watchdog. The first
+    // recovery's mid-flight `getAssistant` (when
+    // `initializingAssistantId` is already set, this call is
+    // skipped — but on a fresh mount the id IS captured by the first
+    // projection, so the recovery branch goes straight to retire).
+    getAssistantMock.mockImplementation(async () =>
+      initializingResult("asst-stuck"),
+    );
+    retireAssistantMock.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+    }));
+    // After retire, the rehatch succeeds with a fresh id.
+    hatchAssistantMock.mockImplementation(async () => ({
+      ok: true,
+      status: 201,
+      data: { id: "asst-fresh", status: "initializing" },
+    }));
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "initializing",
+    );
+
+    // Watchdog fires after TEST_INITIALIZING_TIMEOUT_MS.
+    await waitFor(() => retireAssistantMock.mock.calls.length >= 1);
+
+    expect(retireAssistantMock).toHaveBeenCalledWith("asst-stuck");
+    await waitFor(() => hatchAssistantMock.mock.calls.length >= 1);
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "initializing",
+    );
+  });
+
+  // Note: the "force-refresh found active" branch inside recovery
+  // (when `initializingAssistantId` was null at watchdog time) and
+  // the post-hatch active landing both depend on the React-tree
+  // polling loop firing `applyServerResult` from the next
+  // `useAssistantQuery` data tick. The state machine alone can't
+  // reach those outcomes without a poll driver, so they're left to
+  // integration coverage (`onboarding-lifecycle-sync.test.tsx`)
+  // rather than reconstructed in isolation here.
+
+  test("MAX_INITIALIZING_RECOVERIES failed recoveries surface as a terminal timeout error", async () => {
+    // Each recovery cycle: retire+rehatch succeeds, but hatch keeps
+    // returning initializing — so the next watchdog firing kicks off
+    // another recovery. Three cycles consume the budget; the fourth
+    // firing trips the budget guard and transitions to error.
+    getAssistantMock.mockImplementation(async () =>
+      initializingResult("asst-stuck"),
+    );
+    retireAssistantMock.mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+    }));
+    hatchAssistantMock.mockImplementation(async () => ({
+      ok: true,
+      status: 201,
+      data: { id: "asst-still-stuck", status: "initializing" },
+    }));
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    await waitFor(
+      () =>
+        useAssistantLifecycleStore.getState().assistantState.kind === "error",
+      1000,
+    );
+
+    const state = useAssistantLifecycleStore.getState().assistantState;
+    expect(state.kind).toBe("error");
+    if (state.kind === "error") {
+      // Should be the timeout-specific error, not a generic one.
+      expect(state.message).toEqual(buildInitializingTimeoutError().message);
+    }
+  });
+});
+
 
