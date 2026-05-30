@@ -450,6 +450,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "memory-v3-live",
+      "scope": "assistant",
+      "key": "memory-v3-live",
+      "label": "Memory v3 Live",
+      "description": "When on, memory-v3 topic-tree retrieval becomes the live injected memory source (suppressing v2 injection). Off by default; only enable after shadow telemetry validates the design.",
+      "defaultEnabled": false
+    },
+    {
       "id": "self-intro-greeting",
       "scope": "assistant",
       "key": "self-intro-greeting",
