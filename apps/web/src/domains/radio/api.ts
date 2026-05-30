@@ -95,7 +95,6 @@ export async function fetchRadioAudioObjectUrl(
   const { data, error, response } = await get({
     ...SDK_BASE_OPTIONS,
     url: audioUrl,
-    headers: { Accept: "audio/*" },
     parseAs: "blob",
     throwOnError: false,
   });

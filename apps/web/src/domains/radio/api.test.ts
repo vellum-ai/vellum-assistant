@@ -84,6 +84,11 @@ describe("fetchRadioAudioObjectUrl", () => {
         throwOnError: false,
       }),
     ]);
+    expect(calls[0]).not.toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({ Accept: "audio/*" }),
+      }),
+    );
     expect(result.url).toBe("blob:radio-audio");
 
     result.revoke();
