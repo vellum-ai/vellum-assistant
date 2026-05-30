@@ -1,6 +1,7 @@
 import { recordDiagnostic } from "@/lib/diagnostics";
 import {
   appendTextDelta,
+  applyUserMessageEcho,
   finalizeMessageComplete,
   finalizeOnIdle,
   stopStreaming,
@@ -13,6 +14,7 @@ import type {
   GenerationCancelledEvent,
   GenerationHandoffEvent,
   MessageCompleteEvent,
+  UserMessageEchoEvent,
 } from "@vellumai/assistant-api";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 
@@ -164,6 +166,21 @@ export function handleMessageComplete(
     hasAttachments: !!event.attachments?.length,
     reanchored: !!(event.messageId && stableId),
   });
+}
+
+/**
+ * Apply a `user_message_echo` event.
+ *
+ * Renders the user turn on every client — including passive viewers and
+ * synthetic surface-action prompts that never issued the originating POST
+ * — and dedupes the originating client's optimistic row. The id/optimistic
+ * reconciliation lives in the pure `applyUserMessageEcho` updater.
+ */
+export function handleUserMessageEcho(
+  event: UserMessageEchoEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.setMessages((prev) => applyUserMessageEcho(prev, event));
 }
 
 export function handleGenerationHandoff(

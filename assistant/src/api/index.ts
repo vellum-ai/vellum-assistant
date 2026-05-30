@@ -32,6 +32,7 @@ import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
 import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
+import { UserMessageEchoEventSchema } from "./events/user-message-echo.js";
 
 export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
@@ -189,6 +190,10 @@ export {
   UISurfaceUpdateEventSchema,
 } from "./events/ui-surface-update.js";
 export {
+  type UserMessageEchoEvent,
+  UserMessageEchoEventSchema,
+} from "./events/user-message-echo.js";
+export {
   type LlmContextResponse,
   LlmContextResponseSchema,
 } from "./responses/llm-context-response.js";
@@ -269,6 +274,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,
   UISurfaceUpdateEventSchema,
+  UserMessageEchoEventSchema,
 ]);
 
 /**

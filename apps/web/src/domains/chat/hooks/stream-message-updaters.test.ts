@@ -5,6 +5,7 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   appendTextDelta,
   applyToolResult,
+  applyUserMessageEcho,
   createStreamingBubble,
   finalizeMessageComplete,
   finalizeOnIdle,
@@ -698,5 +699,118 @@ describe("applyToolResult — cross-message matching", () => {
 
     // Should fall back and complete the last running tool call
     expect(result[0]!.toolCalls![0]!.status).toBe("completed");
+  });
+});
+
+describe("applyUserMessageEcho", () => {
+  it("appends a new id-keyed user row on a passive client", () => {
+    /**
+     * A client that did not originate the send has no optimistic row, so
+     * the echo must materialize the user turn keyed by the server id.
+     */
+    // GIVEN a conversation with no matching user row
+    const prev: DisplayMessage[] = [makeAssistantMsg()];
+
+    // WHEN an echo for a send from another client arrives
+    const result = applyUserMessageEcho(prev, {
+      text: "from another device",
+      messageId: "msg-server-1",
+    });
+
+    // THEN a new user row is appended, keyed by the server id
+    expect(result).toHaveLength(2);
+    expect(result[1]).toEqual({
+      id: "msg-server-1",
+      role: "user",
+      content: "from another device",
+      timestamp: result[1]!.timestamp,
+    });
+  });
+
+  it("appends an optimistic row for a synthetic echo with no messageId", () => {
+    /**
+     * Surface-action prompts persist no distinct user row, so the echo
+     * carries no messageId; the row stays optimistic for reconcile.
+     */
+    // GIVEN an empty conversation
+    const prev: DisplayMessage[] = [];
+
+    // WHEN a synthetic echo (no messageId) arrives
+    const result = applyUserMessageEcho(prev, { text: "surface prompt" });
+
+    // THEN an optimistic user row is appended
+    expect(result).toHaveLength(1);
+    expect(result[0]!.role).toBe("user");
+    expect(result[0]!.content).toBe("surface prompt");
+    expect(result[0]!.isOptimistic).toBe(true);
+  });
+
+  it("upgrades the originating client's optimistic row to the server id", () => {
+    /**
+     * When the echo beats the 202 response, the originating client still
+     * shows its optimistic row; the echo swaps it to the server id so a
+     * later reconcile content-match cannot produce a duplicate.
+     */
+    // GIVEN an optimistic user row matching the echo text
+    const prev: DisplayMessage[] = [
+      { id: "client-uuid", role: "user", content: "hello", isOptimistic: true, timestamp: 1 },
+    ];
+
+    // WHEN the echo for that send arrives with a server id
+    const result = applyUserMessageEcho(prev, {
+      text: "hello",
+      messageId: "msg-server-2",
+    });
+
+    // THEN the row is upgraded in place — id swapped, optimistic cleared, no duplicate
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe("msg-server-2");
+    expect(result[0]!.isOptimistic).toBe(false);
+  });
+
+  it("is a no-op when a row already carries the server id", () => {
+    /**
+     * A redelivered echo (reconnect/resume) or an already-resolved POST
+     * must not append a second copy of the user turn.
+     */
+    // GIVEN a row already keyed by the server id
+    const prev: DisplayMessage[] = [
+      { id: "msg-server-3", role: "user", content: "hello", timestamp: 1 },
+    ];
+
+    // WHEN a duplicate echo for the same id arrives
+    const result = applyUserMessageEcho(prev, {
+      text: "hello",
+      messageId: "msg-server-3",
+    });
+
+    // THEN the array is returned unchanged
+    expect(result).toBe(prev);
+  });
+
+  it("is a no-op when the server id matches a merged alias", () => {
+    /**
+     * Reconcile can fold the server id into mergedMessageIds; the echo
+     * must recognize that alias and not append a duplicate.
+     */
+    // GIVEN a row whose mergedMessageIds includes the server id
+    const prev: DisplayMessage[] = [
+      {
+        id: "client-uuid",
+        role: "user",
+        content: "hello",
+        mergedMessageIds: ["msg-server-4"],
+        timestamp: 1,
+      },
+    ];
+
+    // WHEN the echo for that id arrives
+    const result = applyUserMessageEcho(prev, {
+      text: "hello",
+      messageId: "msg-server-4",
+    });
+
+    // THEN the array is returned unchanged
+    expect(result).toBe(prev);
   });
 });
