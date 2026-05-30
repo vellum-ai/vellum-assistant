@@ -302,6 +302,27 @@ public final class EventStreamClient {
                 }
             }
 
+            // Reconcile the optimistic row's client-local attachment IDs to the
+            // daemon-assigned IDs. The client mints a local UUID per attachment for
+            // the optimistic render; the daemon assigns its own (lowercase) ID on
+            // upload and returns it. Without this, a just-sent file-backed clip whose
+            // local staged file is gone would lazy-load fetch by the unknown local ID
+            // and 404 (surfacing as a cryptic NSURLErrorDomain error on the chip).
+            if let attachments, !attachmentIds.isEmpty {
+                var idRemap: [String: String] = [:]
+                for (attachment, serverId) in zip(attachments, attachmentIds) {
+                    if let localId = attachment.id, localId != serverId {
+                        idRemap[localId] = serverId
+                    }
+                }
+                if !idRemap.isEmpty {
+                    self.broadcastMessage(.attachmentIdsReconciled(
+                        conversationId: conversationId,
+                        mapping: idRemap
+                    ))
+                }
+            }
+
             // Send the message
             let sendResult = await messageClient.sendMessage(
                 content: content,
