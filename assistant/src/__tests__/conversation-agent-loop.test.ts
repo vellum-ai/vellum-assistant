@@ -613,7 +613,6 @@ function makeCtx(
     pendingSurfaceActions: new Map(),
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
-    currentMessageContent: [],
 
     workingDir: "/tmp",
     workspaceTopLevelContext: null,
@@ -3709,9 +3708,7 @@ describe("session-agent-loop", () => {
           ...messages,
           {
             role: "assistant" as const,
-            content: [
-              { type: "text", text: "hello world" },
-            ] as ContentBlock[],
+            content: [{ type: "text", text: "hello world" }] as ContentBlock[],
           },
         ];
       };

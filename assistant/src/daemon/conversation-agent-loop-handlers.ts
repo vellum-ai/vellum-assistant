@@ -251,6 +251,8 @@ export interface EventHandlerState {
   pendingPartialFlushTimer: ReturnType<typeof setTimeout> | undefined;
   /** In-flight partial flush write awaited at finalize to avoid overwrite races. */
   pendingPartialFlushPromise: Promise<void> | undefined;
+  /** Running mirror of the in-flight assistant message's content. */
+  currentMessageContent: ContentBlock[];
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -313,6 +315,7 @@ export function createEventHandlerState(): EventHandlerState {
     serverToolInputs: new Map(),
     pendingPartialFlushTimer: undefined,
     pendingPartialFlushPromise: undefined,
+    currentMessageContent: [],
   };
 }
 
@@ -347,46 +350,40 @@ function buildPersistedAssistantContent(
   });
 }
 
-/** Append a streamed text chunk to `ctx.currentMessageContent`, fusing into tail text block. */
+/** Append a streamed text chunk to `state.currentMessageContent`, fusing into tail text block. */
 function appendTextToCurrentMessage(
-  ctx: AgentLoopConversationContext,
+  state: EventHandlerState,
   text: string,
 ): void {
   if (text.length === 0) return;
-  const tail = ctx.currentMessageContent.at(-1);
+  const tail = state.currentMessageContent.at(-1);
   if (tail && tail.type === "text") {
     tail.text = tail.text + text;
   } else {
-    ctx.currentMessageContent.push({ type: "text", text });
+    state.currentMessageContent.push({ type: "text", text });
   }
 }
 
 /** Reset partial-persist accumulator and any pending flush state. Idempotent. */
-function resetPartialPersistAccumulator(
-  state: EventHandlerState,
-  ctx: AgentLoopConversationContext,
-): void {
+function resetPartialPersistAccumulator(state: EventHandlerState): void {
   if (state.pendingPartialFlushTimer !== undefined) {
     clearTimeout(state.pendingPartialFlushTimer);
     state.pendingPartialFlushTimer = undefined;
   }
-  ctx.currentMessageContent = [];
+  state.currentMessageContent = [];
   state.pendingPartialFlushPromise = undefined;
 }
 
-/** Flush `ctx.currentMessageContent` to the row via the persistence pipeline. */
+/** Flush `state.currentMessageContent` to the row via the persistence pipeline. */
 async function flushAccumulatedContent(
   state: EventHandlerState,
   deps: EventHandlerDeps,
 ): Promise<void> {
   const messageId = state.lastAssistantMessageId;
   if (messageId === undefined) return;
-  if (deps.ctx.currentMessageContent.length === 0) return;
+  if (state.currentMessageContent.length === 0) return;
 
-  const built = buildPersistedAssistantContent(
-    deps.ctx.currentMessageContent,
-    [],
-  );
+  const built = buildPersistedAssistantContent(state.currentMessageContent, []);
   const contentJson = JSON.stringify(built);
 
   try {
@@ -676,7 +673,7 @@ export async function handleLlmCallStarted(
   // `assistantRowAwaitingFinalization` cleanup above already deleted
   // the orphan row, so the accumulator content would point at a
   // non-existent id. Reset here so the new row starts from zero.
-  resetPartialPersistAccumulator(state, deps.ctx);
+  resetPartialPersistAccumulator(state);
   deps.onEvent({
     type: "assistant_turn_start",
     messageId: reserveResult.message.id,
@@ -715,9 +712,9 @@ function handleTextDelta(
       messageId: state.lastAssistantMessageId,
     });
     if (deps.shouldGenerateTitle) state.firstAssistantText += drained.emitText;
-    // Mirror the drained delta into ctx.currentMessageContent so partial
+    // Mirror the drained delta into state.currentMessageContent so partial
     // flushes mid-turn see the same content the user is watching live.
-    appendTextToCurrentMessage(deps.ctx, drained.emitText);
+    appendTextToCurrentMessage(state, drained.emitText);
     schedulePartialFlush(state, deps);
   }
 }
@@ -1441,7 +1438,7 @@ export async function handleMessageComplete(
   state.assistantRowAwaitingFinalization = false;
   // Reset the partial-persist mirror so subsequent calls in this turn
   // start with an empty running view.
-  deps.ctx.currentMessageContent = [];
+  state.currentMessageContent = [];
 
   // ── Indexing + attention projection (restored from the pre-B3 `add` path) ──
   // `reserveMessage` + `updateMessageContent` are CRUD-only: they don't run

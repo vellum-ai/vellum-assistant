@@ -554,13 +554,6 @@ export interface AgentLoopConversationContext {
   surfaceActionRequestIds: Set<string>;
   approvedViaPromptThisTurn?: boolean;
   currentTurnSurfaces: AssistantSurface[];
-  /**
-   * Running mirror of the in-flight assistant message's content, used by
-   * partial-persistence flushes (see `conversation-agent-loop-handlers.ts`).
-   * Mid-turn snapshot of what `event.message.content` will be at
-   * `message_complete`. Reset on llm_call_started and finalize.
-   */
-  currentMessageContent: ContentBlock[];
 
   workingDir: string;
   workspaceTopLevelContext: string | null;
