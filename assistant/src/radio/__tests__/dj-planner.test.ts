@@ -211,6 +211,11 @@ describe("planRadioDjBreak", () => {
       "web_fetch",
     ]);
     expect(options?.systemPrompt).toContain("return JSON only");
+    expect(options?.systemPrompt).toContain("sports");
+    expect(options?.systemPrompt).toContain("current events");
+    expect(options?.systemPrompt).toContain("local news");
+    expect(options?.systemPrompt).toContain("Avoid work");
+    expect(options?.systemPrompt).toContain("personal taste");
     expect(options?.config?.callSite).toBe("radioDj");
   });
 
