@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import type { QuestionPromptResult } from "../../permissions/question-prompter.js";
-import type { ToolContext, ToolDefinition } from "../types.js";
+import type { ToolContext } from "../types.js";
 import { askQuestionTool, createAskQuestionTool } from "./ask-question-tool.js";
 
 type PromptParams = Parameters<
@@ -18,10 +18,10 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   };
 }
 
-function makeToolWithStub(result: QuestionPromptResult): {
-  tool: ToolDefinition;
-  calls: PromptParams[];
-} {
+// Return type is inferred so the satisfies-narrowed shape of
+// `createAskQuestionTool()` carries through — letting the test call
+// `tool.execute(...)` without a `!` bang.
+function makeToolWithStub(result: QuestionPromptResult) {
   const calls: PromptParams[] = [];
   const tool = createAskQuestionTool(() => ({
     async prompt(params: PromptParams) {
