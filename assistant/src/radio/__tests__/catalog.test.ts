@@ -9,6 +9,50 @@ import {
   RADIO_TRACKS,
 } from "../catalog.js";
 
+function countPercussiveOnsets(bytes: Buffer): number {
+  const sampleRate = bytes.readUInt32LE(24);
+  const dataByteLength = bytes.readUInt32LE(40);
+  const sampleCount = dataByteLength / 2;
+  const frameSize = Math.round(sampleRate * 0.05);
+  const frameRms: number[] = [];
+
+  for (
+    let sampleIndex = 0;
+    sampleIndex < sampleCount;
+    sampleIndex += frameSize
+  ) {
+    let squareSum = 0;
+    let samplesInFrame = 0;
+    const frameEnd = Math.min(sampleCount, sampleIndex + frameSize);
+
+    for (let index = sampleIndex; index < frameEnd; index += 1) {
+      const sample = bytes.readInt16LE(44 + index * 2) / 32_768;
+      squareSum += sample * sample;
+      samplesInFrame += 1;
+    }
+
+    frameRms.push(Math.sqrt(squareSum / samplesInFrame));
+  }
+
+  let onsetCount = 0;
+
+  for (let index = 4; index < frameRms.length; index += 1) {
+    const recentAverage =
+      (frameRms[index - 1]! +
+        frameRms[index - 2]! +
+        frameRms[index - 3]! +
+        frameRms[index - 4]!) /
+      4;
+    const current = frameRms[index]!;
+
+    if (recentAverage > 0 && current > 0.04 && current / recentAverage > 1.6) {
+      onsetCount += 1;
+    }
+  }
+
+  return onsetCount;
+}
+
 describe("radio catalog", () => {
   test("track ids are unique", () => {
     const ids = RADIO_TRACKS.map((track) => track.id);
@@ -47,6 +91,14 @@ describe("radio catalog", () => {
     expect(
       RADIO_TRACKS.every((track) => track.license === "repo-generated"),
     ).toBe(true);
+  });
+
+  test("demo tracks have recurring musical transients", async () => {
+    for (const track of RADIO_TRACKS) {
+      const bytes = await readFile(track.assetPath);
+
+      expect(countPercussiveOnsets(bytes)).toBeGreaterThanOrEqual(10);
+    }
   });
 
   test("every audio path is assistant-runtime-relative", () => {

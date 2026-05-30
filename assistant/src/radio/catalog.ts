@@ -19,7 +19,7 @@ const tracks = [
     audioPath: "radio/tracks/soft-launch",
     sourceLabel: "Generated demo track",
     license: "repo-generated",
-    sha256: "879a8f05b17391f77678b818b1f438de93ed5350148f0cf4bda7899995ecc74d",
+    sha256: "9b1fae4baae9f2cf47e4a8a5d626daf5553f31c9bcf8269085be41efaacae7a9",
   },
   {
     id: "buffer-bloom",
@@ -30,7 +30,7 @@ const tracks = [
     audioPath: "radio/tracks/buffer-bloom",
     sourceLabel: "Generated demo track",
     license: "repo-generated",
-    sha256: "92fb043b22b77eefe682afa776e0d23f6b690ce7de011aadf9327a099dac27cc",
+    sha256: "0abd0ef29d2cd809415857af7419527c1f22781e91254e43661cb7540b122f70",
   },
   {
     id: "neon-postcard",
@@ -41,7 +41,7 @@ const tracks = [
     audioPath: "radio/tracks/neon-postcard",
     sourceLabel: "Generated demo track",
     license: "repo-generated",
-    sha256: "7a56f7c6c1c6e4750c90542dd261da56d11e0a02e8942d687061febd9fdbdca0",
+    sha256: "bc5aba81f50d306f96fc9326a14be5686602faa4b8792f68663a499bf4a0f28c",
   },
 ] satisfies RadioTrack[];
 
