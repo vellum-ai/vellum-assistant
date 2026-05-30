@@ -5,6 +5,7 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   appendTextDelta,
   applyToolResult,
+  attachSurface,
   createStreamingBubble,
   finalizeMessageComplete,
   finalizeOnIdle,
@@ -12,6 +13,7 @@ import {
   stopStreaming,
   upsertToolCall,
 } from "@/domains/chat/hooks/stream-message-updaters";
+import type { Surface } from "@/domains/chat/types/types";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
@@ -477,6 +479,111 @@ describe("upsertToolCall", () => {
     const prev = [msg];
     upsertToolCall(prev, toolCall);
     expect(prev[0]!.toolCalls).toHaveLength(0);
+  });
+
+  it("folds into an id-matched assistant row when messageId is present", () => {
+    // Reserved-row case: `assistant_turn_start` (or reconcile) landed an
+    // empty assistant row at the anchor id ahead of the first
+    // `tool_use_start`. Without id matching, upsertToolCall would open a
+    // duplicate bubble.
+    const anchor = makeAssistantMsg({
+      id: "anchor-1",
+      content: "",
+      isStreaming: false,
+      toolCalls: undefined,
+      contentOrder: undefined,
+    });
+    const result = upsertToolCall([userMsg, anchor], toolCall, "anchor-1");
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("anchor-1");
+    expect(result[1]!.isStreaming).toBe(true);
+    expect(result[1]!.toolCalls).toHaveLength(1);
+    expect(result[1]!.toolCalls![0]!.id).toBe("tc-1");
+  });
+
+  it("adopts messageId as the row id when opening a new bubble (no isOptimistic flag)", () => {
+    // Anchor protocol: every `tool_use_start` carries `messageId` from
+    // event zero — the daemon has committed to the assistant message
+    // existing. The new bubble adopts that id and is NOT optimistic.
+    const result = upsertToolCall([userMsg], toolCall, "server-msg-1");
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("server-msg-1");
+    expect(result[1]!.isOptimistic).toBeUndefined();
+    expect(result[1]!.toolCalls![0]!.id).toBe("tc-1");
+  });
+
+  it("stamps isOptimistic only when messageId is absent (pre-anchor daemon)", () => {
+    // Fallback path — only reachable from pre-B2 daemons that haven't
+    // adopted the anchor protocol. The row id is a client UUID and the
+    // flag tells reconcile to fall back to content matching.
+    const result = upsertToolCall([userMsg], toolCall);
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.isOptimistic).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// attachSurface
+// ---------------------------------------------------------------------------
+
+describe("attachSurface", () => {
+  const surface: Surface = {
+    surfaceId: "surf-1",
+    surfaceType: "card",
+    data: {},
+  };
+
+  it("attaches to an id-matched assistant row when messageId is present", () => {
+    const target = makeAssistantMsg({ id: "anchor-1", isStreaming: false });
+    const result = attachSurface([userMsg, target], surface, "anchor-1");
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("anchor-1");
+    expect(result[1]!.surfaces).toHaveLength(1);
+    expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
+  });
+
+  it("falls back to the streaming-assistant tail when messageId is absent", () => {
+    const target = makeAssistantMsg({ id: "stream-1", isStreaming: true });
+    const result = attachSurface([userMsg, target], surface);
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("stream-1");
+    expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
+  });
+
+  it("adopts messageId as the row id when opening a new bubble (no isOptimistic flag)", () => {
+    // Surface-only turn: no streaming assistant yet, but the daemon
+    // stamps the wire event with the anchor messageId.
+    const result = attachSurface([userMsg], surface, "server-msg-1");
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("server-msg-1");
+    expect(result[1]!.isOptimistic).toBeUndefined();
+    expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
+  });
+
+  it("stamps isOptimistic only when messageId is absent (pre-anchor daemon)", () => {
+    const result = attachSurface([userMsg], surface);
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.isOptimistic).toBe(true);
+    expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
+  });
+
+  it("is a no-op when the surface is already attached to the target message", () => {
+    const target = makeAssistantMsg({
+      id: "anchor-1",
+      surfaces: [surface],
+      contentOrder: [{ type: "surface", id: "surf-1" }],
+    });
+    const result = attachSurface([userMsg, target], surface, "anchor-1");
+
+    expect(result).toHaveLength(2);
+    expect(result[1]!.surfaces).toHaveLength(1);
   });
 });
 

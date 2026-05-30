@@ -343,12 +343,14 @@ export function attachSurface(
 
   const updated = [...prev];
   if (targetIdx === -1) {
-    // Surface-only assistant rows have no wire messageId — `ui_surface_*`
-    // events identify by surfaceId, not message. The row gets its server
-    // id when a later message_complete or history fetch lands.
+    // No anchor row to attach to — open a fresh bubble. When `messageId`
+    // is present we adopt it as the row id (the daemon has already
+    // committed to this assistant message). When absent — only possible
+    // against pre-anchor-protocol daemons — fall back to a client UUID
+    // and stamp `isOptimistic` so reconcile knows the id is a placeholder.
     updated.push({
-      id: crypto.randomUUID(),
-      isOptimistic: true,
+      id: messageId ?? crypto.randomUUID(),
+      ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant" as const,
       content: "",
       isStreaming: true,
@@ -478,46 +480,39 @@ export function completeSurface(
  * latch passes through. Same finalization invariant as `appendTextDelta`:
  * boundary events leave the tail with `isStreaming: false` (or non-
  * assistant), so this updater opens a fresh bubble correctly.
+ *
+ * **Id-keyed when `messageId` is present** — looks up the matching
+ * assistant row by id and folds into it regardless of position. Mirrors
+ * `appendTextDelta`'s behavior for the case where reconcile (or
+ * `assistant_turn_start`) landed the reserved row in the array ahead of
+ * the first `tool_use_start` — without id matching, a duplicate streaming
+ * bubble would open with the same anchor id.
  */
 export function upsertToolCall(
   prev: DisplayMessage[],
   toolCall: ChatMessageToolCall,
+  messageId?: string,
 ): DisplayMessage[] {
-  if (tailIsStreamingAssistant(prev)) {
-    const lastIdx = prev.length - 1;
-    const last = prev[lastIdx]!;
-    const existingIdx =
-      last.toolCalls?.findIndex((tc) => tc.id === toolCall.id) ?? -1;
-    if (existingIdx !== -1) {
-      const updated = [...prev];
-      const updatedToolCalls = [...(last.toolCalls ?? [])];
-      updatedToolCalls[existingIdx] = {
-        ...updatedToolCalls[existingIdx]!,
-        ...toolCall,
-      };
-      updated[lastIdx] = { ...last, toolCalls: updatedToolCalls };
-      return updated;
-    }
-    const updated = [...prev];
-    updated[lastIdx] = {
-      ...last,
-      toolCalls: [...(last.toolCalls ?? []), toolCall],
-      contentOrder: [
-        ...(last.contentOrder ?? []),
-        { type: "toolCall", id: toolCall.id },
-      ],
-    };
-    return updated;
+  if (messageId) {
+    const idx = prev.findIndex(
+      (m) => m.role === "assistant" && m.id === messageId,
+    );
+    if (idx >= 0) return upsertToolCallIntoRow(prev, idx, toolCall);
+  } else if (tailIsStreamingAssistant(prev)) {
+    return upsertToolCallIntoRow(prev, prev.length - 1, toolCall);
   }
 
-  // Tool-only assistant rows have no wire messageId — `tool_use_*` events
-  // identify by toolCall.id, not message. The row gets its server id when
-  // a later message_complete or history fetch lands.
+  // No anchor row to fold into — open a fresh bubble. When `messageId` is
+  // present we adopt it as the row id (the daemon has already committed to
+  // this assistant message; the row is mid-stream, not optimistic). When
+  // absent — only possible against pre-anchor-protocol daemons — fall back
+  // to a client UUID and stamp `isOptimistic` so reconcile knows the id is
+  // a placeholder.
   return [
     ...prev,
     {
-      id: crypto.randomUUID(),
-      isOptimistic: true,
+      id: messageId ?? crypto.randomUUID(),
+      ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant" as const,
       content: "",
       isStreaming: true,
@@ -526,6 +521,44 @@ export function upsertToolCall(
       timestamp: Date.now(),
     },
   ];
+}
+
+/**
+ * Fold a tool call into the assistant row at `idx`, either updating the
+ * existing entry (same `toolCall.id`) or appending a new one with a
+ * matching `contentOrder` entry. Stamps `isStreaming: true` so the row
+ * keeps streaming semantics — same invariant as `appendTextIntoRow`.
+ */
+function upsertToolCallIntoRow(
+  prev: DisplayMessage[],
+  idx: number,
+  toolCall: ChatMessageToolCall,
+): DisplayMessage[] {
+  const row = prev[idx]!;
+  const existingIdx =
+    row.toolCalls?.findIndex((tc) => tc.id === toolCall.id) ?? -1;
+  const updated = [...prev];
+
+  if (existingIdx !== -1) {
+    const updatedToolCalls = [...(row.toolCalls ?? [])];
+    updatedToolCalls[existingIdx] = {
+      ...updatedToolCalls[existingIdx]!,
+      ...toolCall,
+    };
+    updated[idx] = { ...row, isStreaming: true, toolCalls: updatedToolCalls };
+    return updated;
+  }
+
+  updated[idx] = {
+    ...row,
+    isStreaming: true,
+    toolCalls: [...(row.toolCalls ?? []), toolCall],
+    contentOrder: [
+      ...(row.contentOrder ?? []),
+      { type: "toolCall", id: toolCall.id },
+    ],
+  };
+  return updated;
 }
 
 // ---------------------------------------------------------------------------
