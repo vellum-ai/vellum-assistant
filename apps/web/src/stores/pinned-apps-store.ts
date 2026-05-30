@@ -18,7 +18,7 @@ import {
   pinApp,
   unpinApp,
   type PinnedAppEntry,
-} from "@/lib/app-pin-storage";
+} from "@/utils/app-pin-storage";
 
 // ---------------------------------------------------------------------------
 // Unpin event listeners

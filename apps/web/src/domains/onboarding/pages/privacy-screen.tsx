@@ -10,6 +10,13 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
+  emitOnboardingFunnelStepCompleted,
+  getOnboardingFunnelSessionId,
+  onboardingFunnelVariantFromCondensedFlag,
+  ONBOARDING_FUNNEL_STEPS,
+  resolveOnboardingFunnelVariant,
+} from "@/domains/onboarding/funnel-events";
+import {
   readOnboardingCompleted,
   useAiDataConsent,
   useShareAnalytics,
@@ -17,6 +24,7 @@ import {
   useTosAccepted,
 } from "@/domains/onboarding/prefs";
 import { markPrivacyConsent } from "@/domains/onboarding/signals";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { legalUrl, routes } from "@/utils/routes";
@@ -58,16 +66,26 @@ export function PrivacyScreen() {
   const isReplay = searchParams.get("replay") === "1";
   const userId = useAuthStore.use.user()?.id ?? null;
   const isNative = useIsNativePlatform();
+  const condensedPrechatFlag =
+    useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
+  const preferredFunnelVariant =
+    onboardingFunnelVariantFromCondensedFlag(condensedPrechatFlag);
   const [shareAnalytics, setShareAnalytics] = useShareAnalytics();
   const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
   const [tosAccepted, setTosAccepted] = useTosAccepted();
   const [aiDataConsent, setAiDataConsent] = useAiDataConsent();
 
   useEffect(() => {
-    if (readOnboardingCompleted()) {
+    if (!isNative && !isReplay) {
+      getOnboardingFunnelSessionId();
+    }
+  }, [isNative, isReplay]);
+
+  useEffect(() => {
+    if (readOnboardingCompleted() && !isReplay) {
       void navigate(routes.assistant, { replace: true });
     }
-  }, [navigate]);
+  }, [isReplay, navigate]);
 
   const onStart = useCallback(() => {
     try {
@@ -79,12 +97,29 @@ export function PrivacyScreen() {
       });
     }
     markPrivacyConsent(userId);
+    if (!isNative && !isReplay) {
+      const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
+      emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
+        userId,
+        variant,
+      });
+    }
     void navigate(
       isReplay
         ? `${routes.onboarding.hatching}?replay=1`
         : routes.onboarding.hatching,
     );
-  }, [isReplay, navigate, setShareAnalytics, setShareDiagnostics, shareAnalytics, shareDiagnostics, userId]);
+  }, [
+    isNative,
+    isReplay,
+    navigate,
+    preferredFunnelVariant,
+    setShareAnalytics,
+    setShareDiagnostics,
+    shareAnalytics,
+    shareDiagnostics,
+    userId,
+  ]);
 
   const tosLabel: ReactNode = (
     <span className="text-body-medium-lighter text-[var(--content-default)]">

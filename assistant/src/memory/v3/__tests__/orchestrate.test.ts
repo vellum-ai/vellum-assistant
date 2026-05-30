@@ -145,8 +145,8 @@ function leafFromMessages(messages: Message[]): LeafPath | undefined {
 function providerForTurn(turn: EvalTurn): Provider {
   return {
     name: "stub",
-    sendMessage: async (messages, tools) => {
-      const toolName = tools?.[0]?.name;
+    sendMessage: async (messages, options) => {
+      const toolName = options?.tools?.[0]?.name;
       if (toolName === "open_leaves") {
         return toolUseResponse("open_leaves", { ids: turn.routeIds });
       }
@@ -230,8 +230,8 @@ describe("orchestrate — open set composition", () => {
     // open set must include topic-y too.
     providerStub = {
       name: "stub",
-      sendMessage: async (messages, tools) => {
-        if (tools?.[0]?.name === "open_leaves") {
+      sendMessage: async (messages, options) => {
+        if (options?.tools?.[0]?.name === "open_leaves") {
           return toolUseResponse("open_leaves", { ids: [1] });
         }
         const leaf = leafFromMessages(messages);
@@ -255,8 +255,8 @@ describe("orchestrate — open set composition", () => {
     // L1 abstains (empty ids); only the core leaf should open.
     providerStub = {
       name: "stub",
-      sendMessage: async (messages, tools) => {
-        if (tools?.[0]?.name === "open_leaves") {
+      sendMessage: async (messages, options) => {
+        if (options?.tools?.[0]?.name === "open_leaves") {
           return toolUseResponse("open_leaves", { ids: [] });
         }
         const leaf = leafFromMessages(messages);
@@ -303,8 +303,8 @@ describe("orchestrate — edge cases", () => {
     // Omitted ids → routeL1 opens ALL leaves; select everything per leaf.
     providerStub = {
       name: "stub",
-      sendMessage: async (_messages, tools) => {
-        if (tools?.[0]?.name === "open_leaves") {
+      sendMessage: async (_messages, options) => {
+        if (options?.tools?.[0]?.name === "open_leaves") {
           return toolUseResponse("open_leaves", {}); // omitted ids
         }
         return toolUseResponse("select_pages", {}); // omitted → all members
@@ -354,8 +354,8 @@ describe("orchestrate — edge cases", () => {
     };
     providerStub = {
       name: "stub",
-      sendMessage: async (messages, tools) => {
-        if (tools?.[0]?.name === "open_leaves") {
+      sendMessage: async (messages, options) => {
+        if (options?.tools?.[0]?.name === "open_leaves") {
           return toolUseResponse("open_leaves", { ids: [1, 2] });
         }
         const leaf = leafFromMessages(messages);

@@ -15,7 +15,7 @@ export interface ManifestOverride {
  *   3. Default sandbox.
  *
  * Called once per tool at load/construction time. The returned value is
- * stamped onto every `LoadedTool`, so runtime reads are just a field read.
+ * stamped onto every `Tool`, so runtime reads are just a field read.
  */
 export function resolveExecutionTarget(tool: {
   name: string;

@@ -101,19 +101,19 @@ describe("OpenRouter provider.only plumbing", () => {
         config: { openrouter: { only: ["xAI"] } },
       });
       expect(extras).toEqual({
-        reasoning: { enabled: false },
         provider: { only: ["xAI"] },
       });
     });
 
-    test("omits provider when openrouter.only is absent", () => {
+    test("omits reasoning and provider when config is empty", () => {
       const provider = new ProbeOpenRouterProvider(
         "fake-key",
         "x-ai/grok-4.20-beta",
       );
       const extras = provider.probeExtras({ config: {} });
-      expect(extras).toEqual({ reasoning: { enabled: false } });
+      expect(extras).toEqual({});
       expect(extras.provider).toBe(undefined);
+      expect(extras.reasoning).toBe(undefined);
     });
 
     test("enables thinking with default detailed summary alongside provider.only", () => {
@@ -133,7 +133,7 @@ describe("OpenRouter provider.only plumbing", () => {
       });
     });
 
-    test("disabled thinking keeps reasoning disabled and omits summary", () => {
+    test("disabled thinking omits reasoning entirely", () => {
       const provider = new ProbeOpenRouterProvider(
         "fake-key",
         "x-ai/grok-4.20-beta",
@@ -145,9 +145,9 @@ describe("OpenRouter provider.only plumbing", () => {
         },
       });
       expect(extras).toEqual({
-        reasoning: { enabled: false },
         provider: { only: ["xAI"] },
       });
+      expect(extras.reasoning).toBe(undefined);
     });
 
     test("nests effort under reasoning and maps `max` to xhigh", () => {
@@ -180,6 +180,28 @@ describe("OpenRouter provider.only plumbing", () => {
       expect(extras).toEqual({
         reasoning: { enabled: true, summary: "concise" },
       });
+    });
+
+    test("effort without thinking does not emit reasoning", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "x-ai/grok-4.20-beta",
+      );
+      const extras = provider.probeExtras({
+        config: { thinking: { type: "disabled" }, effort: "low" },
+      });
+      expect(extras.reasoning).toBe(undefined);
+    });
+
+    test("omitting reasoning avoids 400 from reasoning-only models like DeepSeek R1", () => {
+      const provider = new ProbeOpenRouterProvider(
+        "fake-key",
+        "deepseek/deepseek-r1-0528",
+      );
+      const extras = provider.probeExtras({
+        config: { thinking: { type: "disabled" } },
+      });
+      expect(extras.reasoning).toBe(undefined);
     });
 
     test("ignores an invalid summary override and falls back to detailed", () => {

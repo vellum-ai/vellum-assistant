@@ -22,7 +22,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
   ToolUseContent,
 } from "../../../providers/types.js";
 import type {
@@ -42,8 +41,6 @@ let providerStub: Provider | null = null;
 
 interface ProviderCall {
   messages: Message[];
-  tools: ToolDefinition[] | undefined;
-  systemPrompt: string | undefined;
   options: SendMessageOptions | undefined;
 }
 const providerCalls: ProviderCall[] = [];
@@ -70,8 +67,8 @@ const { selectFromLeaf, selectAcrossLeaves } = await import("../selector.js");
 function makeProvider(response: ProviderResponse): Provider {
   return {
     name: "stub",
-    sendMessage: async (messages, tools, systemPrompt, options) => {
-      providerCalls.push({ messages, tools, systemPrompt, options });
+    sendMessage: async (messages, options) => {
+      providerCalls.push({ messages, options });
       return response;
     },
   };
@@ -286,7 +283,7 @@ describe("selectFromLeaf — request shape", () => {
     const cfg = call.options?.config as Record<string, unknown>;
     expect(cfg?.callSite).toBe("memoryV3SelectL2");
     expect(cfg?.tool_choice).toEqual({ type: "tool", name: "select_pages" });
-    expect(call.tools?.[0].name).toBe("select_pages");
+    expect(call.options?.tools?.[0]?.name).toBe("select_pages");
   });
 
   test("pages block is the first content block with an ephemeral cache breakpoint", async () => {
@@ -318,7 +315,7 @@ describe("selectFromLeaf — request shape", () => {
   test("system prompt mentions pinned (locks the pinning commitment)", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     await selectFromLeaf("people/alice", makeTurn("x"), makeTree(), summaryOf);
-    expect(providerCalls[0].systemPrompt).toMatch(/pinned/);
+    expect(providerCalls[0].options?.systemPrompt).toMatch(/pinned/);
   });
 });
 

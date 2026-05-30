@@ -70,3 +70,23 @@ export function formatRelativeDate(
   }
   return date.toLocaleDateString();
 }
+
+/**
+ * Full local timestamp with timezone abbreviation for tooltip display.
+ * e.g. "May 29, 2026, 10:36 AM EDT"
+ */
+export function formatFullLocalDate(
+  dateStr: string | null | undefined,
+): string {
+  if (!dateStr) {
+    return "";
+  }
+  return new Date(dateStr).toLocaleString(undefined, {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+}

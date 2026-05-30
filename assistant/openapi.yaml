@@ -5118,6 +5118,8 @@ paths:
                           type: number
                         inferenceProfile:
                           type: string
+                        isProcessing:
+                          type: boolean
                       required:
                         - id
                         - title
@@ -5127,6 +5129,7 @@ paths:
                         - conversationType
                         - source
                         - groupId
+                        - isProcessing
                       additionalProperties: false
                   nextOffset:
                     type: number
@@ -5461,6 +5464,8 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      isProcessing:
+                        type: boolean
                     required:
                       - id
                       - title
@@ -5470,6 +5475,7 @@ paths:
                       - conversationType
                       - source
                       - groupId
+                      - isProcessing
                     additionalProperties: false
                 required:
                   - conversation
@@ -5656,6 +5662,8 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      isProcessing:
+                        type: boolean
                     required:
                       - id
                       - title
@@ -5665,6 +5673,7 @@ paths:
                       - conversationType
                       - source
                       - groupId
+                      - isProcessing
                     additionalProperties: false
                 required:
                   - conversation
@@ -5741,10 +5750,11 @@ paths:
       operationId: conversations_by_id_compaction_get
       summary: Get the compaction trail leading up to an LLM call
       description:
-        Return the chronological list of compaction events that ran in this conversation in the open window between
-        the previous non-`compactionAgent` LLM call and the call identified by `callId`. Projected from
-        `llm_request_logs` rows where `call_site = "compactionAgent"`. When the selected call is the first real call in
-        the conversation, every preceding compaction is in scope. Drives the Inspector's Compaction tab.
+        Return the chronological list of compaction events that ran in the same agent turn as the call identified
+        by `callId`. Turn bounds are walked from the `messages` table (real user messages — tool-result user messages
+        are not boundaries). Projected from `llm_request_logs` rows where `call_site = "compactionAgent"`. When the
+        conversation has no other messages around the selected call, every compaction strictly before the call's
+        `createdAt` is in scope. Drives the Inspector's Compaction tab.
       tags:
         - conversations
       responses:
@@ -6363,10 +6373,13 @@ paths:
                             - type: "null"
                         updatedAt:
                           type: number
+                        isProcessing:
+                          type: boolean
                       required:
                         - id
                         - title
                         - updatedAt
+                        - isProcessing
                       additionalProperties: false
                 required:
                   - conversations
@@ -6612,6 +6625,8 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      isProcessing:
+                        type: boolean
                     required:
                       - id
                       - title
@@ -6621,6 +6636,7 @@ paths:
                       - conversationType
                       - source
                       - groupId
+                      - isProcessing
                     additionalProperties: false
                 required:
                   - conversation

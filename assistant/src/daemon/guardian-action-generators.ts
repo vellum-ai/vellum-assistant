@@ -44,9 +44,9 @@ export function createGuardianActionCopyGenerator(): GuardianActionCopyGenerator
 
     const response = await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: prompt }] }],
-      [],
-      GUARDIAN_ACTION_COPY_SYSTEM_PROMPT,
       {
+        tools: [],
+        systemPrompt: GUARDIAN_ACTION_COPY_SYSTEM_PROMPT,
         config: {
           max_tokens: options.maxTokens ?? GUARDIAN_ACTION_COPY_MAX_TOKENS,
           callSite: "guardianQuestionCopy",

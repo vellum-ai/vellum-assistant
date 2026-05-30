@@ -148,8 +148,13 @@ afterEach(() => {
 function makeProvider(response: ProviderResponse): Provider {
   return {
     name: "stub",
-    sendMessage: async (messages, tools, systemPrompt, options) => {
-      providerCalls.push({ messages, tools, systemPrompt, options });
+    sendMessage: async (messages, options) => {
+      providerCalls.push({
+        messages,
+        tools: options?.tools,
+        systemPrompt: options?.systemPrompt,
+        options,
+      });
       // Honor abort like a real provider would — if the signal already
       // aborted, throw the canonical AbortError so callers can assert that
       // signal forwarding actually has teeth.
@@ -752,9 +757,14 @@ describe("runRouter — batched (batch_size set)", () => {
     let callCount = 0;
     providerStub = {
       name: "partial-failure",
-      sendMessage: async (messages, tools, systemPrompt, options) => {
+      sendMessage: async (messages, options) => {
         callCount += 1;
-        providerCalls.push({ messages, tools, systemPrompt, options });
+        providerCalls.push({
+          messages,
+          tools: options?.tools,
+          systemPrompt: options?.systemPrompt,
+          options,
+        });
         if (callCount === 1) throw new Error("batch 1 boom");
         return toolUseResponse([1]);
       },

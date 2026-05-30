@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import type { TranscriptHandle } from "@/domains/chat/transcript/use-transcript-scroll";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
@@ -22,8 +22,8 @@ import {
 import {
   INITIAL_TURN_STATE,
   type TurnState,
-} from "@/stores/turn-store";
-import type { UIContext } from "@/stores/turn-selectors";
+} from "@/domains/chat/turn-store";
+import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------
@@ -239,7 +239,7 @@ describe("createChatDebugApi.getTranscriptItems", () => {
         message: fakeDisplayMessage({ id: "msg-a" }),
       },
       { kind: "thinking", key: "thinking", label: "Processing" },
-      { kind: "queuedMarker", key: "queued", count: 2 },
+      { kind: "error", key: "error-notice", message: "Something failed" },
     ];
     const api = createChatDebugApi(
       makeRefs({
@@ -253,8 +253,8 @@ describe("createChatDebugApi.getTranscriptItems", () => {
 
   test("surfaces the full discriminated union — not just message rows", () => {
     // The whole point of getTranscriptItems(): inspect non-message rows
-    // (thinking, pending prompts, queued marker) which getClientMessages()
-    // doesn't carry.
+    // (thinking, pending prompts, errors) which getClientMessages() doesn't
+    // carry.
     const items: TranscriptItem[] = [
       {
         kind: "message",

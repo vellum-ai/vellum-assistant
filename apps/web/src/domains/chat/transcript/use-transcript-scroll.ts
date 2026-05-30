@@ -240,6 +240,17 @@ export function useTranscriptScroll(
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
 
   // ---------- Latest-props ref (ref-backed fresh-closure pattern) ---------
+  // Synced in useLayoutEffect (declared BEFORE the items-effect below)
+  // so the items-effect — whose deps are intentionally narrow
+  // (`items` + `conversationId` + transcriptRef + engageAutoPin) —
+  // reads fresh values for everything else via latestRef without
+  // forcing those values into its dep array. Putting them in the
+  // items-effect deps would cause it to re-run on transitions that
+  // shouldn't trigger items-change work, with two real consequences:
+  // (1) the `decideItemsChangeAction` branch consumes `savedAnchorRef`
+  // on a heightDelta=0 no-op, and (2) the chain-load branch re-fires
+  // `onLoadOlder()` on a just-released lock while items haven't yet
+  // prepended. See the dedicated lock-release effect below.
   // TODO: migrate to useEffectEvent once it's stable in React.
   const latestRef = useRef({
     items,
@@ -250,7 +261,7 @@ export function useTranscriptScroll(
     isPinnedToLatest,
     showScrollToLatest,
   });
-  useEffect(() => {
+  useLayoutEffect(() => {
     latestRef.current = {
       items,
       hasMore,
@@ -277,8 +288,8 @@ export function useTranscriptScroll(
   //
   // The `isLoadingOlder` prop is the source of truth, but it propagates
   // through React state: parent calls `setIsLoadingOlder(true)` inside
-  // `onLoadOlder`, React commits, then a `useEffect` mirrors the new
-  // value into `latestRef`. Between the firing scroll event and the
+  // `onLoadOlder`, React commits, then a `useLayoutEffect` mirrors the
+  // new value into `latestRef`. Between the firing scroll event and the
   // latestRef refresh, ~5–20 more scroll events can fire — every one
   // sees the stale `isLoadingOlder=false` and re-fires `onLoadOlder`.
   // Even though React Query dedupes the underlying fetch, the rapid
@@ -288,12 +299,29 @@ export function useTranscriptScroll(
   //
   // The fix: a ref that flips to `true` SYNCHRONOUSLY at the moment we
   // call `onLoadOlder`. Subsequent scroll events within the same burst
-  // see `true` and skip. The lock is released the next time the parent
-  // settles `isLoadingOlder` back from true→false (success or failure
-  // both transition the same way; reaching the items-effect below also
-  // detects this so chain-load on underfilled viewport keeps working).
+  // see `true` and skip. The lock is released by the dedicated
+  // `isLoadingOlder` transition effect below — declared BEFORE the
+  // items-effect so it fires first in the commit phase when both
+  // change together (the underfilled-viewport chain-load case).
   const loadOlderInFlightRef = useRef(false);
   const prevIsLoadingOlderRef = useRef(isLoadingOlder);
+
+  // ---------- Lock release on isLoadingOlder true→false transition ------
+  //
+  // Declared as its own effect (not co-located with the items-effect)
+  // so transitions of `isLoadingOlder` that do NOT coincide with an
+  // items change cannot accidentally trigger the items-effect's
+  // anchor-correct + chain-load work. Declared BEFORE the items-effect
+  // so in commits where BOTH `isLoadingOlder` and `items` change
+  // (underfilled-viewport prepend), this effect runs first within the
+  // commit phase and the items-effect's chain-load branch sees the
+  // released lock immediately.
+  useLayoutEffect(() => {
+    if (prevIsLoadingOlderRef.current && !isLoadingOlder) {
+      loadOlderInFlightRef.current = false;
+    }
+    prevIsLoadingOlderRef.current = isLoadingOlder;
+  }, [isLoadingOlder]);
 
   // ---------- Previous items ref (for change detection) -----------------
   const previousItemsRef = useRef<TranscriptItem[]>(items);
@@ -375,23 +403,23 @@ export function useTranscriptScroll(
   // -----------------------------------------------------------------------
   // Items change handler — runs in useLayoutEffect so the anchor correction
   // happens before the browser paints.
+  //
+  // Deps are intentionally narrow: `items` + `conversationId` (the two
+  // values that determine WHEN this work should run) plus the two
+  // stable refs (`transcriptRef`, `engageAutoPin`). Everything else
+  // that the body reads — `hasMore`, `isLoadingOlder`, `onLoadOlder`,
+  // `isPinnedToLatest`, `showScrollToLatest` — comes from `latestRef`,
+  // which is synced in the useLayoutEffect declared above this one.
+  // Listing those values directly in this effect's deps would cause it
+  // to re-run for transitions that didn't change items, and the
+  // anchor-correct + chain-load branches would fire against stale
+  // assumptions (e.g. the `isLoadingOlder` true→false → premature
+  // chain-load bug).
   // -----------------------------------------------------------------------
   useLayoutEffect(() => {
     const prev = previousItemsRef.current;
     previousItemsRef.current = items;
-
-    // Directional release of the load-older in-flight lock: when the
-    // parent transitions `isLoadingOlder` true→false, the load has
-    // settled (success OR failure) and the next near-top check should
-    // be allowed to re-fire. Done here (in the layout effect that runs
-    // BEFORE any paint) rather than in a passive useEffect so the
-    // chain-load case below can re-fire on the same commit that just
-    // released the lock — needed for underfilled viewports that need
-    // multiple pages to reach scrollable height.
-    if (prevIsLoadingOlderRef.current && !isLoadingOlder) {
-      loadOlderInFlightRef.current = false;
-    }
-    prevIsLoadingOlderRef.current = isLoadingOlder;
+    const latest = latestRef.current;
 
     const action = decideItemsChangeAction({
       items,
@@ -459,10 +487,9 @@ export function useTranscriptScroll(
     // browser does NOT fire a scroll event when scrollHeight grows under
     // a stationary scrollTop (the streaming case), so without this the
     // "Go to Newest" pill would only surface once the user touched the
-    // scroll wheel. Read flags from closure (not latestRef) so the
-    // prepend render sees the just-flipped isLoadingOlder=false instead
-    // of the previous render's snapshot; latestRef is refreshed by a
-    // later useEffect that hasn't fired yet at this point.
+    // scroll wheel. Read mutable flags from `latest` (synced by the
+    // useLayoutEffect declared above this one, so values are fresh for
+    // the current commit).
     const el = transcriptRef.current?.getScrollElement();
     if (el) {
       const classification = classifyScrollPosition(
@@ -472,15 +499,15 @@ export function useTranscriptScroll(
           clientHeight: el.clientHeight,
         },
         {
-          hasMore,
-          isLoadingOlder,
+          hasMore: latest.hasMore,
+          isLoadingOlder: latest.isLoadingOlder,
           hasConversation: conversationId !== null,
         },
       );
-      if (classification.isPinned !== isPinnedToLatest) {
+      if (classification.isPinned !== latest.isPinnedToLatest) {
         setIsPinnedToLatest(classification.isPinned);
       }
-      if (classification.showScrollToLatest !== showScrollToLatest) {
+      if (classification.showScrollToLatest !== latest.showScrollToLatest) {
         setShowScrollToLatest(classification.showScrollToLatest);
       }
 
@@ -504,20 +531,10 @@ export function useTranscriptScroll(
           }
         }
         loadOlderInFlightRef.current = true;
-        onLoadOlder();
+        latest.onLoadOlder();
       }
     }
-  }, [
-    items,
-    conversationId,
-    transcriptRef,
-    hasMore,
-    isLoadingOlder,
-    onLoadOlder,
-    isPinnedToLatest,
-    showScrollToLatest,
-    engageAutoPin,
-  ]);
+  }, [items, conversationId, transcriptRef, engageAutoPin]);
 
   // -----------------------------------------------------------------------
   // Container resize re-pin. When the scroll container resizes (e.g. the

@@ -12,6 +12,7 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       am.content !== bm.content ||
       !!am.isStreaming !== !!bm.isStreaming ||
       am.timestamp !== bm.timestamp ||
+      JSON.stringify(am.mergedMessageIds) !== JSON.stringify(bm.mergedMessageIds) ||
       JSON.stringify(am.surfaces) !== JSON.stringify(bm.surfaces) ||
       JSON.stringify(am.textSegments) !== JSON.stringify(bm.textSegments) ||
       JSON.stringify(am.contentOrder) !== JSON.stringify(bm.contentOrder) ||
@@ -26,6 +27,7 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
     // Compare any arbitrary passthrough fields beyond the known set
     const knownKeys = new Set([
       "id",
+      "mergedMessageIds",
       "role",
       "content",
       "isStreaming",
@@ -99,12 +101,82 @@ export function mergeToolCall(
   };
 }
 
+function messagesShareMergedIdentity(
+  current: DisplayMessage,
+  incoming: DisplayMessage,
+): boolean {
+  const currentMergedIds = new Set(current.mergedMessageIds ?? []);
+  if (incoming.id && currentMergedIds.has(incoming.id)) return true;
+
+  const incomingMergedIds = new Set(incoming.mergedMessageIds ?? []);
+  if (current.id && incomingMergedIds.has(current.id)) return true;
+
+  return (current.mergedMessageIds ?? []).some((id) =>
+    incomingMergedIds.has(id),
+  );
+}
+
+function toolCallIdsOverlap(
+  current: ChatMessageToolCall[] | undefined,
+  incoming: ChatMessageToolCall[] | undefined,
+): boolean {
+  if (!current?.length || !incoming?.length) return false;
+  const currentIds = new Set(current.map((toolCall) => toolCall.id));
+  return incoming.some((toolCall) => currentIds.has(toolCall.id));
+}
+
+function mergeToolCallsByPosition(
+  current: ChatMessageToolCall[],
+  incoming: ChatMessageToolCall[],
+): ChatMessageToolCall[] {
+  const base = current.length >= incoming.length ? current : incoming;
+  return base.map((toolCall, idx) => {
+    const currentToolCall = current[idx];
+    const incomingToolCall = incoming[idx];
+    if (!currentToolCall || !incomingToolCall) return toolCall;
+
+    return {
+      ...mergeToolCall(currentToolCall, incomingToolCall),
+      id: toolCall.id,
+    };
+  });
+}
+
+function mergeToolCallsForMessage(
+  current: DisplayMessage,
+  incoming: DisplayMessage,
+): ChatMessageToolCall[] | undefined {
+  if (
+    messagesShareMergedIdentity(current, incoming) &&
+    current.toolCalls?.length &&
+    incoming.toolCalls?.length &&
+    !toolCallIdsOverlap(current.toolCalls, incoming.toolCalls)
+  ) {
+    return mergeToolCallsByPosition(current.toolCalls, incoming.toolCalls);
+  }
+
+  return mergeByKey(
+    current.toolCalls,
+    incoming.toolCalls,
+    (toolCall) => toolCall.id,
+    mergeToolCall,
+  );
+}
+
 export function mergeSurface(current: Surface, incoming: Surface): Surface {
   return {
     ...current,
     ...incoming,
     data: { ...current.data, ...incoming.data },
   };
+}
+
+function mergeStringArrays(
+  current: string[] | undefined,
+  incoming: string[] | undefined,
+): string[] | undefined {
+  const merged = [...new Set([...(current ?? []), ...(incoming ?? [])])];
+  return merged.length > 0 ? merged : undefined;
 }
 
 function messageScore(message: DisplayMessage): number {
@@ -139,12 +211,7 @@ export function mergeDuplicateMessages(
     merged.timestamp = current.timestamp ?? incoming.timestamp;
   }
 
-  const toolCalls = mergeByKey(
-    current.toolCalls,
-    incoming.toolCalls,
-    (toolCall) => toolCall.id,
-    mergeToolCall,
-  );
+  const toolCalls = mergeToolCallsForMessage(current, incoming);
   if (toolCalls) merged.toolCalls = toolCalls;
 
   const surfaces = mergeByKey(
@@ -172,6 +239,11 @@ export function mergeDuplicateMessages(
   if (current.slackMessage || incoming.slackMessage) {
     merged.slackMessage = incoming.slackMessage ?? current.slackMessage;
   }
+  const mergedMessageIds = mergeStringArrays(
+    current.mergedMessageIds,
+    incoming.mergedMessageIds,
+  );
+  if (mergedMessageIds) merged.mergedMessageIds = mergedMessageIds;
 
   if (!merged.contentOrder) {
     merged.contentOrder = current.contentOrder ?? incoming.contentOrder;
@@ -226,12 +298,7 @@ export function mergeLatestHistoryMessage(
     delete merged.isOptimistic;
   }
 
-  const toolCalls = mergeByKey(
-    current.toolCalls,
-    incoming.toolCalls,
-    (toolCall) => toolCall.id,
-    mergeToolCall,
-  );
+  const toolCalls = mergeToolCallsForMessage(current, incoming);
   if (toolCalls) merged.toolCalls = toolCalls;
 
   const surfaces = mergeByKey(
@@ -269,6 +336,11 @@ export function mergeLatestHistoryMessage(
   if (current.slackMessage || incoming.slackMessage) {
     merged.slackMessage = incoming.slackMessage ?? current.slackMessage;
   }
+  const mergedMessageIds = mergeStringArrays(
+    current.mergedMessageIds,
+    incoming.mergedMessageIds,
+  );
+  if (mergedMessageIds) merged.mergedMessageIds = mergedMessageIds;
 
   if (merged.timestamp == null) {
     merged.timestamp = current.timestamp ?? incoming.timestamp;

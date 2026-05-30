@@ -18,6 +18,7 @@ import {
   parseInterfaceId,
   supportsHostProxy,
 } from "../../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import {
@@ -41,6 +42,7 @@ import { getOrCreateConversation as getOrCreateConversationInstance } from "../.
 import { canonicalizeTimeZone } from "../../daemon/date-context.js";
 import {
   buildScanFirstMessage,
+  buildSelfIntroMessage,
   getCannedFirstGreeting,
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
@@ -139,6 +141,9 @@ const log = getLogger("conversation-routes");
 /** Matches the `<no_response/>` sentinel used by channel delivery suppression. */
 const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/g;
 const ATTACHMENT_ENTRY_RE = /^attachment:(\d+)$/;
+
+/** Feature flag gating the self-intro first message (see first-greeting.ts). */
+const SELF_INTRO_GREETING_FLAG = "self-intro-greeting" as const;
 
 const SUGGESTION_CACHE_MAX = 100;
 const VALID_RISK_THRESHOLDS = ["none", "low", "medium", "high"] as const;
@@ -409,7 +414,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       conversationId,
       "user",
       JSON.stringify(cleanUserMessage.content),
-      channelMeta,
+      { metadata: channelMeta },
     );
     messageId = persistedUser.id;
 
@@ -423,7 +428,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       conversationId,
       "assistant",
       JSON.stringify(assistantMessage.content),
-      channelMeta,
+      { metadata: channelMeta },
     );
 
     // Avoid mutating in-memory history / emitting stream deltas while a run is active.
@@ -700,6 +705,7 @@ export function handleListMessages({
   });
 
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
+    const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.id) {
       // Use metadata-only query first to avoid loading large base64
@@ -833,6 +839,7 @@ export function handleListMessages({
     const displayTimestamp = m.sentAt ?? m.timestamp;
     return {
       id: m.id ?? "",
+      ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
       role: m.role,
       content: m.text,
       timestamp: new Date(displayTimestamp).toISOString(),
@@ -1392,6 +1399,15 @@ export async function handleSendMessage(
     conversation.getMessages().length,
   );
   const isScanPath = !!scanUrl && isWakeUp;
+  // Self-intro path: when we know a name, send a natural introduction on the
+  // user's behalf instead of the canned greeting, so the assistant generates a
+  // real first response. Gated behind the `self-intro-greeting` flag (default
+  // off); `undefined` (flag off or no names) falls back to the canned path.
+  const selfIntro =
+    isWakeUp &&
+    isAssistantFeatureFlagEnabled(SELF_INTRO_GREETING_FLAG, getConfig())
+      ? buildSelfIntroMessage(body.onboarding ?? undefined)
+      : undefined;
 
   let effectiveContent: string | undefined;
   if (isScanPath) {
@@ -1402,6 +1418,10 @@ export async function handleSendMessage(
     // Fall through to normal inference path below
   } else if (isWakeUp && body.onboarding?.initialMessage) {
     effectiveContent = body.onboarding.initialMessage;
+  } else if (isWakeUp && selfIntro) {
+    // Rewrite to the self-introduction and fall through to real inference
+    // (mirrors the scan path above).
+    effectiveContent = selfIntro;
   } else if (isWakeUp) {
     const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 
@@ -1435,7 +1455,7 @@ export async function handleSendMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        channelMeta,
+        { metadata: channelMeta },
       );
       conversation.getMessages().push(assistantMsg);
 
@@ -1744,7 +1764,7 @@ export async function handleSendMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        channelMeta,
+        { metadata: channelMeta },
       );
       conversation.getMessages().push(assistantMsg);
 
@@ -1877,7 +1897,7 @@ export async function handleSendMessage(
           conversationId,
           "assistant",
           JSON.stringify(assistantMsg.content),
-          channelMeta,
+          { metadata: channelMeta },
         );
         assistantMessagePersisted = true;
         conversation.getMessages().push(assistantMsg);
@@ -1972,7 +1992,7 @@ export async function handleSendMessage(
           conversationId,
           "assistant",
           JSON.stringify(assistantMsg.content),
-          channelMeta,
+          { metadata: channelMeta },
         );
         assistantMessagePersisted = true;
         conversation.getMessages().push(assistantMsg);
@@ -2124,9 +2144,10 @@ async function generateLlmSuggestion(
   // tokens here would be wasteful.
   const response = await provider.sendMessage(
     [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
-    [], // no tools
-    systemPrompt,
     {
+      tools: [],
+      // no tools
+      systemPrompt,
       config: {
         callSite: "replySuggestion",
         max_tokens: 60,

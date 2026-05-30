@@ -175,7 +175,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     _convId: string,
     role: string,
     content: string,
-    metadata?: Record<string, unknown>,
+    options?: { metadata?: Record<string, unknown> },
   ) => {
     // Simulate a persist failure for tests that need to exercise the
     // tail-persist-failed path in drainBatch. Triggered by matching any
@@ -186,7 +186,12 @@ mock.module("../memory/conversation-crud.js", () => ({
       }
     }
     const id = `msg-${Date.now()}-${capturedAddMessages.length}`;
-    capturedAddMessages.push({ id, role, content, metadata });
+    capturedAddMessages.push({
+      id,
+      role,
+      content,
+      metadata: options?.metadata,
+    });
     return { id };
   },
   updateConversationUsage: () => {},
@@ -194,6 +199,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  updateMessageContent: mock(() => {}),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -316,7 +322,7 @@ interface PendingRun {
   resolve: (history: Message[]) => void;
   reject: (err: Error) => void;
   messages: Message[];
-  onEvent: (event: AgentEvent) => void;
+  onEvent: (event: AgentEvent) => void | Promise<void>;
   onCheckpoint?: (
     checkpoint: CheckpointInfo,
   ) => CheckpointDecision | Promise<CheckpointDecision>;
@@ -338,15 +344,21 @@ mock.module("../agent/loop.js", () => ({
     }
     async run(
       messages: Message[],
-      onEvent: (event: AgentEvent) => void,
-      _signal?: AbortSignal,
-      _requestId?: string,
-      onCheckpoint?: (
-        checkpoint: CheckpointInfo,
-      ) => CheckpointDecision | Promise<CheckpointDecision>,
+      onEvent: (event: AgentEvent) => void | Promise<void>,
+      options?: {
+        onCheckpoint?: (
+          checkpoint: CheckpointInfo,
+        ) => CheckpointDecision | Promise<CheckpointDecision>;
+      },
     ): Promise<Message[]> {
       return new Promise<Message[]>((resolve, reject) => {
-        pendingRuns.push({ resolve, reject, messages, onEvent, onCheckpoint });
+        pendingRuns.push({
+          resolve,
+          reject,
+          messages,
+          onEvent,
+          onCheckpoint: options?.onCheckpoint,
+        });
       });
     }
   },
@@ -472,7 +484,7 @@ async function waitForCondition(
  * that `runAgentLoop` expects (usage + message_complete) so the conversation
  * cleanly transitions out of its processing state.
  */
-function resolveRun(index: number) {
+async function resolveRun(index: number) {
   const run = pendingRuns[index];
   if (!run) throw new Error(`No pending run at index ${index}`);
   // Emit the events runAgentLoop expects
@@ -480,14 +492,17 @@ function resolveRun(index: number) {
     role: "assistant",
     content: [{ type: "text", text: `reply-${index}` }],
   };
-  run.onEvent({
+  // Prime the assistant row anchor — production code emits this from
+  // `AgentLoop.run` just before `provider.sendMessage`.
+  await run.onEvent({ type: "llm_call_started" });
+  await run.onEvent({
     type: "usage",
     inputTokens: 10,
     outputTokens: 5,
     model: "mock",
     providerDurationMs: 100,
   });
-  run.onEvent({ type: "message_complete", message: assistantMsg });
+  await run.onEvent({ type: "message_complete", message: assistantMsg });
   // Return updated history with the assistant message appended
   run.resolve([...run.messages, assistantMsg]);
 }
@@ -520,12 +535,12 @@ describe("Conversation message queue", () => {
     const events2: ServerMessage[] = [];
 
     // Start first message — this will block on AgentLoop.run
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
 
     // Wait for the first AgentLoop.run to be registered
     await waitForPendingRun(1);
@@ -544,7 +559,7 @@ describe("Conversation message queue", () => {
     expect(conversation.getQueueDepth()).toBe(1);
 
     // Complete the first message
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
 
     // After the first run resolves, the queue drains and triggers a second run.
@@ -557,7 +572,7 @@ describe("Conversation message queue", () => {
     expect(pendingRuns.length).toBe(2);
 
     // Complete the second run
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -570,12 +585,12 @@ describe("Conversation message queue", () => {
     const events3: ServerMessage[] = [];
 
     // Start first message
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue two more sibling passthrough messages
@@ -592,7 +607,7 @@ describe("Conversation message queue", () => {
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete run 0 → drain pulls msg-2 and msg-3 into ONE batched run.
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -631,7 +646,7 @@ describe("Conversation message queue", () => {
     expect(combinedUserText).toContain("msg-3");
 
     // Resolve the batched run; message_complete must fan out to both clients.
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
 
     expect(events2.some((e) => e.type === "message_complete")).toBe(true);
@@ -645,7 +660,11 @@ describe("Conversation message queue", () => {
     const events2: ServerMessage[] = [];
 
     // Start first message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue second — simulating what handleUserMessage does
@@ -657,7 +676,7 @@ describe("Conversation message queue", () => {
     expect(result.queued).toBe(true);
 
     // Complete first
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -671,7 +690,7 @@ describe("Conversation message queue", () => {
     });
 
     // Complete second run so the conversation finishes cleanly
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -683,7 +702,11 @@ describe("Conversation message queue", () => {
     const events3: ServerMessage[] = [];
 
     // Start first message
-    conversation.processMessage("msg-1", [], () => {}, "req-1");
+    conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue two more
@@ -742,12 +765,12 @@ describe("Conversation message queue", () => {
     const events: ServerMessage[] = [];
 
     // Start a message — blocks on AgentLoop.run
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Reject the AgentLoop.run() with a provider error to trigger the
@@ -769,7 +792,11 @@ describe("Conversation message queue", () => {
     await conversation.loadFromDb();
 
     // Start first message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     expect(conversation.getQueueDepth()).toBe(0);
@@ -785,7 +812,7 @@ describe("Conversation message queue", () => {
 
     // Complete first → drain pulls all three same-interface passthroughs
     // into a single batched run (depth → 0, runs → 2 total).
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -793,7 +820,7 @@ describe("Conversation message queue", () => {
     expect(pendingRuns.length).toBe(2);
 
     // Complete the batched run; conversation finishes cleanly.
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -806,12 +833,12 @@ describe("Conversation message queue", () => {
     const events3: ServerMessage[] = [];
 
     // Start first message — blocks on AgentLoop.run
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue a message with empty content (will fail persistUserMessage)
@@ -830,7 +857,7 @@ describe("Conversation message queue", () => {
 
     // Complete first message — triggers drain. The empty message should fail
     // to persist, but the drain should continue to msg-3.
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
 
     // msg-3 should have been dequeued and started a new AgentLoop.run
@@ -847,7 +874,7 @@ describe("Conversation message queue", () => {
     expect(events3.some((e) => e.type === "message_dequeued")).toBe(true);
 
     // Complete the third message's run
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
 
     // msg-3 should have completed successfully
@@ -874,7 +901,11 @@ describe("Batched drain", () => {
     const events5: ServerMessage[] = [];
 
     // Start in-flight message (msg-1)
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue 4 messages with interfaces [macos, macos, cli, macos].
@@ -910,7 +941,7 @@ describe("Batched drain", () => {
     expect(conversation.getQueueDepth()).toBe(4);
 
     // Resolve msg-1 → batched run pulls macos msg-2 + msg-3.
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -938,7 +969,7 @@ describe("Batched drain", () => {
     );
 
     // Resolve the batched run → drain pulls the cli single-message run.
-    resolveRun(1);
+    await resolveRun(1);
     await waitForPendingRun(3);
 
     // cli run contains msg-4 as a single-message run.
@@ -953,7 +984,7 @@ describe("Batched drain", () => {
     );
 
     // Resolve the cli run → drain pulls the final macos single-message run.
-    resolveRun(2);
+    await resolveRun(2);
     await waitForPendingRun(4);
     const finalHistory = pendingRuns[3].messages;
     const finalUserText = finalHistory
@@ -968,7 +999,7 @@ describe("Batched drain", () => {
     // Four total runs: msg-1, batched [msg-2, msg-3], msg-4, msg-5.
     expect(pendingRuns.length).toBe(4);
 
-    resolveRun(3);
+    await resolveRun(3);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -981,7 +1012,11 @@ describe("Batched drain", () => {
     const eventsWorld: ServerMessage[] = [];
 
     // Start in-flight message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue ["hello", "/compact", "world"]. /compact resolves to a non-
@@ -1007,7 +1042,7 @@ describe("Batched drain", () => {
 
     // Resolve msg-1 → drain pulls "hello" as its own run (batch stops at
     // /compact boundary).
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -1018,7 +1053,7 @@ describe("Batched drain", () => {
 
     // Resolve "hello" → drain pops /compact via the builder-rejected path,
     // runs its short-circuit (no new runAgentLoop), then drains "world".
-    resolveRun(1);
+    await resolveRun(1);
     await waitForPendingRun(3);
 
     // /compact should have emitted its own message_complete via the short-
@@ -1027,7 +1062,7 @@ describe("Batched drain", () => {
     expect(eventsWorld.some((e) => e.type === "message_dequeued")).toBe(true);
     expect(pendingRuns.length).toBe(3);
 
-    resolveRun(2);
+    await resolveRun(2);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -1050,7 +1085,11 @@ describe("Batched drain", () => {
     const eventsPlainB: ServerMessage[] = [];
 
     // Start in-flight message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue ["plain-a", "/status", "plain-b"]. /status resolves to a non-
@@ -1078,7 +1117,7 @@ describe("Batched drain", () => {
 
     // Resolve msg-1 → drain pulls "plain-a" as its own run (batch stops at
     // the /status boundary).
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -1091,7 +1130,7 @@ describe("Batched drain", () => {
     // runs its unknown-slash short-circuit (no new runAgentLoop, emits
     // assistant_text_delta + message_complete inline), then drains "plain-b"
     // as its own run.
-    resolveRun(1);
+    await resolveRun(1);
     await waitForPendingRun(3);
 
     // /status should have emitted its own assistant_text_delta + message_complete
@@ -1105,7 +1144,7 @@ describe("Batched drain", () => {
     // without a runAgentLoop invocation.
     expect(pendingRuns.length).toBe(3);
 
-    resolveRun(2);
+    await resolveRun(2);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -1115,7 +1154,11 @@ describe("Batched drain", () => {
     await conversation.loadFromDb();
 
     // Start in-flight message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Two sibling messages, each with a distinct image attachment.
@@ -1149,7 +1192,7 @@ describe("Batched drain", () => {
     });
     expect(conversation.getQueueDepth()).toBe(2);
 
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -1183,7 +1226,7 @@ describe("Batched drain", () => {
     expect(allText).toContain("a.png");
     expect(allText).toContain("b.png");
 
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -1198,7 +1241,11 @@ describe("Batched drain", () => {
       new MessageQueue(budget);
 
     // Start in-flight so subsequent enqueues are queued (not processed).
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Fill to just-under budget: two ~500-char messages (1512+1512 = 3024 bytes).
@@ -1239,19 +1286,23 @@ describe("Batched drain", () => {
     }
 
     // Complete in-flight → drain pulls both queued passthroughs as ONE batched run.
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
     expect(conversation.getQueueDepth()).toBe(0);
 
     // Resolve the batched run.
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
 
     // After the full drain, the byte budget must be fully reclaimed — a fresh
     // round of enqueues up to the budget should succeed again. Spin up another
     // in-flight message to reach the queueing state.
-    const p2 = conversation.processMessage("msg-2", [], () => {}, "req-2");
+    const p2 = conversation.processMessage({
+      content: "msg-2",
+      attachments: [],
+      requestId: "req-2",
+    });
     await waitForPendingRun(3);
     expect(
       conversation.enqueueMessage({
@@ -1266,10 +1317,10 @@ describe("Batched drain", () => {
       }).queued,
     ).toBe(true);
 
-    resolveRun(2);
+    await resolveRun(2);
     await p2;
     await waitForPendingRun(4);
-    resolveRun(3);
+    await resolveRun(3);
     await new Promise((r) => setTimeout(r, 10));
   });
 });
@@ -1293,7 +1344,11 @@ describe("Batched drain correctness fixes", () => {
     const eventsRegular: ServerMessage[] = [];
 
     // Start in-flight message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue a surface-action message (activeSurfaceId set + tracked in
@@ -1317,7 +1372,7 @@ describe("Batched drain correctness fixes", () => {
     // Complete run 0 → drain must NOT batch the surface-action with the
     // regular passthrough. Expect the surface-action to drain as a single
     // run first.
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -1332,7 +1387,7 @@ describe("Batched drain correctness fixes", () => {
 
     // Complete the surface-action run; drain pulls the regular passthrough
     // as its own separate run.
-    resolveRun(1);
+    await resolveRun(1);
     await waitForPendingRun(3);
     expect(pendingRuns.length).toBe(3);
     expect(
@@ -1341,7 +1396,7 @@ describe("Batched drain correctness fixes", () => {
 
     // Total runs = 3: msg-1, surface-action, regular — NOT 2 (would mean
     // they were batched).
-    resolveRun(2);
+    await resolveRun(2);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -1355,12 +1410,12 @@ describe("Batched drain correctness fixes", () => {
     const events4: ServerMessage[] = [];
 
     // Start in-flight message
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue three sibling passthroughs (msg-2 = head, msg-3 = mid,
@@ -1404,7 +1459,7 @@ describe("Batched drain correctness fixes", () => {
     ).length;
 
     // Complete run 0 → drain pulls the sibling batch.
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
 
     // Give the drain loop a chance to iterate. Abort happens on msg-3's
@@ -1434,12 +1489,12 @@ describe("Batched drain correctness fixes", () => {
     const events4: ServerMessage[] = [];
 
     // Start in-flight message
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue three siblings. Configure addMessage to throw for the second
@@ -1466,7 +1521,7 @@ describe("Batched drain correctness fixes", () => {
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Complete run 0 → batched drain.
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -1483,7 +1538,7 @@ describe("Batched drain correctness fixes", () => {
     ).toBe("req-tail");
 
     // Cleanup: resolve the batched run.
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 20));
   });
 
@@ -1496,12 +1551,12 @@ describe("Batched drain correctness fixes", () => {
     const events3: ServerMessage[] = [];
     const events4: ServerMessage[] = [];
 
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Mid tail will fail to persist. After the batched run resolves,
@@ -1527,12 +1582,12 @@ describe("Batched drain correctness fixes", () => {
       requestId: "req-fanout-tail",
     });
 
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
     // Drive the batched run to emit message_complete via fanOutOnEvent.
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 20));
 
     expect(events3.find((e) => e.type === "error")).toBeDefined();
@@ -1552,7 +1607,11 @@ describe("Batched drain correctness fixes", () => {
     await conversation.loadFromDb();
 
     // Start in-flight message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Snapshot the count before drain so we only compare batch-emitted
@@ -1565,7 +1624,7 @@ describe("Batched drain correctness fixes", () => {
     conversation.enqueueMessage({ content: "msg-4", requestId: "req-4" });
 
     // Complete run 0 → drain pulls the batched siblings as ONE run.
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -1585,7 +1644,7 @@ describe("Batched drain correctness fixes", () => {
       requestId: "req-2", // head's requestId, per the fix
     });
 
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -1626,7 +1685,11 @@ describe("Conversation queue policy helpers", () => {
     await conversation.loadFromDb();
 
     // Start processing to make the session busy
-    conversation.processMessage("msg-1", [], () => {}, "req-1");
+    conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue a message while processing
@@ -1634,9 +1697,9 @@ describe("Conversation queue policy helpers", () => {
     expect(conversation.hasQueuedMessages()).toBe(true);
 
     // Cleanup: resolve the pending run
-    resolveRun(0);
+    await resolveRun(0);
     await waitForPendingRun(2);
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -1653,7 +1716,11 @@ describe("Conversation queue policy helpers", () => {
     await conversation.loadFromDb();
 
     // Start processing — but don't enqueue anything
-    conversation.processMessage("msg-1", [], () => {}, "req-1");
+    conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     expect(conversation.isProcessing()).toBe(true);
@@ -1661,7 +1728,7 @@ describe("Conversation queue policy helpers", () => {
     expect(conversation.canHandoffAtCheckpoint()).toBe(false);
 
     // Cleanup
-    resolveRun(0);
+    await resolveRun(0);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -1670,7 +1737,11 @@ describe("Conversation queue policy helpers", () => {
     await conversation.loadFromDb();
 
     // Start processing
-    conversation.processMessage("msg-1", [], () => {}, "req-1");
+    conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue a message
@@ -1681,9 +1752,9 @@ describe("Conversation queue policy helpers", () => {
     expect(conversation.canHandoffAtCheckpoint()).toBe(true);
 
     // Cleanup
-    resolveRun(0);
+    await resolveRun(0);
     await waitForPendingRun(2);
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -1721,12 +1792,12 @@ describe("Conversation checkpoint handoff", () => {
     const events1: ServerMessage[] = [];
 
     // Start processing first message
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue a second message while the first is processing
@@ -1748,7 +1819,7 @@ describe("Conversation checkpoint handoff", () => {
     expect(decision).toBe("yield");
 
     // Complete the run so the conversation finishes cleanly
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
 
     // After yield, the first message should emit generation_handoff
@@ -1763,7 +1834,7 @@ describe("Conversation checkpoint handoff", () => {
 
     // The queued message should now be draining (second run started)
     await waitForPendingRun(2);
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -1772,7 +1843,11 @@ describe("Conversation checkpoint handoff", () => {
     await conversation.loadFromDb();
 
     // Start processing — no enqueued messages
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     expect(conversation.hasQueuedMessages()).toBe(false);
@@ -1791,7 +1866,7 @@ describe("Conversation checkpoint handoff", () => {
     expect(decision).toBe("continue");
 
     // Cleanup
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
   });
 
@@ -1805,12 +1880,12 @@ describe("Conversation checkpoint handoff", () => {
     const events4: ServerMessage[] = [];
 
     // Start first message (mid-tool-use — will yield at the next checkpoint)
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue three sibling passthroughs while msg-1 is mid-turn
@@ -1843,7 +1918,7 @@ describe("Conversation checkpoint handoff", () => {
     expect(decision).toBe("yield");
 
     // Complete first run
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
 
     // The yielded drain pulls ALL THREE queued siblings as ONE batched run —
@@ -1857,7 +1932,7 @@ describe("Conversation checkpoint handoff", () => {
     expect(events4.some((e) => e.type === "message_dequeued")).toBe(true);
 
     // Resolve the batched run — message_complete fans out to all three clients.
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
 
     expect(events2.some((e) => e.type === "message_complete")).toBe(true);
@@ -1873,12 +1948,12 @@ describe("Conversation checkpoint handoff", () => {
     const events2: ServerMessage[] = [];
 
     // Start processing first message
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue a second message while the first is processing
@@ -1905,7 +1980,7 @@ describe("Conversation checkpoint handoff", () => {
     expect(decision).toBe("yield");
 
     // Complete the run (AgentLoop resolves after yielding)
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
 
     // Verify generation_handoff was emitted (not plain message_complete)
@@ -1928,7 +2003,7 @@ describe("Conversation checkpoint handoff", () => {
     expect(events2.some((e) => e.type === "message_dequeued")).toBe(true);
 
     // Complete the second run
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 
@@ -1944,12 +2019,12 @@ describe("Conversation checkpoint handoff", () => {
     };
 
     // Start processing message A
-    const pA = conversation.processMessage(
-      "msg-A",
-      [],
-      (e) => eventsA.push(e),
-      "req-A",
-    );
+    const pA = conversation.processMessage({
+      content: "msg-A",
+      attachments: [],
+      onEvent: (e) => eventsA.push(e),
+      requestId: "req-A",
+    });
     await waitForPendingRun(1);
 
     // Enqueue messages B, C, D — each on a distinct userMessageInterface so the
@@ -1989,7 +2064,7 @@ describe("Conversation checkpoint handoff", () => {
         history: [],
       }),
     ).toBe("yield");
-    resolveRun(0);
+    await resolveRun(0);
     await pA;
 
     // B should be draining
@@ -2006,7 +2081,7 @@ describe("Conversation checkpoint handoff", () => {
         history: [],
       }),
     ).toBe("yield");
-    resolveRun(1);
+    await resolveRun(1);
     await waitForPendingRun(3);
 
     // Handoff from C -> D
@@ -2021,7 +2096,7 @@ describe("Conversation checkpoint handoff", () => {
         history: [],
       }),
     ).toBe("yield");
-    resolveRun(2);
+    await resolveRun(2);
     await waitForPendingRun(4);
 
     // D has no more queued -> checkpoint should return 'continue'
@@ -2036,7 +2111,7 @@ describe("Conversation checkpoint handoff", () => {
       }),
     ).toBe("continue");
 
-    resolveRun(3);
+    await resolveRun(3);
     await new Promise((r) => setTimeout(r, 10));
 
     // Verify FIFO dequeue order
@@ -2052,12 +2127,12 @@ describe("Conversation checkpoint handoff", () => {
     const eventsC: ServerMessage[] = [];
 
     // Start processing message A
-    const pA = conversation.processMessage(
-      "msg-A",
-      [],
-      (e) => eventsA.push(e),
-      "req-A",
-    );
+    const pA = conversation.processMessage({
+      content: "msg-A",
+      attachments: [],
+      onEvent: (e) => eventsA.push(e),
+      requestId: "req-A",
+    });
     await waitForPendingRun(1);
 
     // Enqueue B (empty content — will fail to persist) and C (valid)
@@ -2074,7 +2149,7 @@ describe("Conversation checkpoint handoff", () => {
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete message A — triggers drain. B should fail, C should proceed.
-    resolveRun(0);
+    await resolveRun(0);
     await pA;
 
     // C should have been dequeued and started a new AgentLoop.run
@@ -2091,7 +2166,7 @@ describe("Conversation checkpoint handoff", () => {
     expect(eventsC.some((e) => e.type === "message_dequeued")).toBe(true);
 
     // Complete C's run
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
 
     // C should have completed successfully
@@ -2103,7 +2178,11 @@ describe("Conversation checkpoint handoff", () => {
     await conversation.loadFromDb();
 
     // Start processing
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // The first run should have onCheckpoint
@@ -2128,7 +2207,7 @@ describe("Conversation checkpoint handoff", () => {
     expect(pendingRuns[1].onCheckpoint).toBeDefined();
 
     // Complete retry cleanly
-    resolveRun(1);
+    await resolveRun(1);
     await p1;
   });
 });
@@ -2147,11 +2226,15 @@ describe("Conversation usage requestId correlation", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-42");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-42",
+    });
     await waitForPendingRun(1);
 
     // Complete the run — this triggers recordUsage with the request's ID
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
 
     // The usage event should carry the request ID, not null
@@ -2180,7 +2263,11 @@ describe("Terminal trace events on rejection/failure", () => {
     await conversation.loadFromDb();
 
     // Start first message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue empty content (will fail persistUserMessage)
@@ -2189,7 +2276,7 @@ describe("Terminal trace events on rejection/failure", () => {
     conversation.enqueueMessage({ content: "msg-3", requestId: "req-3" });
 
     // Complete first — triggers drain, empty msg fails persist
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -2204,7 +2291,7 @@ describe("Terminal trace events on rejection/failure", () => {
     expect(errorTrace).toBeDefined();
 
     // Cleanup
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 });
@@ -2228,12 +2315,12 @@ describe("Conversation host attachment directives", () => {
       const conversation = makeConversation((msg) => clientEvents.push(msg));
       await conversation.loadFromDb();
 
-      const p1 = conversation.processMessage(
-        "msg-1",
-        [],
-        (e) => events.push(e),
-        "req-1",
-      );
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: (e) => events.push(e),
+        requestId: "req-1",
+      });
       await waitForPendingRun(1);
 
       const run = pendingRuns[0];
@@ -2246,6 +2333,7 @@ describe("Conversation host attachment directives", () => {
           },
         ],
       };
+      await run.onEvent({ type: "llm_call_started" });
       run.onEvent({
         type: "usage",
         inputTokens: 10,
@@ -2297,12 +2385,12 @@ describe("Conversation host attachment directives", () => {
       const conversation = makeConversation((msg) => clientEvents.push(msg));
       await conversation.loadFromDb();
 
-      const p1 = conversation.processMessage(
-        "msg-1",
-        [],
-        (e) => events.push(e),
-        "req-1",
-      );
+      const p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: (e) => events.push(e),
+        requestId: "req-1",
+      });
       await waitForPendingRun(1);
 
       const run = pendingRuns[0];
@@ -2315,6 +2403,7 @@ describe("Conversation host attachment directives", () => {
           },
         ],
       };
+      await run.onEvent({ type: "llm_call_started" });
       run.onEvent({
         type: "usage",
         inputTokens: 10,
@@ -2383,12 +2472,12 @@ describe("Conversation attachment event payloads", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     const run = pendingRuns[0];
@@ -2408,6 +2497,7 @@ describe("Conversation attachment event payloads", () => {
         } as any,
       ],
     });
+    await run.onEvent({ type: "llm_call_started" });
     run.onEvent({
       type: "usage",
       inputTokens: 10,
@@ -2445,12 +2535,12 @@ describe("Conversation attachment event payloads", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Queue a second message so the first run yields via checkpoint handoff.
@@ -2483,6 +2573,7 @@ describe("Conversation attachment event payloads", () => {
         } as any,
       ],
     });
+    await run.onEvent({ type: "llm_call_started" });
     run.onEvent({
       type: "usage",
       inputTokens: 10,
@@ -2509,7 +2600,7 @@ describe("Conversation attachment event payloads", () => {
     expect(attachments[0].data).toBe("iVBORw0K");
 
     await waitForPendingRun(2);
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));
   });
 });
@@ -2529,19 +2620,19 @@ describe("Regression: cancel semantics and error channel split", () => {
     await conversation.loadFromDb();
 
     // Start processing a message — collect events from the per-message callback
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => msgEvents.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => msgEvents.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // User cancels — sets the abort signal
     conversation.abort();
 
     // Resolve the pending run so the abort-check path fires
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
 
     // generation_cancelled should be emitted via the per-message callback
@@ -2563,12 +2654,12 @@ describe("Regression: cancel semantics and error channel split", () => {
     await conversation.loadFromDb();
     linkAttachmentShouldThrow = true;
 
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
     const run = pendingRuns[0];
     const assistantMsg: Message = {
@@ -2587,6 +2678,7 @@ describe("Regression: cancel semantics and error channel split", () => {
         } as any,
       ],
     });
+    await run.onEvent({ type: "llm_call_started" });
     run.onEvent({
       type: "usage",
       inputTokens: 10,
@@ -2616,12 +2708,12 @@ describe("Regression: cancel semantics and error channel split", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => allEvents.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => allEvents.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Simulate a provider failure
@@ -2645,12 +2737,12 @@ describe("Regression: cancel semantics and error channel split", () => {
 
     const eventsPerMsg: ServerMessage[][] = [[], [], []];
 
-    conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => eventsPerMsg[0].push(e),
-      "req-1",
-    );
+    conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => eventsPerMsg[0].push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     conversation.enqueueMessage({
@@ -2697,12 +2789,12 @@ describe("Regression: cancel semantics and error channel split", () => {
       const events2: ServerMessage[] = [];
 
       // Start first message (promise intentionally not awaited — we test queue drain behavior)
-      const _p1 = conversation.processMessage(
-        "msg-1",
-        [],
-        (e) => events1.push(e),
-        "req-1",
-      );
+      const _p1 = conversation.processMessage({
+        content: "msg-1",
+        attachments: [],
+        onEvent: (e) => events1.push(e),
+        requestId: "req-1",
+      });
       await waitForPendingRun(1);
 
       // Enqueue a second message while the first is processing
@@ -2713,7 +2805,7 @@ describe("Regression: cancel semantics and error channel split", () => {
       });
 
       // Complete the first agent loop run
-      resolveRun(0);
+      await resolveRun(0);
 
       // The turn should still complete (timeout fires) and drain the queue
       // even though commitTurnChanges never resolves.
@@ -2734,7 +2826,7 @@ describe("Regression: cancel semantics and error channel split", () => {
 
       // Complete the second run so the test can clean up
       turnCommitHangForever = false;
-      resolveRun(1);
+      await resolveRun(1);
       await new Promise((r) => origSetTimeout(r, 10));
     } finally {
       turnCommitHangForever = false;

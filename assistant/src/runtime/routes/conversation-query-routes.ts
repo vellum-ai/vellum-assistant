@@ -258,7 +258,10 @@ function normalizeLlmContextLog(log: LogRow): LlmContextRouteResult & {
     responsePayload,
     createdAt: log.createdAt,
   });
-  const result = applyStoredProviderToLlmContextResult(normalized, log.provider);
+  const result = applyStoredProviderToLlmContextResult(
+    normalized,
+    log.provider,
+  );
   return {
     id: log.id,
     requestPayload: null,
@@ -707,6 +710,49 @@ async function handleReplaceInferenceProfile({
       );
     }
   }
+  // Mix profiles reference other profiles by name. `ProfileEntry.safeParse`
+  // above validates the fragment in isolation, so the cross-profile integrity
+  // rules `LLMSchema.superRefine` enforces on full-config load (every arm
+  // exists, no nesting, no self-reference, no config fields) must be checked
+  // here against the live profile set — otherwise an invalid mix would persist
+  // and break the next full config reparse.
+  if (parsed.data.mix != null) {
+    const MIX_ALLOWED_KEYS = new Set([
+      "mix",
+      "label",
+      "description",
+      "status",
+      "source",
+    ]);
+    const extraneous = Object.keys(parsed.data).filter(
+      (k) => !MIX_ALLOWED_KEYS.has(k),
+    );
+    if (extraneous.length > 0) {
+      throw new BadRequestError(
+        `Mix profile "${name}" cannot also set [${extraneous.join(", ")}] — a mix only references other profiles plus metadata (label, description, status).`,
+      );
+    }
+    const existingProfiles = getConfig().llm.profiles ?? {};
+    parsed.data.mix.forEach((arm, index) => {
+      if (arm.profile === name) {
+        throw new BadRequestError(
+          `Mix profile "${name}" cannot reference itself (arm ${index}).`,
+        );
+      }
+      const target = existingProfiles[arm.profile];
+      if (target == null) {
+        throw new BadRequestError(
+          `Mix profile "${name}" references profile "${arm.profile}" which is not defined.`,
+        );
+      }
+      if (target.mix != null) {
+        throw new BadRequestError(
+          `Mix profile "${name}" references another mix profile "${arm.profile}" — mixes cannot be nested; constituents must be standard profiles.`,
+        );
+      }
+    });
+  }
+
   // When the UI sends provider but no provider_connection, derive the connection
   // now so the config deep-merge doesn't inherit a stale connection from the
   // default layer.
@@ -1008,9 +1054,7 @@ function handleSteerToMessage({
       ? (body as Record<string, unknown>).conversationId
       : undefined);
   if (!conversationId || typeof conversationId !== "string") {
-    throw new BadRequestError(
-      "Missing required parameter: conversationId",
-    );
+    throw new BadRequestError("Missing required parameter: conversationId");
   }
   const result = steerToMessage(conversationId, pathParams.id ?? "");
   if (result.steered) {

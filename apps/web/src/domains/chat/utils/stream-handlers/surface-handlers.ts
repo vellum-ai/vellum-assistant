@@ -11,7 +11,7 @@ import {
   updateSurfaceData,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { UISurfaceCompleteEvent, UISurfaceDismissEvent, UISurfaceShowEvent, UISurfaceUpdateEvent } from "@/domains/chat/api/event-types";
+import type { UISurfaceCompleteEvent, UISurfaceDismissEvent, UISurfaceShowEvent, UISurfaceUpdateEvent } from "@/types/event-types";
 
 export function handleUISurfaceShow(
   event: UISurfaceShowEvent,

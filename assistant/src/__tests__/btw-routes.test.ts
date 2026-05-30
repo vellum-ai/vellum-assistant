@@ -131,16 +131,12 @@ import type { RouteHandlerArgs } from "../runtime/routes/types.js";
 function makeMockProvider(
   onSendMessage?: (
     messages: unknown[],
-    tools: unknown[],
-    systemPrompt: string | undefined,
-    options: SendMessageOptions | undefined,
+    options?: SendMessageOptions,
   ) => Promise<ProviderResponse>,
 ) {
   const defaultSendMessage = async (
     _messages: unknown[],
-    _tools: unknown[],
-    _systemPrompt: string | undefined,
-    options: SendMessageOptions | undefined,
+    options?: SendMessageOptions,
   ): Promise<ProviderResponse> => {
     options?.onEvent?.({ type: "text_delta", text: "hello" });
     return {
@@ -299,8 +295,7 @@ describe("POST /v1/btw", () => {
 
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
 
-    const [messages, tools, systemPrompt, options] =
-      provider.sendMessage.mock.calls[0];
+    const [messages, options] = provider.sendMessage.mock.calls[0];
 
     expect(messages).toHaveLength(3);
     expect(messages[0]).toEqual({
@@ -316,8 +311,8 @@ describe("POST /v1/btw", () => {
       content: [{ type: "text", text: "my question" }],
     });
 
-    expect(tools).toEqual(MOCK_TOOLS);
-    expect(systemPrompt).toBe(MOCK_SYSTEM_PROMPT);
+    expect(options!.tools).toEqual(MOCK_TOOLS);
+    expect(options!.systemPrompt).toBe(MOCK_SYSTEM_PROMPT);
     // Persona is resolved internally now; btw-routes no longer plumbs
     // it through to buildSystemPrompt.
     expect(mockBuildSystemPrompt).toHaveBeenCalledWith({
@@ -341,7 +336,7 @@ describe("POST /v1/btw", () => {
     await readStream(result as ReadableStream<Uint8Array>);
 
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
-    const [, , , options] = provider.sendMessage.mock.calls[0];
+    const [, options] = provider.sendMessage.mock.calls[0];
     expect(options!.config!.callSite).toBe("emptyStateGreeting");
   });
 
@@ -357,7 +352,7 @@ describe("POST /v1/btw", () => {
     await readStream(result as ReadableStream<Uint8Array>);
 
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
-    const [, , , options] = provider.sendMessage.mock.calls[0];
+    const [, options] = provider.sendMessage.mock.calls[0];
     expect(options!.config!.callSite).toBe("identityIntro");
   });
 

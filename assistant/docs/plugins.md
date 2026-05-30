@@ -380,22 +380,22 @@ plugin.pipeline pipeline=llmCall chain=["observeLlm","addHeader","defaultLlmCall
 Every pipeline slot and its purpose. Type details live in
 [`types.ts`](../src/plugins/types.ts).
 
-| Pipeline             | Purpose                                                                                                       |
-| -------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `turn`               | The outermost wrapper around a single assistant turn. Middleware here sees everything a turn does end-to-end. |
-| `llmCall`            | Every call to `Provider.sendMessage`. Input carries `messages`, `tools`, `systemPrompt`, `options`.           |
-| `toolExecute`        | Every `ToolExecutor.execute` call. Input carries `name`, `input`, and the full `ToolContext`.                 |
-| `memoryRetrieval`    | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                        |
-| `historyRepair`      | The pre-run repair pass on the message history. Wraps `repairHistory`.                                        |
-| `tokenEstimate`      | The token-count estimate used for budgeting. Wraps `estimatePromptTokensRaw`.                                 |
-| `compaction`         | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                                  |
-| `overflowReduce`     | The reducer tier loop invoked when a turn blows the context budget.                                           |
-| `persistence`        | Every message CRUD op (`add` / `update` / `delete`). Discriminated by `args.op`.                              |
-| `titleGenerate`      | Conversation title generation. Fire-and-forget by default.                                                    |
-| `toolResultTruncate` | The per-tool-result truncation step that fits a tool's output into the context window.                        |
-| `emptyResponse`      | The decision about what to do when the model returns an empty turn (nudge / accept / error).                  |
-| `toolError`          | The decision about what to do when one or more tool calls errored on a turn.                                  |
-| `circuitBreaker`     | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit.        |
+| Pipeline             | Purpose                                                                                                                                            |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `turn`               | The outermost wrapper around a single assistant turn. Middleware here sees everything a turn does end-to-end.                                      |
+| `llmCall`            | Every call to `Provider.sendMessage`. Input carries `messages` and `options` (with `tools`, `systemPrompt`, `config`, `onEvent`, `signal` inside). |
+| `toolExecute`        | Every `ToolExecutor.execute` call. Input carries `name`, `input`, and the full `ToolContext`.                                                      |
+| `memoryRetrieval`    | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                                                             |
+| `historyRepair`      | The pre-run repair pass on the message history. Wraps `repairHistory`.                                                                             |
+| `tokenEstimate`      | The token-count estimate used for budgeting. Wraps `estimatePromptTokensRaw`.                                                                      |
+| `compaction`         | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                                                                       |
+| `overflowReduce`     | The reducer tier loop invoked when a turn blows the context budget.                                                                                |
+| `persistence`        | Every message CRUD op (`add` / `update` / `delete`). Discriminated by `args.op`.                                                                   |
+| `titleGenerate`      | Conversation title generation. Fire-and-forget by default.                                                                                         |
+| `toolResultTruncate` | The per-tool-result truncation step that fits a tool's output into the context window.                                                             |
+| `emptyResponse`      | The decision about what to do when the model returns an empty turn (nudge / accept / error).                                                       |
+| `toolError`          | The decision about what to do when one or more tool calls errored on a turn.                                                                       |
+| `circuitBreaker`     | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit.                                             |
 
 ## Timeouts
 

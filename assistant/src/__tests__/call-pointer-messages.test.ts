@@ -314,7 +314,7 @@ describe("addPointerMessage", () => {
     ensureConversation(convId);
     // Add a user message with guardian provenance metadata
     await addMessage(convId, "user", "hello", {
-      provenanceTrustClass: "guardian",
+      metadata: { provenanceTrustClass: "guardian" },
     });
 
     let processorCalled = false;
@@ -331,7 +331,7 @@ describe("addPointerMessage", () => {
     ensureConversation(convId);
     // Add a user message with trusted_contact provenance metadata
     await addMessage(convId, "user", "hello", {
-      provenanceTrustClass: "trusted_contact",
+      metadata: { provenanceTrustClass: "trusted_contact" },
     });
 
     let processorCalled = false;
@@ -346,7 +346,9 @@ describe("addPointerMessage", () => {
   test("unknown provenance trust class does not grant trusted audience", () => {
     const convId = "conv-ptr-unknown-provenance";
     ensureConversation(convId);
-    addMessage(convId, "user", "hello", { provenanceTrustClass: "unknown" });
+    addMessage(convId, "user", "hello", {
+      metadata: { provenanceTrustClass: "unknown" },
+    });
 
     const processorCalled = { value: false };
     setPointerMessageProcessor(async () => {

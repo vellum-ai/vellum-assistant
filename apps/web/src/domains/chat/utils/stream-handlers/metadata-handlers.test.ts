@@ -1,16 +1,11 @@
 import { describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
-import { conversationsQueryKey } from "@/domains/conversations/conversation-queries";
-import type { Conversation } from "@/types/conversation-types";
+
 import {
   handleUsageUpdate,
-  handleConversationTitleUpdated,
   handleCompactionCircuitOpen,
   handleCompactionCircuitClosed,
-  handleDiskPressureStatusChanged,
-  handleIdentityChanged,
-  handleAvatarUpdated,
 } from "@/domains/chat/utils/stream-handlers/metadata-handlers";
 
 describe("handleUsageUpdate", () => {
@@ -45,10 +40,7 @@ describe("handleUsageUpdate", () => {
 
   it("sets fillRatio to null when maxTokens is missing", () => {
     const ctx = makeCtx();
-    handleUsageUpdate(
-      { type: "usage_update", contextWindowTokens: 5000 },
-      ctx,
-    );
+    handleUsageUpdate({ type: "usage_update", contextWindowTokens: 5000 }, ctx);
     expect(
       ctx.contextWindowUsageByConversationRef.current.get("conv-1"),
     ).toEqual({
@@ -69,38 +61,8 @@ describe("handleUsageUpdate", () => {
       ctx,
     );
     expect(
-      ctx.contextWindowUsageByConversationRef.current.get("conv-1")
-        ?.fillRatio,
+      ctx.contextWindowUsageByConversationRef.current.get("conv-1")?.fillRatio,
     ).toBe(1);
-  });
-});
-
-describe("handleConversationTitleUpdated", () => {
-  it("patches conversation title in the conversations query cache", () => {
-    const ctx = makeCtx();
-    ctx.queryClient.setQueryData<Conversation[]>(
-      conversationsQueryKey(ctx.assistantIdRef.current),
-      [
-        { conversationId: "conv-1", title: "Old Title" } as Conversation,
-      ],
-    );
-
-    handleConversationTitleUpdated(
-      {
-        type: "conversation_title_updated",
-        conversationId: "conv-1",
-        title: "New Title",
-      },
-      ctx,
-    );
-
-    const cached = ctx.queryClient.getQueryData<Conversation[]>(
-      conversationsQueryKey(ctx.assistantIdRef.current),
-    );
-    const conv = cached?.find(
-      (c) => c.conversationId === "conv-1",
-    );
-    expect(conv?.title).toBe("New Title");
   });
 });
 
@@ -111,7 +73,7 @@ describe("handleCompactionCircuitOpen", () => {
       {
         type: "compaction_circuit_open",
         conversationId: "conv-1",
-        reason: "test",
+        reason: "3_consecutive_failures",
         openUntil: Date.now() + 60000,
       },
       ctx,
@@ -131,29 +93,4 @@ describe("handleCompactionCircuitClosed", () => {
   });
 });
 
-describe("handleDiskPressureStatusChanged", () => {
-  it("delegates to applyDiskPressureStatusEvent", () => {
-    const ctx = makeCtx();
-    handleDiskPressureStatusChanged(
-      { type: "disk_pressure_status_changed", status: null },
-      ctx,
-    );
-    expect(ctx.applyDiskPressureStatusEvent).toHaveBeenCalledWith(null);
-  });
-});
 
-describe("handleIdentityChanged", () => {
-  it("calls refreshAssistantIdentity with force=true", () => {
-    const ctx = makeCtx();
-    handleIdentityChanged({ type: "identity_changed" }, ctx);
-    expect(ctx.refreshAssistantIdentity).toHaveBeenCalledWith(true);
-  });
-});
-
-describe("handleAvatarUpdated", () => {
-  it("calls invalidateAvatar", () => {
-    const ctx = makeCtx();
-    handleAvatarUpdated({ type: "avatar_updated" }, ctx);
-    expect(ctx.invalidateAvatar).toHaveBeenCalled();
-  });
-});

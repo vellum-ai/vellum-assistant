@@ -2,8 +2,8 @@ import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router";
 
 import { Typography } from "@vellum/design-library";
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
-import { useAssistantContext } from "@/components/layout/assistant-context";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationListQuery } from "@/domains/conversations/conversation-queries";
@@ -15,8 +15,8 @@ import { routes } from "@/utils/routes";
 
 export function HomePageRoute() {
   const navigate = useNavigate();
-  const { assistantId } = useActiveAssistantContext();
-  const { setTopBarCenter } = useAssistantContext();
+  const assistantId = useActiveAssistantId();
+  const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
   const isMobile = useIsMobile();
   const { conversations } = useConversationListQuery(assistantId);
   const validConversationIds = useMemo(

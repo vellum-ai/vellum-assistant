@@ -26,6 +26,7 @@ import { registerContactsCommand } from "./commands/contacts.js";
 import { registerConversationsCommand } from "./commands/conversations.js";
 import { registerCredentialExecutionCommand } from "./commands/credential-execution.js";
 import { registerCredentialsCommand } from "./commands/credentials.js";
+import { registerDbCommand } from "./commands/db/index.js";
 import { registerDefaultAction } from "./commands/default-action.js";
 import { registerDomainCommand } from "./commands/domain.js";
 import { registerEmailCommand } from "./commands/email.js";
@@ -121,6 +122,7 @@ Examples:
   registerConversationsCommand(program);
   registerCredentialExecutionCommand(program);
   registerCredentialsCommand(program);
+  registerDbCommand(program);
   if (isEmailEnabled(getConfigReadOnly())) {
     registerDomainCommand(program);
     registerEmailCommand(program);

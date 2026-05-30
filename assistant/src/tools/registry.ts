@@ -9,7 +9,7 @@ import { hostFileWriteTool } from "./host-filesystem/write.js";
 import { hostShellTool } from "./host-terminal/host-shell.js";
 import { toProviderSafeToolName } from "./provider-tool-name.js";
 import { registerSystemTools } from "./system/register.js";
-import type { LoadedTool, OwnerInfo, Tool } from "./types.js";
+import type { OwnerInfo, Tool } from "./types.js";
 import { allUiSurfaceTools } from "./ui-surface/definitions.js";
 import { registerUiSurfaceTools } from "./ui-surface/registry.js";
 
@@ -235,7 +235,7 @@ export function registerSkillTools(skillId: string, newTools: Tool[]): Tool[] {
  */
 export function registerPluginTools(
   pluginName: string,
-  newTools: LoadedTool[],
+  newTools: Tool[],
 ): Tool[] {
   const stamped: Tool[] = newTools.map((pluginTool) => {
     const tool: Tool = {

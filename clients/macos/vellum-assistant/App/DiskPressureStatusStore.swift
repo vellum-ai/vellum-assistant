@@ -10,12 +10,10 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "DiskP
 @Observable
 final class DiskPressureStatusStore {
     typealias ActiveAssistantIdProvider = @MainActor @Sendable () -> String?
-    typealias FeatureFlagEnabledProvider = @MainActor @Sendable (String) -> Bool
     static let acknowledgementFailureMessage = "Unable to acknowledge storage cleanup. Check your connection and try again."
 
     @ObservationIgnored private let client: any DiskPressureClientProtocol
     @ObservationIgnored private let eventStreamClient: EventStreamClient?
-    @ObservationIgnored private let featureFlagEnabled: FeatureFlagEnabledProvider
     @ObservationIgnored private let activeAssistantIdProvider: ActiveAssistantIdProvider
     @ObservationIgnored private let notificationCenter: NotificationCenter
 
@@ -33,7 +31,6 @@ final class DiskPressureStatusStore {
     init(
         client: any DiskPressureClientProtocol = DiskPressureClient(),
         eventStreamClient: EventStreamClient? = nil,
-        featureFlagEnabled: @escaping FeatureFlagEnabledProvider,
         activeAssistantIdProvider: @escaping ActiveAssistantIdProvider = {
             LockfileAssistant.loadActiveAssistantId()
         },
@@ -41,7 +38,6 @@ final class DiskPressureStatusStore {
     ) {
         self.client = client
         self.eventStreamClient = eventStreamClient
-        self.featureFlagEnabled = featureFlagEnabled
         self.activeAssistantIdProvider = activeAssistantIdProvider
         self.notificationCenter = notificationCenter
         self.activeAssistantId = activeAssistantIdProvider()
@@ -74,8 +70,7 @@ final class DiskPressureStatusStore {
     }
 
     private var activeStatus: DiskPressureStatus? {
-        guard featureFlagEnabled("safe-storage-limits"),
-              let status,
+        guard let status,
               status.enabled,
               status.state != "disabled"
         else {
@@ -137,7 +132,7 @@ final class DiskPressureStatusStore {
             clearStatus()
         }
 
-        guard assistantId != nil, featureFlagEnabled("safe-storage-limits") else {
+        guard assistantId != nil else {
             clearStatus()
             return
         }
@@ -159,7 +154,6 @@ final class DiskPressureStatusStore {
     }
 
     func acknowledge() {
-        guard featureFlagEnabled("safe-storage-limits") else { return }
         acknowledgementErrorMessage = nil
         generation += 1
         let requestGeneration = generation
@@ -180,7 +174,6 @@ final class DiskPressureStatusStore {
     }
 
     func overrideLock(confirmation: String) {
-        guard featureFlagEnabled("safe-storage-limits") else { return }
         generation += 1
         let requestGeneration = generation
         bootstrapTask?.cancel()
@@ -201,8 +194,6 @@ final class DiskPressureStatusStore {
         switch message {
         case .diskPressureStatusChanged(let event):
             applyStatus(event.status)
-        case .featureFlagsChanged:
-            refreshForCurrentAssistant()
         default:
             break
         }
@@ -220,8 +211,7 @@ final class DiskPressureStatusStore {
     }
 
     private func applyStatus(_ nextStatus: DiskPressureStatus) {
-        guard featureFlagEnabled("safe-storage-limits"),
-              nextStatus.enabled,
+        guard nextStatus.enabled,
               nextStatus.state != "disabled"
         else {
             clearStatus()

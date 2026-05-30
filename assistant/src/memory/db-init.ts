@@ -126,6 +126,7 @@ import {
   migrateLlmRequestLogsCreatedAtIndex,
   migrateLlmUsageAddRawUsage,
   migrateLlmUsageAttribution,
+  migrateLlmUsageEventsAddAssistantVersion,
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
@@ -467,6 +468,7 @@ export function initializeDb(): void {
     migrateLlmRequestLogCallSite,
     migrateDropProviderConnectionStatus,
     migrateMessagesClientMessageId,
+    migrateLlmUsageEventsAddAssistantVersion,
     migrateAddMemoryV3Selections,
   ];
 

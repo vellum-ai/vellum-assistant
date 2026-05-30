@@ -114,12 +114,14 @@ describe("host.providers.llm.complete", () => {
     expect(sendMessageSpy).toHaveBeenCalledTimes(1);
     const call = sendMessageSpy.mock.calls[0] as unknown as [
       unknown[],
-      unknown,
-      string | undefined,
-      unknown,
+      {
+        systemPrompt?: string;
+        tools?: unknown[];
+        config?: Record<string, unknown>;
+      },
     ];
     expect(Array.isArray(call[0])).toBe(true);
-    expect(call[2]).toBe("you are helpful");
+    expect(call[1]?.systemPrompt).toBe("you are helpful");
     expect(response).toEqual({
       content: [{ type: "text", text: "hello" }],
       model: "stub-model",
@@ -138,13 +140,11 @@ describe("host.providers.llm.complete", () => {
 
     const call = sendMessageSpy.mock.calls[0] as unknown as [
       unknown[],
-      unknown[],
-      string | undefined,
-      { config?: Record<string, unknown> } | undefined,
+      { tools?: unknown[]; config?: Record<string, unknown> },
     ];
-    expect(Array.isArray(call[1])).toBe(true);
-    expect((call[1] as unknown[]).length).toBe(1);
-    expect(call[3]?.config).toEqual({
+    expect(Array.isArray(call[1]?.tools)).toBe(true);
+    expect(call[1]?.tools?.length).toBe(1);
+    expect(call[1]?.config).toEqual({
       model: "override-model",
       callSite: "mainAgent",
     });

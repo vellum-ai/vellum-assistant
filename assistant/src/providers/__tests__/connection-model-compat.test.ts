@@ -46,13 +46,15 @@ describe("isConnectionCompatibleWithModel", () => {
   test("oauth_subscription connection is incompatible with a non-Codex model", () => {
     const conn = { auth: oauthAuth };
     expect(isConnectionCompatibleWithModel(conn, "gpt-5")).toBe(false);
-    expect(isConnectionCompatibleWithModel(conn, "gpt-5.5")).toBe(false);
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.4-nano")).toBe(false);
+    expect(isConnectionCompatibleWithModel(conn, "gpt-5.5-pro")).toBe(false);
   });
 
   test("oauth_subscription connection is compatible with a Codex model", () => {
     const conn = { auth: oauthAuth };
+    expect(isConnectionCompatibleWithModel(conn, "gpt-5.5")).toBe(true);
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.4")).toBe(true);
+    expect(isConnectionCompatibleWithModel(conn, "gpt-5.4-mini")).toBe(true);
     expect(isConnectionCompatibleWithModel(conn, "gpt-5.3-codex")).toBe(true);
   });
 

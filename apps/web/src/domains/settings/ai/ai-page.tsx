@@ -64,11 +64,17 @@ import {
 import { routes } from "@/utils/routes";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
-import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/lib/local-settings";
+import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
-import { profilePickerLabel, visibleProfilesForPicker } from "@/domains/settings/ai/profile-pickers";
+import {
+  AUTO_PROFILE_NAME,
+  gateAutoProfile,
+  profilePickerLabel,
+  visibleProfilesForPicker,
+} from "@/domains/settings/ai/profile-pickers";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { readSecret } from "@/domains/settings/ai/provider-connections-client";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 
@@ -319,22 +325,22 @@ export function reconcileFromDaemonConfig(config: DaemonConfig): DaemonConfigRec
 // Local-storage keys
 // ---------------------------------------------------------------------------
 
-const LS_IMAGE_GEN_MODE = "vellum_image_gen_mode";
-const LS_IMAGE_GEN_MODEL = "vellum_image_gen_model";
-const LS_WEB_SEARCH_MODE = "vellum_web_search_mode";
-const LS_WEB_SEARCH_PROVIDER = "vellum_web_search_provider";
-const LS_EMAIL_MODE = "vellum_email_mode";
-const LS_EMAIL_BYO_PROVIDER = "vellum_email_byo_provider";
+const LS_IMAGE_GEN_MODE = "vellum:ai:imageGenMode";
+const LS_IMAGE_GEN_MODEL = "vellum:ai:imageGenModel";
+const LS_WEB_SEARCH_MODE = "vellum:ai:webSearchMode";
+const LS_WEB_SEARCH_PROVIDER = "vellum:ai:webSearchProvider";
+const LS_EMAIL_MODE = "vellum:ai:emailMode";
+const LS_EMAIL_BYO_PROVIDER = "vellum:ai:emailByoProvider";
 
 // TTS / STT localStorage keys (shared with the Voice settings tab)
-const LS_TTS_PROVIDER = "voice:ttsProvider";
-const LS_TTS_API_KEY_PREFIX = "voice:ttsApiKey:";
-const LS_TTS_VOICE_ID_PREFIX = "voice:ttsVoiceId:";
-const LS_STT_PROVIDER = "voice:sttProvider";
-const LS_STT_API_KEY_PREFIX = "voice:sttApiKey:";
+const LS_TTS_PROVIDER = "vellum:voice:ttsProvider";
+const LS_TTS_API_KEY_PREFIX = "vellum:voice:ttsApiKey:";
+const LS_TTS_VOICE_ID_PREFIX = "vellum:voice:ttsVoiceId:";
+const LS_STT_PROVIDER = "vellum:voice:sttProvider";
+const LS_STT_API_KEY_PREFIX = "vellum:voice:sttApiKey:";
 
 // localStorage key for the image generation credential (matching service-keys page)
-const LS_IMAGE_GEN_CREDENTIAL = "vellum_gemini_key";
+const LS_IMAGE_GEN_CREDENTIAL = "vellum:ai:geminiKey";
 
 // Per-web-search-provider localStorage keys live in the generated catalog
 // (`WEB_SEARCH_PROVIDER_KEY_STORAGE`). Returns "" for managed providers
@@ -1691,9 +1697,16 @@ export function AiPage() {
   // path). ManageProfilesModal and CallSiteOverridesModal both still consume
   // the full `orderedProfiles` — the latter applies the same "preserve
   // current selection" rule per-row internally.
+  const queryComplexityRoutingEnabled =
+    useAssistantFeatureFlagStore.use.queryComplexityRouting();
+
   const defaultProfilePickerEntries = useMemo(
-    () => visibleProfilesForPicker(orderedProfiles, [activeProfile]),
-    [orderedProfiles, activeProfile],
+    () =>
+      gateAutoProfile(
+        visibleProfilesForPicker(orderedProfiles, [activeProfile]),
+        queryComplexityRoutingEnabled,
+      ),
+    [orderedProfiles, activeProfile, queryComplexityRoutingEnabled],
   );
 
   // Guard so background refetches (window focus, reconnect) don't clobber
@@ -2006,12 +2019,12 @@ export function AiPage() {
               options={defaultProfilePickerEntries.map((p) => ({
                 value: p.name,
                 label:
-                  p.name === "auto"
+                  p.name === AUTO_PROFILE_NAME
                     ? "Automatically switch between profiles"
                     : profilePickerLabel(p),
               }))}
             />
-            {activeProfile === "auto" && (
+            {queryComplexityRoutingEnabled && activeProfile === AUTO_PROFILE_NAME && (
               <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-warning-subtle)] px-3 py-2">
                 <span className="text-body-small-default text-[var(--content-warning)]">
                   Auto may use more powerful models when needed, which can increase costs.

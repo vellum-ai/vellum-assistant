@@ -18,8 +18,69 @@ export type VellumCommand =
 // new methods" section in `apps/macos/README.md` for the convention
 // (generic KV for non-sensitive prefs; dedicated `<capability>.<verb>()`
 // methods for sensitive capabilities).
+/**
+ * Mirror of `AppVersionInfo` in `apps/macos/src/main/about.ts`. Kept inline
+ * to avoid the cross-project import — the surface is small and rarely
+ * changes; drift surfaces as a renderer field that's `undefined` at
+ * runtime rather than a build error.
+ */
+export interface AppVersionInfo {
+  appName: string;
+  version: string;
+  commitSha: string;
+  copyright: string;
+  website: string;
+}
+
+/**
+ * Mirror of `DeepLink` in `apps/macos/src/main/deep-links.ts`. Inlined
+ * (same convention as the other bridge types) — preload + main +
+ * renderer each have their own TS project; cheaper to maintain a tiny
+ * literal union three places than to wire cross-project imports. Drift
+ * surfaces as a renderer handler not narrowing on a new kind, which
+ * is a graceful no-op rather than a crash.
+ */
+export type DeepLink =
+  | { kind: "send"; message: string }
+  | { kind: "openThread"; threadId: string }
+  | { kind: "unknown"; url: string };
+
+/**
+ * Mirror of `PowerEventKind` in `apps/macos/src/main/power-events.ts`.
+ * Inlined for the same reason as `VellumCommand` / `AppVersionInfo`:
+ * preload + main + renderer each have their own TS project; cheaper
+ * to maintain a tiny literal union three places than to wire
+ * cross-project imports. Drift surfaces as a renderer handler not
+ * narrowing on a new kind — graceful no-op, not a crash.
+ */
+export type PowerEventKind =
+  | "suspend"
+  | "resume"
+  | "lock"
+  | "unlock"
+  | "active";
+
+export interface PowerEvent {
+  kind: PowerEventKind;
+}
+
 export interface VellumBridge {
   platform: "electron";
+  app: {
+    /**
+     * Read-only metadata about the running app: name, version, commit
+     * SHA (injected at build time), copyright, website. Used by the
+     * branded About window. Safe to call from any window the preload
+     * is attached to.
+     */
+    versionInfo(): Promise<AppVersionInfo>;
+    /**
+     * Open the marketing website in the user's default browser. The
+     * renderer is sandboxed so it can't call `shell.openExternal`
+     * itself; this routes through main.
+     */
+    openWebsite(): Promise<void>;
+  };
   auth: {
     signIn(): Promise<void>;
     signOut(): Promise<void>;
@@ -57,6 +118,40 @@ export interface VellumBridge {
      */
     setSignedIn(signedIn: boolean): Promise<void>;
   };
+  power: {
+    /**
+     * Subscribe to system power-state events: sleep, wake, screen
+     * lock/unlock, user-did-become-active-after-idle. Returns an
+     * unsubscribe function; callers should invoke it on cleanup
+     * (e.g. `useEffect` return) to avoid leaks on window close or
+     * hot reload.
+     *
+     * Long-running renderer consumers (SSE, WebSocket clients, auth
+     * refresh timers) subscribe to bounce-and-reconnect on `resume`
+     * / `unlock` — browser timers freeze during system suspend and
+     * sockets may appear "open" but be half-dead because the remote
+     * side has TCP-RST'd while we slept.
+     */
+    onEvent(callback: (event: PowerEvent) => void): () => void;
+  };
+  deepLinks: {
+    /**
+     * Drain and return the buffer of deep links that arrived before
+     * the renderer was ready. Returns ALL pending links and clears
+     * the buffer. The renderer wrapper does subscribe-then-drain to
+     * avoid losing a live link that arrives between `onLink`
+     * subscription and `drain` completion.
+     */
+    drain(): Promise<DeepLink[]>;
+    /**
+     * Subscribe to live deep links (links arriving after the
+     * renderer is up). Returns an unsubscribe function; callers
+     * invoke it on cleanup. Links arriving before subscription are
+     * captured by `drain`; subscribe BEFORE drain to cover the
+     * narrow race where a link lands in flight.
+     */
+    onLink(callback: (link: DeepLink) => void): () => void;
+  };
 }
 
 const notImplemented = (name: string) => (): Promise<never> =>
@@ -64,6 +159,12 @@ const notImplemented = (name: string) => (): Promise<never> =>
 
 const bridge: VellumBridge = {
   platform: "electron",
+  app: {
+    versionInfo: (): Promise<AppVersionInfo> =>
+      ipcRenderer.invoke("vellum:app:versionInfo") as Promise<AppVersionInfo>,
+    openWebsite: (): Promise<void> =>
+      ipcRenderer.invoke("vellum:app:openWebsite") as Promise<void>,
+  },
   auth: {
     signIn: notImplemented("auth.signIn"),
     signOut: notImplemented("auth.signOut"),
@@ -94,6 +195,36 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke("vellum:dock:setBadge", count) as Promise<void>,
     setSignedIn: (signedIn: boolean): Promise<void> =>
       ipcRenderer.invoke("vellum:dock:setSignedIn", signedIn) as Promise<void>,
+  },
+  power: {
+    onEvent: (callback) => {
+      const handler = (_event: IpcRendererEvent, payload: PowerEvent) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:power:event", handler);
+      return () => {
+        ipcRenderer.off("vellum:power:event", handler);
+      };
+    },
+  },
+  deepLinks: {
+    drain: (): Promise<DeepLink[]> =>
+      ipcRenderer.invoke("vellum:deepLinks:drain") as Promise<DeepLink[]>,
+    onLink: (callback) => {
+      const handler = (_event: IpcRendererEvent, payload: DeepLink) => {
+        callback(payload);
+      };
+      ipcRenderer.on("vellum:deepLinks:event", handler);
+      // Tell main we're listening so it switches from "buffer" mode
+      // to "broadcast only" mode. Without this, every live link
+      // would also enter the buffer and be replayed on a future
+      // drain (renderer reload, logout-relogin).
+      ipcRenderer.send("vellum:deepLinks:subscribe");
+      return () => {
+        ipcRenderer.off("vellum:deepLinks:event", handler);
+        ipcRenderer.send("vellum:deepLinks:unsubscribe");
+      };
+    },
   },
 };
 

@@ -33,14 +33,14 @@ import {
   fetchConversationMessages as defaultFetchConversationMessages,
   type RuntimeMessage,
 } from "@/domains/chat/api/messages";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import type {
   PendingConfirmationState,
   PendingContactRequestState,
   PendingQuestionState,
   PendingSecretState,
 } from "@/types/interaction-ui-types";
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
+import { recordDiagnostic } from "@/lib/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
@@ -55,11 +55,11 @@ import {
   type TurnState,
   isSending,
   isThinking,
-} from "@/stores/turn-store";
+} from "@/domains/chat/turn-store";
 import {
   type UIContext,
   shouldShowThinkingIndicator,
-} from "@/stores/turn-selectors";
+} from "@/domains/chat/turn-selectors";
 import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------
@@ -226,14 +226,14 @@ export interface ChatDebugApi {
    * `transcript-message-body.tsx`).
    *
    * For the full virtualized row list — including non-message rows like
-   * the thinking indicator, pending prompts, and the queued-marker —
-   * use {@link getTranscriptItems}.
+   * the thinking indicator and pending prompts — use
+   * {@link getTranscriptItems}.
    */
   getClientMessages(limit?: number): DisplayMessage[];
   /**
    * Return the full transcript-item array the virtualized list iterates
-   * — messages, the thinking indicator, pending-interaction rows, the
-   * queued-marker, error notices, the onboarding-choice row.
+   * — messages, the thinking indicator, pending-interaction rows, error
+   * notices, the onboarding-choice row.
    *
    * `getClientMessages()` returns only the `DisplayMessage[]` slice;
    * `getTranscriptItems()` returns the discriminated union of every
@@ -495,7 +495,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     // true. If this ever drifts we want the test suite (and DevTools users) to
     // notice immediately rather than chasing a confusing report.
     if (visible !== (failingConditions.length === 0)) {
-      recordChatDiagnostic("debug_thinking_indicator_drift", {
+      recordDiagnostic("debug_thinking_indicator_drift", {
         visible,
         failingConditionCount: failingConditions.length,
       });
@@ -538,12 +538,12 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
   }
 
   async function forceReconcile(): Promise<ReconcileActiveConversationResult> {
-    recordChatDiagnostic("debug_force_reconcile_start", {
+    recordDiagnostic("debug_force_reconcile_start", {
       activeConversationId: useConversationStore.getState().activeConversationId,
       assistantId: refs.getAssistantId(),
     });
     const result = await refs.reconcileActiveConversation();
-    recordChatDiagnostic("debug_force_reconcile_result", {
+    recordDiagnostic("debug_force_reconcile_result", {
       activeConversationId: useConversationStore.getState().activeConversationId,
       changed: result.changed,
       messagesAdded: result.messagesAdded,
@@ -657,7 +657,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "window._vellumDebug.chat — surgical chat debug API",
       "",
       "  .getClientMessages(n?)     last N DisplayMessage[] the UI is rendering (post-sanitize)",
-      "  .getTranscriptItems()      full virtualized row list — messages + thinking + pending prompts + markers",
+      "  .getTranscriptItems()      full virtualized row list — messages + thinking + pending prompts",
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",

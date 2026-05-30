@@ -382,8 +382,10 @@ async function runForkBasedRetrospective(
       forkId,
       "user",
       JSON.stringify([{ type: "text", text: instruction }]),
-      { kind: MEMORY_RETROSPECTIVE_INSTRUCTION_KIND, hidden: true },
-      { skipIndexing: true },
+      {
+        metadata: { kind: MEMORY_RETROSPECTIVE_INSTRUCTION_KIND, hidden: true },
+        skipIndexing: true,
+      },
     );
   } catch (err) {
     log.error(

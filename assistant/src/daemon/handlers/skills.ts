@@ -1562,15 +1562,11 @@ export async function draftSkill(params: {
               body.slice(0, 2000),
             ].join("\n");
 
-            const response = await provider.sendMessage(
-              [userMessage(prompt)],
-              [],
-              undefined,
-              {
-                config: { callSite: "skillCategoryInference", max_tokens: 256 },
-                signal,
-              },
-            );
+            const response = await provider.sendMessage([userMessage(prompt)], {
+              tools: [],
+              config: { callSite: "skillCategoryInference", max_tokens: 256 },
+              signal,
+            });
             cleanup();
 
             const responseText = extractText(response);

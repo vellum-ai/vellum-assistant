@@ -142,17 +142,14 @@ export async function selectFromLeaf(
 
   let response;
   try {
-    response = await provider.sendMessage(
-      [userMsg],
-      [SELECT_PAGES_TOOL],
-      SYSTEM_PROMPT,
-      {
-        config: {
-          callSite: "memoryV3SelectL2" as const,
-          tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },
-        },
+    response = await provider.sendMessage([userMsg], {
+      tools: [SELECT_PAGES_TOOL],
+      systemPrompt: SYSTEM_PROMPT,
+      config: {
+        callSite: "memoryV3SelectL2" as const,
+        tool_choice: { type: "tool" as const, name: SELECT_PAGES_TOOL_NAME },
       },
-    );
+    });
   } catch (err) {
     log.warn({ err, leaf }, "L2 selector call threw; selecting all");
     return allMembers();

@@ -1,5 +1,3 @@
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { getConfig } from "../config/loader.js";
 import { buildAssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { cancelBackgroundTools } from "../tools/background-tool-registry.js";
@@ -8,6 +6,19 @@ import { getLogger } from "../util/logger.js";
 
 export const DISK_PRESSURE_WARNING_THRESHOLD_PERCENT = 80;
 export const DISK_PRESSURE_THRESHOLD_PERCENT = 95;
+// Hysteresis lower bound: once locked, the guard stays locked until usage
+// falls below this clear threshold. The deadband between this and the
+// critical threshold stops the lock from flapping when usage hovers near
+// 95% — otherwise clearing the lock immediately resumes background work,
+// which can refill the disk and re-trip the lock on the next sample.
+export const DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT = 90;
+// Warning-side hysteresis lower bound: once in the warning state, usage must
+// fall below this clear threshold before warning resolves. The deadband between
+// this and the warning threshold stops the in-chat disk-pressure banner from
+// flapping when usage hovers near 80% — without it, a brief dip below 80%
+// clears the warning state, which discards the banner's (state-scoped) dismissal
+// so it re-appears the moment usage ticks back up.
+export const DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT = 77;
 export const DISK_PRESSURE_CHECK_INTERVAL_MS = 60_000;
 export const DISK_PRESSURE_OVERRIDE_CONFIRMATION = "I understand the risks";
 export const DISK_PRESSURE_BLOCKED_CAPABILITIES = [
@@ -16,7 +27,12 @@ export const DISK_PRESSURE_BLOCKED_CAPABILITIES = [
   "remote-ingress",
 ] as const;
 
-export type DiskPressureState = "disabled" | "ok" | "warning" | "critical" | "unknown";
+export type DiskPressureState =
+  | "disabled"
+  | "ok"
+  | "warning"
+  | "critical"
+  | "unknown";
 
 export type DiskPressureBlockedCapability =
   (typeof DISK_PRESSURE_BLOCKED_CAPABILITIES)[number];
@@ -119,24 +135,10 @@ function replaceStatus(next: DiskPressureStatus): DiskPressureStatus {
   return cloneStatus(state.status);
 }
 
-function isEnabled(): boolean {
-  return isAssistantFeatureFlagEnabled("safe-storage-limits", getConfig());
-}
-
-function resetToDisabled(): DiskPressureStatus {
-  const previous = cloneStatus(state.status);
-  stopDiskPressureGuard();
-  state.status = cloneStatus(DISABLED_STATUS);
-  publishStatusChangedIfNeeded(previous);
-  return cloneStatus(state.status);
-}
-
-function ensureEnabledStatus(): DiskPressureStatus | null {
-  if (!isEnabled()) return resetToDisabled();
+function ensureEnabledStatus(): void {
   if (!state.status.enabled) {
     state.status = cloneStatus(OPEN_STATUS);
   }
-  return null;
 }
 
 function nextLockId(): string {
@@ -192,8 +194,7 @@ function rejectTransition(
 }
 
 export function startDiskPressureGuard(): DiskPressureStatus {
-  const disabledStatus = ensureEnabledStatus();
-  if (disabledStatus) return disabledStatus;
+  ensureEnabledStatus();
 
   if (!state.timer) {
     state.timer = setInterval(() => {
@@ -212,8 +213,7 @@ export function stopDiskPressureGuard(): void {
 }
 
 export function evaluateDiskPressureNow(): DiskPressureStatus {
-  const disabledStatus = ensureEnabledStatus();
-  if (disabledStatus) return disabledStatus;
+  ensureEnabledStatus();
 
   let usageInfo: ReturnType<typeof getDiskUsageInfo>;
   try {
@@ -229,8 +229,28 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
   const usagePercent = roundPercent(
     (usageInfo.usedMb / usageInfo.totalMb) * 100,
   );
-  const isCritical = usagePercent >= DISK_PRESSURE_THRESHOLD_PERCENT;
-  const isWarning = !isCritical && usagePercent >= DISK_PRESSURE_WARNING_THRESHOLD_PERCENT;
+  // Hysteresis: while locked, hold until usage drops below the lower clear
+  // threshold; otherwise lock at the critical threshold.
+  const criticalThreshold = state.status.locked
+    ? DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT
+    : DISK_PRESSURE_THRESHOLD_PERCENT;
+  const isCritical = usagePercent >= criticalThreshold;
+  // Mirror the critical deadband for the warning band: once in an active
+  // pressure state (warning or critical), hold warning until usage clears the
+  // lower warning-clear threshold. Treating "critical" as active here matters
+  // for a direct step-down: when cleanup frees a lot of space in one sample,
+  // usage can drop straight from a critical lock to e.g. 78%, which is below
+  // the 80% warning trigger but above the 77% clear threshold. Using the full
+  // 80% threshold in that case would report "ok" and discard the warning/
+  // dismissal, reopening the flapping window on the next tick back up. The
+  // deadband must apply consistently whether we arrived in the warning band
+  // from below (rising past 80%) or from above (falling out of critical).
+  const inActivePressureState =
+    state.status.state === "warning" || state.status.state === "critical";
+  const warningThreshold = inActivePressureState
+    ? DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT
+    : DISK_PRESSURE_WARNING_THRESHOLD_PERCENT;
+  const isWarning = !isCritical && usagePercent >= warningThreshold;
   const lastCheckedAt = new Date().toISOString();
 
   if (!isCritical && !isWarning) {
@@ -277,14 +297,13 @@ export function evaluateDiskPressureNow(): DiskPressureStatus {
 }
 
 export function getDiskPressureStatus(): DiskPressureStatus {
-  if (!isEnabled()) return cloneStatus(DISABLED_STATUS);
   if (!state.status.enabled) return cloneStatus(OPEN_STATUS);
   return cloneStatus(state.status);
 }
 
 export function acknowledgeDiskPressureLock(): DiskPressureTransitionResult {
-  const disabledStatus = ensureEnabledStatus();
-  const status = disabledStatus ?? cloneStatus(state.status);
+  ensureEnabledStatus();
+  const status = cloneStatus(state.status);
   if (!status.locked) {
     return rejectTransition(
       "not_locked",
@@ -310,8 +329,8 @@ export function acknowledgeDiskPressureLock(): DiskPressureTransitionResult {
 export function overrideDiskPressureLock(
   confirmation: string,
 ): DiskPressureTransitionResult {
-  const disabledStatus = ensureEnabledStatus();
-  const status = disabledStatus ?? cloneStatus(state.status);
+  ensureEnabledStatus();
+  const status = cloneStatus(state.status);
   if (!status.locked) {
     return rejectTransition(
       "not_locked",

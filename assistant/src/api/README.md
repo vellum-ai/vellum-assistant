@@ -61,6 +61,15 @@ type from `../../api/events/my-event.js`. The domain-level
 `_<Domain>ServerMessages` union alias (consumed by `message-protocol.ts`)
 keeps its existing shape — it just references the canonical types now.
 
+**Do not add `export type MyEventLocalName = MyEvent` alias bridges in the
+daemon message-types files.** They shadow the canonical name and create a
+second name for the same thing — exactly the drift this directory exists to
+prevent. Reference the canonical `*Event` name directly inside the
+`_<Domain>ServerMessages` aggregator union, and have downstream daemon
+consumers import the canonical type from `../../api/events/<name>.js` at the
+use site. The only thing that should live in `message-types/<domain>.ts` for
+a migrated event is the import and the union membership.
+
 ### 3. Cut over web consumers
 
 `apps/web/src/domains/chat/api/event-types.ts` no longer needs to list the
@@ -118,10 +127,3 @@ bunx prettier --write <files>
 
 `format:check` is a distinct CI gate from `lint`; format the touched files
 before push.
-
-## Status
-
-The remaining legacy parser cases are tracked in the **Solve Chat SSE**
-workstream (record `282e972a` in `workspace/data/apps/workstream-command-center/records/`).
-Each batch lands as its own PR under the `API Events Canonical Schemas`
-stream.

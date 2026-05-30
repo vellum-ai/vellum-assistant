@@ -4,7 +4,7 @@ import { useSearchParams } from "react-router";
 import { AssistantTerminalPanel } from "@/domains/settings/components/panels/assistant-terminal-panel";
 import { DebugControlsPanel } from "@/domains/settings/components/panels/debug-controls-panel";
 import { DoctorPanel } from "@/domains/settings/components/panels/doctor-panel";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { cn } from "@/utils/misc";
 
 const ALL_TABS = [

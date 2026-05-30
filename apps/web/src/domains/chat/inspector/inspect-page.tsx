@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { useMemo, useState, type ReactNode } from "react";
 
 import { Button } from "@vellum/design-library";
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import type { RuntimeMessage } from "@/domains/chat/api/messages";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
 import {
@@ -94,7 +94,7 @@ interface InspectorProps {
 }
 
 function Inspector({ conversationId, messageId }: InspectorProps): ReactNode {
-  const { assistantId } = useActiveAssistantContext();
+  const assistantId = useActiveAssistantId();
   const {
     data,
     isLoading: isLoadingContext,

@@ -121,6 +121,15 @@ export type AgentLoopExitReason =
   | "error";
 
 export type AgentEvent =
+  /**
+   * Emitted once per LLM call inside the loop, immediately before the
+   * `provider.sendMessage` invocation. Carries the optional `callSite` tag so
+   * downstream handlers (the daemon's persistence pipeline) can decide
+   * whether to reserve a row for this call. One `llm_call_started` precedes
+   * every `message_complete` for the same call; multi-call agent turns emit
+   * one pair per call.
+   */
+  | { type: "llm_call_started"; callSite?: LLMCallSite }
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; thinking: string }
   | { type: "message_complete"; message: Message }
@@ -369,6 +378,35 @@ export interface ResolvedSystemPrompt {
   model?: string;
 }
 
+export interface AgentLoopRunOptions {
+  signal?: AbortSignal;
+  requestId?: string;
+  onCheckpoint?: (
+    checkpoint: CheckpointInfo,
+  ) => CheckpointDecision | Promise<CheckpointDecision>;
+  callSite?: LLMCallSite;
+  /**
+   * Per-turn context supplied by the orchestrator. Every pipeline
+   * invocation inside the loop clones from this value (overwriting only
+   * `turnIndex`/`requestId`) so middleware sees the real conversation
+   * identity, trust class, and `contextWindowManager` rather than the
+   * `"agent-loop"` sentinel used when the loop is instantiated standalone
+   * in unit tests.
+   */
+  turnContext?: TurnContext;
+  /**
+   * Ad-hoc inference-profile override applied to every LLM call the loop
+   * issues. When set, each `SendMessageOptions.config` carries
+   * `overrideProfile = <name>` so the provider's resolver layers
+   * `llm.profiles[<name>]` between the workspace `activeProfile` and any
+   * call-site named profile. Missing profile names silently fall through.
+   */
+  overrideProfile?: string;
+  effectiveMaxInputTokens?: number;
+  resolveOverrideProfile?: () => string | undefined;
+  resolveEffectiveMaxInputTokens?: () => number | undefined;
+}
+
 /**
  * Callback shape the loop uses to execute a tool invocation.
  *
@@ -475,35 +513,19 @@ export class AgentLoop {
   async run(
     messages: Message[],
     onEvent: (event: AgentEvent) => void | Promise<void>,
-    signal?: AbortSignal,
-    requestId?: string,
-    onCheckpoint?: (
-      checkpoint: CheckpointInfo,
-    ) => CheckpointDecision | Promise<CheckpointDecision>,
-    callSite?: LLMCallSite,
-    /**
-     * Optional per-turn context supplied by the orchestrator. Every pipeline
-     * invocation inside the loop clones from this value (overwriting only
-     * `turnIndex`/`requestId`) so middleware sees the real conversation
-     * identity, trust class, and `contextWindowManager` rather than the
-     * `"agent-loop"` sentinel used when the loop is instantiated standalone
-     * in unit tests.
-     */
-    turnContext?: TurnContext,
-    /**
-     * Optional ad-hoc inference-profile override applied to every LLM call
-     * the loop issues. When set, each `SendMessageOptions.config` carries
-     * `overrideProfile = <name>` so the provider's resolver layers
-     * `llm.profiles[<name>]` between the workspace `activeProfile` and any
-     * call-site named profile. Missing profile names silently fall through.
-     * Used by per-conversation pinned profiles to override the workspace
-     * default for the lifetime of an agent loop run.
-     */
-    overrideProfile?: string,
-    effectiveMaxInputTokens?: number,
-    resolveOverrideProfile?: () => string | undefined,
-    resolveEffectiveMaxInputTokens?: () => number | undefined,
+    options?: AgentLoopRunOptions,
   ): Promise<Message[]> {
+    const {
+      signal,
+      requestId,
+      onCheckpoint,
+      callSite,
+      turnContext,
+      overrideProfile,
+      effectiveMaxInputTokens,
+      resolveOverrideProfile,
+      resolveEffectiveMaxInputTokens,
+    } = options ?? {};
     const history = [...messages];
     const initialHistoryLength = messages.length;
     let toolUseTurns = 0;
@@ -618,6 +640,16 @@ export class AgentLoop {
         if (callSite) {
           providerConfig.callSite = callSite;
           providerConfig.usageTracking = "manual";
+          // Per-conversation seed for deterministic `mix`-profile expansion.
+          // Sourced from the orchestrator-supplied turn context's
+          // conversationId so every LLM call in a conversation resolves the
+          // same mix arm (stable across turns and retries, and across daemon
+          // restarts since the seed is the durable conversation id). Absent
+          // for standalone `AgentLoop` instances (unit tests / no turnContext)
+          // — those fall back to per-call random mix selection.
+          if (turnContext?.conversationId) {
+            providerConfig.selectionSeed = turnContext.conversationId;
+          }
         }
 
         // Per-call inference-profile override. The resolver layers
@@ -692,9 +724,9 @@ export class AgentLoop {
         const llmCallArgs: LLMCallArgs = {
           provider: this.provider,
           messages: providerHistory,
-          tools: currentTools.length > 0 ? currentTools : undefined,
-          systemPrompt: turnSystemPrompt,
           options: {
+            tools: currentTools.length > 0 ? currentTools : undefined,
+            systemPrompt: turnSystemPrompt,
             config: providerConfig,
             onEvent: (event) => {
               if (event.type === "text_delta") {
@@ -766,6 +798,18 @@ export class AgentLoop {
           toolUseTurns,
         );
 
+        // Announce the LLM-call boundary so downstream handlers (the
+        // daemon's persistence pipeline) can reserve an empty assistant row
+        // and stamp the resulting `messageId` onto every streaming event the
+        // call emits. Emit as late as possible — after history stripping,
+        // arg construction, and turn-context resolution — so the gap
+        // between "we said the call started" and the actual provider HTTP
+        // call is minimized. Awaited so the row is created and the
+        // `assistant_turn_start` wire event reaches the client BEFORE the
+        // provider starts streaming deltas — the deltas downstream will
+        // carry the freshly-reserved id.
+        await onEvent({ type: "llm_call_started", callSite });
+
         // Inner try/catch narrows error-recording scope to the provider
         // call itself. The outer agent-loop catch (below) wraps the entire
         // turn body (tool execution, plugin pipelines, checkpoints), so
@@ -780,13 +824,7 @@ export class AgentLoop {
           response = await runPipeline<LLMCallArgs, LLMCallResult>(
             "llmCall",
             getMiddlewaresFor("llmCall"),
-            (args) =>
-              args.provider.sendMessage(
-                args.messages,
-                args.tools,
-                args.systemPrompt,
-                args.options,
-              ),
+            (args) => args.provider.sendMessage(args.messages, args.options),
             llmCallArgs,
             turnCtx,
             DEFAULT_TIMEOUTS.llmCall,
@@ -808,8 +846,8 @@ export class AgentLoop {
             const rawRequest = {
               provider: this.provider.name,
               messages: llmCallArgs.messages,
-              tools: llmCallArgs.tools,
-              systemPrompt: llmCallArgs.systemPrompt,
+              tools: llmCallArgs.options?.tools,
+              systemPrompt: llmCallArgs.options?.systemPrompt,
               config: llmCallArgs.options?.config,
             };
             onEvent({

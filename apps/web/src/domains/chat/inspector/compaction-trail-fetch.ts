@@ -19,8 +19,8 @@
  * `archiveConversation`).
  */
 
-import { client, SDK_BASE_OPTIONS } from "@/domains/chat/api/client";
-import { assertHasResponse } from "@/lib/api-errors";
+import { client } from "@/generated/api/client.gen";
+import { assertHasResponse, SDK_BASE_OPTIONS } from "@/utils/api-errors";
 
 import type { CompactionTrailResponse } from "./compaction-trail-types";
 

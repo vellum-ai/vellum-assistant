@@ -384,7 +384,7 @@ describe("CallSiteRoutingProvider — selectProvider behavior", () => {
       },
     );
 
-    await wrapper.sendMessage([], undefined, undefined, {
+    await wrapper.sendMessage([], {
       config: { callSite: "subagentSpawn" },
     });
 
@@ -420,7 +420,7 @@ describe("CallSiteRoutingProvider — selectProvider behavior", () => {
       async () => null,
     );
 
-    await wrapper.sendMessage([], undefined, undefined, {
+    await wrapper.sendMessage([], {
       config: {},
     });
 

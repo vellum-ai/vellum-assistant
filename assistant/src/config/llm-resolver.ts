@@ -42,33 +42,60 @@ import {
  * resolver stays pure; schema validation in `LLMSchema.superRefine` catches
  * unknown `activeProfile` references at config-load time.
  *
- * Pure & synchronous: no I/O, no async work.
+ * A profile reference that points at a "mix" profile is expanded to one of its
+ * constituent profiles by a seeded weighted pick (see `resolveProfileFragment`
+ * and `opts.selectionSeed`). Expansion happens uniformly at every dereference
+ * spot, so a mix works as `activeProfile`, `overrideProfile`, or a call-site
+ * `profile`.
+ *
+ * Pure & synchronous: no I/O, no async work. (Random selection only occurs for
+ * mix profiles when no `selectionSeed` is supplied; with a seed the pick is
+ * deterministic.)
  */
+export interface ResolveCallSiteOpts {
+  overrideProfile?: string;
+  /**
+   * Per-conversation seed for expanding `mix` profiles. The chosen constituent
+   * is a deterministic function of `selectionSeed` + the mix profile's own
+   * name, so every `resolveCallSiteConfig` call for the same conversation picks
+   * the SAME arm (stable across turns, retries, and restarts). Pass the
+   * conversation id. When absent, the resolver falls back to a fresh random
+   * pick per call — acceptable only for one-shot/background call sites that
+   * resolve config exactly once per invocation.
+   */
+  selectionSeed?: string;
+  /**
+   * Invoked once for each mix profile the resolver expands, reporting which
+   * constituent was chosen. Used by A/B-eval recording (usage attribution).
+   */
+  onMixSelected?: (info: { mixProfile: string; chosenProfile: string }) => void;
+}
+
 export function resolveCallSiteConfig(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,
-  opts: { overrideProfile?: string } = {},
+  opts: ResolveCallSiteOpts = {},
 ): z.infer<typeof LLMConfigBase> {
   const layers: Mergeable[] = [llm.default as Mergeable];
 
-  const activeFragment =
-    llm.activeProfile != null ? llm.profiles?.[llm.activeProfile] : undefined;
-  const overrideFragment =
-    opts.overrideProfile != null
-      ? llm.profiles?.[opts.overrideProfile]
-      : undefined;
+  const activeFragment = resolveProfileFragment(llm.activeProfile, llm, opts);
+  const overrideFragment = resolveProfileFragment(
+    opts.overrideProfile,
+    llm,
+    opts,
+  );
   const site =
     llm.callSites?.[callSite] ??
     effectiveDefault(callSite, llm, opts.overrideProfile != null);
 
   if (callSite === "mainAgent") {
-    appendCallSiteLayers(layers, callSite, llm, site);
+    appendCallSiteLayers(layers, callSite, llm, site, opts);
     appendProfileLayer(layers, activeFragment);
     appendProfileLayer(layers, overrideFragment);
   } else {
     appendProfileLayer(layers, activeFragment);
     appendProfileLayer(layers, overrideFragment);
-    appendCallSiteLayers(layers, callSite, llm, site);
+    appendCallSiteLayers(layers, callSite, llm, site, opts);
   }
 
   return finalize(deepMerge(...layers.map(withImpliedProviderForKnownModel)));
@@ -79,6 +106,81 @@ export function resolveCallSiteConfig(
 // ---------------------------------------------------------------------------
 
 type Mergeable = Record<string, unknown>;
+
+/**
+ * FNV-1a 32-bit string hash → unit float in [0, 1). Deterministic and stable
+ * across runtimes — the mix-pick contract depends on identical output for
+ * identical input forever, so the constants must never change. (Mirrors the
+ * private hash in `memory/v2/page-index.ts`; intentionally re-declared here so
+ * the resolver's determinism contract is self-contained and cannot be broken
+ * by an unrelated edit to that module.)
+ */
+function seededUnitFloat(seed: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  // `>>> 0` → unsigned 32-bit; divide by 2^32 to land in [0, 1).
+  return (h >>> 0) / 0x100000000;
+}
+
+/**
+ * Pick one entry from a weighted list given a unit float in [0, 1). Weights
+ * are relative and normalized by their sum. Assumes `entries` is non-empty
+ * with positive weights (guaranteed by `MixSchema`: `.min(2)` + positive).
+ */
+function weightedPick<T extends { weight: number }>(
+  entries: readonly T[],
+  unit: number,
+): T {
+  const total = entries.reduce((sum, e) => sum + e.weight, 0);
+  // Defensive: a degenerate total (unreachable post-schema) → first arm.
+  if (!(total > 0)) return entries[0];
+  let threshold = unit * total;
+  for (const entry of entries) {
+    threshold -= entry.weight;
+    if (threshold < 0) return entry;
+  }
+  // Floating-point fall-through (unit ≈ 1): return the last arm.
+  return entries[entries.length - 1];
+}
+
+/**
+ * Dereference a profile name to its concrete `ProfileEntry`, expanding a mix
+ * profile by a seeded weighted pick. Returns `undefined` when the name is
+ * unknown (parity with the silent fall-through callers already rely on).
+ *
+ * Mix expansion is one level only — `LLMSchema.superRefine` guarantees arms
+ * are standard (non-mix) profiles, so this never recurses unboundedly. A
+ * chosen arm pointing at a missing profile (only reachable in hand-crafted,
+ * unparsed configs) falls through to `undefined`.
+ *
+ * Pure & synchronous (the only impurity is `Math.random()` in the no-seed
+ * fallback path).
+ */
+function resolveProfileFragment(
+  name: string | undefined,
+  llm: z.infer<typeof LLMSchema>,
+  opts: ResolveCallSiteOpts,
+): ProfileEntry | undefined {
+  if (name == null) return undefined;
+  const entry = llm.profiles?.[name];
+  if (entry?.mix == null) return entry;
+
+  // Mix: pick one constituent. Seed by per-conversation seed + the mix's own
+  // name so two different mixes in the same conversation pick independently,
+  // but the same mix always resolves to the same arm within the conversation.
+  const unit =
+    opts.selectionSeed != null
+      ? seededUnitFloat(`${opts.selectionSeed}\u0000${name}`)
+      : Math.random();
+  const chosen = weightedPick(entry.mix, unit);
+  opts.onMixSelected?.({ mixProfile: name, chosenProfile: chosen.profile });
+
+  // The chosen arm must be a standard profile (enforced by superRefine).
+  return llm.profiles?.[chosen.profile];
+}
 
 /**
  * Returns the effective default profile key the resolver would actually
@@ -170,16 +272,16 @@ function appendCallSiteLayers(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,
   site: z.infer<typeof LLMSchema>["callSites"][LLMCallSite] | undefined,
+  opts: ResolveCallSiteOpts,
 ): void {
   if (site != null) {
     if (site.profile != null) {
-      const profileFragment: ProfileEntry | undefined =
-        llm.profiles?.[site.profile];
+      const profileFragment = resolveProfileFragment(site.profile, llm, opts);
       if (profileFragment == null) {
         // Defensive: `LLMSchema.superRefine` already rejects unknown profile
-        // references at config load, so this branch is unreachable for any
-        // config that survived schema validation. Throw a clear error in case
-        // a hand-crafted (un-parsed) config slips through.
+        // references (and unknown mix arms) at config load, so this branch is
+        // unreachable for any config that survived schema validation. Throw a
+        // clear error in case a hand-crafted (un-parsed) config slips through.
         throw new Error(
           `LLM call site "${callSite}" references undefined profile "${site.profile}"`,
         );
@@ -198,6 +300,10 @@ function profileConfigFragment(profile: ProfileEntry): Mergeable {
     source: _source,
     label: _label,
     description: _description,
+    // `mix` never reaches here in practice (a mix expands to a standard
+    // profile before this point), but strip it defensively so it can never
+    // leak into the merged `LLMConfigBase`.
+    mix: _mix,
     ...config
   } = profile;
   return config as Mergeable;

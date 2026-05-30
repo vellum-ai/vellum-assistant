@@ -46,6 +46,41 @@ export function getPolicy(endpoint: string): RoutePolicy | undefined {
   return policyRegistry.get(endpoint);
 }
 
+/**
+ * Derive the policy lookup key for a route by stripping `:param` segments
+ * from its endpoint pattern (e.g. `calls/:id/cancel` → `calls/cancel`).
+ * When the route declares an explicit `policyKey`, that wins.
+ */
+function derivePolicyKey(args: {
+  endpoint: string;
+  policyKey?: string;
+}): string {
+  return (
+    args.policyKey ?? args.endpoint.replace(/\/:[^/]+/g, "").replace(/^:/, "")
+  );
+}
+
+/**
+ * Resolve the policy for a route by its (endpoint, method, optional
+ * policyKey) tuple. Tries the method-suffixed key first (e.g.
+ * `messages:GET`), then the bare policyKey. Returns `null` when no policy
+ * is registered — intentionally unprotected routes (health, debug, ...).
+ *
+ * This is the single source of truth for policy resolution. Both the
+ * HTTP router (per-request lookup) and the IPC route adapter
+ * (serializing the route schema for the gateway IPC proxy) call this so
+ * the gateway never has to maintain a parallel policy table.
+ */
+export function resolveRoutePolicy(args: {
+  endpoint: string;
+  method: string;
+  policyKey?: string;
+}): RoutePolicy | null {
+  const base = derivePolicyKey(args);
+  const methodKey = `${base}:${args.method}`;
+  return policyRegistry.get(methodKey) ?? policyRegistry.get(base) ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Enforcement
 // ---------------------------------------------------------------------------

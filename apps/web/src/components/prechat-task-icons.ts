@@ -1,7 +1,7 @@
 /**
  * Mapping from `prechat-tasks.ts` `iconKey` strings to lucide-react icon
- * components. Shared by `TaskToneSelectionScreen` and `OnboardingChoiceCard`
- * so the mapping is defined once.
+ * components. Shared by the chat onboarding choice surfaces so the mapping is
+ * defined once.
  *
  * This lives in a separate file from `prechat-tasks.ts` so the pure-data
  * catalog stays free of icon library imports.

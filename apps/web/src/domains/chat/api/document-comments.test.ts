@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { client } from "@/generated/api/client.gen";
-import { ApiError } from "@/lib/api-errors";
+import { ApiError } from "@/utils/api-errors";
 
 import {
   createComment,

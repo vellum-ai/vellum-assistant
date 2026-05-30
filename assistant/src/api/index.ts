@@ -2,18 +2,27 @@ import { z } from "zod";
 
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
+import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-closed.js";
+import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
 import { DocumentCommentCreatedEventSchema } from "./events/document-comment-created.js";
 import { DocumentCommentDeletedEventSchema } from "./events/document-comment-deleted.js";
 import { DocumentCommentReopenedEventSchema } from "./events/document-comment-reopened.js";
 import { DocumentCommentResolvedEventSchema } from "./events/document-comment-resolved.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
+import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
+import { InteractionResolvedEventSchema } from "./events/interaction-resolved.js";
 import { MessageCompleteEventSchema } from "./events/message-complete.js";
+import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
+import { MessageQueuedEventSchema } from "./events/message-queued.js";
+import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
+import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 
 export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
+export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
 export {
   type AssistantOutboundAttachment,
   AssistantOutboundAttachmentSchema,
@@ -26,6 +35,14 @@ export {
   type AssistantTurnStartEvent,
   AssistantTurnStartEventSchema,
 } from "./events/assistant-turn-start.js";
+export {
+  type CompactionCircuitClosedEvent,
+  CompactionCircuitClosedEventSchema,
+} from "./events/compaction-circuit-closed.js";
+export {
+  type CompactionCircuitOpenEvent,
+  CompactionCircuitOpenEventSchema,
+} from "./events/compaction-circuit-open.js";
 export {
   type DocumentCommentCreatedEvent,
   DocumentCommentCreatedEventSchema,
@@ -51,9 +68,35 @@ export {
   GenerationHandoffEventSchema,
 } from "./events/generation-handoff.js";
 export {
+  type HomeFeedUpdatedEvent,
+  HomeFeedUpdatedEventSchema,
+} from "./events/home-feed-updated.js";
+export {
+  type InteractionResolutionState,
+  InteractionResolutionStateSchema,
+  type InteractionResolvedEvent,
+  InteractionResolvedEventSchema,
+} from "./events/interaction-resolved.js";
+export {
   type MessageCompleteEvent,
   MessageCompleteEventSchema,
 } from "./events/message-complete.js";
+export {
+  type MessageDequeuedEvent,
+  MessageDequeuedEventSchema,
+} from "./events/message-dequeued.js";
+export {
+  type MessageQueuedEvent,
+  MessageQueuedEventSchema,
+} from "./events/message-queued.js";
+export {
+  type MessageQueuedDeletedEvent,
+  MessageQueuedDeletedEventSchema,
+} from "./events/message-queued-deleted.js";
+export {
+  type MessageRequestCompleteEvent,
+  MessageRequestCompleteEventSchema,
+} from "./events/message-request-complete.js";
 export { type OpenUrlEvent, OpenUrlEventSchema } from "./events/open-url.js";
 export {
   type RelationshipStateUpdatedEvent,
@@ -108,13 +151,21 @@ export {
 export const AssistantEventSchema = z.discriminatedUnion("type", [
   AssistantTextDeltaEventSchema,
   AssistantTurnStartEventSchema,
+  CompactionCircuitClosedEventSchema,
+  CompactionCircuitOpenEventSchema,
   DocumentCommentCreatedEventSchema,
   DocumentCommentDeletedEventSchema,
   DocumentCommentReopenedEventSchema,
   DocumentCommentResolvedEventSchema,
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
+  HomeFeedUpdatedEventSchema,
+  InteractionResolvedEventSchema,
   MessageCompleteEventSchema,
+  MessageDequeuedEventSchema,
+  MessageQueuedEventSchema,
+  MessageQueuedDeletedEventSchema,
+  MessageRequestCompleteEventSchema,
   OpenUrlEventSchema,
   RelationshipStateUpdatedEventSchema,
   ToolUseStartEventSchema,

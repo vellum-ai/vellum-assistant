@@ -1,4 +1,4 @@
-import { extractErrorMessage } from "@/lib/api-errors";
+import { extractErrorMessage } from "@/utils/api-errors";
 
 import type { GetAssistantResult } from "@/assistant/api";
 

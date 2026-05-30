@@ -89,9 +89,8 @@ export async function resolveAuth(
       // we need the prefix "credential/openai-codex" for the refresh logic.
       const credentialPrefix = auth.credential.replace(/\/access_token$/, "");
 
-      const { getValidCodexAccessToken } = await import(
-        "./codex-token-refresh.js"
-      );
+      const { getValidCodexAccessToken } =
+        await import("./codex-token-refresh.js");
       const token = await getValidCodexAccessToken(credentialPrefix);
 
       if (!token) {

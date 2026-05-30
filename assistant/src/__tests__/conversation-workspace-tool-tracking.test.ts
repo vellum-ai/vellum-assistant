@@ -143,6 +143,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOverrideProfileFromRow: () => undefined,
   updateMessageMetadata: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  updateMessageContent: mock(() => {}),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -229,6 +230,9 @@ mock.module("../agent/loop.js", () => ({
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
     ): Promise<Message[]> {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       agentLoopScript(onEvent);
       onEvent({
         type: "usage",
@@ -322,7 +326,10 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Write a file", [], () => {});
+    await conversation.processMessage({
+      content: "Write a file",
+      attachments: [],
+    });
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -348,7 +355,10 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Edit a file", [], () => {});
+    await conversation.processMessage({
+      content: "Edit a file",
+      attachments: [],
+    });
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -376,7 +386,10 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Write a file", [], () => {});
+    await conversation.processMessage({
+      content: "Write a file",
+      attachments: [],
+    });
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -402,7 +415,10 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Run a command", [], () => {});
+    await conversation.processMessage({
+      content: "Run a command",
+      attachments: [],
+    });
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -428,7 +444,10 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Run a command", [], () => {});
+    await conversation.processMessage({
+      content: "Run a command",
+      attachments: [],
+    });
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -454,7 +473,10 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Read a file", [], () => {});
+    await conversation.processMessage({
+      content: "Read a file",
+      attachments: [],
+    });
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
   });
 });

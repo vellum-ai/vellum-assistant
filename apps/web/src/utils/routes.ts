@@ -17,6 +17,18 @@ const LOCAL_ADMIN_ORIGIN = "http://localhost:3000";
 
 export const routes = {
   assistant: r("/assistant"),
+  /**
+   * Standalone About page. Lives under `/assistant/*` so it falls inside
+   * `apps/web/vite.config.ts`'s `base: "/assistant/"` and Vite's SPA
+   * fallback serves it in dev. Declared as a sibling of `/assistant`
+   * in `routes.tsx` rather than a child, so it bypasses the app's auth
+   * middleware and `RootLayout` — it's metadata, not the app.
+   *
+   * Mounted from the Electron host (`apps/macos/src/main/about.ts`)
+   * into a frameless BrowserWindow; the route is also reachable from
+   * the web build, where the runtime wrapper degrades to a "—" fallback.
+   */
+  about: r("/assistant/about"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),
   /**
    * LLM-context inspector for a single conversation. The conversation id

@@ -22,7 +22,10 @@ import * as Sentry from "@sentry/react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAuthStore } from "@/stores/auth-store";
-import { useAssistantContext } from "@/components/layout/assistant-context";
+import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
+import { lifecycleService } from "@/assistant/lifecycle-service";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
   COMPOSER_FOCUS_EVENT,
@@ -37,11 +40,11 @@ import {
 } from "@/domains/conversations/conversation-queries";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
-import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/subagents/subagent-store";
-import type { SubagentStatus } from "@/domains/chat/api/event-types";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/chat/subagent-store";
+import type { SubagentStatus } from "@/types/interaction-ui-types";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -51,7 +54,7 @@ import type { ContextWindowUsage } from "@/domains/chat/components/context-windo
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
-import { type UIContext } from "@/stores/turn-selectors";
+import { type UIContext } from "@/domains/chat/turn-selectors";
 import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
@@ -59,7 +62,6 @@ import type { SyncChangedEvent } from "@/lib/sync/types";
 
 import { Button } from "@vellum/design-library";
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { useSyncChatStore } from "@/domains/chat/chat-store";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -96,11 +98,15 @@ import { createWebSyncRouter } from "@/lib/sync/web-sync-router";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
 import { useQueryClient } from "@tanstack/react-query";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
-import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils";
+import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
-import { useTurnStore } from "@/stores/turn-store";
+import { useTurnStore } from "@/domains/chat/turn-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
+import {
+  formatSlackConversationDisplayLabel,
+} from "@/domains/chat/utils/slack-conversation-display";
+import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conversation-display";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
 const AddCreditsModal = lazy(() =>
@@ -135,7 +141,7 @@ import {
 import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
   ChatRouteContent,
   type ChatRouteContentProps,
@@ -154,16 +160,27 @@ export function ChatPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
-  const {
-    assistantId,
-    assistantState,
-    checkAssistant,
-    retryAssistant,
-    hatchVersion,
-    setTopBarCenter,
-    setTopBarRightSlot,
-    setOnSearchClick,
-  } = useAssistantContext();
+  const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
+  const setTopBarRightSlot =
+    useChatLayoutSlotsStore.use.setTopBarRightSlot();
+  const setOnSearchClick = useChatLayoutSlotsStore.use.setOnSearchClick();
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantState = useAssistantLifecycleStore.use.assistantState();
+  // Wrap the service methods in stable `useCallback`s so they can flow
+  // through prop boundaries (downstream effects' dep arrays stay
+  // stable) and the `this` binding is preserved on call.
+  const checkAssistant = useCallback(
+    () => lifecycleService.checkAssistant(),
+    [],
+  );
+  const retryAssistant = useCallback(
+    () => lifecycleService.retryAssistant(),
+    [],
+  );
+  const hatchVersion = useCallback(
+    (version?: string) => lifecycleService.hatchVersion(version),
+    [],
+  );
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const doctor = useClientFeatureFlagStore.use.doctor();
@@ -647,9 +664,6 @@ export function ChatPage() {
     setContextWindowUsage,
     scheduleConversationListRefetch,
     setCompactionCircuitOpenUntil,
-    applyDiskPressureStatusEvent: diskPressure.applyStatusEvent,
-    refreshAssistantIdentity,
-    invalidateAvatar,
     dispatchSyncChanged,
     pendingQueuedMessageIdsRef,
     requestIdToMessageIdRef,
@@ -995,21 +1009,6 @@ export function ChatPage() {
   });
 
   // -------------------------------------------------------------------------
-  // Sync chat store (for deeply-nested components that read via context)
-  // -------------------------------------------------------------------------
-  useSyncChatStore({
-    messages,
-    activeConversationId,
-    assistantId,
-    sendMessage,
-  });
-
-  // (Previously: a useEffect mirrored a local `useState<AssistantIdentity>`
-  // into `useAssistantIdentityStore`. That mirror is gone — chat-page now
-  // reads the store via atomic selectors above and `useAssistantIdentityInit`
-  // at the layout level owns the fetch + write. LUM-1959.)
-
-  // -------------------------------------------------------------------------
   // Conversation actions (archive, pin, rename, etc.)
   // -------------------------------------------------------------------------
   const {
@@ -1106,6 +1105,16 @@ export function ChatPage() {
     () => messages.some((m) => m.id != null),
     [messages],
   );
+  const slackConversationDisplay = useSlackConversationDisplay({
+    assistantId: assistantId ?? undefined,
+    conversation: activeConversation,
+    messages,
+  });
+  const slackHeaderLabel = useMemo(() => {
+    return slackConversationDisplay
+      ? formatSlackConversationDisplayLabel(slackConversationDisplay)
+      : null;
+  }, [slackConversationDisplay]);
 
   const topBarCenterContent = useMemo(() => {
     if (!activeConversation) {
@@ -1185,13 +1194,28 @@ export function ChatPage() {
             aria-haspopup="menu"
             className="min-w-0"
           >
-            <span className="min-w-0 max-w-[240px] truncate">
-              {isArchived && (
-                <span className="mr-1 text-[var(--content-tertiary)]">
-                  [Archived]
+            <span className="flex min-w-0 items-center gap-1.5">
+              {slackHeaderLabel ? (
+                <img
+                  src="/images/integrations/slack.svg"
+                  alt=""
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 shrink-0"
+                />
+              ) : null}
+              <span className="min-w-0 max-w-[220px] truncate leading-6">
+                {isArchived && (
+                  <span className="mr-1 text-[var(--content-tertiary)]">
+                    [Archived]
+                  </span>
+                )}
+                {activeConversation.title ?? "Untitled"}
+              </span>
+              {slackHeaderLabel ? (
+                <span className="hidden max-w-[160px] shrink truncate leading-6 text-[var(--content-tertiary)] sm:inline">
+                  ({slackHeaderLabel})
                 </span>
-              )}
-              {activeConversation.title ?? "Untitled"}
+              ) : null}
             </span>
           </Button>
         }
@@ -1201,6 +1225,7 @@ export function ChatPage() {
     activeConversation,
     assistantId,
     isChannelReadonly,
+    slackHeaderLabel,
     conversationGroups,
     handleTogglePinConversation,
     handleRenameConversation,

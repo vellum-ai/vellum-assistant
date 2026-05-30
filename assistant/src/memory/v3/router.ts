@@ -137,17 +137,14 @@ export async function routeL1(
 
   let response;
   try {
-    response = await provider.sendMessage(
-      [userMsg],
-      [OPEN_LEAVES_TOOL],
-      SYSTEM_PROMPT,
-      {
-        config: {
-          callSite: "memoryV3RouteL1" as const,
-          tool_choice: { type: "tool" as const, name: OPEN_LEAVES_TOOL_NAME },
-        },
+    response = await provider.sendMessage([userMsg], {
+      tools: [OPEN_LEAVES_TOOL],
+      systemPrompt: SYSTEM_PROMPT,
+      config: {
+        callSite: "memoryV3RouteL1" as const,
+        tool_choice: { type: "tool" as const, name: OPEN_LEAVES_TOOL_NAME },
       },
-    );
+    });
   } catch (err) {
     log.warn({ err }, "L1 router call threw; opening all leaves");
     return paths;

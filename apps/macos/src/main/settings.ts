@@ -3,7 +3,7 @@ import Store, { type Schema } from "electron-store";
 /**
  * Persisted user preferences shape. The schema below validates writes; reads
  * are returned as `null` when a key has never been written and no default
- * applies. Top-level keys are the renderer-facing categories from LUM-1846 —
+ * applies. Top-level keys are the renderer-facing categories;
  * additional categories get added here as future tickets need them, with a
  * matching schema entry to keep validation honest.
  *

@@ -70,8 +70,10 @@ export async function defaultPersistenceTerminal(
         args.conversationId,
         args.role,
         args.content,
-        args.metadata,
-        args.addOptions,
+        {
+          metadata: args.metadata,
+          ...args.addOptions,
+        },
       );
       // Sync the just-persisted row to the JSONL disk view when the caller
       // opted in. The handler that emits tool-result rows sets

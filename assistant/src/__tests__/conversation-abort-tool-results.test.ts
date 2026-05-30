@@ -139,6 +139,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  updateMessageContent: mock(() => {}),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -191,8 +192,10 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
-      _signal?: AbortSignal,
     ): Promise<Message[]> {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       const history = [...messages];
 
       // Simulate provider response with 2 tool_use blocks
@@ -293,7 +296,10 @@ describe("abort tool result persistence", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Run tools", [], () => {});
+    await conversation.processMessage({
+      content: "Run tools",
+      attachments: [],
+    });
 
     // Find user messages in persisted data that contain tool_result
     const toolResultUserMessages = persistedMessages.filter((m) => {
@@ -352,7 +358,10 @@ describe("abort tool result persistence", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Run tools", [], () => {});
+    await conversation.processMessage({
+      content: "Run tools",
+      attachments: [],
+    });
 
     // Simulate reload: the in-memory messages should be valid after repair
     const messages = conversation.getMessages();

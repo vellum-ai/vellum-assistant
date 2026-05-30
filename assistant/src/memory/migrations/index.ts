@@ -253,7 +253,8 @@ export {
 export { migrateLlmRequestLogCallSite } from "./264-llm-request-log-call-site.js";
 export { migrateDropProviderConnectionStatus } from "./265-drop-provider-connection-status.js";
 export { migrateMessagesClientMessageId } from "./266-messages-client-message-id.js";
-export { migrateAddMemoryV3Selections } from "./267-add-memory-v3-selections.js";
+export { migrateLlmUsageEventsAddAssistantVersion } from "./267-llm-usage-events-add-assistant-version.js";
+export { migrateAddMemoryV3Selections } from "./268-add-memory-v3-selections.js";
 export {
   MIGRATION_REGISTRY,
   type MigrationRegistryEntry,

@@ -21,7 +21,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
   ToolUseContent,
 } from "../../../providers/types.js";
 import type { LeafNode, LeafPath, LeafTree, TurnContext } from "../types.js";
@@ -35,8 +34,6 @@ let providerStub: Provider | null = null;
 
 interface ProviderCall {
   messages: Message[];
-  tools: ToolDefinition[] | undefined;
-  systemPrompt: string | undefined;
   options: SendMessageOptions | undefined;
 }
 const providerCalls: ProviderCall[] = [];
@@ -63,8 +60,8 @@ const { routeL1, renderLeafBlock } = await import("../router.js");
 function makeProvider(response: ProviderResponse): Provider {
   return {
     name: "stub",
-    sendMessage: async (messages, tools, systemPrompt, options) => {
-      providerCalls.push({ messages, tools, systemPrompt, options });
+    sendMessage: async (messages, options) => {
+      providerCalls.push({ messages, options });
       return response;
     },
   };
@@ -206,7 +203,7 @@ describe("routeL1 — request shape", () => {
     const cfg = call.options?.config as Record<string, unknown>;
     expect(cfg?.callSite).toBe("memoryV3RouteL1");
     expect(cfg?.tool_choice).toEqual({ type: "tool", name: "open_leaves" });
-    expect(call.tools?.[0].name).toBe("open_leaves");
+    expect(call.options?.tools?.[0]?.name).toBe("open_leaves");
   });
 
   test("leaf block is the first content block with an ephemeral cache breakpoint", async () => {
@@ -231,7 +228,7 @@ describe("routeL1 — request shape", () => {
   test("system prompt mentions register (locks the routing commitment)", async () => {
     providerStub = makeProvider(toolUseResponse({ ids: [1] }));
     await routeL1(makeTurn("x"), makeTree());
-    expect(providerCalls[0].systemPrompt).toMatch(/register/);
+    expect(providerCalls[0].options?.systemPrompt).toMatch(/register/);
   });
 });
 

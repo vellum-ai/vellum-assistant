@@ -1195,23 +1195,29 @@ export function wipeConversation(id: string): WipeConversationResult {
   };
 }
 
+/** Options for {@link addMessage}. Only `skipIndexing` and `clientMessageId`
+ *  have defaults; `metadata` is genuinely optional. */
+export interface AddMessageOptions {
+  metadata?: Record<string, unknown>;
+  skipIndexing?: boolean;
+  /** Client-generated nonce for idempotent inserts. When provided,
+   *  duplicate inserts for the same `(conversationId, clientMessageId)`
+   *  pair are silently skipped. */
+  clientMessageId?: string;
+}
+
 /**
  * Persist a message and run post-insert side effects (memory indexing,
  * attention projection). Delegates the core insert + retry logic to
  * {@link insertMessageCore}.
- *
- * @param clientMessageId  Optional client-generated nonce. When
- *   provided, duplicate inserts for the same `(conversationId,
- *   clientMessageId)` pair are silently skipped (idempotent).
  */
 export async function addMessage(
   conversationId: string,
   role: MessageRole,
   content: string,
-  metadata?: Record<string, unknown>,
-  opts?: { skipIndexing?: boolean },
-  clientMessageId?: string,
+  options?: AddMessageOptions,
 ) {
+  const { metadata, skipIndexing, clientMessageId } = options ?? {};
   const inserted = await insertMessageCore({
     conversationId,
     role,
@@ -1226,7 +1232,7 @@ export async function addMessage(
 
   const message = inserted;
 
-  if (!opts?.skipIndexing) {
+  if (!skipIndexing) {
     try {
       const config = getConfig();
       const parsed = metadata

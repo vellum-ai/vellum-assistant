@@ -5,7 +5,7 @@ import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { toast } from "@vellum/design-library/components/toast";
 import { retireAssistantById } from "@/assistant/api";
-import { clearOnboardingFlags } from "@/lib/onboarding-cleanup";
+import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import {
   isLocalMode,
   getSelectedAssistant,
@@ -28,9 +28,10 @@ interface RetireAssistantProps {
 export function RetireAssistant({ assistantId }: RetireAssistantProps) {
   const navigate = useNavigate();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [isPending, setIsPending] = useState(false);
 
   const handleRetire = async () => {
-    setConfirmOpen(false);
+    setIsPending(true);
     try {
       const selected = getSelectedAssistant();
       const useLocal =
@@ -40,8 +41,10 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
         const result = await retireLocalAssistant(assistantId);
         if (result.ok) {
           clearOnboardingFlags();
+          setConfirmOpen(false);
           toast.success("Assistant retired.");
-          navigate(getPostRetireRoute());
+          navigate(getPostRetireRoute(), { replace: true });
+          return;
         } else {
           toast.error(result.error || "Failed to retire assistant.");
         }
@@ -49,8 +52,10 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
         const result = await retireAssistantById(assistantId);
         if (result.ok || result.status === 404) {
           clearOnboardingFlags();
+          setConfirmOpen(false);
           toast.success("Assistant retired.");
-          navigate(getPostRetireRoute());
+          navigate(getPostRetireRoute(), { replace: true });
+          return;
         } else {
           const detail =
             typeof result.error?.detail === "string"
@@ -62,6 +67,8 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
     } catch {
       toast.error("Failed to retire assistant.");
     }
+    setIsPending(false);
+    setConfirmOpen(false);
   };
 
   return (
@@ -79,6 +86,7 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
         message="This will permanently retire this assistant and all of its data. You will need to go through the onboarding flow again to create a new one. This action cannot be undone."
         confirmLabel="Retire"
         destructive
+        isPending={isPending}
         onConfirm={handleRetire}
         onCancel={() => setConfirmOpen(false)}
       />

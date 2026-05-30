@@ -183,9 +183,9 @@ async function handleSuggestTrustRule({
   try {
     const response = await provider.sendMessage(
       [userMessage(buildUserMessage(req))],
-      [SUGGEST_RULE_TOOL],
-      SYSTEM_PROMPT,
       {
+        tools: [SUGGEST_RULE_TOOL],
+        systemPrompt: SYSTEM_PROMPT,
         config: {
           callSite: "trustRuleSuggestion",
           max_tokens: 512,

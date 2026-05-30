@@ -1732,6 +1732,48 @@ describe("normalizeLlmContextPayloads", () => {
     ]);
   });
 
+  test("counts Codex Responses native web_search request tools", () => {
+    const normalized = normalizeLlmContextPayloads({
+      createdAt: 1_742_400_000_032,
+      requestPayload: {
+        model: "gpt-5.4",
+        instructions: "Search the web when needed.",
+        input: [
+          {
+            role: "user",
+            content: [{ type: "input_text", text: "What is the weather?" }],
+            type: "message",
+          },
+        ],
+        tools: [{ type: "web_search", external_web_access: false }],
+      },
+      responsePayload: {
+        model: "gpt-5.4",
+        output: [
+          {
+            type: "message",
+            role: "assistant",
+            content: [
+              { type: "output_text", text: "It is sunny in Boston today." },
+            ],
+          },
+        ],
+        usage: { input_tokens: 30, output_tokens: 15 },
+        status: "completed",
+      },
+    });
+
+    expect(normalized.summary?.requestToolCount).toBe(1);
+    expect(normalized.requestSections).toContainEqual({
+      kind: "tool_definitions",
+      label: "Available tools",
+      data: {
+        tools: [{ type: "web_search", external_web_access: false }],
+      },
+      language: "json",
+    });
+  });
+
   test("normalizes Responses API response with only web_search_call (no message)", () => {
     const normalized = normalizeLlmContextPayloads({
       createdAt: 1_742_400_000_031,

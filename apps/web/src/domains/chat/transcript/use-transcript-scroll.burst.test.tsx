@@ -316,4 +316,102 @@ describe("useTranscriptScroll — load-older burst regression", () => {
     });
     expect(onLoadOlderCalls).toBe(2);
   });
+
+  test("isLoadingOlder transition without items change does not auto-fire onLoadOlder", () => {
+    // Bug repro: parent's `transcriptPagination.isLoadingOlder` mirror
+    // useEffect runs at urgent priority while `setMessages` runs inside
+    // `startTransition` (in `use-conversation-history.ts`). That can
+    // produce an intermediate commit where `isLoadingOlder` transitions
+    // true→false BEFORE the older-page items have prepended. The
+    // previous items-effect implementation listed `isLoadingOlder` in
+    // its dep array, so this intermediate commit re-fired the effect
+    // even though items hadn't changed — and the body would:
+    //   - release the in-flight lock,
+    //   - have `decideItemsChangeAction` return "anchor-correct" on a
+    //     key still present in the unchanged list (consuming
+    //     `savedAnchorRef` on a heightDelta=0 no-op), and
+    //   - re-classify + chain-load fire `onLoadOlder()` again because
+    //     the user is still near the top and the lock just released.
+    // Result: scrolling to the top loads older pages two-at-a-time.
+    //
+    // Fix: trim items-effect deps to `[items, conversationId, ...]`
+    // only, move the lock-release into its own `useLayoutEffect`
+    // keyed on `isLoadingOlder`, and read other mutable values via
+    // `latestRef`. An `isLoadingOlder` transition no longer reaches
+    // the items-effect at all.
+    let onLoadOlderCalls = 0;
+    const scrollEl = createScrollElement({
+      scrollTop: 30,
+      scrollHeight: 5000,
+      clientHeight: 800,
+    });
+    document.body.appendChild(scrollEl);
+
+    const transcriptRef = {
+      current: {
+        scrollToLatest: () => {},
+        getScrollElement: () => scrollEl,
+      },
+    };
+
+    const items: TranscriptItem[] = [
+      makeMessageItem("m1"),
+      makeMessageItem("m2"),
+    ];
+
+    const onLoadOlder = () => {
+      onLoadOlderCalls += 1;
+    };
+
+    const { rerender } = renderHook(
+      (args: UseTranscriptScrollArgs) => useTranscriptScroll(args),
+      {
+        initialProps: {
+          transcriptRef: transcriptRef as any,
+          items,
+          conversationId: "c1",
+          hasMore: true,
+          isLoadingOlder: false,
+          onLoadOlder,
+        },
+      },
+    );
+
+    // User scrolls into the load-older window → fires once.
+    act(() => {
+      scrollEl.dispatchEvent(new Event("scroll"));
+    });
+    expect(onLoadOlderCalls).toBe(1);
+
+    // Parent flips loading on (mirror useEffect commit).
+    rerender({
+      transcriptRef: transcriptRef as any,
+      items,
+      conversationId: "c1",
+      hasMore: true,
+      isLoadingOlder: true,
+      onLoadOlder,
+    });
+
+    // Parent flips loading off BEFORE the items have prepended (the
+    // urgent vs. transition priority split). scrollTop is still 30 —
+    // no anchor restoration could possibly have happened because no
+    // items changed. The hook must NOT auto-fire onLoadOlder here.
+    rerender({
+      transcriptRef: transcriptRef as any,
+      items,
+      conversationId: "c1",
+      hasMore: true,
+      isLoadingOlder: false,
+      onLoadOlder,
+    });
+
+    expect(onLoadOlderCalls).toBe(1);
+
+    // Lock is released → a fresh user-initiated scroll still fires.
+    act(() => {
+      scrollEl.dispatchEvent(new Event("scroll"));
+    });
+    expect(onLoadOlderCalls).toBe(2);
+  });
 });

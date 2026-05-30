@@ -6,7 +6,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "./types.js";
 
 const log = getLogger("rate-limit");
@@ -36,8 +35,6 @@ export class RateLimitProvider implements Provider {
 
   async sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     this.enforceRequestRate();
@@ -46,12 +43,7 @@ export class RateLimitProvider implements Provider {
     // calls from bypassing the rate limit during the async gap.
     this.recordRequest();
 
-    const response = await this.inner.sendMessage(
-      messages,
-      tools,
-      systemPrompt,
-      options,
-    );
+    const response = await this.inner.sendMessage(messages, options);
 
     return response;
   }

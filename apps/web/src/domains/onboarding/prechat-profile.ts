@@ -1,5 +1,5 @@
 import { client } from "@/generated/api/client.gen";
-import { assertHasResponse } from "@/lib/api-errors";
+import { assertHasResponse } from "@/utils/api-errors";
 import {
   type PreChatOnboardingContext,
   type PreChatOnboardingProfileFields,

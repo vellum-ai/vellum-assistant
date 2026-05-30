@@ -20,7 +20,7 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateAddMemoryV3Selections } from "../../migrations/267-add-memory-v3-selections.js";
+import { migrateAddMemoryV3Selections } from "../../migrations/268-add-memory-v3-selections.js";
 import * as schema from "../../schema.js";
 import type { LeafTree, SelectionSource } from "../types.js";
 

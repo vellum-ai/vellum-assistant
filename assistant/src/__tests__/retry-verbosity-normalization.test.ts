@@ -25,7 +25,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "../providers/types.js";
 
 function setLlmConfig(raw: unknown): void {
@@ -45,8 +44,6 @@ function makePipeline(providerName: string): {
     name: providerName,
     async sendMessage(
       _messages: Message[],
-      _tools?: ToolDefinition[],
-      _systemPrompt?: string,
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
       captured = options?.config as Record<string, unknown> | undefined;
@@ -79,7 +76,7 @@ describe("retry normalization for verbosity", () => {
       },
     });
     const { provider, lastConfig } = makePipeline("openai");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: { callSite: "mainAgent" },
     });
     expect(lastConfig()?.verbosity).toBe("high");
@@ -87,7 +84,7 @@ describe("retry normalization for verbosity", () => {
 
   test("strips verbosity from config for anthropic provider", async () => {
     const { provider, lastConfig } = makePipeline("anthropic");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: { verbosity: "low" },
     });
     expect(lastConfig()?.verbosity).toBe(undefined);
@@ -95,7 +92,7 @@ describe("retry normalization for verbosity", () => {
 
   test("strips verbosity from config for openrouter provider", async () => {
     const { provider, lastConfig } = makePipeline("openrouter");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: { verbosity: "low" },
     });
     expect(lastConfig()?.verbosity).toBe(undefined);
@@ -113,7 +110,7 @@ describe("retry normalization for verbosity", () => {
       },
     });
     const { provider, lastConfig } = makePipeline("openai");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: { callSite: "mainAgent" },
     });
     expect(lastConfig()?.verbosity).toBe("high");
@@ -131,7 +128,7 @@ describe("retry normalization for verbosity", () => {
       },
     });
     const { provider, lastConfig } = makePipeline("openai");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: { callSite: "mainAgent", verbosity: "high" },
     });
     expect(lastConfig()?.verbosity).toBe("high");

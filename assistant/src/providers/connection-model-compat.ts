@@ -36,3 +36,26 @@ export function isConnectionCompatibleWithModel(
   if (!model) return true;
   return isCodexSubscriptionModel(model);
 }
+
+/**
+ * When auto-resolution found candidates but none were model-compatible,
+ * return a user-facing explanation if the incompatibility is specifically
+ * due to all candidates being `oauth_subscription` (ChatGPT) connections.
+ *
+ * Returns `null` when the incompatibility has a different cause (callers
+ * should fall through to their existing generic error).
+ */
+export function describeSubscriptionModelIncompatibility(
+  candidates: Pick<ProviderConnection, "auth">[],
+  model: string | undefined,
+): string | null {
+  if (!model || candidates.length === 0) return null;
+  if (candidates.some((c) => isConnectionCompatibleWithModel(c, model))) {
+    return null;
+  }
+  const allSubscription = candidates.every(
+    (c) => c.auth.type === "oauth_subscription",
+  );
+  if (!allSubscription) return null;
+  return `Model "${model}" isn't available through your ChatGPT subscription. Select a supported model or add an OpenAI API key connection.`;
+}

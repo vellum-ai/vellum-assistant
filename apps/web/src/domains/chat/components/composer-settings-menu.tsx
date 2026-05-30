@@ -12,8 +12,10 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   profilePickerLabel,
   visibleProfilesForPicker,
+  gateAutoProfile,
   type ProfilePickerEntry,
 } from "@/assistant/profile-pickers";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   deleteConversationOverride,
   getConversationOverride,
@@ -288,9 +290,16 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     return [...ordered, ...extras];
   }, [profileMap, profileOrder]);
 
+  const queryComplexityRoutingEnabled =
+    useAssistantFeatureFlagStore.use.queryComplexityRouting();
+
   const visibleProfileEntries = useMemo(
-    () => visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey]),
-    [orderedProfileEntries, profileActiveKey],
+    () =>
+      gateAutoProfile(
+        visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey]),
+        queryComplexityRoutingEnabled,
+      ),
+    [orderedProfileEntries, profileActiveKey, queryComplexityRoutingEnabled],
   );
 
   const trigger = (
@@ -430,7 +439,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 /** Bottom-sheet section label — small-caps style matching Menu.Label. */
 function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <div className="px-[8px] py-1 text-label-small-default text-[var(--content-tertiary)]">
+    <div className="px-[8px] pt-2.5 pb-2 text-body-small-default text-[var(--content-tertiary)]">
       {children}
     </div>
   );
