@@ -78,11 +78,23 @@ export function setImpersonatedAssistantVersion(
 
   if (value === null || value === "") {
     removeLocalSetting(STORAGE_KEY);
+    if (getImpersonatedAssistantVersion() !== null) {
+      console.warn(
+        "[vellumDebug] failed to clear impersonateAssistantVersion flag",
+      );
+      return getImpersonatedAssistantVersion();
+    }
     console.info(
       "[vellumDebug] impersonateAssistantVersion = null (cleared) — reloading…",
     );
   } else {
     setLocalSetting(STORAGE_KEY, value);
+    if (getImpersonatedAssistantVersion() !== value) {
+      console.warn(
+        "[vellumDebug] failed to persist impersonateAssistantVersion flag",
+      );
+      return getImpersonatedAssistantVersion();
+    }
     console.info(
       `[vellumDebug] impersonateAssistantVersion = ${JSON.stringify(
         value,
