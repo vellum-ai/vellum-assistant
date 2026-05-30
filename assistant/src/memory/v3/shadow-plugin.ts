@@ -1,13 +1,20 @@
 /**
- * Memory v3 — flag-gated, observation-only shadow plugin.
+ * Memory v3 — flag-gated shadow/live plugin.
  *
- * Registered as an {@link Injector} whose `produce()` ALWAYS returns `null`, so
- * it can never modify the injected context, the run messages, or the response.
- * v2 injection is therefore bit-for-bit identical whether the
- * `memory-v3-shadow` flag is on or off — the only difference when the flag is
- * on is the side-effect telemetry write to `memory_v3_selections`.
+ * Registered as an {@link Injector} that runs the v3 orchestrator each turn and
+ * records its selection set to `memory_v3_selections`. Two flags gate its
+ * injection behavior:
  *
- * On each turn (flag on):
+ *   - `memory-v3-shadow` (and live OFF): observation-only. `produce()` returns
+ *     `null`, so v2 injection is bit-for-bit identical whether the flag is on
+ *     or off — the only difference is the side-effect telemetry write.
+ *   - `memory-v3-live`: live injection. `produce()` additionally renders the
+ *     working-set selection into a `<memory>` block via {@link renderMemoryBlock}
+ *     and returns it as an injection block at v2's dynamic-memory placement
+ *     (`after-memory-prefix`). Selections are still logged.
+ *   - both OFF: `produce()` returns `null` and skips orchestration entirely.
+ *
+ * On each turn (either flag on):
  *   1. Lazy-init the v3 lanes ONCE across the whole process (leaf tree, core
  *      set, BM25 needle, carry-forward working set), memoizing the init
  *      promise so concurrent first turns share a single build.
@@ -15,8 +22,11 @@
  *   3. Run {@link orchestrate} and record its selection set to
  *      `memory_v3_selections` with a best-effort lane attribution.
  *
- * Everything after the flag read is wrapped in try/catch — a shadow failure is
- * logged and swallowed so it can never affect the live turn.
+ * Everything after the flag read is wrapped in try/catch — any failure is
+ * logged and swallowed so it can never affect the live turn. In live mode a
+ * failure returns `null` (no v3 injection); v2 suppression (a later PR) keys
+ * off the FLAG, not off whether `produce()` returned a block, so a v3 failure
+ * falls back to v2 memory rather than dropping all memory.
  */
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
@@ -27,6 +37,7 @@ import { getDb, getSqliteFrom } from "../../memory/db-connection.js";
 import { stringifyMessageContent } from "../../memory/message-content.js";
 import { registerPlugin } from "../../plugins/registry.js";
 import {
+  type InjectionBlock,
   type Injector,
   type Plugin,
   PluginExecutionError,
@@ -35,11 +46,13 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getPageIndex } from "../v2/page-index.js";
+import { readPage, renderPageContent } from "../v2/page-store.js";
 import { loadCore } from "./core.js";
 import type { NeedleIndex } from "./needle.js";
 import { buildNeedleIndex } from "./needle.js";
 import type { OrchestrateResult } from "./orchestrate.js";
 import { orchestrate } from "./orchestrate.js";
+import { renderMemoryBlock } from "./render-injection.js";
 import { coreSlugs, loadLeafTree, resolveDataDir } from "./tree.js";
 import type {
   LeafPath,
@@ -51,6 +64,7 @@ import type {
 import { WorkingSet } from "./working-set.js";
 
 const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
+const MEMORY_V3_LIVE = "memory-v3-live" as const;
 
 const log = getLogger("memory-v3-shadow");
 
@@ -91,6 +105,25 @@ async function pageSummary(slug: Slug): Promise<string> {
   try {
     const index = await getPageIndex(getWorkspaceDir());
     return index.bySlug.get(slug)?.summary ?? "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Render a selected page's full content for live injection. Mirrors the v2
+ * dynamic-memory layout (`# memory/concepts/<slug>.md\n<frontmatter+body>`) so
+ * the working-set block reads like v2's. A missing page (or any read failure)
+ * degrades to "" — `renderMemoryBlock` still emits a line for the slug, and a
+ * blank section is preferable to throwing into the turn.
+ */
+async function pageContent(slug: Slug): Promise<string> {
+  try {
+    const page = await readPage(getWorkspaceDir(), slug);
+    if (!page) return "";
+    const content = renderPageContent(page).trim();
+    if (content.length === 0) return "";
+    return `# memory/concepts/${slug}.md\n${content}`;
   } catch {
     return "";
   }
@@ -225,22 +258,20 @@ function writeSelections(
 }
 
 /**
- * Core shadow observation: run v3 orchestration for one turn and log the
- * selection set. Exported for unit testing. Never throws — all failures are
- * logged and swallowed so the live turn is unaffected.
+ * Run v3 orchestration for one turn and log the selection set, returning the
+ * orchestrate result so a live caller can render it. Never throws — all
+ * failures are logged and swallowed (returning `null`) so the live turn is
+ * unaffected. Returns `null` when there is no user message to route on.
  */
-export async function runShadowObservation(
+async function observeTurn(
   conversationId: string,
   turnIndex: number,
-): Promise<void> {
-  const config = getConfig();
-  if (!isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config)) return;
-
+): Promise<OrchestrateResult | null> {
   try {
     const turn = buildShadowTurn(conversationId, turnIndex);
-    if (!turn) return;
+    if (!turn) return null;
 
-    const lanes = await getLanes(config);
+    const lanes = await getLanes(getConfig());
     const result = await orchestrate(turn, {
       tree: lanes.tree,
       core: lanes.core,
@@ -251,28 +282,75 @@ export async function runShadowObservation(
 
     const rows = attributeSelections(lanes.tree, lanes.core, result);
     writeSelections(conversationId, turnIndex, rows);
+    return result;
   } catch (err) {
     log.warn(
       { err: err instanceof Error ? err.message : String(err), conversationId },
-      "memory-v3 shadow observation failed (non-fatal)",
+      "memory-v3 orchestration failed (non-fatal)",
     );
+    return null;
   }
 }
 
 /**
- * The shadow injector. `produce()` runs the observation as a fire-and-forget
- * side effect and ALWAYS returns `null` so it contributes nothing to the
- * injected context. Observation is awaited so failures are caught here rather
- * than escaping as an unhandled rejection, but the return value is unused.
+ * Core shadow observation: run v3 orchestration for one turn and log the
+ * selection set. Exported for unit testing. Never throws — all failures are
+ * logged and swallowed so the live turn is unaffected.
  */
-const shadowInjector: Injector = {
+export async function runShadowObservation(
+  conversationId: string,
+  turnIndex: number,
+): Promise<void> {
+  if (!isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, getConfig())) return;
+  await observeTurn(conversationId, turnIndex);
+}
+
+/**
+ * The v3 injector. Reads both flags:
+ *   - `memory-v3-live` on → orchestrate, log, render the working-set selection
+ *     into a `<memory>` block, and return it at v2's dynamic-memory placement.
+ *   - `memory-v3-shadow` on (live off) → orchestrate + log only, return `null`.
+ *   - both off → return `null` (no orchestration).
+ *
+ * Empty selection and any failure return `null` (no v3 injection). v2
+ * suppression (a later PR) keys off the FLAG, not off this return value, so a
+ * v3 failure falls back to v2 memory rather than dropping all memory.
+ */
+const memoryV3Injector: Injector = {
   name: "memory-v3-shadow",
-  // High order so it sorts last; irrelevant since it never emits a block, but
-  // keeps it out of the way of content-producing injectors.
+  // High order so it sorts last; the live `<memory>` block uses the
+  // after-memory-prefix placement so it lands at the memory boundary regardless
+  // of this sort key, which only orders content-producing injectors.
   order: 1000,
-  async produce(ctx: PluginTurnContext) {
-    await runShadowObservation(ctx.conversationId, ctx.turnIndex);
-    return null;
+  async produce(ctx: PluginTurnContext): Promise<InjectionBlock | null> {
+    const config = getConfig();
+    const live = isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config);
+    const shadow = isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config);
+    if (!live && !shadow) return null;
+
+    const result = await observeTurn(ctx.conversationId, ctx.turnIndex);
+    if (!live || !result) return null;
+
+    try {
+      // `renderMemoryBlock` returns "" for an empty selection; inject nothing.
+      const text = await renderMemoryBlock(result.finalInjection, pageContent);
+      if (text.length === 0) return null;
+      return {
+        id: "memory-v3",
+        text,
+        // Mirror v2's dynamic `<memory>` block placement.
+        placement: "after-memory-prefix",
+      };
+    } catch (err) {
+      log.warn(
+        {
+          err: err instanceof Error ? err.message : String(err),
+          conversationId: ctx.conversationId,
+        },
+        "memory-v3 live render failed (non-fatal) — falling back to v2",
+      );
+      return null;
+    }
   },
 };
 
@@ -281,7 +359,7 @@ export const memoryV3ShadowPlugin: Plugin = {
     name: "memory-v3-shadow",
     version: "0.0.1",
   },
-  injectors: [shadowInjector],
+  injectors: [memoryV3Injector],
 };
 
 // Module-load side effect: register at import time so the registry is
