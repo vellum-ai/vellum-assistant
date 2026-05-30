@@ -357,7 +357,7 @@ function buildWav(spec: DemoTrackSpec): Buffer {
   return buffer;
 }
 
-const outputDir = join(import.meta.dirname, "..", "assets");
+const outputDir = join(import.meta.dirname, "..", "src", "radio", "assets");
 mkdirSync(outputDir, { recursive: true });
 
 for (const spec of trackSpecs) {
