@@ -434,6 +434,36 @@ type AgentLoopRun = (
   options?: AgentLoopRunOptions,
 ) => Promise<Message[]>;
 
+/**
+ * Reproduces the inner agent loop's inline mid-loop compaction so these
+ * orchestrator-level tests (which mock {@link AgentLoopRun}) exercise the
+ * `compactionStrategy` contract that the real `AgentLoop.run` drives.
+ *
+ * Mirrors the loop body: after a tool-result turn lands, ask the strategy
+ * whether to compact; on a productive outcome adopt the returned history and
+ * iterate again; on `ok: false` (the compactor exhausted its retries or timed
+ * out) stop so the orchestrator can escalate via the
+ * `state.contextTooLargeDetected` flag the strategy sets. `maxIterations`
+ * stands in for the loop reaching a natural turn boundary (no further tool
+ * calls) and keeps the simulation bounded.
+ */
+async function simulateInlineMidLoopCompaction(
+  history: Message[],
+  options: AgentLoopRunOptions | undefined,
+  maxIterations: number,
+): Promise<Message[]> {
+  const strategy = options?.compactionStrategy;
+  if (!strategy) return history;
+  let current = history;
+  for (let i = 0; i < maxIterations; i++) {
+    if (!(await strategy.shouldCompact(current))) break;
+    const outcome = await strategy.compact(current);
+    if (!outcome.ok) break;
+    current = outcome.history;
+  }
+  return current;
+}
+
 function makeCtx(
   overrides?: Partial<AgentLoopConversationContext> & {
     agentLoopRun?: AgentLoopRun;
@@ -1852,7 +1882,16 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         providerDurationMs: 100,
       });
 
-      // Always yield at checkpoint — simulates compaction not helping
+      // Primary run: the loop drives mid-loop compaction inline via the
+      // strategy. The first `compact` surfaces `exhausted: true`, which flips
+      // `state.contextTooLargeDetected` and stops the loop so the orchestrator
+      // escalates to the convergence reducer.
+      if (options?.compactionStrategy) {
+        return await simulateInlineMidLoopCompaction(withProgress, options, 1);
+      }
+
+      // Convergence / auto-compress reruns keep budget detection on the full
+      // checkpoint.
       if (options?.onCheckpoint) {
         const decision = await options.onCheckpoint({
           turnIndex: 0,
@@ -1946,19 +1985,17 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   });
 
   // ── Test 8b ───────────────────────────────────────────────────────
-  // Counterpart to Test 8: when each mid-loop `maybeCompact` returns
-  // productive (`compacted: true`, no `exhausted` flag), the
-  // orchestrator iterates indefinitely without ever escalating to the
-  // convergence loop. The retry budget for the compactor lives INSIDE
-  // `ContextWindowManager.maybeCompact` now; the orchestrator's outer
-  // loop has no count cap of its own.
+  // Counterpart to Test 8: when each mid-loop `compact` returns productive
+  // (`compacted: true`, no `exhausted` flag), the inner loop compacts in
+  // place and continues without ever escalating to the convergence loop or
+  // re-entering the orchestrator. The retry budget for the compactor lives
+  // INSIDE `ContextWindowManager.maybeCompact`; neither the loop nor the
+  // orchestrator imposes a count cap of its own.
   //
-  // Pre-refactor this case would have tripped the daemon-level
-  // `midLoopCompactAttempts` counter after 3 cycles and dumped the turn
-  // into convergence, even though every cycle was clearly forward
-  // progress (170k → 100k each time). The relocate makes the
-  // orchestrator agnostic to attempt counts — it only sees the binary
-  // `exhausted` signal.
+  // Because productive compactions stay inside a single `AgentLoop.run`
+  // call, the orchestrator sees exactly one agent-loop invocation no matter
+  // how many times the context is compacted — it only escalates on the
+  // binary `exhausted` signal, which this mock never sets.
   test("productive mid-loop compactions iterate without daemon-level cap", async () => {
     const events: ServerMessage[] = [];
 
@@ -1975,9 +2012,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       return 170_000;
     };
 
-    // Agent loop yields on its first 5 calls so the test exercises more
-    // mid-loop iterations than `maxAttempts = 3`. The 6th call returns
-    // without yielding so the test terminates cleanly.
+    // The single agent-loop run compacts five times inline before reaching a
+    // natural turn boundary, exercising more mid-loop iterations than the
+    // former daemon-level `maxAttempts = 3` cap.
     let agentLoopCallCount = 0;
     const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
       await onEvent({ type: "llm_call_started" });
@@ -2033,16 +2070,11 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         providerDurationMs: 100,
       });
 
-      if (agentLoopCallCount <= 5 && options?.onCheckpoint) {
-        const decision = await options.onCheckpoint({
-          turnIndex: 0,
-          toolCount: 1,
-          hasToolUse: true,
-          history: withProgress,
-        });
-        if (decision === "yield") {
-          return withProgress;
-        }
+      // Primary run: the loop compacts inline and continues in place for each
+      // productive outcome. Five productive compactions stand in for a long
+      // turn whose tool results repeatedly inflate the context past 85%.
+      if (options?.compactionStrategy) {
+        return await simulateInlineMidLoopCompaction(withProgress, options, 5);
       }
 
       return withProgress;
@@ -2084,14 +2116,11 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // 1 initial auto-compact + 5 productive mid-loop compactions ran
-    // before the agent loop stopped yielding on its 6th call. Pre-
-    // relocate this would have capped at 1 initial + 3 mid-loop = 4
-    // and escalated to convergence after the 3rd mid-loop attempt.
-    // Now the orchestrator has no count cap of its own — it only sees
-    // the `exhausted` signal (never set by this mock).
+    // 1 initial auto-compact + 5 productive mid-loop compactions = 6 total
+    // `maybeCompact` calls. The five mid-loop compactions all happen inline
+    // within a single agent-loop run, so the orchestrator never re-enters.
     expect(compactionCallCount).toBe(6);
-    expect(agentLoopCallCount).toBe(6);
+    expect(agentLoopCallCount).toBe(1);
 
     // No escalation to the convergence loop because every mid-loop
     // `maybeCompact` returned productive (no `exhausted` flag).
@@ -2177,7 +2206,14 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         providerDurationMs: 100,
       });
 
-      // Always yield at checkpoint — simulates reduction not helping enough
+      // Primary run: the loop compacts inline; the mocked `compact` reports
+      // `exhausted: true`, escalating to convergence. The convergence reruns
+      // (no inline strategy) still yield for budget through the full
+      // checkpoint, which drives the additional reduction tiers under test.
+      if (options?.compactionStrategy) {
+        return await simulateInlineMidLoopCompaction(withProgress, options, 1);
+      }
+
       if (options?.onCheckpoint) {
         const decision = await options.onCheckpoint({
           turnIndex: 0,
@@ -2520,7 +2556,15 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         providerDurationMs: 100,
       });
 
-      // Every checkpoint yields — including the final auto_compress rerun.
+      // Primary run: the loop compacts inline; the first mid-loop `compact`
+      // reports `exhausted: true` and escalates to convergence. Every
+      // subsequent rerun (convergence and the final auto_compress run, none of
+      // which carry an inline strategy) keeps yielding for budget through the
+      // full checkpoint, ending in BUDGET_YIELD_UNRECOVERED.
+      if (options?.compactionStrategy) {
+        return await simulateInlineMidLoopCompaction(withProgress, options, 1);
+      }
+
       if (options?.onCheckpoint) {
         const decision = await options.onCheckpoint({
           turnIndex: 0,

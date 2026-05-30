@@ -4304,18 +4304,16 @@ describe("session-agent-loop", () => {
         options,
       ) => {
         runCount++;
-        if (runCount === 1) {
+        if (runCount === 1 && options?.compactionStrategy) {
+          // The loop's in-flight history at the compaction boundary is the
+          // fresh DB basis, not the rendered Slack rows used at start-of-turn.
+          // Drive the inline strategy against it so the mid-loop compaction
+          // summarizes the correct basis.
           mockEstimateTokens = 90_000;
-          const decision = await options?.onCheckpoint?.({
-            turnIndex: 0,
-            toolCount: 1,
-            hasToolUse: true,
-            history: messages,
-          });
-          mockEstimateTokens = 1000;
-          if (decision === "yield") {
-            return rawMidLoopBasis;
+          if (await options.compactionStrategy.shouldCompact(rawMidLoopBasis)) {
+            await options.compactionStrategy.compact(rawMidLoopBasis);
           }
+          mockEstimateTokens = 1000;
         }
         return [
           ...messages,

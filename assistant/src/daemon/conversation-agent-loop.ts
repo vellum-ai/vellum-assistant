@@ -16,8 +16,10 @@ import type {
   AgentEvent,
   AgentLoop,
   AgentLoopExitReason,
+  AgentLoopRunOptions,
   CheckpointDecision,
   CheckpointInfo,
+  CompactionStrategy,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
 import type {
@@ -2270,37 +2272,196 @@ export async function runAgentLoopImpl(
       await eventHandler({ type: "agent_loop_exit", reason });
     };
 
-    const onCheckpoint = async (
-      checkpoint: CheckpointInfo,
-    ): Promise<CheckpointDecision> => {
-      state.currentTurnToolNames = [];
+    // Estimate the current context size and report whether it is approaching
+    // the preflight budget. Shared by the primary run's inline compaction
+    // strategy and the convergence/auto-compress reruns' checkpoint so budget
+    // detection lives in exactly one place.
+    const isApproachingMidLoopBudget = async (
+      history: Message[],
+    ): Promise<boolean> => {
+      if (!overflowRecovery.enabled) return false;
+      const midLoopThreshold =
+        resolveCurrentContextBudget().preflightBudget *
+        MID_LOOP_YIELD_THRESHOLD_RATIO;
+      const estimated = await runTokenEstimatePipeline(history);
+      if (estimated > midLoopThreshold) {
+        rlog.warn(
+          { phase: "mid-loop", estimated, threshold: midLoopThreshold },
+          "Token estimate approaching budget",
+        );
+        return true;
+      }
+      return false;
+    };
 
+    // Handoff-only checkpoint for the primary run. Budget handling is owned by
+    // `midLoopCompactionStrategy` (compaction happens inline in the loop), so
+    // this only yields when a queued message wants to take over.
+    const onCheckpointHandoffOnly = (): CheckpointDecision => {
+      state.currentTurnToolNames = [];
       if (ctx.canHandoffAtCheckpoint()) {
         yieldedForHandoff = true;
         pendingCheckpointYield = "handoff";
         return "yield";
       }
-
-      // Mid-loop token budget check: estimate current context size and
-      // yield if we're approaching the preflight budget. This lets the
-      // conversation-agent-loop run compaction before the provider rejects.
-      if (overflowRecovery.enabled) {
-        const midLoopThreshold =
-          resolveCurrentContextBudget().preflightBudget *
-          MID_LOOP_YIELD_THRESHOLD_RATIO;
-        const estimated = await runTokenEstimatePipeline(checkpoint.history);
-        if (estimated > midLoopThreshold) {
-          rlog.warn(
-            { phase: "mid-loop", estimated, threshold: midLoopThreshold },
-            "Token estimate approaching budget — yielding for compaction",
-          );
-          yieldedForBudget = true;
-          pendingCheckpointYield = "budget";
-          return "yield";
-        }
-      }
-
       return "continue";
+    };
+
+    // Full checkpoint for the convergence / auto-compress reruns, which run
+    // without an inline compaction strategy: handoff first, then a budget
+    // yield that returns control to the orchestrator's reducer tiers.
+    const onCheckpoint = async (
+      checkpoint: CheckpointInfo,
+    ): Promise<CheckpointDecision> => {
+      if (onCheckpointHandoffOnly() === "yield") return "yield";
+      if (await isApproachingMidLoopBudget(checkpoint.history)) {
+        yieldedForBudget = true;
+        pendingCheckpointYield = "budget";
+        return "yield";
+      }
+      return "continue";
+    };
+
+    // Inline mid-loop compaction supplied to the primary run. `shouldCompact`
+    // mirrors the budget gate but defers to a pending handoff; `compact`
+    // performs the strip → compaction-pipeline → apply → runtime-reinject
+    // ceremony and returns the history the loop continues from. A failed
+    // compaction (exhausted retries or timeout) flips
+    // `state.contextTooLargeDetected` and reports `ok: false`, so the loop
+    // terminates and the orchestrator's convergence loop takes over.
+    const midLoopCompactionStrategy: CompactionStrategy = {
+      shouldCompact: async (history) => {
+        if (ctx.canHandoffAtCheckpoint()) return false;
+        return isApproachingMidLoopBudget(history);
+      },
+      compact: async (history) => {
+        rlog.info({ phase: "mid-loop-compact" }, "Running mid-loop compaction");
+
+        // Strip injected context before compacting so we summarize the "raw"
+        // persistent messages.
+        const rawHistory = stripInjectionsForCompaction(history);
+        ctx.messages = rawHistory;
+        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+
+        ctx.emitActivityState(
+          "thinking",
+          "context_compacting",
+          "assistant_turn",
+          reqId,
+          "Compacting context",
+        );
+
+        let midLoopCompact: Awaited<
+          ReturnType<typeof ctx.contextWindowManager.maybeCompact>
+        >;
+        try {
+          midLoopCompact = (await runPipeline<CompactionArgs, CompactionResult>(
+            "compaction",
+            getMiddlewaresFor("compaction"),
+            (args) =>
+              defaultCompactionTerminal(
+                args,
+                buildPluginTurnContext(ctx, reqId),
+              ),
+            {
+              messages: ctx.messages,
+              signal: abortController.signal,
+              options: {
+                lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+                force: true,
+                targetInputTokensOverride:
+                  resolveCurrentContextBudget().preflightBudget,
+                conversationOriginChannel:
+                  getConversationOriginChannel(ctx.conversationId) ?? undefined,
+                overrideProfile: resolveCurrentOverrideProfile() ?? null,
+              },
+            },
+            buildPluginTurnContext(ctx, reqId),
+            DEFAULT_TIMEOUTS.compaction,
+          )) as Awaited<
+            ReturnType<typeof ctx.contextWindowManager.maybeCompact>
+          >;
+        } catch (err) {
+          if (err instanceof PluginTimeoutError) {
+            rlog.warn(
+              { err, phase: "mid-loop-compact" },
+              "Compaction pipeline timed out — escalating to convergence loop",
+            );
+            await trackCompactionOutcome(ctx, true, onEvent);
+            state.contextTooLargeDetected = true;
+            return { ok: false, reason: "timeout" };
+          }
+          throw err;
+        }
+
+        // `force: true` bypasses the cooldown/threshold gates but early
+        // returns for "no eligible messages" / "insufficient messages" still
+        // leave `summaryFailed` undefined. Only track when the summary LLM
+        // actually ran.
+        if (midLoopCompact.summaryFailed !== undefined) {
+          await trackCompactionOutcome(
+            ctx,
+            midLoopCompact.summaryFailed,
+            onEvent,
+          );
+        }
+
+        if (midLoopCompact.compacted) {
+          await applySuccessfulCompaction(midLoopCompact, rawHistory);
+          reducerCompacted = true;
+          shouldInjectWorkspace = true;
+        }
+
+        // When the compactor exhausts its internal retry budget without
+        // dropping below the auto-threshold, re-entering would just yield
+        // again on a stuck compactor. Escalate to the convergence loop's more
+        // aggressive reducer tiers instead.
+        if (midLoopCompact.exhausted) {
+          rlog.warn(
+            { phase: "mid-loop-compact" },
+            "Compaction reported exhausted — escalating to convergence loop",
+          );
+          state.contextTooLargeDetected = true;
+          return { ok: false, reason: "exhausted" };
+        }
+
+        // Re-inject runtime context so the loop continues with a coherent
+        // prompt. stripInjectionsForCompaction() unconditionally removed the
+        // existing NOW.md block from ctx.messages above, so re-inject the
+        // current content regardless of whether compaction actually ran.
+        const injection = await applyRuntimeInjections(ctx.messages, {
+          ...injectionOpts,
+          pkbContext: currentPkbContent,
+          memoryV2Static: currentMemoryV2Static,
+          nowScratchpad: currentNowContent,
+          workspaceTopLevelContext: shouldInjectWorkspace
+            ? ctx.workspaceTopLevelContext
+            : null,
+          slackChronologicalMessages: reducerCompacted
+            ? null
+            : injectionOpts.slackChronologicalMessages,
+          mode: currentInjectionMode,
+          turnContext: buildPluginTurnContext(ctx, reqId),
+        });
+        let newRunMessages = injection.messages;
+        if (isTrustedActor && currentInjectionMode !== "minimal") {
+          ctx.graphMemory.retrackCachedNodes();
+        }
+        const midLoopCompactStrip =
+          stripHistoricalWebSearchResults(newRunMessages);
+        if (midLoopCompactStrip.stats.blocksStripped > 0) {
+          rlog.info(
+            { phase: "mid-loop-compact", ...midLoopCompactStrip.stats },
+            "Converted historical web_search_tool_result blocks to text summaries",
+          );
+          newRunMessages = midLoopCompactStrip.messages;
+        }
+        runMessages = newRunMessages;
+        preRepairMessages = newRunMessages;
+        preRunHistoryLength = newRunMessages.length;
+
+        return { ok: true, history: newRunMessages };
+      },
     };
 
     turnStarted = true;
@@ -2315,12 +2476,25 @@ export async function runAgentLoopImpl(
     // and overwrites `turnIndex` with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
-    /** Shared closure: runs the agent loop with the orchestrator's turn context. */
-    const runAgentLoop = (msgs: Message[]) =>
+    /**
+     * Shared closure: runs the agent loop with the orchestrator's turn
+     * context. The primary run supplies the handoff-only checkpoint plus
+     * `midLoopCompactionStrategy` so budget compaction happens inline; the
+     * convergence / auto-compress reruns omit both and fall back to the full
+     * `onCheckpoint`, whose budget yield returns control to the reducer tiers.
+     */
+    const runAgentLoop = (
+      msgs: Message[],
+      opts?: {
+        onCheckpoint?: AgentLoopRunOptions["onCheckpoint"];
+        compactionStrategy?: CompactionStrategy;
+      },
+    ) =>
       ctx.agentLoop.run(msgs, eventHandler, {
         signal: abortController.signal,
         requestId: reqId,
-        onCheckpoint,
+        onCheckpoint: opts?.onCheckpoint ?? onCheckpoint,
+        compactionStrategy: opts?.compactionStrategy,
         callSite: turnCallSite,
         turnContext: loopTurnCtx,
         overrideProfile: turnOverrideProfile,
@@ -2333,7 +2507,10 @@ export async function runAgentLoopImpl(
         mutableLatestUserMessage: memoryV3Live,
       });
 
-    let updatedHistory = await runAgentLoop(runMessages);
+    let updatedHistory = await runAgentLoop(runMessages, {
+      onCheckpoint: onCheckpointHandoffOnly,
+      compactionStrategy: midLoopCompactionStrategy,
+    });
 
     rlog.info(
       { resultMessageCount: updatedHistory.length },
@@ -2343,175 +2520,6 @@ export async function runAgentLoopImpl(
     if (yieldedForHandoff) {
       await emitTerminalExit?.("checkpoint_handoff");
       pendingCheckpointYield = null;
-    }
-
-    // ── Proactive mid-loop compaction ───────────────────────────────
-    // When the agent loop yielded because the token budget check in
-    // onCheckpoint detected approaching limits, run compaction on the
-    // accumulated history and re-enter the agent loop. This is distinct
-    // from the reactive convergence loop below that fires after a
-    // provider rejection — here we compact *before* hitting the limit.
-    //
-    // The retry budget lives INSIDE `ContextWindowManager.maybeCompact`
-    // now: a single call to it may run the compactor up to
-    // `overflowRecovery.maxAttempts` times internally before giving up
-    // and reporting `exhausted: true`. The orchestrator's outer loop
-    // here has no count cap — it iterates as long as the agent loop
-    // makes forward progress (each productive turn re-yields against
-    // fresh tool-result bloat, which is a separate scenario from "the
-    // compactor itself is stuck"). When `exhausted` flips true we
-    // escalate to the convergence loop's more aggressive reducer tiers.
-    while (
-      yieldedForBudget &&
-      !state.contextTooLargeDetected &&
-      !abortController.signal.aborted
-    ) {
-      yieldedForBudget = false;
-      pendingCheckpointYield = null;
-
-      rlog.info(
-        { phase: "mid-loop-compact" },
-        "Running compaction after checkpoint yield",
-      );
-
-      // Strip injected context from updated history before compacting,
-      // so we compact the "raw" persistent messages.
-      const rawHistory = stripInjectionsForCompaction(updatedHistory);
-      ctx.messages = rawHistory;
-      markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
-
-      ctx.emitActivityState(
-        "thinking",
-        "context_compacting",
-        "assistant_turn",
-        reqId,
-        "Compacting context",
-      );
-      let midLoopCompact: Awaited<
-        ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-      >;
-      try {
-        midLoopCompact = (await runPipeline<CompactionArgs, CompactionResult>(
-          "compaction",
-          getMiddlewaresFor("compaction"),
-          (args) =>
-            defaultCompactionTerminal(args, buildPluginTurnContext(ctx, reqId)),
-          {
-            messages: ctx.messages,
-            signal: abortController.signal,
-            options: {
-              lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-              force: true,
-              targetInputTokensOverride:
-                resolveCurrentContextBudget().preflightBudget,
-              conversationOriginChannel:
-                getConversationOriginChannel(ctx.conversationId) ?? undefined,
-              overrideProfile: resolveCurrentOverrideProfile() ?? null,
-            },
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.compaction,
-        )) as Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>;
-      } catch (err) {
-        if (err instanceof PluginTimeoutError) {
-          // Mid-loop compaction timed out. Record the failure for the
-          // circuit breaker and escalate to the convergence loop's more
-          // aggressive reducer tiers (tool-result truncation, media
-          // stubbing, injection downgrade) by flipping the overflow flag
-          // and breaking out of the mid-loop retry. The existing
-          // "exhausted all attempts" block further down handles the
-          // escalation.
-          rlog.warn(
-            { err, phase: "mid-loop-compact" },
-            "Compaction pipeline timed out — escalating to convergence loop",
-          );
-          await trackCompactionOutcome(ctx, true, onEvent);
-          state.contextTooLargeDetected = true;
-          break;
-        }
-        throw err;
-      }
-      // `force: true` bypasses the cooldown/threshold gates but early returns
-      // for "no eligible messages" / "insufficient messages" still leave
-      // `summaryFailed` undefined. Only track when the summary LLM actually ran.
-      if (midLoopCompact.summaryFailed !== undefined) {
-        await trackCompactionOutcome(
-          ctx,
-          midLoopCompact.summaryFailed,
-          onEvent,
-        );
-      }
-      if (midLoopCompact.compacted) {
-        await applySuccessfulCompaction(midLoopCompact, rawHistory);
-        reducerCompacted = true;
-        shouldInjectWorkspace = true;
-      }
-
-      // When the compactor exhausts its internal retry budget without
-      // dropping below the auto-threshold, there's no point re-entering
-      // the agent loop — it will yield again and we'll just loop on
-      // a stuck compactor. Escalate to the convergence loop's more
-      // aggressive reducer tiers instead.
-      if (midLoopCompact.exhausted) {
-        rlog.warn(
-          { phase: "mid-loop-compact" },
-          "Compaction reported exhausted — escalating to convergence loop",
-        );
-        state.contextTooLargeDetected = true;
-        break;
-      }
-
-      // Re-inject runtime context and re-enter the agent loop.
-      // stripInjectionsForCompaction() unconditionally removed the existing
-      // NOW.md block from ctx.messages above, so we must always re-inject
-      // the current content regardless of whether compaction actually ran.
-      const injection = await applyRuntimeInjections(ctx.messages, {
-        ...injectionOpts,
-        pkbContext: currentPkbContent,
-        memoryV2Static: currentMemoryV2Static,
-        nowScratchpad: currentNowContent,
-        workspaceTopLevelContext: shouldInjectWorkspace
-          ? ctx.workspaceTopLevelContext
-          : null,
-        // Suppress the chronological-transcript snapshot once the reducer
-        // has collapsed `ctx.messages`; the captured snapshot reflects the
-        // full persisted transcript and would overwrite compaction.
-        slackChronologicalMessages: reducerCompacted
-          ? null
-          : injectionOpts.slackChronologicalMessages,
-        mode: currentInjectionMode,
-        turnContext: buildPluginTurnContext(ctx, reqId),
-      });
-      runMessages = injection.messages;
-      if (isTrustedActor && currentInjectionMode !== "minimal") {
-        ctx.graphMemory.retrackCachedNodes();
-      }
-      const midLoopCompactStrip = stripHistoricalWebSearchResults(runMessages);
-      if (midLoopCompactStrip.stats.blocksStripped > 0) {
-        rlog.info(
-          { phase: "mid-loop-compact", ...midLoopCompactStrip.stats },
-          "Converted historical web_search_tool_result blocks to text summaries",
-        );
-        runMessages = midLoopCompactStrip.messages;
-      }
-      preRepairMessages = runMessages;
-      preRunHistoryLength = runMessages.length;
-
-      updatedHistory = await runAgentLoop(runMessages);
-    }
-
-    // Defensive: the mid-loop above breaks on `exhausted` and on the
-    // PluginTimeoutError catch — both of which flip
-    // `state.contextTooLargeDetected`. If we somehow exit with
-    // `yieldedForBudget` still set (e.g. compaction was disabled
-    // outside the normal path), force escalation so a half-finished
-    // turn doesn't reach the user.
-    if (yieldedForBudget && !abortController.signal.aborted) {
-      rlog.warn(
-        { phase: "mid-loop-compact" },
-        "Mid-loop exited with yieldedForBudget still set — escalating to convergence loop",
-      );
-      state.contextTooLargeDetected = true;
     }
 
     // One-shot ordering error retry
