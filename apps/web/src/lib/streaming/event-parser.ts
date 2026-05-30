@@ -9,7 +9,6 @@
  *
  * Legacy coercion is split across focused sub-modules by event group:
  *   - `parse-tool-events`        — tool execution lifecycle
- *   - `parse-surface-events`     — daemon-driven UI surfaces
  *   - `parse-subagent-events`    — subagent orchestration
  *   - `parse-resource-events`    — cache invalidation / push signals
  *
@@ -30,12 +29,7 @@ import {
   parseToolUseStart,
   parseToolResult,
 } from "@/lib/streaming/parse-tool-events";
-import {
-  parseUISurfaceShow,
-  parseUISurfaceUpdate,
-  parseUISurfaceDismiss,
-  parseUISurfaceComplete,
-} from "@/lib/streaming/parse-surface-events";
+
 import {
   parseSubagentSpawned,
   parseSubagentStatusChanged,
@@ -138,16 +132,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       return parseToolUseStart(data);
     case "tool_result":
       return parseToolResult(data);
-
-    // --- UI surface lifecycle ---
-    case "ui_surface_show":
-      return parseUISurfaceShow(data);
-    case "ui_surface_update":
-      return parseUISurfaceUpdate(data);
-    case "ui_surface_dismiss":
-      return parseUISurfaceDismiss(data);
-    case "ui_surface_complete":
-      return parseUISurfaceComplete(data);
 
     // --- Subagent orchestration ---
     case "subagent_spawned":

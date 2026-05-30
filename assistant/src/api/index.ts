@@ -28,6 +28,10 @@ import { QuestionRequestEventSchema } from "./events/question-request.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
 import { SecretRequestEventSchema } from "./events/secret-request.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
+import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
+import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
+import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
+import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
 
 export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
@@ -167,6 +171,24 @@ export {
   ToolUseStartEventSchema,
 } from "./events/tool-use-start.js";
 export {
+  type UISurfaceCompleteEvent,
+  UISurfaceCompleteEventSchema,
+} from "./events/ui-surface-complete.js";
+export {
+  type UISurfaceDismissEvent,
+  UISurfaceDismissEventSchema,
+} from "./events/ui-surface-dismiss.js";
+export {
+  type SurfaceAction,
+  SurfaceActionSchema,
+  type UISurfaceShowEvent,
+  UISurfaceShowEventSchema,
+} from "./events/ui-surface-show.js";
+export {
+  type UISurfaceUpdateEvent,
+  UISurfaceUpdateEventSchema,
+} from "./events/ui-surface-update.js";
+export {
   type LlmContextResponse,
   LlmContextResponseSchema,
 } from "./responses/llm-context-response.js";
@@ -243,6 +265,10 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   RelationshipStateUpdatedEventSchema,
   SecretRequestEventSchema,
   ToolUseStartEventSchema,
+  UISurfaceCompleteEventSchema,
+  UISurfaceDismissEventSchema,
+  UISurfaceShowEventSchema,
+  UISurfaceUpdateEventSchema,
 ]);
 
 /**
