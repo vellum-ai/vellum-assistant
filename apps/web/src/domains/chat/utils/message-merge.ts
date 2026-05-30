@@ -366,43 +366,73 @@ function concatOptionalArrays<T>(
 
 /**
  * Remap a paginated assistant message's `contentOrder` entries when the
- * message is being folded onto an older sibling whose `textSegments` /
- * `attachments` arrays already occupy indices 0..N-1.
+ * message is being folded onto an older sibling.
  *
- * Server contentOrder entries reference `textSegments` and `attachments`
- * by numeric index (`{ type: "text", id: "0" }`, `{ type: "attachment",
- * id: "2" }`). When we concatenate the donor's segments / attachments
- * onto the survivor's, every numeric reference in the donor's
- * contentOrder has to shift by the survivor's array length so it still
- * resolves to the right segment / attachment in the merged arrays.
+ * History payloads from the server reference array members by *position*
+ * — `{ type: "text", id: "0" }`, `{ type: "attachment", id: "2" }`,
+ * `{ type: "tool", id: "1" }`, `{ type: "surface", id: "0" }`. The
+ * transcript renderer (`resolveSurface`, `resolveToolCall`, text-segment
+ * lookup in `transcript-message-body.tsx`) first tries id-keyed lookup
+ * and falls back to `parseInt(id, 10) → array[idx]` when the id matches
+ * none of the array members' real ids. When we concatenate the donor's
+ * `textSegments` / `attachments` / `toolCalls` / `surfaces` onto the
+ * survivor's, every *positional* numeric reference in the donor's
+ * contentOrder must shift by the survivor's array length so it still
+ * resolves to the right member in the merged arrays.
  *
- * Tool-call and surface entries reference their target by globally
- * unique id (not by position), so they pass through untouched.
+ * Streaming-shape entries carry real ids instead (text-segment object
+ * `id`s, tool-use ids like `toolu_…`, surface UUIDs). Those resolve via
+ * the renderer's id-keyed lookup and must pass through untouched. The
+ * `/^\d+$/` gate distinguishes positional numeric ids ("0", "12") from
+ * real ids ("toolu_abc", "surf-uuid", "seg-3").
  */
 function remapAdjacentContentOrder(
   entries: Array<{ type: string; id: string }> | undefined,
-  textOffset: number,
-  attachmentOffset: number,
+  offsets: {
+    text: number;
+    attachment: number;
+    toolCall: number;
+    surface: number;
+  },
 ): Array<{ type: string; id: string }> | undefined {
   if (!entries || entries.length === 0) return entries;
-  if (textOffset === 0 && attachmentOffset === 0) return entries;
+  if (
+    offsets.text === 0 &&
+    offsets.attachment === 0 &&
+    offsets.toolCall === 0 &&
+    offsets.surface === 0
+  ) {
+    return entries;
+  }
   return entries.map((entry) => {
-    if (entry.type === "text") {
-      const idx = parseInt(entry.id, 10);
-      if (Number.isFinite(idx)) {
-        return { ...entry, id: String(idx + textOffset) };
-      }
-      return entry;
-    }
-    if (entry.type === "attachment") {
-      const idx = parseInt(entry.id, 10);
-      if (Number.isFinite(idx)) {
-        return { ...entry, id: String(idx + attachmentOffset) };
-      }
-      return entry;
-    }
-    return entry;
+    const offset = pickContentOrderOffset(entry.type, offsets);
+    if (offset === 0) return entry;
+    // Real ids (UUIDs, tool-use ids, surfaceIds, segment ids) resolve via
+    // the renderer's id-keyed lookup — leave them alone. Only positional
+    // numeric ids ("0", "1", "12") hit the parseInt fallback that needs
+    // shifting after the survivor's array members claim 0..N-1.
+    if (!/^\d+$/.test(entry.id)) return entry;
+    const idx = parseInt(entry.id, 10);
+    return { ...entry, id: String(idx + offset) };
   });
+}
+
+function pickContentOrderOffset(
+  entryType: string,
+  offsets: {
+    text: number;
+    attachment: number;
+    toolCall: number;
+    surface: number;
+  },
+): number {
+  if (entryType === "text") return offsets.text;
+  if (entryType === "attachment") return offsets.attachment;
+  // Streaming pipeline writes "toolCall"; history pipeline writes "tool"
+  // — `transcript-message-body.tsx` treats them as the same entry kind.
+  if (entryType === "tool" || entryType === "toolCall") return offsets.toolCall;
+  if (entryType === "surface") return offsets.surface;
+  return 0;
 }
 
 function canFoldAdjacentAssistant(
@@ -432,8 +462,12 @@ function foldAdjacentAssistant(
   survivor: DisplayMessage,
   donor: DisplayMessage,
 ): DisplayMessage {
-  const survivorTextLen = survivor.textSegments?.length ?? 0;
-  const survivorAttachLen = survivor.attachments?.length ?? 0;
+  const offsets = {
+    text: survivor.textSegments?.length ?? 0,
+    attachment: survivor.attachments?.length ?? 0,
+    toolCall: survivor.toolCalls?.length ?? 0,
+    surface: survivor.surfaces?.length ?? 0,
+  };
 
   const textSegments = concatOptionalArrays(
     survivor.textSegments,
@@ -441,14 +475,17 @@ function foldAdjacentAssistant(
   );
   const remappedDonorContentOrder = remapAdjacentContentOrder(
     donor.contentOrder,
-    survivorTextLen,
-    survivorAttachLen,
+    offsets,
   );
   const contentOrder = concatOptionalArrays(
     survivor.contentOrder,
     remappedDonorContentOrder,
   );
-  // Tool calls + surfaces use globally-unique ids; concat is safe.
+  // toolCalls + surfaces concat — their contentOrder references are
+  // either id-keyed (streaming-shape, e.g. "toolu_abc") or positional
+  // (history-shape, e.g. "0"). Positional ids are shifted above by
+  // `remapAdjacentContentOrder` so they continue to index the right
+  // member of the concatenated array.
   const toolCalls = concatOptionalArrays(survivor.toolCalls, donor.toolCalls);
   const surfaces = concatOptionalArrays(survivor.surfaces, donor.surfaces);
   const attachments = concatOptionalArrays(

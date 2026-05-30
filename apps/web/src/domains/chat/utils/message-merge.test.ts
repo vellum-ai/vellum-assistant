@@ -156,15 +156,15 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     const survivor = makeAssistant({
       id: "a-1",
       attachments: [
-        { id: "att-A0", filename: "a0.txt", mimeType: "text/plain", sizeBytes: 1 },
-        { id: "att-A1", filename: "a1.txt", mimeType: "text/plain", sizeBytes: 1 },
+        { id: "att-A0", filename: "a0.txt", mimeType: "text/plain", sizeBytes: 1, previewUrl: null },
+        { id: "att-A1", filename: "a1.txt", mimeType: "text/plain", sizeBytes: 1, previewUrl: null },
       ],
       contentOrder: [{ type: "attachment", id: "0" }],
     });
     const donor = makeAssistant({
       id: "a-2",
       attachments: [
-        { id: "att-B0", filename: "b0.txt", mimeType: "text/plain", sizeBytes: 1 },
+        { id: "att-B0", filename: "b0.txt", mimeType: "text/plain", sizeBytes: 1, previewUrl: null },
       ],
       contentOrder: [{ type: "attachment", id: "0" }],
     });
@@ -181,42 +181,143 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
     ]);
   });
 
-  test("does not shift toolCall / surface contentOrder entries (id-keyed, not index-keyed)", () => {
+  // Server history payloads reference toolCalls / surfaces *positionally*
+  // ("0", "1", "2"). When the donor's positional reference would otherwise
+  // resolve to the survivor's same-indexed member after concat, we must
+  // shift it. The next two tests cover the bug Codex flagged on the first
+  // pass of this fix: the wrong progress card / surface rendering in the
+  // folded long-turn bubble.
+  test("shifts tool:N positional ids in the donor by survivor.toolCalls.length (history shape)", () => {
     const survivor = makeAssistant({
       id: "a-1",
       toolCalls: [
-        { id: "tool-X", toolName: "bash", input: {}, status: "completed" },
+        { id: "toolu_S0", toolName: "bash", input: {}, status: "completed" },
       ],
-      contentOrder: [{ type: "toolCall", id: "tool-X" }],
+      contentOrder: [{ type: "tool", id: "0" }],
     });
     const donor = makeAssistant({
       id: "a-2",
       toolCalls: [
-        { id: "tool-Y", toolName: "edit", input: {}, status: "completed" },
+        { id: "toolu_D0", toolName: "edit", input: {}, status: "completed" },
+        { id: "toolu_D1", toolName: "test", input: {}, status: "completed" },
       ],
-      contentOrder: [{ type: "toolCall", id: "tool-Y" }],
+      contentOrder: [
+        { type: "tool", id: "0" },
+        { type: "tool", id: "1" },
+      ],
     });
     const result = mergeAdjacentAssistantMessages([survivor, donor]);
-    expect(result[0]!.contentOrder).toEqual([
-      { type: "toolCall", id: "tool-X" },
-      { type: "toolCall", id: "tool-Y" },
-    ]);
     expect(result[0]!.toolCalls?.map((t) => t.id)).toEqual([
-      "tool-X",
-      "tool-Y",
+      "toolu_S0",
+      "toolu_D0",
+      "toolu_D1",
+    ]);
+    // Donor's "0" / "1" must shift to "1" / "2" so the renderer's
+    // index fallback resolves to the appended donor tool calls, not the
+    // survivor's pre-existing toolCalls[0].
+    expect(result[0]!.contentOrder).toEqual([
+      { type: "tool", id: "0" },
+      { type: "tool", id: "1" },
+      { type: "tool", id: "2" },
     ]);
   });
 
-  test("interleaved text + tool entries remap text indices but leave tool ids alone", () => {
+  test("shifts surface:N positional ids in the donor by survivor.surfaces.length (history shape)", () => {
+    const survivor = makeAssistant({
+      id: "a-1",
+      surfaces: [
+        {
+          surfaceId: "surf-S0",
+          surfaceType: "card",
+          data: {},
+          messageId: "a-1",
+        },
+      ],
+      contentOrder: [{ type: "surface", id: "0" }],
+    });
+    const donor = makeAssistant({
+      id: "a-2",
+      surfaces: [
+        {
+          surfaceId: "surf-D0",
+          surfaceType: "card",
+          data: {},
+          messageId: "a-2",
+        },
+      ],
+      contentOrder: [{ type: "surface", id: "0" }],
+    });
+    const result = mergeAdjacentAssistantMessages([survivor, donor]);
+    expect(result[0]!.surfaces?.map((s) => s.surfaceId)).toEqual([
+      "surf-S0",
+      "surf-D0",
+    ]);
+    expect(result[0]!.contentOrder).toEqual([
+      { type: "surface", id: "0" },
+      { type: "surface", id: "1" },
+    ]);
+  });
+
+  test("leaves real (non-numeric) toolCall / surface ids untouched (streaming shape)", () => {
+    // Streaming-shape entries carry the real tool-use id / surfaceId in
+    // `contentOrder.id`. The renderer's id-keyed first-pass lookup finds
+    // them directly; remap would corrupt them, so the regex gate must
+    // pass them through even when the offsets are non-zero.
+    const survivor = makeAssistant({
+      id: "a-1",
+      toolCalls: [
+        { id: "toolu_real_X", toolName: "bash", input: {}, status: "completed" },
+      ],
+      surfaces: [
+        {
+          surfaceId: "surf-real-X",
+          surfaceType: "card",
+          data: {},
+          messageId: "a-1",
+        },
+      ],
+      contentOrder: [
+        { type: "toolCall", id: "toolu_real_X" },
+        { type: "surface", id: "surf-real-X" },
+      ],
+    });
+    const donor = makeAssistant({
+      id: "a-2",
+      toolCalls: [
+        { id: "toolu_real_Y", toolName: "edit", input: {}, status: "completed" },
+      ],
+      surfaces: [
+        {
+          surfaceId: "surf-real-Y",
+          surfaceType: "card",
+          data: {},
+          messageId: "a-2",
+        },
+      ],
+      contentOrder: [
+        { type: "toolCall", id: "toolu_real_Y" },
+        { type: "surface", id: "surf-real-Y" },
+      ],
+    });
+    const result = mergeAdjacentAssistantMessages([survivor, donor]);
+    expect(result[0]!.contentOrder).toEqual([
+      { type: "toolCall", id: "toolu_real_X" },
+      { type: "surface", id: "surf-real-X" },
+      { type: "toolCall", id: "toolu_real_Y" },
+      { type: "surface", id: "surf-real-Y" },
+    ]);
+  });
+
+  test("interleaved text + tool positional entries remap each by their own offset", () => {
     const survivor = makeAssistant({
       id: "a-1",
       textSegments: [{ type: "text", content: "thinking..." }],
       toolCalls: [
-        { id: "tool-X", toolName: "bash", input: {}, status: "completed" },
+        { id: "toolu_S", toolName: "bash", input: {}, status: "completed" },
       ],
       contentOrder: [
         { type: "text", id: "0" },
-        { type: "toolCall", id: "tool-X" },
+        { type: "tool", id: "0" },
       ],
     });
     const donor = makeAssistant({
@@ -226,20 +327,22 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
         { type: "text", content: "now editing" },
       ],
       toolCalls: [
-        { id: "tool-Y", toolName: "edit", input: {}, status: "completed" },
+        { id: "toolu_D", toolName: "edit", input: {}, status: "completed" },
       ],
       contentOrder: [
         { type: "text", id: "0" },
-        { type: "toolCall", id: "tool-Y" },
+        { type: "tool", id: "0" },
         { type: "text", id: "1" },
       ],
     });
     const result = mergeAdjacentAssistantMessages([survivor, donor]);
+    // text shifts by 1 (survivor.textSegments.length), tool shifts by 1
+    // (survivor.toolCalls.length) — independently.
     expect(result[0]!.contentOrder).toEqual([
       { type: "text", id: "0" },
-      { type: "toolCall", id: "tool-X" },
+      { type: "tool", id: "0" },
       { type: "text", id: "1" },
-      { type: "toolCall", id: "tool-Y" },
+      { type: "tool", id: "1" },
       { type: "text", id: "2" },
     ]);
   });
