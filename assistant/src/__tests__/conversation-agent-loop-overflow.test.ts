@@ -1891,9 +1891,15 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         maybeCompact: async () => {
           compactionCallCount++;
-          // Compaction "succeeds" but doesn't actually shrink enough
+          // Compaction's internal retry budget is exhausted — the
+          // compactor itself ran maxAttempts passes and still couldn't
+          // drop below the auto-threshold. `maybeCompact` surfaces this
+          // via `exhausted: true` so the orchestrator escalates
+          // straight to the convergence loop instead of looping on a
+          // stuck compactor.
           return {
             compacted: true,
+            exhausted: true,
             messages: [
               {
                 role: "user" as const,
@@ -1918,16 +1924,178 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // 1 initial auto-compact + 3 mid-loop compaction attempts = 4 total
-    expect(compactionCallCount).toBe(4);
+    // 1 initial auto-compact + 1 mid-loop compaction = 2 total. The
+    // first mid-loop call surfaces `exhausted: true`, so the
+    // orchestrator escalates immediately without retrying maybeCompact
+    // — the retry budget for the compactor itself lives inside
+    // `ContextWindowManager.maybeCompact`.
+    expect(compactionCallCount).toBe(2);
 
-    // Agent loop: 1 initial + 3 mid-loop re-entries + 1 convergence re-run = 5 calls
-    expect(agentLoopCallCount).toBe(5);
+    // Agent loop: 1 initial + 1 convergence re-run = 2 calls. No
+    // mid-loop re-entries because the orchestrator broke out on
+    // `exhausted` before re-invoking the agent loop.
+    expect(agentLoopCallCount).toBe(2);
 
-    // After exhausting mid-loop attempts, the convergence loop should
-    // have been triggered (contextTooLargeDetected set to true)
+    // After the compactor exhausted itself, the convergence loop
+    // should have been triggered (contextTooLargeDetected set to true)
     expect(convergenceReducerCalled).toBe(true);
     expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
+      "test-conv",
+      "context_too_large",
+    );
+  });
+
+  // ── Test 8b ───────────────────────────────────────────────────────
+  // Counterpart to Test 8: when each mid-loop `maybeCompact` returns
+  // productive (`compacted: true`, no `exhausted` flag), the
+  // orchestrator iterates indefinitely without ever escalating to the
+  // convergence loop. The retry budget for the compactor lives INSIDE
+  // `ContextWindowManager.maybeCompact` now; the orchestrator's outer
+  // loop has no count cap of its own.
+  //
+  // Pre-refactor this case would have tripped the daemon-level
+  // `midLoopCompactAttempts` counter after 3 cycles and dumped the turn
+  // into convergence, even though every cycle was clearly forward
+  // progress (170k → 100k each time). The relocate makes the
+  // orchestrator agnostic to attempt counts — it only sees the binary
+  // `exhausted` signal.
+  test("productive mid-loop compactions iterate without daemon-level cap", async () => {
+    const events: ServerMessage[] = [];
+
+    // Budget = 200_000 * 0.95 = 190_000
+    // Mid-loop threshold = 190_000 * 0.85 = 161_500
+    let estimateCallCount = 0;
+    mockEstimateTokens = () => {
+      estimateCallCount++;
+      // Preflight: below budget.
+      if (estimateCallCount === 1) return 100_000;
+      // Every checkpoint estimate: above threshold — always trips the
+      // yield. Simulates a long turn where each tool call's result
+      // inflates the context past 85% even after a successful compaction.
+      return 170_000;
+    };
+
+    // Agent loop yields on its first 5 calls so the test exercises more
+    // mid-loop iterations than `maxAttempts = 3`. The 6th call returns
+    // without yielding so the test terminates cleanly.
+    let agentLoopCallCount = 0;
+    const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
+      await onEvent({ type: "llm_call_started" });
+      agentLoopCallCount++;
+
+      const withProgress: Message[] = [
+        ...messages,
+        {
+          role: "assistant" as const,
+          content: [
+            { type: "text", text: `Tool call ${agentLoopCallCount}` },
+            {
+              type: "tool_use",
+              id: `tu-${agentLoopCallCount}`,
+              name: "bash",
+              input: { command: "ls" },
+            },
+          ] as ContentBlock[],
+        },
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: `tu-${agentLoopCallCount}`,
+              content: "output",
+              is_error: false,
+            },
+          ] as ContentBlock[],
+        },
+      ];
+
+      onEvent({
+        type: "message_complete",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: `Tool call ${agentLoopCallCount}` },
+            {
+              type: "tool_use",
+              id: `tu-${agentLoopCallCount}`,
+              name: "bash",
+              input: { command: "ls" },
+            },
+          ],
+        },
+      });
+      onEvent({
+        type: "usage",
+        inputTokens: 100,
+        outputTokens: 50,
+        model: "test-model",
+        providerDurationMs: 100,
+      });
+
+      if (agentLoopCallCount <= 5 && options?.onCheckpoint) {
+        const decision = await options.onCheckpoint({
+          turnIndex: 0,
+          toolCount: 1,
+          hasToolUse: true,
+          history: withProgress,
+        });
+        if (decision === "yield") {
+          return withProgress;
+        }
+      }
+
+      return withProgress;
+    };
+
+    // Compaction reports `estimatedInputTokens` well below the 161_500
+    // threshold every time — the "compaction is productive" signal that
+    // the new reset logic keys off.
+    let compactionCallCount = 0;
+    const ctx = makeCtx({
+      agentLoopRun,
+      contextWindowManager: {
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => {
+          compactionCallCount++;
+          return {
+            compacted: true,
+            messages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text", text: "Hello" }],
+              },
+            ] as Message[],
+            compactedPersistedMessages: 5,
+            summaryText: "Compaction summary",
+            previousEstimatedInputTokens: 170_000,
+            estimatedInputTokens: 100_000,
+            maxInputTokens: 200_000,
+            thresholdTokens: 160_000,
+            compactedMessages: 10,
+            summaryCalls: 1,
+            summaryInputTokens: 500,
+            summaryOutputTokens: 200,
+            summaryModel: "mock-model",
+          };
+        },
+      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+    });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+    // 1 initial auto-compact + 5 productive mid-loop compactions ran
+    // before the agent loop stopped yielding on its 6th call. Pre-
+    // relocate this would have capped at 1 initial + 3 mid-loop = 4
+    // and escalated to convergence after the 3rd mid-loop attempt.
+    // Now the orchestrator has no count cap of its own — it only sees
+    // the `exhausted` signal (never set by this mock).
+    expect(compactionCallCount).toBe(6);
+    expect(agentLoopCallCount).toBe(6);
+
+    // No escalation to the convergence loop because every mid-loop
+    // `maybeCompact` returned productive (no `exhausted` flag).
+    expect(setAgentLoopExitReasonOnLatestLogMock).not.toHaveBeenCalledWith(
       "test-conv",
       "context_too_large",
     );
@@ -2058,6 +2226,11 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       agentLoopRun,
       contextWindowManager: {
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        // Under the new architecture (Compaction Re-homing Arc, Bullet 1)
+        // the retry budget lives inside `ContextWindowManager._maybeCompact`,
+        // so a single daemon-level call represents the full manager retry
+        // sequence. Signal `exhausted: true` immediately to escalate the
+        // mid-loop to the convergence reducer.
         maybeCompact: async () => ({
           compacted: true,
           messages: [
@@ -2077,6 +2250,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           summaryInputTokens: 500,
           summaryOutputTokens: 200,
           summaryModel: "mock-model",
+          exhausted: true,
         }),
       } as unknown as AgentLoopConversationContext["contextWindowManager"],
     });
@@ -2087,8 +2261,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     // once more after yieldedForBudget triggered re-entry
     expect(reducerCallCount).toBe(2);
 
-    // Agent loop: 1 initial + 3 mid-loop re-entries + 2 convergence re-runs = 6 calls
-    expect(agentLoopCallCount).toBe(6);
+    // Agent loop: 1 initial + 2 convergence re-runs = 3 calls. The mid-loop
+    // no longer drives daemon-level retries — the manager owns its retry
+    // budget and signals exhaustion via the `exhausted` flag.
+    expect(agentLoopCallCount).toBe(3);
     expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
       "test-conv",
       "context_too_large",
@@ -2360,32 +2536,82 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       return withProgress;
     };
 
+    // `maybeCompact` is invoked through three distinct call sites:
+    //   1. Start-of-turn compaction (no `force` option) — return a no-op
+    //      so the start-of-turn pass doesn't perturb state. The mock's
+    //      `shouldCompact` already returns `needed: false`, but the
+    //      orchestrator still invokes the compaction pipeline.
+    //   2. Mid-loop after the initial agent-loop yield (`force: true`) —
+    //      must signal `exhausted: true` so the daemon escalates to the
+    //      convergence reducer instead of looping forever.
+    //   3. auto_compress_latest_turn emergency compaction (`force: true`,
+    //      `minKeepRecentUserTurns: 0`) — succeeds and drops tokens below
+    //      threshold; the subsequent rerun yields again and is classified
+    //      as BUDGET_YIELD_UNRECOVERED.
+    let forcedMaybeCompactCallCount = 0;
     const ctx = makeCtx({
       agentLoopRun,
       contextWindowManager: {
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        // The compaction pipeline (default terminal) routes through this
-        // for the emergency `auto_compress_latest_turn` path.
-        maybeCompact: async () => ({
-          compacted: true,
-          messages: [
-            {
-              role: "user" as const,
-              content: [{ type: "text", text: "compacted" }],
-            },
-          ] as Message[],
-          compactedPersistedMessages: 5,
-          summaryText: "Emergency summary",
-          previousEstimatedInputTokens: 170_000,
-          estimatedInputTokens: 90_000,
-          maxInputTokens: 200_000,
-          thresholdTokens: 160_000,
-          compactedMessages: 10,
-          summaryCalls: 1,
-          summaryInputTokens: 500,
-          summaryOutputTokens: 200,
-          summaryModel: "mock-model",
-        }),
+        maybeCompact: async (
+          _msgs: Message[],
+          _signal: AbortSignal,
+          opts?: { force?: boolean },
+        ) => {
+          // Start-of-turn calls pass no `force` option; route them to a
+          // no-op so only the mid-loop and emergency paths drive the test.
+          if (!opts?.force) {
+            return { compacted: false };
+          }
+          forcedMaybeCompactCallCount++;
+          if (forcedMaybeCompactCallCount === 1) {
+            // Mid-loop call — under the new architecture (Compaction
+            // Re-homing Arc, Bullet 1) the manager owns its own retry
+            // budget; signal exhaustion to escalate to convergence.
+            return {
+              compacted: true,
+              messages: [
+                {
+                  role: "user" as const,
+                  content: [{ type: "text", text: "mid-loop compacted" }],
+                },
+              ] as Message[],
+              compactedPersistedMessages: 5,
+              summaryText: "Mid-loop summary",
+              previousEstimatedInputTokens: 170_000,
+              estimatedInputTokens: 165_000,
+              maxInputTokens: 200_000,
+              thresholdTokens: 160_000,
+              compactedMessages: 10,
+              summaryCalls: 1,
+              summaryInputTokens: 500,
+              summaryOutputTokens: 200,
+              summaryModel: "mock-model",
+              exhausted: true,
+            };
+          }
+          // Emergency compaction call from auto_compress_latest_turn.
+          return {
+            compacted: true,
+            messages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text", text: "compacted" }],
+              },
+            ] as Message[],
+            compactedPersistedMessages: 5,
+            summaryText: "Emergency summary",
+            previousEstimatedInputTokens: 170_000,
+            estimatedInputTokens: 90_000,
+            maxInputTokens: 200_000,
+            thresholdTokens: 160_000,
+            compactedMessages: 10,
+            summaryCalls: 1,
+            summaryInputTokens: 500,
+            summaryOutputTokens: 200,
+            summaryModel: "mock-model",
+          };
+        },
       } as unknown as AgentLoopConversationContext["contextWindowManager"],
     });
 

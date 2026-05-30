@@ -255,6 +255,15 @@ function markHistoryStrippedBestEffort(
 const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
 const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
 
+/**
+ * Mid-loop yield threshold expressed as a fraction of the preflight
+ * budget. When the running token estimate crosses this fraction at an
+ * agent-loop checkpoint, the loop yields so the orchestrator can run a
+ * compaction pass *before* the next provider call would risk a hard
+ * rejection.
+ */
+const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
+
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
   bash: "Run Command",
@@ -2270,7 +2279,8 @@ export async function runAgentLoopImpl(
       // conversation-agent-loop run compaction before the provider rejects.
       if (overflowRecovery.enabled) {
         const midLoopThreshold =
-          resolveCurrentContextBudget().preflightBudget * 0.85;
+          resolveCurrentContextBudget().preflightBudget *
+          MID_LOOP_YIELD_THRESHOLD_RATIO;
         const estimated = await runTokenEstimatePipeline(checkpoint.history);
         if (estimated > midLoopThreshold) {
           rlog.warn(
@@ -2334,15 +2344,21 @@ export async function runAgentLoopImpl(
     // accumulated history and re-enter the agent loop. This is distinct
     // from the reactive convergence loop below that fires after a
     // provider rejection — here we compact *before* hitting the limit.
-    let midLoopCompactAttempts = 0;
+    //
+    // The retry budget lives INSIDE `ContextWindowManager.maybeCompact`
+    // now: a single call to it may run the compactor up to
+    // `overflowRecovery.maxAttempts` times internally before giving up
+    // and reporting `exhausted: true`. The orchestrator's outer loop
+    // here has no count cap — it iterates as long as the agent loop
+    // makes forward progress (each productive turn re-yields against
+    // fresh tool-result bloat, which is a separate scenario from "the
+    // compactor itself is stuck"). When `exhausted` flips true we
+    // escalate to the convergence loop's more aggressive reducer tiers.
     while (
       yieldedForBudget &&
-      midLoopCompactAttempts <
-        resolveCurrentContextBudget().overflowRecovery.maxAttempts &&
       !state.contextTooLargeDetected &&
       !abortController.signal.aborted
     ) {
-      midLoopCompactAttempts++;
       yieldedForBudget = false;
       pendingCheckpointYield = null;
 
@@ -2424,6 +2440,20 @@ export async function runAgentLoopImpl(
         shouldInjectWorkspace = true;
       }
 
+      // When the compactor exhausts its internal retry budget without
+      // dropping below the auto-threshold, there's no point re-entering
+      // the agent loop — it will yield again and we'll just loop on
+      // a stuck compactor. Escalate to the convergence loop's more
+      // aggressive reducer tiers instead.
+      if (midLoopCompact.exhausted) {
+        rlog.warn(
+          { phase: "mid-loop-compact" },
+          "Compaction reported exhausted — escalating to convergence loop",
+        );
+        state.contextTooLargeDetected = true;
+        break;
+      }
+
       // Re-inject runtime context and re-enter the agent loop.
       // stripInjectionsForCompaction() unconditionally removed the existing
       // NOW.md block from ctx.messages above, so we must always re-inject
@@ -2463,20 +2493,16 @@ export async function runAgentLoopImpl(
       updatedHistory = await runAgentLoop(runMessages);
     }
 
-    // If mid-loop compaction exhausted all attempts but the agent loop
-    // still yielded (yieldedForBudget is true), the turn is incomplete.
-    // Escalate to the convergence loop's more aggressive reducer tiers
-    // (tool-result truncation, media stubbing, injection downgrade)
-    // instead of silently treating an incomplete turn as done.
+    // Defensive: the mid-loop above breaks on `exhausted` and on the
+    // PluginTimeoutError catch — both of which flip
+    // `state.contextTooLargeDetected`. If we somehow exit with
+    // `yieldedForBudget` still set (e.g. compaction was disabled
+    // outside the normal path), force escalation so a half-finished
+    // turn doesn't reach the user.
     if (yieldedForBudget && !abortController.signal.aborted) {
       rlog.warn(
-        {
-          phase: "mid-loop-compact",
-          midLoopCompactAttempts,
-          maxAttempts:
-            resolveCurrentContextBudget().overflowRecovery.maxAttempts,
-        },
-        "Mid-loop compaction exhausted all attempts — escalating to convergence loop",
+        { phase: "mid-loop-compact" },
+        "Mid-loop exited with yieldedForBudget still set — escalating to convergence loop",
       );
       state.contextTooLargeDetected = true;
     }
