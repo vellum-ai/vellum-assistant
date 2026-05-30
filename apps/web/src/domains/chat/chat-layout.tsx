@@ -11,6 +11,7 @@ import { Outlet, useLocation, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { haptic } from "@/utils/haptics";
+import { getLocalBool, setLocalBool, getLocalNumber, setLocalNumber } from "@/utils/local-settings";
 import { routes } from "@/utils/routes";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { useRootOutletContext } from "@/root-layout";
@@ -66,29 +67,16 @@ const FOCUSABLE_SELECTOR = [
 ].join(",");
 
 export function readPersistedCollapsed(): boolean {
-  try {
-    return (
-      window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === "true"
-    );
-  } catch {
-    return false;
-  }
+  return getLocalBool(SIDEBAR_COLLAPSED_STORAGE_KEY, false);
 }
 
 const MIN_SIDEBAR_WIDTH = 220;
 const MAX_SIDEBAR_WIDTH = 400;
 
 export function readPersistedWidth(): number {
-  try {
-    const stored = window.localStorage.getItem(SIDEBAR_WIDTH_STORAGE_KEY);
-    if (stored != null) {
-      const parsed = Number(stored);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, parsed));
-      }
-    }
-  } catch {
-    // Storage unavailable
+  const raw = getLocalNumber(SIDEBAR_WIDTH_STORAGE_KEY, DEFAULT_SIDEBAR_WIDTH);
+  if (raw > 0) {
+    return Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, raw));
   }
   return DEFAULT_SIDEBAR_WIDTH;
 }
@@ -314,23 +302,12 @@ export function ChatLayout() {
   const [sidebarWidth, setSidebarWidth] = useState<number>(readPersistedWidth);
 
   useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        SIDEBAR_COLLAPSED_STORAGE_KEY,
-        String(collapsed),
-      );
-    } catch {
-      // Storage unavailable (private mode, quota, etc.)
-    }
+    setLocalBool(SIDEBAR_COLLAPSED_STORAGE_KEY, collapsed);
   }, [collapsed]);
 
   const handleSidebarWidthChange = useCallback((width: number) => {
     setSidebarWidth(width);
-    try {
-      window.localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(Math.round(width)));
-    } catch {
-      // Storage unavailable
-    }
+    setLocalNumber(SIDEBAR_WIDTH_STORAGE_KEY, Math.round(width));
   }, []);
 
   const isMobile = useIsMobile();

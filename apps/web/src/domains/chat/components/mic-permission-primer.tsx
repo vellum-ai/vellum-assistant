@@ -3,6 +3,7 @@ import { Mic } from "lucide-react";
 
 import { Button } from "@vellum/design-library";
 import { Modal } from "@vellum/design-library";
+import { getLocalBool, setLocalBool } from "@/utils/local-settings";
 import { isBatchSttSupported } from "@/domains/chat/components/voice-input-button";
 
 const MIC_PRIMER_STORAGE_KEY = "vellum:voice:permissionPrimerSeen";
@@ -13,17 +14,10 @@ const MIC_PRIMER_STORAGE_KEY = "vellum:voice:permissionPrimerSeen";
  * dismissed the primer dialog.
  */
 export function shouldShowMicPrimer(): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
   if (!isBatchSttSupported()) {
     return false;
   }
-  try {
-    return localStorage.getItem(MIC_PRIMER_STORAGE_KEY) !== "true";
-  } catch {
-    return false;
-  }
+  return !getLocalBool(MIC_PRIMER_STORAGE_KEY, false);
 }
 
 export interface MicPermissionPrimerProps {
@@ -52,11 +46,7 @@ export function MicPermissionPrimer({
   onCancel,
 }: MicPermissionPrimerProps) {
   const handleContinue = () => {
-    try {
-      localStorage.setItem(MIC_PRIMER_STORAGE_KEY, "true");
-    } catch {
-      // localStorage may be unavailable (e.g. private browsing quota exceeded).
-    }
+    setLocalBool(MIC_PRIMER_STORAGE_KEY, true);
     onContinue();
   };
 

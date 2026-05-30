@@ -17,6 +17,34 @@
  */
 
 /**
+ * Migrate a key's stored value from one format to another without
+ * renaming the key. Idempotent — only writes when the current value
+ * matches `oldValue` exactly.
+ */
+export function migrateValue(key: string, oldValue: string, newValue: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (localStorage.getItem(key) === oldValue) {
+      localStorage.setItem(key, newValue);
+    }
+  } catch {
+    // Storage unavailable — retry on next load.
+  }
+}
+
+/**
+ * Remove a legacy key that has no successor. Idempotent.
+ */
+export function removeKey(key: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Storage unavailable — retry on next load.
+  }
+}
+
+/**
  * Migrate a single static key. Idempotent: writes the new key only
  * when it doesn't already exist, removes the old key only after the
  * new key is confirmed persisted (guards against QuotaExceededError
@@ -142,4 +170,19 @@ export function runStorageMigrations(): void {
 
   // vellum_ per-org → vellum:
   migratePrefix("vellum_current_assistant_id__", "vellum:currentAssistantId:");
+
+  // -- Value format migrations ---------------------------------------------
+  // Skills tip was stored as "1"; getLocalBool expects "true".
+  migrateValue("vellum:skills:tipDismissed", "1", "true");
+
+  // -- Dead key removals --------------------------------------------------
+  // Legacy nudge keys superseded by the `vellum:nudge-prefs` Zustand
+  // persist store. Also remove the one-time cleanup flag itself.
+  removeKey("app.githubNudge.starred");
+  removeKey("app.githubNudge.bannerDismissed");
+  removeKey("app.githubNudge.bannerDismissedAt");
+  removeKey("app.discordNudge.joined");
+  removeKey("app.discordNudge.bannerDismissed");
+  removeKey("app.discordNudge.firstSeenAt");
+  removeKey("app.nudgeLegacy.cleaned");
 }
