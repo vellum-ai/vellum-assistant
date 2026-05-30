@@ -65,6 +65,32 @@ describe("conversation-stream-state", () => {
       expect(peek?.oldestSeq).toBe(1);
       expect(peek?.newestSeq).toBe(2);
     });
+
+    test("replayable: false stamps seq but skips ring push", () => {
+      const targeted = mkEvent();
+      stampAndBuffer(targeted, { replayable: false });
+      expect(targeted.seq).toBe(1); // still stamped for wire-side ordering
+      const peek = _peekStreamForTesting(CONV);
+      // State exists (we created it to assign seq) but ring is empty.
+      expect(peek?.nextSeq).toBe(2);
+      expect(peek?.ringLength).toBe(0);
+    });
+
+    test("seq stays monotonic across mixed replayable/non-replayable events", () => {
+      const a = mkEvent();
+      const b = mkEvent();
+      const c = mkEvent();
+      const d = mkEvent();
+      stampAndBuffer(a); // replayable
+      stampAndBuffer(b, { replayable: false }); // targeted -- skipped
+      stampAndBuffer(c); // replayable
+      stampAndBuffer(d, { replayable: false }); // targeted -- skipped
+      expect([a.seq, b.seq, c.seq, d.seq]).toEqual([1, 2, 3, 4]);
+      const peek = _peekStreamForTesting(CONV);
+      expect(peek?.ringLength).toBe(2); // only a + c in buffer
+      expect(peek?.oldestSeq).toBe(1);
+      expect(peek?.newestSeq).toBe(3);
+    });
   });
 
   describe("ring buffer eviction", () => {
@@ -161,6 +187,62 @@ describe("conversation-stream-state", () => {
       const replay = getReplayWindow(CONV, 0);
       expect(replay).not.toBeNull();
       expect(replay!.map((e) => e.seq)).toEqual([1, 2, 3]);
+    });
+
+    test("evicts age-expired entries at read time on idle stream", () => {
+      const originalNow = Date.now;
+      let fakeNow = 5_000_000;
+      Date.now = () => fakeNow;
+      try {
+        stampAndBuffer(mkEvent()); // seq 1, emitted at 5_000_000
+        stampAndBuffer(mkEvent()); // seq 2, emitted at 5_000_000
+
+        // No further stampAndBuffer calls. Stream goes idle. Advance
+        // clock past the 30s age cap.
+        fakeNow = 5_000_000 + 60_000;
+
+        // Eviction has not run since the last write -- the buffer still
+        // physically holds [1, 2]. getReplayWindow must sweep first.
+        const replay = getReplayWindow(CONV, 0);
+
+        // Both events were past their TTL, so eviction drains the ring
+        // and the call returns [] (no replay possible, no snapshot
+        // needed either -- client claims they saw nothing and there is
+        // nothing left).
+        expect(replay).toEqual([]);
+        // State entry is dropped after the drain.
+        expect(_peekStreamForTesting(CONV)).toBeNull();
+      } finally {
+        Date.now = originalNow;
+      }
+    });
+
+    test("read-time eviction preserves the snapshot fallback signal", () => {
+      const originalNow = Date.now;
+      let fakeNow = 6_000_000;
+      Date.now = () => fakeNow;
+      try {
+        stampAndBuffer(mkEvent()); // seq 1
+        stampAndBuffer(mkEvent()); // seq 2
+
+        // 40s pass. Both entries are over the age cap.
+        fakeNow = 6_000_000 + 40_000;
+
+        // Now a fresh event lands -- ring contains only seq 3.
+        stampAndBuffer(mkEvent()); // seq 3
+        // After this write, evict() already ran and dropped the stale
+        // entries from the write path. Verify that.
+        const peek = _peekStreamForTesting(CONV);
+        expect(peek?.ringLength).toBe(1);
+        expect(peek?.oldestSeq).toBe(3);
+
+        // Client reconnects claiming lastSeenSeq=1. Oldest buffered is
+        // 3, so 1 < 3 - 1 = 2 -> snapshot fallback (null).
+        const replay = getReplayWindow(CONV, 1);
+        expect(replay).toBeNull();
+      } finally {
+        Date.now = originalNow;
+      }
     });
   });
 

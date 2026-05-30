@@ -112,26 +112,19 @@ describe("formatSseFrame", () => {
     expect(frame.endsWith("\n\n")).toBe(true);
   });
 
-  test("uses event.seq as the SSE id when set (B7 Last-Event-ID)", () => {
+  test("seq lands in the JSON payload (envelope) when set, never in SSE id", () => {
     const event: AssistantEvent = {
       ...baseEvent,
-      id: "uuid-fallback",
+      id: "uuid-event-id",
       seq: 42,
     };
     const frame = formatSseFrame(event);
+    // SSE wire id is always the UUID -- replay cursor is decoupled from
+    // the SSE protocol and lives on the envelope only.
     const idLine = frame.split("\n").find((l) => l.startsWith("id: "))!;
-    expect(idLine).toBe("id: 42");
-    // UUID stays in the JSON payload for per-event uniqueness.
-    expect(frame).toContain('"id":"uuid-fallback"');
+    expect(idLine).toBe("id: uuid-event-id");
+    // seq is on the envelope; consumers read it from the JSON payload.
     expect(frame).toContain('"seq":42');
-  });
-
-  test("falls back to event.id when seq is absent (unscoped broadcasts)", () => {
-    const event: AssistantEvent = { ...baseEvent, id: "uuid-only" };
-    expect(event.seq).toBeUndefined();
-    const frame = formatSseFrame(event);
-    const idLine = frame.split("\n").find((l) => l.startsWith("id: "))!;
-    expect(idLine).toBe("id: uuid-only");
   });
 });
 

@@ -33,8 +33,8 @@ export interface AssistantEvent<TMessage = unknown> {
   /**
    * Monotonic per-conversation sequence number. Assigned by the daemon at
    * publish time for conversation-scoped events; absent for unscoped
-   * broadcasts. Used as the SSE `id:` field so reconnecting clients can
-   * send `Last-Event-ID: <seq>` to request replay of missed events.
+   * broadcasts. Clients track the highest observed `seq` per conversation
+   * and pass it back on reconnect to request replay of missed events.
    */
   seq?: number;
   /** ISO-8601 timestamp of when the event was emitted. */
@@ -73,19 +73,17 @@ export function buildAssistantEvent<TMessage>(
  *
  * ```
  * event: assistant_event\n
- * id: <seq | event.id>\n
+ * id: <event.id>\n
  * data: <JSON>\n
  * \n
  * ```
  *
- * When `event.seq` is set (conversation-scoped events) it is used as the SSE
- * `id:` field so native EventSource clients send `Last-Event-ID: <seq>` on
- * reconnect, allowing per-conversation replay. Unscoped events fall back to
- * the UUID `event.id` and are not replayable by design.
+ * The SSE `id:` line is the per-event UUID and is intentionally decoupled
+ * from any replay cursor. Replay-aware consumers read `seq` from the JSON
+ * payload of the envelope itself.
  */
 export function formatSseFrame(event: AssistantEvent): string {
-  const rawId = event.seq != null ? String(event.seq) : event.id;
-  const sanitizedId = rawId.replace(/[\n\r]/g, "");
+  const sanitizedId = event.id.replace(/[\n\r]/g, "");
   const data = JSON.stringify(event);
   return `event: assistant_event\nid: ${sanitizedId}\ndata: ${data}\n\n`;
 }

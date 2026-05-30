@@ -57,19 +57,33 @@ function getOrCreate(conversationId: string): ConversationStreamState {
 // ── Public API ───────────────────────────────────────────────────────
 
 /**
- * Assign a monotonic `seq` to a conversation-scoped event and push it
- * onto the ring buffer. No-op when `event.conversationId` is absent
- * (unscoped broadcasts are not replayable).
+ * Assign a monotonic `seq` to a conversation-scoped event and (when
+ * replayable) push it onto the ring buffer. No-op when
+ * `event.conversationId` is absent (unscoped broadcasts are never
+ * replayable).
  *
- * Mutates `event.seq` in place so downstream `formatSseFrame` picks
- * it up as the SSE wire `id:`.
+ * `options.replayable` should be `false` whenever the event was
+ * published with any targeting / exclusion modifier
+ * (`targetCapability`, `targetClientId`, `targetInterfaceId`,
+ * `excludeClientId`). Such events have a narrower delivery set than the
+ * conversation subscriber list, so storing them by `conversationId`
+ * alone would leak them to the wrong subscribers on replay. The seq is
+ * still stamped so the wire-side ordering stays contiguous; only the
+ * ring push is skipped. Defaults to `true`.
+ *
+ * Mutates `event.seq` in place.
  */
-export function stampAndBuffer(event: AssistantEvent): void {
+export function stampAndBuffer(
+  event: AssistantEvent,
+  options?: { replayable?: boolean },
+): void {
   const cid = event.conversationId;
   if (cid == null) return;
 
   const state = getOrCreate(cid);
   event.seq = state.nextSeq++;
+
+  if (options?.replayable === false) return;
 
   // Approximate size by serialized JSON length. This is the same
   // bytes-on-wire we'll send, so it tracks ring memory pressure
@@ -86,14 +100,27 @@ export function stampAndBuffer(event: AssistantEvent): void {
  * Returns `null` when the requested cursor is older than the oldest
  * buffered entry -- callers should fall back to a snapshot resync.
  *
- * Used by B7 Unit 2's reconnect handler.
+ * Sweeps age-expired entries at read time so an idle conversation
+ * cannot serve stale deltas past the 30-second window (eviction
+ * only runs on `stampAndBuffer`, so without this an idle stream
+ * would retain its tail until the next write). When the sweep
+ * drains the ring entirely, the conversation's state entry is
+ * dropped to keep the global map from growing unboundedly with
+ * inactive conversations.
  */
 export function getReplayWindow(
   conversationId: string,
   lastSeenSeq: number,
 ): readonly AssistantEvent[] | null {
   const state = streams.get(conversationId);
-  if (!state || state.ring.length === 0) return [];
+  if (!state) return [];
+
+  evict(state);
+
+  if (state.ring.length === 0) {
+    streams.delete(conversationId);
+    return [];
+  }
 
   const oldest = state.ring[0]?.seq ?? Infinity;
   if (lastSeenSeq < oldest - 1) return null;

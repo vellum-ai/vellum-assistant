@@ -579,10 +579,6 @@ export function broadcastMessage(
       ? undefined
       : resolvedConversationId;
   const event = buildAssistantEvent(msg, scopedConversationId);
-  // Stamp per-conversation seq and push onto the ring buffer for
-  // Last-Event-ID replay (B7). Mutates `event.seq` in place. No-op for
-  // unscoped broadcasts (no conversationId).
-  stampAndBuffer(event);
   const targetCapability = capabilityForMessageType(msg.type);
   // Self-echo suppression: a `sync_changed` carrying an `originClientId`
   // means a specific client just mutated the resource. The hub must not
@@ -609,6 +605,11 @@ export function broadcastMessage(
           excludeClientId,
         }
       : undefined;
+  // Stamp per-conversation seq and (when replayable) push onto the ring
+  // buffer. Mutates `event.seq` in place. Targeted/exclusion publishes
+  // are stamped but not buffered -- replay by `conversationId` alone
+  // would leak them to subscribers outside their intended delivery set.
+  stampAndBuffer(event, { replayable: publishOptions == null });
   _hubChain = _hubChain
     .then(() => assistantEventHub.publish(event, publishOptions))
     .then(() => {
