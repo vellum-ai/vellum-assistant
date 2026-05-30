@@ -1,29 +1,16 @@
 import { Terminal } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Dropdown } from "@vellum/design-library/components/dropdown";
 import { TerminalPanel } from "@/components/terminal-panel";
 import type { MaintenanceMode } from "@/generated/api/types.gen";
 import { getAssistant } from "@/assistant/api";
 import { reportError } from "@/utils/error-report";
-
-type TerminalService = "assistant" | "gateway" | "credential-executor";
-
-const TERMINAL_SERVICE_OPTIONS: ReadonlyArray<{
-  value: TerminalService;
-  label: string;
-}> = [
-  { value: "assistant", label: "assistant" },
-  { value: "gateway", label: "gateway" },
-  { value: "credential-executor", label: "credential-executor" },
-];
 
 export function AssistantTerminalPanel() {
   const [assistantId, setAssistantId] = useState<string | null>(null);
   const [maintenanceMode, setMaintenanceMode] =
     useState<MaintenanceMode | null>(null);
   const [loading, setLoading] = useState(true);
-  const [service, setService] = useState<TerminalService>("assistant");
   const fetchedRef = useRef(false);
 
   const fetchAssistant = useCallback(async (force?: boolean) => {
@@ -56,28 +43,18 @@ export function AssistantTerminalPanel() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex shrink-0 items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-base)]">
-            <Terminal className="h-5 w-5 text-[var(--content-secondary)]" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="text-title-small text-[var(--content-default)]">
-              Terminal
-            </h2>
-            <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
-              Interactive shell session on your assistant machine
-            </p>
-          </div>
+      <div className="flex shrink-0 items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--surface-base)]">
+          <Terminal className="h-5 w-5 text-[var(--content-secondary)]" />
         </div>
-        {assistantId && (
-          <Dropdown
-            options={TERMINAL_SERVICE_OPTIONS}
-            value={service}
-            onChange={setService}
-            aria-label="Target container"
-          />
-        )}
+        <div className="min-w-0">
+          <h2 className="text-title-small text-[var(--content-default)]">
+            Terminal
+          </h2>
+          <p className="text-body-medium-lighter text-[var(--content-tertiary)]">
+            Interactive shell session on your assistant machine
+          </p>
+        </div>
       </div>
 
       {loading ? (
@@ -96,10 +73,8 @@ export function AssistantTerminalPanel() {
         </div>
       ) : (
         <TerminalPanel
-          key={service}
           assistantId={assistantId}
           maintenanceMode={maintenanceMode ?? undefined}
-          service={service}
           className="min-h-0 flex-1"
         />
       )}
