@@ -261,6 +261,79 @@ export function finalizeMessageComplete(
 }
 
 // ---------------------------------------------------------------------------
+// user_message_echo
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply a `user_message_echo` to the message array.
+ *
+ * The daemon emits this whenever a user message is persisted — direct
+ * sends, slash/canned/compaction turns, and synthetic surface-action
+ * prompts. The originating client already shows an optimistic row (and
+ * swaps it to the server id on POST resolve); passive clients and
+ * synthetic prompts have no such row and need the user turn rendered
+ * before the assistant reply streams in.
+ *
+ * Three cases, in order:
+ *  1. A row already carries `messageId` (as `id` or a merged alias) — the
+ *     originating client whose POST already resolved, or a prior echo /
+ *     reconcile pulled the row in. No-op.
+ *  2. An optimistic user row matches by content — the originating client
+ *     whose POST hasn't resolved yet (the echo beat the 202). Swap its id
+ *     to the server `messageId` and clear `isOptimistic`, mirroring the
+ *     POST-resolve path so a later reconcile content-match can't double it.
+ *     With no `messageId` (synthetic echo) there is nothing to upgrade to,
+ *     so the optimistic row is left as-is.
+ *  3. Otherwise append a new user row — passive client or synthetic
+ *     prompt. Keyed by `messageId` when present so reconcile/refetch merges
+ *     by id; otherwise optimistic so reconcile content-matches it.
+ */
+export function applyUserMessageEcho(
+  prev: DisplayMessage[],
+  event: { text: string; messageId?: string },
+): DisplayMessage[] {
+  const serverId = event.messageId;
+
+  if (serverId !== undefined) {
+    const alreadyPresent = prev.some(
+      (m) =>
+        m.role === "user" &&
+        (m.id === serverId || m.mergedMessageIds?.includes(serverId)),
+    );
+    if (alreadyPresent) {
+      return prev;
+    }
+  }
+
+  const optimisticIdx = prev.findIndex(
+    (m) => m.role === "user" && m.isOptimistic && m.content === event.text,
+  );
+  if (optimisticIdx !== -1) {
+    if (serverId === undefined) {
+      return prev;
+    }
+    const next = [...prev];
+    next[optimisticIdx] = {
+      ...next[optimisticIdx]!,
+      id: serverId,
+      isOptimistic: false,
+    };
+    return next;
+  }
+
+  return [
+    ...prev,
+    {
+      id: serverId ?? crypto.randomUUID(),
+      ...(serverId === undefined ? { isOptimistic: true } : {}),
+      role: "user",
+      content: event.text,
+      timestamp: Date.now(),
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // generation_handoff / stream stop
 // ---------------------------------------------------------------------------
 

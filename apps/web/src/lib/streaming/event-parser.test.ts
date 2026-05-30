@@ -1535,6 +1535,69 @@ describe("parseAssistantEvent", () => {
     });
   });
 
+  describe("user_message_echo", () => {
+    test("parses with all fields", () => {
+      // GIVEN a user_message_echo carrying the full optional set
+      // WHEN parsed
+      const event = parseAssistantEvent({
+        type: "user_message_echo",
+        text: "hello",
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        requestId: "req-1",
+        clientMessageId: "client-1",
+      });
+      // THEN every field round-trips through the canonical schema
+      expect(event).toEqual({
+        type: "user_message_echo",
+        text: "hello",
+        conversationId: "conv-1",
+        messageId: "msg-1",
+        requestId: "req-1",
+        clientMessageId: "client-1",
+      });
+    });
+
+    test("parses with only the required text — synthetic echo shape", () => {
+      // GIVEN a synthetic echo (surface-action prompt) with no ids
+      // WHEN parsed
+      const event = parseAssistantEvent({
+        type: "user_message_echo",
+        text: "do the thing",
+      });
+      // THEN text is preserved and the optional ids are absent
+      expect(event.type).toBe("user_message_echo");
+      if (event.type === "user_message_echo") {
+        expect(event.text).toBe("do the thing");
+        expect(event.messageId).toBeUndefined();
+        expect(event.conversationId).toBeUndefined();
+      }
+    });
+
+    test("drops to unknown when text is missing — text is the payload", () => {
+      // GIVEN an echo missing its required `text`
+      // WHEN parsed
+      const event = parseAssistantEvent({
+        type: "user_message_echo",
+        conversationId: "conv-1",
+      });
+      // THEN it falls back to unknown rather than rendering an empty turn
+      expect(event.type).toBe("unknown");
+    });
+
+    test("drops to unknown when an unexpected field is present", () => {
+      // GIVEN an echo with an extra field the strict schema rejects
+      // WHEN parsed
+      const event = parseAssistantEvent({
+        type: "user_message_echo",
+        text: "hi",
+        unexpected: true,
+      });
+      // THEN the strict canonical schema declines and it drops to unknown
+      expect(event.type).toBe("unknown");
+    });
+  });
+
   // ---------------------------------------------------------------------
   // ui_surface_show (schema-validated)
   // ---------------------------------------------------------------------

@@ -23,6 +23,9 @@ mock.module(
     handleMessageComplete: (event: { conversationId?: string }) => {
       handlerCalls.push({ kind: "message_complete", conversationId: event.conversationId });
     },
+    handleUserMessageEcho: (event: { conversationId?: string }) => {
+      handlerCalls.push({ kind: "user_message_echo", conversationId: event.conversationId });
+    },
     handleGenerationHandoff: () => {
       handlerCalls.push({ kind: "generation_handoff" });
     },

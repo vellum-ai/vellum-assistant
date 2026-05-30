@@ -26,6 +26,7 @@ import {
   handleAssistantTurnStart,
   handleAssistantActivityState,
   handleMessageComplete,
+  handleUserMessageEcho,
   handleGenerationHandoff,
   handleGenerationCancelled,
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
@@ -307,6 +308,9 @@ export function useStreamEventHandler(
           break;
         case "message_complete":
           handleMessageComplete(event, ctx);
+          break;
+        case "user_message_echo":
+          handleUserMessageEcho(event, ctx);
           break;
         case "generation_handoff":
           handleGenerationHandoff(event, ctx);
