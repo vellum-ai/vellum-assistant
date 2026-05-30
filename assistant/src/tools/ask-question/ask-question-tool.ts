@@ -147,7 +147,7 @@ const OPTION_ITEMS_SCHEMA = {
 export function createAskQuestionTool(
   prompterFactory: () => Pick<QuestionPrompter, "prompt"> = () =>
     new QuestionPrompter({ broadcastMessage }),
-): ToolDefinition {
+) {
   return {
     name: "ask_question",
     description: DESCRIPTION,
@@ -296,7 +296,7 @@ export function createAskQuestionTool(
           };
       }
     },
-  };
+  } satisfies ToolDefinition;
 }
 
-export const askQuestionTool: ToolDefinition = createAskQuestionTool();
+export const askQuestionTool = createAskQuestionTool();

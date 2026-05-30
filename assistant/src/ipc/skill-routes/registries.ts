@@ -158,6 +158,16 @@ async function handleRegisterTools(
   const { skillId, tools } = RegisterToolsParams.parse(params);
   const conn = connection as SkillIpcConnection | undefined;
 
+  // Finalize before branching so both the supervisor short-circuit and
+  // the in-memory registration path see a `Tool[]` with guaranteed
+  // `name`. Skills run `finalizeTool` locally before sending, so the
+  // `?? ""` is a defensive empty-string default — `registerSkillTools`
+  // will reject an empty name on the non-supervisor path with a clear
+  // error. The execute closure arrives as a no-op error closure from
+  // `finalizeTool`; the production (supervisor) path replaces it with
+  // the dispatching closure installed by the manifest loader at boot.
+  const proxies = tools.map((tool) => finalizeTool(tool, tool.name ?? ""));
+
   // Supervisor short-circuit: when a supervisor is registered, the
   // manifest loader has already installed proxy tools at daemon boot.
   // Re-installing here would double-register and clobber the manifest's
@@ -168,22 +178,15 @@ async function handleRegisterTools(
     if (conn) sessionSupervisor.setActiveConnection(conn);
     log.info(
       {
-        count: tools.length,
-        names: tools.map((t) => t.name),
+        count: proxies.length,
+        names: proxies.map((t) => t.name),
         ownerSkillId: skillId,
       },
       "Supervisor active: skipping in-memory tool re-registration; manifest proxies serve dispatches",
     );
-    return { registered: tools.map((t) => t.name) };
+    return { registered: proxies.map((t) => t.name) };
   }
 
-  // Skills run `finalizeTool` locally before sending, so name is set —
-  // `?? ""` is a defensive default that will fail in registerSkillTools
-  // with a clear error if a skill ever forgets. The execute closure
-  // arrives as a no-op error closure from `finalizeTool`; the production
-  // path replaces it via the supervisor short-circuit above, so this
-  // fallback is only reached in tests / boot race.
-  const proxies = tools.map((tool) => finalizeTool(tool, tool.name ?? ""));
   // `registerExternalTools` is only consumed inside `initializeTools()` at
   // daemon boot; IPC children connect after boot, so route through
   // `registerSkillTools` into the live registry the agent-loop reads from.

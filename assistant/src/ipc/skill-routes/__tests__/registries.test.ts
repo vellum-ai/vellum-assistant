@@ -21,6 +21,7 @@ import {
   getTool,
   getToolOwner,
 } from "../../../tools/registry.js";
+import { RiskLevel } from "../../../tools/types.js";
 import {
   __getActiveSessionCountForTesting,
   __resetActiveSessionsForTesting,
@@ -133,7 +134,7 @@ describe("host.registries.register_tools", () => {
     expect(result.registered).toEqual(["partial_tool"]);
     const installed = getTool("partial_tool");
     expect(installed).toBeDefined();
-    expect(installed!.defaultRiskLevel).toBe("medium");
+    expect(installed!.defaultRiskLevel).toBe(RiskLevel.Medium);
     expect(installed!.executionTarget).toBe("sandbox");
   });
 

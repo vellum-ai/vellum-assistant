@@ -124,7 +124,7 @@ function formatToolSchemas(
   return lines.join("\n").trimEnd();
 }
 
-export const skillLoadTool: ToolDefinition = {
+export const skillLoadTool = {
   name: "skill_load",
 
   description:
@@ -525,5 +525,5 @@ export const skillLoadTool: ToolDefinition = {
       isError: false,
     };
   },
-};
+} satisfies ToolDefinition;
 registerTool(skillLoadTool);
