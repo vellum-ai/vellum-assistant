@@ -291,6 +291,26 @@ describe("lifecycleService — auto-hatch cascade", () => {
   });
 });
 
+describe("lifecycleService — pre-init guards", () => {
+  test("public actions called before setInputs are no-ops, not crashes", async () => {
+    // Don't call setInputs at all — simulate a child route mounting
+    // a `useEffect` that calls a lifecycle action before
+    // `RootLayout`'s passive effect has installed inputs.
+    await lifecycleService.checkAssistant();
+    lifecycleService.retryAssistant();
+    lifecycleService.hatchVersion("v1");
+    await lifecycleService.respondToInputs();
+
+    expect(getAssistantMock).not.toHaveBeenCalled();
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+    // Initial state should be untouched — no spurious error
+    // transition (the bug the guard prevents).
+    expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
+      kind: "loading",
+    });
+  });
+});
+
 describe("lifecycleService — stuck-initializing watchdog", () => {
   test("redundant initializing→initializing transitions do not reset the 5-minute clock", async () => {
     const setTimeoutSpy = mock(globalThis.setTimeout);

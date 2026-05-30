@@ -93,6 +93,16 @@ class AssistantLifecycleService {
    */
   private generation = 0;
   private initializingTimeout: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Flips true on the first `setInputs()` call. Public action
+   * methods early-return until then. Without this, a child route's
+   * `useEffect` calling e.g. `lifecycleService.checkAssistant()`
+   * BEFORE `RootLayout`'s passive effect has installed the
+   * `queryClient` would catch a TypeError on `null.fetchQuery` and
+   * publish a spurious network-error state. Mirrors the no-op
+   * defaults the pre-service store action API used to ship with.
+   */
+  private ready = false;
   private inputs: LifecycleServiceInputs = {
     isLoggedIn: false,
     isLoading: true,
@@ -110,6 +120,7 @@ class AssistantLifecycleService {
 
   setInputs(inputs: LifecycleServiceInputs): void {
     this.inputs = inputs;
+    this.ready = true;
   }
 
   /**
@@ -118,6 +129,7 @@ class AssistantLifecycleService {
    * branches. Safe to call on every input change.
    */
   async respondToInputs(): Promise<void> {
+    if (!this.ready) return;
     if (!this.inputs.isLoggedIn || this.inputs.isLoading) {
       // Logout / pre-auth boot. Drop selection + lifecycle state
       // so a returning login doesn't observe the previous user's id.
@@ -160,6 +172,7 @@ class AssistantLifecycleService {
    * the lifecycle is transient).
    */
   async applyServerResult(result: GetAssistantResult): Promise<void> {
+    if (!this.ready) return;
     if (this.state.kind !== "initializing" && this.state.kind !== "cleaning_up") {
       return;
     }
@@ -171,6 +184,7 @@ class AssistantLifecycleService {
   // ---------------------------------------------------------------------------
 
   async checkAssistant(): Promise<void> {
+    if (!this.ready) return;
     if (isGatewayAuthMode()) {
       this.applyGatewayAuthShortCircuit();
       return;
@@ -206,12 +220,14 @@ class AssistantLifecycleService {
   }
 
   retryAssistant(): void {
+    if (!this.ready) return;
     this.hatchRetryCount = 0;
     this.initializingRecoveryCount = 0;
     void this.checkAssistant();
   }
 
   hatchVersion(version?: string): void {
+    if (!this.ready) return;
     this.hatchRetryCount = 0;
     void this.hatchAndCheck(version);
   }
@@ -607,6 +623,7 @@ class AssistantLifecycleService {
     this.initializingRecoveryCount = 0;
     this.hatchingVersion = undefined;
     this.generation = 0;
+    this.ready = false;
     this.inputs = {
       isLoggedIn: false,
       isLoading: true,
