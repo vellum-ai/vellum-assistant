@@ -316,6 +316,112 @@ describe("GeminiProvider", () => {
     expect(config.thinkingConfig).toBeUndefined();
   });
 
+  // Gemini 3.x Pro models reject MINIMAL and cannot disable thinking, so the
+  // provider must never send a level below the Pro floor ("low") and must pin
+  // a supported default when none is requested.
+  test("Pro: adaptive with no level pins the documented default (high)", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const proProvider = new GeminiProvider(
+      "test-api-key",
+      "gemini-3.1-pro-preview",
+    );
+    await proProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { thinking: { type: "adaptive", streamThinking: true } } },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "HIGH",
+      includeThoughts: true,
+    });
+  });
+
+  test("Pro: disabled maps to the LOW floor, not MINIMAL", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const proProvider = new GeminiProvider(
+      "test-api-key",
+      "gemini-3.1-pro-preview",
+    );
+    await proProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { thinking: { type: "disabled" } } },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "LOW",
+      includeThoughts: false,
+    });
+  });
+
+  test("Pro: an explicit minimal level is clamped up to LOW", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const proProvider = new GeminiProvider(
+      "test-api-key",
+      "gemini-3.1-pro-preview-customtools",
+    );
+    await proProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      {
+        config: {
+          thinking: {
+            type: "adaptive",
+            level: "minimal",
+            streamThinking: false,
+          },
+        },
+      },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "LOW",
+      includeThoughts: false,
+    });
+  });
+
+  test("Pro: a supported explicit level passes through unchanged", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const proProvider = new GeminiProvider(
+      "test-api-key",
+      "gemini-3.1-pro-preview",
+    );
+    await proProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      {
+        config: {
+          thinking: { type: "adaptive", level: "medium", streamThinking: true },
+        },
+      },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "MEDIUM",
+      includeThoughts: true,
+    });
+  });
+
+  test("non-Pro: adaptive with no level keeps Google's default (only includeThoughts)", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    // Default provider is gemini-3-flash-preview (Flash). Flash accepts MINIMAL
+    // and resolves an absent level via Google's per-model default, so we leave
+    // thinkingLevel unset and only forward the streaming preference.
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { thinking: { type: "adaptive", streamThinking: true } } },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({ includeThoughts: true });
+  });
+
   // -----------------------------------------------------------------------
   // Tool definitions
   // -----------------------------------------------------------------------

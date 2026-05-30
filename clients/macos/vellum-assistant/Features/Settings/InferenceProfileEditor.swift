@@ -270,6 +270,9 @@ struct InferenceProfileEditor: View {
                         if visibility.thinking {
                             thinkingSection
                         }
+                        if visibility.thinkingLevel {
+                            thinkingLevelField
+                        }
                     }
                     .disabled(isReadOnly)
 
@@ -884,6 +887,23 @@ struct InferenceProfileEditor: View {
             // the daemon would ignore the leaf either way but the disabled
             // affordance keeps the UI honest.
             .disabled(!(profile.thinkingEnabled ?? false))
+        }
+    }
+
+    // Gemini's reasoning-depth knob. The model's supported levels come from
+    // the catalog family rule; "default" omits `thinking.level` so the daemon
+    // applies the model default (and clamps anything below a Pro model's floor).
+    private var thinkingLevelField: some View {
+        let levels = ["default"]
+            + InferenceProfileParameterVisibility.geminiThinkingLevels(profile.model ?? "")
+        return labeled("Thinking level") {
+            VSegmentControl(
+                items: levels.map { (label: $0, tag: $0) },
+                selection: Binding(
+                    get: { profile.thinkingLevel ?? "default" },
+                    set: { profile.thinkingLevel = $0 == "default" ? nil : $0 }
+                )
+            )
         }
     }
 

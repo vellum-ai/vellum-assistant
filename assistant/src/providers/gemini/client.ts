@@ -1,6 +1,10 @@
 import type * as genai from "@google/genai";
 import { ApiError, GoogleGenAI, ThinkingLevel } from "@google/genai";
 
+import {
+  THINKING_LEVELS,
+  type ThinkingLevel as ThinkingLevelName,
+} from "../../config/schemas/llm.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -38,7 +42,7 @@ function isGemini3Model(model: string): boolean {
   return model.startsWith("gemini-3") || model.startsWith("models/gemini-3");
 }
 
-const THINKING_LEVEL_BY_NAME: Record<string, ThinkingLevel> = {
+const THINKING_LEVEL_BY_NAME: Record<ThinkingLevelName, ThinkingLevel> = {
   minimal: ThinkingLevel.MINIMAL,
   low: ThinkingLevel.LOW,
   medium: ThinkingLevel.MEDIUM,
@@ -46,32 +50,92 @@ const THINKING_LEVEL_BY_NAME: Record<string, ThinkingLevel> = {
 };
 
 /**
+ * Default thinking level for Gemini Pro models when the profile doesn't pin
+ * one. Pro rejects `"minimal"` and an absent level resolves to `"minimal"`
+ * upstream, so we pin Google's documented Pro default (`"high"`) — always a
+ * supported value.
+ */
+const GEMINI_PRO_DEFAULT_THINKING_LEVEL: ThinkingLevelName = "high";
+
+/**
+ * Gemini 3.x Pro family accepts only `low`/`medium`/`high` (no `"minimal"`) and
+ * cannot fully disable thinking. Matches `gemini-3.1-pro-preview`,
+ * `gemini-3.1-pro-preview-customtools`, and future `gemini-3*pro*`.
+ */
+function isGeminiProModel(model: string): boolean {
+  const normalized = model.startsWith("models/")
+    ? model.slice("models/".length)
+    : model;
+  return /^gemini-3.*pro/.test(normalized);
+}
+
+/**
+ * Lowest thinking level the model accepts. Pro's floor is `"low"`; every other
+ * thinking-capable Gemini model accepts `"minimal"`.
+ */
+function geminiThinkingFloor(model: string): ThinkingLevelName {
+  return isGeminiProModel(model) ? "low" : "minimal";
+}
+
+/**
+ * Raise `level` to `floor` when it sits below it, so we never send a level the
+ * model rejects (e.g. `"minimal"` to a Pro model).
+ */
+function clampThinkingLevelToFloor(
+  level: ThinkingLevelName,
+  floor: ThinkingLevelName,
+): ThinkingLevelName {
+  return THINKING_LEVELS.indexOf(level) < THINKING_LEVELS.indexOf(floor)
+    ? floor
+    : level;
+}
+
+/**
  * Translate the resolved wire-shape `thinking` config into Gemini's
- * `thinkingConfig`. Returns `undefined` when no thinking config was supplied,
- * which lets Google's per-model default apply (e.g. `gemini-3.5-flash`
- * defaults to dynamic medium-level thinking).
+ * `thinkingConfig`, guaranteeing the emitted `thinkingLevel` is one the model
+ * accepts. Returns `undefined` when nothing needs to be set, which lets
+ * Google's per-model default apply (e.g. `gemini-3.5-flash` defaults to
+ * dynamic medium-level thinking).
  *
- * `enabled: false` maps to `thinkingLevel: MINIMAL` because Gemini 3.x cannot
- * fully disable thinking — `"minimal"` is the floor. `includeThoughts` is
- * gated on `streamThinking` so callers that opted out of streaming thoughts
- * don't pay for thought tokens in the response.
+ * - `enabled: false` maps to the model's floor — the most "off" state it
+ *   allows (`"minimal"` for most models, `"low"` for Pro, which can't disable
+ *   thinking).
+ * - An explicit `level` below the floor is raised to the floor.
+ * - When no `level` is pinned, Pro models get the documented default (`"high"`)
+ *   because an absent level resolves to the unsupported `"minimal"` upstream;
+ *   other models keep Google's per-model default by leaving the level unset.
+ *
+ * `includeThoughts` is gated on `streamThinking` so callers that opted out of
+ * streaming thoughts don't pay for thought tokens in the response.
  */
 function buildThinkingConfig(
   thinking: Record<string, unknown> | undefined,
+  model: string,
 ): genai.ThinkingConfig | undefined {
   if (!thinking) return undefined;
+  const floor = geminiThinkingFloor(model);
+
   if (thinking.type === "disabled") {
     return {
-      thinkingLevel: ThinkingLevel.MINIMAL,
+      thinkingLevel: THINKING_LEVEL_BY_NAME[floor],
       includeThoughts: false,
     };
   }
   if (thinking.type !== "adaptive") return undefined;
 
   const result: genai.ThinkingConfig = {};
-  if (typeof thinking.level === "string") {
-    const mapped = THINKING_LEVEL_BY_NAME[thinking.level];
-    if (mapped) result.thinkingLevel = mapped;
+  if (
+    typeof thinking.level === "string" &&
+    thinking.level in THINKING_LEVEL_BY_NAME
+  ) {
+    const clamped = clampThinkingLevelToFloor(
+      thinking.level as ThinkingLevelName,
+      floor,
+    );
+    result.thinkingLevel = THINKING_LEVEL_BY_NAME[clamped];
+  } else if (isGeminiProModel(model)) {
+    result.thinkingLevel =
+      THINKING_LEVEL_BY_NAME[GEMINI_PRO_DEFAULT_THINKING_LEVEL];
   }
   if (typeof thinking.streamThinking === "boolean") {
     result.includeThoughts = thinking.streamThinking;
@@ -240,6 +304,7 @@ export class GeminiProvider implements Provider {
     const thinkingConfig = geminiModelSupportsThinking(activeModel)
       ? buildThinkingConfig(
           configObj?.thinking as Record<string, unknown> | undefined,
+          activeModel,
         )
       : undefined;
 
