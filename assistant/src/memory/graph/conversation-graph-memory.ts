@@ -22,6 +22,7 @@ import { getWorkspaceDir } from "../../util/platform.js";
 import { getDb } from "../db-connection.js";
 import { embedWithRetry } from "../embed.js";
 import { generateSparseEmbedding } from "../embedding-backend.js";
+import { wrapMemoryBlock } from "../memory-marker.js";
 import type { QdrantSparseVector } from "../qdrant-client.js";
 import { memorySummaries } from "../schema.js";
 import { conversations } from "../schema/conversations.js";
@@ -922,8 +923,9 @@ function stripMemoryPrefixFromUserMessage(message: Message): Message {
  * user messages each turn: it keeps the prompt lean and makes history
  * byte-stable for prompt caching (v2 strips only the last user message — see
  * `stripExistingMemoryInjections`). Reuses the same per-message block
- * recognition as the last-message strip. Not wired into any live path yet — a
- * later PR calls it under the `memory-v3-live` flag.
+ * recognition as the last-message strip. Wired into the runtime-assembly
+ * suppression step (`conversation-runtime-assembly.ts`), which calls it when
+ * `memory-v3-live` is on and the v3 injector produced a block this turn.
  */
 export function stripAllMemoryInjections(messages: Message[]): Message[] {
   let changed = false;
@@ -964,7 +966,7 @@ function injectTextBlock(messages: Message[], text: string): Message[] {
       content: [
         {
           type: "text" as const,
-          text: `<memory>\n${text}\n</memory>`,
+          text: wrapMemoryBlock(text),
         },
         ...userTail.content,
       ],
@@ -1008,7 +1010,7 @@ function injectMemoryBlock(
 
   blocks.push({
     type: "text" as const,
-    text: `<memory>\n${text}\n</memory>`,
+    text: wrapMemoryBlock(text),
   });
 
   return [

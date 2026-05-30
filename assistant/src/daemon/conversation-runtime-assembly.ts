@@ -22,6 +22,7 @@ import {
   stripAllMemoryInjections,
 } from "../memory/graph/conversation-graph-memory.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
+import { MEMORY_V3_BLOCK_ID } from "../memory/v3/types.js";
 import {
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
@@ -2336,7 +2337,7 @@ export async function applyRuntimeInjections(
   // (`produce()` → null) leaves v2's block intact — fallback rather than a
   // memory-less turn. Idempotent: re-injection sites that already stripped
   // see no change.
-  const v3ProducedBlock = afterMemory.some((b) => b.id === "memory-v3");
+  const v3ProducedBlock = afterMemory.some((b) => b.id === MEMORY_V3_BLOCK_ID);
   let runMessagesForAssembly = runMessages;
   if (options.suppressV2MemoryForV3 && v3ProducedBlock) {
     runMessagesForAssembly = stripAllMemoryInjections(runMessages);

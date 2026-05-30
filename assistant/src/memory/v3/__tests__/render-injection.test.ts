@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { wrapMemoryBlock } from "../../memory-marker.js";
 import { renderMemoryBlock } from "../render-injection.js";
 import { Slug } from "../types.js";
 
@@ -48,12 +49,13 @@ describe("renderMemoryBlock", () => {
     expect(reversed).toBe("<memory>\nC\nB\nA\n</memory>");
   });
 
-  test("reuses the marker the v2 stripper recognizes", async () => {
+  test("emits the shared wrapMemoryBlock marker the v2 stripper recognizes", async () => {
     const block = await renderMemoryBlock(
       ["page-a"],
       resolver({ "page-a": "x" }),
     );
-    expect(block.startsWith("<memory>\n")).toBe(true);
-    expect(block.endsWith("\n</memory>")).toBe(true);
+    // Guard the v2/v3 marker contract: the rendered block must be byte-identical
+    // to wrapping the joined content with the shared helper.
+    expect(block).toBe(wrapMemoryBlock("x"));
   });
 });
