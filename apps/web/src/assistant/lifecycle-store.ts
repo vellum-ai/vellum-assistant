@@ -14,16 +14,26 @@
  * re-render when the state machine transitions. See
  * `apps/web/docs/STATE_MANAGEMENT.md` for the boundary rule.
  *
- * **Reading the imperative actions: use the selectors, not
- * `.getState()`.** The store ships no-op defaults that
- * `useAssistantLifecycle` overwrites in a passive `useEffect` after
- * its first render. Children of `RootLayout` (chat, onboarding,
- * version-selection) render in the same commit, so any consumer that
- * reads `useAssistantLifecycleStore.getState().checkAssistant` at
- * render time captures the no-op. Subscribing via
- * `useAssistantLifecycleStore.use.checkAssistant()` causes a single
- * additional render when registration lands and keeps the captured
- * ref current — the right trade vs. silently awaiting a no-op.
+ * **Reading the imperative actions: call them inline via
+ * `.getState()` at the use site.** The store ships no-op defaults
+ * that `useAssistantLifecycle` overwrites in a passive `useEffect`
+ * after its first render — children of `RootLayout` render in the
+ * same commit, so neither render-time capture nor selector
+ * subscription is right:
+ *
+ *   - `const fn = useAssistantLifecycleStore.getState().checkAssistant`
+ *     at render time captures the no-op and never updates.
+ *   - `const fn = useAssistantLifecycleStore.use.checkAssistant()`
+ *     re-renders when registration lands; if `fn` is in any effect's
+ *     dep list, the effect cleans up and re-runs after the identity
+ *     flip — which **re-executes any side effect the effect already
+ *     started** (e.g. duplicate hatch requests).
+ *
+ * The right pattern is to call the store action inline at the moment
+ * it's needed: `await useAssistantLifecycleStore.getState().checkAssistant()`.
+ * For actions that need to flow through a prop boundary, wrap in a
+ * stable `useCallback(() => useAssistantLifecycleStore.getState().X(),
+ * [])` so the prop identity doesn't flip when registration lands.
  *
  * @see {@link ./use-lifecycle.ts}
  * @see {@link ./selection-store.ts}

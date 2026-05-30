@@ -105,11 +105,6 @@ export function PreChatFlow() {
   const firstName = user?.firstName ?? "";
   const lastName = user?.lastName ?? "";
   const isNative = useIsNativePlatform();
-  // Subscribe via the selector — the lifecycle hook registers the
-  // real callback in a passive `useEffect`, which commits AFTER this
-  // screen renders on a cold onboarding mount. Reading via
-  // `.getState()` here would capture the no-op default.
-  const checkAssistant = useAssistantLifecycleStore.use.checkAssistant();
   const activeAssistantId =
     useAssistantSelectionStore.use.activeAssistantId();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
@@ -190,9 +185,9 @@ export function PreChatFlow() {
     !localMode || hasPlatformSession || localPlatformAssistantId !== null;
 
   const navigateToChatAfterLifecycleRefresh = useCallback(async () => {
-    await checkAssistant();
+    await useAssistantLifecycleStore.getState().checkAssistant();
     void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
-  }, [checkAssistant, navigate]);
+  }, [navigate]);
 
   type ConsentSnapshot = {
     userId: string | null;

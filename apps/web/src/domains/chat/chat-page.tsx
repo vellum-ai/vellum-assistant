@@ -165,13 +165,24 @@ export function ChatPage() {
   const setOnSearchClick = useChatLayoutSlotsStore.use.setOnSearchClick();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
-  // Subscribe via the selectors — `useAssistantLifecycle` registers
-  // the real callbacks in a passive `useEffect` that commits after
-  // this child renders on a cold mount. `.getState()` here would
-  // capture the no-op defaults instead.
-  const checkAssistant = useAssistantLifecycleStore.use.checkAssistant();
-  const retryAssistant = useAssistantLifecycleStore.use.retryAssistant();
-  const hatchVersion = useAssistantLifecycleStore.use.hatchVersion();
+  // Imperative actions are read inline from the store at call time
+  // via `.getState()` (see `lifecycle-store.ts` — neither render-time
+  // capture nor selector subscription is right for actions registered
+  // in a passive effect). Stable wrappers below let the actions flow
+  // through prop boundaries without identity flips.
+  const checkAssistant = useCallback(
+    () => useAssistantLifecycleStore.getState().checkAssistant(),
+    [],
+  );
+  const retryAssistant = useCallback(
+    () => useAssistantLifecycleStore.getState().retryAssistant(),
+    [],
+  );
+  const hatchVersion = useCallback(
+    (version?: string) =>
+      useAssistantLifecycleStore.getState().hatchVersion(version),
+    [],
+  );
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const doctor = useClientFeatureFlagStore.use.doctor();
