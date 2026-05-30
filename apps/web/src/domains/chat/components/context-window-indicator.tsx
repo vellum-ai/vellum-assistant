@@ -14,6 +14,7 @@ export interface ContextWindowUsage {
 
 interface ContextWindowIndicatorProps {
   usage: ContextWindowUsage | null;
+  assistantName: string | null;
   onClearContext?: () => void;
 }
 
@@ -91,11 +92,13 @@ function DesktopTooltipContent({
   ringColor,
   tokens,
   maxTokens,
+  assistantDisplayName,
 }: {
   percentage: number;
   ringColor: string;
   tokens: number;
   maxTokens: number | null;
+  assistantDisplayName: string;
 }) {
   return (
     <>
@@ -114,7 +117,7 @@ function DesktopTooltipContent({
         </div>
       )}
       <div className="text-label-medium-default leading-tight text-[var(--content-tertiary)]">
-        Vellum automatically
+        {assistantDisplayName} automatically
         <br />
         compacts its context.
       </div>
@@ -128,6 +131,7 @@ function MobileSheetContent({
   ratio,
   tokens,
   maxTokens,
+  assistantDisplayName,
   onClearContext,
   onClose,
 }: {
@@ -136,6 +140,7 @@ function MobileSheetContent({
   ratio: number;
   tokens: number;
   maxTokens: number | null;
+  assistantDisplayName: string;
   onClearContext?: () => void;
   onClose: () => void;
 }) {
@@ -179,7 +184,7 @@ function MobileSheetContent({
             )}
           </span>
           <span className="text-body-medium-lighter text-[var(--content-tertiary)]">
-            Vellum automatically compacts its context
+            {assistantDisplayName} automatically compacts its context
           </span>
         </div>
       </div>
@@ -202,7 +207,12 @@ function MobileSheetContent({
   );
 }
 
-export function ContextWindowIndicator({ usage, onClearContext }: ContextWindowIndicatorProps) {
+export function ContextWindowIndicator({
+  usage,
+  assistantName,
+  onClearContext,
+}: ContextWindowIndicatorProps) {
+  const assistantDisplayName = assistantName?.trim() || "Your assistant";
   const isMobile = useIsMobile();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
@@ -295,6 +305,7 @@ export function ContextWindowIndicator({ usage, onClearContext }: ContextWindowI
               ratio={ratio}
               tokens={tokens}
               maxTokens={maxTokens}
+              assistantDisplayName={assistantDisplayName}
               onClearContext={onClearContext}
               onClose={() => setSheetOpen(false)}
             />
@@ -335,6 +346,7 @@ export function ContextWindowIndicator({ usage, onClearContext }: ContextWindowI
               ringColor={ringColor}
               tokens={tokens}
               maxTokens={maxTokens}
+              assistantDisplayName={assistantDisplayName}
             />
           </div>,
           document.body,

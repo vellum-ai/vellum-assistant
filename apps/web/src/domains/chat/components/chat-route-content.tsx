@@ -1338,6 +1338,7 @@ export function ChatRouteContent({
     contextWindowIndicatorSlot: (
       <ContextWindowIndicator
         usage={contextWindowUsage}
+        assistantName={assistantName}
         onClearContext={
           activeConversation?.conversationId && !sendDisabled
             ? () => void sendMessage("/clean")
