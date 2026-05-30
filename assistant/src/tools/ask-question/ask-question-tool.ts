@@ -137,166 +137,157 @@ const OPTION_ITEMS_SCHEMA = {
 // ── Tool ────────────────────────────────────────────────────────────
 
 /**
- * Build a fresh `ask_question` {@link ToolDefinition}. The default
- * prompter factory wires the real `broadcastMessage` so the question
- * reaches every connected client. Tests pass an override to swap in
- * a stubbed prompter without monkey-patching the module — this is the
- * factory-function replacement for the previous constructor injection
- * point (`new AskQuestionTool(stub)`).
+ * `ask_question` tool definition. Tests stub the prompter by mocking
+ * `../../permissions/question-prompter.js` via `bun:test`'s `mock.module`
+ * before importing this file — see `ask-question-tool.test.ts` for the
+ * pattern.
  */
-export function createAskQuestionTool(
-  prompterFactory: () => Pick<QuestionPrompter, "prompt"> = () =>
-    new QuestionPrompter({ broadcastMessage }),
-) {
-  return {
-    name: "ask_question",
-    description: DESCRIPTION,
-    category: "interaction",
-    executionTarget: "sandbox",
-    defaultRiskLevel: RiskLevel.Low,
-    input_schema: {
-      type: "object",
-      properties: {
-        // ── Recommended shape ─────────────────────────────────────
-        questions: {
-          type: "array",
-          minItems: 1,
-          maxItems: MAX_QUESTIONS_PER_BATCH,
-          description: `Recommended shape. 1–${MAX_QUESTIONS_PER_BATCH} clarifying questions to ask in a single turn. Use a batch when several independent ambiguities block progress; ask one at a time when they're sequentially dependent. Past ${MAX_QUESTIONS_PER_BATCH} questions you should be implementing, not asking.`,
-          items: {
-            type: "object",
-            properties: {
-              question: {
-                type: "string",
-                description: "The clarifying question to display.",
-              },
-              description: {
-                type: "string",
-                description:
-                  "Optional one-line context shown beneath the question.",
-              },
-              options: {
-                type: "array",
-                minItems: 2,
-                maxItems: 4,
-                description:
-                  "2–4 structured options. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
-                items: OPTION_ITEMS_SCHEMA,
-              },
-              freeTextPlaceholder: {
-                type: "string",
-                description:
-                  "Optional placeholder text shown inside the free-text fallback input.",
-              },
+export const askQuestionTool = {
+  name: "ask_question",
+  description: DESCRIPTION,
+  category: "interaction",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
+  input_schema: {
+    type: "object",
+    properties: {
+      // ── Recommended shape ─────────────────────────────────────
+      questions: {
+        type: "array",
+        minItems: 1,
+        maxItems: MAX_QUESTIONS_PER_BATCH,
+        description: `Recommended shape. 1–${MAX_QUESTIONS_PER_BATCH} clarifying questions to ask in a single turn. Use a batch when several independent ambiguities block progress; ask one at a time when they're sequentially dependent. Past ${MAX_QUESTIONS_PER_BATCH} questions you should be implementing, not asking.`,
+        items: {
+          type: "object",
+          properties: {
+            question: {
+              type: "string",
+              description: "The clarifying question to display.",
             },
-            required: ["question", "options"],
+            description: {
+              type: "string",
+              description:
+                "Optional one-line context shown beneath the question.",
+            },
+            options: {
+              type: "array",
+              minItems: 2,
+              maxItems: 4,
+              description:
+                "2–4 structured options. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
+              items: OPTION_ITEMS_SCHEMA,
+            },
+            freeTextPlaceholder: {
+              type: "string",
+              description:
+                "Optional placeholder text shown inside the free-text fallback input.",
+            },
           },
-        },
-        // ── Legacy single-question fields ─────────────────────────
-        // Kept optional so existing prompt caches and any single-question
-        // callers continue to work. New callers should use `questions`.
-        question: {
-          type: "string",
-          description:
-            "Legacy: the single clarifying question. Prefer `questions[]` for new code.",
-        },
-        description: {
-          type: "string",
-          description:
-            "Legacy: optional one-line context shown beneath the question. Prefer `questions[].description`.",
-        },
-        options: {
-          type: "array",
-          minItems: 2,
-          maxItems: 4,
-          description:
-            "Legacy: 2–4 structured options. Prefer `questions[].options`. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
-          items: OPTION_ITEMS_SCHEMA,
-        },
-        freeTextPlaceholder: {
-          type: "string",
-          description:
-            "Legacy: optional placeholder text for the free-text fallback input. Prefer `questions[].freeTextPlaceholder`.",
+          required: ["question", "options"],
         },
       },
-      // No top-level `required` — caller must supply either `questions`
-      // or the legacy flat trio (`question` + `options`). Enforced in Zod.
+      // ── Legacy single-question fields ─────────────────────────
+      // Kept optional so existing prompt caches and any single-question
+      // callers continue to work. New callers should use `questions`.
+      question: {
+        type: "string",
+        description:
+          "Legacy: the single clarifying question. Prefer `questions[]` for new code.",
+      },
+      description: {
+        type: "string",
+        description:
+          "Legacy: optional one-line context shown beneath the question. Prefer `questions[].description`.",
+      },
+      options: {
+        type: "array",
+        minItems: 2,
+        maxItems: 4,
+        description:
+          "Legacy: 2–4 structured options. Prefer `questions[].options`. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
+        items: OPTION_ITEMS_SCHEMA,
+      },
+      freeTextPlaceholder: {
+        type: "string",
+        description:
+          "Legacy: optional placeholder text for the free-text fallback input. Prefer `questions[].freeTextPlaceholder`.",
+      },
     },
+    // No top-level `required` — caller must supply either `questions`
+    // or the legacy flat trio (`question` + `options`). Enforced in Zod.
+  },
 
-    async execute(
-      input: Record<string, unknown>,
-      context: ToolContext,
-    ): Promise<ToolExecutionResult> {
-      const parsed = InputSchema.safeParse(input);
-      if (!parsed.success) {
+  async execute(
+    input: Record<string, unknown>,
+    context: ToolContext,
+  ): Promise<ToolExecutionResult> {
+    const parsed = InputSchema.safeParse(input);
+    if (!parsed.success) {
+      return {
+        content: `Invalid input: ${parsed.error.message}`,
+        isError: true,
+      };
+    }
+
+    // Normalize legacy flat input into a one-element `questions` batch so
+    // downstream code only has to deal with the batched shape. The refine
+    // above guarantees `question` and `options` are present whenever
+    // `questions` is absent.
+    const questions: SingleQuestion[] = parsed.data.questions ?? [
+      {
+        question: parsed.data.question!,
+        description: parsed.data.description,
+        options: parsed.data.options!,
+        freeTextPlaceholder: parsed.data.freeTextPlaceholder,
+      },
+    ];
+
+    const prompter = new QuestionPrompter({ broadcastMessage });
+    const result = await prompter.prompt({
+      conversationId: context.conversationId,
+      questions,
+      toolUseId: context.toolUseId,
+      signal: context.signal,
+    });
+
+    // Format the aggregated transcript. Each line is keyed by the original
+    // question text (not the daemon-assigned id) — the LLM never sees those
+    // ids, and human-readable labels read better in the result content.
+    const lines = result.entries.map((entry, i) => {
+      const q = questions[i]!;
+      const prefix = `Question "${q.question}" →`;
+      if (entry.decision === "option") {
+        const chosen = q.options.find((o) => o.id === entry.optionId);
+        const label = chosen?.label ?? "(unknown)";
+        return `${prefix} Option: ${entry.optionId} (${label})`;
+      }
+      if (entry.decision === "free_text") {
+        return `${prefix} Free text: ${entry.text ?? ""}`;
+      }
+      return `${prefix} Skipped`;
+    });
+
+    switch (result.overall) {
+      case "completed":
+        return { content: lines.join("\n"), isError: false };
+      case "closed": {
+        const summary =
+          "User closed the question card without answering. All questions skipped.";
         return {
-          content: `Invalid input: ${parsed.error.message}`,
-          isError: true,
+          content: [summary, ...lines].join("\n"),
+          isError: false,
         };
       }
-
-      // Normalize legacy flat input into a one-element `questions` batch so
-      // downstream code only has to deal with the batched shape. The refine
-      // above guarantees `question` and `options` are present whenever
-      // `questions` is absent.
-      const questions: SingleQuestion[] = parsed.data.questions ?? [
-        {
-          question: parsed.data.question!,
-          description: parsed.data.description,
-          options: parsed.data.options!,
-          freeTextPlaceholder: parsed.data.freeTextPlaceholder,
-        },
-      ];
-
-      const prompter = prompterFactory();
-      const result = await prompter.prompt({
-        conversationId: context.conversationId,
-        questions,
-        toolUseId: context.toolUseId,
-        signal: context.signal,
-      });
-
-      // Format the aggregated transcript. Each line is keyed by the original
-      // question text (not the daemon-assigned id) — the LLM never sees those
-      // ids, and human-readable labels read better in the result content.
-      const lines = result.entries.map((entry, i) => {
-        const q = questions[i]!;
-        const prefix = `Question "${q.question}" →`;
-        if (entry.decision === "option") {
-          const chosen = q.options.find((o) => o.id === entry.optionId);
-          const label = chosen?.label ?? "(unknown)";
-          return `${prefix} Option: ${entry.optionId} (${label})`;
-        }
-        if (entry.decision === "free_text") {
-          return `${prefix} Free text: ${entry.text ?? ""}`;
-        }
-        return `${prefix} Skipped`;
-      });
-
-      switch (result.overall) {
-        case "completed":
-          return { content: lines.join("\n"), isError: false };
-        case "closed": {
-          const summary =
-            "User closed the question card without answering. All questions skipped.";
-          return {
-            content: [summary, ...lines].join("\n"),
-            isError: false,
-          };
-        }
-        case "timed_out":
-          return {
-            content: "User did not respond within timeout",
-            isError: true,
-          };
-        case "aborted":
-          return {
-            content: "Question aborted",
-            isError: true,
-          };
-      }
-    },
-  } satisfies ToolDefinition;
-}
-
-export const askQuestionTool = createAskQuestionTool();
+      case "timed_out":
+        return {
+          content: "User did not respond within timeout",
+          isError: true,
+        };
+      case "aborted":
+        return {
+          content: "Question aborted",
+          isError: true,
+        };
+    }
+  },
+} satisfies ToolDefinition;

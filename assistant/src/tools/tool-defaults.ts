@@ -59,15 +59,17 @@ export const TOOL_DEFAULTS = Object.freeze({
  * file-derived default), and return a `Tool` that is safe to hand to a
  * `registerXxxTools` call.
  *
+ * `defaultName` is optional — when omitted, the tool's own `name` field
+ * is the source of truth and `""` is the last-ditch fallback. The
+ * empty-string fallback is fail-loud: `registerSkillTools` rejects any
+ * tool with an empty name with a clear "tool.name is required" error.
+ *
  * The default `execute` returns an error result so the model sees a clear
  * "this tool isn't wired up" signal at call time. The owning loader still
  * registers the tool cleanly — a broken individual tool must never block
  * the registration batch.
  */
-export function finalizeTool(
-  tool: ToolDefinition,
-  defaultName: string,
-): Tool {
+export function finalizeTool(tool: ToolDefinition, defaultName = ""): Tool {
   const name = tool.name ?? defaultName;
   const description =
     typeof tool.description === "string"

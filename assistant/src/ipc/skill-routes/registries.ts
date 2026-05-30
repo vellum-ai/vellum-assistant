@@ -160,13 +160,10 @@ async function handleRegisterTools(
 
   // Finalize before branching so both the supervisor short-circuit and
   // the in-memory registration path see a `Tool[]` with guaranteed
-  // `name`. Skills run `finalizeTool` locally before sending, so the
-  // `?? ""` is a defensive empty-string default — `registerSkillTools`
-  // will reject an empty name on the non-supervisor path with a clear
-  // error. The execute closure arrives as a no-op error closure from
+  // `name`. The execute closure arrives as a no-op error closure from
   // `finalizeTool`; the production (supervisor) path replaces it with
   // the dispatching closure installed by the manifest loader at boot.
-  const proxies = tools.map((tool) => finalizeTool(tool, tool.name ?? ""));
+  const proxies = tools.map((t) => finalizeTool(t));
 
   // Supervisor short-circuit: when a supervisor is registered, the
   // manifest loader has already installed proxy tools at daemon boot.

@@ -318,15 +318,26 @@ export interface ToolContext {
 }
 
 /**
- * Schema describing the serializable shape of a {@link ToolDefinition}.
- * All fields are optional — loaders fill documented defaults for omitted
- * fields via `finalizeTool` in `tool-defaults.ts`. The IPC layer parses
- * incoming skill tools against this same schema and re-finalizes them
- * locally, so author shape and wire shape are one schema.
+ * Schema describing the shape of a {@link ToolDefinition}. All fields are
+ * optional — loaders fill documented defaults for omitted fields via
+ * `finalizeTool` in `tool-defaults.ts`. The IPC layer parses incoming
+ * skill tools against this same schema and re-finalizes them locally,
+ * so author shape and wire shape are one schema.
  *
- * `execute` is intentionally absent from the schema (closures cannot
- * cross IPC). It is added back as a TypeScript overlay on
- * {@link ToolDefinition} so author literals can still set it.
+ * `input_schema` is `z.custom<object>(...)` rather than
+ * `z.record(z.string(), z.unknown())` so that authors can assign a typed
+ * JSON-schema literal (`{ type: "object", properties: { ... } }`)
+ * without `as Record<...>` gymnastics. The custom check still rejects
+ * `null`, primitives, and arrays at runtime.
+ *
+ * `execute` is `z.custom<(input, context) => Promise<ToolExecutionResult>>()`
+ * for the same reason — the wire path drops closures (they can't cross
+ * IPC) and `finalizeTool` synthesizes a no-op error closure on arrival.
+ * The custom shape gives `ToolDefinition.execute` a fully-typed
+ * signature via `z.infer` without an overlay type.
+ *
+ * Result: `ToolDefinition = z.infer<typeof ToolDefinitionSchema>` —
+ * one declaration, both `input_schema` and `execute` typed correctly.
  */
 export const ToolDefinitionSchema = z.object({
   /**
@@ -339,46 +350,49 @@ export const ToolDefinitionSchema = z.object({
   /** Human-readable description shown to the model in the tool catalog. */
   description: z.string().optional(),
   /** JSON schema describing the tool's input arguments. */
-  input_schema: z.record(z.string(), z.unknown()).optional(),
+  input_schema: z
+    .custom<object>(
+      (val) => val !== null && typeof val === "object" && !Array.isArray(val),
+      { message: "input_schema must be a plain object" },
+    )
+    .optional(),
   /** Author-asserted risk band — low / medium / high. Drives default permission gating. */
   defaultRiskLevel: z.enum(RiskLevel).optional(),
   /** Tool category used for Slack channel `allowedToolCategories` enforcement. */
   category: z.string().min(1).optional(),
   /** Where the tool runs — sandbox (assistant container) or host (guardian device via proxy). Resolved by `resolveExecutionTarget` if omitted. */
   executionTarget: z.enum(["sandbox", "host"]).optional(),
+  /**
+   * Implementation invoked when the model calls the tool. Optional
+   * because some `ToolDefinition` instances are schema-only (e.g.
+   * {@link ../memory/graph/tools.graphRememberDefinition},
+   * {@link ../messaging/style-analyzer.storeStyleAnalysisTool},
+   * {@link ../memory/v2/sweep-job.SWEEP_TOOL}) — handed to providers as
+   * a function-calling schema without ever being registered for
+   * execution. Closures can't cross IPC, so the wire path drops this
+   * and `finalizeTool` synthesizes a no-op error closure on arrival.
+   * Tool sources use `satisfies ToolDefinition` (not `: ToolDefinition`)
+   * so the inferred export type preserves `execute` as required at
+   * call sites that statically import the literal.
+   */
+  execute: z
+    .custom<
+      (
+        input: Record<string, unknown>,
+        context: ToolContext,
+      ) => Promise<ToolExecutionResult>
+    >()
+    .optional(),
 });
 
 /**
  * Author-facing tool spec — re-exported from `@vellumai/plugin-api`.
  * Loaders fill documented defaults for omitted fields via `finalizeTool`
- * in `tool-defaults.ts`. Type is `z.infer<typeof ToolDefinitionSchema>`
- * (serializable fields) plus overlays:
- *   - `input_schema` is widened from `Record<string, unknown>` (the
- *     parsed wire shape) to `object`, so authors can assign a typed
- *     JSON-schema literal without `as Record<...>` gymnastics.
- *   - `execute` is optional because some `ToolDefinition` instances are
- *     schema-only (e.g. {@link ../memory/graph/tools.graphRememberDefinition},
- *     {@link ../messaging/style-analyzer.storeStyleAnalysisTool},
- *     {@link ../memory/v2/sweep-job.SWEEP_TOOL}) — handed to providers as
- *     a function-calling schema without ever being registered for
- *     execution. Closures also can't cross IPC, so the wire path drops
- *     it and `finalizeTool` synthesizes a no-op error closure on arrival.
- *     Tool sources use `satisfies ToolDefinition` (not `: ToolDefinition`)
- *     so the inferred export type preserves `execute` as required at
- *     call sites that statically import the literal.
+ * in `tool-defaults.ts`. The type is a direct `z.infer` of
+ * {@link ToolDefinitionSchema} — both `input_schema` and `execute` are
+ * typed correctly by the schema itself, no overlay needed.
  */
-export type ToolDefinition = Omit<
-  z.infer<typeof ToolDefinitionSchema>,
-  "input_schema"
-> & {
-  /** JSON schema describing the tool's input arguments. */
-  input_schema?: object;
-  /** Implementation invoked when the model calls the tool. */
-  execute?: (
-    input: Record<string, unknown>,
-    context: ToolContext,
-  ) => Promise<ToolExecutionResult>;
-};
+export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 
 /** Tool after the loader has derived its name and filled defaults. */
 export type Tool = Required<ToolDefinition>;

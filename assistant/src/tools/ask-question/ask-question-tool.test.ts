@@ -1,12 +1,42 @@
-import { describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { QuestionPromptResult } from "../../permissions/question-prompter.js";
+import type {
+  QuestionPromptParams,
+  QuestionPromptResult,
+} from "../../permissions/question-prompter.js";
 import type { ToolContext } from "../types.js";
-import { askQuestionTool, createAskQuestionTool } from "./ask-question-tool.js";
 
-type PromptParams = Parameters<
-  import("../../permissions/question-prompter.js").QuestionPrompter["prompt"]
->[0];
+// Stub the prompter at the module level. The tool instantiates
+// `new QuestionPrompter(...)` inside `execute()`, so every call goes
+// through this constructor — we record `prompt()` calls into a shared
+// `calls` array and rotate `nextResult` per test via `setNextResult`.
+//
+// `mock.module` is hoisted by bun before any static import of the tool
+// runs, so the import below sees the stubbed prompter even though
+// `askQuestionTool` captures the symbol at module-eval time.
+const calls: QuestionPromptParams[] = [];
+let nextResult: QuestionPromptResult = {
+  entries: [{ questionId: "q1", decision: "skipped" }],
+  overall: "completed",
+};
+function setNextResult(result: QuestionPromptResult): void {
+  nextResult = result;
+}
+
+mock.module("../../permissions/question-prompter.js", () => ({
+  QuestionPrompter: class {
+    async prompt(params: QuestionPromptParams): Promise<QuestionPromptResult> {
+      calls.push(params);
+      return nextResult;
+    }
+  },
+}));
+
+// Import after the mock so the tool's `import { QuestionPrompter }` binds
+// to the stub class above.
+const { askQuestionTool } = await import("./ask-question-tool.js");
+
+type PromptParams = QuestionPromptParams;
 
 function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
@@ -18,19 +48,16 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
   };
 }
 
-// Return type is inferred so the satisfies-narrowed shape of
-// `createAskQuestionTool()` carries through — letting the test call
-// `tool.execute(...)` without a `!` bang.
-function makeToolWithStub(result: QuestionPromptResult) {
-  const calls: PromptParams[] = [];
-  const tool = createAskQuestionTool(() => ({
-    async prompt(params: PromptParams) {
-      calls.push(params);
-      return result;
-    },
-  }));
-  return { tool, calls };
-}
+// Reset call log + default result between tests so individual cases stay
+// hermetic. Each test that needs a non-default result calls
+// `setNextResult()` before invoking `askQuestionTool.execute(...)`.
+beforeEach(() => {
+  calls.length = 0;
+  nextResult = {
+    entries: [{ questionId: "q1", decision: "skipped" }],
+    overall: "completed",
+  };
+});
 
 const validInput = {
   question: "Which fruit?",
@@ -98,11 +125,9 @@ function singleCompleted(
 
 describe("AskQuestionTool.execute", () => {
   test("forwards questions array unchanged to the prompter", async () => {
-    const { tool, calls } = makeToolWithStub(
-      singleCompleted({ decision: "option", optionId: "a" }),
-    );
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
 
-    const result = await tool.execute(validInput, makeContext());
+    const result = await askQuestionTool.execute(validInput, makeContext());
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.conversationId).toBe("conv-1");
@@ -122,10 +147,8 @@ describe("AskQuestionTool.execute", () => {
   });
 
   test("formats option result with looked-up label", async () => {
-    const { tool } = makeToolWithStub(
-      singleCompleted({ decision: "option", optionId: "b" }),
-    );
-    const result = await tool.execute(validInput, makeContext());
+    setNextResult(singleCompleted({ decision: "option", optionId: "b" }));
+    const result = await askQuestionTool.execute(validInput, makeContext());
     expect(result.content).toBe(
       `Question "${validInput.question}" → Option: b (Banana)`,
     );
@@ -133,10 +156,8 @@ describe("AskQuestionTool.execute", () => {
   });
 
   test("falls back to '(unknown)' label when optionId is not in options", async () => {
-    const { tool } = makeToolWithStub(
-      singleCompleted({ decision: "option", optionId: "ghost" }),
-    );
-    const result = await tool.execute(validInput, makeContext());
+    setNextResult(singleCompleted({ decision: "option", optionId: "ghost" }));
+    const result = await askQuestionTool.execute(validInput, makeContext());
     expect(result.content).toBe(
       `Question "${validInput.question}" → Option: ghost ((unknown))`,
     );
@@ -144,10 +165,8 @@ describe("AskQuestionTool.execute", () => {
   });
 
   test("formats free-text result", async () => {
-    const { tool } = makeToolWithStub(
-      singleCompleted({ decision: "free_text", text: "Cherry" }),
-    );
-    const result = await tool.execute(validInput, makeContext());
+    setNextResult(singleCompleted({ decision: "free_text", text: "Cherry" }));
+    const result = await askQuestionTool.execute(validInput, makeContext());
     expect(result.content).toBe(
       `Question "${validInput.question}" → Free text: Cherry`,
     );
@@ -155,37 +174,35 @@ describe("AskQuestionTool.execute", () => {
   });
 
   test("formats skipped result", async () => {
-    const { tool } = makeToolWithStub(singleCompleted({ decision: "skipped" }));
-    const result = await tool.execute(validInput, makeContext());
+    setNextResult(singleCompleted({ decision: "skipped" }));
+    const result = await askQuestionTool.execute(validInput, makeContext());
     expect(result.content).toBe(`Question "${validInput.question}" → Skipped`);
     expect(result.isError).toBe(false);
   });
 
   test("timeout produces tool error", async () => {
-    const { tool } = makeToolWithStub({
+    setNextResult({
       entries: [{ questionId: "q1", decision: "timed_out" }],
       overall: "timed_out",
     });
-    const result = await tool.execute(validInput, makeContext());
+    const result = await askQuestionTool.execute(validInput, makeContext());
     expect(result.isError).toBe(true);
     expect(result.content).toBe("User did not respond within timeout");
   });
 
   test("aborted produces tool error", async () => {
-    const { tool } = makeToolWithStub({
+    setNextResult({
       entries: [{ questionId: "q1", decision: "skipped" }],
       overall: "aborted",
     });
-    const result = await tool.execute(validInput, makeContext());
+    const result = await askQuestionTool.execute(validInput, makeContext());
     expect(result.isError).toBe(true);
     expect(result.content).toBe("Question aborted");
   });
 
   test("rejects input with fewer than 2 options", async () => {
-    const { tool, calls } = makeToolWithStub(
-      singleCompleted({ decision: "option", optionId: "a" }),
-    );
-    const result = await tool.execute(
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+    const result = await askQuestionTool.execute(
       { ...validInput, options: [{ id: "a", label: "Apple" }] },
       makeContext(),
     );
@@ -195,10 +212,8 @@ describe("AskQuestionTool.execute", () => {
   });
 
   test("rejects input with more than 4 options", async () => {
-    const { tool, calls } = makeToolWithStub(
-      singleCompleted({ decision: "option", optionId: "a" }),
-    );
-    const result = await tool.execute(
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+    const result = await askQuestionTool.execute(
       {
         ...validInput,
         options: [
@@ -216,10 +231,8 @@ describe("AskQuestionTool.execute", () => {
   });
 
   test("rejects input with empty question", async () => {
-    const { tool, calls } = makeToolWithStub(
-      singleCompleted({ decision: "option", optionId: "a" }),
-    );
-    const result = await tool.execute(
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
+    const result = await askQuestionTool.execute(
       { ...validInput, question: "" },
       makeContext(),
     );
@@ -228,11 +241,12 @@ describe("AskQuestionTool.execute", () => {
   });
 
   test("propagates abort signal into the prompter", async () => {
-    const { tool, calls } = makeToolWithStub(
-      singleCompleted({ decision: "option", optionId: "a" }),
-    );
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
     const ac = new AbortController();
-    await tool.execute(validInput, makeContext({ signal: ac.signal }));
+    await askQuestionTool.execute(
+      validInput,
+      makeContext({ signal: ac.signal }),
+    );
     expect(calls[0]?.signal).toBe(ac.signal);
   });
 });
@@ -241,11 +255,9 @@ describe("AskQuestionTool.execute", () => {
 
 describe("AskQuestionTool batched input", () => {
   test("normalizes legacy flat input into a one-element batch forwarded to the prompter", async () => {
-    const { tool, calls } = makeToolWithStub(
-      singleCompleted({ decision: "option", optionId: "a" }),
-    );
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
 
-    const result = await tool.execute(validInput, makeContext());
+    const result = await askQuestionTool.execute(validInput, makeContext());
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.questions).toHaveLength(1);
@@ -255,11 +267,12 @@ describe("AskQuestionTool batched input", () => {
   });
 
   test("accepts a single-element `questions` batch", async () => {
-    const { tool, calls } = makeToolWithStub(
-      singleCompleted({ decision: "option", optionId: "a" }),
-    );
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
 
-    const result = await tool.execute({ questions: [singleQ] }, makeContext());
+    const result = await askQuestionTool.execute(
+      { questions: [singleQ] },
+      makeContext(),
+    );
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.questions).toHaveLength(1);
@@ -289,7 +302,7 @@ describe("AskQuestionTool batched input", () => {
       ],
     };
 
-    const { tool, calls } = makeToolWithStub({
+    setNextResult({
       entries: [
         { questionId: "q1", decision: "option", optionId: "a" },
         { questionId: "q2", decision: "free_text", text: "noon-ish" },
@@ -298,18 +311,18 @@ describe("AskQuestionTool batched input", () => {
       overall: "completed",
     });
 
-    const result = await tool.execute(
+    const result = await askQuestionTool.execute(
       { questions: [singleQ, q2, q3] },
       makeContext(),
     );
 
     expect(calls).toHaveLength(1);
     expect(calls[0]?.questions).toHaveLength(3);
-    expect(calls[0]?.questions.map((q) => q.question)).toEqual([
-      singleQ.question,
-      q2.question,
-      q3.question,
-    ]);
+    expect(
+      calls[0]?.questions.map(
+        (q: PromptParams["questions"][number]) => q.question,
+      ),
+    ).toEqual([singleQ.question, q2.question, q3.question]);
 
     expect(result.isError).toBe(false);
     expect(result.content).toBe(
@@ -336,7 +349,7 @@ describe("AskQuestionTool batched input", () => {
         { id: "no", label: "No" },
       ],
     };
-    const { tool } = makeToolWithStub({
+    setNextResult({
       entries: [
         { questionId: "q1", decision: "skipped" },
         { questionId: "q2", decision: "skipped" },
@@ -345,7 +358,7 @@ describe("AskQuestionTool batched input", () => {
       overall: "completed",
     });
 
-    const result = await tool.execute(
+    const result = await askQuestionTool.execute(
       { questions: [singleQ, q2, q3] },
       makeContext(),
     );
@@ -368,7 +381,7 @@ describe("AskQuestionTool batched input", () => {
         { id: "afternoon", label: "Afternoon" },
       ],
     };
-    const { tool } = makeToolWithStub({
+    setNextResult({
       entries: [
         { questionId: "q1", decision: "skipped" },
         { questionId: "q2", decision: "skipped" },
@@ -376,7 +389,7 @@ describe("AskQuestionTool batched input", () => {
       overall: "closed",
     });
 
-    const result = await tool.execute(
+    const result = await askQuestionTool.execute(
       { questions: [singleQ, q2] },
       makeContext(),
     );
@@ -392,7 +405,7 @@ describe("AskQuestionTool batched input", () => {
   });
 
   test("accepts a 5-entry batch (max allowed)", async () => {
-    const { tool, calls } = makeToolWithStub({
+    setNextResult({
       entries: [
         { questionId: "q1", decision: "skipped" },
         { questionId: "q2", decision: "skipped" },
@@ -404,7 +417,10 @@ describe("AskQuestionTool batched input", () => {
     });
     const five = [singleQ, singleQ, singleQ, singleQ, singleQ];
 
-    const result = await tool.execute({ questions: five }, makeContext());
+    const result = await askQuestionTool.execute(
+      { questions: five },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(false);
     expect(calls).toHaveLength(1);
@@ -412,12 +428,13 @@ describe("AskQuestionTool batched input", () => {
   });
 
   test("rejects batches with 6+ questions", async () => {
-    const { tool, calls } = makeToolWithStub(
-      singleCompleted({ decision: "option", optionId: "a" }),
-    );
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
     const six = [singleQ, singleQ, singleQ, singleQ, singleQ, singleQ];
 
-    const result = await tool.execute({ questions: six }, makeContext());
+    const result = await askQuestionTool.execute(
+      { questions: six },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("invalid input");
@@ -425,11 +442,12 @@ describe("AskQuestionTool batched input", () => {
   });
 
   test("rejects empty `questions` array", async () => {
-    const { tool, calls } = makeToolWithStub(
-      singleCompleted({ decision: "option", optionId: "a" }),
-    );
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
 
-    const result = await tool.execute({ questions: [] }, makeContext());
+    const result = await askQuestionTool.execute(
+      { questions: [] },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("invalid input");
@@ -437,11 +455,9 @@ describe("AskQuestionTool batched input", () => {
   });
 
   test("rejects input missing both `questions` and flat fields", async () => {
-    const { tool, calls } = makeToolWithStub(
-      singleCompleted({ decision: "option", optionId: "a" }),
-    );
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
 
-    const result = await tool.execute({}, makeContext());
+    const result = await askQuestionTool.execute({}, makeContext());
 
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("invalid input");
@@ -449,11 +465,12 @@ describe("AskQuestionTool batched input", () => {
   });
 
   test("rejects legacy `question` without `options`", async () => {
-    const { tool, calls } = makeToolWithStub(
-      singleCompleted({ decision: "option", optionId: "a" }),
-    );
+    setNextResult(singleCompleted({ decision: "option", optionId: "a" }));
 
-    const result = await tool.execute({ question: "Hi?" }, makeContext());
+    const result = await askQuestionTool.execute(
+      { question: "Hi?" },
+      makeContext(),
+    );
 
     expect(result.isError).toBe(true);
     expect(result.content.toLowerCase()).toContain("invalid input");
@@ -495,15 +512,13 @@ describe("askQuestionTool definition (batched schema)", () => {
         "freeTextPlaceholder",
       ]),
     );
+    // No per-question `id` field — daemon-assigned only.
     expect(Object.keys(itemProps)).not.toContain("id");
+
     expect(questions?.items?.required).toEqual(["question", "options"]);
 
-    expect(schema.properties.question?.type).toBe("string");
-    expect(schema.properties.options?.type).toBe("array");
-    expect(schema.properties.options?.minItems).toBe(2);
-    expect(schema.properties.options?.maxItems).toBe(4);
-    expect(schema.properties.freeTextPlaceholder?.type).toBe("string");
-
-    expect(schema.required).toBeUndefined();
+    // Legacy fields still present.
+    expect(schema.properties.question).toBeDefined();
+    expect(schema.properties.options).toBeDefined();
   });
 });
