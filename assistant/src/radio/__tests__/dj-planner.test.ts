@@ -120,12 +120,16 @@ mock.module("../../tools/network/web-fetch.js", () => ({
   },
 }));
 
-mock.module("../../util/platform.js", () => ({
-  getWorkspaceDir: () => "/tmp/vellum-workspace",
-}));
-
 const { planRadioDjBreak, RadioDjPlannerError } =
   await import("../dj-planner.js");
+
+function planRadioDjBreakForTest(
+  params: Parameters<typeof planRadioDjBreak>[0],
+) {
+  return planRadioDjBreak(params, {
+    getWorkspaceDir: () => "/tmp/vellum-workspace",
+  });
+}
 
 function providerResponse(content: ContentBlock[]): ProviderResponse {
   return {
@@ -194,7 +198,7 @@ describe("planRadioDjBreak", () => {
       ]),
     ]);
 
-    const result = await planRadioDjBreak(baseParams());
+    const result = await planRadioDjBreakForTest(baseParams());
 
     expect(configuredProviderCallSites).toEqual(["radioDj"]);
     expect(result.nextTrackId).toBe("buffer-bloom");
@@ -232,7 +236,7 @@ describe("planRadioDjBreak", () => {
       ]),
     ]);
 
-    await expect(planRadioDjBreak(baseParams())).rejects.toMatchObject({
+    await expect(planRadioDjBreakForTest(baseParams())).rejects.toMatchObject({
       name: "RadioDjPlannerError",
       code: "invalid_track_id",
     });
@@ -244,7 +248,7 @@ describe("planRadioDjBreak", () => {
     ]);
 
     try {
-      await planRadioDjBreak(baseParams());
+      await planRadioDjBreakForTest(baseParams());
       throw new Error("Expected malformed JSON to be rejected");
     } catch (error) {
       expect(error).toBeInstanceOf(RadioDjPlannerError);
@@ -290,7 +294,7 @@ describe("planRadioDjBreak", () => {
       ]),
     ]);
 
-    const result = await planRadioDjBreak(baseParams(controller.signal));
+    const result = await planRadioDjBreakForTest(baseParams(controller.signal));
 
     expect(result.nextTrackId).toBe("buffer-bloom");
     expect(webSearchExecuteCalls).toHaveLength(1);
@@ -357,7 +361,7 @@ describe("planRadioDjBreak", () => {
       ]),
     ]);
 
-    const result = await planRadioDjBreak(baseParams());
+    const result = await planRadioDjBreakForTest(baseParams());
 
     expect(result.nextTrackId).toBe("buffer-bloom");
     expect(webFetchExecuteCalls).toHaveLength(0);
@@ -413,7 +417,7 @@ describe("planRadioDjBreak", () => {
       ]),
     ]);
 
-    const result = await planRadioDjBreak(baseParams());
+    const result = await planRadioDjBreakForTest(baseParams());
 
     expect(result.nextTrackId).toBe("buffer-bloom");
     expect(webSearchExecuteCalls).toHaveLength(0);
