@@ -102,18 +102,26 @@ export const extractDeepLinkFromArgv = (argv: readonly string[]): string | null 
 
 const pending: DeepLink[] = [];
 
-// Flips on the first `drain` call. After that, the renderer is
-// known to be subscribed (subscribe-then-drain is the wrapper's
-// contract), so live links go via broadcast only — buffering them
-// would cause a renderer reload / second drainer to replay
-// already-handled links and duplicate user-visible actions
-// (send-twice, navigate-twice). Caveat: a deep link arriving in
-// the narrow window between a renderer hard-navigate (e.g. logout)
-// and the new renderer's drain is lost. That's the accepted
-// tradeoff — the duplicate-action bug is worse than the
-// during-reload lost-link case (which is rare in this app and
-// recoverable by re-clicking).
-let drained = false;
+// Active renderer subscribers. Renderer calls `vellum:deepLinks:subscribe`
+// when its `onLink` handler is registered and `vellum:deepLinks:unsubscribe`
+// on cleanup. Buffer when count is zero (no subscribers to receive the
+// broadcast); broadcast-only when count > 0.
+//
+// This is what closes both the Codex P2 (live-link replay on renderer
+// reload — broadcast doesn't enter the buffer when a subscriber is
+// listening) AND the logout-relogin gap (after the renderer unmounts,
+// links arriving during the auth flip land in the buffer and the next
+// renderer drains them on mount). A "drained once, never buffer
+// again" flag is wrong because it conflates "has ever drained" with
+// "is subscribed right now."
+//
+// Residual race (sub-microsecond, not realistically triggerable by
+// user action): a link arriving between the renderer's
+// `ipcRenderer.on` registration and main's processing of the
+// `subscribe` IPC could be buffered AND broadcast. A single
+// renderer-side dedup would catch this if it ever bit; today the
+// timing makes it theoretical.
+let subscriberCount = 0;
 
 const broadcast = (link: DeepLink): void => {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -123,13 +131,13 @@ const broadcast = (link: DeepLink): void => {
 };
 
 /**
- * Main entry — parse, buffer-if-pre-drain, broadcast. Internal to
- * this module; exposed via the `open-url` / `second-instance` event
- * handlers and exported for tests.
+ * Main entry — parse, buffer-if-no-subscribers, broadcast. Internal
+ * to this module; exposed via the `open-url` / `second-instance`
+ * event handlers and exported for tests.
  */
 export const handleDeepLink = (input: string): void => {
   const link = parseVellumUrl(input);
-  if (!drained) pending.push(link);
+  if (subscriberCount === 0) pending.push(link);
   broadcast(link);
 };
 
@@ -159,14 +167,23 @@ export const installDeepLinks = (): void => {
     });
   });
 
-  // Renderer drains on mount. Returns AND clears the buffer, then
-  // switches to live-only mode (see `drained` comment above): future
-  // links broadcast without buffering, so a renderer reload or
-  // second drainer can't replay already-delivered events.
+  // Renderer drains on mount. Returns AND clears whatever's in the
+  // buffer. The next link's `handleDeepLink` decision (buffer vs
+  // broadcast-only) is governed by `subscriberCount`, not by
+  // whether drain has been called.
   ipcMain.handle("vellum:deepLinks:drain", (): DeepLink[] => {
-    const out = pending.splice(0, pending.length);
-    drained = true;
-    return out;
+    return pending.splice(0, pending.length);
+  });
+
+  // Subscriber tracking — see the `subscriberCount` comment above
+  // for the model. `ipcMain.on` (fire-and-forget) is sufficient —
+  // these are accounting messages, no return value expected. The
+  // preload sends them inside `onLink` registration / cleanup.
+  ipcMain.on("vellum:deepLinks:subscribe", () => {
+    subscriberCount++;
+  });
+  ipcMain.on("vellum:deepLinks:unsubscribe", () => {
+    subscriberCount = Math.max(0, subscriberCount - 1);
   });
 };
 
@@ -174,6 +191,6 @@ export const installDeepLinks = (): void => {
 // uses `installDeepLinks` instead.
 export const __resetForTesting = (): void => {
   installed = false;
-  drained = false;
+  subscriberCount = 0;
   pending.length = 0;
 };

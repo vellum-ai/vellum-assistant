@@ -215,8 +215,14 @@ const bridge: VellumBridge = {
         callback(payload);
       };
       ipcRenderer.on("vellum:deepLinks:event", handler);
+      // Tell main we're listening so it switches from "buffer" mode
+      // to "broadcast only" mode. Without this, every live link
+      // would also enter the buffer and be replayed on a future
+      // drain (renderer reload, logout-relogin).
+      ipcRenderer.send("vellum:deepLinks:subscribe");
       return () => {
         ipcRenderer.off("vellum:deepLinks:event", handler);
+        ipcRenderer.send("vellum:deepLinks:unsubscribe");
       };
     },
   },

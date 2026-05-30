@@ -12,6 +12,10 @@ const setAsDefaultProtocolClientMock = mock((_scheme: string) => true);
 const ipcHandleMock = mock(
   (_channel: string, _handler: (...args: unknown[]) => unknown) => undefined,
 );
+const ipcOnListeners = new Map<string, Listener>();
+const ipcOnMock = mock((event: string, listener: Listener) => {
+  ipcOnListeners.set(event, listener);
+});
 let windows: Array<{
   isDestroyed: () => boolean;
   webContents: { send: ReturnType<typeof mock> };
@@ -22,7 +26,7 @@ mock.module("electron", () => ({
     on: appOnMock,
     setAsDefaultProtocolClient: setAsDefaultProtocolClientMock,
   },
-  ipcMain: { handle: ipcHandleMock },
+  ipcMain: { handle: ipcHandleMock, on: ipcOnMock },
   BrowserWindow: { getAllWindows: () => windows },
 }));
 
@@ -42,9 +46,11 @@ const makeWindow = (destroyed = false) => ({
 beforeEach(() => {
   __resetForTesting();
   appListeners.clear();
+  ipcOnListeners.clear();
   appOnMock.mockClear();
   setAsDefaultProtocolClientMock.mockClear();
   ipcHandleMock.mockClear();
+  ipcOnMock.mockClear();
   windows = [];
 });
 
@@ -216,36 +222,72 @@ describe("installDeepLinks", () => {
     expect(drainHandler()).toEqual([]);
   });
 
-  test("post-drain live links do NOT enter the buffer (no replay on renderer reload)", () => {
+  test("with a subscriber present, live links broadcast but do NOT enter the buffer (no replay on renderer reload)", () => {
     installDeepLinks();
     const drainHandler = ipcHandleMock.mock.calls.find(
       (c) => c[0] === "vellum:deepLinks:drain",
     )![1] as () => unknown[];
 
-    // Backlog before renderer is ready — buffered + broadcast.
+    // Backlog before any subscriber.
     handleDeepLink("vellum://send?message=backlog");
 
-    // Renderer mounts, subscribes, drains the backlog. After this
-    // call we're in live-only mode.
+    // Renderer mounts: subscribes, drains.
+    ipcOnListeners.get("vellum:deepLinks:subscribe")?.();
     expect(drainHandler()).toEqual([{ kind: "send", message: "backlog" }]);
 
-    // Live link arrives. It broadcasts (the renderer handles it via
-    // its live subscription) but must NOT be buffered — a renderer
-    // reload + second drain would otherwise replay it and double-
-    // dispatch the user-visible action.
+    // Live link arrives while subscribed — broadcasts only.
     handleDeepLink("vellum://thread/live");
 
-    // Simulating a renderer hard-navigate: the new renderer mounts,
-    // subscribes, drains again. Buffer must be empty.
+    // Renderer hard-navigates: unsubscribe, then a new renderer
+    // mounts and drains. The live link must NOT be replayed.
+    ipcOnListeners.get("vellum:deepLinks:unsubscribe")?.();
+    ipcOnListeners.get("vellum:deepLinks:subscribe")?.();
     expect(drainHandler()).toEqual([]);
+  });
+
+  test("logout-relogin: link arriving while unsubscribed lands in the buffer for the next subscriber", () => {
+    installDeepLinks();
+    const drainHandler = ipcHandleMock.mock.calls.find(
+      (c) => c[0] === "vellum:deepLinks:drain",
+    )![1] as () => unknown[];
+
+    // Renderer mounted and drained the initial empty backlog.
+    ipcOnListeners.get("vellum:deepLinks:subscribe")?.();
+    expect(drainHandler()).toEqual([]);
+
+    // User logs out — renderer unmounts.
+    ipcOnListeners.get("vellum:deepLinks:unsubscribe")?.();
+
+    // A deep link arrives during the auth flow. No subscribers,
+    // so it must be buffered.
+    handleDeepLink("vellum://thread/post-logout");
+
+    // User logs in — renderer mounts again, subscribes, drains.
+    ipcOnListeners.get("vellum:deepLinks:subscribe")?.();
+    expect(drainHandler()).toEqual([
+      { kind: "openThread", threadId: "post-logout" },
+    ]);
+  });
+
+  test("subscribe/unsubscribe IPC accounting is reference-counted and never goes negative", () => {
+    installDeepLinks();
+    const drainHandler = ipcHandleMock.mock.calls.find(
+      (c) => c[0] === "vellum:deepLinks:drain",
+    )![1] as () => unknown[];
+
+    // Unsubscribe before any subscribe — should clamp to 0, not -1.
+    ipcOnListeners.get("vellum:deepLinks:unsubscribe")?.();
+    ipcOnListeners.get("vellum:deepLinks:unsubscribe")?.();
+
+    handleDeepLink("vellum://send?message=should-buffer");
+    expect(drainHandler()).toEqual([
+      { kind: "send", message: "should-buffer" },
+    ]);
   });
 
   test("post-drain live links still broadcast (live subscribers still get them)", () => {
     installDeepLinks();
-    const drainHandler = ipcHandleMock.mock.calls.find(
-      (c) => c[0] === "vellum:deepLinks:drain",
-    )![1] as () => unknown[];
-    drainHandler(); // switch to live-only mode
+    ipcOnListeners.get("vellum:deepLinks:subscribe")?.();
 
     const w = makeWindow();
     windows = [w];
