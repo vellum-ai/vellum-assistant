@@ -65,7 +65,19 @@ const PRICING_TABLE: Record<string, ModelRow> = {
   "anthropic:claude-sonnet-4-5": { inputPer1M: 3, outputPer1M: 15 },
   "anthropic:claude-haiku-4-5": { inputPer1M: 1, outputPer1M: 5 },
 
-  // OpenAI — published rates, USD per 1M tokens.
+  // OpenAI — published rates, USD per 1M tokens. The gpt-5.x rows
+  // mirror the base (non-long-context) tier in
+  // `assistant/src/providers/model-catalog.ts`. Evals doesn't model
+  // OpenAI's long-context tier multiplier yet — same simplification
+  // we make for Anthropic cache tiers (see the file-level docstring).
+  // The catalog is the source of truth; drift is acceptable until a
+  // programmatic sync exists.
+  "openai:gpt-5.5-pro": { inputPer1M: 30.0, outputPer1M: 180.0 },
+  "openai:gpt-5.5": { inputPer1M: 5.0, outputPer1M: 30.0 },
+  "openai:gpt-5.4": { inputPer1M: 2.5, outputPer1M: 15.0 },
+  "openai:gpt-5.4-mini": { inputPer1M: 0.75, outputPer1M: 4.5 },
+  "openai:gpt-5.4-nano": { inputPer1M: 0.2, outputPer1M: 1.25 },
+  "openai:gpt-5.2": { inputPer1M: 1.75, outputPer1M: 14.0 },
   "openai:gpt-4o": { inputPer1M: 2.5, outputPer1M: 10 },
   "openai:gpt-4o-mini": { inputPer1M: 0.15, outputPer1M: 0.6 },
   "openai:gpt-4.1": { inputPer1M: 2.0, outputPer1M: 8.0 },

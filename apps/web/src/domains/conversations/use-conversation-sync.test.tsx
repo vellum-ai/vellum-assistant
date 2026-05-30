@@ -6,6 +6,8 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import {
   conversationGroupsQueryKey,
 } from "@/domains/conversations/conversation-queries";
+import type { AssistantEvent } from "@/types/event-types";
+import type { Conversation } from "@/types/conversation-types";
 import { conversationsQueryKey } from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
@@ -290,5 +292,28 @@ describe("useConversationSync", () => {
     emitOpened("fresh");
     await Promise.resolve();
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  test("patches conversation title in cache on conversation_title_updated", async () => {
+    const queryClient = freshQueryClient();
+    queryClient.setQueryData<Conversation[]>(
+      conversationsQueryKey("asst-1"),
+      [{ conversationId: "conv-1", title: "Old Title" } as Conversation],
+    );
+    renderHook(() => useConversationSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    useEventBusStore.getState().publish("sse.event", {
+      type: "conversation_title_updated",
+      conversationId: "conv-1",
+      title: "New Title",
+    } as unknown as AssistantEvent);
+    await waitFor(() => {
+      const cached = queryClient.getQueryData<Conversation[]>(
+        conversationsQueryKey("asst-1"),
+      );
+      const conv = cached?.find((c) => c.conversationId === "conv-1");
+      expect(conv?.title).toBe("New Title");
+    });
   });
 });

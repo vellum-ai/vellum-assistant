@@ -862,11 +862,8 @@ export async function wakeAgentForOpportunity(
     try {
       let updatedHistory: Message[];
       try {
-        updatedHistory = await target.agentLoop.run(
-          runInput,
-          onEvent,
-          undefined, // no external abort signal
-          `wake:${source}`,
+        updatedHistory = await target.agentLoop.run(runInput, onEvent, {
+          requestId: `wake:${source}`,
           onCheckpoint,
           // Route through the caller-supplied call site (defaults to
           // `mainAgent` so a normal user-turn wake shares the user's chat
@@ -875,10 +872,10 @@ export async function wakeAgentForOpportunity(
           // short-circuit and silently drop both per-callsite config and the
           // pinned `overrideProfile` below.
           callSite,
-          wakeTurnContext,
+          turnContext: wakeTurnContext,
           overrideProfile,
-          effectiveContextWindow.maxInputTokens,
-        );
+          effectiveMaxInputTokens: effectiveContextWindow.maxInputTokens,
+        });
       } catch (err) {
         // Capture the error for post-finally logging, then short-circuit
         // the rest of the try body — no tail to push/persist when the

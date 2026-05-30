@@ -3,12 +3,109 @@ import { describe, expect, it } from "bun:test";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleAssistantTextDelta,
+  handleAssistantTurnStart,
   handleAssistantActivityState,
   handleMessageComplete,
   handleGenerationHandoff,
   handleGenerationCancelled,
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+
+describe("handleAssistantTurnStart", () => {
+  it("seeds currentAssistantMessageIdRef from the event's messageId", () => {
+    const ctx = makeCtx();
+    handleAssistantTurnStart(
+      { type: "assistant_turn_start", messageId: "msg-A" },
+      ctx,
+    );
+    expect(ctx.currentAssistantMessageIdRef.current).toBe("msg-A");
+  });
+
+  it("flips an existing reconcile-pulled row to isStreaming", () => {
+    // Screenshot scenario: reconcile poll pulled in the daemon's reserved
+    // row (empty content, no `isStreaming` flag) before SSE delivered
+    // `assistant_turn_start`. The handler must flip it to streaming so
+    // the subsequent delta doesn't open a duplicate bubble.
+    const ctx = makeCtx();
+    handleAssistantTurnStart(
+      { type: "assistant_turn_start", messageId: "msg-X" },
+      ctx,
+    );
+    expect(ctx.setMessages).toHaveBeenCalled();
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
+      .mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
+
+    const prev: DisplayMessage[] = [
+      {
+        id: "user-1",
+        role: "user",
+        content: "hi",
+        timestamp: 1,
+      } as DisplayMessage,
+      {
+        id: "msg-X",
+        role: "assistant",
+        content: "",
+        textSegments: [],
+        contentOrder: [],
+        timestamp: 2,
+      } as DisplayMessage,
+    ];
+    const next = updater(prev);
+    expect(next).toHaveLength(2);
+    expect(next[1]!.isStreaming).toBe(true);
+    expect(next[1]!.id).toBe("msg-X");
+  });
+
+  it("is a no-op on messages when no row matches the messageId", () => {
+    // Common case: SSE strictly precedes reconcile, so the reserved row
+    // hasn't been pulled in yet. The handler stamps the ref but leaves
+    // the array referentially identical.
+    const ctx = makeCtx();
+    handleAssistantTurnStart(
+      { type: "assistant_turn_start", messageId: "msg-Y" },
+      ctx,
+    );
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
+      .mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
+
+    const prev: DisplayMessage[] = [
+      {
+        id: "user-1",
+        role: "user",
+        content: "hi",
+        timestamp: 1,
+      } as DisplayMessage,
+    ];
+    const next = updater(prev);
+    expect(next).toBe(prev);
+  });
+
+  it("does not re-touch a row that is already streaming", () => {
+    const ctx = makeCtx();
+    handleAssistantTurnStart(
+      { type: "assistant_turn_start", messageId: "msg-Z" },
+      ctx,
+    );
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
+      .mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
+
+    const prev: DisplayMessage[] = [
+      {
+        id: "msg-Z",
+        role: "assistant",
+        content: "Hello",
+        isStreaming: true,
+        textSegments: [{ type: "text", content: "Hello" }],
+        contentOrder: [{ type: "text", id: "0" }],
+        timestamp: 1,
+      } as DisplayMessage,
+    ];
+    const next = updater(prev);
+    expect(next).toBe(prev);
+  });
+});
 
 describe("handleAssistantTextDelta", () => {
   it("cancels reconciliation and dispatches ASSISTANT_TEXT_DELTA", () => {

@@ -66,16 +66,17 @@ src/
   routes.tsx                 # route tree (createBrowserRouter)
   stores/                    # app-level Zustand stores (cross-domain)
   domains/                   # business domain modules
+    chat/                    # chat feature (turn, subagent, interaction stores)
     messages/                # message lifecycle
     conversations/           # conversation CRUD, grouping, selection
-    streaming/               # SSE transport, event parsing
-    interactions/            # user-facing prompts
     voice/                   # STT, TTS, PTT
     ...
   hooks/                     # cross-domain shared hooks
   utils/                     # cross-domain shared utilities (pure functions)
   types/                     # cross-domain shared types
   lib/                       # configured third-party wrappers (API client, Sentry, CSRF)
+    streaming/               #   SSE transport, event parsing, debug tracking
+    diagnostics.ts            #   session diagnostics ring buffer
   runtime/                   # framework adapters, platform bridges
   components/                # cross-domain shared UI
   generated/                 # auto-generated code (HeyAPI, catalogs)

@@ -1,5 +1,7 @@
 // Workspace file, identity, and tool permission types.
 
+import type { IdentityChangedEvent } from "../../api/events/identity-changed.js";
+
 // === Client → Server ===
 
 export interface WorkspaceFilesListRequest {
@@ -117,15 +119,8 @@ export interface ToolNamesListResponse {
   schemas?: Record<string, ToolInputSchema>;
 }
 
-/** Server push — broadcast when IDENTITY.md changes on disk. */
-export interface IdentityChanged {
-  type: "identity_changed";
-  name: string;
-  role: string;
-  personality: string;
-  emoji: string;
-  home: string;
-}
+// `identity_changed` is now the canonical `IdentityChangedEvent` defined in
+// `assistant/src/api/events/identity-changed.ts` and imported above.
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
@@ -142,4 +137,4 @@ export type _WorkspaceServerMessages =
   | IdentityGetResponse
   | ToolPermissionSimulateResponse
   | ToolNamesListResponse
-  | IdentityChanged;
+  | IdentityChangedEvent;

@@ -9,10 +9,7 @@
 import { z } from "zod";
 
 import { loadFeatureFlagDefaults } from "../feature-flag-defaults.js";
-import {
-  hasRemoteFeatureFlagSnapshot,
-  readRemoteFeatureFlags,
-} from "../feature-flag-remote-store.js";
+import { readRemoteFeatureFlags } from "../feature-flag-remote-store.js";
 import { readPersistedFeatureFlags } from "../feature-flag-store.js";
 import type { IpcRoute } from "./server.js";
 
@@ -22,23 +19,22 @@ const GetFeatureFlagParamsSchema = z.object({
 
 /**
  * Compute the merged feature flag state: defaults < remote < persisted.
- * Once a remote snapshot exists, declared flags missing from it fail closed.
  * Returns a `Record<string, boolean>` keyed by flag name.
  */
 export function getMergedFeatureFlags(): Record<string, boolean> {
   const defaults = loadFeatureFlagDefaults();
   const persisted = readPersistedFeatureFlags();
   const remote = readRemoteFeatureFlags();
-  const hasRemoteSnapshot = hasRemoteFeatureFlagSnapshot();
 
   const result: Record<string, boolean> = {};
   for (const [key, def] of Object.entries(defaults)) {
     const persistedValue = persisted[key];
+    const remoteValue = remote[key];
     result[key] =
       persistedValue !== undefined
         ? persistedValue
-        : hasRemoteSnapshot
-          ? (remote[key] ?? false)
+        : remoteValue !== undefined
+          ? remoteValue
           : def.defaultEnabled;
   }
   return result;

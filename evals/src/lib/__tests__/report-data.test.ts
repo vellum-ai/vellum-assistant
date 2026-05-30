@@ -11,6 +11,7 @@ import {
   readMetricResults,
   readRunMetadata,
   runArtifacts,
+  writeIngestAssistantEvents,
   writeMetricResults,
   writeRunMetadata,
   writeUsage,
@@ -59,6 +60,67 @@ describe("report data", () => {
       sessionLabel: "smoke",
     });
     expect(await readMetricResults(runId)).toHaveLength(2);
+  });
+
+  test("readReportRun surfaces ingest-turn events separately from question-turn events", async () => {
+    // V2 contract: `assistant-events.json` and `ingest-assistant-events.json`
+    // are siblings; the report exposes them as two distinct arrays so the
+    // memory-formation work doesn't dilute the "agent's answer to the
+    // question" view (and vice versa).
+    const runId = await freshRunId("ingest-events");
+    const artifacts = runArtifacts(runId);
+    await writeRunMetadata(runId, {
+      runId,
+      sessionId: `session-${runId}`,
+      profileId: "p1",
+      testId: "t1",
+      status: "completed",
+      startedAt: "2026-05-15T12:00:00.000Z",
+      artifactDir: artifacts.runDir,
+    });
+    await appendAssistantEvents(runId, [
+      {
+        message: { type: "assistant_text_delta", text: "answer" },
+        emittedAt: "2026-05-15T12:00:02.000Z",
+      },
+    ]);
+    await writeIngestAssistantEvents(runId, [
+      {
+        message: { type: "assistant_text_delta", text: "memory-formation" },
+        emittedAt: "2026-05-15T12:00:01.000Z",
+      },
+    ]);
+
+    const detail = await readReportRun(runId);
+    expect(detail.assistantEvents).toHaveLength(1);
+    expect(detail.assistantEvents[0]?.message).toMatchObject({
+      text: "answer",
+    });
+    expect(detail.ingestAssistantEvents).toHaveLength(1);
+    expect(detail.ingestAssistantEvents[0]?.message).toMatchObject({
+      text: "memory-formation",
+    });
+  });
+
+  test("readReportRun defaults ingestAssistantEvents to [] for legacy V1-shaped runs", async () => {
+    // Older runs predate `ingest-assistant-events.json`. The reader must
+    // not throw — it returns the empty default that
+    // `ensureRunArtifacts` already writes for new runs.
+    const runId = await freshRunId("ingest-legacy");
+    const artifacts = runArtifacts(runId);
+    await writeRunMetadata(runId, {
+      runId,
+      sessionId: `session-${runId}`,
+      profileId: "p1",
+      testId: "t1",
+      status: "completed",
+      startedAt: "2026-05-15T12:00:00.000Z",
+      artifactDir: artifacts.runDir,
+    });
+    await rm(artifacts.ingestAssistantEventsPath, { force: true });
+
+    const detail = await readReportRun(runId);
+    expect(detail.ingestAssistantEvents).toEqual([]);
   });
 
   test("readReportRun returns persisted progress events", async () => {

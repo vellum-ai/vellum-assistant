@@ -9,6 +9,7 @@
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
+import { findConversation } from "../../daemon/conversation-store.js";
 import { clearAllConversations as clearAllActive } from "../../daemon/handlers/conversations.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import { ipcCall as ipcCallGateway } from "../../ipc/gateway-client.js";
@@ -44,6 +45,10 @@ function handleListCli({ body = {} }: RouteHandlerArgs) {
       id: c.id,
       title: c.title,
       updatedAt: c.updatedAt,
+      // `isProcessing` mirrors `Conversation.isProcessing()` from the
+      // in-memory daemon store — true when the agent loop is mid-turn.
+      // Rows not currently in memory (cold / evicted) report `false`.
+      isProcessing: findConversation(c.id)?.isProcessing() ?? false,
     })),
   };
 }
@@ -79,7 +84,6 @@ async function handleCreateCli({ body = {} }: RouteHandlerArgs) {
       conversation.id,
       message.role,
       textContentJson(message.content),
-      undefined,
       { skipIndexing: true },
     );
   }
@@ -311,6 +315,7 @@ export const ROUTES: RouteDefinition[] = [
           id: z.string(),
           title: z.string().nullable(),
           updatedAt: z.number(),
+          isProcessing: z.boolean(),
         }),
       ),
     }),

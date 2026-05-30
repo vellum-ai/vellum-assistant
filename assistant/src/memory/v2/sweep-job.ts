@@ -154,17 +154,14 @@ export async function memoryV2SweepJob(
       `## existingBuffer\n\n${existingBuffer || "(empty)"}\n\n` +
       `## recentMessages\n\n${recentText}`;
 
-    const response = await provider.sendMessage(
-      [userMessage(userText)],
-      [SWEEP_TOOL],
+    const response = await provider.sendMessage([userMessage(userText)], {
+      tools: [SWEEP_TOOL],
       systemPrompt,
-      {
-        config: {
-          callSite: "memoryV2Sweep" as const,
-          tool_choice: { type: "tool" as const, name: SWEEP_TOOL_NAME },
-        },
+      config: {
+        callSite: "memoryV2Sweep" as const,
+        tool_choice: { type: "tool" as const, name: SWEEP_TOOL_NAME },
       },
-    );
+    });
 
     const toolBlock = extractToolUse(response);
     if (!toolBlock || toolBlock.name !== SWEEP_TOOL_NAME) {

@@ -11,7 +11,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "./types.js";
 
 const log = getLogger("provider-usage-tracking");
@@ -27,16 +26,9 @@ export class UsageTrackingProvider implements Provider {
 
   async sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
-    const response = await this.inner.sendMessage(
-      messages,
-      tools,
-      systemPrompt,
-      options,
-    );
+    const response = await this.inner.sendMessage(messages, options);
     this.recordUsage(response, options);
     return response;
   }

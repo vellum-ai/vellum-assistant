@@ -33,16 +33,14 @@ import {
   reconcileDisplayMessagesWithLatestHistory,
 } from "@/domains/chat/utils/reconcile";
 import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
-import {
-  recordChatDiagnostic,
-  summarizeDisplayMessages,
-} from "@/domains/chat/utils/diagnostics";
+import { recordDiagnostic } from "@/lib/diagnostics";
+import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
-import type { SubagentStatus } from "@/domains/chat/api/event-types";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+import type { SubagentStatus } from "@/types/interaction-ui-types";
 
 import {
   parsePendingSecretState,
@@ -179,7 +177,7 @@ export function useConversationHistory({
     const isFreshSwitch = switchResetRef.current;
     switchResetRef.current = false;
 
-    recordChatDiagnostic("history_tq_data_apply", {
+    recordDiagnostic("history_tq_data_apply", {
       assistantId,
       conversationId: activeConversationId,
       isFreshSwitch,
@@ -193,7 +191,7 @@ export function useConversationHistory({
         dismissedSurfaceIdsRef.current,
       );
 
-      recordChatDiagnostic("history_tq_set_messages", {
+      recordDiagnostic("history_tq_set_messages", {
         assistantId,
         conversationId: activeConversationId,
         isFreshSwitch,
@@ -256,7 +254,7 @@ export function useConversationHistory({
         }
       }
     } else {
-      recordChatDiagnostic("history_tq_empty", {
+      recordDiagnostic("history_tq_empty", {
         assistantId,
         conversationId: activeConversationId,
       });

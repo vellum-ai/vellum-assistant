@@ -279,17 +279,14 @@ async function identifyDuplicateGroups(
 
   const systemPrompt = `You are scanning a list of memory nodes for DUPLICATES — nodes that describe the exact same specific event or fact. Group duplicates together. Two nodes are duplicates ONLY if they describe the same underlying thing with substantially the same details. Be conservative — nodes about the same person or topic but with different details, timestamps, or context are NOT duplicates. Only include nodes that have at least one true duplicate.`;
 
-  const response = await provider.sendMessage(
-    [userMessage(listing)],
-    [DUPE_DETECT_TOOL],
+  const response = await provider.sendMessage([userMessage(listing)], {
+    tools: [DUPE_DETECT_TOOL],
     systemPrompt,
-    {
-      config: {
-        callSite: "memoryConsolidation" as const,
-        tool_choice: { type: "tool" as const, name: "report_duplicate_groups" },
-      },
+    config: {
+      callSite: "memoryConsolidation" as const,
+      tool_choice: { type: "tool" as const, name: "report_duplicate_groups" },
     },
-  );
+  });
 
   const toolBlock = extractToolUse(response);
   if (!toolBlock) return [];
@@ -458,9 +455,9 @@ async function consolidateChunk(
         "Consolidate this partition. Focus on merging duplicates and fading old memories.",
       ),
     ],
-    [CONSOLIDATE_TOOL_SCHEMA],
-    systemPrompt,
     {
+      tools: [CONSOLIDATE_TOOL_SCHEMA],
+      systemPrompt,
       config: {
         callSite: "memoryConsolidation" as const,
         tool_choice: { type: "tool" as const, name: "consolidate_diff" },

@@ -122,6 +122,7 @@ export function mapRuntimeToDisplayMessage(m: RuntimeMessage): DisplayMessage {
     role: m.role,
     content: prepared.cleanedContent,
   };
+  if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
   if (m.surfaces) msg.surfaces = m.surfaces;
   if (prepared.normalizedSegments) msg.textSegments = prepared.normalizedSegments;
   if (prepared.normalizedContentOrder) msg.contentOrder = prepared.normalizedContentOrder;

@@ -4,6 +4,7 @@
  * Do not store secrets here — use the credential store or protected/ directory.
  */
 import {
+  type Dirent,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -43,6 +44,68 @@ interface TreeEntry {
   modifiedAt: string;
 }
 
+// Total number of filesystem entries we're willing to traverse when computing
+// recursive directory sizes for a single tree listing. The budget is shared
+// across every directory in the response so a giant `repos/` checkout cannot
+// starve the request — once exhausted, remaining directories report `size:
+// null` (caller renders an unknown-size placeholder). 50k is generous for
+// typical workspaces (sounds, db, logs) while bailing fast on multi-repo
+// trees.
+const DIR_SIZE_TOTAL_ENTRY_BUDGET = 50_000;
+
+interface DirSizeBudget {
+  remaining: number;
+}
+
+/**
+ * Recursively sum the byte size of every regular file under `absPath`,
+ * sharing a single entry budget across all directories in the same listing.
+ *
+ * Returns:
+ * - the total size in bytes when the entire subtree was traversed within
+ *   budget
+ * - `null` if the shared budget was exhausted before completion (the caller
+ *   surfaces that as an unknown size in the UI)
+ *
+ * Symlinks are not followed. We rely on `withFileTypes` so we never `stat`
+ * directories purely to discover their type.
+ */
+function computeDirSize(absPath: string, budget: DirSizeBudget): number | null {
+  if (budget.remaining <= 0) return null;
+
+  let total = 0;
+  const stack: string[] = [absPath];
+
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+
+    let dirents: Dirent[];
+    try {
+      dirents = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+
+    for (const entry of dirents) {
+      if (budget.remaining <= 0) return null;
+      budget.remaining -= 1;
+
+      if (entry.isDirectory()) {
+        stack.push(join(dir, entry.name));
+      } else if (entry.isFile()) {
+        try {
+          total += statSync(join(dir, entry.name)).size;
+        } catch {
+          // unreadable file — skip, do not abort the whole computation
+        }
+      }
+      // symlinks, sockets, fifos, etc. are intentionally ignored
+    }
+  }
+
+  return total;
+}
+
 const SOUNDS_WORKSPACE_PATH = "data/sounds";
 
 function normaliseWorkspacePathForSync(path: string): string {
@@ -76,6 +139,7 @@ function publishSoundsConfigUpdatedForPaths(
 function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
   const requestedPath = queryParams?.path ?? "";
   const showHidden = queryParams?.showHidden === "true";
+  const includeDirSizes = queryParams?.includeDirSizes === "true";
   const resolved = resolveWorkspacePath(requestedPath, {
     allowHidden: showHidden,
   });
@@ -86,6 +150,12 @@ function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
   try {
     const dirents = readdirSync(resolved, { withFileTypes: true });
     const workspaceDir = getWorkspaceDir();
+
+    // Shared budget across every directory in this listing. When opted out,
+    // we never construct one, so directories report `size: null` as before.
+    const dirSizeBudget: DirSizeBudget | undefined = includeDirSizes
+      ? { remaining: DIR_SIZE_TOTAL_ENTRY_BUDGET }
+      : undefined;
 
     const entries: TreeEntry[] = [];
     for (const entry of dirents) {
@@ -103,11 +173,14 @@ function handleWorkspaceTree({ queryParams }: RouteHandlerArgs) {
       const isDir = stats.isDirectory();
       const relativePath = fullPath.slice(workspaceDir.length + 1);
 
+      const dirSize =
+        isDir && dirSizeBudget ? computeDirSize(fullPath, dirSizeBudget) : null;
+
       entries.push({
         name: entry.name,
         path: relativePath,
         type: isDir ? "directory" : "file",
-        size: isDir ? null : stats.size,
+        size: isDir ? dirSize : stats.size,
         mimeType: isDir ? null : Bun.file(fullPath).type,
         modifiedAt: stats.mtime.toISOString(),
       });
@@ -432,6 +505,11 @@ export const ROUTES: RouteDefinition[] = [
       {
         name: "showHidden",
         description: "Include dotfiles (true/false)",
+      },
+      {
+        name: "includeDirSizes",
+        description:
+          "Compute recursive byte size for each directory entry (true/false). Budget-bounded — large subtrees may return size: null.",
       },
     ],
     responseBody: z.object({

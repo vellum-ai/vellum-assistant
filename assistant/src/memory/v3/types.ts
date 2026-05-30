@@ -1,65 +1,46 @@
-// ---------------------------------------------------------------------------
-// Memory v3 — Shared types
-// ---------------------------------------------------------------------------
-//
-// Types shared across the v3 memory subsystem. Like v2, every value here
-// crosses a serialization boundary — YAML frontmatter on disk — so it ships as
-// a Zod schema with an inferred TypeScript type so runtime validation runs
-// wherever a node is read.
-//
-// This file must not import from any other `memory/v3/*` module — it is the
-// leaf of the v3 dependency graph.
-
-import { z } from "zod";
-
-// ---------------------------------------------------------------------------
-// Tree nodes
-// ---------------------------------------------------------------------------
+export type LeafPath = string; // dot- or slash-pathed taxonomy node
+export type Slug = string;
 
 /**
- * YAML frontmatter at the top of a v3 tree node (`memory/tree/<id>.md`).
- *
- * The v3 tree is a DAG *overlay* over the existing flat `memory/concepts/`
- * pages. A node organizes a region of the graph: its markdown body is the
- * node's full self-description and `children` is the list of outgoing edges.
- *
- * `children` is the canonical, ordered list of child *references*. Each entry
- * is either:
- *   - `"page:<page-slug>"` — a leaf concept page (canonical content stays in
- *     `memory/concepts/<page-slug>.md`, shared and untouched by v3), or
- *   - `"node:<node-id>"` — a sub-node in the v3 tree.
- *
- * This reference list IS the DAG edge — it is the portable replacement for the
- * filesystem symlinks an earlier design would have used. A page or node may be
- * referenced by more than one parent (hence DAG, not tree).
- *
- * `routing_hints` is a thin, hand-written line of cross-branch disambiguation
- * — e.g. "for *work* relationships see people/colleagues, not this node".
- * Kept deliberately small so it stays cheap to inject during routing.
- *
- * `summary` is the node's self-description headline (1-line); the markdown body
- * is the full self-description. Optional so a freshly authored node with only a
- * body still parses.
+ * Injection-block id for the v3 live `<memory>` block. Shared between the
+ * producer (the v3 injector in `shadow-plugin.ts`) and the v2-suppression
+ * consumer (`conversation-runtime-assembly.ts`), which keys off this id to
+ * detect that v3 actually produced a block this turn. Keeping it in one place
+ * makes a rename a compile error on both sides instead of a silent
+ * suppression bypass.
  */
-export const TreeNodeFrontmatterSchema = z
-  .object({
-    children: z.array(z.string()).default([]),
-    routing_hints: z.string().optional(),
-    summary: z.string().optional(),
-  })
-  .strict();
+export const MEMORY_V3_BLOCK_ID = "memory-v3" as const;
 
-export type TreeNodeFrontmatter = z.infer<typeof TreeNodeFrontmatterSchema>;
+export interface LeafFrontmatter {
+  path: LeafPath;
+  in_core: boolean;
+}
 
-/**
- * A single tree node on disk. The id is the relative path from
- * `memory/tree/` minus `.md`, using forward slashes — so `people` and
- * `people/colleagues` are both valid ids. The id is the stable identity used
- * in `children` references (`node:<id>`) and is the portable node handle a
- * future data-migration authors by hand.
- */
-export type TreeNode = {
-  id: string;
-  frontmatter: TreeNodeFrontmatter;
-  body: string;
-};
+export interface LeafNode {
+  path: LeafPath;
+  frontmatter: LeafFrontmatter;
+  description: string;
+  members: Slug[];
+  domain: string;
+}
+
+export interface LeafTree {
+  leaves: Map<LeafPath, LeafNode>;
+  byPage: Map<Slug, LeafPath[]>;
+}
+
+export interface WorkingSetEntry {
+  slug: Slug;
+  selectedAtTurn: number;
+  pinned: boolean;
+  lastSeenTurn: number;
+}
+
+export interface TurnContext {
+  conversationId: string;
+  turnNumber: number;
+  currentMessage: string;
+  recentContext: string;
+}
+
+export type SelectionSource = "l1+l2" | "core+l2" | "needle" | "carry-forward";

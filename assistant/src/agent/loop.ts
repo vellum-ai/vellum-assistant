@@ -378,6 +378,44 @@ export interface ResolvedSystemPrompt {
   model?: string;
 }
 
+export interface AgentLoopRunOptions {
+  signal?: AbortSignal;
+  requestId?: string;
+  onCheckpoint?: (
+    checkpoint: CheckpointInfo,
+  ) => CheckpointDecision | Promise<CheckpointDecision>;
+  callSite?: LLMCallSite;
+  /**
+   * Per-turn context supplied by the orchestrator. Every pipeline
+   * invocation inside the loop clones from this value (overwriting only
+   * `turnIndex`/`requestId`) so middleware sees the real conversation
+   * identity, trust class, and `contextWindowManager` rather than the
+   * `"agent-loop"` sentinel used when the loop is instantiated standalone
+   * in unit tests.
+   */
+  turnContext?: TurnContext;
+  /**
+   * Ad-hoc inference-profile override applied to every LLM call the loop
+   * issues. When set, each `SendMessageOptions.config` carries
+   * `overrideProfile = <name>` so the provider's resolver layers
+   * `llm.profiles[<name>]` between the workspace `activeProfile` and any
+   * call-site named profile. Missing profile names silently fall through.
+   */
+  overrideProfile?: string;
+  effectiveMaxInputTokens?: number;
+  resolveOverrideProfile?: () => string | undefined;
+  resolveEffectiveMaxInputTokens?: () => number | undefined;
+  /**
+   * When true, the latest user message carries a volatile per-turn block
+   * (e.g. a memory-v3 `<memory>` injection) that varies across otherwise
+   * identical turns. Forwarded to each `SendMessageOptions.config` so the
+   * provider anchors its long-TTL cache breakpoint on the most recent STABLE
+   * user message instead of the volatile latest one, keeping the cached
+   * prefix reusable. Default unset → existing behavior.
+   */
+  mutableLatestUserMessage?: boolean;
+}
+
 /**
  * Callback shape the loop uses to execute a tool invocation.
  *
@@ -484,35 +522,20 @@ export class AgentLoop {
   async run(
     messages: Message[],
     onEvent: (event: AgentEvent) => void | Promise<void>,
-    signal?: AbortSignal,
-    requestId?: string,
-    onCheckpoint?: (
-      checkpoint: CheckpointInfo,
-    ) => CheckpointDecision | Promise<CheckpointDecision>,
-    callSite?: LLMCallSite,
-    /**
-     * Optional per-turn context supplied by the orchestrator. Every pipeline
-     * invocation inside the loop clones from this value (overwriting only
-     * `turnIndex`/`requestId`) so middleware sees the real conversation
-     * identity, trust class, and `contextWindowManager` rather than the
-     * `"agent-loop"` sentinel used when the loop is instantiated standalone
-     * in unit tests.
-     */
-    turnContext?: TurnContext,
-    /**
-     * Optional ad-hoc inference-profile override applied to every LLM call
-     * the loop issues. When set, each `SendMessageOptions.config` carries
-     * `overrideProfile = <name>` so the provider's resolver layers
-     * `llm.profiles[<name>]` between the workspace `activeProfile` and any
-     * call-site named profile. Missing profile names silently fall through.
-     * Used by per-conversation pinned profiles to override the workspace
-     * default for the lifetime of an agent loop run.
-     */
-    overrideProfile?: string,
-    effectiveMaxInputTokens?: number,
-    resolveOverrideProfile?: () => string | undefined,
-    resolveEffectiveMaxInputTokens?: () => number | undefined,
+    options?: AgentLoopRunOptions,
   ): Promise<Message[]> {
+    const {
+      signal,
+      requestId,
+      onCheckpoint,
+      callSite,
+      turnContext,
+      overrideProfile,
+      effectiveMaxInputTokens,
+      resolveOverrideProfile,
+      resolveEffectiveMaxInputTokens,
+      mutableLatestUserMessage,
+    } = options ?? {};
     const history = [...messages];
     const initialHistoryLength = messages.length;
     let toolUseTurns = 0;
@@ -617,6 +640,15 @@ export class AgentLoop {
           providerConfig.cacheTtl = this.config.cacheTtl;
         }
 
+        // Cache-anchor signal for volatile latest-user-message turns (e.g.
+        // memory-v3 injects its `<memory>` block into the latest user
+        // message). Not part of the call-site schema, so it is always sourced
+        // from the per-run option regardless of `callSite`. Only set when true
+        // so the wire/config stays byte-identical when off.
+        if (mutableLatestUserMessage) {
+          providerConfig.mutableLatestUserMessage = true;
+        }
+
         // Per-call LLM call-site identifier. Surfaces on the per-call
         // `config.callSite` so `RetryProvider.normalizeSendMessageOptions`
         // can route through `resolveCallSiteConfig` against
@@ -711,9 +743,9 @@ export class AgentLoop {
         const llmCallArgs: LLMCallArgs = {
           provider: this.provider,
           messages: providerHistory,
-          tools: currentTools.length > 0 ? currentTools : undefined,
-          systemPrompt: turnSystemPrompt,
           options: {
+            tools: currentTools.length > 0 ? currentTools : undefined,
+            systemPrompt: turnSystemPrompt,
             config: providerConfig,
             onEvent: (event) => {
               if (event.type === "text_delta") {
@@ -811,13 +843,7 @@ export class AgentLoop {
           response = await runPipeline<LLMCallArgs, LLMCallResult>(
             "llmCall",
             getMiddlewaresFor("llmCall"),
-            (args) =>
-              args.provider.sendMessage(
-                args.messages,
-                args.tools,
-                args.systemPrompt,
-                args.options,
-              ),
+            (args) => args.provider.sendMessage(args.messages, args.options),
             llmCallArgs,
             turnCtx,
             DEFAULT_TIMEOUTS.llmCall,
@@ -839,8 +865,8 @@ export class AgentLoop {
             const rawRequest = {
               provider: this.provider.name,
               messages: llmCallArgs.messages,
-              tools: llmCallArgs.tools,
-              systemPrompt: llmCallArgs.systemPrompt,
+              tools: llmCallArgs.options?.tools,
+              systemPrompt: llmCallArgs.options?.systemPrompt,
               config: llmCallArgs.options?.config,
             };
             onEvent({

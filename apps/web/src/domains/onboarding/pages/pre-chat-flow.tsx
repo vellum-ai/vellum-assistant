@@ -65,7 +65,8 @@ import {
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
-import { useRootOutletContext } from "@/root-layout";
+import { lifecycleService } from "@/assistant/lifecycle-service";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { routes } from "@/utils/routes.js";
 
 /**
@@ -104,8 +105,8 @@ export function PreChatFlow() {
   const firstName = user?.firstName ?? "";
   const lastName = user?.lastName ?? "";
   const isNative = useIsNativePlatform();
-  const { lifecycle } = useRootOutletContext();
-  const { assistantId: lifecycleAssistantId, checkAssistant } = lifecycle;
+  const activeAssistantId =
+    useAssistantSelectionStore.use.activeAssistantId();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [recipe, setRecipe] = useState<OnboardingRecipe | null>(null);
   const [recipeLoadState, setRecipeLoadState] = useState<"loading" | "ready">(
@@ -179,14 +180,14 @@ export function PreChatFlow() {
       !isAuthLoading && isLoggedIn && (!localMode || hasPlatformSession),
   });
   const googleAssistantId =
-    activeAssistant?.id ?? lifecycleAssistantId ?? localPlatformAssistantId;
+    activeAssistant?.id ?? activeAssistantId ?? localPlatformAssistantId;
   const canOfferGoogleStep =
     !localMode || hasPlatformSession || localPlatformAssistantId !== null;
 
   const navigateToChatAfterLifecycleRefresh = useCallback(async () => {
-    await checkAssistant();
+    await lifecycleService.checkAssistant();
     void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
-  }, [checkAssistant, navigate]);
+  }, [navigate]);
 
   type ConsentSnapshot = {
     userId: string | null;

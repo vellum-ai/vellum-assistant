@@ -1,4 +1,4 @@
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
+import { recordDiagnostic } from "@/lib/diagnostics";
 import {
   appendTextDelta,
   finalizeMessageComplete,
@@ -6,15 +6,54 @@ import {
   stopStreaming,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { AssistantActivityStateEvent } from "@/domains/chat/api/event-types";
+import type { AssistantActivityStateEvent } from "@/types/event-types";
 import type {
   AssistantTextDeltaEvent,
+  AssistantTurnStartEvent,
   GenerationCancelledEvent,
   GenerationHandoffEvent,
   MessageCompleteEvent,
 } from "@vellumai/assistant-api";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 
+
+/**
+ * Apply an `assistant_turn_start` event.
+ *
+ * The daemon emits this from event zero of each LLM call in a turn,
+ * carrying the `messageId` of the row it `reserveMessage`'d in SQLite.
+ * The handler does two things:
+ *
+ * 1. Stamps `currentAssistantMessageIdRef` with the anchor id. Downstream
+ *    deltas in this LLM call carry the same `messageId` and
+ *    `appendTextDelta` matches by id — but subagent attribution and any
+ *    other consumer that reads the ref before a delta lands sees the
+ *    correct anchor immediately.
+ *
+ * 2. If a row with this id already exists in `messages` — e.g. the
+ *    reserved row was pulled in by an in-flight reconcile poll before the
+ *    SSE wire delivered this event — flips it to `isStreaming: true`.
+ *    That ensures `appendTextDelta` doesn't see a non-streaming assistant
+ *    tail and open a duplicate bubble with the same id. No-op when the
+ *    row doesn't exist yet (the common case: SSE strictly precedes
+ *    reconcile).
+ */
+export function handleAssistantTurnStart(
+  event: AssistantTurnStartEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.currentAssistantMessageIdRef.current = event.messageId;
+  ctx.setMessages((prev) => {
+    let touched = false;
+    const next = prev.map((m) => {
+      if (m.role !== "assistant" || m.id !== event.messageId) return m;
+      if (m.isStreaming) return m;
+      touched = true;
+      return { ...m, isStreaming: true };
+    });
+    return touched ? next : prev;
+  });
+}
 
 export function handleAssistantTextDelta(
   event: AssistantTextDeltaEvent,
@@ -46,7 +85,7 @@ export function handleAssistantActivityState(
     const lastSeen =
       ctx.lastActivityVersionRef.current.get(convId) ?? 0;
     if (event.activityVersion <= lastSeen) {
-      recordChatDiagnostic("sse_activity_state_version_skipped", {
+      recordDiagnostic("sse_activity_state_version_skipped", {
         convId,
         phase: event.phase,
         eventVersion: event.activityVersion,
@@ -59,7 +98,7 @@ export function handleAssistantActivityState(
 
   if (event.phase === "thinking") {
     ctx.turnActions.onActivityThinking(event.statusText);
-    recordChatDiagnostic("sse_activity_state_thinking_handled", {
+    recordDiagnostic("sse_activity_state_thinking_handled", {
       convId,
       reason: event.reason,
       activityVersion: event.activityVersion,
@@ -68,7 +107,7 @@ export function handleAssistantActivityState(
   }
 
   if (event.phase !== "idle") {
-    recordChatDiagnostic("sse_activity_state_non_idle", {
+    recordDiagnostic("sse_activity_state_non_idle", {
       convId,
       phase: event.phase,
       reason: event.reason,
@@ -80,7 +119,7 @@ export function handleAssistantActivityState(
   ctx.setMessages(finalizeOnIdle);
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.endTurn({ conversationId: convId, reason: "complete" });
-  recordChatDiagnostic("sse_activity_state_idle_handled", {
+  recordDiagnostic("sse_activity_state_idle_handled", {
     convId,
     reason: event.reason,
     activityVersion: event.activityVersion,
@@ -118,7 +157,7 @@ export function handleMessageComplete(
     event.conversationId ?? ctx.streamContextRef.current?.conversationId;
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.endTurn({ conversationId: convId, reason: "complete" });
-  recordChatDiagnostic("sse_message_complete_handled", {
+  recordDiagnostic("sse_message_complete_handled", {
     convId,
     turnPhaseBefore,
     messageId: event.messageId,

@@ -4,11 +4,11 @@
  * user-initiated turns default to `'mainAgent'` when no caller-supplied
  * `callSite` is set.
  *
- * The test mocks `AgentLoop.run()` so it can capture the `callSite` parameter
- * the conversation passes after `processMessage` runs the slash-resolver and
- * runtime-injection pipeline. Adapter callers (heartbeat, filing, scheduler)
- * pass an explicit `callSite` so `RetryProvider` resolves their per-call
- * config from `llm.callSites.<id>`.
+ * The test mocks `AgentLoop.run()` so it can capture the `callSite` option
+ * the conversation passes via `AgentLoopRunOptions` after `processMessage`
+ * runs the slash-resolver and runtime-injection pipeline. Adapter callers
+ * (heartbeat, filing, scheduler) pass an explicit `callSite` so
+ * `RetryProvider` resolves their per-call config from `llm.callSites.<id>`.
  */
 import { describe, expect, mock, test } from "bun:test";
 
@@ -202,8 +202,8 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-// Mock AgentLoop to capture the callSite argument that runAgentLoopImpl passes.
-// The 6th positional parameter is `callSite` (see assistant/src/agent/loop.ts).
+// Mock AgentLoop to capture the callSite argument that runAgentLoopImpl passes
+// via the options object (see assistant/src/agent/loop.ts → AgentLoopRunOptions).
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor(
@@ -231,12 +231,9 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: Record<string, unknown>) => void,
-      _signal?: AbortSignal,
-      _requestId?: string,
-      _onCheckpoint?: unknown,
-      callSite?: string,
+      options?: { callSite?: string },
     ): Promise<Message[]> {
-      captured.callSite = callSite;
+      captured.callSite = options?.callSite;
       onEvent({
         type: "usage",
         inputTokens: 0,

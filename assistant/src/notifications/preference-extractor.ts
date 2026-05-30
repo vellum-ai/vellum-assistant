@@ -148,22 +148,19 @@ export async function extractPreferences(
   const { signal, cleanup } = createTimeout(EXTRACTION_TIMEOUT_MS);
 
   try {
-    const response = await provider.sendMessage(
-      [userMessage(message)],
-      [EXTRACTION_TOOL],
-      SYSTEM_PROMPT,
-      {
-        config: {
-          callSite: "preferenceExtraction",
-          max_tokens: 1024,
-          tool_choice: {
-            type: "tool" as const,
-            name: "extract_notification_preferences",
-          },
+    const response = await provider.sendMessage([userMessage(message)], {
+      tools: [EXTRACTION_TOOL],
+      systemPrompt: SYSTEM_PROMPT,
+      config: {
+        callSite: "preferenceExtraction",
+        max_tokens: 1024,
+        tool_choice: {
+          type: "tool" as const,
+          name: "extract_notification_preferences",
         },
-        signal,
       },
-    );
+      signal,
+    });
     cleanup();
 
     const toolBlock = extractToolUse(response);

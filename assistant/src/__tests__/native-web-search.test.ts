@@ -324,7 +324,7 @@ describe("Native Web Search — Tool Filtering", () => {
       useNativeWebSearch: true,
     });
 
-    await provider.sendMessage([userMsg("Hi")], sampleTools);
+    await provider.sendMessage([userMsg("Hi")], { tools: sampleTools });
 
     const tools = lastStreamParams!.tools as Array<Record<string, unknown>>;
 
@@ -351,7 +351,7 @@ describe("Native Web Search — Tool Filtering", () => {
       useNativeWebSearch: false,
     });
 
-    await provider.sendMessage([userMsg("Hi")], sampleTools);
+    await provider.sendMessage([userMsg("Hi")], { tools: sampleTools });
 
     const tools = lastStreamParams!.tools as Array<Record<string, unknown>>;
 
@@ -385,7 +385,9 @@ describe("Native Web Search — Tool Filtering", () => {
       },
     ];
 
-    await provider.sendMessage([userMsg("Hi")], toolsWithoutWebSearch);
+    await provider.sendMessage([userMsg("Hi")], {
+      tools: toolsWithoutWebSearch,
+    });
 
     const tools = lastStreamParams!.tools as Array<Record<string, unknown>>;
     expect(tools).toHaveLength(1);
@@ -398,7 +400,7 @@ describe("Native Web Search — Tool Filtering", () => {
       useNativeWebSearch: true,
     });
 
-    await provider.sendMessage([userMsg("Hi")], sampleTools);
+    await provider.sendMessage([userMsg("Hi")], { tools: sampleTools });
 
     const tools = lastStreamParams!.tools as Array<{
       name: string;
@@ -445,14 +447,10 @@ describe("Native Web Search — Streaming Events", () => {
     ];
 
     const events: ProviderEvent[] = [];
-    await provider.sendMessage(
-      [userMsg("Search something")],
-      sampleTools,
-      undefined,
-      {
-        onEvent: (event) => events.push(event),
-      },
-    );
+    await provider.sendMessage([userMsg("Search something")], {
+      tools: sampleTools,
+      onEvent: (event) => events.push(event),
+    });
 
     const serverToolEvents = events.filter(
       (e) => e.type === "server_tool_start",
@@ -484,14 +482,10 @@ describe("Native Web Search — Streaming Events", () => {
     ];
 
     const events: ProviderEvent[] = [];
-    await provider.sendMessage(
-      [userMsg("Read a file")],
-      sampleTools,
-      undefined,
-      {
-        onEvent: (event) => events.push(event),
-      },
-    );
+    await provider.sendMessage([userMsg("Read a file")], {
+      tools: sampleTools,
+      onEvent: (event) => events.push(event),
+    });
 
     const serverToolEvents = events.filter(
       (e) => e.type === "server_tool_start",

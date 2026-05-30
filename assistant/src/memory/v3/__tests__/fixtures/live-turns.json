@@ -1,0 +1,37 @@
+{
+  "_comment": "Synthetic, generic turns for the memory-v3 LIVE-injection integration test. No real content. The tree has two leaves (domain-a/topic-x → [page-a, page-b], domain-a/topic-y → [page-c]); L1 id 1 → topic-x, id 2 → topic-y. Each turn names which leaves L1 opens and which page IDs L2 selects (and pins) per opened leaf. Driven through a SHARED WorkingSet across the sequence so carry-forward and window eviction are exercised end-to-end. The WorkingSet uses a small evictWindow so a non-pinned page selected only in turn 1 ages out by a later turn while a pinned page persists.",
+  "turns": [
+    {
+      "name": "turn 1 — open topic-x, select page-a (pinned) + page-b (unpinned)",
+      "currentMessage": "tell me about page a",
+      "routeIds": [1],
+      "leafSelections": {
+        "domain-a/topic-x": { "ids": [1, 2], "pinned_ids": [1] }
+      }
+    },
+    {
+      "name": "turn 2 — open topic-y, select page-c; page-a + page-b carry forward",
+      "currentMessage": "now about page c",
+      "routeIds": [2],
+      "leafSelections": {
+        "domain-a/topic-y": { "ids": [1], "pinned_ids": [] }
+      }
+    },
+    {
+      "name": "turn 3 — open topic-y again, re-select page-c (refreshes its lastSeen)",
+      "currentMessage": "more on page c",
+      "routeIds": [2],
+      "leafSelections": {
+        "domain-a/topic-y": { "ids": [1], "pinned_ids": [] }
+      }
+    },
+    {
+      "name": "turn 4 — open topic-y, re-select page-c; page-b now stale enough to age out",
+      "currentMessage": "still page c",
+      "routeIds": [2],
+      "leafSelections": {
+        "domain-a/topic-y": { "ids": [1], "pinned_ids": [] }
+      }
+    }
+  ]
+}

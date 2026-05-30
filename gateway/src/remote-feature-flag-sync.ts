@@ -373,8 +373,8 @@ export class RemoteFeatureFlagSync {
     // from disabling flags that are already GA (defaultEnabled: true in the
     // registry). The platform uses a blanket-deny posture, sending false for
     // every flag it knows about. Store GA false values as true rather than
-    // omitting them: once a remote snapshot exists, missing keys fail closed
-    // to protect flags that are declared locally but unregistered remotely.
+    // omitting them so the persisted snapshot cannot be interpreted as an
+    // explicit disable by any consumer.
     const registry = loadFeatureFlagDefaults();
     const values: Record<string, boolean> = {};
     for (const [key, value] of Object.entries(body.flags)) {

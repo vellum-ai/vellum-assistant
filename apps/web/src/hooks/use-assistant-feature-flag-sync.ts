@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { client } from "@/generated/api/client.gen";
-import { assertHasResponse } from "@/lib/api-errors";
+import { assertHasResponse } from "@/utils/api-errors";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   ASSISTANT_FLAG_DEFAULTS,

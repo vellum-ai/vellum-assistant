@@ -69,10 +69,12 @@ export async function persistCallCompletionMessage(
       },
     ]),
     {
-      userMessageChannel: "phone",
-      assistantMessageChannel: "phone",
-      userMessageInterface: "phone",
-      assistantMessageInterface: "phone",
+      metadata: {
+        userMessageChannel: "phone",
+        assistantMessageChannel: "phone",
+        userMessageInterface: "phone",
+        assistantMessageInterface: "phone",
+      },
     },
   );
   return summaryText;

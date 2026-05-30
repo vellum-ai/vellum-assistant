@@ -39,8 +39,7 @@ const addMessageMock = mock(
     _conversationId: string,
     _role: string,
     _content: string,
-    _metadata?: unknown,
-    _opts?: unknown,
+    _options?: unknown,
   ) => {
     if (addMessageShouldThrow) throw new Error("DB write failed");
     return { id: mockMessageId };
@@ -297,8 +296,11 @@ describe("pairDeliveryWithConversation", () => {
       copy,
     );
 
-    const optsArg = addMessageMock.mock.calls[0]![4] as Record<string, unknown>;
-    expect(optsArg.skipIndexing).toBe(true);
+    const optionsArg = addMessageMock.mock.calls[0]![3] as Record<
+      string,
+      unknown
+    >;
+    expect(optionsArg.skipIndexing).toBe(true);
   });
 
   // ── continue_existing_conversation (telegram) ─────────────────────

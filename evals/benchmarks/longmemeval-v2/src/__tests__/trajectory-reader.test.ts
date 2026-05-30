@@ -129,21 +129,32 @@ describe("openTrajectories — index reuse and invalidation", () => {
     ]);
     const r1 = await openTrajectories(dir);
     await r1.close();
-    const beforeStat = await stat(join(dir, INDEX_FILENAME));
+    const beforeIndex = await readIndex(dir);
 
-    // Bump the JSONL's mtime to invalidate the index.
+    // Bump the JSONL's mtime to invalidate the index. Use a 60s
+    // bump because some CI filesystems (ext4, some Docker overlays)
+    // floor mtimes to second precision, so anything finer can
+    // round-trip to the same value the previous build saw.
     const jsonlPath = join(dir, JSONL_FILENAME);
     const future = new Date(Date.now() + 60_000);
     await utimes(jsonlPath, future, future);
 
     const r2 = await openTrajectories(dir);
     await r2.close();
-    const afterStat = await stat(join(dir, INDEX_FILENAME));
 
-    expect(afterStat.mtimeMs).toBeGreaterThan(beforeStat.mtimeMs);
-    // Index content should still reflect the right ids.
-    const index = await readIndex(dir);
-    expect(Object.keys(index.entries).sort()).toEqual(["t1", "t2"]);
+    // Assert the rebuild via the canonical signal — the index's
+    // `source.mtimeMs` was refreshed to the bumped JSONL mtime.
+    // Comparing the index FILE's mtime stat is flaky on CI: the
+    // rewrite happens in <1ms and the filesystem mtime resolution
+    // (ms on ext4, coarser inside some Docker volumes) ties the
+    // before/after values to the same number even though the file
+    // was genuinely rewritten. See PR-11a (#TBD).
+    const afterIndex = await readIndex(dir);
+    expect(afterIndex.source.mtimeMs).toBeGreaterThan(
+      beforeIndex.source.mtimeMs,
+    );
+    expect(afterIndex.source.mtimeMs).toBe(future.getTime());
+    expect(Object.keys(afterIndex.entries).sort()).toEqual(["t1", "t2"]);
   });
 
   test("rebuilds when the existing index file is corrupt", async () => {

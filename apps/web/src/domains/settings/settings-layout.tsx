@@ -4,7 +4,7 @@ import { Outlet, useLocation } from "react-router";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
-import { SETTINGS_SIDEBAR } from "@/domains/settings/navigation";
+import { SETTINGS_SIDEBAR } from "@/utils/settings-navigation";
 import { SidebarShell } from "@/components/sidebar-shell";
 import { SidebarTree } from "@/components/sidebar-tree";
 import { useSettingsSync } from "@/domains/settings/hooks/use-settings-sync";

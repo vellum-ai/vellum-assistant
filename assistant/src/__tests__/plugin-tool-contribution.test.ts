@@ -62,7 +62,7 @@ import {
   unregisterPluginTools,
 } from "../tools/registry.js";
 import type {
-  LoadedTool,
+  Tool,
   ToolContext,
   ToolExecutionResult,
 } from "../tools/types.js";
@@ -84,14 +84,15 @@ const fakeCtx: DaemonContext = {
 
 function makeFakeTool(
   name: string,
-  extras: Partial<LoadedTool> = {},
-): LoadedTool {
+  extras: Partial<Tool> = {},
+): Tool {
   return {
     name,
     description: `Fake ${name}`,
     defaultRiskLevel: RiskLevel.Low,
     executionTarget: "sandbox",
     input_schema: { type: "object", properties: {}, required: [] },
+    category: "",
     async execute(
       _input: Record<string, unknown>,
       _context: ToolContext,
@@ -336,7 +337,7 @@ describe("registerPluginTools / unregisterPluginTools helpers", () => {
       ...makeFakeTool("pt_spoof"),
       origin: "skill",
       owner: { kind: "skill", id: "some-other-skill" },
-    } as unknown as LoadedTool;
+    } as unknown as Tool;
     registerPluginTools("my-plugin", [spoofed]);
     expect(getTool("pt_spoof")).toBeDefined();
     expect(getToolOwner("pt_spoof")).toEqual({

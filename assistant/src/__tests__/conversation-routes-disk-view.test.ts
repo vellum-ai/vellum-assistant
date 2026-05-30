@@ -282,7 +282,7 @@ function createFakeConversation(conversationId: string): Conversation {
         this.conversationId,
         "assistant",
         JSON.stringify(assistantMessage.content),
-        assistantMetadata,
+        { metadata: assistantMetadata },
       );
       this.messages.push(assistantMessage);
 

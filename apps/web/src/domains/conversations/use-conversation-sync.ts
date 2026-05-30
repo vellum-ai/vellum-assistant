@@ -1,10 +1,11 @@
 /**
  * Domain-scoped bus consumer for conversation cache invalidation.
  *
- * Routes `conversationsList` umbrella tags and per-conversation
- * `conversation:<id>:metadata` tags into TanStack Query cache
- * operations. Debounces list-level invalidations so rapid-fire
- * sync_changed bursts collapse into a single refetch.
+ * Routes `conversationsList` umbrella tags, per-conversation
+ * `conversation:<id>:metadata` tags, and the `conversation_title_updated`
+ * event into TanStack Query cache operations. Debounces list-level
+ * invalidations so rapid-fire sync_changed bursts collapse into a
+ * single refetch.
  *
  * Also handles SSE reconnect (`sse.opened`) by scheduling a debounced
  * conversation list refetch to catch events missed during the gap.
@@ -24,6 +25,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import {
   conversationGroupsQueryKey,
+  patchConversation,
   refreshConversationRow,
 } from "@/domains/conversations/conversation-queries";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
@@ -65,13 +67,26 @@ export function useConversationSync(
 
   useBusSubscription("sse.event", (event) => {
     if (!assistantId || !isAssistantActive) return;
-    if (event.type !== "sync_changed") return;
-    handleConversationSyncTags(
-      event,
-      assistantId,
-      queryClient,
-      debounceTimerRef,
-    );
+
+    switch (event.type) {
+      case "sync_changed":
+        handleConversationSyncTags(
+          event,
+          assistantId,
+          queryClient,
+          debounceTimerRef,
+        );
+        return;
+
+      case "conversation_title_updated":
+        patchConversation(
+          queryClient,
+          assistantId,
+          event.conversationId,
+          { title: event.title },
+        );
+        return;
+    }
   });
 
   useBusSubscription("sse.opened", ({ cause }) => {

@@ -434,6 +434,14 @@ export function AssistantSideMenu({
               {(close) => renderCollapsedGroupContent("Recents", sidebar.recents.all, close)}
             </CollapsedGroupIcon>
             <CollapsedGroupIcon
+              icon={Hash}
+              label="Slack"
+              disabled={sidebar.slack.totalCount === 0}
+              indicatorState={getGroupIndicatorState(sidebar.slack.all, processingConversationIds, attentionConversationIds)}
+            >
+              {(close) => renderCollapsedGroupContent("Slack", sidebar.slack.all, close)}
+            </CollapsedGroupIcon>
+            <CollapsedGroupIcon
               icon={Calendar}
               label="Scheduled"
               disabled={sidebar.scheduled.length === 0}
@@ -459,14 +467,6 @@ export function AssistantSideMenu({
                 indicatorState={null}
               />
             )}
-            <CollapsedGroupIcon
-              icon={Hash}
-              label="Slack"
-              disabled={sidebar.slack.totalCount === 0}
-              indicatorState={getGroupIndicatorState(sidebar.slack.all, processingConversationIds, attentionConversationIds)}
-            >
-              {(close) => renderCollapsedGroupContent("Slack", sidebar.slack.all, close)}
-            </CollapsedGroupIcon>
           </div>
         ) : (
           <>
@@ -501,6 +501,22 @@ export function AssistantSideMenu({
                 value={sidebar.effectiveOpenCategories}
                 onValueChange={sidebar.onOpenCategoriesChange}
               >
+                {sidebar.slack.totalCount > 0 ? (
+                  <CollapsibleNavSection.Section
+                    value="slack"
+                    icon={Hash}
+                    label="Slack"
+                  >
+                    {renderFlatList(
+                      sidebar.slack.items,
+                      sidebar.slack.showMore,
+                      sidebar.slack.onShowMore,
+                      sidebar.slack.showLess,
+                      sidebar.slack.onShowLess,
+                    )}
+                  </CollapsibleNavSection.Section>
+                ) : null}
+
                 <CollapsibleNavSection.Section
                   value="scheduled"
                   icon={Calendar}
@@ -522,22 +538,6 @@ export function AssistantSideMenu({
                     {...subGroupProps}
                   />
                 </CollapsibleNavSection.Section>
-
-                {sidebar.slack.totalCount > 0 ? (
-                  <CollapsibleNavSection.Section
-                    value="slack"
-                    icon={Hash}
-                    label="Slack"
-                  >
-                    {renderFlatList(
-                      sidebar.slack.items,
-                      sidebar.slack.showMore,
-                      sidebar.slack.onShowMore,
-                      sidebar.slack.showLess,
-                      sidebar.slack.onShowLess,
-                    )}
-                  </CollapsibleNavSection.Section>
-                ) : null}
               </CollapsibleNavSection.Root>
 
               {sidebar.conversationGroupsEnabled && sidebar.customGroups.length > 0 ? (

@@ -5,7 +5,7 @@ import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { toast } from "@vellum/design-library/components/toast";
 import { retireAssistantById } from "@/assistant/api";
-import { clearOnboardingFlags } from "@/lib/onboarding-cleanup";
+import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import {
   isLocalMode,
   getSelectedAssistant,

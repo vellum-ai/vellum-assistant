@@ -290,14 +290,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "safe-storage-limits",
-      "scope": "assistant",
-      "key": "safe-storage-limits",
-      "label": "Safe Storage Limits",
-      "description": "Enable disk pressure protection flows that block background work and remote actors while storage is critically low.",
-      "defaultEnabled": false
-    },
-    {
       "id": "account-deletion",
       "scope": "assistant",
       "key": "account-deletion",
@@ -448,6 +440,30 @@
       "label": "Platform Features in Local Mode",
       "description": "When enabled, the assistant can call the Vellum platform API from local mode. When disabled, all platform API clients in the daemon, gateway, CES, and web UI no-op with a debug log instead of making outbound requests.",
       "defaultEnabled": true
+    },
+    {
+      "id": "memory-v3-shadow",
+      "scope": "assistant",
+      "key": "memory-v3-shadow",
+      "label": "Memory v3 Shadow",
+      "description": "When on, runs the new memory-v3 topic-tree retrieval alongside v2 in shadow mode: logs selections to memory_v3_selections, does not modify injected context. Off by default.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "memory-v3-live",
+      "scope": "assistant",
+      "key": "memory-v3-live",
+      "label": "Memory v3 Live",
+      "description": "When on, memory-v3 topic-tree retrieval becomes the live injected memory source (suppressing v2 injection). Off by default; only enable after shadow telemetry validates the design.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "self-intro-greeting",
+      "scope": "assistant",
+      "key": "self-intro-greeting",
+      "label": "Self-intro first message",
+      "description": "On the first conversation, send a natural self-introduction (e.g. \"Hi Vela, I'm alex. Nice to meet you.\") on the user's behalf and route it through real LLM inference, instead of serving the canned first greeting. Names come from the onboarding context; falls back to the canned greeting when no name is known. See assistant/src/daemon/first-greeting.ts (buildSelfIntroMessage).",
+      "defaultEnabled": false
     }
   ]
 }

@@ -29,7 +29,7 @@ import type {
   PreviewSafetyBackup,
   ReleaseChannelStatus,
 } from "@/generated/api/types.gen";
-import { extractErrorMessage } from "@/lib/api-errors";
+import { extractErrorMessage } from "@/utils/api-errors";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 
 interface PreviewReleaseChannelProps {

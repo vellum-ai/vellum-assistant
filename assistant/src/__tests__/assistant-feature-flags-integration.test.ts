@@ -14,13 +14,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 const DECLARED_FLAG_ID = "email-channel";
 const DECLARED_FLAG_KEY = DECLARED_FLAG_ID;
-const SAFE_STORAGE_LIMITS_FLAG = "safe-storage-limits";
 
 const { isAssistantFeatureFlagEnabled } =
   await import("../config/assistant-feature-flags.js");
-const { setOverridesForTesting } = await import(
-  "./feature-flag-test-helpers.js"
-);
+const { setOverridesForTesting } =
+  await import("./feature-flag-test-helpers.js");
 const { skillFlagKey } = await import("../config/skill-state.js");
 
 // ---------------------------------------------------------------------------
@@ -64,23 +62,6 @@ describe("isAssistantFeatureFlagEnabled", () => {
     expect(isAssistantFeatureFlagEnabled(DECLARED_FLAG_KEY, config)).toBe(
       false,
     );
-  });
-
-  test("safe-storage-limits defaults to disabled", () => {
-    const config = {} as any;
-
-    expect(
-      isAssistantFeatureFlagEnabled(SAFE_STORAGE_LIMITS_FLAG, config),
-    ).toBe(false);
-  });
-
-  test("safe-storage-limits respects explicit override", () => {
-    setOverridesForTesting({ [SAFE_STORAGE_LIMITS_FLAG]: true });
-    const config = {} as any;
-
-    expect(
-      isAssistantFeatureFlagEnabled(SAFE_STORAGE_LIMITS_FLAG, config),
-    ).toBe(true);
   });
 
   test("unknown flag defaults to false when no persisted override", () => {

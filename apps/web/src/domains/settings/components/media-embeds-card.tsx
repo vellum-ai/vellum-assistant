@@ -11,7 +11,7 @@ import {
   getDeviceSetting,
   setDeviceBool,
   setDeviceSetting,
-} from "@/lib/device-settings";
+} from "@/utils/device-settings";
 
 const DEFAULT_VIDEO_ALLOWLIST: ReadonlyArray<string> = [
   "youtube.com",

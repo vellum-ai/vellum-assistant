@@ -1,20 +1,23 @@
-import { Outlet, useNavigate, useOutletContext } from "react-router";
+import { Outlet, useNavigate } from "react-router";
 
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
+import { useGlobalDeepLinkConsumer } from "@/hooks/use-global-deep-link-consumer";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport";
-import {
-  useAssistantLifecycle,
-  type UseAssistantLifecycleReturn,
-} from "@/domains/chat/hooks/use-assistant-lifecycle";
+import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAuthStore } from "@/stores/auth-store";
 import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
+import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
+import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
 import { useConversationSync } from "@/domains/conversations/use-conversation-sync";
+import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
 import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -24,32 +27,16 @@ import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-
 const KEYBOARD_OPEN_THRESHOLD_PX = 100;
 
 /**
- * Outlet-context shape provided by `RootLayout`. Child layouts
- * (`ChatLayout`, `SettingsLayout`, `LogsLayout`, onboarding routes)
- * consume the lifecycle through `useRootOutletContext()`.
- */
-export interface RootOutletContext {
-  lifecycle: UseAssistantLifecycleReturn;
-}
-
-/**
- * Read the assistant lifecycle from the root outlet context. Child
- * layouts (`ChatLayout`, `SettingsLayout`, `LogsLayout`) call this to
- * avoid running a duplicate `useAssistantLifecycle` state machine.
- */
-export function useRootOutletContext(): RootOutletContext {
-  return useOutletContext<RootOutletContext>();
-}
-
-/**
  * App-level layout route. Owns three cross-route concerns:
  *
  * 1. Safe-area insets and iOS visual-viewport keyboard tracking.
- * 2. The single assistant lifecycle (`useAssistantLifecycle`), passed
- *    to every child layout via outlet context. Resolving lifecycle here
- *    means SettingsLayout / LogsLayout / onboarding routes can see the
- *    current assistant without each layout running its own polling
- *    state machine.
+ * 2. The single assistant lifecycle (`useAssistantLifecycle`). Mounted
+ *    here as a side effect — the hook publishes `assistantState` and
+ *    stable imperative callbacks into `useAssistantLifecycleStore`,
+ *    and the active assistant id into `useAssistantSelectionStore`.
+ *    Mounting once at the app root means every layout / route can
+ *    read the current assistant via store selectors without each
+ *    running a duplicate polling state machine.
  * 3. The event-bus owner (`useEventBusInit`). Bus producers (SSE
  *    connection, visibility / online / offline listeners, Capacitor
  *    app-state) need to be alive on every authenticated route — not
@@ -58,7 +45,6 @@ export function useRootOutletContext(): RootOutletContext {
  *
  * References:
  * - React Router layout routes: https://reactrouter.com/start/data/routing
- * - React Router outlet context: https://reactrouter.com/start/framework/outlet
  * - env() safe-area-inset: https://developer.mozilla.org/en-US/docs/Web/CSS/env
  * - Visual Viewport API: https://developer.mozilla.org/en-US/docs/Web/API/Visual_Viewport_API
  */
@@ -73,26 +59,36 @@ export function RootLayout() {
   const hasPlatformSession = useAuthStore.use.hasPlatformSession();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
   useClientFeatureFlagSync(hasPlatformSession && !authLoading);
-  const lifecycle = useAssistantLifecycle({
+  useAssistantLifecycle({
     isLoggedIn,
     isLoading: authLoading,
     isRetired: false,
     isNonProduction,
     hasPlatformSession,
     onRedirect: navigate,
+    resolveOnboardingRedirect,
   });
 
-  useAssistantFeatureFlagSync(hasPlatformSession ? lifecycle.assistantId : null);
-  const isAssistantActive = lifecycle.assistantState.kind === "active";
-  useAssistantResourceSync(lifecycle.assistantId, isAssistantActive);
-  useConversationSync(lifecycle.assistantId, isAssistantActive);
-  useFeatureFlagBusSync(lifecycle.assistantId, isAssistantActive);
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantStateKind = useAssistantLifecycleStore(
+    (s) => s.assistantState.kind,
+  );
+  const isAssistantActive = assistantStateKind === "active";
+  useAssistantFeatureFlagSync(hasPlatformSession ? assistantId : null);
+  useAssistantResourceSync(assistantId, isAssistantActive);
+  useConversationSync(assistantId, isAssistantActive);
+  useFeatureFlagBusSync(assistantId, isAssistantActive);
+  useNotificationIntentSync(assistantId);
+  useDocumentEditorSync();
 
-  useEventBusInit({
-    assistantId: lifecycle.assistantId,
-    isAssistantActive,
-    checkAssistant: lifecycle.checkAssistant,
-  });
+  useEventBusInit({ assistantId, isAssistantActive });
+  // Inbound deep-link navigation + window activation. Mounted here
+  // (not in `ChatPage`) so a `vellum://thread/...` arriving while
+  // the user is on `/assistant/settings`, `/logs`, etc. still
+  // navigates. The composer-pre-fill half lives in `ChatPage`'s
+  // `useDeepLinkConsumer` because it owns `setInput`; the two
+  // hand off via `pending-deep-link-store`.
+  useGlobalDeepLinkConsumer();
 
   const keyboardOpen =
     isMobile &&
@@ -110,8 +106,6 @@ export function RootLayout() {
   // background as a visible gap above the keyboard.
   const keyboardOffsetTop =
     keyboardOpen && visibleViewport ? visibleViewport.offsetTop : 0;
-
-  const outletContext: RootOutletContext = { lifecycle };
 
   return (
     <div
@@ -135,7 +129,7 @@ export function RootLayout() {
       }}
     >
       <div className="flex min-w-0 flex-col overflow-hidden h-full w-full">
-        <Outlet context={outletContext} />
+        <Outlet />
       </div>
 
       {/* Portal target for mobile overlays that use `position: fixed`. */}

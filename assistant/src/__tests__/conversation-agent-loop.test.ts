@@ -1,11 +1,7 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  AgentEvent,
-  CheckpointDecision,
-  CheckpointInfo,
-} from "../agent/loop.js";
+import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -548,11 +544,7 @@ import {
 type AgentLoopRun = (
   messages: Message[],
   onEvent: (event: AgentEvent) => void | Promise<void>,
-  signal?: AbortSignal,
-  requestId?: string,
-  onCheckpoint?: (
-    checkpoint: CheckpointInfo,
-  ) => CheckpointDecision | Promise<CheckpointDecision>,
+  options?: AgentLoopRunOptions,
 ) => Promise<Message[]>;
 
 function makeCtx(
@@ -819,13 +811,7 @@ describe("session-agent-loop", () => {
       mockHasProactiveArtifactCompleted = false;
       mockTryClaimProactiveArtifactTrigger = true;
 
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _requestId,
-        onCheckpoint,
-      ) => {
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
         // Prime the assistant row anchor for LLM call 1 — production code
         // emits this from `AgentLoop.run` just before `provider.sendMessage`.
         await onEvent({ type: "llm_call_started" });
@@ -848,7 +834,7 @@ describe("session-agent-loop", () => {
           content: "{}",
           isError: false,
         });
-        await onCheckpoint?.({
+        await options?.onCheckpoint?.({
           turnIndex: 0,
           toolCount: 1,
           hasToolUse: true,
@@ -2150,13 +2136,7 @@ describe("session-agent-loop", () => {
       // call). 90k satisfies both so the path reaches call 3.
       mockEstimateTokens = 90_000;
 
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _reqId,
-        onCheckpoint,
-      ) => {
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
         callCount++;
         if (callCount <= 2) {
           // Calls 1 (initial) and 2 (convergence rerun): error so
@@ -2180,8 +2160,8 @@ describe("session-agent-loop", () => {
         // flips `yieldedForBudget` to true, then return without
         // finishing — mirroring what AgentLoop.run does when its
         // checkpoint returns "yield".
-        if (onCheckpoint) {
-          await onCheckpoint({
+        if (options?.onCheckpoint) {
+          await options.onCheckpoint({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,
@@ -2461,13 +2441,7 @@ describe("session-agent-loop", () => {
     test("yields at checkpoint when canHandoffAtCheckpoint returns true", async () => {
       const events: ServerMessage[] = [];
 
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _reqId,
-        onCheckpoint,
-      ) => {
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
         // Prime the assistant row anchor — production code emits this from
         // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
         // need this on every invocation: each agent-loop iteration reserves
@@ -2495,8 +2469,8 @@ describe("session-agent-loop", () => {
           model: "test-model",
           providerDurationMs: 100,
         });
-        if (onCheckpoint) {
-          const decision = await onCheckpoint({
+        if (options?.onCheckpoint) {
+          const decision = await options.onCheckpoint({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,
@@ -2539,13 +2513,7 @@ describe("session-agent-loop", () => {
     test("continues when canHandoffAtCheckpoint returns false", async () => {
       const events: ServerMessage[] = [];
 
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _reqId,
-        onCheckpoint,
-      ) => {
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
         // Prime the assistant row anchor — production code emits this from
         // `AgentLoop.run` just before `provider.sendMessage`. Retry branches
         // need this on every invocation: each agent-loop iteration reserves
@@ -2572,8 +2540,8 @@ describe("session-agent-loop", () => {
           model: "test-model",
           providerDurationMs: 100,
         });
-        if (onCheckpoint) {
-          await onCheckpoint({
+        if (options?.onCheckpoint) {
+          await options.onCheckpoint({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,
@@ -3444,6 +3412,400 @@ describe("session-agent-loop", () => {
     });
   });
 
+  describe("partial persistence", () => {
+    // The legacy flow reserves an empty assistant row at `llm_call_started`
+    // (`content: "[]"`) and never touches it again until
+    // `handleMessageComplete` fires the single authoritative
+    // `updateContent`. Between those events the row is empty for the full
+    // duration of a turn — a browser refresh mid-turn sees nothing where
+    // the in-progress assistant reply should be.
+    //
+    // Partial persistence closes that durability gap with a debounced
+    // flush from `handleTextDelta` (250ms timer). `handleToolUse`
+    // intentionally does NOT flush — `AgentLoop.run` emits `tool_use`
+    // strictly AFTER `message_complete`, so any flush from that handler
+    // would land after the authoritative finalize and overwrite the
+    // finalized row. The indexer + projector still fire ONLY at
+    // `message_complete` — partial rows are never indexed.
+    //
+    // These tests pin down the wire-level contract by counting
+    // `updateMessageContent` calls and inspecting the JSON payload of the
+    // partial-flush writes. The indexing / sync-invalidation paths are
+    // covered by the pre-allocation block above.
+
+    test("debounced time gate flushes one partial write after PARTIAL_PERSIST_DEBOUNCE_MS", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        await onEvent({ type: "llm_call_started" });
+        // Two small deltas — well under the 1024-char size gate — should
+        // schedule a single debounced flush.
+        onEvent({ type: "text_delta", text: "Hello, " });
+        onEvent({ type: "text_delta", text: "world." });
+        // Wait long enough for the 250ms debounce to fire.
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        await onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Hello, world." }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 5,
+          model: "test",
+          providerDurationMs: 50,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [
+              { type: "text", text: "Hello, world." },
+            ] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({ agentLoopRun });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // Exactly two `updateContent` calls land:
+      //   1. the debounced partial flush after both deltas accumulated, and
+      //   2. the final authoritative flush in `handleMessageComplete`.
+      // Without the debounce gate this would be one-per-delta + one final
+      // (3). Without the partial flush at all it would be just 1.
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(2);
+      const calls = updateMessageContentMock.mock.calls as unknown as Array<
+        [string, string]
+      >;
+      const partialFlush = calls[0];
+      expect(partialFlush?.[0]).toBe("msg-reserve");
+      const partialBlocks = JSON.parse(partialFlush?.[1] ?? "[]") as Array<{
+        type: string;
+        text?: string;
+      }>;
+      expect(partialBlocks).toEqual([{ type: "text", text: "Hello, world." }]);
+    });
+
+    test("handleToolUse does NOT trigger a partial flush of its own", async () => {
+      // `AgentLoop.run` emits `tool_use` strictly AFTER `message_complete`,
+      // so a flush from the tool_use handler would land after the
+      // authoritative final `updateContent` and overwrite the finalized
+      // row (Codex P1 / Vargas review feedback). The handler must be a
+      // no-op for the partial-persist accumulator.
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        await onEvent({ type: "llm_call_started" });
+        // No text delta — only a tool_use. If `handleToolUse` were
+        // flushing, this would land a partial write before
+        // `message_complete`.
+        onEvent({
+          type: "tool_use",
+          id: "tu-no-flush",
+          name: "file_read",
+          input: { path: "/foo" },
+        });
+        // Yield a microtask so any (incorrectly) fire-and-forget
+        // pipeline call has a chance to land before message_complete.
+        await new Promise((resolve) => setImmediate(resolve));
+        onEvent({
+          type: "tool_result",
+          toolUseId: "tu-no-flush",
+          content: "ok",
+          isError: false,
+        });
+        await onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_use",
+                id: "tu-no-flush",
+                name: "file_read",
+                input: { path: "/foo" },
+              },
+            ],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 5,
+          model: "test",
+          providerDurationMs: 50,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [
+              {
+                type: "tool_use",
+                id: "tu-no-flush",
+                name: "file_read",
+                input: { path: "/foo" },
+              },
+            ] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({ agentLoopRun });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // Only the authoritative final flush from `handleMessageComplete`
+      // lands. A partial flush from `handleToolUse` would have made this
+      // 2; that's the regression this test guards against.
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("handleMessageComplete clears any pending debounce timer before the final flush", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        await onEvent({ type: "llm_call_started" });
+        // Short delta — schedules a debounce timer but does NOT trip the
+        // size gate. message_complete then arrives immediately after,
+        // before the 250ms timer can fire.
+        onEvent({ type: "text_delta", text: "Quick reply." });
+        await onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Quick reply." }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 5,
+          model: "test",
+          providerDurationMs: 50,
+        });
+        // Wait past the original debounce window to prove a late timer
+        // does NOT fire a stray partial flush.
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "Quick reply." }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({ agentLoopRun });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // Only the final flush from `handleMessageComplete` lands. The
+      // debounced partial would have fired around T+250ms; the timer-clear
+      // at the top of `handleMessageComplete` cancels it.
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("partial flushes never trigger the indexer or attention projector", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        await onEvent({ type: "llm_call_started" });
+        onEvent({ type: "text_delta", text: "hello world" });
+        // Wait past the 250ms debounce so the partial flush definitely
+        // lands BEFORE message_complete fires.
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        // Snapshot the indexer/projector call counts AFTER the partial
+        // flush has run but BEFORE message_complete. They must be zero.
+        const indexerCallsBeforeComplete =
+          indexMessageNowMock.mock.calls.length;
+        const projectorCallsBeforeComplete =
+          projectAssistantMessageMock.mock.calls.length;
+        // Stash on a side channel the assertion phase can read.
+        (
+          ctx as unknown as { __partialSnapshot?: [number, number] }
+        ).__partialSnapshot = [
+          indexerCallsBeforeComplete,
+          projectorCallsBeforeComplete,
+        ];
+        await onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "hello world" }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 5,
+          model: "test",
+          providerDurationMs: 50,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: "hello world" }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({ agentLoopRun });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      const snapshot = (
+        ctx as unknown as { __partialSnapshot?: [number, number] }
+      ).__partialSnapshot;
+      expect(snapshot).toBeDefined();
+      // Indexer + projector were both ZERO during the mid-turn partial
+      // flush — they only fire from `handleMessageComplete` after the
+      // authoritative `updateContent`.
+      expect(snapshot![0]).toBe(0);
+      expect(snapshot![1]).toBe(0);
+      // After the loop completes the indexer + projector each ran exactly
+      // once (the pre-allocation finalize path).
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
+      expect(projectAssistantMessageMock).toHaveBeenCalledTimes(1);
+    });
+
+    test("partial flushes redact secrets from text blocks before writing", async () => {
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+      // A GitHub PAT-shaped token mid-stream — the redaction discipline
+      // mirrors `handleMessageComplete`'s final flush so a refresh mid-turn
+      // never sees plaintext credentials in the persisted row.
+      const ghToken = "ghp_" + "a".repeat(36);
+      const payload = "Here's the key: " + ghToken + " enjoy.";
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        await onEvent({ type: "llm_call_started" });
+        onEvent({ type: "text_delta", text: payload });
+        // Wait past the 250ms debounce so the partial flush lands.
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        await onEvent({
+          type: "message_complete",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: payload }],
+          },
+        });
+        onEvent({
+          type: "usage",
+          inputTokens: 10,
+          outputTokens: 5,
+          model: "test",
+          providerDurationMs: 50,
+        });
+        return [
+          ...messages,
+          {
+            role: "assistant" as const,
+            content: [{ type: "text", text: payload }] as ContentBlock[],
+          },
+        ];
+      };
+
+      const ctx = makeCtx({ agentLoopRun });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      expect(updateMessageContentMock).toHaveBeenCalledTimes(2);
+      const partialPayload = (
+        updateMessageContentMock.mock.calls[0] as unknown as [string, string]
+      )[1];
+      // The raw PAT must never appear in the persisted snapshot. The
+      // redaction substitute is implementation-defined; the contract here
+      // is "the literal token string is gone".
+      expect(partialPayload).not.toContain(ghToken);
+    });
+
+    test("provider-error cleanup deletes a row that has accumulated partial content", async () => {
+      // Regression check: the pre-allocation orphan-cleanup branch
+      // already deletes the reserved row when the LLM call exits via
+      // `provider_error`. Partial-persist writes content to that row
+      // mid-turn; the cleanup must still fire and the row (along with
+      // its partial content) must still be deleted before the synthetic
+      // error message lands.
+      reserveMessageMock.mockImplementationOnce(async () => ({
+        id: "msg-orphan-with-partial",
+      }));
+
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        await onEvent({ type: "llm_call_started" });
+        // A debounced delta lands a partial flush BEFORE the provider
+        // error fires.
+        onEvent({ type: "text_delta", text: "hello world" });
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        onEvent({
+          type: "provider_error",
+          error: new Error("upstream 500"),
+          rawRequest: { model: "gpt-4.1", messages: [] },
+          actualProvider: "openai",
+        });
+        onEvent({
+          type: "error",
+          error: new Error("upstream 500"),
+        });
+        return messages;
+      };
+
+      const ctx = makeCtx({ agentLoopRun });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      // Partial flush fired exactly once (before the provider error).
+      // The orphan row was then deleted; the synthetic error message is
+      // inserted separately via `addMessage` (`mock-msg-id`) and never
+      // touched by `updateContent`.
+      const partialFlushes = (
+        updateMessageContentMock.mock.calls as unknown as Array<
+          [string, string]
+        >
+      ).filter(([id]) => id === "msg-orphan-with-partial");
+      expect(partialFlushes).toHaveLength(1);
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-orphan-with-partial");
+    });
+  });
+
   describe("pkbSystemReminderBlock metadata persistence", () => {
     test("persists pkbSystemReminderBlock in full mode with PKB active", async () => {
       const reminder = "<system_reminder>\npkb content\n</system_reminder>";
@@ -3939,14 +4301,12 @@ describe("session-agent-loop", () => {
       const agentLoopRun: AgentLoopRun = async (
         messages,
         _onEvent,
-        _signal,
-        _reqId,
-        onCheckpoint,
+        options,
       ) => {
         runCount++;
         if (runCount === 1) {
           mockEstimateTokens = 90_000;
-          const decision = await onCheckpoint?.({
+          const decision = await options?.onCheckpoint?.({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,

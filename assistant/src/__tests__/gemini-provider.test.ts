@@ -203,8 +203,6 @@ describe("GeminiProvider", () => {
     const events: ProviderEvent[] = [];
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { onEvent: (e) => events.push(e) },
     );
 
@@ -221,8 +219,7 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      "You are a helpful assistant.",
+      { systemPrompt: "You are a helpful assistant." },
     );
 
     const config = lastStreamParams!.config as Record<string, unknown>;
@@ -248,8 +245,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       {
         config: {
           thinking: {
@@ -273,8 +268,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { thinking: { type: "disabled" } } },
     );
 
@@ -298,8 +291,6 @@ describe("GeminiProvider", () => {
     );
     await liteProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       {
         config: {
           thinking: { type: "adaptive", level: "high", streamThinking: false },
@@ -316,8 +307,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { thinking: { type: "adaptive" } } },
     );
 
@@ -347,7 +336,7 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Read /tmp/test" }] }],
-      tools,
+      { tools: tools },
     );
 
     const config = lastStreamParams!.config as Record<string, unknown>;
@@ -740,8 +729,6 @@ describe("GeminiProvider", () => {
           ],
         },
       ],
-      undefined,
-      undefined,
       { config: { model: "models/gemini-3.1-pro-preview" } },
     );
 
@@ -879,6 +866,127 @@ describe("GeminiProvider", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Audio content (native Gemini audio input)
+  // -----------------------------------------------------------------------
+  test("sends audio file blocks inline, normalizing audio/mpeg → audio/mp3", async () => {
+    fakeChunks = [textChunk("I hear a bell"), finishChunk("STOP", 100, 5)];
+
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "What do you hear?" },
+          {
+            type: "file",
+            source: {
+              type: "base64",
+              media_type: "audio/mpeg",
+              data: "QUJDREVG",
+              filename: "clip.mp3",
+            },
+          },
+        ],
+      },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: unknown[];
+    }>;
+    expect(contents[0].parts).toHaveLength(2);
+    expect(contents[0].parts[1]).toEqual({
+      inlineData: { mimeType: "audio/mp3", data: "QUJDREVG" },
+    });
+  });
+
+  test("sends supported audio types inline unchanged", async () => {
+    for (const mime of ["audio/wav", "audio/ogg", "audio/flac", "audio/aac"]) {
+      fakeChunks = [textChunk("ok"), finishChunk("STOP", 10, 2)];
+      await provider.sendMessage([
+        {
+          role: "user",
+          content: [
+            {
+              type: "file",
+              source: {
+                type: "base64",
+                media_type: mime,
+                data: "QUJDREVG",
+                filename: `clip.${mime.split("/")[1]}`,
+              },
+            },
+          ],
+        },
+      ]);
+      const contents = lastStreamParams!.contents as Array<{
+        parts: unknown[];
+      }>;
+      expect(contents[0].parts[0]).toEqual({
+        inlineData: { mimeType: mime, data: "QUJDREVG" },
+      });
+    }
+  });
+
+  test("degrades unsupported audio (m4a/mp4) to a text placeholder", async () => {
+    for (const mime of ["audio/x-m4a", "audio/mp4"]) {
+      fakeChunks = [textChunk("ok"), finishChunk("STOP", 10, 2)];
+      await provider.sendMessage([
+        {
+          role: "user",
+          content: [
+            {
+              type: "file",
+              source: {
+                type: "base64",
+                media_type: mime,
+                data: "QUJDREVG",
+                filename: "memo.m4a",
+              },
+            },
+          ],
+        },
+      ]);
+      const parts = (
+        lastStreamParams!.contents as Array<{ parts: unknown[] }>
+      )[0].parts;
+      expect(parts[0]).toHaveProperty("text");
+      expect(parts[0]).not.toHaveProperty("inlineData");
+      expect((parts[0] as { text: string }).text).toContain("memo.m4a");
+    }
+  });
+
+  test("degrades oversize inline audio to a text placeholder", async () => {
+    fakeChunks = [textChunk("ok"), finishChunk("STOP", 10, 2)];
+    // base64 length * 3/4 must exceed the 12 MB inline cap.
+    const oversize = "A".repeat(17_000_000);
+
+    await provider.sendMessage([
+      {
+        role: "user",
+        content: [
+          {
+            type: "file",
+            source: {
+              type: "base64",
+              media_type: "audio/mpeg",
+              data: oversize,
+              filename: "long.mp3",
+            },
+          },
+        ],
+      },
+    ]);
+
+    const parts = (lastStreamParams!.contents as Array<{ parts: unknown[] }>)[0]
+      .parts;
+    expect(parts[0]).not.toHaveProperty("inlineData");
+    expect((parts[0] as { text: string }).text).toContain("too large");
+    expect((parts[0] as { text: string }).text).toContain("long.mp3");
+  });
+
+  // -----------------------------------------------------------------------
   // max_tokens config
   // -----------------------------------------------------------------------
   test("passes max_tokens as maxOutputTokens", async () => {
@@ -886,8 +994,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { max_tokens: 64000 } },
     );
 
@@ -904,8 +1010,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { signal: controller.signal },
     );
 
@@ -925,8 +1029,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { signal: controller.signal },
     );
 
@@ -1046,8 +1148,6 @@ describe("GeminiProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);
@@ -1066,8 +1166,6 @@ describe("GeminiProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);
@@ -1085,8 +1183,6 @@ describe("GeminiProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);

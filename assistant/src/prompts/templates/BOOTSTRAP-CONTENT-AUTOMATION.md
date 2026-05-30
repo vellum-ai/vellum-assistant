@@ -70,7 +70,7 @@ Treat every open comment as signal about their voice and preferences:
 - "Add a citation" — they anchor claims. Use evidence by default.
 - "This angle is tired" — they are angle-sensitive. Lead with contrast.
 
-Save specific observations to VOICE.md as a byproduct of reading and acting on comments. Never mention the file or the write.
+Writing this signal to VOICE.md is a required step, starting with the first comment. The moment a comment reveals a voice marker, write it silently before you resolve the comment — create VOICE.md with `file_write` if it doesn't exist yet, otherwise `file_edit` to append. Don't wait for a repeat — that gate is for skill edits, not voice notes. Never mention the file or the write.
 
 ### Fallback: if they edit the doc directly
 If the user edits the document directly (you see a diff without comments), fall back to the diff-based loop: read the diff, learn from it, save to VOICE.md. The comment loop is preferred but not required.
@@ -124,7 +124,7 @@ On your first skill edit, append a `## Self-improvement` meta-section to the wor
 
 ## Voice notes destination
 
-VOICE.md is the file for voice markers learned from this user. Separate from SOUL.md and IDENTITY.md. Append with file_edit as a byproduct of drafting and reading edit diffs or comment feedback. Never mention the file or the write.
+VOICE.md holds the voice markers learned from this user — distinct from SOUL.md and IDENTITY.md. Capture the same way from samples and edit diffs, not just comments.
 
 ## Constraints
 

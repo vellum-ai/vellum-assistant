@@ -1,8 +1,8 @@
-import type { SubagentStatus } from "@/domains/chat/api/event-types";
+import type { SubagentStatus } from "@/types/interaction-ui-types";
 import {
   statusColor,
   statusLabel,
-} from "@/domains/subagents/status-helpers";
+} from "@/utils/subagent-status";
 
 export function StatusBadge({ status }: { status: SubagentStatus }) {
   const color = statusColor(status);

@@ -14,8 +14,8 @@ import { Button, Typography } from "@vellum/design-library";
 import { StatusBadge } from "@/domains/chat/components/subagent-status-badge";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { subagentTraits } from "@/utils/avatar-subagent";
-import type { SubagentEntry } from "@/domains/subagents/subagent-store";
-import { isActiveStatus } from "@/domains/subagents/status-helpers";
+import type { SubagentEntry } from "@/domains/chat/subagent-store";
+import { isActiveStatus } from "@/utils/subagent-status";
 
 import { SubagentTimeline } from "@/domains/chat/components/subagent-timeline";
 

@@ -65,17 +65,23 @@ context provider mounted in `<App />`.
 
 `ChatLayout` owns a shared `ChatLayoutHeader` that renders on every
 child route (home, chat, library, identity, etc.). Child routes
-populate the header's center and right sections via
-`setTopBarCenter` / `setTopBarRightSlot` from `useAssistantContext()`.
-Register content in a `useEffect` and clear it on unmount:
+populate the header's center and right sections via the
+`useChatLayoutSlotsStore` setters. Register content in a `useEffect`
+and clear it on unmount:
 
 ```ts
-const { setTopBarCenter } = useAssistantContext();
+const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
 useEffect(() => {
   setTopBarCenter(<span>Page Title</span>);
   return () => { setTopBarCenter(null); };
 }, [setTopBarCenter]);
 ```
+
+A Zustand store rather than outlet context because `ActiveAssistantGate`
+sits between `ChatLayout` and gated routes — outlet context value
+flowing through an intermediate `<Outlet />` resolves to `undefined`
+([React Router source](https://github.com/remix-run/react-router/blob/main/packages/react-router/lib/hooks.tsx)
+wraps every `<Outlet>` in its own `OutletContext.Provider`).
 
 Every child route under `ChatLayout` should register its title this
 way. Without it the header center is empty, which is especially
@@ -154,7 +160,7 @@ References:
 
 ### Organize by domain, not technical layer
 
-Group code by what it does (messages, conversations, streaming,
+Group code by what it does (messages, conversations, voice,
 interactions), not by what it is (hooks, utils, components). The
 top-level folder for domain modules is called **`domains/`**.
 
@@ -181,15 +187,6 @@ src/
       conversation-queries.ts
       use-conversation-loader.ts
       types.ts
-    streaming/                     # SSE transport, event parsing
-      stream-store.ts
-      stream-transport.ts
-      event-parser.ts
-      event-types.ts
-      handlers/
-        message-handlers.ts
-        interaction-handlers.ts
-        types.ts
     chat/                          # chat feature module
       turn-store.ts                #   turn-level state machine
       turn-coordinator.ts          #   atomic turn-store + conversation-store transitions
@@ -200,13 +197,16 @@ src/
   utils/                           # cross-domain shared utilities
     format.ts
     browser.ts
-  types/                           # cross-domain shared types
+  types/                           # cross-domain shared types (no owning module)
     window.d.ts
+    event-types.ts
+    conversation-types.ts
   lib/                             # third-party integrations & infrastructure
     sentry/                        #   Sentry error reporting (init, consent control)
     auth/                          #   allauth client, CSRF, auth middleware
     feature-flags/                 #   feature flag provider
     sync/                          #   server state sync (tag registry, router)
+    streaming/                     #   SSE transport, event parsing, debug tracking
     api-client.ts                  #   HeyAPI configured client + interceptors
     telemetry/                     #   client identity for daemon registration
   runtime/                         # framework adapters, platform bridges
@@ -220,7 +220,7 @@ src/
 This app uses `domains/` over the more common `features/` because
 "features" implies product-level concepts (like "chat" or
 "settings") that contain multiple domains. `messages`,
-`conversations`, and `streaming` are business domains with distinct
+`conversations`, and `voice` are business domains with distinct
 data models and lifecycles — not features. `domains/` is more precise
 for a DDD-influenced architecture and signals that each folder
 represents a bounded context.
@@ -233,9 +233,8 @@ References:
 
 Domains are **business capabilities**, not URL segments. A route
 composes one or more domains; a domain may be used by zero or more
-routes. `conversations/`, `interactions/`, and `subagents/` have no
-routes of their own — they are composed by page-level domains
-(`chat/`, `home/`) that do map to routes.
+routes. `conversations/` has no routes of its own — it is composed by
+page-level domains (`chat/`, `home/`) that do map to routes.
 
 The dependency direction is one-way:
 `shared → domains → page domains → routes`.
@@ -296,7 +295,10 @@ Think of domains like database tables, not nested documents. Split by
 
 - **No circular dependencies.** If A imports from B AND B imports
   from A, either merge them or hoist the shared code to a
-  top-level directory.
+  top-level directory. **Exception:** `import type` is erased at
+  compile time and never creates a runtime cycle — use it when a
+  sub-module only needs types from its parent
+  ([TypeScript docs](https://www.typescriptlang.org/docs/handbook/modules/reference.html#type-only-imports-and-exports)).
 
 For further reading, [bulletproof-react's project structure
 docs](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md#cross-feature-access)
@@ -307,11 +309,11 @@ Examples of correct splits:
 - `messages/` vs `conversations/`: messages are created, streamed,
   delta-updated, and compacted — different lifecycle from conversation
   CRUD and grouping.
-- `streaming/` vs `messages/`: SSE transport and reconnection logic
+- `lib/streaming/` vs `messages/`: SSE transport and reconnection logic
   changes for different reasons than message state management.
-- `interactions/` vs `turn/`: user-facing prompts (secrets,
-  confirmations) have their own state machine, independent from the
-  turn lifecycle (idle → sending → receiving → complete).
+- `chat/interaction-store` vs `chat/turn-store`: user-facing prompts
+  (secrets, confirmations) have their own state machine, independent
+  from the turn lifecycle (idle → sending → receiving → complete).
 
 ### Conversation identifiers: `conversationId` vs `conversationKey`
 
@@ -384,8 +386,8 @@ owns it.
 | `stores/` | App-level Zustand stores (cross-domain state) | `viewer-store.ts`, `sse-connected-store.ts`, `assistant-feature-flag-store.ts` |
 | `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-feature-flag-bus-sync.ts` |
 | `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
-| `types/` | Shared type definitions | `window.d.ts`, `api-types.ts` |
-| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `api-client.ts` (HeyAPI) |
+| `types/` | Cross-domain shared type definitions with no clear owning module. Types consumed by a single module live with that module. Types produced by a module live in the module that produces them — consumers use `import type`. | `window.d.ts`, `event-types.ts`, `conversation-types.ts` |
+| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `streaming/` (SSE transport), `diagnostics.ts` (session ring buffer), `api-client.ts` (HeyAPI) |
 | `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 

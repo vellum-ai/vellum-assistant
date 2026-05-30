@@ -453,19 +453,16 @@ async function runRouterBatch(
 
   let response;
   try {
-    response = await provider.sendMessage(
-      [userMsg],
-      [routerTool],
+    response = await provider.sendMessage([userMsg], {
+      tools: [routerTool],
       systemPrompt,
-      {
-        config: {
-          callSite: "memoryRouter" as const,
-          tool_choice: { type: "tool" as const, name: ROUTER_TOOL_NAME },
-          disableTurnStartCache: true,
-        },
-        ...(signal ? { signal } : {}),
+      config: {
+        callSite: "memoryRouter" as const,
+        tool_choice: { type: "tool" as const, name: ROUTER_TOOL_NAME },
+        disableTurnStartCache: true,
       },
-    );
+      ...(signal ? { signal } : {}),
+    });
   } catch (err) {
     log.warn({ err }, "Router provider call threw; treating as api_error");
     return emptyBatchResult("api_error");

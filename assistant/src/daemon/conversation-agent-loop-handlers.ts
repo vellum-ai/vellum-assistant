@@ -67,7 +67,10 @@ import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
 } from "./assistant-attachments.js";
-import type { AgentLoopConversationContext } from "./conversation-agent-loop.js";
+import type {
+  AgentLoopConversationContext,
+  AssistantSurface,
+} from "./conversation-agent-loop.js";
 import {
   buildConversationErrorMessage,
   classifyConversationError,
@@ -89,6 +92,11 @@ import type {
 } from "./message-types/web-activity.js";
 
 const log = getLogger("agent-loop-handlers");
+
+// ── Partial-persistence tunables ─────────────────────────────────────
+// Debounce for mid-turn `updateContent` writes from text deltas.
+// Indexer + projector still fire ONLY at `handleMessageComplete`.
+const PARTIAL_PERSIST_DEBOUNCE_MS = 1000;
 
 /**
  * Build a {@link TurnContext} from the handler's deps for pipeline logging
@@ -239,6 +247,12 @@ export interface EventHandlerState {
   readonly serverToolStartedAt: Map<string, number>;
   /** Original input from server_tool_start, keyed by tool_use_id, so the complete handler can read the query. */
   readonly serverToolInputs: Map<string, Record<string, unknown>>;
+  /** Active debounce timer for partial persistence; `undefined` when idle. */
+  pendingPartialFlushTimer: ReturnType<typeof setTimeout> | undefined;
+  /** In-flight partial flush write awaited at finalize to avoid overwrite races. */
+  pendingPartialFlushPromise: Promise<void> | undefined;
+  /** Running mirror of the in-flight assistant message's content. */
+  currentMessageContent: ContentBlock[];
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -299,7 +313,116 @@ export function createEventHandlerState(): EventHandlerState {
     turnStartedAt: Date.now(),
     serverToolStartedAt: new Map(),
     serverToolInputs: new Map(),
+    pendingPartialFlushTimer: undefined,
+    pendingPartialFlushPromise: undefined,
+    currentMessageContent: [],
   };
+}
+
+// ── Partial-persistence helpers ──────────────────────────────────────
+
+/** Canonical persisted-content build: clean → append surfaces → redact. */
+function buildPersistedAssistantContent(
+  rawBlocks: readonly ContentBlock[],
+  surfaces: readonly AssistantSurface[],
+): ContentBlock[] {
+  const { cleanedContent } = cleanAssistantContent(rawBlocks);
+  const cleaned = cleanedContent as ContentBlock[];
+  const withSurfaces: ContentBlock[] = [...cleaned];
+  for (const surface of surfaces) {
+    withSurfaces.push({
+      type: "ui_surface",
+      surfaceId: surface.surfaceId,
+      surfaceType: surface.surfaceType,
+      title: surface.title,
+      data: surface.data,
+      actions: surface.actions,
+      display: surface.display,
+      ...(surface.persistent ? { persistent: true } : {}),
+    } as unknown as ContentBlock);
+  }
+  return withSurfaces.map((block) => {
+    if (block.type === "text") {
+      const tb = block as Extract<ContentBlock, { type: "text" }>;
+      return { ...tb, text: redactSecrets(tb.text) };
+    }
+    return block;
+  });
+}
+
+/** Append a streamed text chunk to `state.currentMessageContent`, fusing into tail text block. */
+function appendTextToCurrentMessage(
+  state: EventHandlerState,
+  text: string,
+): void {
+  if (text.length === 0) return;
+  const tail = state.currentMessageContent.at(-1);
+  if (tail && tail.type === "text") {
+    tail.text = tail.text + text;
+  } else {
+    state.currentMessageContent.push({ type: "text", text });
+  }
+}
+
+/** Reset partial-persist accumulator and any pending flush state. Idempotent. */
+function resetPartialPersistAccumulator(state: EventHandlerState): void {
+  if (state.pendingPartialFlushTimer !== undefined) {
+    clearTimeout(state.pendingPartialFlushTimer);
+    state.pendingPartialFlushTimer = undefined;
+  }
+  state.currentMessageContent = [];
+  state.pendingPartialFlushPromise = undefined;
+}
+
+/** Flush `state.currentMessageContent` to the row via the persistence pipeline. */
+async function flushAccumulatedContent(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): Promise<void> {
+  const messageId = state.lastAssistantMessageId;
+  if (messageId === undefined) return;
+  if (state.currentMessageContent.length === 0) return;
+
+  const built = buildPersistedAssistantContent(state.currentMessageContent, []);
+  const contentJson = JSON.stringify(built);
+
+  try {
+    await runPipeline<PersistArgs, PersistResult>(
+      "persistence",
+      getMiddlewaresFor("persistence"),
+      defaultPersistenceTerminal,
+      {
+        op: "updateContent",
+        messageId,
+        content: contentJson,
+      },
+      buildHandlerTurnContext(deps),
+      DEFAULT_TIMEOUTS.persistence,
+    );
+  } catch (err) {
+    deps.rlog.warn(
+      { err, messageId },
+      "partial flush of accumulated assistant content failed; finalize at message_complete will recover",
+    );
+  }
+}
+
+/** Schedule a debounced partial flush. First-scheduled wins; no-op when timer pending. */
+function schedulePartialFlush(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): void {
+  if (state.pendingPartialFlushTimer !== undefined) return;
+  state.pendingPartialFlushTimer = setTimeout(() => {
+    state.pendingPartialFlushTimer = undefined;
+    const flushPromise = flushAccumulatedContent(state, deps);
+    state.pendingPartialFlushPromise = flushPromise;
+    void flushPromise.finally(() => {
+      if (state.pendingPartialFlushPromise === flushPromise) {
+        state.pendingPartialFlushPromise = undefined;
+      }
+    });
+  }, PARTIAL_PERSIST_DEBOUNCE_MS);
 }
 
 // ── Shared Helper ────────────────────────────────────────────────────
@@ -545,6 +668,12 @@ export async function handleLlmCallStarted(
   )) as PersistReserveResult;
   state.lastAssistantMessageId = reserveResult.message.id;
   state.assistantRowAwaitingFinalization = true;
+  // Fresh row → fresh accumulator. If an earlier (failed) LLM call
+  // within the same run left partial state behind, the
+  // `assistantRowAwaitingFinalization` cleanup above already deleted
+  // the orphan row, so the accumulator content would point at a
+  // non-existent id. Reset here so the new row starts from zero.
+  resetPartialPersistAccumulator(state);
   deps.onEvent({
     type: "assistant_turn_start",
     messageId: reserveResult.message.id,
@@ -583,6 +712,10 @@ function handleTextDelta(
       messageId: state.lastAssistantMessageId,
     });
     if (deps.shouldGenerateTitle) state.firstAssistantText += drained.emitText;
+    // Mirror the drained delta into state.currentMessageContent so partial
+    // flushes mid-turn see the same content the user is watching live.
+    appendTextToCurrentMessage(state, drained.emitText);
+    schedulePartialFlush(state, deps);
   }
 }
 
@@ -1145,6 +1278,29 @@ export async function handleMessageComplete(
   // Reset per-turn tool tracking for the new turn.
   state.currentTurnToolUseIds = [];
 
+  // Cancel any pending debounced partial flush and await an already
+  // in-flight one before the authoritative `updateContent` below.
+  // Without the timer-clear, a timer that fires during this handler
+  // could double-write (idempotent in content but wastes a write) or
+  // race ahead of the indexer/projector and serve a stale snapshot.
+  // Without the await, a partial pipeline call that was dispatched a
+  // moment before this handler can settle AFTER the final write and
+  // overwrite the authoritative row.
+  if (state.pendingPartialFlushTimer !== undefined) {
+    clearTimeout(state.pendingPartialFlushTimer);
+    state.pendingPartialFlushTimer = undefined;
+  }
+  if (state.pendingPartialFlushPromise !== undefined) {
+    try {
+      await state.pendingPartialFlushPromise;
+    } catch {
+      // The partial flush swallows its own pipeline errors via
+      // `rlog.warn`; the `try`/`catch` here is defensive against
+      // future changes that might surface them.
+    }
+    state.pendingPartialFlushPromise = undefined;
+  }
+
   // Flush any remaining directive display buffer
   if (state.pendingDirectiveDisplayBuffer.length > 0) {
     deps.onEvent({
@@ -1215,13 +1371,14 @@ export async function handleMessageComplete(
     state.pendingToolResults.clear();
   }
 
-  // Clean assistant content and accumulate directives
-  const {
-    cleanedContent,
-    directives: msgDirectives,
-    warnings: msgWarnings,
-  } = cleanAssistantContent(event.message.content);
-  const cleanedBlocks = cleanedContent as ContentBlock[];
+  // Accumulate directives + warnings from the assistant content for
+  // downstream attachment processing. `cleanAssistantContent` is also
+  // called inside {@link buildPersistedAssistantContent} below; running
+  // it here separately is the cheapest way to keep the directive
+  // side-effects local to this handler while letting the shared helper
+  // own the persisted-content shape.
+  const { directives: msgDirectives, warnings: msgWarnings } =
+    cleanAssistantContent(event.message.content);
   state.accumulatedDirectives.push(...msgDirectives);
   state.directiveWarnings.push(...msgWarnings);
   if (msgDirectives.length > 0) {
@@ -1243,31 +1400,14 @@ export async function handleMessageComplete(
   // are applied in handleToolResult after all tools for the turn complete,
   // then the persisted message is updated via updateMessageContent.
 
-  // Build content with UI surfaces
-  const contentWithSurfaces: ContentBlock[] = [...cleanedBlocks];
-  for (const surface of deps.ctx.currentTurnSurfaces) {
-    contentWithSurfaces.push({
-      type: "ui_surface",
-      surfaceId: surface.surfaceId,
-      surfaceType: surface.surfaceType,
-      title: surface.title,
-      data: surface.data,
-      actions: surface.actions,
-      display: surface.display,
-      ...(surface.persistent ? { persistent: true } : {}),
-    } as unknown as ContentBlock);
-  }
-
-  // Redact known-pattern secrets from assistant text blocks before they are
-  // written to durable storage. Non-text blocks (images, UI surfaces) pass
-  // through unchanged. The live model history retains the original values.
-  const contentForPersistence = contentWithSurfaces.map((block) => {
-    if (block.type === "text") {
-      const tb = block as Extract<ContentBlock, { type: "text" }>;
-      return { ...tb, text: redactSecrets(tb.text) };
-    }
-    return block;
-  });
+  // Build the canonical persisted content (cleaned + surfaces +
+  // redacted) via the shared helper. The partial-persist flush uses
+  // the same helper with `surfaces=[]` so a mid-turn snapshot lands in
+  // the same shape as the finalize.
+  const contentForPersistence = buildPersistedAssistantContent(
+    event.message.content as ContentBlock[],
+    deps.ctx.currentTurnSurfaces,
+  );
 
   // The row was reserved at `llm_call_started` (with channel metadata
   // stamped at that point) and `state.lastAssistantMessageId` carries its
@@ -1296,6 +1436,9 @@ export async function handleMessageComplete(
     DEFAULT_TIMEOUTS.persistence,
   );
   state.assistantRowAwaitingFinalization = false;
+  // Reset the partial-persist mirror so subsequent calls in this turn
+  // start with an empty running view.
+  state.currentMessageContent = [];
 
   // ── Indexing + attention projection (restored from the pre-B3 `add` path) ──
   // `reserveMessage` + `updateMessageContent` are CRUD-only: they don't run
@@ -1419,8 +1562,10 @@ export async function handleMessageComplete(
 
   deps.ctx.currentTurnSurfaces = [];
 
-  // Emit trace event
-  const charCount = cleanedBlocks
+  // Emit trace event. Char count is computed from the cleaned +
+  // redacted text blocks (UI surface blocks filtered out via the
+  // type guard) — same shape as what was just persisted.
+  const charCount = contentForPersistence
     .filter(
       (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
     )

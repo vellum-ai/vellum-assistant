@@ -1,6 +1,6 @@
 import { Navigate } from "react-router";
 
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { PluginsTab } from "@/domains/intelligence/components/plugins/plugins-tab";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { routes } from "@/utils/routes";
@@ -30,7 +30,7 @@ import { routes } from "@/utils/routes";
 export function PluginsPage() {
   const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
   const externalPlugins = useAssistantFeatureFlagStore.use.externalPlugins();
-  const { assistantId } = useActiveAssistantContext();
+  const assistantId = useActiveAssistantId();
 
   // Wait for the first real /feature-flags response before deciding to
   // redirect. Rendering nothing for one render is preferable to bouncing

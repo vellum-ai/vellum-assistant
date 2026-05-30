@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import {
   readAssistantEvents,
+  readIngestAssistantEvents,
   readMetricResults,
   readProgressEvents,
   readRunMetadata,
@@ -75,6 +76,14 @@ export interface ReportRunDetail extends ReportRunSummary {
   transcript: TranscriptTurn[];
   usage: UsageSummary;
   assistantEvents: AgentEvent[];
+  /**
+   * V2 only: the ingest-turn AgentEvents (memory-formation work
+   * consuming the haystack sessions). Empty for V1 runs, which have no
+   * ingest phase. Rendered in its own report section so the
+   * question-turn view in `assistantEvents` stays focused on what the
+   * agent said in response to the question.
+   */
+  ingestAssistantEvents: AgentEvent[];
   simulatorMessages: AgentMessage[];
   progressEvents: PersistedProgressEvent[];
   /**
@@ -240,6 +249,7 @@ const STRUCTURED_RUN_FILES = new Set<string>([
   "metrics.json",
   "transcript.json",
   "assistant-events.json",
+  "ingest-assistant-events.json",
   "simulator-messages.json",
   "usage.json",
   "progress.ndjson",
@@ -319,6 +329,7 @@ export async function readReportRun(runId: string): Promise<ReportRunDetail> {
     transcript,
     usage,
     assistantEvents,
+    ingestAssistantEvents,
     simulatorMessages,
     progressEvents,
     extras,
@@ -328,6 +339,7 @@ export async function readReportRun(runId: string): Promise<ReportRunDetail> {
     readTranscript(runId),
     readUsage(runId),
     readAssistantEvents(runId),
+    readIngestAssistantEvents(runId),
     readSimulatorMessages(runId),
     readProgressEvents(runId),
     listExtraArtifacts(artifacts.runDir),
@@ -357,6 +369,7 @@ export async function readReportRun(runId: string): Promise<ReportRunDetail> {
     transcript,
     usage,
     assistantEvents,
+    ingestAssistantEvents,
     simulatorMessages,
     progressEvents,
     subprocessLogs: extras.subprocessLogs,
@@ -379,6 +392,7 @@ async function listAllRunSummaries(): Promise<ReportRunSummary[]> {
       transcript: _transcript,
       usage: _usage,
       assistantEvents: _assistantEvents,
+      ingestAssistantEvents: _ingestAssistantEvents,
       simulatorMessages: _simulatorMessages,
       progressEvents: _progressEvents,
       ...summary

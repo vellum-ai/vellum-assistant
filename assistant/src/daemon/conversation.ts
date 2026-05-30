@@ -74,6 +74,7 @@ import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
+import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   applyCompactionResult,
   runAgentLoopImpl,
@@ -327,20 +328,7 @@ export class Conversation {
     ReturnType<typeof setTimeout>
   >();
   /** @internal */ withSurface = createSurfaceMutex();
-  /** @internal */ currentTurnSurfaces: Array<{
-    surfaceId: string;
-    surfaceType: SurfaceType;
-    title?: string;
-    data: SurfaceData;
-    actions?: Array<{
-      id: string;
-      label: string;
-      style?: string;
-      data?: Record<string, unknown>;
-    }>;
-    display?: string;
-    persistent?: boolean;
-  }> = [];
+  /** @internal */ currentTurnSurfaces: AssistantSurface[] = [];
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
   /**
@@ -601,7 +589,9 @@ export class Conversation {
     };
 
     provider
-      .sendMessage([warmMessage], tools, systemPrompt, {
+      .sendMessage([warmMessage], {
+        tools,
+        systemPrompt,
         config: {
           max_tokens: 1,
           callSite: "mainAgent",

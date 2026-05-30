@@ -116,30 +116,4 @@ if (typeof window !== "undefined") {
   });
 }
 
-// ---------------------------------------------------------------------------
-// One-shot legacy cleanup
-// ---------------------------------------------------------------------------
 
-const LEGACY_CLEANUP_FLAG = "app.nudgeLegacy.cleaned";
-
-const LEGACY_KEYS = [
-  "app.githubNudge.starred",
-  "app.githubNudge.bannerDismissed",
-  "app.githubNudge.bannerDismissedAt",
-  "app.discordNudge.joined",
-  "app.discordNudge.bannerDismissed",
-  "app.discordNudge.firstSeenAt",
-];
-
-if (typeof window !== "undefined") {
-  try {
-    if (localStorage.getItem(LEGACY_CLEANUP_FLAG) !== "true") {
-      for (const key of LEGACY_KEYS) {
-        localStorage.removeItem(key);
-      }
-      localStorage.setItem(LEGACY_CLEANUP_FLAG, "true");
-    }
-  } catch {
-    // Storage unavailable (private mode, quota, etc.) — re-attempt next load.
-  }
-}

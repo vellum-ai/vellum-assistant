@@ -41,6 +41,23 @@ type AssistantFeatureFlagStore = Record<string, boolean> &
   AssistantFeatureFlagMeta &
   AssistantFeatureFlagActions;
 
+let confirmedAssistantFlagValues: Record<string, boolean> = {
+  ...ASSISTANT_FLAG_DEFAULTS,
+};
+let nextFlagRequestId = 0;
+const pendingFlagRequestIds: Record<string, number> = {};
+
+function resetConfirmedFlags(flags: Record<string, boolean> = {}) {
+  confirmedAssistantFlagValues = { ...ASSISTANT_FLAG_DEFAULTS, ...flags };
+  for (const key of Object.keys(pendingFlagRequestIds)) {
+    delete pendingFlagRequestIds[key];
+  }
+}
+
+function latestConfirmedValue(key: string): boolean {
+  return confirmedAssistantFlagValues[key] ?? ASSISTANT_FLAG_DEFAULTS[key] ?? false;
+}
+
 const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
   (set) =>
     ({
@@ -49,6 +66,7 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
 
       setFlags: (flags: Record<string, boolean>) =>
         set((prev) => {
+          resetConfirmedFlags(flags);
           const changed = Object.keys(flags).some(
             (k) => flags[k] !== prev[k],
           );
@@ -59,13 +77,43 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
         // Fire the PATCH before updating local state: the platform-features
         // interceptor reads this store synchronously, so toggling
         // platformFeaturesInLocalMode OFF would block its own request.
+        const requestId = ++nextFlagRequestId;
+        const revertIfLatestRejectedRequest = () => {
+          if (pendingFlagRequestIds[key] !== requestId) {
+            return;
+          }
+          delete pendingFlagRequestIds[key];
+          const confirmedValue = latestConfirmedValue(key);
+          set((prev) => {
+            if (prev[key] !== value) {
+              return prev;
+            }
+            return { [key]: confirmedValue };
+          });
+        };
         const flagKey = storeKeyToFlagKey(key);
         if (assistantId && flagKey) {
-          void client.patch({
-            url: `/v1/assistants/${assistantId}/feature-flags/${flagKey}`,
-            body: { enabled: value },
-            throwOnError: false,
-          } as Parameters<typeof client.patch>[0]);
+          pendingFlagRequestIds[key] = requestId;
+          void client
+            .patch({
+              url: `/v1/assistants/${assistantId}/feature-flags/${flagKey}`,
+              body: { enabled: value },
+              throwOnError: false,
+            } as Parameters<typeof client.patch>[0])
+            .then((result) => {
+              const response = (result as { response?: Response }).response;
+              if (response?.ok) {
+                confirmedAssistantFlagValues[key] = value;
+                if (pendingFlagRequestIds[key] === requestId) {
+                  delete pendingFlagRequestIds[key];
+                }
+              } else {
+                revertIfLatestRejectedRequest();
+              }
+            })
+            .catch(revertIfLatestRejectedRequest);
+        } else {
+          confirmedAssistantFlagValues[key] = value;
         }
 
         set({ [key]: value });
@@ -74,7 +122,10 @@ const useAssistantFeatureFlagStoreBase = create<AssistantFeatureFlagStore>()(
       markHydrated: () => set({ hasHydrated: true }),
 
       resetForAssistantSwitch: () =>
-        set({ ...ASSISTANT_FLAG_DEFAULTS, hasHydrated: false }),
+        set(() => {
+          resetConfirmedFlags();
+          return { ...ASSISTANT_FLAG_DEFAULTS, hasHydrated: false };
+        }),
     }) as AssistantFeatureFlagStore,
 );
 

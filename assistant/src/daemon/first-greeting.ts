@@ -43,6 +43,28 @@ export function getCannedFirstGreeting(
   return CANNED_FIRST_GREETING;
 }
 
+/**
+ * Builds a natural self-introduction to send *on behalf of the user* in place
+ * of the wake-up greeting, so the assistant generates a real response instead
+ * of replaying canned copy. Names come from the onboarding context; missing
+ * names are dropped so the line stays natural:
+ *   - both:           "Hi Vela, I'm alex. Nice to meet you."
+ *   - assistant only: "Hi Vela. Nice to meet you."
+ *   - user only:      "Hi, I'm alex. Nice to meet you."
+ * When neither name is known there is nothing personal to say, so this returns
+ * `undefined` and the caller falls back to the canned greeting.
+ */
+export function buildSelfIntroMessage(
+  onboarding?: OnboardingGreetingContext,
+): string | undefined {
+  const assistant = onboarding?.assistantName?.trim();
+  const user = onboarding?.userName?.trim();
+  if (!assistant && !user) return undefined;
+  const hi = assistant ? `Hi ${assistant}` : "Hi";
+  const intro = user ? `, I'm ${user}` : "";
+  return `${hi}${intro}. Nice to meet you.`;
+}
+
 const TONE_INTRO_CLOSE: Record<Tone, string> = {
   grounded: "",
   warm: "Good to meet you.",
