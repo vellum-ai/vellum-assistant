@@ -20,7 +20,7 @@ import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-lay
 import { extractErrorMessage } from "@/utils/api-errors";
 import { isLocalMode, hatchLocalAssistant, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection, getLocalGatewayUrl } from "@/lib/local-mode";
 import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
-import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { lifecycleService } from "@/assistant/lifecycle-service";
 import {
   readAiDataConsent,
   readOnboardingCompleted,
@@ -192,7 +192,7 @@ export function HatchingScreen() {
       navigateTimer = setTimeout(() => {
         if (cancelled) return;
         void (async () => {
-          await useAssistantLifecycleStore.getState().checkAssistant();
+          await lifecycleService.checkAssistant();
           if (cancelled) return;
           if (isNativePlatform()) {
             try {

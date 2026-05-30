@@ -23,6 +23,7 @@ import * as Sentry from "@sentry/react";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAuthStore } from "@/stores/auth-store";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
+import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -165,22 +166,19 @@ export function ChatPage() {
   const setOnSearchClick = useChatLayoutSlotsStore.use.setOnSearchClick();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
   const assistantState = useAssistantLifecycleStore.use.assistantState();
-  // Imperative actions are read inline from the store at call time
-  // via `.getState()` (see `lifecycle-store.ts` — neither render-time
-  // capture nor selector subscription is right for actions registered
-  // in a passive effect). Stable wrappers below let the actions flow
-  // through prop boundaries without identity flips.
+  // Wrap the service methods in stable `useCallback`s so they can flow
+  // through prop boundaries (downstream effects' dep arrays stay
+  // stable) and the `this` binding is preserved on call.
   const checkAssistant = useCallback(
-    () => useAssistantLifecycleStore.getState().checkAssistant(),
+    () => lifecycleService.checkAssistant(),
     [],
   );
   const retryAssistant = useCallback(
-    () => useAssistantLifecycleStore.getState().retryAssistant(),
+    () => lifecycleService.retryAssistant(),
     [],
   );
   const hatchVersion = useCallback(
-    (version?: string) =>
-      useAssistantLifecycleStore.getState().hatchVersion(version),
+    (version?: string) => lifecycleService.hatchVersion(version),
     [],
   );
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();

@@ -34,7 +34,7 @@ import { useEffect } from "react";
 import * as Sentry from "@sentry/browser";
 import type { PluginListenerHandle } from "@capacitor/core";
 
-import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { lifecycleService } from "@/assistant/lifecycle-service";
 import { subscribeChatEvents } from "@/lib/streaming/stream-transport";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
@@ -270,7 +270,7 @@ export function useEventBusInit({
       // Daemon health check via the lifecycle store. The no-op
       // default covers the pre-registration window but no foreground
       // resume event can fire before `RootLayout` has mounted.
-      void useAssistantLifecycleStore.getState().checkAssistant();
+      void lifecycleService.checkAssistant();
       // App-resume means the renderer became visible; if a connection
       // is already live, it was either never torn down or just opened
       // moments ago — either way, leave it alone.
@@ -291,7 +291,7 @@ export function useEventBusInit({
       const now = Date.now();
       if (now - lastPowerActionAt < RESUME_DEDUP_WINDOW_MS) return;
       lastPowerActionAt = now;
-      void useAssistantLifecycleStore.getState().checkAssistant();
+      void lifecycleService.checkAssistant();
       teardown();
       open();
     };
