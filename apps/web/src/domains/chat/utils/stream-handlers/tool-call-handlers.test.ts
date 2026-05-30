@@ -2,7 +2,6 @@ import { describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
-  handleToolProgress,
   handleToolResult,
   handleToolUseStart,
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
@@ -115,22 +114,5 @@ describe("handleToolResult", () => {
       ctx,
     );
     expect(ctx.turnActions.onToolActivityMetadata).not.toHaveBeenCalled();
-  });
-});
-
-describe("handleToolProgress", () => {
-  it("updates messages via applyToolProgress", () => {
-    const ctx = makeCtx();
-    handleToolProgress(
-      {
-        type: "tool_progress",
-        toolName: "web_search",
-        elapsedSec: 15,
-        timeoutSec: 60,
-        toolUseId: "tc-1",
-      },
-      ctx,
-    );
-    expect(ctx.setMessages).toHaveBeenCalled();
   });
 });

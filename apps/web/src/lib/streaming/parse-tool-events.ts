@@ -93,20 +93,3 @@ export function parseToolResult(
         : undefined,
   };
 }
-
-export function parseToolProgress(
-  data: Record<string, unknown>,
-): AssistantEvent {
-  return {
-    type: "tool_progress",
-    toolName: typeof data.toolName === "string" ? data.toolName : "unknown",
-    elapsedSec: typeof data.elapsedSec === "number" ? data.elapsedSec : 0,
-    timeoutSec: typeof data.timeoutSec === "number" ? data.timeoutSec : 0,
-    conversationId:
-      typeof data.conversationId === "string"
-        ? data.conversationId
-        : undefined,
-    toolUseId:
-      typeof data.toolUseId === "string" ? data.toolUseId : undefined,
-  };
-}

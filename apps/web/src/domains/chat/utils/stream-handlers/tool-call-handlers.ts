@@ -1,10 +1,9 @@
 import {
-  applyToolProgress,
   applyToolResult,
   upsertToolCall,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { ToolProgressEvent, ToolResultEvent } from "@/types/event-types";
+import type { ToolResultEvent } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolUseStartEvent } from "@vellumai/assistant-api";
 
@@ -33,19 +32,6 @@ export function handleToolUseStart(
     }
     return next;
   });
-}
-
-export function handleToolProgress(
-  event: ToolProgressEvent,
-  ctx: StreamHandlerContext,
-): void {
-  ctx.setMessages((prev) =>
-    applyToolProgress(prev, {
-      toolUseId: event.toolUseId,
-      elapsedSec: event.elapsedSec,
-      timeoutSec: event.timeoutSec,
-    }),
-  );
 }
 
 export function handleToolResult(

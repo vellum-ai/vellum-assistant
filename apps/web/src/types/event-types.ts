@@ -108,20 +108,6 @@ export interface ToolResultEvent {
 }
 
 /**
- * Periodic progress heartbeat emitted by the daemon while a tool is executing.
- * Fires every ~10s so the client can show a live "Still working..." indicator
- * even when no other SSE events are flowing.
- */
-export interface ToolProgressEvent {
-  type: "tool_progress";
-  toolName: string;
-  elapsedSec: number;
-  timeoutSec: number;
-  toolUseId?: string;
-  conversationId?: string;
-}
-
-/**
  * Periodic usage update emitted by the daemon with token counts for the
  * current conversation. `contextWindowTokens` / `contextWindowMaxTokens`
  * reflect the size of the most recent model request (input + cached tokens)
@@ -380,7 +366,6 @@ export type AssistantEvent =
   | UISurfaceDismissEvent
   | UISurfaceCompleteEvent
   | ToolResultEvent
-  | ToolProgressEvent
   | NotificationIntentEvent
   | UsageUpdateEvent
   | AssistantActivityStateEvent

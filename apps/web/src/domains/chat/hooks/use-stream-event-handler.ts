@@ -47,7 +47,6 @@ import {
 } from "@/domains/chat/utils/stream-handlers/surface-handlers";
 import {
   handleToolUseStart,
-  handleToolProgress,
   handleToolResult,
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 import {
@@ -347,9 +346,6 @@ export function useStreamEventHandler(
           break;
         case "tool_use_start":
           handleToolUseStart(event, ctx);
-          break;
-        case "tool_progress":
-          handleToolProgress(event, ctx);
           break;
         case "tool_result":
           handleToolResult(event, ctx);

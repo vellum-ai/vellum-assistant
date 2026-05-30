@@ -29,7 +29,6 @@ import { unknownEvent } from "@/lib/streaming/parse-helpers";
 import {
   parseToolUseStart,
   parseToolResult,
-  parseToolProgress,
 } from "@/lib/streaming/parse-tool-events";
 import {
   parseUISurfaceShow,
@@ -139,8 +138,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       return parseToolUseStart(data);
     case "tool_result":
       return parseToolResult(data);
-    case "tool_progress":
-      return parseToolProgress(data);
 
     // --- UI surface lifecycle ---
     case "ui_surface_show":
