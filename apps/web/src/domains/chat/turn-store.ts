@@ -1,3 +1,4 @@
+/* eslint-disable local/max-file-lines -- turn-level state machine; transitions are interlocked */
 /**
  * Zustand store for the turn-level state machine.
  *

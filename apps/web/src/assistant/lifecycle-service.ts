@@ -1,3 +1,4 @@
+/* eslint-disable local/max-file-lines -- interlocked state machine; splitting hurts cohesion (see LUM-2062 PR body) */
 /**
  * Assistant lifecycle state machine — the non-React core.
  *

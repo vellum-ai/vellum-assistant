@@ -422,7 +422,9 @@ If the code imports a third-party SDK and configures it → `lib/`. If it bridge
 ### No barrel files
 
 Do not use barrel files (`index.ts` that re-export siblings). Import
-from the source file directly. If you believe this rule should change,
+from the source file directly. **Enforced by
+`local/no-barrel-files`** — an `index.ts` / `index.tsx` outside
+`src/generated/` fails lint. If you believe this rule should change,
 open a GitHub issue to discuss.
 
 ### No single-file directories
@@ -499,7 +501,11 @@ Signs a hook needs decomposition:
 - A single `useCallback` with a switch/if-else over many cases
   -> extract cases into domain handler functions
 - Multiple unrelated `useEffect` blocks -> split into focused hooks
-- The file exceeds ~300 lines of non-test code
+- The file exceeds ~300 lines of non-test code (**flagged by
+  `local/max-file-lines` as a CI warning**; exempt with
+  `/* eslint-disable local/max-file-lines -- <reason> */` at the top
+  for genuinely interlocked code like state machines, with a one-line
+  justification)
 
 Reference: [React — Reusing Logic with Custom Hooks](https://react.dev/learn/reusing-logic-with-custom-hooks)
 

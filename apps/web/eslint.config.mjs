@@ -1,7 +1,11 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import tseslint from "typescript-eslint";
 
+import { maxFileLines } from "./eslint-rules/max-file-lines.mjs";
+import { noBarrelFiles } from "./eslint-rules/no-barrel-files.mjs";
 import { noCrossDomainImports } from "./eslint-rules/no-cross-domain-imports.mjs";
+import { noOutletContextOutsideLayouts } from "./eslint-rules/no-outlet-context-outside-layouts.mjs";
+import { noUseReducerForClientState } from "./eslint-rules/no-usereducer-for-client-state.mjs";
 
 // ---------------------------------------------------------------------------
 // no-restricted-syntax rule sets
@@ -148,7 +152,15 @@ const eslintConfig = defineConfig([
   globalIgnores(["dist/**", "src/generated/**", "storybook-static/**"]),
   {
     plugins: {
-      local: { rules: { "no-cross-domain-imports": noCrossDomainImports } },
+      local: {
+        rules: {
+          "max-file-lines": maxFileLines,
+          "no-barrel-files": noBarrelFiles,
+          "no-cross-domain-imports": noCrossDomainImports,
+          "no-outlet-context-outside-layouts": noOutletContextOutsideLayouts,
+          "no-usereducer-for-client-state": noUseReducerForClientState,
+        },
+      },
     },
     rules: {
       "@typescript-eslint/no-unused-vars": [
@@ -156,6 +168,15 @@ const eslintConfig = defineConfig([
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "local/no-cross-domain-imports": "error",
+      // Convention-enforcement rules introduced together. `max-file-lines`
+      // ships as `warn` initially so adoption can be incremental — the
+      // existing offenders are tracked in LUM-2073 / LUM-2071 / LUM-2072 /
+      // LUM-2065 and the lint output surfaces each one as CI signal. The
+      // other three are `error` because the codebase already complies.
+      "local/max-file-lines": "warn",
+      "local/no-barrel-files": "error",
+      "local/no-outlet-context-outside-layouts": "error",
+      "local/no-usereducer-for-client-state": "error",
       "no-restricted-syntax": [
         "error",
         ...darkPairedColorScaleRules,

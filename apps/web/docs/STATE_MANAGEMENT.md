@@ -294,7 +294,9 @@ layouts.
 
 ## useReducer is not used for client state
 
-**Do not use `useReducer` in `apps/web/`.** All client state — including
+**Do not use `useReducer` in `apps/web/`.** **Enforced by
+`local/no-usereducer-for-client-state`** — `useReducer` calls outside
+the documented exception paths fail lint. All client state — including
 single-hook-scoped state with non-trivial transitions — lives in a
 Zustand store with direct named actions (see
 [Direct named actions, not reducers](#direct-named-actions-not-reducers)
