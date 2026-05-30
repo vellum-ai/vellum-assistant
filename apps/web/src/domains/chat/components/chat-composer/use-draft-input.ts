@@ -20,6 +20,8 @@ import {
   useState,
 } from "react";
 
+import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -35,10 +37,9 @@ function storageKey(assistantId: string): string {
 // ---------------------------------------------------------------------------
 
 function loadDrafts(assistantId: string): Map<string, string> {
-  if (typeof window === "undefined") return new Map();
+  const raw = getLocalSetting(storageKey(assistantId), "");
+  if (!raw) return new Map();
   try {
-    const raw = window.localStorage.getItem(storageKey(assistantId));
-    if (!raw) return new Map();
     const parsed: unknown = JSON.parse(raw);
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       return new Map();
@@ -57,15 +58,10 @@ function persistDrafts(
   assistantId: string,
   drafts: Map<string, string>,
 ): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      storageKey(assistantId),
-      JSON.stringify(Object.fromEntries(drafts)),
-    );
-  } catch {
-    // Storage can fail in private browsing / quota-exceeded.
-  }
+  setLocalSetting(
+    storageKey(assistantId),
+    JSON.stringify(Object.fromEntries(drafts)),
+  );
 }
 
 // ---------------------------------------------------------------------------

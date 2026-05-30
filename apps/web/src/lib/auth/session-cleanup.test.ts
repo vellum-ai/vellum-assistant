@@ -131,6 +131,18 @@ describe("clearUserScopedStorage", () => {
     expect(localStorage.getItem("vellum:onboarding:completed")).toBeNull();
   });
 
+  test("clears legacy app. prefixed nudge keys", () => {
+    localStorage.setItem("app.githubNudge.starred", "true");
+    localStorage.setItem("app.discordNudge.joined", "true");
+    localStorage.setItem("app.nudgeLegacy.cleaned", "true");
+
+    clearUserScopedStorage();
+
+    expect(localStorage.getItem("app.githubNudge.starred")).toBeNull();
+    expect(localStorage.getItem("app.discordNudge.joined")).toBeNull();
+    expect(localStorage.getItem("app.nudgeLegacy.cleaned")).toBeNull();
+  });
+
   test("clears legacy prefixed keys if startup migration failed", () => {
     // eslint-disable-next-line no-restricted-syntax -- test: verifying cleanup of legacy auth token
     localStorage.setItem("gw:token", "legacy-jwt-token");

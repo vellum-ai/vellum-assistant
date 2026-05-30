@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import { migrateKey, migratePrefix, runStorageMigrations } from "./storage-migration";
+import { migrateKey, migratePrefix, removeKey, runStorageMigrations } from "./storage-migration";
 
 beforeEach(() => {
   localStorage.clear();
@@ -8,6 +8,22 @@ beforeEach(() => {
 
 afterEach(() => {
   localStorage.clear();
+});
+
+describe("removeKey", () => {
+  test("removes an existing key", () => {
+    localStorage.setItem("old:key", "value");
+
+    removeKey("old:key");
+
+    expect(localStorage.getItem("old:key")).toBeNull();
+  });
+
+  test("no-op when key is absent", () => {
+    removeKey("missing");
+
+    expect(localStorage.getItem("missing")).toBeNull();
+  });
 });
 
 describe("migrateKey", () => {
@@ -248,6 +264,18 @@ describe("runStorageMigrations", () => {
 
     expect(localStorage.getItem("_ga")).toBe("GA1.2.123456");
     expect(localStorage.getItem("intercom-session")).toBe("abc");
+  });
+
+  test("removes legacy nudge keys and their cleanup flag", () => {
+    localStorage.setItem("app.githubNudge.starred", "true");
+    localStorage.setItem("app.discordNudge.joined", "true");
+    localStorage.setItem("app.nudgeLegacy.cleaned", "true");
+
+    runStorageMigrations();
+
+    expect(localStorage.getItem("app.githubNudge.starred")).toBeNull();
+    expect(localStorage.getItem("app.discordNudge.joined")).toBeNull();
+    expect(localStorage.getItem("app.nudgeLegacy.cleaned")).toBeNull();
   });
 
   test("full migration is idempotent", () => {

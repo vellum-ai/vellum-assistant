@@ -27,6 +27,7 @@ import {
 } from "react";
 
 import { Button, Card, ConfirmDialog, Input, Popover } from "@vellum/design-library";
+import { getLocalBool, setLocalBool } from "@/utils/local-settings";
 import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
@@ -95,10 +96,9 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   const [removingSkillId, setRemovingSkillId] = useState<string | null>(null);
   const [skillPendingRemoval, setSkillPendingRemoval] = useState<SkillInfo | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [tipDismissed, setTipDismissed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem(TIP_STORAGE_KEY) === "1";
-  });
+  const [tipDismissed, setTipDismissed] = useState(() =>
+    getLocalBool(TIP_STORAGE_KEY, false),
+  );
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -185,9 +185,7 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
 
   const handleDismissTip = useCallback(() => {
     setTipDismissed(true);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(TIP_STORAGE_KEY, "1");
-    }
+    setLocalBool(TIP_STORAGE_KEY, true);
   }, []);
 
   const allSkills = useMemo(

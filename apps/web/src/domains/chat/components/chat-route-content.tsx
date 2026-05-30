@@ -50,6 +50,7 @@ import { IOSAppBanner } from "@/components/nudges/ios-app-banner";
 import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
 import { Loader2 } from "lucide-react";
 import { Button, Notice, ResizablePanel } from "@vellum/design-library";
+import { getLocalBool, setLocalBool, removeLocalSetting } from "@/utils/local-settings";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
 import { AppViewerContainer } from "@/components/app-viewer-container";
@@ -1013,12 +1014,12 @@ export function ChatRouteContent({
 
   const [warningDismissed, setWarningDismissed] = useState(() => {
     if (!assistantId) return false;
-    return localStorage.getItem(`vellum:diskPressureDismissed:${assistantId}`) === "true";
+    return getLocalBool(`vellum:diskPressureDismissed:${assistantId}`, false);
   });
 
   const dismissWarning = useCallback(() => {
     if (!assistantId) return;
-    localStorage.setItem(`vellum:diskPressureDismissed:${assistantId}`, "true");
+    setLocalBool(`vellum:diskPressureDismissed:${assistantId}`, true);
     setWarningDismissed(true);
   }, [assistantId]);
 
@@ -1027,7 +1028,7 @@ export function ChatRouteContent({
     const st = diskPressure.status?.state;
     if (st && st !== "warning" && warningDismissed) {
       if (assistantId) {
-        localStorage.removeItem(`vellum:diskPressureDismissed:${assistantId}`);
+        removeLocalSetting(`vellum:diskPressureDismissed:${assistantId}`);
       }
       setWarningDismissed(false);
     }

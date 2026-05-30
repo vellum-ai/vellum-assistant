@@ -37,6 +37,7 @@ const LEGACY_USER_PREFIXES = [
   "integrations.",
   "vellumDebug.",
   "vellum_",
+  "app.",
 ];
 
 /**
