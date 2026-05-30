@@ -11,6 +11,7 @@ const passthrough = ({ children }: { children?: ReactNode }) =>
   createElement("div", null, children);
 let currentPopoverOpen = false;
 let lastPopoverOpenChange: ((open: boolean) => void) | null = null;
+const reactRouter = await import("react-router");
 
 mock.module("@vellum/design-library", () => ({
   Button: ({
@@ -59,6 +60,7 @@ mock.module("@vellum/design-library", () => ({
 }));
 
 mock.module("react-router", () => ({
+  ...reactRouter,
   useNavigate: () => (path: string) => {
     lastNavigatedTo = path;
   },
