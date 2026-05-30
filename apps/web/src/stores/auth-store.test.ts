@@ -70,6 +70,13 @@ mock.module("@/stores/event-bus-store", () => ({
   },
 }));
 
+const lifecycleResetForLogoutMock = mock(() => {});
+mock.module("@/assistant/lifecycle-service", () => ({
+  lifecycleService: {
+    resetForLogout: lifecycleResetForLogoutMock,
+  },
+}));
+
 const { useAuthStore } = await import("@/stores/auth-store");
 
 function resetAuthStore(): void {
@@ -95,6 +102,7 @@ beforeEach(() => {
   deleteBiometricTokenMock.mockClear();
   installSessionCookiesMock.mockClear();
   retrieveBiometricTokenMock.mockClear();
+  lifecycleResetForLogoutMock.mockClear();
   resetAuthStore();
 });
 
@@ -144,6 +152,25 @@ describe("session cleanup on logout", () => {
     await useAuthStore.getState().logout();
 
     expect(clearUserScopedStorageMock).toHaveBeenCalled();
+  });
+
+  test("logout clears assistant lifecycle synchronously, before flipping isLoggedIn", async () => {
+    // The lifecycle reset must happen before the auth state flips,
+    // otherwise sync hooks like `useAssistantResourceSync` get one
+    // re-render with the previous user's assistant id and fire
+    // requests that 401. The order is verified by recording the
+    // sequence of side effects vs the `isLoggedIn` flip.
+    let isLoggedInAtResetTime = useAuthStore.getState().isLoggedIn;
+    lifecycleResetForLogoutMock.mockImplementationOnce(() => {
+      isLoggedInAtResetTime = useAuthStore.getState().isLoggedIn;
+    });
+    useAuthStore.setState({ isLoggedIn: true });
+
+    await useAuthStore.getState().logout();
+
+    expect(lifecycleResetForLogoutMock).toHaveBeenCalledTimes(1);
+    expect(isLoggedInAtResetTime).toBe(true);
+    expect(useAuthStore.getState().isLoggedIn).toBe(false);
   });
 });
 
