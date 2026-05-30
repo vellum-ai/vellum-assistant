@@ -5,11 +5,13 @@ import {
 } from "@/domains/chat/hooks/stream-message-updaters";
 import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { ConversationErrorEvent, StreamErrorEvent } from "@/types/event-types";
-
+import type {
+  ConversationErrorEvent,
+  ErrorEvent,
+} from "@vellumai/assistant-api";
 
 export function handleStreamError(
-  event: StreamErrorEvent,
+  event: ErrorEvent,
   ctx: StreamHandlerContext,
 ): void {
   ctx.endTurn({
@@ -42,7 +44,8 @@ export function handleConversationErrorEvent(
   // racing the error event) — same fallback shape as the other
   // terminal handlers.
   ctx.endTurn({
-    conversationId: event.conversationId ?? ctx.streamContextRef.current?.conversationId,
+    conversationId:
+      event.conversationId ?? ctx.streamContextRef.current?.conversationId,
     reason: "error",
   });
 
