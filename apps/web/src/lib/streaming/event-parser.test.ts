@@ -1447,7 +1447,7 @@ describe("parseAssistantEvent", () => {
   });
 
   describe("tool_result", () => {
-    test("maps riskAllowlistOptions → allowlistOptions (Minimatch save-path) and riskDirectoryScopeOptions → directoryScopeOptions", () => {
+    test("keeps daemon risk* option names (canonical schema does not rename)", () => {
       const event = parseAssistantEvent({
         type: "tool_result",
         toolName: "bash",
@@ -1471,7 +1471,7 @@ describe("parseAssistantEvent", () => {
       });
       expect(event.type).toBe("tool_result");
       if (event.type === "tool_result") {
-        expect(event.allowlistOptions).toEqual([
+        expect(event.riskAllowlistOptions).toEqual([
           {
             pattern: "ls -la",
             label: "Just this command",
@@ -1483,18 +1483,17 @@ describe("parseAssistantEvent", () => {
             description: "Allow any `ls …` invocation",
           },
         ]);
-        expect(event.directoryScopeOptions).toEqual([
+        expect(event.riskDirectoryScopeOptions).toEqual([
           { scope: "/home/user/project", label: "Project directory" },
         ]);
       }
     });
 
-    test("does NOT promote riskScopeOptions into allowlistOptions (display-only ladder is not save-path)", () => {
+    test("preserves riskScopeOptions (display-only ladder) distinct from the save-path options", () => {
       // riskScopeOptions can carry regex-flavored descriptors that are NOT
-      // valid Minimatch trust rule patterns. Saving them would produce a
-      // rule that never matches future calls. This test guards against
-      // regression of the pre-PR-29826 conflation bug where the deserializer
-      // cast `riskScopeOptions` into `allowlistOptions`.
+      // valid Minimatch trust rule patterns. The consumer deliberately does
+      // not feed them into the save path; the schema keeps them as a
+      // separate field so that distinction survives on the wire.
       const event = parseAssistantEvent({
         type: "tool_result",
         toolName: "bash",
@@ -1505,12 +1504,15 @@ describe("parseAssistantEvent", () => {
       });
       expect(event.type).toBe("tool_result");
       if (event.type === "tool_result") {
-        expect(event.allowlistOptions).toBeUndefined();
-        expect(event.directoryScopeOptions).toBeUndefined();
+        expect(event.riskScopeOptions).toEqual([
+          { pattern: "^bash\\(ls.*\\)$", label: "All ls commands" },
+        ]);
+        expect(event.riskAllowlistOptions).toBeUndefined();
+        expect(event.riskDirectoryScopeOptions).toBeUndefined();
       }
     });
 
-    test("returns undefined allowlistOptions when riskAllowlistOptions is missing", () => {
+    test("leaves risk option fields undefined when absent", () => {
       const event = parseAssistantEvent({
         type: "tool_result",
         toolName: "remember",
@@ -1518,15 +1520,16 @@ describe("parseAssistantEvent", () => {
       });
       expect(event.type).toBe("tool_result");
       if (event.type === "tool_result") {
-        expect(event.allowlistOptions).toBeUndefined();
-        expect(event.directoryScopeOptions).toBeUndefined();
+        expect(event.riskAllowlistOptions).toBeUndefined();
+        expect(event.riskScopeOptions).toBeUndefined();
+        expect(event.riskDirectoryScopeOptions).toBeUndefined();
       }
     });
 
-    test("does not read top-level allowlistOptions on tool_result (wire field is riskAllowlistOptions)", () => {
-      // The daemon sends `riskAllowlistOptions` on tool_result, not the
-      // un-prefixed `allowlistOptions` (that field is reserved for
-      // confirmation_request). Guard against regression to a wrong-field read.
+    test("strips unknown top-level fields (e.g. un-prefixed allowlistOptions)", () => {
+      // The daemon emits `riskAllowlistOptions`, not the un-prefixed
+      // `allowlistOptions` (that field is reserved for confirmation_request).
+      // An unknown key is silently dropped by the strip-mode schema.
       const event = parseAssistantEvent({
         type: "tool_result",
         toolName: "bash",
@@ -1535,7 +1538,8 @@ describe("parseAssistantEvent", () => {
       });
       expect(event.type).toBe("tool_result");
       if (event.type === "tool_result") {
-        expect(event.allowlistOptions).toBeUndefined();
+        expect(event.riskAllowlistOptions).toBeUndefined();
+        expect(event).not.toHaveProperty("allowlistOptions");
       }
     });
 
@@ -1565,17 +1569,19 @@ describe("parseAssistantEvent", () => {
       }
     });
 
-    test("ignores non-string messageId", () => {
-      const event = parseAssistantEvent({
+    test("returns unknown when a known field has the wrong type", () => {
+      const data = {
         type: "tool_result",
         toolName: "bash",
         result: "ok",
         messageId: 42,
+      };
+      const event = parseAssistantEvent(data);
+      expect(event).toEqual({
+        type: "unknown",
+        rawType: "tool_result",
+        data,
       });
-      expect(event.type).toBe("tool_result");
-      if (event.type === "tool_result") {
-        expect(event.messageId).toBeUndefined();
-      }
     });
   });
 
@@ -1979,21 +1985,22 @@ describe("parseAssistantEvent", () => {
       title: "New message",
       body: "Hello world",
       deepLinkMetadata: { conversationId: "conv-42" },
-      targetGuardianPrincipalId: undefined,
     });
   });
 
-  test("notification_intent preserves targetGuardianPrincipalId", () => {
+  test("notification_intent preserves targetGuardianPrincipalId and silent", () => {
     const event = parseAssistantEvent({
       type: "notification_intent",
       sourceEventName: "guardian.question",
       title: "Guardian check-in",
       body: "Approve this request?",
       targetGuardianPrincipalId: "guardian-7",
+      silent: true,
     });
     expect(event.type).toBe("notification_intent");
     if (event.type === "notification_intent") {
       expect(event.targetGuardianPrincipalId).toBe("guardian-7");
+      expect(event.silent).toBe(true);
     }
   });
 
@@ -2006,18 +2013,112 @@ describe("parseAssistantEvent", () => {
     expect(event.type).toBe("unknown");
   });
 
-  test("notification_intent with non-object deepLinkMetadata is ignored", () => {
-    const event = parseAssistantEvent({
+  test("notification_intent with non-object deepLinkMetadata falls through to unknown", () => {
+    // The strict schema rejects a non-record deepLinkMetadata rather than
+    // silently coercing it away, so a malformed payload never reaches the
+    // notification handler with broken routing.
+    const data = {
       type: "notification_intent",
       sourceEventName: "chat.assistant_turn_complete",
       title: "Hello",
       body: "Body",
       deepLinkMetadata: "not-an-object",
+    };
+    const event = parseAssistantEvent(data);
+    expect(event).toEqual({
+      type: "unknown",
+      rawType: "notification_intent",
+      data,
     });
-    expect(event.type).toBe("notification_intent");
-    if (event.type === "notification_intent") {
-      expect(event.deepLinkMetadata).toBeUndefined();
-    }
+  });
+
+  test("notification_intent strips unknown top-level fields", () => {
+    const event = parseAssistantEvent({
+      type: "notification_intent",
+      sourceEventName: "chat.assistant_turn_complete",
+      title: "Hello",
+      body: "Body",
+      unexpectedField: "ignored",
+    });
+    expect(event).toEqual({
+      type: "notification_intent",
+      sourceEventName: "chat.assistant_turn_complete",
+      title: "Hello",
+      body: "Body",
+    });
+  });
+
+  describe("usage_update", () => {
+    test("parses usage_update with all required fields", () => {
+      const event = parseAssistantEvent({
+        type: "usage_update",
+        conversationId: "conv-1",
+        inputTokens: 100,
+        outputTokens: 50,
+        totalInputTokens: 100,
+        totalOutputTokens: 50,
+        estimatedCost: 0.0021,
+        model: "claude-sonnet-4",
+        contextWindowTokens: 1200,
+        contextWindowMaxTokens: 200000,
+      });
+      expect(event).toEqual({
+        type: "usage_update",
+        conversationId: "conv-1",
+        inputTokens: 100,
+        outputTokens: 50,
+        totalInputTokens: 100,
+        totalOutputTokens: 50,
+        estimatedCost: 0.0021,
+        model: "claude-sonnet-4",
+        contextWindowTokens: 1200,
+        contextWindowMaxTokens: 200000,
+      });
+    });
+
+    test("returns unknown when a required field is missing", () => {
+      const data = {
+        type: "usage_update",
+        conversationId: "conv-1",
+        inputTokens: 100,
+        outputTokens: 50,
+        totalInputTokens: 100,
+        totalOutputTokens: 50,
+        estimatedCost: 0.0021,
+      };
+      const event = parseAssistantEvent(data);
+      expect(event).toEqual({
+        type: "unknown",
+        rawType: "usage_update",
+        data,
+        conversationId: "conv-1",
+      });
+    });
+
+    test("strips unknown top-level fields (e.g. legacy cachedInputTokens)", () => {
+      const event = parseAssistantEvent({
+        type: "usage_update",
+        conversationId: "conv-1",
+        inputTokens: 100,
+        outputTokens: 50,
+        totalInputTokens: 100,
+        totalOutputTokens: 50,
+        estimatedCost: 0.0021,
+        model: "claude-sonnet-4",
+        cachedInputTokens: 10,
+        cacheCreationInputTokens: 5,
+      });
+      expect(event).toEqual({
+        type: "usage_update",
+        conversationId: "conv-1",
+        inputTokens: 100,
+        outputTokens: 50,
+        totalInputTokens: 100,
+        totalOutputTokens: 50,
+        estimatedCost: 0.0021,
+        model: "claude-sonnet-4",
+      });
+    });
   });
 
   // ---------------------------------------------------------------------
@@ -2860,19 +2961,23 @@ describe("envelope format parsing", () => {
 
   test("envelope-level conversationId is stamped onto legacy conversation-scoped events", () => {
     // Legacy fallback path: events not yet migrated to AssistantEventSchema
-    // (here: `navigate_settings`) read the envelope-level conversationId
+    // (here: `document_editor_update`) read the envelope-level conversationId
     // via `mergeEnvelopeConversationId`. This codepath disappears as each
     // legacy case migrates to a strict schema.
     const event = parseAssistantEvent({
       conversationId: "conv-from-envelope",
       message: {
-        type: "navigate_settings",
-        tab: "general",
+        type: "document_editor_update",
+        surfaceId: "surface-1",
+        markdown: "# Hello",
+        mode: "replace",
       },
     });
     expect(event).toEqual({
-      type: "navigate_settings",
-      tab: "general",
+      type: "document_editor_update",
+      surfaceId: "surface-1",
+      markdown: "# Hello",
+      mode: "replace",
       conversationId: "conv-from-envelope",
     });
   });
@@ -2883,13 +2988,15 @@ describe("envelope format parsing", () => {
     const event = parseAssistantEvent({
       conversationId: "envelope-conv",
       message: {
-        type: "navigate_settings",
-        tab: "general",
+        type: "document_editor_update",
+        surfaceId: "surface-1",
+        markdown: "# Hello",
+        mode: "replace",
         conversationId: "event-conv",
       },
     });
-    if (event.type !== "navigate_settings") {
-      throw new Error("expected navigate_settings");
+    if (event.type !== "document_editor_update") {
+      throw new Error("expected document_editor_update");
     }
     expect(event.conversationId).toBe("event-conv");
   });

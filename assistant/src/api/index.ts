@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { AssistantActivityStateEventSchema } from "./events/assistant-activity-state.js";
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
 import { AvatarUpdatedEventSchema } from "./events/avatar-updated.js";
@@ -25,6 +26,8 @@ import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
 import { MessageQueuedEventSchema } from "./events/message-queued.js";
 import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
+import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
+import { NotificationIntentEventSchema } from "./events/notification-intent.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
@@ -32,15 +35,27 @@ import { SecretRequestEventSchema } from "./events/secret-request.js";
 import { SubagentEventEventSchema } from "./events/subagent-event.js";
 import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
 import { SubagentStatusChangedEventSchema } from "./events/subagent-status-changed.js";
+import { ToolResultEventSchema } from "./events/tool-result.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
 import { UISurfaceUpdateEventSchema } from "./events/ui-surface-update.js";
+import { UsageUpdateEventSchema } from "./events/usage-update.js";
 import { UserMessageEchoEventSchema } from "./events/user-message-echo.js";
 
 export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
+export {
+  type AssistantActivityAnchor,
+  AssistantActivityAnchorSchema,
+  type AssistantActivityPhase,
+  AssistantActivityPhaseSchema,
+  type AssistantActivityReason,
+  AssistantActivityReasonSchema,
+  type AssistantActivityStateEvent,
+  AssistantActivityStateEventSchema,
+} from "./events/assistant-activity-state.js";
 export {
   type AssistantOutboundAttachment,
   AssistantOutboundAttachmentSchema,
@@ -162,6 +177,14 @@ export {
   type MessageRequestCompleteEvent,
   MessageRequestCompleteEventSchema,
 } from "./events/message-request-complete.js";
+export {
+  type NavigateSettingsEvent,
+  NavigateSettingsEventSchema,
+} from "./events/navigate-settings.js";
+export {
+  type NotificationIntentEvent,
+  NotificationIntentEventSchema,
+} from "./events/notification-intent.js";
 export { type OpenUrlEvent, OpenUrlEventSchema } from "./events/open-url.js";
 export {
   type QuestionEntry,
@@ -198,6 +221,22 @@ export {
   SubagentUsageStatsSchema,
 } from "./events/subagent-status-changed.js";
 export {
+  type RiskScopeOption,
+  RiskScopeOptionSchema,
+  type ToolActivityMetadata,
+  ToolActivityMetadataSchema,
+  type ToolResultEvent,
+  ToolResultEventSchema,
+  type WebFetchMetadata,
+  WebFetchMetadataSchema,
+  type WebSearchMetadata,
+  WebSearchMetadataSchema,
+  type WebSearchProviderId,
+  WebSearchProviderIdSchema,
+  type WebSearchResultItem,
+  WebSearchResultItemSchema,
+} from "./events/tool-result.js";
+export {
   type ToolUseStartEvent,
   ToolUseStartEventSchema,
 } from "./events/tool-use-start.js";
@@ -219,6 +258,10 @@ export {
   type UISurfaceUpdateEvent,
   UISurfaceUpdateEventSchema,
 } from "./events/ui-surface-update.js";
+export {
+  type UsageUpdateEvent,
+  UsageUpdateEventSchema,
+} from "./events/usage-update.js";
 export {
   type UserMessageEchoEvent,
   UserMessageEchoEventSchema,
@@ -272,6 +315,7 @@ export {
  * migration recipe.
  */
 export const AssistantEventSchema = z.discriminatedUnion("type", [
+  AssistantActivityStateEventSchema,
   AssistantTextDeltaEventSchema,
   AssistantTurnStartEventSchema,
   AvatarUpdatedEventSchema,
@@ -297,6 +341,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageQueuedEventSchema,
   MessageQueuedDeletedEventSchema,
   MessageRequestCompleteEventSchema,
+  NavigateSettingsEventSchema,
+  NotificationIntentEventSchema,
   OpenUrlEventSchema,
   QuestionRequestEventSchema,
   RelationshipStateUpdatedEventSchema,
@@ -304,11 +350,13 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   SubagentEventEventSchema,
   SubagentSpawnedEventSchema,
   SubagentStatusChangedEventSchema,
+  ToolResultEventSchema,
   ToolUseStartEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,
   UISurfaceUpdateEventSchema,
+  UsageUpdateEventSchema,
   UserMessageEchoEventSchema,
 ]);
 
