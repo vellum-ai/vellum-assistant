@@ -17671,6 +17671,15 @@ paths:
                     type: string
                   objective:
                     type: string
+                  status:
+                    type: string
+                    enum:
+                      - pending
+                      - running
+                      - awaiting_input
+                      - completed
+                      - failed
+                      - aborted
                   usage:
                     type: object
                     properties:
@@ -17687,11 +17696,25 @@ paths:
                     additionalProperties: false
                   events:
                     type: array
-                    items: {}
-                    description: Subagent event objects
+                    items:
+                      type: object
+                      properties:
+                        type:
+                          type: string
+                        content:
+                          type: string
+                        toolName:
+                          type: string
+                        isError:
+                          type: boolean
+                        messageId:
+                          type: string
+                      required:
+                        - type
+                        - content
+                      additionalProperties: false
                 required:
                   - subagentId
-                  - objective
                   - events
                 additionalProperties: false
       parameters:

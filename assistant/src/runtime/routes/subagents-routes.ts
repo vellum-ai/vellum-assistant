@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 
+import { SubagentDetailResponseSchema } from "../../api/responses/subagent-detail.js";
 import {
   getMessages,
   type MessageRow,
@@ -251,18 +252,7 @@ export const ROUTES: RouteDefinition[] = [
         description: "Parent conversation ID (required)",
       },
     ],
-    responseBody: z.object({
-      subagentId: z.string(),
-      objective: z.string(),
-      usage: z
-        .object({
-          inputTokens: z.number(),
-          outputTokens: z.number(),
-          estimatedCost: z.number(),
-        })
-        .optional(),
-      events: z.array(z.unknown()).describe("Subagent event objects"),
-    }),
+    responseBody: SubagentDetailResponseSchema,
     handler: ({ pathParams, queryParams }) => {
       const conversationId = queryParams?.conversationId;
       if (!conversationId) {
@@ -270,9 +260,12 @@ export const ROUTES: RouteDefinition[] = [
       }
 
       const manager = getSubagentManager();
-      manager.getState(pathParams!.id);
+      const state = manager.getState(pathParams!.id);
 
-      return getSubagentDetail(pathParams!.id, conversationId);
+      return {
+        ...getSubagentDetail(pathParams!.id, conversationId),
+        status: state?.status,
+      };
     },
   },
 
