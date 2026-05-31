@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { parse as parseYaml } from "yaml";
 
-import { backfillLeafIdsMigration } from "../092-backfill-leaf-ids.js";
+import { backfillLeafIdsMigration } from "../093-backfill-leaf-ids.js";
 
 const LEAVES_REL = join("memory", "v3", "data", "leaves");
 
@@ -46,7 +46,7 @@ function readLeaf(
   };
 }
 
-describe("092-backfill-leaf-ids migration", () => {
+describe("093-backfill-leaf-ids migration", () => {
   let workspaceDir: string;
 
   beforeEach(() => {

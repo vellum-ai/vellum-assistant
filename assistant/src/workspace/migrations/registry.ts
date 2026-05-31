@@ -90,6 +90,7 @@ import { moveMemoryTreeOutOfV3Migration } from "./089-move-memory-tree-out-of-v3
 import { memoryRouterCostOptimizedProfileMigration } from "./090-memory-router-cost-optimized-profile.js";
 import { retightenMigrationOnboardingThreadMigration } from "./091-retighten-migration-onboarding-thread.js";
 import { backfillV3LeavesMigration } from "./092-backfill-v3-leaves.js";
+import { backfillLeafIdsMigration } from "./093-backfill-leaf-ids.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -191,4 +192,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   memoryRouterCostOptimizedProfileMigration,
   retightenMigrationOnboardingThreadMigration,
   backfillV3LeavesMigration,
+  backfillLeafIdsMigration,
 ];
