@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
-import type { AssistantEvent } from "@/types/event-types";
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
 } from "@/stores/event-bus-store";
 
-type EventHandler = (event: AssistantEvent) => void;
+type EventHandler = (envelope: AssistantEventEnvelope) => void;
 type ReconnectHandler = (cause: "error" | "watchdog") => void;
 
 let activeOnEvent: EventHandler | null = null;
@@ -138,12 +138,16 @@ describe("useEventBusInit — SSE ownership", () => {
         isAssistantActive: true,
       }),
     );
-    const event: AssistantEvent = {
-      type: "avatar_updated",
-      avatarPath: "/tmp/avatar.png",
+    const envelope: AssistantEventEnvelope = {
+      id: "evt-1",
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "avatar_updated",
+        avatarPath: "/tmp/avatar.png",
+      },
     };
-    activeOnEvent!(event);
-    expect(handler).toHaveBeenCalledWith(event);
+    activeOnEvent!(envelope);
+    expect(handler).toHaveBeenCalledWith(envelope);
   });
 
   test("publishes sse.opened with cause=fresh on first open", () => {
