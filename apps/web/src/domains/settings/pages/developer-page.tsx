@@ -20,8 +20,9 @@ type DeveloperTabId = (typeof ALL_TABS)[number]["id"];
 export function DeveloperPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
 
-  if (!settingsDeveloperNav) {
+  if (hasHydrated && !settingsDeveloperNav) {
     return <Navigate replace to={routes.settings.general} />;
   }
 
