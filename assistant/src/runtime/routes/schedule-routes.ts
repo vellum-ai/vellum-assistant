@@ -392,7 +392,7 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "schedules/:id",
     method: "PATCH",
     policy: {
-      requiredScopes: ["settings.read"],
+      requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Update schedule",
