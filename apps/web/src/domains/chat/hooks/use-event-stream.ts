@@ -265,10 +265,9 @@ export function useEventStream({
         return;
       }
 
-      // --- B7.3 gap detection ---
       const eventSeq = envelope.seq;
       let gapDetected = false;
-      if (typeof eventSeq === "number" && eventConversationId) {
+      if (eventSeq != null && eventConversationId) {
         if (seededSeqForConversation) {
           const stored = getLastSeenSeq(eventConversationId) ?? 0;
           if (eventSeq < stored) {
@@ -305,7 +304,7 @@ export function useEventStream({
       // Skip advancement when a gap was detected — the reconcile
       // refetch will deliver authoritative state. If reconcile fails,
       // the next contiguous event will re-detect the gap and retry.
-      if (typeof eventSeq === "number" && eventConversationId && !gapDetected) {
+      if (eventSeq != null && eventConversationId && !gapDetected) {
         setLastSeenSeq(eventConversationId, eventSeq);
       }
     });
