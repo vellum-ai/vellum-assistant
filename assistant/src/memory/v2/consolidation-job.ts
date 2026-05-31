@@ -242,25 +242,6 @@ export async function memoryV2ConsolidateJob(
       }
     }
 
-    // v3 maintenance is a flag-gated follow-up, kept OUT of the unconditional
-    // FOLLOW_UP_JOB_TYPES array so it only fans out while a v3 path (shadow or
-    // live) is active. Same best-effort posture as the v2 follow-ups above: a
-    // failed enqueue logs and never fails the consolidation that already
-    // succeeded.
-    if (
-      isAssistantFeatureFlagEnabled("memory-v3-shadow", config) ||
-      isAssistantFeatureFlagEnabled("memory-v3-live", config)
-    ) {
-      try {
-        followUpJobIds.push(enqueueMemoryJob("memory_v3_maintain", {}));
-      } catch (err) {
-        log.warn(
-          { err, jobType: "memory_v3_maintain" },
-          "consolidation: failed to enqueue v3 maintenance follow-up; continuing",
-        );
-      }
-    }
-
     log.info(
       {
         conversationId: runResult.conversationId,
