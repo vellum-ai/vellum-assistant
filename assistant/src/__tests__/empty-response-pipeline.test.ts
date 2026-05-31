@@ -19,10 +19,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { TrustContext } from "../daemon/trust-context.js";
-import {
-  defaultEmptyResponsePlugin,
-  defaultEmptyResponseTerminal,
-} from "../plugins/defaults/empty-response/register.js";
+import { defaultEmptyResponsePlugin } from "../plugins/defaults/empty-response/register.js";
+import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response/terminal.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

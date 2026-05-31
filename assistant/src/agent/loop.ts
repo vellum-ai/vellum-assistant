@@ -8,10 +8,10 @@ import {
 } from "../context/token-estimator.js";
 import { calculateMaxToolResultChars } from "../context/tool-result-truncation.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
-import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response/register.js";
-import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/register.js";
-import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error/register.js";
-import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate/register.js";
+import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response/terminal.js";
+import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
+import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error/terminal.js";
+import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate/terminal.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {

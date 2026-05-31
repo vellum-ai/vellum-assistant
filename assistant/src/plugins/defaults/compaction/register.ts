@@ -1,30 +1,20 @@
 /**
  * Default `compaction` plugin.
  *
- * Delegates to the orchestrator's existing
- * {@link import("../../../context/window-manager.js").ContextWindowManager}
- * instance. No behavior change relative to the pre-plugin call site — the
- * plugin only exists so custom plugins registered in later PRs can observe
- * arguments, short-circuit to a different summary, or post-process the
- * {@link import("../../../context/window-manager.js").ContextWindowResult}
- * before the orchestrator consumes it.
- *
- * Lookup: the default middleware reads `ctx.contextWindowManager` from the
- * {@link TurnContext} as a typed optional field. The orchestrator is
- * responsible for attaching that handle to the per-turn context it hands to
- * {@link runPipeline}. If the handle is missing, the middleware throws a
- * {@link PluginExecutionError} so the bug surfaces with clear attribution
- * instead of a late `undefined.maybeCompact is not a function`.
+ * The plugin's middleware is a passthrough — it calls `next(args)` and returns
+ * the result unchanged. The actual compaction lives in the terminal handler in
+ * `./terminal.ts`, which is wired in as the pipeline's `terminal` argument by
+ * the `runPipeline` call site in `daemon/conversation-agent-loop.ts`. This
+ * separation matters: the default plugin is registered before any user plugin
+ * (defaults load first in `bootstrapPlugins()`), which puts it at the
+ * OUTERMOST position of the onion chain. If the default middleware were to
+ * invoke the terminal directly without calling `next`, it would shadow every
+ * later-registered plugin. Routing through `next(args)` lets user middleware
+ * participate normally.
  *
  * Design doc: `.private/plans/agent-plugin-system.md` (PR 25).
  */
 
-import type {
-  ContextWindowCompactOptions,
-  ContextWindowManager,
-  ContextWindowResult,
-} from "../../../context/window-manager.js";
-import type { Message } from "../../../providers/types.js";
 import { registerPlugin } from "../../registry.js";
 import {
   type CompactionArgs,
@@ -32,66 +22,15 @@ import {
   type Middleware,
   type Plugin,
   PluginExecutionError,
-  type TurnContext,
 } from "../../types.js";
 import pkg from "./package.json" with { type: "json" };
 
 /**
- * Name under which the default plugin registers. Exposed so tests and later
- * plugins can assert registration order or override the default via
- * composition.
- */
-export const DEFAULT_COMPACTION_PLUGIN_NAME = "default-compaction";
-
-/**
- * Read `contextWindowManager` off the turn context. Throws
- * {@link PluginExecutionError} when absent so the failure attributes cleanly
- * to the default plugin instead of manifesting as a later NPE.
- */
-function extractManager(ctx: TurnContext): ContextWindowManager {
-  const manager = ctx.contextWindowManager;
-  if (
-    manager == null ||
-    typeof manager !== "object" ||
-    typeof (manager as { maybeCompact?: unknown }).maybeCompact !== "function"
-  ) {
-    throw new PluginExecutionError(
-      "default-compaction: ctx.contextWindowManager is missing — orchestrator must attach it before invoking the compaction pipeline",
-      DEFAULT_COMPACTION_PLUGIN_NAME,
-    );
-  }
-  return manager;
-}
-
-/**
- * Default terminal behavior. Exposed as a standalone function (rather than
- * inlined in the plugin object) so the orchestrator can pass it directly to
- * {@link runPipeline} as the terminal handler. Keeping terminal-vs-middleware
- * separate avoids a wasted `next → terminal` hop when no custom plugin
- * observes the slot.
- */
-export async function defaultCompactionTerminal(
-  args: CompactionArgs,
-  ctx: TurnContext,
-): Promise<CompactionResult> {
-  const manager = extractManager(ctx);
-  const messages = args.messages as Message[];
-  const options = args.options as ContextWindowCompactOptions | undefined;
-  const result: ContextWindowResult = await manager.maybeCompact(
-    messages,
-    args.signal,
-    options,
-  );
-  return result;
-}
-
-/**
- * Middleware wrapper around {@link defaultCompactionTerminal}. Registered via
+ * Passthrough middleware for the `compaction` slot. Registered via
  * {@link defaultCompactionPlugin} so tests that compose middleware through the
  * registry (rather than passing a terminal to `runPipeline` directly) see a
- * working no-op default. In production the orchestrator passes
- * {@link defaultCompactionTerminal} as the terminal and this middleware is
- * never hit.
+ * working no-op default. In production the orchestrator passes the terminal
+ * handler in `./terminal.ts` as the terminal and this middleware is never hit.
  */
 const defaultCompactionMiddleware: Middleware<
   CompactionArgs,

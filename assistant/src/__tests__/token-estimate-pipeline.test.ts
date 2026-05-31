@@ -30,10 +30,8 @@ import {
   estimateToolsTokens,
 } from "../context/token-estimator.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import {
-  defaultTokenEstimatePlugin,
-  defaultTokenEstimateTerminal,
-} from "../plugins/defaults/token-estimate/register.js";
+import { defaultTokenEstimatePlugin } from "../plugins/defaults/token-estimate/register.js";
+import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,
