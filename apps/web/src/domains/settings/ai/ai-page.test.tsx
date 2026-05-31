@@ -22,6 +22,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 import { organizationsBillingSubscriptionRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
 import { useAuthStore } from "@/stores/auth-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 // The settings-card barrel re-exports toast surfaces; stub them so barrel
 // resolution doesn't pull the real toast module during the static render.
@@ -52,6 +53,7 @@ function makeSubscription(
 
 function renderCard(subscription: SubscriptionResponse): string {
   useAuthStore.setState({ hasPlatformSession: true });
+  useAssistantFeatureFlagStore.setState({ hasHydrated: true });
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
