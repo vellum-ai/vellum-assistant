@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import type { Plugin, Connect, ViteDevServer } from "vite";
+import { SEEDS } from "../../cli/src/lib/environments/seeds";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 const CLI_PACKAGE_NAME = "@vellumai/cli";
@@ -152,22 +153,10 @@ function loopbackCallbackMiddleware(): Connect.NextHandleFunction {
  */
 function configMiddleware(env: Record<string, string>): Connect.NextHandleFunction {
   const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
+  const seed = SEEDS[vellumEnv] ?? SEEDS[PRODUCTION_ENVIRONMENT_NAME]!;
 
-  const WEB_URLS: Record<string, string> = {
-    production: "https://www.vellum.ai",
-    staging: "https://staging-assistant.vellum.ai",
-    dev: "https://dev-assistant.vellum.ai",
-    local: "http://localhost:3000",
-  };
-  const PLATFORM_URLS: Record<string, string> = {
-    production: "https://platform.vellum.ai",
-    staging: "https://staging-platform.vellum.ai",
-    dev: "https://dev-platform.vellum.ai",
-    local: "http://localhost:8000",
-  };
-
-  const webUrl = env.VELLUM_WEB_URL || WEB_URLS[vellumEnv] || WEB_URLS.production!;
-  const platformUrl = env.VELLUM_PLATFORM_URL || PLATFORM_URLS[vellumEnv] || PLATFORM_URLS.production!;
+  const webUrl = env.VELLUM_WEB_URL || seed.webUrl;
+  const platformUrl = env.VELLUM_PLATFORM_URL || seed.platformUrl;
   const body = JSON.stringify({ webUrl, platformUrl });
 
   return (req, res, next) => {
