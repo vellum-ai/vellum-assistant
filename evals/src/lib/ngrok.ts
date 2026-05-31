@@ -106,6 +106,15 @@ export interface NgrokDeps {
 export interface StartNgrokTunnelOptions {
   /** Local port to expose. */
   port: number;
+  /**
+   * Optional ngrok authtoken. When set, forwarded to the agent via
+   * `--authtoken <token>` so the operator doesn't have to run
+   * `ngrok config add-authtoken` separately. The runner sources this
+   * from the `NGROK_AUTH_TOKEN` env var (see `.env.example`); when
+   * unset the agent falls back to whatever's in its own config (or
+   * the free tier if no config).
+   */
+  authToken?: string;
   /** Override the management API host (default `127.0.0.1`). */
   apiHost?: string;
   /** Override the management API port (default `4040`). */
@@ -137,11 +146,21 @@ export async function startNgrokTunnel(
   const pollIntervalMs = opts.pollIntervalMs ?? TUNNEL_POLL_INTERVAL_MS;
   const pollTimeoutMs = opts.pollTimeoutMs ?? TUNNEL_POLL_TIMEOUT_MS;
 
-  const child = spawnFn(
-    "ngrok",
-    ["http", String(opts.port), "--log=stdout", "--log-format=logfmt"],
-    { stdio: ["ignore", "pipe", "pipe"] },
-  ) as ChildProcessByStdio<null, Readable, Readable>;
+  // Prepend the authtoken flag when one was provided. ngrok parses
+  // `--authtoken=<value>` BEFORE the `http` subcommand so the agent
+  // can authenticate before binding the tunnel; passing it after `http`
+  // is ignored. Using `=` keeps the token attached to the flag (so a
+  // truncated argv readout doesn't drop the value silently).
+  const args = [
+    ...(opts.authToken ? [`--authtoken=${opts.authToken}`] : []),
+    "http",
+    String(opts.port),
+    "--log=stdout",
+    "--log-format=logfmt",
+  ];
+  const child = spawnFn("ngrok", args, {
+    stdio: ["ignore", "pipe", "pipe"],
+  }) as ChildProcessByStdio<null, Readable, Readable>;
 
   // Drain stdout/stderr so the OS pipe buffer doesn't fill up and
   // backpressure ngrok into a stall. We never read these for control

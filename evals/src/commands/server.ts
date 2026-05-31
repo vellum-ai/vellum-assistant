@@ -475,7 +475,16 @@ export function openInBrowser(url: string): void {
  * hide the fact that their `--ngrok` flag did nothing.
  */
 async function enableNgrokTunnel(port: number): Promise<NgrokTunnel> {
-  const tunnel = await startNgrokTunnel({ port });
+  // Source the authtoken from `NGROK_AUTH_TOKEN` (see `evals/.env.example`).
+  // Bun auto-loads `.env` from the cwd at startup, so the operator
+  // gets one-file configuration. An empty string here is treated the
+  // same as unset — ngrok rejects `--authtoken=` outright.
+  const rawToken = process.env.NGROK_AUTH_TOKEN;
+  const authToken =
+    typeof rawToken === "string" && rawToken.trim().length > 0
+      ? rawToken.trim()
+      : undefined;
+  const tunnel = await startNgrokTunnel({ port, authToken });
   console.log(`Public ngrok URL: ${tunnel.publicUrl}`);
 
   const teardown = (signal: NodeJS.Signals): void => {
