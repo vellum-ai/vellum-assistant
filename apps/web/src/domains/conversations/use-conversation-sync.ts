@@ -65,7 +65,8 @@ export function useConversationSync(
     };
   }, [assistantId, isAssistantActive]);
 
-  useBusSubscription("sse.event", (event) => {
+  useBusSubscription("sse.event", (envelope) => {
+    const event = envelope.message;
     if (!assistantId || !isAssistantActive) return;
 
     switch (event.type) {

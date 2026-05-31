@@ -10,7 +10,7 @@
 import { client } from "@/generated/api/client.gen";
 import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 import { parseAssistantEvent } from "@/lib/streaming/event-parser";
-import type { AssistantEvent } from "@/types/event-types";
+import type { AssistantEventEnvelope } from "@/types/event-types";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
@@ -117,7 +117,7 @@ const STREAM_IDLE_TIMEOUT_MS = 45_000;
 export function subscribeChatEvents(
   assistantId: string,
   conversationId: string | null | undefined,
-  onEvent: (event: AssistantEvent) => void,
+  onEvent: (event: AssistantEventEnvelope) => void,
   onError: (err: Error) => void,
   options: ChatEventStreamOptions = {},
 ): ChatEventStream {

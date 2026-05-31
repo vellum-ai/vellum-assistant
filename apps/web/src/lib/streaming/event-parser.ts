@@ -20,6 +20,7 @@ import type {
   AssistantActivityReason,
   AssistantActivityStateEvent,
   AssistantEvent,
+  AssistantEventEnvelope,
 } from "@/types/event-types";
 import { AssistantEventSchema } from "@vellumai/assistant-api";
 import { unknownEvent } from "@/lib/streaming/parse-helpers";
@@ -36,21 +37,20 @@ import {
   parseDocumentEditorUpdate,
 } from "@/lib/streaming/parse-resource-events";
 
-/**
- * Unwrap envelope-shape payloads `{ message: { type, ...fields }, conversationId }`
- * into the inner event. Flat-shape payloads `{ type, ...fields }` pass
- * through unchanged.
- *
- * Pure unwrap: the envelope-level `conversationId` (SSE routing key)
- * is NOT merged onto the inner message. Strict-schema events that
- * don't declare `conversationId` stay strict; legacy events that need
- * envelope conversationId get it via `mergeEnvelopeConversationId`
- * along the fallback path.
- */
-function unwrapEnvelope(data: Record<string, unknown>): {
+interface UnwrappedEnvelope {
   inner: Record<string, unknown>;
-  envelopeConversationId: string | undefined;
-} {
+  id: string | undefined;
+  conversationId: string | undefined;
+  seq: number | undefined;
+  emittedAt: string | undefined;
+}
+
+/**
+ * Unwrap envelope-shape payloads `{ id, conversationId, seq, emittedAt, message: { type, ...fields } }`
+ * into the inner event plus envelope-level metadata. Flat-shape payloads
+ * `{ type, ...fields }` pass through unchanged with no envelope metadata.
+ */
+function unwrapEnvelope(data: Record<string, unknown>): UnwrappedEnvelope {
   const message = data.message;
   if (
     message &&
@@ -60,13 +60,26 @@ function unwrapEnvelope(data: Record<string, unknown>): {
   ) {
     return {
       inner: message as Record<string, unknown>,
-      envelopeConversationId:
+      id: typeof data.id === "string" ? data.id : undefined,
+      conversationId:
         typeof data.conversationId === "string"
           ? data.conversationId
           : undefined,
+      seq: typeof data.seq === "number" ? data.seq : undefined,
+      emittedAt:
+        typeof data.emittedAt === "string" ? data.emittedAt : undefined,
     };
   }
-  return { inner: data, envelopeConversationId: undefined };
+  return {
+    inner: data,
+    id: undefined,
+    conversationId:
+      typeof data.conversationId === "string"
+        ? data.conversationId
+        : undefined,
+    seq: undefined,
+    emittedAt: undefined,
+  };
 }
 
 /**
@@ -86,16 +99,17 @@ function mergeEnvelopeConversationId(
 }
 
 /**
- * Parse a raw SSE payload into a typed `AssistantEvent`. Owns envelope
- * unwrap, canonical-schema dispatch, legacy-event coercion, and
- * envelope-conversationId stamping. Tolerant of unknown event types —
- * returns an `UnknownEvent` for anything unrecognised so callers can
- * safely ignore it without crashing.
+ * Parse a raw SSE payload into a typed `AssistantEventEnvelope`. Owns
+ * envelope unwrap, canonical-schema dispatch, legacy-event coercion,
+ * and envelope-conversationId stamping. Tolerant of unknown event
+ * types — returns an `UnknownEvent` inner for anything unrecognised
+ * so callers can safely ignore it without crashing.
  */
 export function parseAssistantEvent(
   data: Record<string, unknown>,
-): AssistantEvent {
-  const { inner, envelopeConversationId } = unwrapEnvelope(data);
+): AssistantEventEnvelope {
+  const { inner, id, conversationId, seq, emittedAt } =
+    unwrapEnvelope(data);
 
   // Canonical schema first. The discriminated union in
   // `@vellumai/assistant-api` is the source of truth for any event
@@ -106,15 +120,23 @@ export function parseAssistantEvent(
   // `conversationId` for conversation-scoped events), so the
   // envelope-level routing key never needs to be grafted on.
   const schemaResult = AssistantEventSchema.safeParse(inner);
-  if (schemaResult.success) return schemaResult.data as AssistantEvent;
+  const message: AssistantEvent = schemaResult.success
+    ? (schemaResult.data as AssistantEvent)
+    : parseLegacyEvent(
+        mergeEnvelopeConversationId(inner, conversationId),
+      );
 
-  // Legacy fallback. Merge the envelope conversationId in so legacy
-  // case bodies just read `data.conversationId` — daemon emit sites
-  // for legacy events aren't always disciplined about putting the
-  // conversationId on the inner message.
-  return parseLegacyEvent(
-    mergeEnvelopeConversationId(inner, envelopeConversationId),
-  );
+  return {
+    id,
+    conversationId:
+      conversationId ??
+      (typeof inner.conversationId === "string"
+        ? inner.conversationId
+        : undefined),
+    seq,
+    emittedAt,
+    message,
+  };
 }
 
 function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {

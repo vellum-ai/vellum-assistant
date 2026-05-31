@@ -50,7 +50,8 @@ export function useAssistantResourceSync(
 ): void {
   const queryClient = useQueryClient();
 
-  useBusSubscription("sse.event", (event) => {
+  useBusSubscription("sse.event", (envelope) => {
+    const event = envelope.message;
     if (!assistantId || !isAssistantActive) return;
 
     switch (event.type) {

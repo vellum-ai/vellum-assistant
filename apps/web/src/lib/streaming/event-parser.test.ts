@@ -9,7 +9,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses assistant_text_delta with messageId and conversationId", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "assistant_text_delta",
       text: "Hello",
       messageId: "msg-1",
@@ -24,7 +24,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses assistant_text_delta with only required text field", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "assistant_text_delta",
       text: "",
     });
@@ -36,7 +36,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown assistant_text_delta event when text field is missing", () => {
     const data = { type: "assistant_text_delta", conversationId: "conv-1" };
-    const event = parseAssistantEvent(data);
+    const { message: event } = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "assistant_text_delta",
@@ -46,7 +46,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from assistant_text_delta", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "assistant_text_delta",
       text: "Hi",
       legacyField: "x",
@@ -62,7 +62,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses message_complete with messageId and conversationId", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_complete",
       messageId: "msg-1",
       conversationId: "conversation-1",
@@ -75,12 +75,12 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses message_complete with no fields", () => {
-    const event = parseAssistantEvent({ type: "message_complete" });
+    const { message: event } = parseAssistantEvent({ type: "message_complete" });
     expect(event).toEqual({ type: "message_complete" });
   });
 
   test("parses message_complete with attachments", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_complete",
       messageId: "msg-1",
       attachments: [
@@ -109,7 +109,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses message_complete with source aux", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_complete",
       conversationId: "conv-1",
       messageId: "msg-aux",
@@ -124,7 +124,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses message_complete with attachmentWarnings", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_complete",
       messageId: "msg-1",
       attachmentWarnings: ["truncated to 4MB"],
@@ -144,7 +144,7 @@ describe("parseAssistantEvent", () => {
       conversationId: "conv-1",
       attachments: [{ filename: "missing-mime.txt" }],
     };
-    const event = parseAssistantEvent(data);
+    const { message: event } = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "message_complete",
@@ -159,7 +159,7 @@ describe("parseAssistantEvent", () => {
       conversationId: "conv-1",
       source: "unexpected",
     };
-    const event = parseAssistantEvent(data);
+    const { message: event } = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "message_complete",
@@ -173,7 +173,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses generation_handoff with required queuedCount", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "generation_handoff",
       conversationId: "conv-1",
       queuedCount: 2,
@@ -195,7 +195,7 @@ describe("parseAssistantEvent", () => {
       conversationId: "conv-1",
       messageId: "msg-1",
     };
-    const event = parseAssistantEvent(data);
+    const { message: event } = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "generation_handoff",
@@ -209,7 +209,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses generation_cancelled with conversationId", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "generation_cancelled",
       conversationId: "conv-1",
     });
@@ -220,7 +220,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses generation_cancelled without conversationId", () => {
-    const event = parseAssistantEvent({ type: "generation_cancelled" });
+    const { message: event } = parseAssistantEvent({ type: "generation_cancelled" });
     expect(event).toEqual({ type: "generation_cancelled" });
   });
 
@@ -229,7 +229,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses document_comment_created with full comment payload", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "document_comment_created",
       conversationId: "conv-1",
       surfaceId: "surface-1",
@@ -268,7 +268,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses document_comment_created without optional anchor/thread fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "document_comment_created",
       conversationId: "conv-1",
       surfaceId: "surface-1",
@@ -304,7 +304,7 @@ describe("parseAssistantEvent", () => {
       conversationId: "conv-1",
       surfaceId: "surface-1",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "document_comment_created",
       data,
@@ -326,7 +326,7 @@ describe("parseAssistantEvent", () => {
         updatedAt: 0,
       },
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "document_comment_created",
       data,
@@ -335,7 +335,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from document_comment_created", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "document_comment_created",
       conversationId: "conv-1",
       surfaceId: "surface-1",
@@ -371,7 +371,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses document_comment_resolved with all required fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "document_comment_resolved",
       conversationId: "conv-1",
       surfaceId: "surface-1",
@@ -394,7 +394,7 @@ describe("parseAssistantEvent", () => {
       surfaceId: "surface-1",
       commentId: "c-1",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "document_comment_resolved",
       data,
@@ -403,7 +403,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from document_comment_resolved", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "document_comment_resolved",
       conversationId: "conv-1",
       surfaceId: "surface-1",
@@ -425,7 +425,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses document_comment_reopened with all required fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "document_comment_reopened",
       conversationId: "conv-1",
       surfaceId: "surface-1",
@@ -445,7 +445,7 @@ describe("parseAssistantEvent", () => {
       conversationId: "conv-1",
       surfaceId: "surface-1",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "document_comment_reopened",
       data,
@@ -454,7 +454,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from document_comment_reopened", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "document_comment_reopened",
       conversationId: "conv-1",
       surfaceId: "surface-1",
@@ -474,7 +474,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses document_comment_deleted with all required fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "document_comment_deleted",
       conversationId: "conv-1",
       surfaceId: "surface-1",
@@ -494,7 +494,7 @@ describe("parseAssistantEvent", () => {
       conversationId: "conv-1",
       commentId: "c-1",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "document_comment_deleted",
       data,
@@ -503,7 +503,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from document_comment_deleted", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "document_comment_deleted",
       conversationId: "conv-1",
       surfaceId: "surface-1",
@@ -523,7 +523,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses message_queued with all required fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_queued",
       conversationId: "conv-1",
       requestId: "req-1",
@@ -543,7 +543,7 @@ describe("parseAssistantEvent", () => {
       conversationId: "conv-1",
       requestId: "req-1",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "message_queued",
       data,
@@ -552,7 +552,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from message_queued", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_queued",
       conversationId: "conv-1",
       requestId: "req-1",
@@ -572,7 +572,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses message_dequeued with all required fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_dequeued",
       conversationId: "conv-1",
       requestId: "req-1",
@@ -589,7 +589,7 @@ describe("parseAssistantEvent", () => {
       type: "message_dequeued",
       requestId: "req-1",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "message_dequeued",
       data,
@@ -598,7 +598,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from message_dequeued", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_dequeued",
       conversationId: "conv-1",
       requestId: "req-1",
@@ -616,7 +616,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses message_queued_deleted with all required fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_queued_deleted",
       conversationId: "conv-1",
       requestId: "req-1",
@@ -633,7 +633,7 @@ describe("parseAssistantEvent", () => {
       type: "message_queued_deleted",
       conversationId: "conv-1",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "message_queued_deleted",
       data,
@@ -642,7 +642,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from message_queued_deleted", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_queued_deleted",
       conversationId: "conv-1",
       requestId: "req-1",
@@ -660,7 +660,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses message_request_complete with required fields and runStillActive", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_request_complete",
       conversationId: "conv-1",
       requestId: "req-1",
@@ -675,7 +675,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses message_request_complete without optional runStillActive", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_request_complete",
       conversationId: "conv-1",
       requestId: "req-1",
@@ -692,7 +692,7 @@ describe("parseAssistantEvent", () => {
       type: "message_request_complete",
       conversationId: "conv-1",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "message_request_complete",
       data,
@@ -701,7 +701,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from message_request_complete", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_request_complete",
       conversationId: "conv-1",
       requestId: "req-1",
@@ -721,7 +721,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses compaction_circuit_open with all required fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "compaction_circuit_open",
       conversationId: "conv-1",
       reason: "3_consecutive_failures",
@@ -742,7 +742,7 @@ describe("parseAssistantEvent", () => {
       reason: "unexplained",
       openUntil: 1_700_000_000_000,
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "compaction_circuit_open",
       data,
@@ -756,7 +756,7 @@ describe("parseAssistantEvent", () => {
       conversationId: "conv-1",
       reason: "3_consecutive_failures",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "compaction_circuit_open",
       data,
@@ -765,7 +765,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses compaction_circuit_closed with required fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "compaction_circuit_closed",
       conversationId: "conv-1",
     });
@@ -777,7 +777,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown compaction_circuit_closed when conversationId is missing", () => {
     const data = { type: "compaction_circuit_closed" };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "compaction_circuit_closed",
       data,
@@ -789,7 +789,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses home_feed_updated with all required fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "home_feed_updated",
       updatedAt: "2026-05-29T15:00:00.000Z",
       newItemCount: 3,
@@ -803,7 +803,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown home_feed_updated when updatedAt is missing", () => {
     const data = { type: "home_feed_updated", newItemCount: 3 };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "home_feed_updated",
       data,
@@ -816,7 +816,7 @@ describe("parseAssistantEvent", () => {
       updatedAt: "2026-05-29T15:00:00.000Z",
       newItemCount: "many",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "home_feed_updated",
       data,
@@ -835,7 +835,7 @@ describe("parseAssistantEvent", () => {
       state: "approved",
       kind: "confirmation",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "interaction_resolved",
       data,
@@ -843,7 +843,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from interaction_resolved", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "interaction_resolved",
       requestId: "req-1",
       conversationId: "conv-1",
@@ -865,7 +865,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses error with all fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "error",
       message: "Your balance has run out",
       code: "PROVIDER_BILLING",
@@ -886,7 +886,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses error with required fields only", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "error",
       message: "Too many requests",
     });
@@ -898,7 +898,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown error when message is missing", () => {
     const data = { type: "error", code: "rate_limit_exceeded" };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "error",
       data,
@@ -906,7 +906,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from error", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "error",
       message: "boom",
       surpriseField: "boom",
@@ -922,7 +922,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses conversation_error with all fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "conversation_error",
       conversationId: "conv-1",
       code: "PROVIDER_INVALID_KEY",
@@ -947,7 +947,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses conversation_error with required fields only", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "conversation_error",
       conversationId: "conv-2",
       code: "PROVIDER_RATE_LIMIT",
@@ -970,7 +970,7 @@ describe("parseAssistantEvent", () => {
       code: "UNKNOWN",
       userMessage: "Something went wrong.",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "conversation_error",
       data,
@@ -986,7 +986,7 @@ describe("parseAssistantEvent", () => {
       userMessage: "Rate limited",
       retryable: true,
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "conversation_error",
       data,
@@ -995,7 +995,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from conversation_error", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "conversation_error",
       conversationId: "conv-5",
       code: "UNKNOWN",
@@ -1013,7 +1013,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses interaction_resolved with explicit conversationId", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "interaction_resolved",
       requestId: "req-1",
       conversationId: "conv-1",
@@ -1030,7 +1030,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("interaction_resolved with an invalid state degrades to unknown", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "interaction_resolved",
       requestId: "req-3",
       conversationId: "conv-3",
@@ -1041,7 +1041,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("interaction_resolved without a requestId degrades to unknown", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "interaction_resolved",
       conversationId: "conv-4",
       state: "cancelled",
@@ -1051,7 +1051,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown event for unrecognized type", () => {
     const data = { type: "some_future_event", foo: "bar" };
-    const event = parseAssistantEvent(data);
+    const { message: event } = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "some_future_event",
@@ -1060,7 +1060,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses sync_changed tags", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "sync_changed",
       tags: [
         SYNC_TAGS.assistantAvatar,
@@ -1080,7 +1080,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown for sync_changed without a tags array", () => {
     const data = { type: "sync_changed", tag: SYNC_TAGS.assistantAvatar };
-    const event = parseAssistantEvent(data);
+    const { message: event } = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "sync_changed",
@@ -1093,7 +1093,7 @@ describe("parseAssistantEvent", () => {
       type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar, 42],
     };
-    const event = parseAssistantEvent(data);
+    const { message: event } = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "sync_changed",
@@ -1102,7 +1102,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses sync_changed with originClientId", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar],
       originClientId: "client-abc",
@@ -1115,7 +1115,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("omits originClientId from sync_changed when absent", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar],
     });
@@ -1141,7 +1141,7 @@ describe("parseAssistantEvent", () => {
     });
     expect("originClientId" in nonString).toBe(false);
 
-    const trimmed = parseAssistantEvent({
+    const { message: trimmed } = parseAssistantEvent({
       type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar],
       originClientId: "  client-xyz  ",
@@ -1154,7 +1154,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses assistant_activity_state idle", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "assistant_activity_state",
       conversationId: "conv-1",
       activityVersion: 7,
@@ -1175,7 +1175,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses assistant_activity_state thinking with statusText", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "assistant_activity_state",
       conversationId: "conv-1",
       activityVersion: 3,
@@ -1199,7 +1199,7 @@ describe("parseAssistantEvent", () => {
     // Disk-pressure block path emits idle with error_terminal but no
     // follow-up message_complete. The web handler must treat this as
     // terminal so the loading indicator clears.
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "assistant_activity_state",
       conversationId: "conv-1",
       activityVersion: 1,
@@ -1226,7 +1226,7 @@ describe("parseAssistantEvent", () => {
       anchor: "global",
       reason: "message_complete",
     };
-    const event = parseAssistantEvent(data);
+    const { message: event } = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "assistant_activity_state",
@@ -1244,7 +1244,7 @@ describe("parseAssistantEvent", () => {
       anchor: "global",
       reason: "made_up_reason",
     };
-    const event = parseAssistantEvent(data);
+    const { message: event } = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "assistant_activity_state",
@@ -1254,7 +1254,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses open_url", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "open_url",
       url: "https://example.com/oauth",
       title: "Connect Google",
@@ -1274,7 +1274,7 @@ describe("parseAssistantEvent", () => {
       title: "Connect Google",
       conversationId: "conv-1",
     };
-    const event = parseAssistantEvent(data);
+    const { message: event } = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "open_url",
@@ -1285,7 +1285,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown open_url event when url is empty string", () => {
     const data = { type: "open_url", url: "", conversationId: "conv-1" };
-    const event = parseAssistantEvent(data);
+    const { message: event } = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "open_url",
@@ -1295,7 +1295,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses navigate_settings", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "navigate_settings",
       tab: "Integrations",
     });
@@ -1307,7 +1307,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown navigate_settings event when tab is missing", () => {
     const data = { type: "navigate_settings" };
-    const event = parseAssistantEvent(data);
+    const { message: event } = parseAssistantEvent(data);
     expect(event).toEqual({
       type: "unknown",
       rawType: "navigate_settings",
@@ -1316,7 +1316,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses disk_pressure_status_changed", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "disk_pressure_status_changed",
       status: {
         enabled: true,
@@ -1366,7 +1366,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses flat disk_pressure_status_changed payloads", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "disk_pressure_status_changed",
       enabled: true,
       state: "critical",
@@ -1406,7 +1406,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses disk_pressure_status_changed disabled status", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "disk_pressure_status_changed",
       status: {
         enabled: false,
@@ -1448,7 +1448,7 @@ describe("parseAssistantEvent", () => {
 
   describe("tool_result", () => {
     test("maps riskAllowlistOptions → allowlistOptions (Minimatch save-path) and riskDirectoryScopeOptions → directoryScopeOptions", () => {
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "tool_result",
         toolName: "bash",
         result: "ok",
@@ -1495,7 +1495,7 @@ describe("parseAssistantEvent", () => {
       // rule that never matches future calls. This test guards against
       // regression of the pre-PR-29826 conflation bug where the deserializer
       // cast `riskScopeOptions` into `allowlistOptions`.
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "tool_result",
         toolName: "bash",
         result: "ok",
@@ -1511,7 +1511,7 @@ describe("parseAssistantEvent", () => {
     });
 
     test("returns undefined allowlistOptions when riskAllowlistOptions is missing", () => {
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "tool_result",
         toolName: "remember",
         result: "saved",
@@ -1527,7 +1527,7 @@ describe("parseAssistantEvent", () => {
       // The daemon sends `riskAllowlistOptions` on tool_result, not the
       // un-prefixed `allowlistOptions` (that field is reserved for
       // confirmation_request). Guard against regression to a wrong-field read.
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "tool_result",
         toolName: "bash",
         result: "ok",
@@ -1540,7 +1540,7 @@ describe("parseAssistantEvent", () => {
     });
 
     test("propagates messageId (anchor protocol)", () => {
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "tool_result",
         toolName: "bash",
         result: "ok",
@@ -1554,7 +1554,7 @@ describe("parseAssistantEvent", () => {
     });
 
     test("messageId is undefined when absent (legacy daemon stream)", () => {
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "tool_result",
         toolName: "bash",
         result: "ok",
@@ -1566,7 +1566,7 @@ describe("parseAssistantEvent", () => {
     });
 
     test("ignores non-string messageId", () => {
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "tool_result",
         toolName: "bash",
         result: "ok",
@@ -1581,7 +1581,7 @@ describe("parseAssistantEvent", () => {
 
   describe("tool_use_start", () => {
     test("propagates messageId (anchor protocol)", () => {
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "tool_use_start",
         toolName: "bash",
         input: { command: "ls" },
@@ -1596,7 +1596,7 @@ describe("parseAssistantEvent", () => {
     });
 
     test("messageId is undefined when absent (legacy daemon stream)", () => {
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "tool_use_start",
         toolName: "bash",
         input: {},
@@ -1610,7 +1610,7 @@ describe("parseAssistantEvent", () => {
 
   describe("assistant_turn_start", () => {
     test("parses with required messageId", () => {
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "assistant_turn_start",
         messageId: "asst-msg-42",
         conversationId: "conv-1",
@@ -1623,7 +1623,7 @@ describe("parseAssistantEvent", () => {
     });
 
     test("conversationId is optional", () => {
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "assistant_turn_start",
         messageId: "asst-msg-42",
       });
@@ -1640,14 +1640,14 @@ describe("parseAssistantEvent", () => {
       // worth surfacing to the reducer. Falling back to `unknown` keeps the
       // chat reducer's "saw an event we didn't know how to handle" branch
       // visible in dev mode rather than silently producing a no-op event.
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "assistant_turn_start",
       });
       expect(event.type).toBe("unknown");
     });
 
     test("drops to unknown when messageId is non-string", () => {
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "assistant_turn_start",
         messageId: 42,
       });
@@ -1659,7 +1659,7 @@ describe("parseAssistantEvent", () => {
     test("parses with all fields", () => {
       // GIVEN a user_message_echo carrying the full optional set
       // WHEN parsed
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "user_message_echo",
         text: "hello",
         conversationId: "conv-1",
@@ -1681,7 +1681,7 @@ describe("parseAssistantEvent", () => {
     test("parses with only the required text — synthetic echo shape", () => {
       // GIVEN a synthetic echo (surface-action prompt) with no ids
       // WHEN parsed
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "user_message_echo",
         text: "do the thing",
       });
@@ -1697,7 +1697,7 @@ describe("parseAssistantEvent", () => {
     test("drops to unknown when text is missing — text is the payload", () => {
       // GIVEN an echo missing its required `text`
       // WHEN parsed
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "user_message_echo",
         conversationId: "conv-1",
       });
@@ -1708,7 +1708,7 @@ describe("parseAssistantEvent", () => {
     test("drops to unknown when an unexpected field is present", () => {
       // GIVEN an echo with an extra field the strict schema rejects
       // WHEN parsed
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "user_message_echo",
         text: "hi",
         unexpected: true,
@@ -1723,7 +1723,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses ui_surface_show with all fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "ui_surface_show",
       conversationId: "conv-1",
       surfaceId: "s-1",
@@ -1756,7 +1756,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses ui_surface_show with required fields only", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "ui_surface_show",
       conversationId: "conv-2",
       surfaceId: "s-2",
@@ -1779,7 +1779,7 @@ describe("parseAssistantEvent", () => {
       surfaceType: "card",
       data: {},
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "ui_surface_show",
       data,
@@ -1787,7 +1787,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from ui_surface_show", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "ui_surface_show",
       conversationId: "conv-4",
       surfaceId: "s-4",
@@ -1809,7 +1809,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses ui_surface_update with all fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "ui_surface_update",
       conversationId: "conv-1",
       surfaceId: "s-1",
@@ -1829,7 +1829,7 @@ describe("parseAssistantEvent", () => {
       conversationId: "conv-1",
       surfaceId: "s-1",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "ui_surface_update",
       data,
@@ -1838,7 +1838,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from ui_surface_update", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "ui_surface_update",
       conversationId: "conv-1",
       surfaceId: "s-1",
@@ -1858,7 +1858,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses ui_surface_dismiss with all fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "ui_surface_dismiss",
       conversationId: "conv-1",
       surfaceId: "s-1",
@@ -1875,7 +1875,7 @@ describe("parseAssistantEvent", () => {
       type: "ui_surface_dismiss",
       conversationId: "conv-1",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "ui_surface_dismiss",
       data,
@@ -1884,7 +1884,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from ui_surface_dismiss", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "ui_surface_dismiss",
       conversationId: "conv-1",
       surfaceId: "s-1",
@@ -1902,7 +1902,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses ui_surface_complete with all fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "ui_surface_complete",
       conversationId: "conv-1",
       surfaceId: "s-1",
@@ -1919,7 +1919,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses ui_surface_complete with required fields only", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "ui_surface_complete",
       conversationId: "conv-1",
       surfaceId: "s-1",
@@ -1939,7 +1939,7 @@ describe("parseAssistantEvent", () => {
       conversationId: "conv-1",
       surfaceId: "s-1",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "ui_surface_complete",
       data,
@@ -1948,7 +1948,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from ui_surface_complete", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "ui_surface_complete",
       conversationId: "conv-1",
       surfaceId: "s-1",
@@ -1964,7 +1964,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses notification_intent with deep-link metadata", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "notification_intent",
       deliveryId: "del-1",
       sourceEventName: "chat.assistant_turn_complete",
@@ -1984,7 +1984,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("notification_intent preserves targetGuardianPrincipalId", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "notification_intent",
       sourceEventName: "guardian.question",
       title: "Guardian check-in",
@@ -1998,7 +1998,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("notification_intent without title falls through to unknown", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "notification_intent",
       sourceEventName: "chat.assistant_turn_complete",
       body: "missing title",
@@ -2007,7 +2007,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("notification_intent with non-object deepLinkMetadata is ignored", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "notification_intent",
       sourceEventName: "chat.assistant_turn_complete",
       title: "Hello",
@@ -2025,7 +2025,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses identity_changed with all required fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "identity_changed",
       name: "ApolloBot",
       role: "sidekick",
@@ -2052,7 +2052,7 @@ describe("parseAssistantEvent", () => {
       // emoji omitted
       home: "kubernetes",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "identity_changed",
       data,
@@ -2068,7 +2068,7 @@ describe("parseAssistantEvent", () => {
       emoji: "🦖",
       home: "kubernetes",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "identity_changed",
       data,
@@ -2080,7 +2080,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses avatar_updated with avatarPath", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "avatar_updated",
       avatarPath: "/home/.vellum/avatar.png",
     });
@@ -2092,7 +2092,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown avatar_updated when avatarPath is missing", () => {
     const data = { type: "avatar_updated" };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "avatar_updated",
       data,
@@ -2111,7 +2111,7 @@ describe("parseAssistantEvent", () => {
       "reordered",
       "seen_changed",
     ] as const) {
-      const event = parseAssistantEvent({
+      const { message: event } = parseAssistantEvent({
         type: "conversation_list_invalidated",
         reason,
       });
@@ -2121,7 +2121,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown conversation_list_invalidated when reason is missing", () => {
     const data = { type: "conversation_list_invalidated" };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "conversation_list_invalidated",
       data,
@@ -2133,7 +2133,7 @@ describe("parseAssistantEvent", () => {
       type: "conversation_list_invalidated",
       reason: "evicted",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "conversation_list_invalidated",
       data,
@@ -2145,7 +2145,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses conversation_title_updated with conversationId and title", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "conversation_title_updated",
       conversationId: "conv-1",
       title: "New Title",
@@ -2162,7 +2162,7 @@ describe("parseAssistantEvent", () => {
       type: "conversation_title_updated",
       title: "Orphan title",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "conversation_title_updated",
       data,
@@ -2174,7 +2174,7 @@ describe("parseAssistantEvent", () => {
       type: "conversation_title_updated",
       conversationId: "conv-1",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "conversation_title_updated",
       data,
@@ -2187,7 +2187,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses secret_request with all fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "secret_request",
       requestId: "sr-1",
       service: "github",
@@ -2218,7 +2218,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses secret_request with required fields only", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "secret_request",
       requestId: "sr-2",
       service: "openai",
@@ -2241,7 +2241,7 @@ describe("parseAssistantEvent", () => {
       field: "api_key",
       label: "Missing service",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "secret_request",
       data,
@@ -2249,7 +2249,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from secret_request", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "secret_request",
       requestId: "sr-4",
       service: "openai",
@@ -2271,7 +2271,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses confirmation_request with all fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "confirmation_request",
       requestId: "cr-1",
       toolName: "bash",
@@ -2334,7 +2334,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses confirmation_request with required fields only", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "confirmation_request",
       requestId: "cr-2",
       toolName: "write_file",
@@ -2363,7 +2363,7 @@ describe("parseAssistantEvent", () => {
       allowlistOptions: [],
       scopeOptions: [],
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "confirmation_request",
       data,
@@ -2371,7 +2371,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from confirmation_request", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "confirmation_request",
       requestId: "cr-4",
       toolName: "bash",
@@ -2397,7 +2397,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses contact_request with all fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "contact_request",
       requestId: "ctc-1",
       channel: "email",
@@ -2418,7 +2418,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses contact_request with required fields only", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "contact_request",
       requestId: "ctc-2",
     });
@@ -2430,7 +2430,7 @@ describe("parseAssistantEvent", () => {
 
   test("returns unknown contact_request when requestId is missing", () => {
     const data = { type: "contact_request", channel: "email" };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "contact_request",
       data,
@@ -2438,7 +2438,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from contact_request", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "contact_request",
       requestId: "ctc-3",
       surpriseField: "boom",
@@ -2454,7 +2454,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses question_request with all fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "question_request",
       requestId: "qr-1",
       questions: [
@@ -2495,7 +2495,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses question_request with required fields only", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "question_request",
       requestId: "qr-2",
       questions: [{ id: "q1", question: "Continue?", options: [] }],
@@ -2518,7 +2518,7 @@ describe("parseAssistantEvent", () => {
       question: "Continue?",
       options: [],
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "question_request",
       data,
@@ -2526,7 +2526,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("strips unknown fields from question_request", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "question_request",
       requestId: "qr-4",
       questions: [{ id: "q1", question: "?", options: [] }],
@@ -2548,7 +2548,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses subagent_spawned with all fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "subagent_spawned",
       subagentId: "sa-1",
       parentConversationId: "conv-1",
@@ -2569,7 +2569,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses subagent_spawned with required fields only", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "subagent_spawned",
       subagentId: "sa-2",
       parentConversationId: "conv-2",
@@ -2592,7 +2592,7 @@ describe("parseAssistantEvent", () => {
       label: "Research",
       objective: "Find weather data",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "subagent_spawned",
       data,
@@ -2608,7 +2608,7 @@ describe("parseAssistantEvent", () => {
       objective: "Find weather data",
       surpriseField: "boom",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "subagent_spawned",
       data,
@@ -2620,7 +2620,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses subagent_status_changed with all fields", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "subagent_status_changed",
       subagentId: "sa-1",
       status: "completed",
@@ -2636,7 +2636,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses subagent_status_changed with required fields only", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "subagent_status_changed",
       subagentId: "sa-2",
       status: "running",
@@ -2649,7 +2649,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("accepts subagent_status_changed with `aborted` terminal status", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "subagent_status_changed",
       subagentId: "sa-3",
       status: "aborted",
@@ -2667,7 +2667,7 @@ describe("parseAssistantEvent", () => {
       subagentId: "sa-4",
       status: "bogus",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "subagent_status_changed",
       data,
@@ -2681,7 +2681,7 @@ describe("parseAssistantEvent", () => {
       status: "running",
       surpriseField: "boom",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "subagent_status_changed",
       data,
@@ -2693,7 +2693,7 @@ describe("parseAssistantEvent", () => {
   // ---------------------------------------------------------------------
 
   test("parses subagent_event wrapping an inner event", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "subagent_event",
       conversationId: "conv-1",
       subagentId: "sa-1",
@@ -2714,7 +2714,7 @@ describe("parseAssistantEvent", () => {
   });
 
   test("parses subagent_event with an inner tool_use_start envelope", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "subagent_event",
       conversationId: "conv-2",
       subagentId: "sa-2",
@@ -2744,7 +2744,7 @@ describe("parseAssistantEvent", () => {
       subagentId: "sa-3",
       event: { type: "assistant_text_delta", text: "hi" },
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "subagent_event",
       data,
@@ -2759,7 +2759,7 @@ describe("parseAssistantEvent", () => {
       event: { type: "assistant_text_delta", text: "hi" },
       surpriseField: "boom",
     };
-    expect(parseAssistantEvent(data)).toEqual({
+    expect(parseAssistantEvent(data).message).toEqual({
       type: "unknown",
       rawType: "subagent_event",
       data,
@@ -2770,7 +2770,7 @@ describe("parseAssistantEvent", () => {
 
 describe("envelope format parsing", () => {
   test("flat payloads pass through unchanged", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "assistant_text_delta",
       text: "Hello from envelope",
       messageId: "msg-env-1",
@@ -2783,7 +2783,7 @@ describe("envelope format parsing", () => {
   });
 
   test("envelope shape uses message.type over top-level type", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "wrapper",
       message: {
         type: "assistant_text_delta",
@@ -2800,7 +2800,7 @@ describe("envelope format parsing", () => {
   });
 
   test("envelope shape supports sync_changed", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "wrapper",
       message: {
         type: "sync_changed",
@@ -2821,7 +2821,7 @@ describe("envelope format parsing", () => {
   });
 
   test("flat message_complete works when no envelope message field is present", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "message_complete",
       messageId: "msg-flat",
     });
@@ -2833,7 +2833,7 @@ describe("envelope format parsing", () => {
   });
 
   test("flat sync_changed works when no envelope message field is present", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "sync_changed",
       tags: [SYNC_TAGS.assistantSounds],
     });
@@ -2845,7 +2845,7 @@ describe("envelope format parsing", () => {
   });
 
   test("non-object message field is ignored (falls back to flat)", () => {
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       type: "error",
       message: "This is a string, not an envelope",
       code: "test_error",
@@ -2863,7 +2863,7 @@ describe("envelope format parsing", () => {
     // (here: `navigate_settings`) read the envelope-level conversationId
     // via `mergeEnvelopeConversationId`. This codepath disappears as each
     // legacy case migrates to a strict schema.
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       conversationId: "conv-from-envelope",
       message: {
         type: "navigate_settings",
@@ -2880,7 +2880,7 @@ describe("envelope format parsing", () => {
   test("envelope-level conversationId does NOT override an event-supplied conversationId", () => {
     // Same legacy fallback path — when the inner message carries its own
     // conversationId, it wins over the envelope-level routing key.
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       conversationId: "envelope-conv",
       message: {
         type: "navigate_settings",
@@ -2898,7 +2898,7 @@ describe("envelope format parsing", () => {
     // relationship_state_updated is a global event whose strict wire schema
     // doesn't declare conversationId. Stamping the envelope-derived value
     // onto it is the drift `@vellumai/assistant-api` exists to prevent.
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       conversationId: "should-be-ignored",
       message: {
         type: "relationship_state_updated",
@@ -2922,7 +2922,7 @@ describe("envelope format parsing", () => {
     // `@vellumai/assistant-api` exists to prevent. Downstream routing
     // that needs conversation scope reads the envelope at the SSE
     // pipe, not from the typed event.
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       conversationId: "conv-from-envelope",
       message: {
         type: "open_url",
@@ -2941,7 +2941,7 @@ describe("envelope format parsing", () => {
     // sets conversationId on the inner message, the schema validates,
     // and the typed event carries it through. The envelope value plays
     // no role.
-    const event = parseAssistantEvent({
+    const { message: event } = parseAssistantEvent({
       conversationId: "envelope-conv",
       message: {
         type: "open_url",

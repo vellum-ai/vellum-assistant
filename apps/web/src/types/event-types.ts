@@ -277,3 +277,23 @@ export type AssistantEvent =
   | DocumentEditorUpdateEvent
   | TurnProfileAutoRoutedEvent
   | UnknownEvent;
+
+/**
+ * Parsed SSE envelope wrapping an {@link AssistantEvent}.
+ *
+ * The daemon emits events wrapped in an envelope carrying transport-level
+ * metadata: a per-event UUID (`id`), an optional monotonic sequence
+ * number (`seq`) for gap detection, and an emission timestamp
+ * (`emittedAt`). `conversationId` is the envelope-level routing key.
+ *
+ * Envelope-level fields are optional because legacy/flat payloads
+ * (no wrapper) may omit them. For envelope-wrapped payloads — the only
+ * shape the current daemon emits — all fields except `seq` are present.
+ */
+export interface AssistantEventEnvelope {
+  id?: string;
+  conversationId?: string;
+  seq?: number;
+  emittedAt?: string;
+  message: AssistantEvent;
+}

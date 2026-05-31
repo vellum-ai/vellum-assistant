@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 
-import type { AssistantEvent } from "@/types/event-types";
+import type { AssistantEventEnvelope } from "@/types/event-types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,15 +48,16 @@ export function useDocumentCommentEvents({
   surfaceId,
   enabled,
   onCommentsChanged,
-}: UseDocumentCommentEventsOptions): (event: AssistantEvent) => void {
+}: UseDocumentCommentEventsOptions): (envelope: AssistantEventEnvelope) => void {
   const callbackRef = useRef(onCommentsChanged);
   useEffect(() => {
     callbackRef.current = onCommentsChanged;
   }, [onCommentsChanged]);
 
   return useCallback(
-    (event: AssistantEvent) => {
+    (envelope: AssistantEventEnvelope) => {
       if (!enabled) return;
+      const event = envelope.message;
 
       switch (event.type) {
         case "document_comment_created":

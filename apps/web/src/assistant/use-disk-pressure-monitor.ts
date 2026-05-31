@@ -209,7 +209,8 @@ export function useDiskPressureMonitor({
   // Complements the polling interval and resume-refresh above so
   // status changes are reflected immediately without waiting for
   // the next poll tick.
-  useBusSubscription("sse.event", (event) => {
+  useBusSubscription("sse.event", (envelope) => {
+    const event = envelope.message;
     if (event.type !== "disk_pressure_status_changed") return;
     applyStatusEvent(event.status);
   });

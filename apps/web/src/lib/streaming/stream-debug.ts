@@ -8,7 +8,7 @@
  * can be inspected from the console via `window._vellumDebug.chat.events`.
  */
 
-import type { AssistantEvent } from "@/types/event-types";
+import type { AssistantEventEnvelope } from "@/types/event-types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -33,7 +33,7 @@ export interface SseDebugEventEntry {
   /** Millisecond timestamp when the event was received. */
   receivedAt: number;
   /** The parsed event payload. */
-  event: AssistantEvent;
+  event: AssistantEventEnvelope;
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +100,7 @@ export function markClientEstablished(clientId: string): void {
  * Push a parsed event into the ring buffer. Called from the `onEvent`
  * callback inside {@link subscribeChatEvents}.
  */
-export function pushSseEvent(clientId: string, event: AssistantEvent): void {
+export function pushSseEvent(clientId: string, event: AssistantEventEnvelope): void {
   events.push({
     clientId,
     receivedAt: Date.now(),

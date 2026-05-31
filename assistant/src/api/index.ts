@@ -42,6 +42,10 @@ import { UserMessageEchoEventSchema } from "./events/user-message-echo.js";
 export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
 export {
+  type AssistantEventEnvelope,
+  AssistantEventEnvelopeSchema,
+} from "./envelope.js";
+export {
   type AssistantOutboundAttachment,
   AssistantOutboundAttachmentSchema,
 } from "./events/assistant-outbound-attachment.js";

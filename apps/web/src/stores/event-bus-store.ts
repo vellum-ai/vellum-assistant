@@ -21,7 +21,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import type { AssistantEvent } from "@/types/event-types";
+import type { AssistantEventEnvelope } from "@/types/event-types";
 
 /**
  * Source of a synthetic `"app.resume"` event.
@@ -54,7 +54,7 @@ export interface BusEventMap {
    * `event.conversationId` themselves — the bus delivers every
    * event the underlying stream sees.
    */
-  "sse.event": AssistantEvent;
+  "sse.event": AssistantEventEnvelope;
   /**
    * The bus-owned SSE connection just opened (or reopened). Carries the
    * `cause` of the (re)open so consumers can distinguish a fresh
