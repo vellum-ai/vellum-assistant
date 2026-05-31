@@ -1,78 +1,33 @@
 /**
- * Shapes for the assistant plugins surface.
+ * Domain type aliases for the assistant plugins surface.
  *
- * Mirrors the CLI structure in
- * `assistant/src/cli/lib/list-installed-plugins.ts` — the web tab
- * currently surfaces installed plugins only. Catalog / install /
- * uninstall affordances are deferred to follow-up work; this module
- * intentionally stays narrow to keep the contract small while the
- * daemon-side endpoint is still being designed.
+ * These derive directly from the generated daemon SDK response types,
+ * which are themselves generated from the daemon route `responseBody`
+ * Zod schemas in `assistant/src/runtime/routes/plugins-routes.ts`.
+ * Keeping them as thin aliases means the web app never re-declares the
+ * plugin shapes — the daemon route schema is the single source of truth,
+ * so the types cannot drift from the wire contract.
  */
+
+import type {
+  PluginsGetResponse,
+  PluginsSearchGetResponse,
+} from "@/generated/daemon/types.gen";
+
+/** Response envelope for `GET /v1/assistants/{id}/plugins`. */
+export type PluginsListResponse = PluginsGetResponse;
 
 /**
- * A single installed plugin surfaced to the UI. Field set tracks
- * `InstalledPluginInfo` from the CLI lib so the daemon endpoint can
- * project directly without re-deriving anything.
+ * A single installed plugin surfaced to the UI. `description`/`version`
+ * are `null` when unknown; `path`/`issues` are omitted when clean.
  */
-export interface PluginInfo {
-  /**
-   * Plugin's directory name (kebab-case). Matches
-   * `assistant plugins install <id>`.
-   */
-  readonly id: string;
-  /** Directory name; equal to `id`. */
-  readonly name: string;
-  /** From `package.json#description`; `null` when unknown. */
-  readonly description: string | null;
-  /** From `package.json#version`; `null` when unknown. */
-  readonly version: string | null;
-  /**
-   * Absolute fs path on the assistant host. Optional because the
-   * server may choose not to expose absolute paths.
-   */
-  readonly path?: string;
-  /**
-   * Non-fatal issues surfaced by the daemon for installed plugins —
-   * e.g. `"missing package.json"`, `"package.json invalid JSON"`.
-   * Mirrors `InstalledPluginInfo.issues` from the CLI lib.
-   */
-  readonly issues?: readonly string[];
-}
+export type PluginInfo = PluginsGetResponse["plugins"][number];
 
-/** Response envelope for `GET /v1/assistants/{id}/plugins/`. */
-export interface PluginsListResponse {
-  readonly plugins: readonly PluginInfo[];
-}
+/** Response envelope for `GET /v1/assistants/{id}/plugins/search`. */
+export type PluginCatalogResponse = PluginsSearchGetResponse;
 
 /**
- * A single entry returned by the catalog search endpoint.
- *
- * Mirrors `PluginSearchMatch` from
- * `assistant/src/cli/lib/search-plugins.ts`. The catalog is the
- * canonical `vellum-ai/vellum-assistant/experimental/plugins/`
- * directory listing — each match is a directory the user could
- * install with `assistant plugins install <name>`.
+ * A single catalog directory match — installable with
+ * `assistant plugins install <name>`.
  */
-export interface PluginCatalogMatch {
-  /**
-   * Catalog directory name. Suitable for
-   * `assistant plugins install <name>` verbatim.
-   */
-  readonly name: string;
-  /**
-   * Repo-relative path of the match (e.g.
-   * `experimental/plugins/<name>`). Surfaced primarily as a
-   * disambiguator when names collide; UI may treat it as opaque.
-   */
-  readonly path: string;
-}
-
-/** Response envelope for `GET /v1/assistants/{id}/plugins/search/`. */
-export interface PluginCatalogResponse {
-  /** Echo of the requested query (ECMAScript regex source). */
-  readonly query: string;
-  /** Git ref the catalog was listed at. */
-  readonly ref: string;
-  /** Directory matches, already sorted alphabetically by name. */
-  readonly matches: readonly PluginCatalogMatch[];
-}
+export type PluginCatalogMatch = PluginsSearchGetResponse["matches"][number];

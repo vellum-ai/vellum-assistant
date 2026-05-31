@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { client } from "@/domains/intelligence/client";
+import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
   ApiError,
   fetchPluginCatalog,
 } from "@/domains/intelligence/plugins/api";
 
 // ---------------------------------------------------------------------------
-// fetchPluginCatalog — /v1/assistants/{id}/plugins/search/
+// fetchPluginCatalog — /v1/assistants/{id}/plugins/search
 // ---------------------------------------------------------------------------
 //
 // The daemon endpoint takes ?q as an ECMAScript regex (PR #31860). The web
@@ -16,14 +16,14 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("fetchPluginCatalog", () => {
-  const originalGet = client.get;
+  const originalGet = daemonClient.get;
   afterEach(() => {
-    client.get = originalGet;
+    daemonClient.get = originalGet;
   });
 
   test("forwards a plain query as ?q after regex-escaping specials", async () => {
     const captured: Array<Record<string, unknown>> = [];
-    client.get = mock(async (req: Record<string, unknown>) => {
+    daemonClient.get = mock(async (req: Record<string, unknown>) => {
       captured.push(req);
       return {
         data: {
@@ -34,13 +34,13 @@ describe("fetchPluginCatalog", () => {
         error: null,
         response: new Response("{}", { status: 200 }),
       };
-    }) as typeof client.get;
+    }) as typeof daemonClient.get;
 
     await fetchPluginCatalog("assistant-1", { query: "memory.(test)" });
 
     expect(captured).toHaveLength(1);
     expect(captured[0]?.url).toBe(
-      "/v1/assistants/{assistant_id}/plugins/search/",
+      "/v1/assistants/{assistant_id}/plugins/search",
     );
     expect(captured[0]?.path).toEqual({ assistant_id: "assistant-1" });
     // Each of `.`, `(`, `)` should have been escaped.
@@ -49,14 +49,14 @@ describe("fetchPluginCatalog", () => {
 
   test("omits ?q entirely when the query is empty (match-all)", async () => {
     let capturedQuery: unknown;
-    client.get = mock(async (req: Record<string, unknown>) => {
+    daemonClient.get = mock(async (req: Record<string, unknown>) => {
       capturedQuery = req.query;
       return {
         data: { query: "", ref: "main", matches: [] },
         error: null,
         response: new Response("{}", { status: 200 }),
       };
-    }) as typeof client.get;
+    }) as typeof daemonClient.get;
 
     await fetchPluginCatalog("assistant-1", { query: "" });
 
@@ -65,14 +65,14 @@ describe("fetchPluginCatalog", () => {
 
   test("forwards ref when provided", async () => {
     let capturedQuery: Record<string, string> | undefined;
-    client.get = mock(async (req: Record<string, unknown>) => {
+    daemonClient.get = mock(async (req: Record<string, unknown>) => {
       capturedQuery = req.query as Record<string, string>;
       return {
         data: { query: "", ref: "feature-x", matches: [] },
         error: null,
         response: new Response("{}", { status: 200 }),
       };
-    }) as typeof client.get;
+    }) as typeof daemonClient.get;
 
     await fetchPluginCatalog("assistant-1", { ref: "feature-x" });
 
@@ -80,7 +80,7 @@ describe("fetchPluginCatalog", () => {
   });
 
   test("returns the parsed envelope on success", async () => {
-    client.get = mock(async () => ({
+    daemonClient.get = mock(async () => ({
       data: {
         query: "mem",
         ref: "main",
@@ -90,7 +90,7 @@ describe("fetchPluginCatalog", () => {
       },
       error: null,
       response: new Response("{}", { status: 200 }),
-    })) as typeof client.get;
+    })) as typeof daemonClient.get;
 
     const result = await fetchPluginCatalog("assistant-1", { query: "mem" });
 
@@ -101,14 +101,14 @@ describe("fetchPluginCatalog", () => {
   });
 
   test("throws ApiError on non-ok responses (no 404 fallback)", async () => {
-    client.get = mock(async () => ({
+    daemonClient.get = mock(async () => ({
       data: undefined,
       error: { error: "endpoint not found" },
       response: new Response(JSON.stringify({ error: "endpoint not found" }), {
         status: 404,
         headers: { "Content-Type": "application/json" },
       }),
-    })) as typeof client.get;
+    })) as typeof daemonClient.get;
 
     let thrown: unknown;
     try {
@@ -121,14 +121,14 @@ describe("fetchPluginCatalog", () => {
   });
 
   test("throws ApiError on 500", async () => {
-    client.get = mock(async () => ({
+    daemonClient.get = mock(async () => ({
       data: undefined,
       error: { error: "boom" },
       response: new Response(JSON.stringify({ error: "boom" }), {
         status: 500,
         headers: { "Content-Type": "application/json" },
       }),
-    })) as typeof client.get;
+    })) as typeof daemonClient.get;
 
     let thrown: unknown;
     try {
