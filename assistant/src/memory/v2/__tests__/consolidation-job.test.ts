@@ -7,6 +7,9 @@
  *   - Flag on, non-empty buffer → runner invoked with the cutoff-templated
  *     prompt and `suppressFailureNotifications: true`; follow-up jobs
  *     enqueued on success.
+ *   - v3 flag (shadow/live) on → `memory_v3_maintain` enqueued alongside the
+ *     unconditional `memory_v2_reembed`; off → only reembed; a thrown v3
+ *     enqueue is swallowed and consolidation still succeeds.
  *   - Lock file already present → second call returns locked.
  *   - Runner returns ok=false → run_failed surfaced; NO follow-up jobs;
  *     `emitNotificationSignal` was NOT called as a result of the failure
@@ -38,6 +41,19 @@ import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
+}));
+
+// ── feature-flag mock ───────────────────────────────────────────────
+//
+// The handler gates the `memory_v3_maintain` follow-up on the v3 flags.
+// Mock the resolver (mirroring the v3 maintain-job test) so flag state is
+// a plain map under test control, independent of the gateway override cache
+// or config-object internals.
+let flagState: Record<string, boolean> = {};
+
+mock.module("../../../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: (key: string, _config: unknown): boolean =>
+    flagState[key] ?? false,
 }));
 
 // ── runBackgroundJob mock ───────────────────────────────────────────
@@ -92,12 +108,19 @@ const enqueuedJobs: Array<{
   payload: Record<string, unknown>;
 }> = [];
 let nextJobIdCounter = 0;
+// When set to a job type, the next enqueue of that type throws — used to
+// exercise the best-effort try/catch around the flag-gated v3 follow-up.
+let enqueueThrowFor: string | null = null;
 
 mock.module("../../jobs-store.js", () => ({
   enqueueMemoryJob: (
     type: string,
     payload: Record<string, unknown>,
   ): string => {
+    if (enqueueThrowFor === type) {
+      enqueueThrowFor = null;
+      throw new Error(`simulated enqueue failure for ${type}`);
+    }
     enqueuedJobs.push({ type, payload });
     nextJobIdCounter += 1;
     return `job-${nextJobIdCounter}`;
@@ -173,6 +196,8 @@ beforeEach(() => {
   emitCalls.length = 0;
   enqueuedJobs.length = 0;
   nextJobIdCounter = 0;
+  enqueueThrowFor = null;
+  flagState = {};
 });
 
 // ---------------------------------------------------------------------------
@@ -297,6 +322,57 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
       type: "memory_v2_reembed",
       payload: {},
     });
+  });
+
+  test("does NOT enqueue memory_v3_maintain when no v3 flag is set", async () => {
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
+  });
+
+  test("enqueues memory_v3_maintain alongside reembed when memory-v3-shadow is on", async () => {
+    flagState["memory-v3-shadow"] = true;
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind === "invoked") {
+      expect(result.followUpJobIds).toEqual(["job-1", "job-2"]);
+    }
+    expect(enqueuedJobs).toEqual([
+      { type: "memory_v2_reembed", payload: {} },
+      { type: "memory_v3_maintain", payload: {} },
+    ]);
+  });
+
+  test("enqueues memory_v3_maintain when memory-v3-live is on", async () => {
+    flagState["memory-v3-live"] = true;
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(enqueuedJobs.map((j) => j.type)).toEqual([
+      "memory_v2_reembed",
+      "memory_v3_maintain",
+    ]);
+  });
+
+  test("swallows a thrown v3 enqueue and still succeeds with the reembed follow-up", async () => {
+    // The v3 maintenance enqueue is best-effort: a throw must not fail the
+    // consolidation that already wrote the agent's edits, nor drop the
+    // unconditional v2 reembed that was enqueued before it.
+    flagState["memory-v3-shadow"] = true;
+    enqueueThrowFor = "memory_v3_maintain";
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    if (result.kind === "invoked") {
+      // Only the reembed id made it in; the v3 enqueue threw before pushing.
+      expect(result.followUpJobIds).toEqual(["job-1"]);
+    }
+    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
   });
 
   test("releases the lock after a successful invocation so the next run can acquire it", async () => {
