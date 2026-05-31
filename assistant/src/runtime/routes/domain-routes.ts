@@ -12,11 +12,25 @@ import {
   setNestedValue,
 } from "../../config/loader.js";
 import { VellumPlatformClient } from "../../platform/client.js";
+import { getLogger } from "../../util/logger.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, RouteError, UnauthorizedError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
+const log = getLogger("domain-routes");
+
 // ── Helpers ───────────────────────────────────────────────────────────
+
+interface DomainListResponse {
+  next?: string | null;
+  results: {
+    id: string;
+    subdomain?: string;
+    domain?: string;
+    created_at?: string;
+    created?: string;
+  }[];
+}
 
 async function requireClient(): Promise<VellumPlatformClient> {
   const client = await VellumPlatformClient.create();
@@ -31,6 +45,25 @@ async function requireClient(): Promise<VellumPlatformClient> {
     );
   }
   return client;
+}
+
+async function fetchDomains(
+  client: VellumPlatformClient,
+): Promise<DomainListResponse> {
+  const response = await client.fetch(
+    `/v1/assistants/${client.platformAssistantId}/domains/`,
+  );
+
+  if (!response.ok) {
+    const respBody = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    const detail = respBody.detail ?? `HTTP ${response.status}`;
+    throw new RouteError(String(detail), "LIST_FAILED", response.status);
+  }
+
+  return (await response.json()) as DomainListResponse;
 }
 
 // ── Handlers ──────────────────────────────────────────────────────────
@@ -107,33 +140,7 @@ async function handleDomainStatus(_args: RouteHandlerArgs) {
   const client = await requireClient();
   const apexDomain = getApexDomain();
 
-  const response = await client.fetch(
-    `/v1/assistants/${client.platformAssistantId}/domains/`,
-  );
-
-  if (!response.ok) {
-    const respBody = (await response.json().catch(() => ({}))) as Record<
-      string,
-      unknown
-    >;
-    const detail = respBody.detail ?? `HTTP ${response.status}`;
-    throw new RouteError(
-      String(detail),
-      "LIST_FAILED",
-      response.status,
-    );
-  }
-
-  const data = (await response.json()) as {
-    results: {
-      id: string;
-      subdomain?: string;
-      domain?: string;
-      created_at?: string;
-      created?: string;
-    }[];
-  };
-
+  const data = await fetchDomains(client);
   const domains = data.results ?? [];
 
   // Sync subdomain to config if not already cached
@@ -164,8 +171,21 @@ async function handleDomainVerificationStatus({
   }
   const client = await requireClient();
 
+  const { results, next } = await fetchDomains(client);
+  if (next) {
+    log.error(
+      { extra: { domain_id, next } },
+      "Domain list is paginated; ownership check may produce false negatives",
+    );
+  }
+  if (!results?.some((d) => d.id === domain_id)) {
+    throw new BadRequestError(
+      "domain_id is not registered for this assistant",
+    );
+  }
+
   const response = await client.fetch(
-    `/v1/assistants/${client.platformAssistantId}/domains/${domain_id}/verification-status/`,
+    `/v1/assistants/${client.platformAssistantId}/domains/${encodeURIComponent(domain_id)}/verification-status/`,
   );
 
   if (!response.ok) {
