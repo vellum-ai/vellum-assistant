@@ -177,10 +177,10 @@ export async function memoryV2ConsolidateJob(
     // it to a regular file under 1 MiB before substitution so a stray path
     // (or a `/dev/zero`-style pseudo-file) cannot exfiltrate megabytes of
     // bytes through the wake hint.
-    // The maintainer's (possibly overridden) consolidation prompt is the base.
-    // When a v3 flag is on and the tree has actionable drift, prepend a freshly
-    // computed health block so the run can fold maintenance into its pass. The
-    // base prompt is left untouched when v3 is off or the tree is all-green.
+    //
+    // That resolved prompt is the base; `maybePrependV3Health` prepends a
+    // freshly computed v3 health block when a v3 flag is on and the tree has
+    // actionable drift, leaving it untouched otherwise.
     const basePrompt = resolveConsolidationPrompt(
       config.memory.v2.consolidation_prompt_path,
       cutoff,
