@@ -169,6 +169,58 @@ describe("startNgrokTunnel", () => {
     expect(child.killSignal).toBe("SIGTERM");
   });
 
+  test("forwards `authToken` to ngrok via --authtoken=<token> before the http subcommand", async () => {
+    const child = new FakeChild();
+    let capturedArgs: string[] | null = null;
+    const spawnFn = ((_cmd: string, args: string[]) => {
+      capturedArgs = args;
+      return child;
+    }) as unknown as typeof import("node:child_process").spawn;
+    const fetchFn = makeFetch([
+      () => new Response(JSON.stringify(tunnelsPayload(3005)), { status: 200 }),
+    ]);
+
+    const tunnel = await startNgrokTunnel({
+      port: 3005,
+      authToken: "abc123",
+      pollIntervalMs: 5,
+      pollTimeoutMs: 1_000,
+      deps: { spawn: spawnFn, fetch: fetchFn },
+    });
+    expect(tunnel.publicUrl).toBe("https://abc.ngrok-free.app");
+
+    // Authtoken must come BEFORE `http` — that's how ngrok's argv
+    // parser expects it. Using `=` keeps the value attached.
+    expect(capturedArgs).not.toBeNull();
+    expect(capturedArgs![0]).toBe("--authtoken=abc123");
+    expect(capturedArgs![1]).toBe("http");
+
+    await tunnel.stop();
+  });
+
+  test("omits --authtoken when `authToken` is not provided (preserves prior behaviour)", async () => {
+    const child = new FakeChild();
+    let capturedArgs: string[] | null = null;
+    const spawnFn = ((_cmd: string, args: string[]) => {
+      capturedArgs = args;
+      return child;
+    }) as unknown as typeof import("node:child_process").spawn;
+    const fetchFn = makeFetch([
+      () => new Response(JSON.stringify(tunnelsPayload(3005)), { status: 200 }),
+    ]);
+
+    await startNgrokTunnel({
+      port: 3005,
+      pollIntervalMs: 5,
+      pollTimeoutMs: 1_000,
+      deps: { spawn: spawnFn, fetch: fetchFn },
+    });
+
+    expect(capturedArgs).not.toBeNull();
+    expect(capturedArgs!.some((a) => a.startsWith("--authtoken"))).toBe(false);
+    expect(capturedArgs![0]).toBe("http");
+  });
+
   test("throws a clear error when the ngrok agent exits before publishing", async () => {
     const child = new FakeChild();
     const spawnFn = (() =>
