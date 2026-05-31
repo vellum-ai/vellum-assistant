@@ -744,24 +744,40 @@ function guardianTokenMiddleware(
 
 const GATEWAY_PATTERN = /^(?:\/assistant)?\/__gateway\/(\d+)(\/.*)?$/;
 
+function addPortFromUrl(url: unknown, ports: Set<number>): void {
+  if (typeof url !== "string") return;
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") return;
+    const port = Number(parsed.port);
+    if (Number.isInteger(port) && port >= 1024 && port <= 65535) {
+      ports.add(port);
+    }
+  } catch {
+    // malformed URL — skip
+  }
+}
+
 function readAllowedGatewayPorts(lockfilePaths: string[]): Set<number> {
   const ports = new Set<number>();
   for (const candidate of lockfilePaths) {
     try {
       const raw = fs.readFileSync(candidate, "utf-8");
-      const data = JSON.parse(raw) as { assistants?: Array<{ gatewayUrl?: unknown }> };
+      const data = JSON.parse(raw) as {
+        assistants?: Array<{
+          gatewayUrl?: unknown;
+          localUrl?: unknown;
+          resources?: { gatewayPort?: unknown };
+        }>;
+      };
       const assistants = Array.isArray(data.assistants) ? data.assistants : [];
       for (const assistant of assistants) {
-        if (!assistant || typeof assistant.gatewayUrl !== "string") continue;
-        try {
-          const parsed = new URL(assistant.gatewayUrl);
-          if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") continue;
-          const port = Number(parsed.port);
-          if (Number.isInteger(port) && port >= 1024 && port <= 65535) {
-            ports.add(port);
-          }
-        } catch {
-          continue;
+        if (!assistant) continue;
+        addPortFromUrl(assistant.gatewayUrl, ports);
+        addPortFromUrl(assistant.localUrl, ports);
+        const gp = assistant.resources?.gatewayPort;
+        if (typeof gp === "number" && Number.isInteger(gp) && gp >= 1024 && gp <= 65535) {
+          ports.add(gp);
         }
       }
       if (ports.size > 0) return ports;
