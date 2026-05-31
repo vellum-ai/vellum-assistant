@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent } from "../agent/loop.js";
+import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import type {
   ContentBlock,
   Message,
@@ -192,7 +192,7 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    ): Promise<AgentLoopRunResult> {
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
       await onEvent({ type: "llm_call_started" });
@@ -242,7 +242,7 @@ mock.module("../agent/loop.js", () => ({
       ];
       history.push({ role: "user", content: resultBlocks });
 
-      return history;
+      return { history, exitReason: null };
     }
   },
 }));

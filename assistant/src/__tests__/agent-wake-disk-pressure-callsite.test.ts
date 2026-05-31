@@ -76,7 +76,7 @@ function makeTarget(): WakeTarget {
     agentLoop: {
       run: (async (messages: Message[]) => ({
         history: messages,
-        checkpointYield: null,
+        exitReason: null,
       })) as WakeTarget["agentLoop"]["run"],
     },
     getMessages: () => history,

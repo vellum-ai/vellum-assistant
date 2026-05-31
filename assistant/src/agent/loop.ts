@@ -68,25 +68,25 @@ export interface CheckpointInfo {
 
 /**
  * Why a checkpoint paused the loop. Surfaced back to the caller via
- * {@link AgentLoopRunResult.checkpointYield} so the orchestrator reacts to
+ * {@link AgentLoopRunResult.exitReason} so the orchestrator reacts to
  * the loop's own signal (hand off to a queued message vs. compact and
  * re-enter) instead of the checkpoint callback mutating orchestrator state.
  */
-export type CheckpointYieldReason = "handoff" | "budget";
+export type ExitReason = "handoff" | "budget";
 
-export type CheckpointDecision = "continue" | { yield: CheckpointYieldReason };
+export type CheckpointDecision = "continue" | ExitReason;
 
 /**
  * Result of {@link AgentLoop.run}.
  *
- * `checkpointYield` carries the reason the loop paused at a checkpoint so the
+ * `exitReason` carries the reason the loop paused at a checkpoint so the
  * orchestrator reads the loop's own signal instead of inferring it from
  * callback side-effects. It is `null` whenever the loop reached a terminal
  * stop (completion, error, abort, or a tool-requested yield-to-user).
  */
 export interface AgentLoopRunResult {
   history: Message[];
-  checkpointYield: CheckpointYieldReason | null;
+  exitReason: ExitReason | null;
 }
 
 /**
@@ -563,7 +563,7 @@ export class AgentLoop {
     let consecutiveErrorTurns = 0;
     let emptyResponseRetries = 0;
     let lastLlmCallTime = 0;
-    let checkpointYield: CheckpointYieldReason | null = null;
+    let exitReason: ExitReason | null = null;
     const rlog = requestId ? log.child({ requestId }) : log;
 
     // Per-run substitution map for sensitive output placeholders.
@@ -1410,7 +1410,7 @@ export class AgentLoop {
             history,
           });
           if (decision !== "continue") {
-            checkpointYield = decision.yield;
+            exitReason = decision;
             break;
           }
         }
@@ -1461,7 +1461,7 @@ export class AgentLoop {
       "Agent loop exited",
     );
 
-    return { history, checkpointYield };
+    return { history, exitReason };
   }
 }
 

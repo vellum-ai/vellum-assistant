@@ -2276,7 +2276,7 @@ export async function runAgentLoopImpl(
       state.currentTurnToolNames = [];
 
       if (ctx.canHandoffAtCheckpoint()) {
-        return { yield: "handoff" };
+        return "handoff";
       }
 
       // Mid-loop token budget check: estimate current context size and
@@ -2292,7 +2292,7 @@ export async function runAgentLoopImpl(
             { phase: "mid-loop", estimated, threshold: midLoopThreshold },
             "Token estimate approaching budget — yielding for compaction",
           );
-          return { yield: "budget" };
+          return "budget";
         }
       }
 
@@ -2318,7 +2318,7 @@ export async function runAgentLoopImpl(
      * sites consume it exactly as before.
      */
     const runAgentLoop = async (msgs: Message[]): Promise<Message[]> => {
-      const { history, checkpointYield } = await ctx.agentLoop.run(
+      const { history, exitReason } = await ctx.agentLoop.run(
         msgs,
         eventHandler,
         {
@@ -2337,10 +2337,10 @@ export async function runAgentLoopImpl(
           mutableLatestUserMessage: memoryV3Live,
         },
       );
-      if (checkpointYield === "handoff") {
+      if (exitReason === "handoff") {
         yieldedForHandoff = true;
         pendingCheckpointYield = "handoff";
-      } else if (checkpointYield === "budget") {
+      } else if (exitReason === "budget") {
         yieldedForBudget = true;
         pendingCheckpointYield = "budget";
       }

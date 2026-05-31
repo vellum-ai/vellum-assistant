@@ -266,9 +266,8 @@ describe("AgentLoop exit-reason instrumentation", () => {
       toolExecutor,
     );
 
-    const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision => ({
-      yield: "budget",
-    });
+    const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision =>
+      "budget";
 
     const events: AgentEvent[] = [];
     await loop.run(

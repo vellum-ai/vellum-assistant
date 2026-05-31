@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent } from "../agent/loop.js";
+import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import type { UserMessageAttachment } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
@@ -277,7 +277,7 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    ): Promise<AgentLoopRunResult> {
       // Prime the assistant row anchor — production code emits this from
       // `AgentLoop.run` just before `provider.sendMessage`.
       await onEvent({ type: "llm_call_started" });
@@ -331,7 +331,7 @@ mock.module("../agent/loop.js", () => ({
             { type: "tool_result", tool_use_id: "tu-1", content: "hi" },
           ],
         } as Message);
-        return history; // Progress was made — history grew
+        return { history, exitReason: null }; // Progress was made — history grew
       }
 
       // Context-too-large modes: keep failing when compaction can't help
@@ -373,7 +373,7 @@ mock.module("../agent/loop.js", () => ({
           );
         })();
         onEvent({ type: "error", error });
-        return [...messages]; // Return unchanged — no progress
+        return { history: [...messages], exitReason: null }; // Return unchanged — no progress
       }
 
       // Second call (retry) or non-error: succeed normally
@@ -391,7 +391,7 @@ mock.module("../agent/loop.js", () => ({
       };
       history.push(assistantMsg);
       onEvent({ type: "message_complete", message: assistantMsg });
-      return history;
+      return { history, exitReason: null };
     }
   },
 }));

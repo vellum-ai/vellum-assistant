@@ -566,7 +566,7 @@ const asAgentLoopRun = (
   options?: AgentLoopRunOptions,
 ) => Promise<AgentLoopRunResult>) => {
   return async (messages, onEvent, options) => {
-    let checkpointYield: AgentLoopRunResult["checkpointYield"] = null;
+    let exitReason: AgentLoopRunResult["exitReason"] = null;
     let wrapped = options;
     if (options?.onCheckpoint) {
       const inner = options.onCheckpoint;
@@ -574,13 +574,13 @@ const asAgentLoopRun = (
         ...options,
         onCheckpoint: async (info) => {
           const decision = await inner(info);
-          checkpointYield = decision === "continue" ? null : decision.yield;
+          exitReason = decision === "continue" ? null : decision;
           return decision;
         },
       };
     }
     const history = await fn(messages, onEvent, wrapped);
-    return { history, checkpointYield };
+    return { history, exitReason };
   };
 };
 

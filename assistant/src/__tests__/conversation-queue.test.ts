@@ -6,7 +6,7 @@ import type {
   AgentLoopRunResult,
   CheckpointDecision,
   CheckpointInfo,
-  CheckpointYieldReason,
+  ExitReason,
 } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
@@ -334,7 +334,7 @@ interface PendingRun {
    * `resolve(history)` packages this into the run result so the orchestrator
    * derives its handoff bookkeeping the same way it does against the real loop.
    */
-  checkpointYield: CheckpointYieldReason | null;
+  exitReason: ExitReason | null;
 }
 
 let pendingRuns: PendingRun[] = [];
@@ -365,17 +365,16 @@ mock.module("../agent/loop.js", () => ({
           resolve: (history: Message[]) =>
             resolveResult({
               history,
-              checkpointYield: pending.checkpointYield,
+              exitReason: pending.exitReason,
             }),
           reject,
           messages,
           onEvent,
-          checkpointYield: null,
+          exitReason: null,
           onCheckpoint: options?.onCheckpoint
             ? async (checkpoint) => {
                 const decision = await options.onCheckpoint!(checkpoint);
-                pending.checkpointYield =
-                  decision === "continue" ? null : decision.yield;
+                pending.exitReason = decision === "continue" ? null : decision;
                 return decision;
               }
             : undefined,
@@ -1838,7 +1837,7 @@ describe("Conversation checkpoint handoff", () => {
     });
 
     // Because there is a queued message, the callback should yield for handoff
-    expect(decision).toEqual({ yield: "handoff" });
+    expect(decision).toEqual("handoff");
 
     // Complete the run so the conversation finishes cleanly
     await resolveRun(0);
@@ -1937,7 +1936,7 @@ describe("Conversation checkpoint handoff", () => {
       hasToolUse: true,
       history: [],
     });
-    expect(decision).toEqual({ yield: "handoff" });
+    expect(decision).toEqual("handoff");
 
     // Complete first run
     await resolveRun(0);
@@ -1999,7 +1998,7 @@ describe("Conversation checkpoint handoff", () => {
       hasToolUse: true,
       history: [],
     });
-    expect(decision).toEqual({ yield: "handoff" });
+    expect(decision).toEqual("handoff");
 
     // Complete the run (AgentLoop resolves after yielding)
     await resolveRun(0);
@@ -2085,7 +2084,7 @@ describe("Conversation checkpoint handoff", () => {
         hasToolUse: true,
         history: [],
       }),
-    ).toEqual({ yield: "handoff" });
+    ).toEqual("handoff");
     await resolveRun(0);
     await pA;
 
@@ -2102,7 +2101,7 @@ describe("Conversation checkpoint handoff", () => {
         hasToolUse: true,
         history: [],
       }),
-    ).toEqual({ yield: "handoff" });
+    ).toEqual("handoff");
     await resolveRun(1);
     await waitForPendingRun(3);
 
@@ -2117,7 +2116,7 @@ describe("Conversation checkpoint handoff", () => {
         hasToolUse: true,
         history: [],
       }),
-    ).toEqual({ yield: "handoff" });
+    ).toEqual("handoff");
     await resolveRun(2);
     await waitForPendingRun(4);
 
@@ -2577,7 +2576,7 @@ describe("Conversation attachment event payloads", () => {
         hasToolUse: true,
         history: [],
       }),
-    ).toEqual({ yield: "handoff" });
+    ).toEqual("handoff");
 
     const assistantMsg: Message = {
       role: "assistant",

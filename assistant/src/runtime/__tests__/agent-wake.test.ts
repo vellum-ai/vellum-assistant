@@ -135,7 +135,7 @@ import {
 // "continue" — so the loop result always carries a null pause-reason.
 const runResult = (history: Message[]): AgentLoopRunResult => ({
   history,
-  checkpointYield: null,
+  exitReason: null,
 });
 
 interface MockTarget extends WakeTarget {

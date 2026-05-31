@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent } from "../agent/loop.js";
+import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
   conversationMessagesSyncTag,
@@ -222,10 +222,11 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void | Promise<void>,
-    ): Promise<Message[]> {
-      return new Promise<Message[]>((resolve) => {
+    ): Promise<AgentLoopRunResult> {
+      const history = await new Promise<Message[]>((resolve) => {
         pendingRuns.push({ resolve, messages, onEvent });
       });
+      return { history, exitReason: null };
     }
   },
 }));

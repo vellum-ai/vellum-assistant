@@ -969,7 +969,7 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
 
-    const onCheckpoint = (): CheckpointDecision => ({ yield: "budget" });
+    const onCheckpoint = (): CheckpointDecision => "budget";
 
     const { history } = await loop.run([userMessage], () => {}, {
       onCheckpoint,
@@ -1143,7 +1143,7 @@ describe("AgentLoop", () => {
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       checkpoints.push(checkpoint);
       // Yield on turn 3 (0-indexed)
-      return checkpoint.turnIndex === 3 ? { yield: "budget" } : "continue";
+      return checkpoint.turnIndex === 3 ? "budget" : "continue";
     };
 
     const events: AgentEvent[] = [];
@@ -1213,7 +1213,7 @@ describe("AgentLoop", () => {
 
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       // Yield on the second turn (turnIndex 1)
-      return checkpoint.turnIndex === 1 ? { yield: "budget" } : "continue";
+      return checkpoint.turnIndex === 1 ? "budget" : "continue";
     };
 
     const { history } = await loop.run([userMessage], () => {}, {
