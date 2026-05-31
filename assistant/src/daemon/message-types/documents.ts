@@ -2,8 +2,6 @@
 
 import type { DocumentEditorUpdateEvent } from "../../api/events/document-editor-update.js";
 
-export type { DocumentEditorUpdateEvent };
-
 // === Server → Client ===
 
 export interface DocumentEditorShow {
