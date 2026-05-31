@@ -293,6 +293,10 @@ export {
   UserMessageEchoEventSchema,
 } from "./events/user-message-echo.js";
 export {
+  type DiskPressureStatusResponse,
+  DiskPressureStatusResponseSchema,
+} from "./responses/disk-pressure-status.js";
+export {
   type LlmContextResponse,
   LlmContextResponseSchema,
 } from "./responses/llm-context-response.js";
@@ -326,6 +330,12 @@ export {
   type MemoryV3SelectionRow,
   MemoryV3SelectionRowSchema,
 } from "./responses/memory-v3-selection-log.js";
+export {
+  type SubagentDetailEvent,
+  SubagentDetailEventSchema,
+  type SubagentDetailResponse,
+  SubagentDetailResponseSchema,
+} from "./responses/subagent-detail.js";
 
 /**
  * Canonical SSE event schema for the assistant runtime.

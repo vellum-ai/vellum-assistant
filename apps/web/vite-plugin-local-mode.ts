@@ -4,7 +4,8 @@ import http from "node:http";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import type { Plugin, Connect } from "vite";
+import type { Plugin, Connect, ViteDevServer } from "vite";
+import { SEEDS } from "../../cli/src/lib/environments/seeds";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 const CLI_PACKAGE_NAME = "@vellumai/cli";
@@ -118,12 +119,74 @@ export function localModePlugin(env: Record<string, string>): Plugin {
   return {
     name: "vellum-local-mode",
     configureServer(server) {
+      server.middlewares.use(loopbackCallbackMiddleware());
+      server.middlewares.use(configMiddleware(env));
       server.middlewares.use(lockfileMiddleware(lockfilePaths));
       server.middlewares.use(hatchMiddleware());
       server.middlewares.use(retireMiddleware());
       server.middlewares.use(guardianTokenMiddleware(env));
-      server.middlewares.use(gatewayProxyMiddleware());
+      server.middlewares.use(gatewayProxyMiddleware(lockfilePaths));
+      server.middlewares.use(accountSpaFallback(server));
     },
+  };
+}
+
+/**
+ * Redirect `/callback` from the platform's CLI loopback auth flow
+ * into the SPA route that processes the session token.
+ */
+function loopbackCallbackMiddleware(): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (req.url?.startsWith("/callback")) {
+      const qs = req.url.slice("/callback".length);
+      res.writeHead(302, { Location: `/account/platform-callback${qs}` });
+      res.end();
+      return;
+    }
+    next();
+  };
+}
+
+/**
+ * Serve environment config so the SPA can resolve the platform web URL
+ * for loopback auth without hardcoding it.
+ */
+function configMiddleware(env: Record<string, string>): Connect.NextHandleFunction {
+  const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
+  const seed = SEEDS[vellumEnv] ?? SEEDS[PRODUCTION_ENVIRONMENT_NAME]!;
+
+  const webUrl = env.VELLUM_WEB_URL || seed.webUrl;
+  const platformUrl = env.VELLUM_PLATFORM_URL || seed.platformUrl;
+  const body = JSON.stringify({ webUrl, platformUrl });
+
+  return (req, res, next) => {
+    if (req.url !== "/__config") return next();
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(body);
+  };
+}
+
+/**
+ * SPA fallback for `/account/*` routes. Vite's base is `/assistant/` so
+ * paths outside it don't get the default SPA fallback. This middleware
+ * serves the transformed index.html for account routes so React Router
+ * can handle them.
+ */
+function accountSpaFallback(server: ViteDevServer): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (!req.url?.startsWith("/account/") && !req.url?.startsWith("/account?") && req.url !== "/account") return next();
+
+    const indexPath = path.join(server.config.root, "index.html");
+    fs.readFile(indexPath, "utf-8", (err, html) => {
+      if (err) return next(err);
+      server
+        .transformIndexHtml(req.url!, html)
+        .then((transformed) => {
+          res.writeHead(200, { "Content-Type": "text/html" });
+          res.end(transformed);
+        })
+        .catch(next);
+    });
   };
 }
 
@@ -135,6 +198,8 @@ function lockfileMiddleware(
 ): Connect.NextHandleFunction {
   return (req, res, next) => {
     if (req.url !== "/assistant/__local/lockfile" && req.url !== "/__local/lockfile") return next();
+
+    if (rejectUnlessLoopback(req, res)) return;
 
     if (req.method === "GET") {
       handleGetLockfile(lockfilePaths, res);
@@ -281,6 +346,8 @@ function hatchMiddleware(): Connect.NextHandleFunction {
       return next();
     }
 
+    if (rejectUnlessLoopback(req, res)) return;
+
     if (req.method !== "POST") {
       res.statusCode = 405;
       res.end();
@@ -388,6 +455,8 @@ function retireMiddleware(): Connect.NextHandleFunction {
       return next();
     }
 
+    if (rejectUnlessLoopback(req, res)) return;
+
     if (req.method !== "POST") {
       res.statusCode = 405;
       res.end();
@@ -486,7 +555,7 @@ function handleRetire(assistantId: string, res: http.ServerResponse): void {
 }
 
 // ---------------------------------------------------------------------------
-// Guardian token middleware
+// Loopback guard
 // ---------------------------------------------------------------------------
 
 function isLoopbackAddr(addr: string): boolean {
@@ -496,6 +565,17 @@ function isLoopbackAddr(addr: string): boolean {
     return normalized.startsWith("127.");
   }
   return normalized === "::1";
+}
+
+function rejectUnlessLoopback(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): boolean {
+  if (isLoopbackAddr(req.socket.remoteAddress ?? "")) return false;
+  res.statusCode = 403;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify({ error: "Forbidden" }));
+  return true;
 }
 
 const GUARDIAN_TOKEN_PATTERN =
@@ -563,13 +643,7 @@ function guardianTokenMiddleware(
       return;
     }
 
-    const peer = req.socket.remoteAddress ?? "";
-    if (!isLoopbackAddr(peer)) {
-      res.statusCode = 403;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ error: "Forbidden" }));
-      return;
-    }
+    if (rejectUnlessLoopback(req, res)) return;
 
     const assistantId = decodeURIComponent(match[1]!);
     const tokenPath = resolveGuardianTokenPath(env, assistantId);
@@ -670,21 +744,74 @@ function guardianTokenMiddleware(
 
 const GATEWAY_PATTERN = /^(?:\/assistant)?\/__gateway\/(\d+)(\/.*)?$/;
 
+function addPortFromUrl(url: unknown, ports: Set<number>): void {
+  if (typeof url !== "string") return;
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "127.0.0.1" && parsed.hostname !== "localhost") return;
+    const port = Number(parsed.port);
+    if (Number.isInteger(port) && port >= 1024 && port <= 65535) {
+      ports.add(port);
+    }
+  } catch {
+    // malformed URL — skip
+  }
+}
+
+function readAllowedGatewayPorts(lockfilePaths: string[]): Set<number> {
+  const ports = new Set<number>();
+  for (const candidate of lockfilePaths) {
+    try {
+      const raw = fs.readFileSync(candidate, "utf-8");
+      const data = JSON.parse(raw) as {
+        assistants?: Array<{
+          gatewayUrl?: unknown;
+          localUrl?: unknown;
+          resources?: { gatewayPort?: unknown };
+        }>;
+      };
+      const assistants = Array.isArray(data.assistants) ? data.assistants : [];
+      for (const assistant of assistants) {
+        if (!assistant) continue;
+        addPortFromUrl(assistant.gatewayUrl, ports);
+        addPortFromUrl(assistant.localUrl, ports);
+        const gp = assistant.resources?.gatewayPort;
+        if (typeof gp === "number" && Number.isInteger(gp) && gp >= 1024 && gp <= 65535) {
+          ports.add(gp);
+        }
+      }
+      if (ports.size > 0) return ports;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") return new Set<number>();
+    }
+  }
+  return ports;
+}
+
 /**
  * Connect middleware that proxies requests to local gateway ports.
  *
  * Matches `/__gateway/:port/*` and forwards to `http://127.0.0.1:{port}{rest}`.
  * Supports chunked transfer and SSE by piping without buffering.
  */
-function gatewayProxyMiddleware(): Connect.NextHandleFunction {
+function gatewayProxyMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction {
   return (req, res, next) => {
     const match = req.url?.match(GATEWAY_PATTERN);
     if (!match) return next();
+
+    if (rejectUnlessLoopback(req, res)) return;
 
     const port = parseInt(match[1]!, 10);
     if (port < 1024 || port > 65535) {
       res.statusCode = 400;
       res.end("Port must be between 1024 and 65535");
+      return;
+    }
+
+    const allowedPorts = readAllowedGatewayPorts(lockfilePaths);
+    if (!allowedPorts.has(port)) {
+      res.statusCode = 403;
+      res.end("Gateway port is not active in lockfile");
       return;
     }
 

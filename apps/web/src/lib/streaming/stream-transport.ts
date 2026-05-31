@@ -9,8 +9,9 @@
 
 import { client } from "@/generated/api/client.gen";
 import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { parseAssistantEvent } from "@/lib/streaming/event-parser";
-import type { AssistantEvent } from "@/types/event-types";
+
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
@@ -117,7 +118,7 @@ const STREAM_IDLE_TIMEOUT_MS = 45_000;
 export function subscribeChatEvents(
   assistantId: string,
   conversationId: string | null | undefined,
-  onEvent: (event: AssistantEvent) => void,
+  onEvent: (envelope: AssistantEventEnvelope) => void,
   onError: (err: Error) => void,
   options: ChatEventStreamOptions = {},
 ): ChatEventStream {
@@ -285,14 +286,11 @@ export function subscribeChatEvents(
             reconnectCount = 0;
           }
 
-          // `parseAssistantEvent` owns the full path: envelope/flat
-          // unwrap, canonical-schema dispatch, legacy-event coercion, and
-          // envelope-conversationId stamping. This handler is the
-          // transport — keep it thin.
-          const parsed = parseAssistantEvent(data);
-          pushSseEvent(sseDebugClientId, parsed);
+          const envelope = parseAssistantEvent(data);
+
+          pushSseEvent(sseDebugClientId, envelope.message);
           try {
-            onEvent(parsed);
+            onEvent(envelope);
           } catch {
             // Callback errors should not trigger stream reconnect
           }

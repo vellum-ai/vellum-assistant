@@ -41,7 +41,6 @@ import {
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/chat/subagent-store";
-import type { SubagentStatus } from "@vellumai/assistant-api";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -835,10 +834,9 @@ export function ChatPage() {
       let eventCounter = 0;
       const events: SubagentTimelineEvent[] = [];
 
-      for (const evt of detail.events ?? []) {
-        const rawType = typeof evt.type === "string" ? evt.type : "unknown";
+      for (const evt of detail.events) {
         let type: SubagentTimelineEvent["type"];
-        switch (rawType) {
+        switch (evt.type) {
           case "text":
           case "assistant_text_delta":
             type = "text";
@@ -857,14 +855,7 @@ export function ChatPage() {
             continue;
         }
 
-        const content =
-          typeof evt.content === "string"
-            ? evt.content
-            : typeof evt.text === "string"
-              ? evt.text
-              : typeof evt.result === "string"
-                ? evt.result
-                : "";
+        const content = evt.content;
 
         if (type === "text" && content === "") continue;
 
@@ -879,15 +870,15 @@ export function ChatPage() {
           id: `detail-${++eventCounter}`,
           type,
           content,
-          toolName: typeof evt.toolName === "string" ? evt.toolName : undefined,
-          isError: typeof evt.isError === "boolean" ? evt.isError : undefined,
-          timestamp: typeof evt.timestamp === "number" ? evt.timestamp : Date.now(),
+          toolName: evt.toolName,
+          isError: evt.isError,
+          timestamp: Date.now(),
         });
       }
 
       useSubagentStore.getState().loadDetail({
         subagentId,
-        status: (detail.status as SubagentStatus) || undefined,
+        status: detail.status,
         objective: detail.objective,
         inputTokens: detail.usage?.inputTokens,
         outputTokens: detail.usage?.outputTokens,

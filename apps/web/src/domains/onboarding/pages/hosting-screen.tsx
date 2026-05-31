@@ -55,8 +55,11 @@ function useHostingOptions(): HostingOption[] {
 
 export function HostingScreen() {
   const navigate = useNavigate();
+  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
   const options = useHostingOptions();
-  const [selected, setSelected] = useState<HostingMode>("local");
+  const [selected, setSelected] = useState<HostingMode>(
+    hasPlatformSession ? "vellum-cloud" : "local",
+  );
 
   const onContinue = () => {
     if (selected === "vellum-cloud") {

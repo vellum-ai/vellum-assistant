@@ -1170,6 +1170,7 @@ export function ChatRouteContent({
           customImageUrl={avatarImageUrl}
           size={40}
           interactive
+          isProcessing={activeConversationIsProcessing}
         />
       ) : null,
     greeting: editingApp ? buildEditAppGreeting(editingApp) : emptyStateGreeting,

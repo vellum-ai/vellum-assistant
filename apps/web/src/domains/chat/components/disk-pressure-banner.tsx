@@ -4,7 +4,7 @@ import { AlertTriangle, HardDrive } from "lucide-react";
 
 import { Button, Checkbox, Modal } from "@vellum/design-library";
 import { Notice } from "@vellum/design-library";
-import type { DiskPressureStatus } from "@/assistant/api";
+import type { DiskPressureStatus } from "@vellumai/assistant-api";
 import { formatDiskPressureUsage } from "@/assistant/disk-pressure";
 
 export type DiskPressureBannerMode = "warning" | "acknowledgement-required" | "cleanup";

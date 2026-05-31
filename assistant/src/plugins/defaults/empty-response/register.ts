@@ -39,14 +39,15 @@
  * declared in one place only.
  */
 
-import { registerPlugin } from "../registry.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type EmptyResponseArgs,
   type EmptyResponseResult,
   type Middleware,
   type Plugin,
   PluginExecutionError,
-} from "../types.js";
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * Canonical nudge text. Must stay verbatim so a plugin that wraps the
@@ -93,8 +94,8 @@ const passthrough: Middleware<EmptyResponseArgs, EmptyResponseResult> = async (
 /** Singleton plugin — the registry rejects duplicate registrations by name. */
 export const defaultEmptyResponsePlugin: Plugin = {
   manifest: {
-    name: "default-empty-response",
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
   middleware: {
     emptyResponse: passthrough,

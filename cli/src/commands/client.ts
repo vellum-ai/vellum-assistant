@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
@@ -27,6 +28,8 @@ import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import {
   fetchOrganizationId,
   fetchPlatformAssistants,
+  getPlatformUrl,
+  getWebUrl,
   readPlatformToken,
 } from "../lib/platform-client";
 import { tuiLog } from "../lib/tui-log";
@@ -311,7 +314,32 @@ function findWebDistDir(): string | null {
   return null;
 }
 
+/**
+ * Locate the apps/web source directory for running the Vite dev server.
+ * Only works from a source checkout (not npm-installed).
+ */
+function findWebSourceDir(): string | null {
+  let dir = import.meta.dir;
+  for (let depth = 0; depth < 8; depth++) {
+    const candidate = path.join(dir, "apps", "web", "vite.config.ts");
+    if (existsSync(candidate)) {
+      return path.dirname(candidate);
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
 async function runWebInterface(): Promise<void> {
+  // Prefer Vite dev server in source checkouts for full local-mode support
+  // (HMR, __local endpoints, gateway proxy).
+  const webSourceDir = findWebSourceDir();
+  if (webSourceDir) {
+    return runViteDevServer(webSourceDir);
+  }
+
   const distDir = findWebDistDir();
   if (!distDir) {
     console.error(
@@ -324,16 +352,84 @@ async function runWebInterface(): Promise<void> {
   }
 
   const indexHtml = await Bun.file(path.join(distDir, "index.html")).text();
+  const platformUrl = getPlatformUrl();
+  const webUrl = getWebUrl();
+  const configJson = JSON.stringify({ platformUrl, webUrl });
 
   const server = Bun.serve({
     port: 3000,
-    hostname: "127.0.0.1",
+    hostname: "0.0.0.0",
     fetch: async (req) => {
       const url = new URL(req.url);
       const { pathname } = url;
 
-      if (pathname === "/") {
+      if (pathname === "/" || pathname === "/assistant") {
         return Response.redirect(SPA_BASE, 302);
+      }
+
+      // Loopback auth: the platform redirects here after login with
+      // ?state=...&session_token=... — forward into the SPA.
+      if (pathname === "/callback") {
+        return Response.redirect(
+          `/account/platform-callback${url.search}`,
+          302,
+        );
+      }
+
+      // Expose environment config to the SPA.
+      if (pathname === "/__config") {
+        return new Response(configJson, {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      // Reverse-proxy platform API requests.
+      if (
+        pathname.startsWith("/v1/") ||
+        pathname.startsWith("/_allauth/") ||
+        pathname.startsWith("/accounts/")
+      ) {
+        const target = new URL(pathname + url.search, platformUrl);
+        const headers = new Headers(req.headers);
+        headers.set("Host", new URL(platformUrl).host);
+        headers.delete("Origin");
+        headers.delete("Referer");
+
+        // Forward the session token — the loopback flow stores it in
+        // the browser cookie jar for localhost, but the platform backend
+        // expects it on its own domain. Set both the Cookie (for Django
+        // session middleware / allauth) and X-Session-Token (for DRF
+        // views that accept header-based auth).
+        const sessionToken = /sessionid=([^;]+)/.exec(
+          req.headers.get("Cookie") ?? "",
+        )?.[1];
+        if (sessionToken) {
+          headers.set("Cookie", `sessionid=${sessionToken}; __Secure-sessionid=${sessionToken}`);
+          headers.set("X-Session-Token", sessionToken);
+        }
+
+        try {
+          const hasBody = req.method !== "GET" && req.method !== "HEAD";
+          const body = hasBody ? await req.arrayBuffer() : undefined;
+          const proxyRes = await fetch(target.toString(), {
+            method: req.method,
+            headers,
+            body,
+            redirect: "manual",
+          });
+          const resHeaders = new Headers(proxyRes.headers);
+          resHeaders.delete("transfer-encoding");
+          return new Response(proxyRes.body, {
+            status: proxyRes.status,
+            statusText: proxyRes.statusText,
+            headers: resHeaders,
+          });
+        } catch (err) {
+          return new Response(
+            JSON.stringify({ error: `Platform proxy error: ${err}` }),
+            { status: 502, headers: { "Content-Type": "application/json" } },
+          );
+        }
       }
 
       if (pathname.startsWith(SPA_BASE)) {
@@ -345,6 +441,13 @@ async function runWebInterface(): Promise<void> {
             return new Response(file);
           }
         }
+        return new Response(indexHtml, {
+          headers: { "Content-Type": "text/html; charset=utf-8" },
+        });
+      }
+
+      // SPA fallback for /account/* routes (login, callback, etc.)
+      if (pathname.startsWith("/account/")) {
         return new Response(indexHtml, {
           headers: { "Content-Type": "text/html; charset=utf-8" },
         });
@@ -366,6 +469,38 @@ async function runWebInterface(): Promise<void> {
   process.on("SIGTERM", shutdown);
 
   await new Promise(() => {});
+}
+
+async function runViteDevServer(webSourceDir: string): Promise<void> {
+  const platformUrl = getPlatformUrl();
+
+  const child = spawn("bun", ["run", "dev"], {
+    cwd: webSourceDir,
+    stdio: "inherit",
+    env: {
+      ...process.env,
+      VITE_PLATFORM_MODE: "false",
+      API_PROXY_TARGET: platformUrl,
+      VELLUM_WEB_URL: getWebUrl(),
+      VELLUM_PLATFORM_URL: platformUrl,
+      PORT: "3000",
+    },
+  });
+
+  const shutdown = (): void => {
+    child.kill();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
+
+  await new Promise<void>((_, reject) => {
+    child.on("exit", (code) => {
+      if (code !== 0) {
+        reject(new Error(`Vite dev server exited with code ${code}`));
+      }
+    });
+  });
 }
 
 export async function client(): Promise<void> {

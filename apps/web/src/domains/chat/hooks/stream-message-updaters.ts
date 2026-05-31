@@ -47,6 +47,49 @@ export function tailIsStreamingAssistant(prev: DisplayMessage[]): boolean {
   return !!last && last.role === "assistant" && !!last.isStreaming;
 }
 
+/** Whether the tail row is an assistant message, regardless of streaming. */
+export function tailIsAssistant(prev: DisplayMessage[]): boolean {
+  const last = prev[prev.length - 1];
+  return !!last && last.role === "assistant";
+}
+
+/**
+ * Find the assistant row that owns `messageId` — by its primary `id` or by
+ * a folded `mergedMessageIds` alias.
+ *
+ * The daemon reserves a fresh `messageId` per LLM call within a single
+ * agent turn, and the backend's `mergeConsecutiveAssistantMessages`
+ * collapses that run onto the first row's id, listing the later ids as
+ * aliases. Matching on aliases — not just the primary id — lets a later
+ * LLM call's deltas and tool calls fold into the same anchor instead of
+ * opening a duplicate streaming bubble for an id the run already owns.
+ */
+function findAssistantRowIndexByMessageId(
+  prev: DisplayMessage[],
+  messageId: string,
+): number {
+  return prev.findIndex(
+    (m) =>
+      m.role === "assistant" &&
+      (m.id === messageId || !!m.mergedMessageIds?.includes(messageId)),
+  );
+}
+
+/**
+ * Record `messageId` as a `mergedMessageIds` alias on `row` when it isn't
+ * already the row's primary id or a known alias. Mirrors the backend merge
+ * so a subsequent reconcile / SSE lookup by that id resolves to this row.
+ */
+function withMergedAlias(
+  row: DisplayMessage,
+  messageId: string | undefined,
+): DisplayMessage {
+  if (!messageId || row.id === messageId) return row;
+  const existing = row.mergedMessageIds ?? [];
+  if (existing.includes(messageId)) return row;
+  return { ...row, mergedMessageIds: [...existing, messageId] };
+}
+
 // ---------------------------------------------------------------------------
 // assistant_text_delta
 // ---------------------------------------------------------------------------
@@ -94,8 +137,9 @@ function appendTextIntoRow(
   prev: DisplayMessage[],
   idx: number,
   text: string,
+  messageId?: string,
 ): DisplayMessage[] {
-  const row = prev[idx]!;
+  const row = withMergedAlias(prev[idx]!, messageId);
   const segments = [...(row.textSegments ?? [])];
   const order = [...(row.contentOrder ?? [])];
   const lastOrderEntry = order[order.length - 1];
@@ -128,13 +172,20 @@ function appendTextIntoRow(
 /**
  * Apply an `assistant_text_delta` to the message array.
  *
- * **Id-keyed when `messageId` is present** (B2/B3 onward — stamped on
- * every event from event zero of the turn). Looks up the matching
- * assistant row and appends into it regardless of position. Covers the
- * case where reconcile (or `assistant_turn_start`) landed the reserved
- * row in the array ahead of the first delta — without id matching,
- * `tailIsStreamingAssistant(prev)` returns false for that snapshot row
- * and a duplicate streaming bubble opens with the same id.
+ * **Identity-keyed when `messageId` is present** (B2/B3 onward — stamped
+ * on every event from event zero of the turn). Looks up the assistant row
+ * that owns the id (primary id or merged alias) and appends into it
+ * regardless of position. Covers the case where reconcile (or
+ * `assistant_turn_start`) landed the reserved row in the array ahead of
+ * the first delta.
+ *
+ * When no row owns the id yet, the delta belongs to a later LLM call in
+ * the current agent turn (each call reserves a fresh messageId). A single
+ * turn renders as one bubble — the backend collapses the run of reserved
+ * rows onto the first row's id — so the delta folds into the current
+ * assistant tail (recording the id as an alias) rather than opening a
+ * duplicate bubble. Only a non-assistant tail (a new turn always begins
+ * with a user row) opens a fresh bubble.
  *
  * Falls back to tail-based decisioning when `messageId` is absent, for
  * pre-B2 daemons not pinned by the B4 floor bump.
@@ -145,10 +196,11 @@ export function appendTextDelta(
   messageId?: string,
 ): DisplayMessage[] {
   if (messageId) {
-    const idx = prev.findIndex(
-      (m) => m.role === "assistant" && m.id === messageId,
-    );
-    if (idx >= 0) return appendTextIntoRow(prev, idx, text);
+    const idx = findAssistantRowIndexByMessageId(prev, messageId);
+    if (idx >= 0) return appendTextIntoRow(prev, idx, text, messageId);
+    if (tailIsAssistant(prev)) {
+      return appendTextIntoRow(prev, prev.length - 1, text, messageId);
+    }
     return createStreamingBubble(prev, text, messageId);
   }
 
@@ -395,7 +447,10 @@ export function attachSurface(
   let targetIdx = -1;
 
   if (messageId) {
-    targetIdx = prev.findIndex((m) => m.id === messageId);
+    // Identity-keyed: resolve the row that owns this id by primary id or
+    // merged alias — a surface from a later LLM call carries an id the
+    // anchor may already list as an alias. See `appendTextDelta`.
+    targetIdx = findAssistantRowIndexByMessageId(prev, messageId);
   }
   if (targetIdx === -1) {
     for (let i = prev.length - 1; i >= 0; i--) {
@@ -432,7 +487,7 @@ export function attachSurface(
       timestamp: Date.now(),
     });
   } else {
-    const target = prev[targetIdx]!;
+    const target = withMergedAlias(prev[targetIdx]!, messageId);
     if (
       target.contentOrder?.some(
         (e) => e.type === "surface" && e.id === surface.surfaceId,
@@ -546,20 +601,19 @@ export function completeSurface(
 // ---------------------------------------------------------------------------
 
 /**
- * Insert or update a tool call on the streaming assistant tail bubble,
- * creating a new bubble if the tail isn't a streaming assistant row.
+ * Insert or update a tool call on the current assistant bubble, creating a
+ * new bubble only when the tail isn't an assistant row.
  *
- * The bubble-creation decision is derived from `prev` itself — no shared
- * latch passes through. Same finalization invariant as `appendTextDelta`:
- * boundary events leave the tail with `isStreaming: false` (or non-
- * assistant), so this updater opens a fresh bubble correctly.
+ * **Identity-keyed when `messageId` is present** — looks up the assistant
+ * row that owns the id (primary id or merged alias) and folds into it
+ * regardless of position. Mirrors `appendTextDelta`: when no row owns the
+ * id yet, the tool call belongs to a later LLM call in the current agent
+ * turn, so it folds into the assistant tail (recording the id as an alias)
+ * to keep the turn one bubble rather than splitting per call. Only a
+ * non-assistant tail opens a fresh bubble.
  *
- * **Id-keyed when `messageId` is present** — looks up the matching
- * assistant row by id and folds into it regardless of position. Mirrors
- * `appendTextDelta`'s behavior for the case where reconcile (or
- * `assistant_turn_start`) landed the reserved row in the array ahead of
- * the first `tool_use_start` — without id matching, a duplicate streaming
- * bubble would open with the same anchor id.
+ * Falls back to tail-based decisioning when `messageId` is absent, for
+ * pre-anchor-protocol daemons.
  */
 export function upsertToolCall(
   prev: DisplayMessage[],
@@ -567,10 +621,11 @@ export function upsertToolCall(
   messageId?: string,
 ): DisplayMessage[] {
   if (messageId) {
-    const idx = prev.findIndex(
-      (m) => m.role === "assistant" && m.id === messageId,
-    );
-    if (idx >= 0) return upsertToolCallIntoRow(prev, idx, toolCall);
+    const idx = findAssistantRowIndexByMessageId(prev, messageId);
+    if (idx >= 0) return upsertToolCallIntoRow(prev, idx, toolCall, messageId);
+    if (tailIsAssistant(prev)) {
+      return upsertToolCallIntoRow(prev, prev.length - 1, toolCall, messageId);
+    }
   } else if (tailIsStreamingAssistant(prev)) {
     return upsertToolCallIntoRow(prev, prev.length - 1, toolCall);
   }
@@ -606,8 +661,9 @@ function upsertToolCallIntoRow(
   prev: DisplayMessage[],
   idx: number,
   toolCall: ChatMessageToolCall,
+  messageId?: string,
 ): DisplayMessage[] {
-  const row = prev[idx]!;
+  const row = withMergedAlias(prev[idx]!, messageId);
   const existingIdx =
     row.toolCalls?.findIndex((tc) => tc.id === toolCall.id) ?? -1;
   const updated = [...prev];

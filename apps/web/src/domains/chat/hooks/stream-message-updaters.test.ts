@@ -156,11 +156,14 @@ describe("appendTextDelta", () => {
     expect(result[1]!.textSegments).toEqual([{ type: "text", content: "Hello" }]);
   });
 
-  it("opens a new bubble when messageId is provided but no row matches", () => {
-    // Boundary between LLM calls in the same turn: call 1 was finalized
-    // by `message_complete` (`isStreaming: false`), call 2's first delta
-    // arrives with a new messageId. The fresh delta MUST open a new
-    // bubble, not extend the finalized one.
+  it("folds a later LLM call's delta into the assistant tail, recording its id as an alias", () => {
+    /**
+     * A multi-LLM-call agent turn renders as one bubble: the second LLM
+     * call's first delta carries a fresh messageId, but it must fold into
+     * the current assistant run rather than open a duplicate bubble.
+     */
+
+    // GIVEN the first LLM call has finalized into an assistant tail
     const call1Final = makeAssistantMsg({
       id: "row-A",
       content: "Hello",
@@ -168,15 +171,64 @@ describe("appendTextDelta", () => {
       contentOrder: [{ type: "text", id: "0" }],
       isStreaming: false,
     });
+
+    // WHEN the next LLM call's first delta arrives with a new messageId
     const result = appendTextDelta([userMsg, call1Final], " world", "row-B");
 
-    expect(result).toHaveLength(3);
-    expect(result[2]!.id).toBe("row-B");
-    expect(result[2]!.content).toBe(" world");
-    expect(result[2]!.isStreaming).toBe(true);
-    // Original row untouched.
+    // THEN it extends the existing bubble instead of opening a new one
+    expect(result).toHaveLength(2);
+    const tail = result[1]!;
+    expect(tail.id).toBe("row-A");
+    expect(tail.content).toBe("Hello world");
+    expect(tail.isStreaming).toBe(true);
+
+    // AND the new messageId is recorded as an alias so later events for it
+    // (and the post-turn reconcile) resolve to this anchor
+    expect(tail.mergedMessageIds).toEqual(["row-B"]);
+  });
+
+  it("opens a new bubble when messageId is provided and the tail is a user row", () => {
+    /**
+     * A new agent turn always begins with a user row, so a delta whose id
+     * no row owns opens a fresh bubble when the tail is not assistant.
+     */
+
+    // GIVEN the tail is a user message (start of a new turn)
+    // WHEN the first delta of the assistant reply arrives
+    const result = appendTextDelta([userMsg], "text", "row-B");
+
+    // THEN a fresh streaming bubble opens, keyed by the messageId
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-B");
+    expect(result[1]!.content).toBe("text");
+    expect(result[1]!.isStreaming).toBe(true);
+    expect(result[1]!.mergedMessageIds).toBeUndefined();
+  });
+
+  it("folds a delta whose id the anchor already lists as a merged alias", () => {
+    /**
+     * The backend merge collapses a run of reserved rows onto the first
+     * row's id and lists the rest as aliases. A live delta carrying one of
+     * those alias ids must resolve to the anchor, not open a duplicate.
+     */
+
+    // GIVEN an anchor row that already owns "row-B" as a merged alias
+    const anchor = makeAssistantMsg({
+      id: "row-A",
+      content: "Hello",
+      textSegments: [{ type: "text", content: "Hello" }],
+      contentOrder: [{ type: "text", id: "0" }],
+      mergedMessageIds: ["row-B"],
+    });
+
+    // WHEN a delta arrives stamped with the aliased id
+    const result = appendTextDelta([userMsg, anchor], " world", "row-B");
+
+    // THEN it extends the anchor and leaves the alias set unchanged
+    expect(result).toHaveLength(2);
     expect(result[1]!.id).toBe("row-A");
-    expect(result[1]!.content).toBe("Hello");
+    expect(result[1]!.content).toBe("Hello world");
+    expect(result[1]!.mergedMessageIds).toEqual(["row-B"]);
   });
 
   it("extends consecutive same-id deltas into a single row", () => {
@@ -503,6 +555,56 @@ describe("upsertToolCall", () => {
     expect(result[1]!.toolCalls![0]!.id).toBe("tc-1");
   });
 
+  it("folds a later LLM call's tool call into the assistant tail, recording its id as an alias", () => {
+    /**
+     * A multi-LLM-call turn renders as one bubble: a tool call from a
+     * later call (fresh messageId) folds into the current assistant run
+     * instead of opening a duplicate bubble.
+     */
+
+    // GIVEN the first LLM call has finalized into an assistant tail
+    const call1Final = makeAssistantMsg({
+      id: "row-A",
+      content: "Hello",
+      isStreaming: false,
+    });
+
+    // WHEN the next LLM call's tool_use_start arrives with a new messageId
+    const result = upsertToolCall([userMsg, call1Final], toolCall, "row-B");
+
+    // THEN it folds into the existing bubble and records the alias
+    expect(result).toHaveLength(2);
+    const tail = result[1]!;
+    expect(tail.id).toBe("row-A");
+    expect(tail.isStreaming).toBe(true);
+    expect(tail.toolCalls).toHaveLength(1);
+    expect(tail.toolCalls![0]!.id).toBe("tc-1");
+    expect(tail.mergedMessageIds).toEqual(["row-B"]);
+  });
+
+  it("folds a tool call whose id the anchor already lists as a merged alias", () => {
+    /**
+     * A tool_use_start carrying an id the backend merge already folded
+     * onto the anchor must resolve to the anchor, not open a duplicate.
+     */
+
+    // GIVEN an anchor row that already owns "row-B" as a merged alias
+    const anchor = makeAssistantMsg({
+      id: "row-A",
+      content: "Hello",
+      mergedMessageIds: ["row-B"],
+    });
+
+    // WHEN a tool call arrives stamped with the aliased id
+    const result = upsertToolCall([userMsg, anchor], toolCall, "row-B");
+
+    // THEN it folds into the anchor and leaves the alias set unchanged
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-A");
+    expect(result[1]!.toolCalls![0]!.id).toBe("tc-1");
+    expect(result[1]!.mergedMessageIds).toEqual(["row-B"]);
+  });
+
   it("adopts messageId as the row id when opening a new bubble (no isOptimistic flag)", () => {
     // Anchor protocol: every `tool_use_start` carries `messageId` from
     // event zero — the daemon has committed to the assistant message
@@ -545,6 +647,49 @@ describe("attachSurface", () => {
     expect(result[1]!.id).toBe("anchor-1");
     expect(result[1]!.surfaces).toHaveLength(1);
     expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
+  });
+
+  it("attaches to an assistant row that owns the messageId as a merged alias", () => {
+    /**
+     * The backend merge lists later LLM-call ids as aliases on the anchor.
+     * A surface stamped with such an id must resolve to the anchor rather
+     * than open a duplicate bubble.
+     */
+
+    // GIVEN an anchor row that already owns "row-B" as a merged alias
+    const anchor = makeAssistantMsg({
+      id: "row-A",
+      isStreaming: false,
+      mergedMessageIds: ["row-B"],
+    });
+
+    // WHEN a surface arrives stamped with the aliased id
+    const result = attachSurface([userMsg, anchor], surface, "row-B");
+
+    // THEN it attaches to the anchor and leaves the alias set unchanged
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-A");
+    expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
+    expect(result[1]!.mergedMessageIds).toEqual(["row-B"]);
+  });
+
+  it("folds a later LLM call's surface into the assistant tail, recording its id as an alias", () => {
+    /**
+     * A surface from a later LLM call (fresh messageId) folds into the
+     * current assistant run instead of opening a duplicate bubble.
+     */
+
+    // GIVEN the first LLM call has finalized into an assistant tail
+    const call1Final = makeAssistantMsg({ id: "row-A", isStreaming: false });
+
+    // WHEN the next LLM call's surface arrives with a new messageId
+    const result = attachSurface([userMsg, call1Final], surface, "row-B");
+
+    // THEN it attaches to the existing bubble and records the alias
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-A");
+    expect(result[1]!.surfaces![0]!.surfaceId).toBe("surf-1");
+    expect(result[1]!.mergedMessageIds).toEqual(["row-B"]);
   });
 
   it("falls back to the streaming-assistant tail when messageId is absent", () => {

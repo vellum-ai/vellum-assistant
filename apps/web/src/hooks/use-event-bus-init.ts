@@ -217,8 +217,8 @@ export function useEventBusInit({
       const stream = subscribeChatEvents(
         capturedAssistantId,
         null,
-        (event) => {
-          useEventBusStore.getState().publish("sse.event", event);
+        (envelope) => {
+          useEventBusStore.getState().publish("sse.event", envelope);
         },
         (err) => {
           current = null;
