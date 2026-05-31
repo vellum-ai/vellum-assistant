@@ -347,6 +347,25 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(existsSync(lockPath())).toBe(false);
   });
 
+  test("enqueues memory_v3_maintain as a follow-up when a v3 flag is on", async () => {
+    v3FlagOn = true;
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(enqueuedJobs.map((j) => j.type)).toEqual([
+      "memory_v2_reembed",
+      "memory_v3_maintain",
+    ]);
+  });
+
+  test("does not enqueue memory_v3_maintain when v3 flags are off", async () => {
+    v3FlagOn = false;
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
+  });
+
   test("returns run_failed and skips follow-ups when the runner reports failure", async () => {
     runnerImpl = async () => ({
       conversationId: "conv-1",

@@ -86,7 +86,11 @@ const log = getLogger("memory-v2-consolidate");
 /** Stable identifier surfaced in `runBackgroundJob` logs and notifications. */
 const JOB_NAME = "memory.consolidate";
 
-/** v3 plugin flags. Either being on enables the health-block injection. */
+/**
+ * v3 plugin flags. Either being on (a) prepends a v3 health block to the
+ * consolidation prompt and (b) enqueues `memory_v3_maintain` as a
+ * post-consolidation follow-up. These gate the v3 plugin itself.
+ */
 const MEMORY_V3_SHADOW = "memory-v3-shadow" as const;
 const MEMORY_V3_LIVE = "memory-v3-live" as const;
 
@@ -105,9 +109,10 @@ const CONSOLIDATION_TIMEOUT_MS = 15 * 60 * 1000;
  * agent touched: mtime-diffing is fragile across filesystems, and the
  * embedder's content-hash cache makes unchanged pages effectively free.
  */
-const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = [
-  "memory_v2_reembed",
-] as const;
+const FOLLOW_UP_JOB_TYPES: readonly MemoryJobType[] = ["memory_v2_reembed"];
+
+/** Follow-up enqueued only when a v3 flag is on. */
+const V3_FOLLOW_UP_JOB_TYPE: MemoryJobType = "memory_v3_maintain";
 
 /**
  * Job handler. See file header for the full lifecycle. Returns a discriminated
@@ -214,9 +219,17 @@ export async function memoryV2ConsolidateJob(
 
     // Step 5: enqueue follow-up jobs. Enqueueing now keeps the dispatch
     // wiring exercised end-to-end so PR 21 only has to swap in the handler
-    // bodies.
+    // bodies. v3 maintenance is appended only while a v3 path (shadow or live)
+    // is active, so it never fans out on v2-only installs.
     const followUpJobIds: string[] = [];
-    for (const jobType of FOLLOW_UP_JOB_TYPES) {
+    const jobTypes: MemoryJobType[] = [...FOLLOW_UP_JOB_TYPES];
+    if (
+      isAssistantFeatureFlagEnabled(MEMORY_V3_SHADOW, config) ||
+      isAssistantFeatureFlagEnabled(MEMORY_V3_LIVE, config)
+    ) {
+      jobTypes.push(V3_FOLLOW_UP_JOB_TYPE);
+    }
+    for (const jobType of jobTypes) {
       try {
         followUpJobIds.push(enqueueMemoryJob(jobType, {}));
       } catch (err) {
