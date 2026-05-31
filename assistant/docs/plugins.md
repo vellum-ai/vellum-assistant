@@ -1,4 +1,4 @@
-# Plugin authoring guide
+# Plugins
 
 > **Note:** This guide documents the **legacy** plugin architecture — the
 > in-tree `register.ts` + middleware-pipeline system. We are converging on
@@ -10,16 +10,13 @@
 > differ is the next piece of consolidation work. New plugins should target
 > the modern schema.
 
-Plugins let you extend the assistant by hooking middleware into named
-runtime pipelines, contributing tools/routes/skills, and injecting
-system-prompt content. This guide is the authoritative reference for how
-plugins are structured, registered, and executed — everything the code
-actually enforces.
+Plugins extend the assistant's default capabilities using hooks, tools,
+skills, and more.
 
-For a worked minimal example, see
-[`assistant/examples/plugins/echo/`](../examples/plugins/echo/README.md).
-That plugin observes every pipeline and logs to stderr, and is the fastest
-way to see the system in action.
+If you're authoring a plugin against the current convention, this file is
+your map. Read [`examples/plugins/echo/`](../examples/plugins/echo/README.md)
+alongside, it's the canonical reference implementation and exercises every
+wired surface.
 
 ## Table of contents
 
@@ -44,9 +41,9 @@ way to see the system in action.
 ## TL;DR
 
 1. Create a directory `<workspaceDir>/plugins/my-plugin/`.
-2. Add a `register.ts` that builds a `Plugin` object and passes it to
+2. Give the manifest a `name` and `version`.
+3. Add a `register.ts` that builds a `Plugin` object and passes it to
    `registerPlugin()` as an import-time side effect.
-3. Give the manifest a `name` and `version`.
 4. Hang middleware, tools, routes, skills, or injectors off the `Plugin`
    object.
 5. Restart the assistant — the loader scans `<workspaceDir>/plugins/*` and
