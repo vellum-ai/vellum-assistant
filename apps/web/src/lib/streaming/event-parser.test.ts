@@ -45,16 +45,15 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown assistant_text_delta event when an unknown field is present", () => {
-    // Strict schema rejects forward-compat extras — the daemon and the
-    // canonical schema must move in lockstep.
-    const data = { type: "assistant_text_delta", text: "Hi", legacyField: "x" };
-    const event = parseAssistantEvent(data);
+  test("strips unknown fields from assistant_text_delta", () => {
+    const event = parseAssistantEvent({
+      type: "assistant_text_delta",
+      text: "Hi",
+      legacyField: "x",
+    });
     expect(event).toEqual({
-      type: "unknown",
-      rawType: "assistant_text_delta",
-      data,
-      conversationId: undefined,
+      type: "assistant_text_delta",
+      text: "Hi",
     });
   });
 
@@ -335,10 +334,8 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown document_comment_created event when an unknown field is present", () => {
-    // Strict schema rejects forward-compat extras — the daemon and the
-    // canonical schema must move in lockstep.
-    const data = {
+  test("strips unknown fields from document_comment_created", () => {
+    const event = parseAssistantEvent({
       type: "document_comment_created",
       conversationId: "conv-1",
       surfaceId: "surface-1",
@@ -352,12 +349,20 @@ describe("parseAssistantEvent", () => {
         updatedAt: 0,
       },
       legacyField: "x",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "document_comment_created",
-      data,
+    });
+    expect(event).toEqual({
+      type: "document_comment_created",
       conversationId: "conv-1",
+      surfaceId: "surface-1",
+      comment: {
+        id: "c-1",
+        surfaceId: "surface-1",
+        author: "user",
+        content: "x",
+        status: "open",
+        createdAt: 0,
+        updatedAt: 0,
+      },
     });
   });
 
@@ -397,20 +402,21 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown document_comment_resolved event when an unknown field is present", () => {
-    const data = {
+  test("strips unknown fields from document_comment_resolved", () => {
+    const event = parseAssistantEvent({
       type: "document_comment_resolved",
       conversationId: "conv-1",
       surfaceId: "surface-1",
       commentId: "c-1",
       resolvedBy: "user-alice",
       legacyField: "x",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "document_comment_resolved",
-      data,
+    });
+    expect(event).toEqual({
+      type: "document_comment_resolved",
       conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
+      resolvedBy: "user-alice",
     });
   });
 
@@ -447,19 +453,19 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown document_comment_reopened event when an unknown field is present", () => {
-    const data = {
+  test("strips unknown fields from document_comment_reopened", () => {
+    const event = parseAssistantEvent({
       type: "document_comment_reopened",
       conversationId: "conv-1",
       surfaceId: "surface-1",
       commentId: "c-1",
       legacyField: "x",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "document_comment_reopened",
-      data,
+    });
+    expect(event).toEqual({
+      type: "document_comment_reopened",
       conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
     });
   });
 
@@ -496,19 +502,19 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown document_comment_deleted event when an unknown field is present", () => {
-    const data = {
+  test("strips unknown fields from document_comment_deleted", () => {
+    const event = parseAssistantEvent({
       type: "document_comment_deleted",
       conversationId: "conv-1",
       surfaceId: "surface-1",
       commentId: "c-1",
       legacyField: "x",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "document_comment_deleted",
-      data,
+    });
+    expect(event).toEqual({
+      type: "document_comment_deleted",
       conversationId: "conv-1",
+      surfaceId: "surface-1",
+      commentId: "c-1",
     });
   });
 
@@ -545,19 +551,19 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown message_queued event when an unknown field is present", () => {
-    const data = {
+  test("strips unknown fields from message_queued", () => {
+    const event = parseAssistantEvent({
       type: "message_queued",
       conversationId: "conv-1",
       requestId: "req-1",
       position: 0,
       legacyField: "x",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "message_queued",
-      data,
+    });
+    expect(event).toEqual({
+      type: "message_queued",
       conversationId: "conv-1",
+      requestId: "req-1",
+      position: 0,
     });
   });
 
@@ -591,18 +597,17 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown message_dequeued event when an unknown field is present", () => {
-    const data = {
+  test("strips unknown fields from message_dequeued", () => {
+    const event = parseAssistantEvent({
       type: "message_dequeued",
       conversationId: "conv-1",
       requestId: "req-1",
       stale: true,
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "message_dequeued",
-      data,
+    });
+    expect(event).toEqual({
+      type: "message_dequeued",
       conversationId: "conv-1",
+      requestId: "req-1",
     });
   });
 
@@ -636,18 +641,17 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown message_queued_deleted event when an unknown field is present", () => {
-    const data = {
+  test("strips unknown fields from message_queued_deleted", () => {
+    const event = parseAssistantEvent({
       type: "message_queued_deleted",
       conversationId: "conv-1",
       requestId: "req-1",
       legacyReason: "user_cancel",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "message_queued_deleted",
-      data,
+    });
+    expect(event).toEqual({
+      type: "message_queued_deleted",
       conversationId: "conv-1",
+      requestId: "req-1",
     });
   });
 
@@ -696,19 +700,19 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown message_request_complete event when an unknown field is present", () => {
-    const data = {
+  test("strips unknown fields from message_request_complete", () => {
+    const event = parseAssistantEvent({
       type: "message_request_complete",
       conversationId: "conv-1",
       requestId: "req-1",
       runStillActive: false,
       legacyField: "x",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "message_request_complete",
-      data,
+    });
+    expect(event).toEqual({
+      type: "message_request_complete",
       conversationId: "conv-1",
+      requestId: "req-1",
+      runStillActive: false,
     });
   });
 
@@ -838,20 +842,21 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown interaction_resolved when an unknown field is present", () => {
-    const data = {
+  test("strips unknown fields from interaction_resolved", () => {
+    const event = parseAssistantEvent({
       type: "interaction_resolved",
       requestId: "req-1",
       conversationId: "conv-1",
       state: "approved",
       kind: "confirmation",
       legacyField: "x",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "interaction_resolved",
-      data,
+    });
+    expect(event).toEqual({
+      type: "interaction_resolved",
+      requestId: "req-1",
       conversationId: "conv-1",
+      state: "approved",
+      kind: "confirmation",
     });
   });
 
@@ -1666,20 +1671,21 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown ui_surface_show when extra field is present", () => {
-    const data = {
+  test("strips unknown fields from ui_surface_show", () => {
+    const event = parseAssistantEvent({
       type: "ui_surface_show",
       conversationId: "conv-4",
       surfaceId: "s-4",
       surfaceType: "card",
       data: {},
       surpriseField: "boom",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "ui_surface_show",
-      data,
+    });
+    expect(event).toEqual({
+      type: "ui_surface_show",
       conversationId: "conv-4",
+      surfaceId: "s-4",
+      surfaceType: "card",
+      data: {},
     });
   });
 
@@ -1716,19 +1722,19 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown ui_surface_update when extra field is present", () => {
-    const data = {
+  test("strips unknown fields from ui_surface_update", () => {
+    const event = parseAssistantEvent({
       type: "ui_surface_update",
       conversationId: "conv-1",
       surfaceId: "s-1",
       data: {},
       surpriseField: "boom",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "ui_surface_update",
-      data,
+    });
+    expect(event).toEqual({
+      type: "ui_surface_update",
       conversationId: "conv-1",
+      surfaceId: "s-1",
+      data: {},
     });
   });
 
@@ -1762,18 +1768,17 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown ui_surface_dismiss when extra field is present", () => {
-    const data = {
+  test("strips unknown fields from ui_surface_dismiss", () => {
+    const event = parseAssistantEvent({
       type: "ui_surface_dismiss",
       conversationId: "conv-1",
       surfaceId: "s-1",
       surpriseField: "boom",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "ui_surface_dismiss",
-      data,
+    });
+    expect(event).toEqual({
+      type: "ui_surface_dismiss",
       conversationId: "conv-1",
+      surfaceId: "s-1",
     });
   });
 
@@ -1827,19 +1832,19 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown ui_surface_complete when extra field is present", () => {
-    const data = {
+  test("strips unknown fields from ui_surface_complete", () => {
+    const event = parseAssistantEvent({
       type: "ui_surface_complete",
       conversationId: "conv-1",
       surfaceId: "s-1",
       summary: "Done",
       surpriseField: "boom",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "ui_surface_complete",
-      data,
+    });
+    expect(event).toEqual({
+      type: "ui_surface_complete",
       conversationId: "conv-1",
+      surfaceId: "s-1",
+      summary: "Done",
     });
   });
 
@@ -2128,19 +2133,21 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown secret_request when extra field is present", () => {
-    const data = {
+  test("strips unknown fields from secret_request", () => {
+    const event = parseAssistantEvent({
       type: "secret_request",
       requestId: "sr-4",
       service: "openai",
       field: "api_key",
       label: "Extra",
       surpriseField: "boom",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "secret_request",
-      data,
+    });
+    expect(event).toEqual({
+      type: "secret_request",
+      requestId: "sr-4",
+      service: "openai",
+      field: "api_key",
+      label: "Extra",
     });
   });
 
@@ -2248,8 +2255,8 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown confirmation_request when extra field is present", () => {
-    const data = {
+  test("strips unknown fields from confirmation_request", () => {
+    const event = parseAssistantEvent({
       type: "confirmation_request",
       requestId: "cr-4",
       toolName: "bash",
@@ -2258,11 +2265,15 @@ describe("parseAssistantEvent", () => {
       allowlistOptions: [],
       scopeOptions: [],
       title: "Allow?",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "confirmation_request",
-      data,
+    });
+    expect(event).toEqual({
+      type: "confirmation_request",
+      requestId: "cr-4",
+      toolName: "bash",
+      input: {},
+      riskLevel: "low",
+      allowlistOptions: [],
+      scopeOptions: [],
     });
   });
 
@@ -2311,16 +2322,15 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown contact_request when extra field is present", () => {
-    const data = {
+  test("strips unknown fields from contact_request", () => {
+    const event = parseAssistantEvent({
       type: "contact_request",
       requestId: "ctc-3",
       surpriseField: "boom",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "contact_request",
-      data,
+    });
+    expect(event).toEqual({
+      type: "contact_request",
+      requestId: "ctc-3",
     });
   });
 
@@ -2400,19 +2410,21 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown question_request when extra field is present", () => {
-    const data = {
+  test("strips unknown fields from question_request", () => {
+    const event = parseAssistantEvent({
       type: "question_request",
       requestId: "qr-4",
       questions: [{ id: "q1", question: "?", options: [] }],
       question: "?",
       options: [],
       surpriseField: "boom",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "question_request",
-      data,
+    });
+    expect(event).toEqual({
+      type: "question_request",
+      requestId: "qr-4",
+      questions: [{ id: "q1", question: "?", options: [] }],
+      question: "?",
+      options: [],
     });
   });
 

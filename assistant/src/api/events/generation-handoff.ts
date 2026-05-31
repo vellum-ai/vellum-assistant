@@ -20,21 +20,19 @@ import { z } from "zod";
 
 import { AssistantOutboundAttachmentSchema } from "./assistant-outbound-attachment.js";
 
-export const GenerationHandoffEventSchema = z
-  .object({
-    type: z.literal("generation_handoff"),
-    conversationId: z.string().optional(),
-    /** Daemon request id of the just-finished turn — correlates with
-     *  the request id surfaced by the inbound user message. */
-    requestId: z.string().optional(),
-    /** Depth of the pending-message queue at handoff time. */
-    queuedCount: z.number(),
-    /** Database row id of the just-finished assistant turn. */
-    messageId: z.string().optional(),
-    attachments: z.array(AssistantOutboundAttachmentSchema).optional(),
-    attachmentWarnings: z.array(z.string()).optional(),
-  })
-  .strict();
+export const GenerationHandoffEventSchema = z.object({
+  type: z.literal("generation_handoff"),
+  conversationId: z.string().optional(),
+  /** Daemon request id of the just-finished turn — correlates with
+   *  the request id surfaced by the inbound user message. */
+  requestId: z.string().optional(),
+  /** Depth of the pending-message queue at handoff time. */
+  queuedCount: z.number(),
+  /** Database row id of the just-finished assistant turn. */
+  messageId: z.string().optional(),
+  attachments: z.array(AssistantOutboundAttachmentSchema).optional(),
+  attachmentWarnings: z.array(z.string()).optional(),
+});
 
 export type GenerationHandoffEvent = z.infer<
   typeof GenerationHandoffEventSchema

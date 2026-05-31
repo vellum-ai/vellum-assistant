@@ -17,15 +17,13 @@
 
 import { z } from "zod";
 
-export const UISurfaceCompleteEventSchema = z
-  .object({
-    type: z.literal("ui_surface_complete"),
-    conversationId: z.string(),
-    surfaceId: z.string(),
-    summary: z.string(),
-    submittedData: z.record(z.string(), z.unknown()).optional(),
-  })
-  .strict();
+export const UISurfaceCompleteEventSchema = z.object({
+  type: z.literal("ui_surface_complete"),
+  conversationId: z.string(),
+  surfaceId: z.string(),
+  summary: z.string(),
+  submittedData: z.record(z.string(), z.unknown()).optional(),
+});
 
 export type UISurfaceCompleteEvent = z.infer<
   typeof UISurfaceCompleteEventSchema

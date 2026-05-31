@@ -11,16 +11,14 @@
 
 import { z } from "zod";
 
-export const DocumentCommentResolvedEventSchema = z
-  .object({
-    type: z.literal("document_comment_resolved"),
-    conversationId: z.string(),
-    surfaceId: z.string(),
-    commentId: z.string(),
-    /** User or actor label that resolved the comment. */
-    resolvedBy: z.string(),
-  })
-  .strict();
+export const DocumentCommentResolvedEventSchema = z.object({
+  type: z.literal("document_comment_resolved"),
+  conversationId: z.string(),
+  surfaceId: z.string(),
+  commentId: z.string(),
+  /** User or actor label that resolved the comment. */
+  resolvedBy: z.string(),
+});
 
 export type DocumentCommentResolvedEvent = z.infer<
   typeof DocumentCommentResolvedEventSchema

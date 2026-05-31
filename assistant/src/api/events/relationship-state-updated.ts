@@ -13,12 +13,10 @@
 
 import { z } from "zod";
 
-export const RelationshipStateUpdatedEventSchema = z
-  .object({
-    type: z.literal("relationship_state_updated"),
-    updatedAt: z.string(),
-  })
-  .strict();
+export const RelationshipStateUpdatedEventSchema = z.object({
+  type: z.literal("relationship_state_updated"),
+  updatedAt: z.string(),
+});
 
 export type RelationshipStateUpdatedEvent = z.infer<
   typeof RelationshipStateUpdatedEventSchema

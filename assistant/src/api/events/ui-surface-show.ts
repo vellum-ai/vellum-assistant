@@ -34,30 +34,26 @@
 
 import { z } from "zod";
 
-export const SurfaceActionSchema = z
-  .object({
-    id: z.string(),
-    label: z.string(),
-    style: z.enum(["primary", "secondary", "destructive"]).optional(),
-    data: z.record(z.string(), z.unknown()).optional(),
-  })
-  .strict();
+export const SurfaceActionSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  style: z.enum(["primary", "secondary", "destructive"]).optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+});
 
 export type SurfaceAction = z.infer<typeof SurfaceActionSchema>;
 
-export const UISurfaceShowEventSchema = z
-  .object({
-    type: z.literal("ui_surface_show"),
-    conversationId: z.string(),
-    surfaceId: z.string(),
-    surfaceType: z.string(),
-    title: z.string().optional(),
-    data: z.record(z.string(), z.unknown()),
-    actions: z.array(SurfaceActionSchema).optional(),
-    display: z.enum(["inline", "panel"]).optional(),
-    messageId: z.string().optional(),
-    persistent: z.boolean().optional(),
-  })
-  .strict();
+export const UISurfaceShowEventSchema = z.object({
+  type: z.literal("ui_surface_show"),
+  conversationId: z.string(),
+  surfaceId: z.string(),
+  surfaceType: z.string(),
+  title: z.string().optional(),
+  data: z.record(z.string(), z.unknown()),
+  actions: z.array(SurfaceActionSchema).optional(),
+  display: z.enum(["inline", "panel"]).optional(),
+  messageId: z.string().optional(),
+  persistent: z.boolean().optional(),
+});
 
 export type UISurfaceShowEvent = z.infer<typeof UISurfaceShowEventSchema>;

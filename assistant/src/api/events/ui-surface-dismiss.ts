@@ -13,12 +13,10 @@
 
 import { z } from "zod";
 
-export const UISurfaceDismissEventSchema = z
-  .object({
-    type: z.literal("ui_surface_dismiss"),
-    conversationId: z.string(),
-    surfaceId: z.string(),
-  })
-  .strict();
+export const UISurfaceDismissEventSchema = z.object({
+  type: z.literal("ui_surface_dismiss"),
+  conversationId: z.string(),
+  surfaceId: z.string(),
+});
 
 export type UISurfaceDismissEvent = z.infer<typeof UISurfaceDismissEventSchema>;
