@@ -18,6 +18,7 @@ import { describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { renderToStaticMarkup } from "react-dom/server";
+import { createElement, type ReactNode } from "react";
 
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 import { organizationsBillingSubscriptionRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
@@ -28,6 +29,113 @@ mock.module("@vellum/design-library/components/toast", () => ({
   toast: { success: () => {}, error: () => {} },
   Toaster: () => null,
   ToastContent: () => null,
+}));
+
+mock.module("@/utils/error-report", () => ({
+  reportError: () => {},
+}));
+
+mock.module("@vellum/design-library/components/button", () => ({
+  Button: ({
+    children,
+    onClick,
+    disabled,
+    ...props
+  }: {
+    children?: ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+  } & Record<string, unknown>) =>
+    createElement("button", { onClick, disabled, ...props }, children),
+}));
+
+mock.module("@vellum/design-library/components/confirm-dialog", () => ({
+  ConfirmDialog: () => null,
+}));
+
+mock.module("@vellum/design-library/components/dropdown", () => ({
+  Dropdown: ({
+    value,
+    options,
+  }: {
+    value?: string;
+    options?: Array<{ value: string; label: string }>;
+  }) =>
+    createElement(
+      "select",
+      { value, readOnly: true },
+      ...(options ?? []).map((option) =>
+        createElement("option", { key: option.value, value: option.value }, option.label),
+      ),
+    ),
+}));
+
+mock.module("@vellum/design-library/components/input", () => ({
+  Input: ({
+    label,
+    value,
+  }: {
+    label?: string;
+    value?: string;
+  }) =>
+    createElement("label", null, label, createElement("input", { value, readOnly: true })),
+}));
+
+mock.module("@vellum/design-library/components/notice", () => ({
+  Notice: ({
+    title,
+    actions,
+    children,
+  }: {
+    title?: string;
+    actions?: ReactNode;
+    children?: ReactNode;
+  }) => createElement("div", null, title, actions, children),
+}));
+
+mock.module("@vellum/design-library/components/segment-control", () => ({
+  SegmentControl: () => null,
+}));
+
+mock.module("@vellum/design-library/components/typography", () => ({
+  Typography: ({ children }: { children?: ReactNode }) =>
+    createElement("div", null, children),
+}));
+
+mock.module("@/components/detail-card", () => ({
+  DetailCard: ({
+    title,
+    subtitle,
+    children,
+  }: {
+    title: string;
+    subtitle?: string;
+    children?: ReactNode;
+  }) =>
+    createElement(
+      "section",
+      null,
+      createElement("h2", null, title),
+      subtitle ? createElement("p", null, subtitle) : null,
+      children,
+    ),
+}));
+
+mock.module("@/domains/settings/components/domain-field", () => ({
+  DomainField: ({ label }: { label?: string }) =>
+    createElement("label", null, label, createElement("input", { readOnly: true })),
+}));
+
+mock.module("@/domains/settings/ai/call-site-overrides-modal", () => ({
+  CallSiteOverridesModal: () => null,
+}));
+
+mock.module("@/domains/settings/ai/manage-profiles-modal", () => ({
+  ManageProfilesModal: () => null,
+}));
+
+mock.module("@/domains/settings/ai/manage-providers-modal", () => ({
+  ManageProvidersModal: () => null,
 }));
 
 const { EmailServiceCard } = await import("@/domains/settings/ai/ai-page");

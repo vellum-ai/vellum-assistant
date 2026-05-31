@@ -15266,6 +15266,223 @@ paths:
                     - kind
                     - text
                   additionalProperties: false
+  /v1/radio/advance:
+    post:
+      operationId: radio_advance_post
+      summary: Advance assistant radio playback
+      description: Choose the next assistant radio track and optionally synthesize a short DJ break.
+      tags:
+        - radio
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  segmentId:
+                    type: string
+                  displayCue:
+                    type: string
+                    enum:
+                      - song
+                      - dj
+                      - transition
+                      - setup_needed
+                      - error
+                  track:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      title:
+                        type: string
+                      artist:
+                        type: string
+                      durationMs:
+                        type: integer
+                        minimum: -9007199254740991
+                        maximum: 9007199254740991
+                      audioPath:
+                        type: string
+                      sourceLabel:
+                        type: string
+                      license:
+                        type: string
+                        const: repo-generated
+                      sha256:
+                        type: string
+                    required:
+                      - id
+                      - title
+                      - artist
+                      - durationMs
+                      - audioPath
+                      - sourceLabel
+                      - license
+                      - sha256
+                    additionalProperties: false
+                  playbackPlan:
+                    type: object
+                    properties:
+                      reason:
+                        default: start
+                        type: string
+                        enum:
+                          - start
+                          - song_ended
+                          - skip
+                          - retry
+                      displayCue:
+                        type: string
+                        enum:
+                          - song
+                          - dj
+                          - transition
+                          - setup_needed
+                          - error
+                      track:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                          title:
+                            type: string
+                          artist:
+                            type: string
+                          durationMs:
+                            type: integer
+                            minimum: -9007199254740991
+                            maximum: 9007199254740991
+                          audioPath:
+                            type: string
+                          sourceLabel:
+                            type: string
+                          license:
+                            type: string
+                            const: repo-generated
+                          sha256:
+                            type: string
+                        required:
+                          - id
+                          - title
+                          - artist
+                          - durationMs
+                          - audioPath
+                          - sourceLabel
+                          - license
+                          - sha256
+                        additionalProperties: false
+                      djBreak:
+                        type: object
+                        properties:
+                          text:
+                            type: string
+                          audioPath:
+                            type: string
+                          audioId:
+                            type: string
+                          contentType:
+                            type: string
+                        required:
+                          - text
+                          - audioPath
+                          - audioId
+                          - contentType
+                        additionalProperties: false
+                    required:
+                      - reason
+                      - displayCue
+                      - track
+                    additionalProperties: false
+                  djBreak:
+                    type: object
+                    properties:
+                      text:
+                        type: string
+                      audioPath:
+                        type: string
+                      audioId:
+                        type: string
+                      contentType:
+                        type: string
+                    required:
+                      - text
+                      - audioPath
+                      - audioId
+                      - contentType
+                    additionalProperties: false
+                  setup:
+                    type: object
+                    properties:
+                      reason:
+                        type: string
+                        enum:
+                          - tts_not_configured
+                          - tts_unavailable
+                      settingsPath:
+                        type: string
+                        const: /assistant/settings/ai
+                      message:
+                        type: string
+                    required:
+                      - reason
+                      - settingsPath
+                      - message
+                    additionalProperties: false
+                required:
+                  - segmentId
+                  - displayCue
+                  - track
+                  - playbackPlan
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                segmentId:
+                  type: string
+                reason:
+                  default: start
+                  type: string
+                  enum:
+                    - start
+                    - song_ended
+                    - skip
+                    - retry
+                currentTrackId:
+                  type: string
+                recentTrackIds:
+                  type: array
+                  items:
+                    type: string
+                locale:
+                  type: string
+                timeZone:
+                  type: string
+              additionalProperties: false
+  /v1/radio/tracks/{trackId}:
+    get:
+      operationId: radio_tracks_by_trackId_get
+      summary: Get assistant radio demo track
+      description: Serve a generated assistant radio demo WAV track.
+      tags:
+        - radio
+      responses:
+        "200":
+          description: Successful response
+        "404":
+          description: Radio track not found
+      parameters:
+        - name: trackId
+          in: path
+          required: true
+          schema:
+            type: string
   /v1/recordings/pause:
     post:
       operationId: recordings_pause_post

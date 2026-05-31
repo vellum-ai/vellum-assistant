@@ -1,7 +1,7 @@
 import { type LLMCallSite } from "./schemas/llm.js";
 
 type CallSiteDefaultConfig = {
-  profile: string;
+  profile?: string;
   maxTokens?: number;
   effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   temperature?: number | null;
@@ -40,6 +40,7 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     effort: "low",
     thinking: { enabled: false },
   },
+  radioDj: {},
 
   filingAgent: { profile: "cost-optimized" },
   proactiveArtifactDecision: { profile: "cost-optimized" },

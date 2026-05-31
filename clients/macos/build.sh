@@ -1023,6 +1023,8 @@ build_binaries() {
     rm -rf "$SCRIPT_DIR/daemon-bin/brain-graph"
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
     cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
+    rm -rf "$SCRIPT_DIR/daemon-bin/radio-assets"
+    cp -R "$ASSISTANT_SRC_DIR/src/radio/assets" "$SCRIPT_DIR/daemon-bin/radio-assets"
 }
 
 bundle_kata_kernel() {
@@ -1548,6 +1550,10 @@ if [ -f "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" ]; 
     mkdir -p "$SCRIPT_DIR/daemon-bin/brain-graph"
     cp "$ASSISTANT_SRC_DIR/src/runtime/routes/brain-graph/brain-graph.html" "$SCRIPT_DIR/daemon-bin/brain-graph/"
 fi
+if [ -d "$ASSISTANT_SRC_DIR/src/radio/assets" ]; then
+    rm -rf "$SCRIPT_DIR/daemon-bin/radio-assets"
+    cp -R "$ASSISTANT_SRC_DIR/src/radio/assets" "$SCRIPT_DIR/daemon-bin/radio-assets"
+fi
 # Also rebuild if daemon binary changed or newly added
 if [ -f "$SCRIPT_DIR/daemon-bin/vellum-daemon" ]; then
     if [ ! -f "$MACOS_DIR/vellum-daemon" ] || [ "$SCRIPT_DIR/daemon-bin/vellum-daemon" -nt "$MACOS_DIR/vellum-daemon" ]; then
@@ -1845,6 +1851,10 @@ fi
 if [ -d "$SCRIPT_DIR/daemon-bin/brain-graph" ]; then
     rm -rf "$RESOURCES_DIR/brain-graph"
     cp -R "$SCRIPT_DIR/daemon-bin/brain-graph" "$RESOURCES_DIR/brain-graph"
+fi
+if [ -d "$SCRIPT_DIR/daemon-bin/radio-assets" ]; then
+    rm -rf "$RESOURCES_DIR/radio-assets"
+    cp -R "$SCRIPT_DIR/daemon-bin/radio-assets" "$RESOURCES_DIR/radio-assets"
 fi
 # Always refresh feature flag registry for the bundled gateway.
 # The compiled gateway resolves this from Contents/Resources in app layouts.
