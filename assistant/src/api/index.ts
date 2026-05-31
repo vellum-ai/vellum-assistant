@@ -293,6 +293,10 @@ export {
   UserMessageEchoEventSchema,
 } from "./events/user-message-echo.js";
 export {
+  type DiskPressureStatusResponse,
+  DiskPressureStatusResponseSchema,
+} from "./responses/disk-pressure-status.js";
+export {
   type LlmContextResponse,
   LlmContextResponseSchema,
 } from "./responses/llm-context-response.js";

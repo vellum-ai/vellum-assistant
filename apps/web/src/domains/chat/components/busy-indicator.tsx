@@ -14,7 +14,7 @@ export function BusyIndicator({ size = 8 }: { size?: number }) {
   return (
     <span
       aria-hidden="true"
-      className="busy-indicator shrink-0 rounded-full"
+      className="busy-indicator inline-block shrink-0 rounded-full"
       style={{
         width: size,
         height: size,

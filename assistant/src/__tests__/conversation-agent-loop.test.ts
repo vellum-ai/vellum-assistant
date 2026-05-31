@@ -573,9 +573,33 @@ const asAgentLoopRun = (
       wrapped = {
         ...options,
         onCheckpoint: async (info) => {
+          // Handoff is offered first, mirroring the loop's ordering.
           const decision = await inner(info);
-          exitReason = decision === "continue" ? null : decision;
-          return decision;
+          if (decision !== "continue") {
+            exitReason = decision;
+            return decision;
+          }
+          // The mid-loop budget gate lives inside `AgentLoop.run`. Replicate
+          // it here — using the same formula and the stubbed estimator — so
+          // these orchestrator-escalation tests still drive the budget-yield
+          // path now that the orchestrator's `onCheckpoint` is handoff-only.
+          const contextWindow = options.resolveContextWindow?.();
+          if (contextWindow?.overflowRecovery.enabled) {
+            const { maxInputTokens, overflowRecovery } = contextWindow;
+            const safetyMargin =
+              info.history.length > 50
+                ? Math.max(overflowRecovery.safetyMarginRatio, 0.15)
+                : overflowRecovery.safetyMarginRatio;
+            const preflightBudget = Math.floor(
+              maxInputTokens * (1 - safetyMargin),
+            );
+            if (mockEstimateTokens > preflightBudget * 0.85) {
+              exitReason = "budget";
+              return "budget";
+            }
+          }
+          exitReason = null;
+          return "continue";
         },
       };
     }

@@ -239,8 +239,10 @@ describe("AgentLoop", () => {
     await loop.run([userMessage], collectEvents([]), {
       requestId: "req-1",
       callSite: "mainAgent",
-      effectiveMaxInputTokens: 1_000,
-      resolveEffectiveMaxInputTokens: () => maxInputTokens,
+      resolveContextWindow: () => ({
+        maxInputTokens,
+        overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
+      }),
     });
 
     const secondCallMessages = calls[1].messages;

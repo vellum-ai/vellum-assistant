@@ -355,7 +355,7 @@ interface CapturedAgentLoopRun {
   callSite: LLMCallSite | undefined;
   overrideProfile: string | undefined;
   resolvedOverrideProfile: string | undefined;
-  resolvedEffectiveMaxInputTokens: number | undefined;
+  resolvedMaxInputTokens: number | undefined;
 }
 
 let mutateBeforeResolveOverrideProfile: (() => void) | undefined;
@@ -374,8 +374,7 @@ function makeCtx(
       callSite: options?.callSite,
       overrideProfile: options?.overrideProfile,
       resolvedOverrideProfile: options?.resolveOverrideProfile?.(),
-      resolvedEffectiveMaxInputTokens:
-        options?.resolveEffectiveMaxInputTokens?.(),
+      resolvedMaxInputTokens: options?.resolveContextWindow?.().maxInputTokens,
     });
     return [
       ...messages,
@@ -664,7 +663,7 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     expect(captured.length).toBeGreaterThan(0);
     expect(captured[0].overrideProfile).toBeUndefined();
     expect(captured[0].resolvedOverrideProfile).toBe("quality-optimized");
-    expect(captured[0].resolvedEffectiveMaxInputTokens).toBe(50000);
+    expect(captured[0].resolvedMaxInputTokens).toBe(50000);
     expect(ctx.currentTurnOverrideProfile).toBeUndefined();
   });
 });

@@ -281,6 +281,64 @@ describe("AgentLoop exit-reason instrumentation", () => {
     expect(countExitEvents(events)).toBe(0);
   });
 
+  test("yields with 'budget' when the in-loop budget gate trips", async () => {
+    // GIVEN a provider that calls a tool (reaching a checkpoint) before it
+    // would continue with a text response.
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("never reached"),
+    ]);
+    const toolExecutor = async () => ({ content: "ok", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    // AND an effective context window so small that any real token estimate
+    // of the running history exceeds the mid-loop threshold.
+    // WHEN the loop checkpoints after the tool results land
+    const result = await loop.run([userMessage], () => {}, {
+      resolveContextWindow: () => ({
+        maxInputTokens: 10,
+        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+      }),
+    });
+
+    // THEN it yields for budget before issuing the next provider call.
+    expect(result.exitReason).toBe("budget");
+  });
+
+  test("does not yield for budget when overflow recovery is disabled", async () => {
+    // GIVEN the same tiny context window but overflow recovery disabled — the
+    // agent-wake configuration, which must never yield for budget.
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("done"),
+    ]);
+    const toolExecutor = async () => ({ content: "ok", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    // WHEN the loop runs to completion
+    const result = await loop.run([userMessage], () => {}, {
+      resolveContextWindow: () => ({
+        maxInputTokens: 10,
+        overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
+      }),
+    });
+
+    // THEN it never yields for budget.
+    expect(result.exitReason).not.toBe("budget");
+  });
+
   test("emits 'error' when provider throws an unhandled error", async () => {
     const provider: Provider = {
       name: "broken",
