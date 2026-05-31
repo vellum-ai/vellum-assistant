@@ -2273,8 +2273,6 @@ export async function runAgentLoopImpl(
     const onCheckpoint = async (
       checkpoint: CheckpointInfo,
     ): Promise<CheckpointDecision> => {
-      state.currentTurnToolNames = [];
-
       if (ctx.canHandoffAtCheckpoint()) {
         return "handoff";
       }
