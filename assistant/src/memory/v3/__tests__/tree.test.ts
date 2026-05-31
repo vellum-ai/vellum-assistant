@@ -33,6 +33,38 @@ describe("loadLeafTree", () => {
     const topicZ = tree.leaves.get("domain-b/topic-z");
     expect(topicZ?.frontmatter.in_core).toBe(false);
     expect(topicZ?.domain).toBe("domain-b");
+
+    // Bundled leaves predate the optional `id` field.
+    expect(topicX?.frontmatter.id).toBeUndefined();
+  });
+
+  test("parses the optional stable id when present, omits it otherwise", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "v3-leaf-id-"));
+    try {
+      await mkdir(join(dataDir, "leaves", "domain-a"), { recursive: true });
+      await writeFile(
+        join(dataDir, "leaves", "domain-a", "topic-x.md"),
+        "---\npath: domain-a/topic-x\nin_core: true\nid: leaf-123\n---\n\nWith id.\n",
+      );
+      await writeFile(
+        join(dataDir, "leaves", "domain-a", "topic-y.md"),
+        "---\npath: domain-a/topic-y\nin_core: false\n---\n\nNo id.\n",
+      );
+      await writeFile(
+        join(dataDir, "assignments.json"),
+        JSON.stringify({ "page-a": ["domain-a/topic-x"] }),
+      );
+
+      const tree = await loadLeafTree(dataDir);
+      expect(tree.leaves.get("domain-a/topic-x")?.frontmatter.id).toBe(
+        "leaf-123",
+      );
+      expect(
+        tree.leaves.get("domain-a/topic-y")?.frontmatter.id,
+      ).toBeUndefined();
+    } finally {
+      await rm(dataDir, { recursive: true, force: true });
+    }
   });
 
   test("builds members and byPage from assignments", async () => {
