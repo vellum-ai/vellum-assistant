@@ -20,6 +20,7 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
+import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 
 import { useVellumCommands } from "@/runtime/vellum-commands";
@@ -511,6 +512,13 @@ export function ChatLayout() {
 
   const isLibraryActive = location.pathname.startsWith("/assistant/library");
 
+  // Sidebar pinned-app open. Mirrors the transcript / assets-pill open path:
+  // load the app into the viewer, then enter side-by-side edit mode when an
+  // active conversation exists. See `use-open-app-from-chat.ts` for the
+  // single source of truth.
+  const handleOpenAppFromSidebar = useOpenAppFromChat();
+  const activeAppId = useViewerStore.use.activeAppId();
+
   // Inspector affordance for the sidebar context menu. The topbar variant
   // (in `chat-page.tsx`) uses `useConversationSecondaryActions` so it can
   // enrich the URL with the latest assistant `messageId` from the active
@@ -546,6 +554,8 @@ export function ChatLayout() {
         onOpenIntelligence={handleOpenIdentity}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
+        activeAppId={activeAppId ?? undefined}
+        onOpenApp={handleOpenAppFromSidebar}
         onPinConversation={handleTogglePinConversation}
         onRenameConversation={handleRenameConversation}
         onArchiveConversation={handleArchiveConversation}
@@ -593,6 +603,8 @@ export function ChatLayout() {
       handleOpenIdentity,
       isLibraryActive,
       handleOpenLibrary,
+      activeAppId,
+      handleOpenAppFromSidebar,
       showLlmInspector,
       handleInspectConversation,
     ],

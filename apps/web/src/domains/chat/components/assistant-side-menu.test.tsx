@@ -21,6 +21,7 @@ import type { Conversation } from "@/types/conversation-types";
 import {
   ASSISTANT_SIDE_MENU_CONVERSATION_LIMIT,
   AssistantSideMenu,
+  stripLeadingEmoji,
 } from "@/domains/chat/components/assistant-side-menu";
 import { SIDEBAR_CONVERSATION_LIMIT } from "@/domains/chat/use-sidebar-state";
 
@@ -283,5 +284,29 @@ describe("AssistantSideMenu · overlay close affordance", () => {
     const railHtml = renderMenu({ conversations, variant: "rail" });
     expect(overlayHtml).toContain('aria-label="Close navigation"');
     expect(railHtml).not.toContain('aria-label="Close navigation"');
+  });
+});
+
+describe("stripLeadingEmoji", () => {
+  test("strips a leading emoji and trailing whitespace", () => {
+    expect(stripLeadingEmoji("🚀 HQ")).toBe("HQ");
+  });
+
+  test("strips runs of consecutive emoji", () => {
+    expect(stripLeadingEmoji("🚀🎯 Multi")).toBe("Multi");
+  });
+
+  test("leaves an ascii-only label untouched", () => {
+    expect(stripLeadingEmoji("HQ")).toBe("HQ");
+  });
+
+  test("leaves an empty string as an empty string", () => {
+    expect(stripLeadingEmoji("")).toBe("");
+  });
+
+  test("preserves an internal emoji (only the leading run is stripped)", () => {
+    expect(stripLeadingEmoji("Workstream 🚀 Updates")).toBe(
+      "Workstream 🚀 Updates",
+    );
   });
 });
