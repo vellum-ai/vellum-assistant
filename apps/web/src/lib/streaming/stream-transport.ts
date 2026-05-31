@@ -10,7 +10,7 @@
 import { client } from "@/generated/api/client.gen";
 import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
-import { parseAssistantEvent } from "@/lib/streaming/event-parser";
+import { parseAssistantEventEnvelope } from "@/lib/streaming/event-parser";
 
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
@@ -286,25 +286,9 @@ export function subscribeChatEvents(
             reconnectCount = 0;
           }
 
-          // `parseAssistantEvent` owns the full path: envelope/flat
-          // unwrap, canonical-schema dispatch, legacy-event coercion, and
-          // envelope-conversationId stamping. This handler is the
-          // transport — keep it thin.
-          const parsed = parseAssistantEvent(data);
+          const envelope = parseAssistantEventEnvelope(data);
 
-          const envelope = {
-            id: typeof data.id === "string" ? data.id : "",
-            conversationId:
-              typeof data.conversationId === "string"
-                ? data.conversationId
-                : undefined,
-            seq: typeof data.seq === "number" ? data.seq : undefined,
-            emittedAt:
-              typeof data.emittedAt === "string" ? data.emittedAt : "",
-            message: parsed,
-          } as AssistantEventEnvelope;
-
-          pushSseEvent(sseDebugClientId, parsed);
+          pushSseEvent(sseDebugClientId, envelope.message);
           try {
             onEvent(envelope);
           } catch {

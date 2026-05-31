@@ -11,7 +11,10 @@
  */
 
 import type { AssistantEvent } from "@/types/event-types";
-import { AssistantEventSchema } from "@vellumai/assistant-api";
+import {
+  AssistantEventSchema,
+  type AssistantEventEnvelope,
+} from "@vellumai/assistant-api";
 import { unknownEvent } from "@/lib/streaming/parse-helpers";
 
 /**
@@ -82,11 +85,35 @@ export function parseAssistantEvent(
   // requires (including `conversationId` for conversation-scoped
   // events), so the envelope-level routing key never needs grafting on.
   const schemaResult = AssistantEventSchema.safeParse(inner);
-  if (schemaResult.success) return schemaResult.data as AssistantEvent;
+  if (schemaResult.success) {
+    return schemaResult.data as AssistantEvent;
+  }
 
   // Unrecognised payload. Stamp the envelope conversationId onto the
   // fallback so per-conversation subscribers can still route it.
   const merged = mergeEnvelopeConversationId(inner, envelopeConversationId);
   const rawType = typeof merged.type === "string" ? merged.type : "";
   return unknownEvent(rawType, merged);
+}
+
+/**
+ * Parse a raw SSE payload into a full `AssistantEventEnvelope`.
+ * Extracts envelope metadata (`id`, `conversationId`, `seq`,
+ * `emittedAt`) from the raw data and delegates inner-event parsing
+ * to `parseAssistantEvent`.
+ */
+export function parseAssistantEventEnvelope(
+  data: Record<string, unknown>,
+): AssistantEventEnvelope {
+  const event = parseAssistantEvent(data);
+  return {
+    id: typeof data.id === "string" ? data.id : "",
+    conversationId:
+      typeof data.conversationId === "string"
+        ? data.conversationId
+        : undefined,
+    seq: typeof data.seq === "number" ? data.seq : undefined,
+    emittedAt: typeof data.emittedAt === "string" ? data.emittedAt : "",
+    message: event,
+  } as AssistantEventEnvelope;
 }
