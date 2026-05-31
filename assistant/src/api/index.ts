@@ -47,10 +47,6 @@ import { UserMessageEchoEventSchema } from "./events/user-message-echo.js";
 export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
 export {
-  type AssistantEventEnvelope,
-  AssistantEventEnvelopeSchema,
-} from "./envelope.js";
-export {
   type AssistantActivityAnchor,
   AssistantActivityAnchorSchema,
   type AssistantActivityPhase,
@@ -371,3 +367,21 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
  * event migrates into the schema, it appears here automatically.
  */
 export type AssistantEvent = z.infer<typeof AssistantEventSchema>;
+
+/**
+ * SSE wire envelope wrapping every outbound event from the daemon.
+ *
+ * Transport-level metadata (`id`, `seq`, `emittedAt`, `conversationId`)
+ * surrounds the semantic event payload in `message`.
+ */
+export const AssistantEventEnvelopeSchema = z.object({
+  id: z.string(),
+  conversationId: z.string().optional(),
+  seq: z.number().int().optional(),
+  emittedAt: z.string(),
+  message: AssistantEventSchema,
+});
+
+export type AssistantEventEnvelope = z.infer<
+  typeof AssistantEventEnvelopeSchema
+>;
