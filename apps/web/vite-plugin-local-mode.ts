@@ -9,6 +9,7 @@ import { SEEDS } from "../../cli/src/lib/environments/seeds";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 const CLI_PACKAGE_NAME = "@vellumai/cli";
+const LOCALHOST_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 let _resolvedCliPath: string | undefined;
 
@@ -123,7 +124,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(configMiddleware(env));
       server.middlewares.use(lockfileMiddleware(lockfilePaths));
       server.middlewares.use(hatchMiddleware());
-      server.middlewares.use(retireMiddleware());
+      server.middlewares.use(retireMiddleware(lockfilePaths));
       server.middlewares.use(guardianTokenMiddleware(env));
       server.middlewares.use(gatewayProxyMiddleware(lockfilePaths));
       server.middlewares.use(accountSpaFallback(server));
@@ -446,7 +447,7 @@ function handleHatch(species: string, res: http.ServerResponse): void {
  * Transport: Vite dev middleware (child_process.spawn → CLI binary).
  * In Electron, replace with IPC call to main process: window.electronAPI.retireAssistant(assistantId). (LUM-2000)
  */
-function retireMiddleware(): Connect.NextHandleFunction {
+function retireMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction {
   return (req, res, next) => {
     if (
       req.url !== "/assistant/__local/retire" &&
@@ -460,6 +461,22 @@ function retireMiddleware(): Connect.NextHandleFunction {
     if (req.method !== "POST") {
       res.statusCode = 405;
       res.end();
+      return;
+    }
+
+    const peer = req.socket.remoteAddress ?? "";
+    if (!isLoopbackAddr(peer)) {
+      res.statusCode = 403;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: "Forbidden" }));
+      return;
+    }
+
+    const origin = req.headers.origin;
+    if (!origin || !LOCALHOST_ORIGIN_RE.test(origin)) {
+      res.statusCode = 403;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: "Forbidden" }));
       return;
     }
 
@@ -488,9 +505,48 @@ function retireMiddleware(): Connect.NextHandleFunction {
         return;
       }
 
+      const activeId = getActiveLocalAssistantId(lockfilePaths);
+      if (!activeId || assistantId !== activeId) {
+        res.statusCode = 403;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: false, error: "Forbidden" }));
+        return;
+      }
+
       handleRetire(assistantId, res);
     });
   };
+}
+
+function getActiveLocalAssistantId(lockfilePaths: string[]): string | undefined {
+  for (const candidate of lockfilePaths) {
+    try {
+      const raw = fs.readFileSync(candidate, "utf-8");
+      const parsed = JSON.parse(raw) as {
+        activeAssistant?: unknown;
+        assistants?: Array<Record<string, unknown>>;
+      };
+
+      if (typeof parsed.activeAssistant !== "string") {
+        return undefined;
+      }
+
+      const activeEntry = parsed.assistants?.find(
+        (a) => a?.assistantId === parsed.activeAssistant,
+      );
+      if (!activeEntry || activeEntry.cloud !== "local") {
+        return undefined;
+      }
+
+      return parsed.activeAssistant;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        continue;
+      }
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 const RETIRE_TIMEOUT_MS = 60_000;
