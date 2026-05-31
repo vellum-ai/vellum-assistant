@@ -330,6 +330,12 @@ export {
   type MemoryV3SelectionRow,
   MemoryV3SelectionRowSchema,
 } from "./responses/memory-v3-selection-log.js";
+export {
+  type SubagentDetailEvent,
+  SubagentDetailEventSchema,
+  type SubagentDetailResponse,
+  SubagentDetailResponseSchema,
+} from "./responses/subagent-detail.js";
 
 /**
  * Canonical SSE event schema for the assistant runtime.
