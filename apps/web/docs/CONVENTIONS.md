@@ -832,6 +832,69 @@ wrapping the SPA.
 
 ---
 
+## Platform gating
+
+The web app can run in three auth/hosting configurations that affect
+which UI surfaces are available:
+
+| Signal | Where | What it means |
+|--------|-------|---------------|
+| `isLocalMode()` | `src/lib/local-mode.ts` | `true` when `VITE_PLATFORM_MODE` is unset — the app is running against a local/self-hosted daemon, not the Vellum platform |
+| `hasPlatformSession` | `src/stores/auth-store.ts` | `true` when the user has a valid session with the Vellum platform (set asynchronously after probing the allauth session endpoint) |
+| `platformFeaturesInLocalMode` | feature flag store | Per-assistant flag (default `true`). When `false` in local mode, the API interceptor no-ops all platform client requests |
+
+### The five user states
+
+1. **Platform-hosted + logged in** — full access to everything
+2. **Platform-hosted + NOT logged in** — session expired; platform-dependent UI is *disabled* with a "log in" prompt
+3. **Self-hosted + platform features ON + logged in** — full access
+4. **Self-hosted + platform features ON + NOT logged in** — platform-dependent UI is *disabled*
+5. **Self-hosted + platform features OFF** — platform-dependent UI is *gated* (hidden entirely)
+
+### `usePlatformGate()` hook
+
+`src/hooks/use-platform-gate.ts` encapsulates the decision tree and
+returns one of three states:
+
+| Return value | Meaning | When |
+|-------------|---------|------|
+| `"full"` | Feature is fully functional | `hasPlatformSession` is `true` |
+| `"disabled"` | Show the UI but disable it (prompt re-login) | `hasPlatformSession` is `false`, platform features still enabled |
+| `"gated"` | Hide the UI entirely | Local mode AND `platformFeaturesInLocalMode` is `false` |
+
+Use this hook for any UI surface that depends on the Vellum platform
+API. The three actions map to concrete UI patterns:
+
+- **Full** — render normally.
+- **Disabled** — render the container/chrome but replace interactive
+  content with a `<Notice tone="info">` prompting platform login.
+  Disable platform API queries (`enabled: platformGate === "full"`).
+- **Gated** — don't render the component at all. If a parent container
+  (e.g. a settings card with a managed/your-own toggle) would be empty
+  without the gated content, render only the non-platform portion
+  without the toggle.
+
+### Daemon-owned endpoints routed through the platform proxy
+
+Many features use the platform API client but actually hit
+daemon-owned endpoints via `RuntimeProxyWildcardView` (the platform
+proxies `/v1/assistants/{id}/<path>` → daemon `/v1/<path>`). In local
+mode, the self-hosted ingress rewrite in `api-interceptors.ts` already
+reroutes these to the gateway directly — the
+`RUNTIME_PROXIED_FIRST_SEGMENTS` allowlist is skipped entirely in
+local mode. These features work in all five states with no gating
+needed. Examples: AI page (profiles, providers, models), Inspector,
+Home, Workspace, Contacts.
+
+### Organization store
+
+The organization store (`src/stores/organization-store.ts`) only
+fetches when `hasPlatformSession` is `true`. Organizations are a
+platform concept — in self-hosted mode the interceptor already strips
+the `Vellum-Organization-Id` header and uses bearer auth instead.
+
+---
+
 ## Testing
 
 - **Test framework:** [Bun's test runner](https://bun.sh/docs/test)
