@@ -9,6 +9,7 @@ import { SEEDS } from "../../cli/src/lib/environments/seeds";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 const CLI_PACKAGE_NAME = "@vellumai/cli";
+const LOCALHOST_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 let _resolvedCliPath: string | undefined;
 
@@ -459,6 +460,14 @@ function retireMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction {
 
     const peer = req.socket.remoteAddress ?? "";
     if (!isLoopbackAddr(peer)) {
+      res.statusCode = 403;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: false, error: "Forbidden" }));
+      return;
+    }
+
+    const origin = req.headers.origin;
+    if (!origin || !LOCALHOST_ORIGIN_RE.test(origin)) {
       res.statusCode = 403;
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify({ ok: false, error: "Forbidden" }));
