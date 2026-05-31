@@ -877,7 +877,14 @@ export async function wakeAgentForOpportunity(
             callSite,
             turnContext: wakeTurnContext,
             overrideProfile,
-            effectiveMaxInputTokens: effectiveContextWindow.maxInputTokens,
+            // Wake runs have no orchestrator-side mid-loop compaction path,
+            // so the budget gate stays disabled (`overflowRecovery.enabled =
+            // false`); `maxInputTokens` is still supplied for tool-result
+            // truncation.
+            resolveContextWindow: () => ({
+              maxInputTokens: effectiveContextWindow.maxInputTokens,
+              overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
+            }),
           },
         ));
       } catch (err) {

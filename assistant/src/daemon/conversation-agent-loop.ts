@@ -17,7 +17,6 @@ import type {
   AgentLoop,
   AgentLoopExitReason,
   CheckpointDecision,
-  CheckpointInfo,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
 import type {
@@ -254,15 +253,6 @@ function markHistoryStrippedBestEffort(
 
 const DISK_PRESSURE_ERROR_CODE = "DISK_SPACE_CRITICAL" as const;
 const DISK_PRESSURE_ERROR_CATEGORY = "disk_pressure";
-
-/**
- * Mid-loop yield threshold expressed as a fraction of the preflight
- * budget. When the running token estimate crosses this fraction at an
- * agent-loop checkpoint, the loop yields so the orchestrator can run a
- * compaction pass *before* the next provider call would risk a hard
- * rejection.
- */
-const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
 
 /** Title-cased friendly labels for tool names, used in confirmation chips. */
 const TOOL_FRIENDLY_LABEL: Record<string, string> = {
@@ -874,6 +864,25 @@ export async function runAgentLoopImpl(
       overflowRecovery,
       providerMaxTokens,
       preflightBudget: Math.floor(providerMaxTokens * (1 - safetyMargin)),
+    };
+  };
+  /**
+   * The agent loop's window into the orchestrator's current effective
+   * context window. The loop reads `maxInputTokens` for tool-result
+   * truncation and `overflowRecovery` for its mid-loop budget gate, applying
+   * the long-history safety-margin bump itself off its own running history.
+   * Resolved fresh on each access so a mid-turn profile change is reflected.
+   */
+  const resolveContextWindow = (): {
+    maxInputTokens: number;
+    overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
+  } => {
+    refreshCurrentProfileState();
+    const { enabled, safetyMarginRatio } =
+      currentEffectiveContextWindow.overflowRecovery;
+    return {
+      maxInputTokens: currentEffectiveContextWindow.maxInputTokens,
+      overflowRecovery: { enabled, safetyMarginRatio },
     };
   };
 
@@ -2270,30 +2279,10 @@ export async function runAgentLoopImpl(
       await eventHandler({ type: "agent_loop_exit", reason });
     };
 
-    const onCheckpoint = async (
-      checkpoint: CheckpointInfo,
-    ): Promise<CheckpointDecision> => {
+    const onCheckpoint = async (): Promise<CheckpointDecision> => {
       if (ctx.canHandoffAtCheckpoint()) {
         return "handoff";
       }
-
-      // Mid-loop token budget check: estimate current context size and
-      // yield if we're approaching the preflight budget. This lets the
-      // conversation-agent-loop run compaction before the provider rejects.
-      if (overflowRecovery.enabled) {
-        const midLoopThreshold =
-          resolveCurrentContextBudget().preflightBudget *
-          MID_LOOP_YIELD_THRESHOLD_RATIO;
-        const estimated = await runTokenEstimatePipeline(checkpoint.history);
-        if (estimated > midLoopThreshold) {
-          rlog.warn(
-            { phase: "mid-loop", estimated, threshold: midLoopThreshold },
-            "Token estimate approaching budget — yielding for compaction",
-          );
-          return "budget";
-        }
-      }
-
       return "continue";
     };
 
@@ -2326,9 +2315,8 @@ export async function runAgentLoopImpl(
           callSite: turnCallSite,
           turnContext: loopTurnCtx,
           overrideProfile: turnOverrideProfile,
-          effectiveMaxInputTokens: resolveCurrentMaxInputTokens(),
           resolveOverrideProfile: resolveCurrentOverrideProfile,
-          resolveEffectiveMaxInputTokens: resolveCurrentMaxInputTokens,
+          resolveContextWindow,
           // memory-v3-live: the latest user message carries the volatile v3
           // `<memory>` block, so anchor the provider's long-TTL cache breakpoint
           // on the most recent stable message instead.

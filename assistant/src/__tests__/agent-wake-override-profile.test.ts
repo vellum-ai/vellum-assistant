@@ -156,7 +156,9 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
     // and routing layers would short-circuit and silently drop both the
     // call-site config and the pinned override profile.
     expect(runArgs[0]!.options?.callSite).toBe("mainAgent");
-    expect(runArgs[0]!.options?.effectiveMaxInputTokens).toBe(150000);
+    expect(runArgs[0]!.options?.resolveContextWindow?.().maxInputTokens).toBe(
+      150000,
+    );
     // Sanity: the wake-source tag still propagates as requestId.
     expect(runArgs[0]!.options?.requestId).toBe("wake:scheduler");
   });
@@ -181,7 +183,9 @@ describe("wakeAgentForOpportunity — overrideProfile forwarding", () => {
     // maxTokens, effort, etc.). Otherwise the wake silently runs under
     // workspace defaults regardless of any per-call-site configuration.
     expect(runArgs[0]!.options?.callSite).toBe("mainAgent");
-    expect(runArgs[0]!.options?.effectiveMaxInputTokens).toBeGreaterThan(0);
+    expect(
+      runArgs[0]!.options?.resolveContextWindow?.().maxInputTokens,
+    ).toBeGreaterThan(0);
   });
 });
 

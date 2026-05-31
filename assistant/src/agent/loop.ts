@@ -9,6 +9,7 @@ import {
 import { calculateMaxToolResultChars } from "../context/tool-result-truncation.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response.js";
+import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate.js";
 import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error.js";
 import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
@@ -16,6 +17,8 @@ import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   EmptyResponseArgs,
   EmptyResponseDecision,
+  EstimateArgs,
+  EstimateResult,
   LLMCallArgs,
   LLMCallResult,
   ToolErrorArgs,
@@ -42,6 +45,23 @@ import { getLogger } from "../util/logger.js";
 import { isRetryableNetworkError } from "../util/retry.js";
 
 const log = getLogger("agent-loop");
+
+/**
+ * Mid-loop yield threshold expressed as a fraction of the preflight budget.
+ * When the running token estimate crosses this fraction at a tool-use
+ * checkpoint, the loop yields (`exitReason = "budget"`) so the orchestrator
+ * can compact before the next provider call would risk a hard
+ * context-too-large rejection.
+ */
+const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
+
+/**
+ * Above this many in-context messages the budget gate raises the safety
+ * margin floor: long histories accumulate hard-to-estimate residue (tool
+ * results, media stubs), so a wider margin keeps the estimate conservative.
+ */
+const LONG_HISTORY_MESSAGE_THRESHOLD = 50;
+const LONG_HISTORY_SAFETY_MARGIN_FLOOR = 0.15;
 
 export interface AgentLoopConfig {
   maxTokens: number;
@@ -423,9 +443,24 @@ export interface AgentLoopRunOptions {
    * call-site named profile. Missing profile names silently fall through.
    */
   overrideProfile?: string;
-  effectiveMaxInputTokens?: number;
   resolveOverrideProfile?: () => string | undefined;
-  resolveEffectiveMaxInputTokens?: () => number | undefined;
+  /**
+   * Resolves the orchestrator's current effective context window for this
+   * conversation: the provider max-input-token ceiling plus the
+   * overflow-recovery config that drives the mid-loop budget gate. Resolved
+   * fresh per checkpoint so a mid-turn inference-profile change (which can
+   * shift both the ceiling and the margins) is reflected immediately.
+   *
+   * Drives two things: tool-result truncation reads `maxInputTokens`, and the
+   * mid-loop budget gate reads `overflowRecovery`. When absent, the loop
+   * falls back to `this.config.maxInputTokens` for truncation and skips the
+   * budget gate entirely (callers with no orchestrator-side compaction path,
+   * e.g. agent wakes, pass `overflowRecovery.enabled = false`).
+   */
+  resolveContextWindow?: () => {
+    maxInputTokens: number;
+    overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
+  };
   /**
    * When true, the latest user message carries a volatile per-turn block
    * (e.g. a memory-v3 `<memory>` injection) that varies across otherwise
@@ -540,6 +575,35 @@ export class AgentLoop {
     return estimateToolsTokens(this.getResolvedTools(history));
   }
 
+  /**
+   * Estimate the total prompt tokens for the given history via the
+   * `tokenEstimate` plugin pipeline. The history and resolved-tool arrays are
+   * shallow-frozen so a misbehaving middleware that mutates its args (e.g.
+   * `args.history.push(...)`) cannot silently strip context from the loop's
+   * live `history`: TypeScript `readonly` does not prevent runtime mutation,
+   * but the frozen wrapper throws in strict mode.
+   */
+  private estimateTokens(
+    history: Message[],
+    turnContext: TurnContext,
+  ): Promise<EstimateResult> {
+    return runPipeline<EstimateArgs, EstimateResult>(
+      "tokenEstimate",
+      getMiddlewaresFor("tokenEstimate"),
+      defaultTokenEstimateTerminal,
+      {
+        history: Object.freeze([...history]) as Message[],
+        systemPrompt: this.systemPrompt,
+        tools: Object.freeze([
+          ...this.getResolvedTools(history),
+        ]) as ToolDefinition[],
+        providerName: getCalibrationProviderKey(this.provider),
+      },
+      turnContext,
+      DEFAULT_TIMEOUTS.tokenEstimate,
+    );
+  }
+
   async run(
     messages: Message[],
     onEvent: (event: AgentEvent) => void | Promise<void>,
@@ -552,9 +616,8 @@ export class AgentLoop {
       callSite,
       turnContext,
       overrideProfile,
-      effectiveMaxInputTokens,
       resolveOverrideProfile,
-      resolveEffectiveMaxInputTokens,
+      resolveContextWindow,
       mutableLatestUserMessage,
     } = options ?? {};
     const history = [...messages];
@@ -1249,8 +1312,7 @@ export class AgentLoop {
         // truncation strategy (e.g. a summariser) while the default
         // middleware preserves the historical tail-drop behaviour.
         const contextWindowTokens =
-          resolveEffectiveMaxInputTokens?.() ??
-          effectiveMaxInputTokens ??
+          resolveContextWindow?.().maxInputTokens ??
           this.config.maxInputTokens ??
           180_000;
         const maxChars = calculateMaxToolResultChars(contextWindowTokens);
@@ -1400,8 +1462,8 @@ export class AgentLoop {
         history.push({ role: "user", content: resultBlocks });
 
         // Invoke checkpoint callback after tool results are in history.
-        // The callback may be async — the mid-loop budget check delegates
-        // to the `tokenEstimate` plugin pipeline, which is asynchronous.
+        // Handoff is offered first so a queued message takes precedence over
+        // the mid-loop budget yield below.
         if (onCheckpoint) {
           const decision = await onCheckpoint({
             turnIndex: toolUseTurns - 1, // 0-based (toolUseTurns was already incremented)
@@ -1411,6 +1473,39 @@ export class AgentLoop {
           });
           if (decision !== "continue") {
             exitReason = decision;
+            break;
+          }
+        }
+
+        // Mid-loop budget gate: when overflow recovery is enabled, estimate
+        // the running context size and yield if it is approaching the
+        // preflight budget, letting the orchestrator compact before the next
+        // provider call would risk a hard context-too-large rejection. Keyed
+        // off the loop's own `history.length` (which reflects the messages
+        // actually in context this turn, including tool iterations) rather
+        // than the durable conversation count.
+        const contextWindow = resolveContextWindow?.();
+        if (contextWindow?.overflowRecovery.enabled) {
+          const { maxInputTokens, overflowRecovery } = contextWindow;
+          const safetyMargin =
+            history.length > LONG_HISTORY_MESSAGE_THRESHOLD
+              ? Math.max(
+                  overflowRecovery.safetyMarginRatio,
+                  LONG_HISTORY_SAFETY_MARGIN_FLOOR,
+                )
+              : overflowRecovery.safetyMarginRatio;
+          const preflightBudget = Math.floor(
+            maxInputTokens * (1 - safetyMargin),
+          );
+          const midLoopThreshold =
+            preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
+          const estimated = await this.estimateTokens(history, turnCtx);
+          if (estimated > midLoopThreshold) {
+            rlog.warn(
+              { phase: "mid-loop", estimated, threshold: midLoopThreshold },
+              "Token estimate approaching budget — yielding for compaction",
+            );
+            exitReason = "budget";
             break;
           }
         }
