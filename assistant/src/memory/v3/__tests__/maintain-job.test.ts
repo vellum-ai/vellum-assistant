@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { setOverridesForTesting } from "../../../__tests__/feature-flag-test-helpers.js";
 import type { AssistantConfig } from "../../../config/types.js";
 import type { MemoryJob } from "../../jobs-store.js";
 import { readPage, writePage } from "../../v2/page-store.js";
@@ -14,14 +15,10 @@ import type { LeafNode, LeafPath, LeafTree, Slug } from "../types.js";
 const FLAG_SHADOW = "memory-v3-shadow";
 const FLAG_LIVE = "memory-v3-live";
 
-function configWithFlags(flags: Record<string, boolean>): AssistantConfig {
-  return {
-    featureFlags: Object.entries(flags).map(([name, enabled]) => ({
-      name,
-      enabled,
-    })),
-  } as unknown as AssistantConfig;
-}
+// The flag resolver ignores the passed config and reads the override cache; the
+// config arg only satisfies the signature. Flags are driven via
+// `setOverridesForTesting` below.
+const CONFIG = {} as AssistantConfig;
 
 function makeLeaf(path: LeafPath): LeafNode {
   return {
@@ -42,7 +39,13 @@ function makeTree(paths: LeafPath[]): LeafTree {
 function makePage(slug: string, leaves?: string[]): ConceptPage {
   return {
     slug,
-    frontmatter: { summary: `Summary for ${slug}`, edges: [], leaves },
+    frontmatter: {
+      summary: `Summary for ${slug}`,
+      edges: [],
+      ref_files: [],
+      ref_urls: [],
+      leaves,
+    },
     body: `Body content for ${slug}`,
   };
 }
@@ -57,6 +60,7 @@ describe("maintainJob", () => {
   });
 
   afterEach(async () => {
+    setOverridesForTesting({});
     await rm(workspaceDir, { recursive: true, force: true });
   });
 
@@ -82,24 +86,18 @@ describe("maintainJob", () => {
   }
 
   test("no-op when both v3 flags are off", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: false, [FLAG_LIVE]: false });
     const { deps: d, calls } = deps();
-    const outcome = await maintainJob(
-      JOB,
-      configWithFlags({ [FLAG_SHADOW]: false, [FLAG_LIVE]: false }),
-      d,
-    );
+    const outcome = await maintainJob(JOB, CONFIG, d);
     expect(outcome.disabled).toBe(true);
     expect(calls.assign).toBe(0);
     expect(calls.invalidate).toBe(0);
   });
 
   test("runs assign + invalidate when shadow flag is on", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
     const { deps: d, calls } = deps();
-    const outcome = await maintainJob(
-      JOB,
-      configWithFlags({ [FLAG_SHADOW]: true }),
-      d,
-    );
+    const outcome = await maintainJob(JOB, CONFIG, d);
     expect(outcome.disabled).toBe(false);
     expect(calls.assign).toBe(1);
     expect(calls.invalidate).toBe(1);
@@ -107,13 +105,15 @@ describe("maintainJob", () => {
   });
 
   test("runs when only the live flag is on", async () => {
+    setOverridesForTesting({ [FLAG_LIVE]: true });
     const { deps: d, calls } = deps();
-    await maintainJob(JOB, configWithFlags({ [FLAG_LIVE]: true }), d);
+    await maintainJob(JOB, CONFIG, d);
     expect(calls.assign).toBe(1);
     expect(calls.invalidate).toBe(1);
   });
 
   test("counts pages newly assigned by the classify-union stage", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
     const { deps: d } = deps({
       assignPages: async () => [
         { slug: "p1", before: [], after: ["domain/topic-a"], failed: false },
@@ -126,15 +126,12 @@ describe("maintainJob", () => {
         },
       ],
     });
-    const outcome = await maintainJob(
-      JOB,
-      configWithFlags({ [FLAG_SHADOW]: true }),
-      d,
-    );
+    const outcome = await maintainJob(JOB, CONFIG, d);
     expect(outcome.assigned).toBe(1);
   });
 
   test("prune drops dangling leaf refs and rewrites the page", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
     await writePage(
       workspaceDir,
       makePage("dangling", ["domain/topic-a", "domain/gone"]),
@@ -143,11 +140,7 @@ describe("maintainJob", () => {
     await writePage(workspaceDir, makePage("empty", []));
 
     const { deps: d } = deps();
-    const outcome = await maintainJob(
-      JOB,
-      configWithFlags({ [FLAG_SHADOW]: true }),
-      d,
-    );
+    const outcome = await maintainJob(JOB, CONFIG, d);
 
     expect(outcome.pruned).toBe(1);
     expect(outcome.prunedRefs).toBe(1);
@@ -160,6 +153,7 @@ describe("maintainJob", () => {
   });
 
   test("contains an assign failure without aborting prune or invalidate", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
     await writePage(
       workspaceDir,
       makePage("dangling", ["domain/topic-a", "domain/gone"]),
@@ -169,11 +163,7 @@ describe("maintainJob", () => {
         throw new Error("assign boom");
       },
     });
-    const outcome = await maintainJob(
-      JOB,
-      configWithFlags({ [FLAG_SHADOW]: true }),
-      d,
-    );
+    const outcome = await maintainJob(JOB, CONFIG, d);
     expect(outcome.failures).toContain("assign");
     expect(outcome.pruned).toBe(1);
     expect(calls.invalidate).toBe(1);
@@ -181,16 +171,13 @@ describe("maintainJob", () => {
   });
 
   test("contains a tree-load failure but still invalidates lanes", async () => {
+    setOverridesForTesting({ [FLAG_SHADOW]: true });
     const { deps: d, calls } = deps({
       loadTree: async () => {
         throw new Error("load boom");
       },
     });
-    const outcome = await maintainJob(
-      JOB,
-      configWithFlags({ [FLAG_SHADOW]: true }),
-      d,
-    );
+    const outcome = await maintainJob(JOB, CONFIG, d);
     expect(outcome.failures).toContain("load_tree");
     expect(calls.assign).toBe(0);
     expect(calls.invalidate).toBe(1);
