@@ -261,10 +261,19 @@ export async function getAssistantDiskPressureStatus(
   );
 
   if (response.ok) {
+    const parsed = DiskPressureStatusResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        status: response.status,
+        error: toErrorObject(parsed.error.message, response),
+      };
+    }
+
     return {
       ok: true,
       status: response.status,
-      data: DiskPressureStatusResponseSchema.parse(data),
+      data: parsed.data,
     };
   }
 
@@ -296,10 +305,19 @@ export async function acknowledgeAssistantDiskPressure(
   );
 
   if (response.ok) {
+    const parsed = DiskPressureStatusResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        status: response.status,
+        error: toErrorObject(parsed.error.message, response),
+      };
+    }
+
     return {
       ok: true,
       status: response.status,
-      data: DiskPressureStatusResponseSchema.parse(data),
+      data: parsed.data,
     };
   }
 
