@@ -26,11 +26,6 @@ export function RecoveryModeControls({
   const [error, setError] = useState<string | null>(null);
   const platformGate = usePlatformGate();
 
-  // Self-hosted assistants don't run platform-managed Recovery Mode.
-  if (platformGate === "gated") return null;
-
-  const isActive = maintenanceMode?.enabled === true;
-
   const handleEnter = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -92,6 +87,14 @@ export function RecoveryModeControls({
       setLoading(false);
     }
   }, [assistantId, onMaintenanceModeChange]);
+
+  // Self-hosted assistants don't run platform-managed Recovery Mode.
+  // Early return must follow every hook above so that gate transitions
+  // (e.g. `disabled` -> `gated` as `platformFeaturesInLocalMode` hydrates)
+  // never skip a hook and trigger a hook-order violation.
+  if (platformGate === "gated") return null;
+
+  const isActive = maintenanceMode?.enabled === true;
 
   return (
     <div className="space-y-2">
