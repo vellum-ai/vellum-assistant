@@ -41,7 +41,7 @@ wired surface.
 ## TL;DR
 
 1. Create a directory `<workspaceDir>/plugins/my-plugin/`.
-2. Give the manifest a `name` and `version`.
+2. Drop a `package.json` with a `name` and a `peerDependencies["@vellumai/plugin-api"]` semver range.
 3. Add a `register.ts` that builds a `Plugin` object and passes it to
    `registerPlugin()` as an import-time side effect.
 4. Hang middleware, tools, routes, skills, or injectors off the `Plugin`
