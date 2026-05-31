@@ -102,21 +102,6 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
  *     • ───────────────
  *     • caller-provided action (PreferencesMenu)
  */
-
-/**
- * Strip a leading emoji + whitespace from an app's display name. Manifests
- * have historically baked an emoji into the name (e.g. "🚀 HQ") even though
- * the SideMenu already renders an icon next to it — yielding two icons. We
- * render just the textual part here so the sidebar reads "[icon] HQ".
- *
- * The regex matches Unicode "Extended_Pictographic" code points (emoji,
- * pictographs, symbols) at the start of the string plus any following
- * whitespace. Pure-ASCII labels pass through untouched.
- */
-export function stripLeadingEmoji(name: string): string {
-  return name.replace(/^\p{Extended_Pictographic}+\s*/u, "");
-}
-
 export function AssistantSideMenu({
   assistantId,
   assistantName,
@@ -419,7 +404,7 @@ export function AssistantSideMenu({
           <SideMenu.Item
             key={app.appId}
             icon={Rocket}
-            label={stripLeadingEmoji(app.name)}
+            label={app.name}
             active={activeAppId === app.appId}
             onSelect={onOpenApp ? () => { onOpenApp(app.appId); onClose?.(); } : undefined}
           />
