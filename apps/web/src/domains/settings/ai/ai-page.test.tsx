@@ -21,8 +21,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import type { SubscriptionResponse } from "@/generated/api/types.gen";
 import { organizationsBillingSubscriptionRetrieveQueryKey } from "@/generated/api/@tanstack/react-query.gen";
-import { useAuthStore } from "@/stores/auth-store";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 // The settings-card barrel re-exports toast surfaces; stub them so barrel
 // resolution doesn't pull the real toast module during the static render.
@@ -30,6 +28,13 @@ mock.module("@vellum/design-library/components/toast", () => ({
   toast: { success: () => {}, error: () => {} },
   Toaster: () => null,
   ToastContent: () => null,
+}));
+
+// These tests exercise the subscription entitlement gate, not the platform
+// gate. Mock usePlatformGate to always return "full" so the managed email
+// form renders and the entitlement logic is reachable.
+mock.module("@/hooks/use-platform-gate", () => ({
+  usePlatformGate: () => "full",
 }));
 
 const { EmailServiceCard } = await import("@/domains/settings/ai/ai-page");
@@ -52,8 +57,6 @@ function makeSubscription(
 }
 
 function renderCard(subscription: SubscriptionResponse): string {
-  useAuthStore.setState({ hasPlatformSession: true });
-  useAssistantFeatureFlagStore.setState({ hasHydrated: true });
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
