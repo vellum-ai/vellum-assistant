@@ -75,6 +75,7 @@ import {
   visibleProfilesForPicker,
 } from "@/domains/settings/ai/profile-pickers";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { readSecret } from "@/domains/settings/ai/provider-connections-client";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 
@@ -940,8 +941,9 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
+  const platformGate = usePlatformGate();
   const [mode, setMode] = useState<ServiceMode>(
-    () => getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
+    () => platformGate === "gated" ? "your-own" : getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
   );
   const [byoProviderId, setByoProviderId] = useState<EmailByoProvider["id"]>(
     () =>
@@ -979,7 +981,7 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
   // anyway.
   const subscriptionQuery = useQuery({
     ...organizationsBillingSubscriptionRetrieveOptions(),
-    enabled: mode === "managed",
+    enabled: mode === "managed" && platformGate === "full",
   });
   const subscriptionData = subscriptionQuery.data;
   const entitlements = subscriptionData?.entitlements;
@@ -999,13 +1001,13 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     ...assistantsDomainsListOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
-    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled,
+    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled && platformGate === "full",
   });
   const addressesQuery = useQuery({
     ...assistantsEmailAddressesListOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
-    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled,
+    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled && platformGate === "full",
   });
 
   const domain = domainsQuery.data?.results?.[0];
@@ -1016,7 +1018,7 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     ...assistantsEmailAddressesStatusRetrieveOptions({
       path: { assistant_id: assistantId ?? "", id: address?.id ?? "" },
     }),
-    enabled: !!assistantId && !!address?.id && mode === "managed",
+    enabled: !!assistantId && !!address?.id && mode === "managed" && platformGate === "full",
     refetchOnWindowFocus: false,
   });
 
@@ -1024,7 +1026,7 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     ...assistantsDomainsVerificationStatusRetrieveOptions({
       path: { assistant_id: assistantId ?? "", id: domain?.id ?? "" },
     }),
-    enabled: !!assistantId && !!domain?.id && mode === "managed",
+    enabled: !!assistantId && !!domain?.id && mode === "managed" && platformGate === "full",
     refetchInterval: (query) => {
       const st = query.state.data?.status;
       if (st === "verified" || st === "failed") return false;
@@ -1204,6 +1206,14 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     >
       {mode === "managed" ? (
         <div className="space-y-4">
+          {platformGate !== "full" ? (
+            <Notice tone="info">
+              {platformGate === "gated"
+                ? "Enable platform features to use managed email, or switch to Your Own."
+                : "Log in to the Vellum platform to manage email settings."}
+            </Notice>
+          ) : (
+          <>
           {subscriptionUnknown && (
             <Notice
               tone="warning"
@@ -1400,6 +1410,8 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
                 </p>
               )}
             </div>
+          )}
+          </>
           )}
         </div>
       ) : (
