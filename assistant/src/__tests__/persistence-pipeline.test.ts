@@ -34,7 +34,7 @@ import { initializeDb } from "../memory/db-init.js";
 import {
   defaultPersistencePlugin,
   defaultPersistenceTerminal,
-} from "../plugins/defaults/persistence.js";
+} from "../plugins/defaults/persistence/register.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

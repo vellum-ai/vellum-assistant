@@ -8,7 +8,7 @@ import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectorsPlugin,
   DISK_PRESSURE_WARNING_PROMPT,
-} from "../plugins/defaults/injectors.js";
+} from "../plugins/defaults/injectors/register.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,

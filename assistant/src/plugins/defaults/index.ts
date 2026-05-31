@@ -13,34 +13,34 @@
  *   production-parity state (e.g. `conversation-agent-loop.test.ts`); those
  *   call {@link resetPluginRegistryAndRegisterDefaults}.
  *
- * Each `defaults/<name>.ts` module self-registers at module load via a local
+ * Each `defaults/<name>/register.ts` module self-registers at module load via a local
  * side effect. Importing this aggregator (or any individual default file)
  * populates the registry — the self-registration is idempotent, and so are
  * {@link registerDefaultPlugins} and {@link resetPluginRegistryAndRegisterDefaults}.
  * Per-file self-registration is what keeps registration attached to each
  * file's own already-initialized plugin identifier, so importing
  * `defaults/index.ts` mid-cycle (e.g. through the
- * `memory-retrieval.ts` → … → `pipeline.ts` → `defaults/index.ts`
+ * `memory-retrieval/register.ts` → … → `pipeline.ts` → `defaults/index.ts`
  * chain) does not trip a TDZ.
  */
 
 import { memoryV3ShadowPlugin } from "../../memory/v3/shadow-plugin.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
-import { defaultCircuitBreakerPlugin } from "./circuit-breaker.js";
-import { defaultCompactionPlugin } from "./compaction.js";
-import { defaultEmptyResponsePlugin } from "./empty-response.js";
-import { defaultHistoryRepairPlugin } from "./history-repair.js";
-import { defaultInjectorsPlugin } from "./injectors.js";
-import { defaultLlmCallPlugin } from "./llm-call.js";
-import { defaultMemoryRetrievalPlugin } from "./memory-retrieval.js";
-import { defaultOverflowReducePlugin } from "./overflow-reduce.js";
-import { defaultPersistencePlugin } from "./persistence.js";
-import { defaultTitleGeneratePlugin } from "./title-generate.js";
-import { defaultTokenEstimatePlugin } from "./token-estimate.js";
-import { defaultToolErrorPlugin } from "./tool-error.js";
-import { defaultToolExecutePlugin } from "./tool-execute.js";
-import { defaultToolResultTruncatePlugin } from "./tool-result-truncate.js";
+import { defaultCircuitBreakerPlugin } from "./circuit-breaker/register.js";
+import { defaultCompactionPlugin } from "./compaction/register.js";
+import { defaultEmptyResponsePlugin } from "./empty-response/register.js";
+import { defaultHistoryRepairPlugin } from "./history-repair/register.js";
+import { defaultInjectorsPlugin } from "./injectors/register.js";
+import { defaultLlmCallPlugin } from "./llm-call/register.js";
+import { defaultMemoryRetrievalPlugin } from "./memory-retrieval/register.js";
+import { defaultOverflowReducePlugin } from "./overflow-reduce/register.js";
+import { defaultPersistencePlugin } from "./persistence/register.js";
+import { defaultTitleGeneratePlugin } from "./title-generate/register.js";
+import { defaultTokenEstimatePlugin } from "./token-estimate/register.js";
+import { defaultToolErrorPlugin } from "./tool-error/register.js";
+import { defaultToolExecutePlugin } from "./tool-execute/register.js";
+import { defaultToolResultTruncatePlugin } from "./tool-result-truncate/register.js";
 
 /**
  * Full set of first-party default plugins. Used by

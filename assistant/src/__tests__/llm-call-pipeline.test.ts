@@ -14,7 +14,7 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import type { TrustContext } from "../daemon/trust-context.js";
-import { defaultLlmCallPlugin } from "../plugins/defaults/llm-call.js";
+import { defaultLlmCallPlugin } from "../plugins/defaults/llm-call/register.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,
