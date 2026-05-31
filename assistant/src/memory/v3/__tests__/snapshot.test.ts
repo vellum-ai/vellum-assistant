@@ -8,8 +8,8 @@ import { restoreDataDir, snapshotDataDir } from "../snapshot.js";
 let tmpRoot: string;
 let dataDir: string;
 
-async function readJson<T>(file: string): Promise<T> {
-  return JSON.parse(await fs.readFile(file, "utf8")) as T;
+async function readJson(file: string): Promise<unknown> {
+  return JSON.parse(await fs.readFile(file, "utf8")) as unknown;
 }
 
 async function listLeaves(dir: string): Promise<Record<string, string>> {
