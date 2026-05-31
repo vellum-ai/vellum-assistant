@@ -9,16 +9,14 @@ import {
   resetSseDebugStateForTests,
   unregisterSseClient,
 } from "@/lib/streaming/stream-debug";
-import type { AssistantEventEnvelope } from "@/types/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 
 beforeEach(() => {
   resetSseDebugStateForTests();
 });
 
-function makeTextDeltaEnvelope(text: string): AssistantEventEnvelope {
-  return {
-    message: { type: "assistant_text_delta", text, messageId: "msg-1" },
-  };
+function makeTextDeltaEvent(text: string): AssistantEvent {
+  return { type: "assistant_text_delta", text, messageId: "msg-1" };
 }
 
 describe("registerSseClient", () => {
@@ -115,16 +113,16 @@ describe("pushSseEvent", () => {
   test("records event with client id and timestamp", () => {
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal, "conv-x");
-    const envelope = makeTextDeltaEnvelope("hello");
+    const event = makeTextDeltaEvent("hello");
 
     const before = Date.now();
-    pushSseEvent(id, envelope);
+    pushSseEvent(id, event);
     const after = Date.now();
 
     const events = getSseEvents();
     const last = events[events.length - 1];
     expect(last.clientId).toBe(id);
-    expect(last.event).toEqual(envelope);
+    expect(last.event).toEqual(event);
     expect(last.receivedAt).toBeGreaterThanOrEqual(before);
     expect(last.receivedAt).toBeLessThanOrEqual(after);
   });
@@ -132,11 +130,11 @@ describe("pushSseEvent", () => {
   test("caps event buffer at 1000 entries", () => {
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal, "conv-y");
-    const envelope = makeTextDeltaEnvelope("x");
+    const event = makeTextDeltaEvent("x");
 
     // Push 1005 events; only last 1000 should be retained
     for (let i = 0; i < 1005; i++) {
-      pushSseEvent(id, envelope);
+      pushSseEvent(id, event);
     }
 
     const events = getSseEvents();
@@ -148,10 +146,10 @@ describe("getSseEvents limit", () => {
   test("respects custom limit", () => {
     const ctrl = new AbortController();
     const id = registerSseClient(ctrl.signal, "conv-z");
-    const envelope = makeTextDeltaEnvelope("x");
+    const event = makeTextDeltaEvent("x");
 
     for (let i = 0; i < 20; i++) {
-      pushSseEvent(id, envelope);
+      pushSseEvent(id, event);
     }
 
     expect(getSseEvents(5).length).toBe(5);

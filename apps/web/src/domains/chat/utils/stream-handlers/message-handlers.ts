@@ -12,8 +12,8 @@ import {
   patchConversation,
 } from "@/utils/conversation-cache";
 import { useConversationStore } from "@/stores/conversation-store";
-import type { AssistantActivityStateEvent } from "@/types/event-types";
 import type {
+  AssistantActivityStateEvent,
   AssistantTextDeltaEvent,
   AssistantTurnStartEvent,
   GenerationCancelledEvent,

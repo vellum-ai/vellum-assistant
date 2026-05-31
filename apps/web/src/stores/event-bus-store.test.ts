@@ -1,15 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantEventEnvelope } from "@/types/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
 } from "@/stores/event-bus-store";
 
-function avatarEnvelope(): AssistantEventEnvelope {
-  return {
-    message: { type: "avatar_updated", avatarPath: "/tmp/avatar.png" },
-  };
+function avatarEvent(): AssistantEvent {
+  return { type: "avatar_updated", avatarPath: "/tmp/avatar.png" };
 }
 
 beforeEach(() => {
@@ -25,10 +23,10 @@ describe("event-bus-store", () => {
     const bus = useEventBusStore.getState();
     const handler = mock(() => {});
     bus.subscribe("sse.event", handler);
-    const envelope = avatarEnvelope();
-    bus.publish("sse.event", envelope);
+    const event = avatarEvent();
+    bus.publish("sse.event", event);
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler).toHaveBeenCalledWith(envelope);
+    expect(handler).toHaveBeenCalledWith(event);
   });
 
   test("publish delivers to every active subscriber", () => {
@@ -46,10 +44,10 @@ describe("event-bus-store", () => {
     const bus = useEventBusStore.getState();
     const handler = mock(() => {});
     const unsubscribe = bus.subscribe("sse.event", handler);
-    bus.publish("sse.event", avatarEnvelope());
+    bus.publish("sse.event", avatarEvent());
     expect(handler).toHaveBeenCalledTimes(1);
     unsubscribe();
-    bus.publish("sse.event", avatarEnvelope());
+    bus.publish("sse.event", avatarEvent());
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -67,7 +65,7 @@ describe("event-bus-store", () => {
     const bus = useEventBusStore.getState();
     const sseHandler = mock(() => {});
     const resumeHandler = mock(() => {});
-    bus.subscribe("sse.event", sseHandler);    
+    bus.subscribe("sse.event", sseHandler);
     bus.subscribe("app.resume", resumeHandler);
     bus.publish("app.resume", { signal: "visibility" });
     expect(sseHandler).not.toHaveBeenCalled();

@@ -3,7 +3,7 @@ import { cleanup, renderHook } from "@testing-library/react";
 import { act } from "react";
 import { useRef, type MutableRefObject } from "react";
 
-import type { AssistantEvent, AssistantEventEnvelope } from "@/types/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
   __resetEventBusForTesting,
@@ -80,13 +80,10 @@ function renderEventStreamWithCapture(
 
 function publishDelta(conversationId: string): void {
   useEventBusStore.getState().publish("sse.event", {
+    type: "assistant_text_delta",
     conversationId,
-    message: {
-      type: "assistant_text_delta",
-      conversationId,
-      delta: `delta-${Math.random().toString(36).slice(2, 6)}`,
-    },
-  } as unknown as AssistantEventEnvelope);
+    delta: `delta-${Math.random().toString(36).slice(2, 6)}`,
+  } as unknown as AssistantEvent);
 }
 
 beforeEach(() => {
@@ -236,20 +233,16 @@ describe("useEventStream — rapid conversation switch stress", () => {
       observeKey,
     );
     useEventBusStore.getState().publish("sse.event", {
-      message: {
-        type: "sync_changed",
-        tags: ["assistant:self:identity"],
-      },
-    } as unknown as AssistantEventEnvelope);
+      type: "sync_changed",
+      tags: ["assistant:self:identity"],
+    } as unknown as AssistantEvent);
     act(() => {
       rerender({ key: "conv-B" });
     });
     useEventBusStore.getState().publish("sse.event", {
-      message: {
-        type: "sync_changed",
-        tags: ["assistant:self:avatar"],
-      },
-    } as unknown as AssistantEventEnvelope);
+      type: "sync_changed",
+      tags: ["assistant:self:avatar"],
+    } as unknown as AssistantEvent);
     expect(captured).toHaveLength(2);
     expect((captured[0]!.event as { type: string }).type).toBe("sync_changed");
     expect((captured[1]!.event as { type: string }).type).toBe("sync_changed");

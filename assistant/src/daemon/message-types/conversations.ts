@@ -7,6 +7,7 @@ import type { ConversationListInvalidatedEvent } from "../../api/events/conversa
 import type { ConversationTitleUpdatedEvent } from "../../api/events/conversation-title-updated.js";
 import type { GenerationCancelledEvent } from "../../api/events/generation-cancelled.js";
 import type { GenerationHandoffEvent } from "../../api/events/generation-handoff.js";
+import type { UsageUpdateEvent } from "../../api/events/usage-update.js";
 import type {
   ChannelId,
   HostProxyInterfaceId,
@@ -424,19 +425,6 @@ export interface UndoComplete {
   conversationId?: string;
 }
 
-export interface UsageUpdate {
-  type: "usage_update";
-  conversationId: string;
-  inputTokens: number;
-  outputTokens: number;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  estimatedCost: number;
-  model: string;
-  contextWindowTokens?: number;
-  contextWindowMaxTokens?: number;
-}
-
 /**
  * Emitted after each LLM call with per-call token deltas and estimated cost.
  * Clients accumulate these additively for live-updating usage metrics.
@@ -561,7 +549,7 @@ export type _ConversationsServerMessages =
   | ModelInfo
   | HistoryResponse
   | UndoComplete
-  | UsageUpdate
+  | UsageUpdateEvent
   | UsageProgress
   | UsageResponse
   | ContextCompacted

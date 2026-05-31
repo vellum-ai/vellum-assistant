@@ -221,9 +221,9 @@ export function useEventStream({
     const presence: ChatEventStream = { cancel: () => {} };
     streamRef.current = presence;
 
-    const unsubEvent = bus.subscribe("sse.event", (envelope) => {
-      const eventConversationId = envelope.conversationId;
-      const event = envelope.message;
+    const unsubEvent = bus.subscribe("sse.event", (event) => {
+      const eventConversationId = (event as { conversationId?: string })
+        .conversationId;
       // Two-stage filter to prevent cross-conversation event leakage.
       // The bus opens a single unfiltered SSE connection, so every
       // event for every conversation flows through this subscriber.

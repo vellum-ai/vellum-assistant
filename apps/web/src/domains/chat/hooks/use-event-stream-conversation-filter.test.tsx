@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 import { useRef, type MutableRefObject } from "react";
 
-import type { AssistantEvent, AssistantEventEnvelope } from "@/types/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
   __resetEventBusForTesting,
@@ -60,13 +60,10 @@ function renderEventStream(
 
 function publishDelta(conversationId: string): void {
   useEventBusStore.getState().publish("sse.event", {
+    type: "assistant_text_delta",
     conversationId,
-    message: {
-      type: "assistant_text_delta",
-      conversationId,
-      delta: "hi",
-    },
-  } as unknown as AssistantEventEnvelope);
+    delta: "hi",
+  } as unknown as AssistantEvent);
 }
 
 beforeEach(() => {
@@ -116,11 +113,9 @@ describe("useEventStream — conversation-switch filtering", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
     useEventBusStore.getState().publish("sse.event", {
-      message: {
-        type: "sync_changed",
-        tags: ["assistant:self:identity"],
-      },
-    } as unknown as AssistantEventEnvelope);
+      type: "sync_changed",
+      tags: ["assistant:self:identity"],
+    } as unknown as AssistantEvent);
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -134,11 +129,9 @@ describe("useEventStream — conversation-switch filtering", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
     useEventBusStore.getState().publish("sse.event", {
-      message: {
-        type: "assistant_text_delta",
-        delta: "should be rejected",
-      },
-    } as unknown as AssistantEventEnvelope);
+      type: "assistant_text_delta",
+      delta: "should be rejected",
+    } as unknown as AssistantEvent);
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -146,13 +139,10 @@ describe("useEventStream — conversation-switch filtering", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
     useEventBusStore.getState().publish("sse.event", {
+      type: "message_complete",
       conversationId: "conv-A",
-      message: {
-        type: "message_complete",
-        conversationId: "conv-A",
-        messageId: "m1",
-      },
-    } as unknown as AssistantEventEnvelope);
+      messageId: "m1",
+    } as unknown as AssistantEvent);
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -160,13 +150,10 @@ describe("useEventStream — conversation-switch filtering", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
     useEventBusStore.getState().publish("sse.event", {
+      type: "tool_call",
       conversationId: "conv-B",
-      message: {
-        type: "tool_call",
-        conversationId: "conv-B",
-        toolName: "bash",
-      },
-    } as unknown as AssistantEventEnvelope);
+      toolName: "bash",
+    } as unknown as AssistantEvent);
     expect(handler).not.toHaveBeenCalled();
   });
 });

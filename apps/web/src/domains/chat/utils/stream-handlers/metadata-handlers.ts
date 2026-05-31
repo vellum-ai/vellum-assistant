@@ -4,11 +4,9 @@ import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/
 import type {
   CompactionCircuitClosedEvent,
   CompactionCircuitOpenEvent,
-} from "@vellumai/assistant-api";
-import type {
-  TurnProfileAutoRoutedEvent,
   UsageUpdateEvent,
-} from "@/types/event-types";
+} from "@vellumai/assistant-api";
+import type { TurnProfileAutoRoutedEvent } from "@/types/event-types";
 
 export function handleUsageUpdate(
   event: UsageUpdateEvent,

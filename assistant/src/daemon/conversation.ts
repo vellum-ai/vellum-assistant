@@ -17,6 +17,7 @@
 
 import type { AgentLoopConfig, ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
+import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type {
   InterfaceId,
   TurnChannelContext,
@@ -142,10 +143,7 @@ import type {
 } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
-import type {
-  AssistantActivityState,
-  ConfirmationStateChanged,
-} from "./message-types/messages.js";
+import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
@@ -1005,9 +1003,9 @@ export class Conversation {
   }
 
   emitActivityState(
-    phase: AssistantActivityState["phase"],
-    reason: AssistantActivityState["reason"],
-    anchor: AssistantActivityState["anchor"] = "assistant_turn",
+    phase: AssistantActivityStateEvent["phase"],
+    reason: AssistantActivityStateEvent["reason"],
+    anchor: AssistantActivityStateEvent["anchor"] = "assistant_turn",
     requestId?: string,
     statusText?: string,
   ): void {

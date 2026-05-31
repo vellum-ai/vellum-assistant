@@ -33,8 +33,7 @@ import { useConversationStore } from "@/stores/conversation-store";
 export function useNotificationIntentSync(
   assistantId: string | null,
 ): void {
-  useBusSubscription("sse.event", (envelope) => {
-    const event = envelope.message;
+  useBusSubscription("sse.event", (event) => {
     if (event.type !== "notification_intent") return;
 
     // Guardian-scoped notifications are for devices bound to that

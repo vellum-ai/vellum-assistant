@@ -6,7 +6,7 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import {
   conversationGroupsQueryKey,
 } from "@/domains/conversations/conversation-queries";
-import type { AssistantEventEnvelope } from "@/types/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 import type { Conversation } from "@/types/conversation-types";
 import { conversationsQueryKey } from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
@@ -71,7 +71,7 @@ function emit(event: SyncChangedEvent): void {
   // SyncChangedEvent is structurally assignable to AssistantSyncChangedEvent
   // (which only adds an optional conversationId field), so this cast is safe.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  useEventBusStore.getState().publish("sse.event", { message: event } as any);
+  useEventBusStore.getState().publish("sse.event", event as any);
 }
 
 function emitOpened(
@@ -304,13 +304,10 @@ describe("useConversationSync", () => {
       wrapper: createWrapper(queryClient),
     });
     useEventBusStore.getState().publish("sse.event", {
+      type: "conversation_title_updated",
       conversationId: "conv-1",
-      message: {
-        type: "conversation_title_updated",
-        conversationId: "conv-1",
-        title: "New Title",
-      },
-    } as unknown as AssistantEventEnvelope);
+      title: "New Title",
+    } as unknown as AssistantEvent);
     await waitFor(() => {
       const cached = queryClient.getQueryData<Conversation[]>(
         conversationsQueryKey("asst-1"),

@@ -15,12 +15,8 @@
 
 import type { AssistantEvent as APIAssistantEvent } from "@vellumai/assistant-api";
 import type { DiskPressureStatus } from "@/assistant/types";
-import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
 import type {
-  AllowlistOption,
-  DirectoryScopeOption,
-  ScopeOption,
   SubagentEventEvent,
   SubagentSpawnedEvent,
   SubagentStatusChangedEvent,
@@ -32,109 +28,6 @@ import type {
 
 /** Valid decisions accepted by the assistant runtime's POST /v1/confirm endpoint. */
 export type ConfirmationDecision = "allow" | "deny";
-
-export interface ToolResultEvent {
-  type: "tool_result";
-  toolName: string;
-  result: string;
-  isError?: boolean;
-  toolUseId?: string;
-  conversationId?: string;
-  /** Database ID of the assistant message that owns the parent tool_use
-   *  block. Same semantics as `AssistantTextDeltaEvent.messageId`. */
-  messageId?: string;
-  riskLevel?: string;
-  riskReason?: string;
-  matchedTrustRuleId?: string;
-  approvalMode?: string;
-  approvalReason?: string;
-  riskThreshold?: string;
-  allowlistOptions?: AllowlistOption[];
-  scopeOptions?: ScopeOption[];
-  directoryScopeOptions?: DirectoryScopeOption[];
-  /**
-   * Structured metadata describing tool activity (e.g. web_search,
-   * web_fetch). Optional — present only for tools that emit it (currently
-   * Anthropic-native web_search). See web-activity-types.ts.
-   */
-  activityMetadata?: ToolActivityMetadata;
-}
-
-/**
- * Periodic usage update emitted by the daemon with token counts for the
- * current conversation. `contextWindowTokens` / `contextWindowMaxTokens`
- * reflect the size of the most recent model request (input + cached tokens)
- * and the model's max input window. Either may be absent if unknown.
- */
-export interface UsageUpdateEvent {
-  type: "usage_update";
-  inputTokens?: number;
-  outputTokens?: number;
-  cachedInputTokens?: number;
-  cacheCreationInputTokens?: number;
-  contextWindowTokens?: number;
-  contextWindowMaxTokens?: number;
-  conversationId?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Assistant activity lifecycle
-// ---------------------------------------------------------------------------
-
-/**
- * Server-side assistant activity lifecycle for thinking-indicator placement
- * and turn-state recovery.
- *
- * The daemon emits one of these whenever the conversation transitions
- * between activity phases (`thinking`, `streaming`, `tool_running`,
- * `awaiting_confirmation`, `idle`). The `idle` phase is always terminal
- * for the active turn — daemon emit sites use it only with reason
- * `message_complete`, `generation_cancelled`, or `error_terminal`.
- *
- * `activityVersion` is monotonically increasing per conversation. Clients
- * must ignore events with a version older than the highest already
- * observed for that conversation.
- *
- * Mirrors `AssistantActivityState` in the daemon's
- * `assistant/src/daemon/message-types/messages.ts`.
- */
-export type AssistantActivityPhase =
-  | "idle"
-  | "thinking"
-  | "streaming"
-  | "tool_running"
-  | "awaiting_confirmation";
-
-export type AssistantActivityReason =
-  | "message_dequeued"
-  | "thinking_delta"
-  | "first_text_delta"
-  | "tool_use_start"
-  | "preview_start"
-  | "tool_result_received"
-  | "confirmation_requested"
-  | "confirmation_resolved"
-  | "context_compacting"
-  | "message_complete"
-  | "generation_cancelled"
-  | "error_terminal";
-
-export interface AssistantActivityStateEvent {
-  type: "assistant_activity_state";
-  activityVersion: number;
-  phase: AssistantActivityPhase;
-  anchor: "assistant_turn" | "user_turn" | "global";
-  reason: AssistantActivityReason;
-  requestId?: string;
-  statusText?: string;
-  conversationId?: string;
-}
-
-export interface NavigateSettingsEvent {
-  type: "navigate_settings";
-  tab: string;
-  conversationId?: string;
-}
 
 export interface DocumentEditorUpdateEvent {
   type: "document_editor_update";
@@ -154,30 +47,6 @@ export interface UnknownEvent {
 // ---------------------------------------------------------------------------
 // Conversation lifecycle events
 // ---------------------------------------------------------------------------
-
-/**
- * Server push asking the client to display a native notification. Mirrors
- * the daemon's `NotificationIntent` message (see
- * `assistant/src/daemon/message-types/notifications.ts`). The macOS client
- * turns these into `UNUserNotificationCenter` banners; the web / Capacitor
- * client turns them into local notifications (Capacitor iOS) or browser
- * notifications (desktop web).
- *
- * `targetGuardianPrincipalId`, when set, scopes the notification to clients
- * bound to that guardian identity. The web/Capacitor client does not yet
- * participate in guardian binding, so guardian-scoped notifications are
- * skipped to avoid leaking them to unintended devices.
- */
-export interface NotificationIntentEvent {
-  type: "notification_intent";
-  deliveryId?: string;
-  sourceEventName: string;
-  title: string;
-  body: string;
-  deepLinkMetadata?: Record<string, unknown>;
-  targetGuardianPrincipalId?: string;
-  conversationId?: string;
-}
 
 /**
  * Emitted by the daemon when the inference profile is auto-routed for the
@@ -264,11 +133,6 @@ export const USER_FACING_INTERACTION_KINDS: ReadonlySet<string> =
  */
 export type AssistantEvent =
   | APIAssistantEvent
-  | ToolResultEvent
-  | NotificationIntentEvent
-  | UsageUpdateEvent
-  | AssistantActivityStateEvent
-  | NavigateSettingsEvent
   | DiskPressureStatusChangedEvent
   | AssistantSyncChangedEvent
   | SubagentSpawnedEvent
@@ -277,23 +141,3 @@ export type AssistantEvent =
   | DocumentEditorUpdateEvent
   | TurnProfileAutoRoutedEvent
   | UnknownEvent;
-
-/**
- * Parsed SSE envelope wrapping an {@link AssistantEvent}.
- *
- * The daemon emits events wrapped in an envelope carrying transport-level
- * metadata: a per-event UUID (`id`), an optional monotonic sequence
- * number (`seq`) for gap detection, and an emission timestamp
- * (`emittedAt`). `conversationId` is the envelope-level routing key.
- *
- * Envelope-level fields are optional because legacy/flat payloads
- * (no wrapper) may omit them. For envelope-wrapped payloads — the only
- * shape the current daemon emits — all fields except `seq` are present.
- */
-export interface AssistantEventEnvelope {
-  id?: string;
-  conversationId?: string;
-  seq?: number;
-  emittedAt?: string;
-  message: AssistantEvent;
-}

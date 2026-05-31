@@ -1,5 +1,6 @@
 // External service integrations: Slack, Telegram, Vercel, ingress, guardian.
 
+import type { NavigateSettingsEvent } from "../../api/events/navigate-settings.js";
 import type { OpenUrlEvent } from "../../api/events/open-url.js";
 import type { ChannelId } from "../../channels/types.js";
 
@@ -207,11 +208,6 @@ export interface OAuthConnectResultResponse {
   error?: string;
 }
 
-export interface NavigateSettings {
-  type: "navigate_settings";
-  tab: string;
-}
-
 export interface ShowPlatformLogin {
   type: "show_platform_login";
 }
@@ -246,6 +242,6 @@ export type _IntegrationsServerMessages =
   | IntegrationConnectResult
   | OAuthConnectResultResponse
   | OpenUrlEvent
-  | NavigateSettings
+  | NavigateSettingsEvent
   | ShowPlatformLogin
   | PlatformDisconnected;

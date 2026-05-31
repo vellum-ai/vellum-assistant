@@ -54,26 +54,23 @@ function publishInteractionResolved(payload: {
 }) {
   act(() => {
     useEventBusStore.getState().publish("sse.event", {
+      type: "interaction_resolved",
+      requestId: payload.requestId,
       conversationId: payload.conversationId,
-      message: {
-        type: "interaction_resolved",
-        requestId: payload.requestId,
-        conversationId: payload.conversationId,
-        state: payload.state,
-        // Cast through the daemon-mirrored union; tests intentionally feed
-        // both user-facing and host-proxy kinds.
-        kind: (payload.kind ?? "confirmation") as
-          | "confirmation"
-          | "secret"
-          | "question"
-          | "acp_confirmation"
-          | "host_bash"
-          | "host_file"
-          | "host_cu"
-          | "host_browser"
-          | "host_app_control"
-          | "host_transfer",
-      },
+      state: payload.state,
+      // Cast through the daemon-mirrored union; tests intentionally feed
+      // both user-facing and host-proxy kinds.
+      kind: (payload.kind ?? "confirmation") as
+        | "confirmation"
+        | "secret"
+        | "question"
+        | "acp_confirmation"
+        | "host_bash"
+        | "host_file"
+        | "host_cu"
+        | "host_browser"
+        | "host_app_control"
+        | "host_transfer",
     });
   });
 }

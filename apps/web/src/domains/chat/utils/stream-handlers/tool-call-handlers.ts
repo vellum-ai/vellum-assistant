@@ -3,9 +3,11 @@ import {
   upsertToolCall,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { ToolResultEvent } from "@/types/event-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import type { ToolUseStartEvent } from "@vellumai/assistant-api";
+import type {
+  ToolResultEvent,
+  ToolUseStartEvent,
+} from "@vellumai/assistant-api";
 
 export function handleToolUseStart(
   event: ToolUseStartEvent,
@@ -61,9 +63,8 @@ export function handleToolResult(
       approvalMode: event.approvalMode,
       approvalReason: event.approvalReason,
       riskThreshold: event.riskThreshold,
-      allowlistOptions: event.allowlistOptions,
-      scopeOptions: event.scopeOptions,
-      directoryScopeOptions: event.directoryScopeOptions,
+      allowlistOptions: event.riskAllowlistOptions,
+      directoryScopeOptions: event.riskDirectoryScopeOptions,
       activityMetadata: event.activityMetadata,
     }),
   );

@@ -205,8 +205,7 @@ export function useAttentionTracking({
   // silently-ignored by default instead of accidentally clearing
   // processing state.
   // -------------------------------------------------------------------------
-  useBusSubscription("sse.event", (envelope) => {
-    const event = envelope.message;
+  useBusSubscription("sse.event", (event) => {
     if (!assistantId) return;
     if (event.type !== "interaction_resolved") return;
     if (!USER_FACING_INTERACTION_KINDS.has(event.kind)) return;

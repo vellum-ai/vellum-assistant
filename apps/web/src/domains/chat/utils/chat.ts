@@ -19,6 +19,10 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   "conversation_list_invalidated",
   "conversation_title_updated",
   "notification_intent",
+  // Client directive to open a settings tab — carries no `conversationId`
+  // (daemon emits `{ type, tab }`), so the conversation-id gate would
+  // otherwise drop it before it reached `handleNavigateSettings`.
+  "navigate_settings",
   "identity_changed",
   "avatar_updated",
   "sync_changed",

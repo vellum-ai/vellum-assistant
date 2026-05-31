@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
-import type { AssistantEventEnvelope } from "@/types/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import {
   assistantDaemonConfigQueryKey,
@@ -38,10 +38,8 @@ function syncEvent(tags: string[]): SyncChangedEvent {
   return { type: "sync_changed", tags };
 }
 
-function emit(event: unknown): void {
-  useEventBusStore.getState().publish("sse.event", {
-    message: event,
-  } as AssistantEventEnvelope);
+function emit(event: AssistantEvent): void {
+  useEventBusStore.getState().publish("sse.event", event);
 }
 
 beforeEach(() => {
@@ -61,7 +59,7 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync("asst-1", false), {
       wrapper: createWrapper(queryClient),
     });
-    emit(syncEvent([SYNC_TAGS.assistantAvatar]));
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -72,7 +70,7 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync(null, true), {
       wrapper: createWrapper(queryClient),
     });
-    emit(syncEvent([SYNC_TAGS.assistantAvatar]));
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -83,7 +81,7 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit(syncEvent([SYNC_TAGS.assistantAvatar]));
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
         queryKey: avatarQueryKey("asst-1"),
@@ -99,7 +97,7 @@ describe("useAssistantResourceSync", () => {
       wrapper: createWrapper(queryClient),
     });
     emit(
-      syncEvent([SYNC_TAGS.assistantIdentity]),
+      syncEvent([SYNC_TAGS.assistantIdentity]) as unknown as AssistantEvent,
     );
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
@@ -123,7 +121,7 @@ describe("useAssistantResourceSync", () => {
         SYNC_TAGS.assistantConfig,
         SYNC_TAGS.assistantSounds,
         SYNC_TAGS.assistantSchedules,
-      ]),
+      ]) as unknown as AssistantEvent,
     );
     await waitFor(() => {
       const queryKeys = calls.map(
@@ -150,7 +148,7 @@ describe("useAssistantResourceSync", () => {
       type: "home_feed_updated",
       updatedAt: "2026-05-21T00:00:00Z",
       newItemCount: 1,
-    });
+    } as unknown as AssistantEvent);
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
         queryKey: [HOME_FEED_QUERY_KEY_PREFIX],
@@ -171,7 +169,7 @@ describe("useAssistantResourceSync", () => {
     emit({
       type: "relationship_state_updated",
       updatedAt: "2026-05-21T00:00:00Z",
-    });
+    } as unknown as AssistantEvent);
     await waitFor(() => {
       const queryKeys = calls.map(
         ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey,
@@ -192,7 +190,7 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit({ type: "identity_changed" });
+    emit({ type: "identity_changed" } as unknown as AssistantEvent);
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
         queryKey: assistantIdentityQueryKey("asst-1"),
@@ -207,7 +205,7 @@ describe("useAssistantResourceSync", () => {
     renderHook(() => useAssistantResourceSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    emit({ type: "avatar_updated" });
+    emit({ type: "avatar_updated" } as unknown as AssistantEvent);
     await waitFor(() => {
       expect(spy).toHaveBeenCalledWith({
         queryKey: avatarQueryKey("asst-1"),
@@ -226,7 +224,7 @@ describe("useAssistantResourceSync", () => {
       type: "assistant_text_delta",
       conversationId: "convo-1",
       delta: "hi",
-    });
+    } as unknown as AssistantEvent);
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -242,11 +240,11 @@ describe("useAssistantResourceSync", () => {
         initialProps: { active: true },
       },
     );
-    emit(syncEvent([SYNC_TAGS.assistantAvatar]));
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
     expect(spy).toHaveBeenCalledTimes(1);
     spy.mockClear();
     rerender({ active: false });
-    emit(syncEvent([SYNC_TAGS.assistantAvatar]));
+    emit(syncEvent([SYNC_TAGS.assistantAvatar]) as unknown as AssistantEvent);
     expect(spy).not.toHaveBeenCalled();
   });
 });
