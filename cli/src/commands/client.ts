@@ -481,6 +481,8 @@ async function runViteDevServer(webSourceDir: string): Promise<void> {
       ...process.env,
       VITE_PLATFORM_MODE: "false",
       API_PROXY_TARGET: platformUrl,
+      VELLUM_WEB_URL: getWebUrl(),
+      VELLUM_PLATFORM_URL: platformUrl,
       PORT: "3000",
     },
   });

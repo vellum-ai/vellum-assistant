@@ -174,7 +174,7 @@ function configMiddleware(env: Record<string, string>): Connect.NextHandleFuncti
  */
 function accountSpaFallback(server: ViteDevServer): Connect.NextHandleFunction {
   return (req, res, next) => {
-    if (!req.url?.startsWith("/account")) return next();
+    if (!req.url?.startsWith("/account/") && !req.url?.startsWith("/account?") && req.url !== "/account") return next();
 
     const indexPath = path.join(server.config.root, "index.html");
     fs.readFile(indexPath, "utf-8", (err, html) => {
