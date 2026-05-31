@@ -82,6 +82,7 @@ import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-han
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
+import { hydrateLastSeenSeqFromStorage } from "@/lib/streaming/last-seen-seq";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
 import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
@@ -220,6 +221,13 @@ export function ChatPage() {
   });
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
+
+  // Hydrate per-conversation seq cursors from localStorage once so gap
+  // detection in use-event-stream has a seeded cursor before the first
+  // bus event arrives.
+  useEffect(() => {
+    hydrateLastSeenSeqFromStorage();
+  }, []);
 
   // -------------------------------------------------------------------------
   // Conversation list / groups (server state via TanStack Query)

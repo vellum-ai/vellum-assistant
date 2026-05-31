@@ -40,6 +40,10 @@ import {
   recordDiagnostic,
   resolvePlatformTag,
 } from "@/lib/diagnostics";
+import {
+  getLastSeenSeq,
+  setLastSeenSeq,
+} from "@/lib/streaming/last-seen-seq";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncRouter,
@@ -221,6 +225,12 @@ export function useEventStream({
     const presence: ChatEventStream = { cancel: () => {} };
     streamRef.current = presence;
 
+    // Gate so the very first event after a conversation switch seeds
+    // the seq cursor without triggering a reconcile. Prevents spurious
+    // refetches when switching to a conversation whose stored cursor
+    // is stale (e.g., stored=50 but server is at seq=500).
+    let seededSeqForConversation = false;
+
     const unsubEvent = bus.subscribe("sse.event", (envelope) => {
       const event = envelope.message;
       const eventConversationId = envelope.conversationId;
@@ -253,7 +263,33 @@ export function useEventStream({
         });
         return;
       }
+
+      // --- B7.3 gap detection ---
+      const eventSeq = envelope.seq;
+      if (typeof eventSeq === "number" && eventConversationId) {
+        if (seededSeqForConversation) {
+          const stored = getLastSeenSeq(eventConversationId) ?? 0;
+          if (eventSeq > stored + 1) {
+            recordDiagnostic("sse_seq_gap_detected", {
+              conversationId: eventConversationId,
+              stored,
+              observed: eventSeq,
+              gap: eventSeq - stored,
+            });
+            reconcileActiveConversationRef.current();
+          }
+        } else {
+          seededSeqForConversation = true;
+        }
+      }
+
       handleStreamEventRef.current(event, streamEpochRef.current);
+
+      // Advance the seq cursor AFTER the handler returns so a thrown
+      // handler does not advance the cursor past unapplied work.
+      if (typeof eventSeq === "number" && eventConversationId) {
+        setLastSeenSeq(eventConversationId, eventSeq);
+      }
     });
 
     return () => {
