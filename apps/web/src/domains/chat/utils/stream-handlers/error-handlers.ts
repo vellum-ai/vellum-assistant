@@ -50,7 +50,6 @@ export function handleConversationErrorEvent(
   // (which is a mirror that may be cleared by a stream teardown
   // racing the error event) — same fallback shape as the other
   // terminal handlers.
-<<<<<<< HEAD
   const convId =
     event.conversationId ?? ctx.streamContextRef.current?.conversationId;
   if (convId) {
@@ -60,18 +59,6 @@ export function handleConversationErrorEvent(
     });
   }
   ctx.endTurn({ conversationId: convId, reason: "error" });
-||||||| parent of 93e585ecce (api-events: canonicalize `error` family (APE.14, Batch 10))
-  ctx.endTurn({
-    conversationId: event.conversationId ?? ctx.streamContextRef.current?.conversationId,
-    reason: "error",
-  });
-=======
-  ctx.endTurn({
-    conversationId:
-      event.conversationId ?? ctx.streamContextRef.current?.conversationId,
-    reason: "error",
-  });
->>>>>>> 93e585ecce (api-events: canonicalize `error` family (APE.14, Batch 10))
 
   ctx.setMessages(handleConversationError);
 

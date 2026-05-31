@@ -905,16 +905,15 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown error when extra field is present", () => {
-    const data = {
+  test("strips unknown fields from error", () => {
+    const event = parseAssistantEvent({
       type: "error",
       message: "boom",
       surpriseField: "boom",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "error",
-      data,
+    });
+    expect(event).toEqual({
+      type: "error",
+      message: "boom",
     });
   });
 
@@ -995,20 +994,21 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("returns unknown conversation_error when extra field is present", () => {
-    const data = {
+  test("strips unknown fields from conversation_error", () => {
+    const event = parseAssistantEvent({
       type: "conversation_error",
       conversationId: "conv-5",
       code: "UNKNOWN",
       userMessage: "Something went wrong.",
       retryable: false,
       surpriseField: "boom",
-    };
-    expect(parseAssistantEvent(data)).toEqual({
-      type: "unknown",
-      rawType: "conversation_error",
-      data,
+    });
+    expect(event).toEqual({
+      type: "conversation_error",
       conversationId: "conv-5",
+      code: "UNKNOWN",
+      userMessage: "Something went wrong.",
+      retryable: false,
     });
   });
 

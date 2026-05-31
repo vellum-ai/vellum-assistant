@@ -19,16 +19,14 @@
 
 import { z } from "zod";
 
-export const ErrorEventSchema = z
-  .object({
-    type: z.literal("error"),
-    message: z.string(),
-    code: z.string().optional(),
-    category: z.string().optional(),
-    errorCategory: z.string().optional(),
-    requestId: z.string().optional(),
-    conversationId: z.string().optional(),
-  })
-  .strict();
+export const ErrorEventSchema = z.object({
+  type: z.literal("error"),
+  message: z.string(),
+  code: z.string().optional(),
+  category: z.string().optional(),
+  errorCategory: z.string().optional(),
+  requestId: z.string().optional(),
+  conversationId: z.string().optional(),
+});
 
 export type ErrorEvent = z.infer<typeof ErrorEventSchema>;

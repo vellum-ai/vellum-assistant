@@ -49,30 +49,28 @@ export const ConversationErrorCodeSchema = z.enum([
 
 export type ConversationErrorCode = z.infer<typeof ConversationErrorCodeSchema>;
 
-export const ConversationErrorEventSchema = z
-  .object({
-    type: z.literal("conversation_error"),
-    conversationId: z.string(),
-    code: ConversationErrorCodeSchema,
-    userMessage: z.string(),
-    retryable: z.boolean(),
-    debugDetails: z.string().optional(),
-    errorCategory: z.string().optional(),
-    /**
-     * Name of the `provider_connections` row in play when the error
-     * occurred. Lets the chat banner point users at the connection to
-     * fix (e.g. an invalid API key). Absent when the error fires before
-     * a connection is resolved.
-     */
-    connectionName: z.string().optional(),
-    /**
-     * Name of the resolved profile (active or per-call override) in
-     * play when the error occurred. Absent when the error fires before
-     * a profile is resolved.
-     */
-    profileName: z.string().optional(),
-  })
-  .strict();
+export const ConversationErrorEventSchema = z.object({
+  type: z.literal("conversation_error"),
+  conversationId: z.string(),
+  code: ConversationErrorCodeSchema,
+  userMessage: z.string(),
+  retryable: z.boolean(),
+  debugDetails: z.string().optional(),
+  errorCategory: z.string().optional(),
+  /**
+   * Name of the `provider_connections` row in play when the error
+   * occurred. Lets the chat banner point users at the connection to
+   * fix (e.g. an invalid API key). Absent when the error fires before
+   * a connection is resolved.
+   */
+  connectionName: z.string().optional(),
+  /**
+   * Name of the resolved profile (active or per-call override) in
+   * play when the error occurred. Absent when the error fires before
+   * a profile is resolved.
+   */
+  profileName: z.string().optional(),
+});
 
 export type ConversationErrorEvent = z.infer<
   typeof ConversationErrorEventSchema
