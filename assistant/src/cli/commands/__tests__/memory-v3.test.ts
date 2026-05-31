@@ -109,11 +109,20 @@ beforeEach(async () => {
   await writePage("page-3", ["domain-b/topic-z"]);
 
   // STALE assignments.json: deliberately divergent from the frontmatter above.
-  // If a handler read this instead of the page index it would compute the wrong
-  // membership/slug universe (this is the regression Defect A guards against).
+  // It re-maps the SAME slugs that already carry `leaves:` frontmatter to the
+  // WRONG leaves. `loadLeafTree`'s per-page precedence only lets frontmatter win
+  // when it is non-empty, so for these slugs the frontmatter wins and
+  // assignments.json contributes no membership — proving the handlers read the
+  // page index, not these stale assignments (the regression Defect A guards
+  // against). We deliberately avoid a slug that exists ONLY in assignments.json:
+  // such a slug has no frontmatter, falls back to its assignments entry, and
+  // would inflate the cost preview below with phantom membership.
   await writeFile(
     join(dataDir, "assignments.json"),
-    JSON.stringify({ "stale-page": ["domain-a/topic-x"] }),
+    JSON.stringify({
+      "page-1": ["domain-a/bogus-leaf"],
+      "page-2": ["domain-b/topic-z"],
+    }),
   );
   await writeFile(
     join(dataDir, "core.json"),
@@ -152,9 +161,9 @@ describe("handleMemoryV3SetCore", () => {
   test("previews the always-on page count from frontmatter membership", async () => {
     // Adding topic-y to core: core = {topic-x, topic-y}. Membership comes from
     // page `leaves:` frontmatter — topic-x → {page-1, page-2}, topic-y →
-    // {page-2} ⇒ unique always-on slugs {page-1, page-2} = 2. (The stale
-    // assignments.json names only "stale-page"; if it were the source this
-    // would be wrong.)
+    // {page-2} ⇒ unique always-on slugs {page-1, page-2} = 2. If the handler
+    // read the stale assignments.json instead (page-1 → bogus-leaf, page-2 →
+    // topic-z), topic-x/topic-y would have no members and this would be 0.
     const result = await handleMemoryV3SetCore(
       { add: ["domain-a/topic-y"] },
       { dataDir, workspaceDir },
@@ -201,11 +210,12 @@ describe("handleMemoryV3Health", () => {
     // non-empty and renders the memory-v3 health header.
     expect(result.rendered).toContain("memory-v3 health:");
     expect(result.counts.tinyLeaves).toBeGreaterThanOrEqual(1);
-    // Every page leaf ref resolves to a real leaf file ⇒ no dangling refs.
+    // Every page leaf ref (from frontmatter) resolves to a real leaf file ⇒ no
+    // dangling refs. If assignments.json were the source, page-1's bogus-leaf
+    // would dangle.
     expect(result.counts.danglingRefs).toBe(0);
-    // The slug universe is the page-index pages (page-1..3), all of which are
-    // assigned, so nothing is unassigned. The stale "stale-page" entry from
-    // assignments.json is NOT in the universe (proves frontmatter wins).
+    // The slug universe is the page-index pages (page-1..3), all assigned via
+    // frontmatter, so nothing is unassigned.
     expect(result.counts.unassigned).toBe(0);
   });
 
