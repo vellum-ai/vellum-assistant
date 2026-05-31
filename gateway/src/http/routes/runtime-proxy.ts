@@ -27,7 +27,53 @@ const log = getLogger("runtime-proxy");
  */
 const WEBHOOK_PATH_RE = /^\/webhooks\//;
 
-export function createRuntimeProxyHandler(config: GatewayConfig) {
+type RecordActivityHook = (activity: {
+  assistantId: string;
+  method: string;
+  path: string;
+}) => void | Promise<void>;
+
+interface RuntimeProxyHandlerOptions {
+  recordActivity?: RecordActivityHook;
+}
+
+const CHAT_MESSAGE_ACTIVITY_RE =
+  /^\/v1\/assistants\/([^/]+)\/messages(?:\/.*)?\/?$/;
+
+function chatMessageActivityAssistantId(
+  method: string,
+  pathname: string,
+): string | null {
+  if (method !== "POST") return null;
+  const match = CHAT_MESSAGE_ACTIVITY_RE.exec(pathname);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+function notifyActivity(
+  hook: RecordActivityHook | undefined,
+  activity: { assistantId: string; method: string; path: string },
+): void {
+  if (!hook) return;
+
+  try {
+    void Promise.resolve(hook(activity)).catch((err) => {
+      log.debug(
+        { err, ...activity },
+        "Failed to notify platform of chat activity",
+      );
+    });
+  } catch (err) {
+    log.debug(
+      { err, ...activity },
+      "Failed to notify platform of chat activity",
+    );
+  }
+}
+
+export function createRuntimeProxyHandler(
+  config: GatewayConfig,
+  options: RuntimeProxyHandlerOptions = {},
+) {
   return async (req: Request, clientIp?: string): Promise<Response> => {
     const start = performance.now();
     const url = new URL(req.url);
@@ -83,6 +129,18 @@ export function createRuntimeProxyHandler(config: GatewayConfig) {
       );
     } else {
       exchangeToken = mintServiceToken();
+    }
+
+    const activityAssistantId = chatMessageActivityAssistantId(
+      req.method,
+      url.pathname,
+    );
+    if (activityAssistantId) {
+      notifyActivity(options.recordActivity, {
+        assistantId: activityAssistantId,
+        method: req.method,
+        path: url.pathname,
+      });
     }
 
     // The daemon uses flat /v1/... paths. Rewrite any legacy

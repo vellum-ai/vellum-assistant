@@ -119,6 +119,58 @@ describe("runtime proxy handler", () => {
     expect(capturedBody).toBe('{"message":"hello"}');
   });
 
+  test("notifies platform activity for assistant-scoped chat message posts", async () => {
+    const recordActivity = mock(async () => undefined);
+    fetchMock = mock(async () => {
+      return new Response(JSON.stringify({ accepted: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const handler = createRuntimeProxyHandler(makeConfig(), {
+      recordActivity,
+    });
+    const req = new Request(
+      "http://localhost:7830/v1/assistants/test-assistant/messages/",
+      {
+        method: "POST",
+        body: JSON.stringify({ content: "hello" }),
+        headers: { "content-type": "application/json" },
+      },
+    );
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    expect(recordActivity).toHaveBeenCalledTimes(1);
+    expect(recordActivity).toHaveBeenCalledWith({
+      assistantId: "test-assistant",
+      method: "POST",
+      path: "/v1/assistants/test-assistant/messages/",
+    });
+  });
+
+  test("does not notify platform activity for chat message reads", async () => {
+    const recordActivity = mock(async () => undefined);
+    fetchMock = mock(async () => {
+      return new Response(JSON.stringify({ messages: [] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    });
+
+    const handler = createRuntimeProxyHandler(makeConfig(), {
+      recordActivity,
+    });
+    const req = new Request(
+      "http://localhost:7830/v1/assistants/test-assistant/messages/",
+    );
+    const res = await handler(req);
+
+    expect(res.status).toBe(200);
+    expect(recordActivity).not.toHaveBeenCalled();
+  });
+
   test("relays upstream status code", async () => {
     fetchMock = mock(async () => {
       return new Response("Not Found", { status: 404 });

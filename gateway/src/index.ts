@@ -480,7 +480,9 @@ async function main() {
   const handleListBackups = createListBackupsHandler(backupDeps);
   const handleCreateBackup = createBackupSnapshotHandler(backupDeps);
 
-  const handleRuntimeProxy = createRuntimeProxyHandler(config);
+  const handleRuntimeProxy = createRuntimeProxyHandler(config, {
+    recordActivity: () => notifyRecordActivity(),
+  });
 
   // Helper to reject when an integration isn't configured
   const requireConfigured = (
@@ -1761,9 +1763,9 @@ async function main() {
   // ── Slack Socket Mode lifecycle ──
   let slackSocketClient: SlackSocketModeClient | null = null;
 
-  /** Fire-and-forget: notify the platform of inbound Slack activity so the
-   *  idle-sleep timer is reset for this assistant.
-   *  Throttled to at most one outbound POST per 30 seconds. */
+  /** Fire-and-forget: notify the platform of inbound user activity so the
+   * idle-sleep timer is reset for this assistant.
+   * Throttled to at most one outbound POST per 30 seconds. */
   let lastRecordActivityTs = 0;
   async function notifyRecordActivity(): Promise<void> {
     if (!arePlatformFeaturesEnabled()) {
@@ -1807,7 +1809,7 @@ async function main() {
     } catch (err) {
       log.debug(
         { err },
-        "Failed to notify platform of Slack activity for idle sleep",
+        "Failed to notify platform of inbound activity for idle sleep",
       );
     }
   }
