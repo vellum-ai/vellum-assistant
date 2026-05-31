@@ -195,7 +195,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
     const loop = new AgentLoop(provider, "system prompt", {}, dummyTools);
 
     const events: AgentEvent[] = [];
-    const result = await loop.run([userMessage], (e) => {
+    const { history: result } = await loop.run([userMessage], (e) => {
       events.push(e);
     });
 
@@ -266,7 +266,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
       toolExecutor,
     );
 
-    const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision => "yield";
+    const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision => ({
+      yield: "budget",
+    });
 
     const events: AgentEvent[] = [];
     await loop.run(

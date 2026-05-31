@@ -2276,9 +2276,7 @@ export async function runAgentLoopImpl(
       state.currentTurnToolNames = [];
 
       if (ctx.canHandoffAtCheckpoint()) {
-        yieldedForHandoff = true;
-        pendingCheckpointYield = "handoff";
-        return "yield";
+        return { yield: "handoff" };
       }
 
       // Mid-loop token budget check: estimate current context size and
@@ -2294,9 +2292,7 @@ export async function runAgentLoopImpl(
             { phase: "mid-loop", estimated, threshold: midLoopThreshold },
             "Token estimate approaching budget — yielding for compaction",
           );
-          yieldedForBudget = true;
-          pendingCheckpointYield = "budget";
-          return "yield";
+          return { yield: "budget" };
         }
       }
 
@@ -2315,23 +2311,41 @@ export async function runAgentLoopImpl(
     // and overwrites `turnIndex` with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
-    /** Shared closure: runs the agent loop with the orchestrator's turn context. */
-    const runAgentLoop = (msgs: Message[]) =>
-      ctx.agentLoop.run(msgs, eventHandler, {
-        signal: abortController.signal,
-        requestId: reqId,
-        onCheckpoint,
-        callSite: turnCallSite,
-        turnContext: loopTurnCtx,
-        overrideProfile: turnOverrideProfile,
-        effectiveMaxInputTokens: resolveCurrentMaxInputTokens(),
-        resolveOverrideProfile: resolveCurrentOverrideProfile,
-        resolveEffectiveMaxInputTokens: resolveCurrentMaxInputTokens,
-        // memory-v3-live: the latest user message carries the volatile v3
-        // `<memory>` block, so anchor the provider's long-TTL cache breakpoint
-        // on the most recent stable message instead.
-        mutableLatestUserMessage: memoryV3Live,
-      });
+    /**
+     * Shared closure: runs the agent loop with the orchestrator's turn
+     * context and maps the loop's returned checkpoint pause-reason into the
+     * orchestrator's yield bookkeeping. Returns the updated history so call
+     * sites consume it exactly as before.
+     */
+    const runAgentLoop = async (msgs: Message[]): Promise<Message[]> => {
+      const { history, checkpointYield } = await ctx.agentLoop.run(
+        msgs,
+        eventHandler,
+        {
+          signal: abortController.signal,
+          requestId: reqId,
+          onCheckpoint,
+          callSite: turnCallSite,
+          turnContext: loopTurnCtx,
+          overrideProfile: turnOverrideProfile,
+          effectiveMaxInputTokens: resolveCurrentMaxInputTokens(),
+          resolveOverrideProfile: resolveCurrentOverrideProfile,
+          resolveEffectiveMaxInputTokens: resolveCurrentMaxInputTokens,
+          // memory-v3-live: the latest user message carries the volatile v3
+          // `<memory>` block, so anchor the provider's long-TTL cache breakpoint
+          // on the most recent stable message instead.
+          mutableLatestUserMessage: memoryV3Live,
+        },
+      );
+      if (checkpointYield === "handoff") {
+        yieldedForHandoff = true;
+        pendingCheckpointYield = "handoff";
+      } else if (checkpointYield === "budget") {
+        yieldedForBudget = true;
+        pendingCheckpointYield = "budget";
+      }
+      return history;
+    };
 
     let updatedHistory = await runAgentLoop(runMessages);
 

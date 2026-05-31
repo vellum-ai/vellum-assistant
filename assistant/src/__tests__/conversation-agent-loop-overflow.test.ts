@@ -14,7 +14,11 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
+import type {
+  AgentEvent,
+  AgentLoopRunOptions,
+  AgentLoopRunResult,
+} from "../agent/loop.js";
 import type { LLMConfig } from "../config/schemas/llm.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -434,6 +438,39 @@ type AgentLoopRun = (
   options?: AgentLoopRunOptions,
 ) => Promise<Message[]>;
 
+/**
+ * Adapt a `Message[]`-returning mock loop body into `run()`'s real result
+ * shape. Mirrors the production loop: the pause-reason carried back is
+ * whatever the most recent `onCheckpoint` call yielded with (null when it
+ * never yielded), so the orchestrator derives its yield bookkeeping the same
+ * way it does against the real loop.
+ */
+const asAgentLoopRun = (
+  fn: AgentLoopRun,
+): ((
+  messages: Message[],
+  onEvent: (event: AgentEvent) => void | Promise<void>,
+  options?: AgentLoopRunOptions,
+) => Promise<AgentLoopRunResult>) => {
+  return async (messages, onEvent, options) => {
+    let checkpointYield: AgentLoopRunResult["checkpointYield"] = null;
+    let wrapped = options;
+    if (options?.onCheckpoint) {
+      const inner = options.onCheckpoint;
+      wrapped = {
+        ...options,
+        onCheckpoint: async (info) => {
+          const decision = await inner(info);
+          checkpointYield = decision === "continue" ? null : decision.yield;
+          return decision;
+        },
+      };
+    }
+    const history = await fn(messages, onEvent, wrapped);
+    return { history, checkpointYield };
+  };
+};
+
 function makeCtx(
   overrides?: Partial<AgentLoopConversationContext> & {
     agentLoopRun?: AgentLoopRun;
@@ -459,7 +496,7 @@ function makeCtx(
     currentRequestId: "test-req",
 
     agentLoop: {
-      run: agentLoopRun,
+      run: asAgentLoopRun(agentLoopRun),
       getToolTokenBudget: () => 0,
       getResolvedTools: () => [],
       // Tests in this file don't exercise calibration, so returning
@@ -1508,7 +1545,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
               hasToolUse: true,
               history: withProgress,
             });
-            if (decision === "yield") {
+            if (decision !== "continue") {
               // Agent loop stops when checkpoint yields
               return withProgress;
             }
@@ -1679,7 +1716,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
                 hasToolUse: true,
                 history: currentHistory,
               });
-              if (decision === "yield") {
+              if (decision !== "continue") {
                 return currentHistory;
               }
             }
@@ -1860,7 +1897,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           hasToolUse: true,
           history: withProgress,
         });
-        if (decision === "yield") {
+        if (decision !== "continue") {
           return withProgress;
         }
       }
@@ -2040,7 +2077,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           hasToolUse: true,
           history: withProgress,
         });
-        if (decision === "yield") {
+        if (decision !== "continue") {
           return withProgress;
         }
       }
@@ -2185,7 +2222,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           hasToolUse: true,
           history: withProgress,
         });
-        if (decision === "yield") {
+        if (decision !== "continue") {
           return withProgress;
         }
       }
@@ -2528,7 +2565,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           hasToolUse: true,
           history: withProgress,
         });
-        if (decision === "yield") {
+        if (decision !== "continue") {
           return withProgress;
         }
       }

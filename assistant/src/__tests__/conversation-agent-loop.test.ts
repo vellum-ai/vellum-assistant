@@ -1,7 +1,11 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
+import type {
+  AgentEvent,
+  AgentLoopRunOptions,
+  AgentLoopRunResult,
+} from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { ContentBlock, Message } from "../providers/types.js";
@@ -547,6 +551,39 @@ type AgentLoopRun = (
   options?: AgentLoopRunOptions,
 ) => Promise<Message[]>;
 
+/**
+ * Adapt a `Message[]`-returning mock loop body into `run()`'s real result
+ * shape. Mirrors the production loop: the pause-reason carried back is
+ * whatever the most recent `onCheckpoint` call yielded with (null when it
+ * never yielded), so the orchestrator derives its yield bookkeeping the same
+ * way it does against the real loop.
+ */
+const asAgentLoopRun = (
+  fn: AgentLoopRun,
+): ((
+  messages: Message[],
+  onEvent: (event: AgentEvent) => void | Promise<void>,
+  options?: AgentLoopRunOptions,
+) => Promise<AgentLoopRunResult>) => {
+  return async (messages, onEvent, options) => {
+    let checkpointYield: AgentLoopRunResult["checkpointYield"] = null;
+    let wrapped = options;
+    if (options?.onCheckpoint) {
+      const inner = options.onCheckpoint;
+      wrapped = {
+        ...options,
+        onCheckpoint: async (info) => {
+          const decision = await inner(info);
+          checkpointYield = decision === "continue" ? null : decision.yield;
+          return decision;
+        },
+      };
+    }
+    const history = await fn(messages, onEvent, wrapped);
+    return { history, checkpointYield };
+  };
+};
+
 function makeCtx(
   overrides?: Partial<AgentLoopConversationContext> & {
     agentLoopRun?: AgentLoopRun;
@@ -572,7 +609,7 @@ function makeCtx(
     currentRequestId: "test-req",
 
     agentLoop: {
-      run: agentLoopRun,
+      run: asAgentLoopRun(agentLoopRun),
       getToolTokenBudget: () => 0,
       getResolvedTools: () => [],
       // Tests here don't exercise calibration; returning undefined makes
@@ -1016,7 +1053,7 @@ describe("session-agent-loop", () => {
           },
         } as unknown as AgentLoopConversationContext["traceEmitter"],
       });
-      ctx.agentLoop.run = agentLoopRun as AgentLoopRun;
+      ctx.agentLoop.run = asAgentLoopRun(agentLoopRun);
 
       await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
@@ -2476,7 +2513,7 @@ describe("session-agent-loop", () => {
             hasToolUse: true,
             history: messages,
           });
-          if (decision === "yield") {
+          if (decision !== "continue") {
             return [
               ...messages,
               {
@@ -4313,7 +4350,7 @@ describe("session-agent-loop", () => {
             history: messages,
           });
           mockEstimateTokens = 1000;
-          if (decision === "yield") {
+          if (decision !== "continue") {
             return rawMidLoopBasis;
           }
         }

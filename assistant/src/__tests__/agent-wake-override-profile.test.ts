@@ -91,7 +91,8 @@ function makeTarget(): {
           options,
         });
         // Return the input verbatim → silent no-op (no assistant tail).
-        return messages;
+        // Wake never yields at a checkpoint, so the pause-reason is null.
+        return { history: messages, checkpointYield: null };
       }) as WakeTarget["agentLoop"]["run"],
     },
     getMessages: () => history,

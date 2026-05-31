@@ -306,7 +306,7 @@ describe("Parallel tool execution benchmarks", () => {
         toolExecutor,
       );
       const start = Date.now();
-      const history = await loop.run([userMessage], () => {}, {
+      const { history } = await loop.run([userMessage], () => {}, {
         signal: controller.signal,
       });
       const elapsed = Date.now() - start;
