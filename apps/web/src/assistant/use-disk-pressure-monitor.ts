@@ -1,10 +1,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { DiskPressureStatus } from "@vellumai/assistant-api";
+
 import {
   acknowledgeAssistantDiskPressure,
   getAssistantDiskPressureStatus,
-  type DiskPressureStatus,
 } from "@/assistant/api";
 import {
   DISK_PRESSURE_POLL_INTERVAL_MS,
