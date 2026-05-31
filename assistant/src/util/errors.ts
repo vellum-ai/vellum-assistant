@@ -153,14 +153,14 @@ export class ConfigError extends AssistantError {
 export class ProviderNotConfiguredError extends ConfigError {
   /**
    * Optional name of the `provider_connections` row whose credential was
-   * missing. Surfaced through `ConversationErrorMessage.connectionName` so
+   * missing. Surfaced through `ConversationErrorEvent.connectionName` so
    * the macOS chat banner can render "API key required for connection
    * <name>" instead of a generic message.
    */
   public readonly connectionName?: string;
   /**
    * Optional name of the resolved profile in play when this error was
-   * thrown. Forwarded to the wire `ConversationErrorMessage.profileName`
+   * thrown. Forwarded to the wire `ConversationErrorEvent.profileName`
    * for the same banner-attribution purpose as `connectionName`.
    */
   public readonly profileName?: string;

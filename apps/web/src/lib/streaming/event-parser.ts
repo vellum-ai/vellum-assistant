@@ -208,40 +208,6 @@ function parseLegacyEvent(data: Record<string, unknown>): AssistantEvent {
       };
     }
 
-    case "error":
-      return {
-        type: "error",
-        code: typeof data.code === "string" ? data.code : undefined,
-        ...(typeof data.errorCategory === "string"
-          ? { errorCategory: data.errorCategory }
-          : {}),
-        message:
-          typeof data.message === "string" ? data.message : "Unknown error",
-        conversationId:
-          typeof data.conversationId === "string"
-            ? data.conversationId
-            : undefined,
-      };
-
-    case "conversation_error":
-      return {
-        type: "conversation_error",
-        conversationId:
-          typeof data.conversationId === "string" ? data.conversationId : "",
-        code: typeof data.code === "string" ? data.code : "UNKNOWN",
-        userMessage:
-          typeof data.userMessage === "string"
-            ? data.userMessage
-            : "Something went wrong.",
-        retryable: typeof data.retryable === "boolean" ? data.retryable : false,
-        debugDetails:
-          typeof data.debugDetails === "string" ? data.debugDetails : undefined,
-        errorCategory:
-          typeof data.errorCategory === "string"
-            ? data.errorCategory
-            : undefined,
-      };
-
     case "usage_update": {
       const readNumber = (key: string): number | undefined => {
         const value = data[key];

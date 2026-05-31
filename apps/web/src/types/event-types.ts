@@ -30,14 +30,6 @@ import type {
 // SSE event interfaces
 // ---------------------------------------------------------------------------
 
-export interface StreamErrorEvent {
-  type: "error";
-  code?: string;
-  errorCategory?: string;
-  message: string;
-  conversationId?: string;
-}
-
 /** Valid decisions accepted by the assistant runtime's POST /v1/confirm endpoint. */
 export type ConfirmationDecision = "allow" | "deny";
 
@@ -201,16 +193,6 @@ export interface TurnProfileAutoRoutedEvent {
   conversationKey?: string;
 }
 
-export interface ConversationErrorEvent {
-  type: "conversation_error";
-  conversationId: string;
-  code: string;
-  userMessage: string;
-  retryable: boolean;
-  debugDetails?: string;
-  errorCategory?: string;
-}
-
 export interface DiskPressureStatusChangedEvent {
   type: "disk_pressure_status_changed";
   status: DiskPressureStatus | null;
@@ -282,13 +264,11 @@ export const USER_FACING_INTERACTION_KINDS: ReadonlySet<string> =
  */
 export type AssistantEvent =
   | APIAssistantEvent
-  | StreamErrorEvent
   | ToolResultEvent
   | NotificationIntentEvent
   | UsageUpdateEvent
   | AssistantActivityStateEvent
   | NavigateSettingsEvent
-  | ConversationErrorEvent
   | DiskPressureStatusChangedEvent
   | AssistantSyncChangedEvent
   | SubagentSpawnedEvent

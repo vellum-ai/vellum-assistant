@@ -6,11 +6,13 @@ import {
 import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import { patchConversation } from "@/utils/conversation-cache";
-import type { ConversationErrorEvent, StreamErrorEvent } from "@/types/event-types";
-
+import type {
+  ConversationErrorEvent,
+  ErrorEvent,
+} from "@vellumai/assistant-api";
 
 export function handleStreamError(
-  event: StreamErrorEvent,
+  event: ErrorEvent,
   ctx: StreamHandlerContext,
 ): void {
   const convId = ctx.streamContextRef.current?.conversationId;

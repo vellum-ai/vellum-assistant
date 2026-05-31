@@ -1,11 +1,11 @@
+import type {
+  ConversationErrorCode,
+  ConversationErrorEvent,
+} from "../api/events/conversation-error.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import { getProviderRoutingSource } from "../providers/registry.js";
 import { isAbortReason } from "../util/abort-reasons.js";
 import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
-import type {
-  ConversationErrorCode,
-  ConversationErrorMessage,
-} from "./message-protocol.js";
 
 /**
  * Classified conversation error ready for client emission.
@@ -19,7 +19,7 @@ export interface ClassifiedConversationError {
   errorCategory: string;
   /**
    * Name of the `provider_connections` row in play when the error
-   * occurred. Forwarded to the wire `ConversationErrorMessage` so chat
+   * occurred. Forwarded to the wire `ConversationErrorEvent` so chat
    * banners can point users at the specific slot to fix. Only set by
    * classifiers / callers that have the resolved connection in scope —
    * generic regex fallbacks leave it undefined.
@@ -37,7 +37,7 @@ export interface ClassifiedConversationError {
 
 /**
  * Optional resolved-config context that callers can attach to error
- * classification so the resulting `ConversationErrorMessage` can name the
+ * classification so the resulting `ConversationErrorEvent` can name the
  * exact connection / profile in play. Used in particular by the chat
  * dispatch sites to make `PROVIDER_INVALID_KEY` and `PROVIDER_NOT_CONFIGURED`
  * actionable (the macOS banner reads these to render "Invalid API key for
@@ -826,7 +826,7 @@ export function maxTokensReachedClassification(): ClassifiedConversationError {
 export function buildConversationErrorMessage(
   conversationId: string,
   classified: ClassifiedConversationError,
-): ConversationErrorMessage {
+): ConversationErrorEvent {
   return {
     type: "conversation_error",
     conversationId,
