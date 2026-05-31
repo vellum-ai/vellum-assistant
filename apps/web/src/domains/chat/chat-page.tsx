@@ -68,6 +68,7 @@ import { useAssistantReachability } from "@/assistant/use-assistant-reachability
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
+import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useConversationLoader } from "@/domains/conversations/use-conversation-loader";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
 import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration";
@@ -1250,24 +1251,10 @@ export function ChatPage() {
     return () => { setTopBarCenter(null); };
   }, [topBarCenterContent, setTopBarCenter]);
 
-  // Open an app from inside a chat (assets pill, "Open App" on a message).
-  // On macOS this enters side-by-side editing mode (chat + app preview);
-  // we mirror that here by transitioning the viewer to `app-editing` once
-  // the load lands, keeping the current conversation as the edit chat.
-  // Bail if the load failed or a newer open superseded this one.
-  const handleOpenAppFromChat = useCallback(
-    async (appId: string) => {
-      if (!assistantId) return;
-      haptic.light();
-      await useViewerStore.getState().loadApp(assistantId, appId);
-      const { activeAppId, openedAppState } = useViewerStore.getState();
-      if (activeConversationId && openedAppState && activeAppId === appId) {
-        useConversationStore.getState().setEditingConversationId(activeConversationId);
-        useViewerStore.getState().enterAppEditing();
-      }
-    },
-    [assistantId, activeConversationId],
-  );
+  // Open an app from inside a chat (assets pill, "Open App" on a message,
+  // sidebar pinned-app click). Shared with `chat-layout.tsx` — see
+  // `use-open-app-from-chat.ts` for the loadApp → enterAppEditing flow.
+  const handleOpenAppFromChat = useOpenAppFromChat();
 
   const handleOpenDocument = useCallback(
     (surfaceId: string) => {

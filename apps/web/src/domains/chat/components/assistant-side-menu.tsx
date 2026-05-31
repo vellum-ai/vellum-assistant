@@ -4,11 +4,11 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
-  Globe,
   Hash,
   Layers,
   LayoutGrid,
   Pin,
+  Rocket,
   Search,
   SquarePen,
   X,
@@ -403,7 +403,7 @@ export function AssistantSideMenu({
         {pinnedApps.map((app) => (
           <SideMenu.Item
             key={app.appId}
-            icon={Globe}
+            icon={Rocket}
             label={app.name}
             active={activeAppId === app.appId}
             onSelect={onOpenApp ? () => { onOpenApp(app.appId); onClose?.(); } : undefined}
