@@ -39,8 +39,6 @@
     "@modelcontextprotocol/sdk": "1.27.1",
     "@qdrant/js-client-rest": "1.17.0",
     "@resvg/resvg-js": "2.6.2",
-    "@resvg/resvg-js-darwin-arm64": "2.6.2",
-    "@resvg/resvg-js-darwin-x64": "2.6.2",
     "@sentry/node": "10.43.0",
     "@vellumai/ces-client": "file:../packages/ces-client",
     "@vellumai/credential-storage": "file:../packages/credential-storage",
@@ -90,6 +88,10 @@
   "overrides": {
     "lodash": "4.18.1",
     "path-to-regexp": "8.4.2"
+  },
+  "optionalDependencies": {
+    "@resvg/resvg-js-darwin-arm64": "2.6.2",
+    "@resvg/resvg-js-darwin-x64": "2.6.2"
   },
   "devDependencies": {
     "@types/archiver": "7.0.0",

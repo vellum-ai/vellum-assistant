@@ -3,6 +3,8 @@ import { useNavigate } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { isLocalMode } from "@/lib/local-mode";
+import { startLoopbackAuth } from "@/lib/auth/loopback-auth";
 import { startAuthFlow } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 
@@ -12,6 +14,10 @@ export function WelcomeScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const handleLogin = async () => {
+    if (isLocalMode()) {
+      await startLoopbackAuth(routes.onboarding.hosting);
+      return;
+    }
     setError(null);
     setLoading(true);
     try {

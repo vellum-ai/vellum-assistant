@@ -95,8 +95,37 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       host: true,
       proxy: {
-        "/v1": { target: apiProxyTarget, changeOrigin: true },
-        "/_allauth": { target: apiProxyTarget, changeOrigin: true },
+        "/v1": {
+          target: apiProxyTarget,
+          changeOrigin: true,
+          ...(!isPlatformMode(env.VITE_PLATFORM_MODE) && {
+            configure: (proxy: { on: Function }) => {
+              proxy.on("proxyReq", (proxyReq: { setHeader: Function; getHeader: Function }, req: { headers: { cookie?: string } }) => {
+                const cookie = req.headers.cookie ?? "";
+                const match = /sessionid=([^;]+)/.exec(cookie);
+                if (match?.[1]) {
+                  proxyReq.setHeader("X-Session-Token", match[1]);
+                  proxyReq.setHeader("Cookie", `sessionid=${match[1]}; __Secure-sessionid=${match[1]}`);
+                }
+              });
+            },
+          }),
+        },
+        "/_allauth": {
+          target: apiProxyTarget,
+          changeOrigin: true,
+          ...(!isPlatformMode(env.VITE_PLATFORM_MODE) && {
+            configure: (proxy: { on: Function }) => {
+              proxy.on("proxyReq", (proxyReq: { setHeader: Function }, req: { headers: { cookie?: string } }) => {
+                const cookie = req.headers.cookie ?? "";
+                const match = /sessionid=([^;]+)/.exec(cookie);
+                if (match?.[1]) {
+                  proxyReq.setHeader("Cookie", `sessionid=${match[1]}; __Secure-sessionid=${match[1]}`);
+                }
+              });
+            },
+          }),
+        },
         "/accounts": { target: apiProxyTarget, changeOrigin: true },
         "/auth": { target: gatewayProxyTarget, changeOrigin: true },
       },

@@ -144,6 +144,23 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     }
 
     if (isLocalMode() && !isGatewayAuthEnabled()) {
+      const hasPlatformAssistants = getPlatformAssistants().length > 0;
+      if (hasPlatformAssistants) {
+        // Platform assistants require a valid session — await the check
+        // so the auth middleware can redirect to login if it fails.
+        try {
+          const result = await getSession();
+          if (result.ok && result.data.user) {
+            const user = toAuthUser(result.data.user);
+            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+            return;
+          }
+        } catch {
+          // Session check failed — fall through to unauthenticated
+        }
+        set({ isLoggedIn: false, isLoading: false, user: null });
+        return;
+      }
       set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
       getSession()
         .then((result) => {
@@ -243,6 +260,9 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     try {
       await allauthLogout();
     } finally {
+      if (isLocalMode()) {
+        document.cookie = "sessionid=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC";
+      }
       void deleteBiometricToken();
       clearOnboardingFlags();
       clearOrganization();
