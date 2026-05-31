@@ -2,7 +2,7 @@
  * @jest-environment happy-dom
  */
 
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
@@ -501,6 +501,73 @@ describe("createChatDebugApi.thinkingIndicator", () => {
     const snapshot = api.thinkingIndicator();
     expect(snapshot.uiContext.hasUncompletedVisibleSurface).toBe(true);
     expect(snapshot.uiContext.hasPendingSecret).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+//  createChatDebugApi — thinkingIndicator.progressBadge
+// ---------------------------------------------------------------------------
+
+describe("createChatDebugApi.thinkingIndicator progressBadge", () => {
+  // The badge gate reads the `useProgressBadge` flag straight from
+  // localStorage; keep the key isolated so the default-state cases don't
+  // see a stray override left by an enabled-flag case.
+  const PROGRESS_BADGE_KEY = "vellum:debug:useProgressBadge";
+  afterEach(() => {
+    localStorage.removeItem(PROGRESS_BADGE_KEY);
+  });
+
+  test("flag off + not processing → hidden, both gates failing", () => {
+    const api = createChatDebugApi(makeRefs());
+    const { progressBadge } = api.thinkingIndicator();
+    expect(progressBadge.visible).toBe(false);
+    expect(progressBadge.flagEnabled).toBe(false);
+    expect(progressBadge.isProcessing).toBe(false);
+    expect(progressBadge.failingConditions).toEqual([
+      "flagDisabled",
+      "notProcessing",
+    ]);
+    expect(progressBadge.explanation).toBe(
+      "hidden: useProgressBadge flag is off AND the conversation is not processing",
+    );
+  });
+
+  test("flag off + processing → hidden, only flagDisabled blocking", () => {
+    const api = createChatDebugApi(
+      makeRefs({ uiContext: { activeConversationIsProcessing: true } }),
+    );
+    const { progressBadge } = api.thinkingIndicator();
+    expect(progressBadge.visible).toBe(false);
+    expect(progressBadge.flagEnabled).toBe(false);
+    expect(progressBadge.isProcessing).toBe(true);
+    expect(progressBadge.failingConditions).toEqual(["flagDisabled"]);
+    expect(progressBadge.explanation).toContain("toggleProgressBadge(true)");
+  });
+
+  test("flag on + not processing → hidden, only notProcessing blocking", () => {
+    localStorage.setItem(PROGRESS_BADGE_KEY, "true");
+    const api = createChatDebugApi(makeRefs());
+    const { progressBadge } = api.thinkingIndicator();
+    expect(progressBadge.visible).toBe(false);
+    expect(progressBadge.flagEnabled).toBe(true);
+    expect(progressBadge.isProcessing).toBe(false);
+    expect(progressBadge.failingConditions).toEqual(["notProcessing"]);
+    expect(progressBadge.explanation).toContain("not processing");
+  });
+
+  test("flag on + processing → visible, no failing conditions", () => {
+    localStorage.setItem(PROGRESS_BADGE_KEY, "true");
+    const api = createChatDebugApi(
+      makeRefs({ uiContext: { activeConversationIsProcessing: true } }),
+    );
+    const { progressBadge } = api.thinkingIndicator();
+    expect(progressBadge.visible).toBe(true);
+    expect(progressBadge.flagEnabled).toBe(true);
+    expect(progressBadge.isProcessing).toBe(true);
+    expect(progressBadge.failingConditions).toEqual([]);
+    expect(progressBadge.explanation).toBe(
+      "visible: useProgressBadge flag is on and the conversation is processing",
+    );
   });
 });
 

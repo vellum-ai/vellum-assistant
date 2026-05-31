@@ -44,7 +44,10 @@ import { recordDiagnostic } from "@/lib/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
-import { setProgressBadgeEnabled } from "@/lib/feature-flags/progress-badge-flag";
+import {
+  isProgressBadgeEnabled,
+  setProgressBadgeEnabled,
+} from "@/lib/feature-flags/progress-badge-flag";
 import {
   classifyScrollPosition,
   type TranscriptHandle,
@@ -149,6 +152,36 @@ export interface PendingInteractionsSnapshot {
   inlineConfirmationToolCallId: string | null;
 }
 
+/**
+ * Avatar progress-badge state block — answers "why don't I see the
+ * progress badge?".
+ *
+ * The badge renders in {@link ChatAvatar} iff `flagEnabled && isProcessing`
+ * (see `chat-avatar.tsx`). This mirrors those two gates so a developer can
+ * tell at a glance which one is blocking it. Distinct from the transcript
+ * "thinking…" dots described by the rest of {@link ChatDebugThinkingIndicator}:
+ * the dots and the badge are mutually exclusive (the `useProgressBadge`
+ * flag swaps one for the other).
+ */
+export interface ChatDebugProgressBadge {
+  /** Whether the badge would render this frame — `flagEnabled && isProcessing`. */
+  visible: boolean;
+  /** The `useProgressBadge` debug flag ({@link isProgressBadgeEnabled}). When
+   *  `false`, the badge is gated off entirely and the legacy transcript
+   *  "thinking…" dots stay in charge. */
+  flagEnabled: boolean;
+  /** The `isProcessing` prop `ChatAvatar` receives — the OR of the local
+   *  optimistic processing set and the cached `conversation.isProcessing`
+   *  snapshot (`uiContext.activeConversationIsProcessing`). The badge's
+   *  only other gate. */
+  isProcessing: boolean;
+  /** Names of the gates currently blocking the badge. Empty when
+   *  `visible` is true. */
+  failingConditions: string[];
+  /** Human-readable summary of why the badge is or isn't showing. */
+  explanation: string;
+}
+
 /** Result of {@link ChatDebugApi.thinkingIndicator}. */
 export interface ChatDebugThinkingIndicator {
   /** Live evaluation of {@link shouldShowThinkingIndicator}. */
@@ -164,6 +197,8 @@ export interface ChatDebugThinkingIndicator {
   failingConditions: string[];
   /** Lifecycle / terminal-state signal — answers "is the assistant done?". */
   done: ChatDebugThinkingDoneSignal;
+  /** Avatar progress-badge state — answers "why don't I see the badge?". */
+  progressBadge: ChatDebugProgressBadge;
 }
 
 /**
@@ -252,11 +287,14 @@ export interface ChatDebugApi {
    * Live evaluation of the thinking-indicator predicate
    * ({@link shouldShowThinkingIndicator}) plus turn-state lifecycle info.
    *
-   * Use this to answer two questions when triaging "indicator stuck"
+   * Use this to answer three questions when triaging "indicator stuck"
    * reports (ATL-654 et al.):
    *   1. Is the assistant done? See `.done` (terminal/phase/lastTerminalReason).
    *   2. Why are the `...` showing — or not showing? See `.visible` and
    *      `.failingConditions` for the AND-clauses that blocked visibility.
+   *   3. Why is the avatar progress badge showing — or not showing? See
+   *      `.progressBadge` (`.visible`, `.flagEnabled`, `.isProcessing`,
+   *      `.failingConditions`, `.explanation`).
    *
    * Synchronous, side-effect-free; reads the same turn-store + UI-context
    * snapshot the React render path reads, so the result matches what the
@@ -523,6 +561,36 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       explanation = `active: phase=${phase}`;
     }
 
+    // Avatar progress-badge gates. The badge renders in `ChatAvatar` iff
+    // `isProcessing && isProgressBadgeEnabled()`; mirror both so a missing
+    // badge points straight at the blocking gate.
+    const badgeFlagEnabled = isProgressBadgeEnabled();
+    const badgeIsProcessing =
+      uiContext.activeConversationIsProcessing === true;
+    const badgeVisible = badgeFlagEnabled && badgeIsProcessing;
+    const badgeFailingConditions: string[] = [];
+    if (!badgeFlagEnabled) {
+      badgeFailingConditions.push("flagDisabled");
+    }
+    if (!badgeIsProcessing) {
+      badgeFailingConditions.push("notProcessing");
+    }
+
+    let badgeExplanation: string;
+    if (badgeVisible) {
+      badgeExplanation =
+        "visible: useProgressBadge flag is on and the conversation is processing";
+    } else if (!badgeFlagEnabled && !badgeIsProcessing) {
+      badgeExplanation =
+        "hidden: useProgressBadge flag is off AND the conversation is not processing";
+    } else if (!badgeFlagEnabled) {
+      badgeExplanation =
+        "hidden: useProgressBadge flag is off — enable via _vellumDebug.flags.toggleProgressBadge(true)";
+    } else {
+      badgeExplanation =
+        "hidden: conversation is not processing (uiContext.activeConversationIsProcessing !== true)";
+    }
+
     return {
       visible,
       turnState,
@@ -534,6 +602,13 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
         phase,
         lastTerminalReason,
         explanation,
+      },
+      progressBadge: {
+        visible: badgeVisible,
+        flagEnabled: badgeFlagEnabled,
+        isProcessing: badgeIsProcessing,
+        failingConditions: badgeFailingConditions,
+        explanation: badgeExplanation,
       },
     };
   }
@@ -662,6 +737,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
       "  .thinkingIndicator()       live evaluation of the `...` predicate + done signal",
       "                              .visible / .failingConditions tell you why dots are or aren't showing",
       "                              .done.terminal / .done.lastTerminalReason tell you if the turn is finished",
+      "                              .progressBadge.visible / .progressBadge.explanation tell you why the avatar badge is or isn't showing",
       "  .forceReconcile()          [experimental] imperatively run /v1/history reconcile",
       "  .serverMessages()          [experimental] fetch /v1/history and return server message list",
       "                              (diff against getClientMessages() manually in the console)",
