@@ -403,7 +403,10 @@ export function AssistantSideMenu({
         {pinnedApps.map((app) => (
           <SideMenu.Item
             key={app.appId}
-            icon={Rocket}
+            // Apps source their icon as an emoji string on the manifest
+            // (`app.icon`). Fall back to the Rocket lucide glyph so unmojified
+            // apps still get a leading icon in the rail.
+            icon={app.icon ?? Rocket}
             label={app.name}
             active={activeAppId === app.appId}
             onSelect={onOpenApp ? () => { onOpenApp(app.appId); onClose?.(); } : undefined}
