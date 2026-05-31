@@ -75,7 +75,6 @@ import {
   visibleProfilesForPicker,
 } from "@/domains/settings/ai/profile-pickers";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { readSecret } from "@/domains/settings/ai/provider-connections-client";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 
@@ -941,9 +940,8 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
-  const platformGate = usePlatformGate();
   const [mode, setMode] = useState<ServiceMode>(
-    () => platformGate === "gated" ? "your-own" : getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
+    () => getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
   );
   const [byoProviderId, setByoProviderId] = useState<EmailByoProvider["id"]>(
     () =>
@@ -981,7 +979,7 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
   // anyway.
   const subscriptionQuery = useQuery({
     ...organizationsBillingSubscriptionRetrieveOptions(),
-    enabled: mode === "managed" && platformGate === "full",
+    enabled: mode === "managed",
   });
   const subscriptionData = subscriptionQuery.data;
   const entitlements = subscriptionData?.entitlements;
@@ -1001,13 +999,13 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     ...assistantsDomainsListOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
-    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled && platformGate === "full",
+    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled,
   });
   const addressesQuery = useQuery({
     ...assistantsEmailAddressesListOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
-    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled && platformGate === "full",
+    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled,
   });
 
   const domain = domainsQuery.data?.results?.[0];
@@ -1018,7 +1016,7 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     ...assistantsEmailAddressesStatusRetrieveOptions({
       path: { assistant_id: assistantId ?? "", id: address?.id ?? "" },
     }),
-    enabled: !!assistantId && !!address?.id && mode === "managed" && platformGate === "full",
+    enabled: !!assistantId && !!address?.id && mode === "managed",
     refetchOnWindowFocus: false,
   });
 
@@ -1026,7 +1024,7 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     ...assistantsDomainsVerificationStatusRetrieveOptions({
       path: { assistant_id: assistantId ?? "", id: domain?.id ?? "" },
     }),
-    enabled: !!assistantId && !!domain?.id && mode === "managed" && platformGate === "full",
+    enabled: !!assistantId && !!domain?.id && mode === "managed",
     refetchInterval: (query) => {
       const st = query.state.data?.status;
       if (st === "verified" || st === "failed") return false;
@@ -1196,70 +1194,6 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     [byoProviderId],
   );
 
-  const yourOwnContent = (
-    <div className="space-y-4">
-      <div className="space-y-1">
-        <label className="block text-body-small-default text-[var(--content-tertiary)]">
-          Provider
-        </label>
-        <Dropdown
-          value={byoProviderId}
-          onChange={(val) =>
-            setByoProviderId(val as EmailByoProvider["id"])
-          }
-          options={EMAIL_BYO_PROVIDERS.map((p) => ({
-            value: p.id,
-            label: p.displayName,
-          }))}
-        />
-      </div>
-
-      <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
-        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
-        <div className="flex flex-col gap-1">
-          <span>
-            Configure {selectedByoProvider.displayName} via the assistant
-            CLI: ask the assistant to run the{" "}
-            <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]">
-              {selectedByoProvider.setupSkill}
-            </code>{" "}
-            skill. It walks you through storing the API key, detecting the
-            domain, and (optionally) wiring up an inbound webhook.
-          </span>
-          <a
-            href={selectedByoProvider.docsUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
-          >
-            Open {selectedByoProvider.displayName}
-            <ExternalLink className="h-3 w-3" />
-          </a>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <SaveButton onClick={handleSaveMode} disabled={savingMode} />
-        {savingMode && (
-          <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
-        )}
-      </div>
-    </div>
-  );
-
-  if (platformGate === "gated") {
-    return (
-      <DetailCard
-        id="email"
-        title="Email"
-        subtitle="Configure how your assistant sends and receives email"
-      >
-        <div className="h-px bg-[var(--surface-active)]" />
-        <div className="mt-4">{yourOwnContent}</div>
-      </DetailCard>
-    );
-  }
-
   return (
     <ServiceCard
       id="email"
@@ -1270,12 +1204,6 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     >
       {mode === "managed" ? (
         <div className="space-y-4">
-          {platformGate === "disabled" ? (
-            <Notice tone="info">
-              Log in to the Vellum platform to manage email settings.
-            </Notice>
-          ) : (
-          <>
           {subscriptionUnknown && (
             <Notice
               tone="warning"
@@ -1473,10 +1401,57 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
               )}
             </div>
           )}
-          </>
-          )}
         </div>
-      ) : yourOwnContent}
+      ) : (
+        <div className="space-y-4">
+          <div className="space-y-1">
+            <label className="block text-body-small-default text-[var(--content-tertiary)]">
+              Provider
+            </label>
+            <Dropdown
+              value={byoProviderId}
+              onChange={(val) =>
+                setByoProviderId(val as EmailByoProvider["id"])
+              }
+              options={EMAIL_BYO_PROVIDERS.map((p) => ({
+                value: p.id,
+                label: p.displayName,
+              }))}
+            />
+          </div>
+
+          <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
+            <div className="flex flex-col gap-1">
+              <span>
+                Configure {selectedByoProvider.displayName} via the assistant
+                CLI: ask the assistant to run the{" "}
+                <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]">
+                  {selectedByoProvider.setupSkill}
+                </code>{" "}
+                skill. It walks you through storing the API key, detecting the
+                domain, and (optionally) wiring up an inbound webhook.
+              </span>
+              <a
+                href={selectedByoProvider.docsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
+              >
+                Open {selectedByoProvider.displayName}
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <SaveButton onClick={handleSaveMode} disabled={savingMode} />
+            {savingMode && (
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
+            )}
+          </div>
+        </div>
+      )}
     </ServiceCard>
   );
 }
