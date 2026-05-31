@@ -84,6 +84,7 @@ import {
   memoryV2ConsolidateJob,
 } from "./v2/consolidation-job.js";
 import { memoryV2SweepJob } from "./v2/sweep-job.js";
+import { maintainJob as memoryV3MaintainJob } from "./v3/maintain-job.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -618,6 +619,9 @@ async function processJob(
     case "memory_v2_activation_recompute":
       await memoryV2ActivationRecomputeJob(job, config);
       return;
+    case "memory_v3_maintain":
+      await memoryV3MaintainJob(job, config);
+      return;
     case "memory_retrospective":
       await memoryRetrospectiveJob(job, config);
       return;
@@ -687,6 +691,7 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   patternScan: "graph_maintenance:pattern_scan:last_run",
   narrative: "graph_maintenance:narrative:last_run",
   memoryV2Consolidate: "memory_v2_consolidate_last_run",
+  memoryV3Maintain: "memory_v3_maintain_last_run",
 } as const;
 
 /**
