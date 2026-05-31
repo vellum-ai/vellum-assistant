@@ -44,16 +44,17 @@ import {
   reserveMessage,
   updateMessageContent,
   updateMessageMetadata,
-} from "../../memory/conversation-crud.js";
-import { syncMessageToDisk } from "../../memory/conversation-disk-view.js";
-import { registerPlugin } from "../registry.js";
+} from "../../../memory/conversation-crud.js";
+import { syncMessageToDisk } from "../../../memory/conversation-disk-view.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type Middleware,
   type PersistArgs,
   type PersistResult,
   type Plugin,
   PluginExecutionError,
-} from "../types.js";
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * Terminal handler for the `persistence` pipeline. Exported so tests can
@@ -117,8 +118,8 @@ const passthrough: Middleware<PersistArgs, PersistResult> = async (
 
 export const defaultPersistencePlugin: Plugin = {
   manifest: {
-    name: "default-persistence",
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
   middleware: {
     persistence: passthrough,

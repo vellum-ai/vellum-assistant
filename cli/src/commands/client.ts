@@ -31,6 +31,7 @@ import {
   runRetire,
   getGuardianAccessToken,
   parseGatewayUrl,
+  readAllowedGatewayPorts,
   isLoopbackAddr,
   resolveCliPath,
   resolveLockfilePaths,
@@ -368,17 +369,24 @@ async function handleLocalEndpoints(
   server: { requestIP(req: Request): { address: string } | null },
 ): Promise<Response | null> {
   const { pathname } = url;
+  const lockfilePaths = _lockfilePaths;
+  const configDir = _configDir;
+
+  // Check if this is a __local or __gateway route before enforcing loopback.
+  const isLocalRoute =
+    LOCKFILE_PATTERN.test(pathname) ||
+    HATCH_PATTERN.test(pathname) ||
+    RETIRE_PATTERN.test(pathname) ||
+    GUARDIAN_TOKEN_PATTERN.test(pathname) ||
+    parseGatewayUrl(pathname).match;
+
+  if (!isLocalRoute) return null;
 
   // All __local and __gateway endpoints are restricted to loopback clients.
-  // The server binds 0.0.0.0 for LAN access to the SPA, but these endpoints
-  // must not be reachable from other machines.
   const peer = server.requestIP(req)?.address ?? "";
   if (!isLoopbackAddr(peer)) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
-
-  const lockfilePaths = _lockfilePaths;
-  const configDir = _configDir;
 
   // Lockfile
   if (LOCKFILE_PATTERN.test(pathname)) {
@@ -493,6 +501,10 @@ async function handleLocalEndpoints(
       return new Response("Port must be between 1024 and 65535", { status: 400 });
     }
     const { target: gatewayTarget } = gatewayResult;
+    const allowedPorts = readAllowedGatewayPorts(lockfilePaths);
+    if (!allowedPorts.has(gatewayTarget.port)) {
+      return new Response("Gateway port is not active in lockfile", { status: 403 });
+    }
     const targetUrl = `http://127.0.0.1:${gatewayTarget.port}${gatewayTarget.path}${url.search}`;
     const headers = new Headers(req.headers);
     headers.set("host", `127.0.0.1:${gatewayTarget.port}`);

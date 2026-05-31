@@ -33,7 +33,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import {
   defaultTokenEstimatePlugin,
   defaultTokenEstimateTerminal,
-} from "../plugins/defaults/token-estimate.js";
+} from "../plugins/defaults/token-estimate/register.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

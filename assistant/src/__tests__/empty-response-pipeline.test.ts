@@ -22,7 +22,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import {
   defaultEmptyResponsePlugin,
   defaultEmptyResponseTerminal,
-} from "../plugins/defaults/empty-response.js";
+} from "../plugins/defaults/empty-response/register.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

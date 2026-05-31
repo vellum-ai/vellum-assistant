@@ -29,14 +29,15 @@
  *   canonical terminator regardless of which third parties load.
  */
 
-import { registerPlugin } from "../registry.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type Middleware,
   type Plugin,
   PluginExecutionError,
   type ToolExecuteArgs,
   type ToolExecuteResult,
-} from "../types.js";
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * Passthrough middleware — forwards the call to `next`. Named so the
@@ -56,8 +57,8 @@ const defaultToolExecute: Middleware<ToolExecuteArgs, ToolExecuteResult> =
  */
 export const defaultToolExecutePlugin: Plugin = {
   manifest: {
-    name: "default-tool-execute",
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
   middleware: {
     toolExecute: defaultToolExecute,

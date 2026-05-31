@@ -13,6 +13,7 @@ import {
   runRetire,
   getGuardianAccessToken,
   parseGatewayUrl,
+  readAllowedGatewayPorts,
 } from "../../cli/src/lib/local-endpoints";
 
 const GUARDIAN_TOKEN_PATTERN =
@@ -31,10 +32,21 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(hatchMiddleware(baseDir));
       server.middlewares.use(retireMiddleware(baseDir));
       server.middlewares.use(guardianTokenMiddleware(config.configDir, baseDir, env));
-      server.middlewares.use(gatewayProxyMiddleware());
+      server.middlewares.use(gatewayProxyMiddleware(config.lockfilePaths));
       server.middlewares.use(accountSpaFallback(server));
     },
   };
+}
+
+function rejectUnlessLoopback(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+): boolean {
+  if (isLoopbackAddr(req.socket.remoteAddress ?? "")) return false;
+  res.statusCode = 403;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify({ error: "Forbidden" }));
+  return true;
 }
 
 function loopbackCallbackMiddleware(): Connect.NextHandleFunction {
@@ -81,6 +93,8 @@ function lockfileMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction
   return (req, res, next) => {
     if (req.url !== "/assistant/__local/lockfile" && req.url !== "/__local/lockfile") return next();
 
+    if (rejectUnlessLoopback(req, res)) return;
+
     if (req.method === "GET") {
       const result = getLockfileData(lockfilePaths);
       if (result.ok) {
@@ -123,6 +137,8 @@ function lockfileMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction
 function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
   return (req, res, next) => {
     if (req.url !== "/assistant/__local/hatch" && req.url !== "/__local/hatch") return next();
+
+    if (rejectUnlessLoopback(req, res)) return;
 
     if (req.method !== "POST") {
       res.statusCode = 405;
@@ -168,6 +184,8 @@ function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
 function retireMiddleware(baseDir: string): Connect.NextHandleFunction {
   return (req, res, next) => {
     if (req.url !== "/assistant/__local/retire" && req.url !== "/__local/retire") return next();
+
+    if (rejectUnlessLoopback(req, res)) return;
 
     if (req.method !== "POST") {
       res.statusCode = 405;
@@ -232,7 +250,8 @@ function guardianTokenMiddleware(
       return;
     }
 
-    const peer = req.socket.remoteAddress ?? "";
+    if (rejectUnlessLoopback(req, res)) return;
+
     const assistantId = decodeURIComponent(match[1]!);
 
     let cliPath: string;
@@ -245,7 +264,7 @@ function guardianTokenMiddleware(
       return;
     }
 
-    getGuardianAccessToken(assistantId, configDir, cliPath, isLoopbackAddr(peer), env).then((result) => {
+    getGuardianAccessToken(assistantId, configDir, cliPath, true, env).then((result) => {
       if (result.ok) {
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ accessToken: result.accessToken }));
@@ -258,10 +277,13 @@ function guardianTokenMiddleware(
   };
 }
 
-function gatewayProxyMiddleware(): Connect.NextHandleFunction {
+function gatewayProxyMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction {
   return (req, res, next) => {
     const result = parseGatewayUrl(req.url ?? "");
     if (!result.match) return next();
+
+    if (rejectUnlessLoopback(req, res)) return;
+
     if (!result.valid) {
       res.statusCode = 400;
       res.end("Port must be between 1024 and 65535");
@@ -269,6 +291,13 @@ function gatewayProxyMiddleware(): Connect.NextHandleFunction {
     }
 
     const { target } = result;
+    const allowedPorts = readAllowedGatewayPorts(lockfilePaths);
+    if (!allowedPorts.has(target.port)) {
+      res.statusCode = 403;
+      res.end("Gateway port is not active in lockfile");
+      return;
+    }
+
     const proxyOptions: http.RequestOptions = {
       hostname: "127.0.0.1",
       port: target.port,

@@ -23,7 +23,7 @@ mock.module("../config/loader.js", () => ({
 import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectorsPlugin,
-} from "../plugins/defaults/injectors.js";
+} from "../plugins/defaults/injectors/register.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,

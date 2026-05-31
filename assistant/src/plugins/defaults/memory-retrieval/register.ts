@@ -24,22 +24,23 @@
  * milestone.
  */
 
-import type { AssistantConfig } from "../../config/schema.js";
+import type { AssistantConfig } from "../../../config/schema.js";
 import {
   readNowScratchpad,
   readPkbContext,
-} from "../../daemon/conversation-runtime-assembly.js";
-import type { ServerMessage } from "../../daemon/message-protocol.js";
-import type { ConversationGraphMemory } from "../../memory/graph/conversation-graph-memory.js";
-import type { Message } from "../../providers/types.js";
-import { registerPlugin } from "../registry.js";
+} from "../../../daemon/conversation-runtime-assembly.js";
+import type { ServerMessage } from "../../../daemon/message-protocol.js";
+import type { ConversationGraphMemory } from "../../../memory/graph/conversation-graph-memory.js";
+import type { Message } from "../../../providers/types.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type MemoryArgs,
   type MemoryResult,
   type Middleware,
   type Plugin,
   PluginExecutionError,
-} from "../types.js";
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * Discriminator the agent loop uses to narrow `MemoryResult.memoryGraphBlocks`
@@ -188,8 +189,8 @@ const defaultMemoryRetrievalMiddleware: Middleware<MemoryArgs, MemoryResult> =
  */
 export const defaultMemoryRetrievalPlugin: Plugin = {
   manifest: {
-    name: "default-memory-retrieval",
-    version: "0.0.1",
+    name: pkg.name,
+    version: pkg.version,
   },
   middleware: {
     memoryRetrieval: defaultMemoryRetrievalMiddleware,

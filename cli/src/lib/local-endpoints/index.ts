@@ -9,5 +9,5 @@ export { runRetire } from "./retire";
 export type { RetireResult } from "./retire";
 export { getGuardianAccessToken } from "./guardian-token";
 export type { TokenResult } from "./guardian-token";
-export { parseGatewayUrl } from "./gateway-proxy";
+export { parseGatewayUrl, readAllowedGatewayPorts } from "./gateway-proxy";
 export type { GatewayTarget, GatewayParseResult } from "./gateway-proxy";

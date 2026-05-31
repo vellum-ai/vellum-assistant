@@ -23,14 +23,15 @@
  * Design doc: `.private/plans/agent-plugin-system.md` (PR 19).
  */
 
-import { registerPlugin } from "../registry.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type Middleware,
   type Plugin,
   PluginExecutionError,
   type ToolErrorArgs,
   type ToolErrorDecision,
-} from "../types.js";
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * Canonical nudge text. Kept as a module-level constant so tests and future
@@ -88,8 +89,8 @@ const defaultToolErrorMiddleware: Middleware<ToolErrorArgs, ToolErrorDecision> =
  */
 export const defaultToolErrorPlugin: Plugin = {
   manifest: {
-    name: "default-tool-error",
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
   middleware: {
     toolError: defaultToolErrorMiddleware,
