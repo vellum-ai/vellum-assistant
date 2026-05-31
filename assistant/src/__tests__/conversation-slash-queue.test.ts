@@ -4,7 +4,7 @@ import type { AgentEvent } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
   conversationMessagesSyncTag,
-  type SyncChangedMessage,
+  type SyncChangedEvent,
 } from "../daemon/message-types/sync.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
@@ -348,10 +348,10 @@ async function resolveRun(index: number) {
 }
 
 function syncChangedMessages(): {
-  messages: SyncChangedMessage[];
+  messages: SyncChangedEvent[];
   dispose: () => void;
 } {
-  const messages: SyncChangedMessage[] = [];
+  const messages: SyncChangedEvent[] = [];
   const subscription = assistantEventHub.subscribe({
     type: "process",
     callback: (event) => {

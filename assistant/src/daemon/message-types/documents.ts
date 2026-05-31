@@ -1,5 +1,9 @@
 // Document editor and document persistence types.
 
+import type { DocumentEditorUpdateEvent } from "../../api/events/document-editor-update.js";
+
+export type { DocumentEditorUpdateEvent };
+
 // === Server → Client ===
 
 export interface DocumentEditorShow {
@@ -8,14 +12,6 @@ export interface DocumentEditorShow {
   surfaceId: string;
   title: string;
   initialContent: string;
-}
-
-export interface DocumentEditorUpdate {
-  type: "document_editor_update";
-  conversationId: string;
-  surfaceId: string;
-  markdown: string;
-  mode: string;
 }
 
 // === Client → Server ===
@@ -82,7 +78,7 @@ export type _DocumentsClientMessages =
 
 export type _DocumentsServerMessages =
   | DocumentEditorShow
-  | DocumentEditorUpdate
+  | DocumentEditorUpdateEvent
   | DocumentSaveResponse
   | DocumentLoadResponse
   | DocumentListResponse;

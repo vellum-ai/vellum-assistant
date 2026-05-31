@@ -11,10 +11,12 @@ import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
 import { ConversationTitleUpdatedEventSchema } from "./events/conversation-title-updated.js";
+import { DiskPressureStatusChangedEventSchema } from "./events/disk-pressure-status-changed.js";
 import { DocumentCommentCreatedEventSchema } from "./events/document-comment-created.js";
 import { DocumentCommentDeletedEventSchema } from "./events/document-comment-deleted.js";
 import { DocumentCommentReopenedEventSchema } from "./events/document-comment-reopened.js";
 import { DocumentCommentResolvedEventSchema } from "./events/document-comment-resolved.js";
+import { DocumentEditorUpdateEventSchema } from "./events/document-editor-update.js";
 import { ErrorEventSchema } from "./events/error.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
@@ -35,8 +37,10 @@ import { SecretRequestEventSchema } from "./events/secret-request.js";
 import { SubagentEventEventSchema } from "./events/subagent-event.js";
 import { SubagentSpawnedEventSchema } from "./events/subagent-spawned.js";
 import { SubagentStatusChangedEventSchema } from "./events/subagent-status-changed.js";
+import { SyncChangedEventSchema } from "./events/sync-changed.js";
 import { ToolResultEventSchema } from "./events/tool-result.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
+import { TurnProfileAutoRoutedEventSchema } from "./events/turn-profile-auto-routed.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
@@ -119,6 +123,16 @@ export {
   ConversationTitleUpdatedEventSchema,
 } from "./events/conversation-title-updated.js";
 export {
+  type DiskPressureBlockedCapability,
+  DiskPressureBlockedCapabilitySchema,
+  type DiskPressureState,
+  DiskPressureStateSchema,
+  type DiskPressureStatus,
+  type DiskPressureStatusChangedEvent,
+  DiskPressureStatusChangedEventSchema,
+  DiskPressureStatusSchema,
+} from "./events/disk-pressure-status-changed.js";
+export {
   type DocumentCommentCreatedEvent,
   DocumentCommentCreatedEventSchema,
 } from "./events/document-comment-created.js";
@@ -134,6 +148,10 @@ export {
   type DocumentCommentResolvedEvent,
   DocumentCommentResolvedEventSchema,
 } from "./events/document-comment-resolved.js";
+export {
+  type DocumentEditorUpdateEvent,
+  DocumentEditorUpdateEventSchema,
+} from "./events/document-editor-update.js";
 export { type ErrorEvent, ErrorEventSchema } from "./events/error.js";
 export {
   type GenerationCancelledEvent,
@@ -221,6 +239,10 @@ export {
   SubagentUsageStatsSchema,
 } from "./events/subagent-status-changed.js";
 export {
+  type SyncChangedEvent,
+  SyncChangedEventSchema,
+} from "./events/sync-changed.js";
+export {
   type RiskScopeOption,
   RiskScopeOptionSchema,
   type ToolActivityMetadata,
@@ -240,6 +262,10 @@ export {
   type ToolUseStartEvent,
   ToolUseStartEventSchema,
 } from "./events/tool-use-start.js";
+export {
+  type TurnProfileAutoRoutedEvent,
+  TurnProfileAutoRoutedEventSchema,
+} from "./events/turn-profile-auto-routed.js";
 export {
   type UISurfaceCompleteEvent,
   UISurfaceCompleteEventSchema,
@@ -326,10 +352,12 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ConversationErrorEventSchema,
   ConversationListInvalidatedEventSchema,
   ConversationTitleUpdatedEventSchema,
+  DiskPressureStatusChangedEventSchema,
   DocumentCommentCreatedEventSchema,
   DocumentCommentDeletedEventSchema,
   DocumentCommentReopenedEventSchema,
   DocumentCommentResolvedEventSchema,
+  DocumentEditorUpdateEventSchema,
   ErrorEventSchema,
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
@@ -350,8 +378,10 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   SubagentEventEventSchema,
   SubagentSpawnedEventSchema,
   SubagentStatusChangedEventSchema,
+  SyncChangedEventSchema,
   ToolResultEventSchema,
   ToolUseStartEventSchema,
+  TurnProfileAutoRoutedEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,

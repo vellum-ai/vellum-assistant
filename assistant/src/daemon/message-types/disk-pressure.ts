@@ -1,9 +1,5 @@
-import type { DiskPressureStatus } from "../disk-pressure-guard.js";
+import type { DiskPressureStatusChangedEvent } from "../../api/events/disk-pressure-status-changed.js";
 
-/** Server push when the disk pressure status snapshot changes. */
-export interface DiskPressureStatusChanged {
-  type: "disk_pressure_status_changed";
-  status: DiskPressureStatus;
-}
+export type { DiskPressureStatusChangedEvent };
 
-export type _DiskPressureServerMessages = DiskPressureStatusChanged;
+export type _DiskPressureServerMessages = DiskPressureStatusChangedEvent;

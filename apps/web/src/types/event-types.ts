@@ -6,21 +6,14 @@
  * handler modules. These are cross-domain shared types — the event bus store
  * and multiple domains subscribe to these events.
  *
- * Schema-validated events are covered by `APIAssistantEvent` (the inferred
- * union from `@vellumai/assistant-api`); each new schema added there appears
- * in `AssistantEvent` automatically. The members listed individually are
- * events still on the hand-rolled legacy parser path — they migrate into
- * the canonical schema one by one.
+ * Every wire event is covered by `APIAssistantEvent` (the inferred union
+ * from `@vellumai/assistant-api`); each new schema added there appears in
+ * `AssistantEvent` automatically. `UnknownEvent` is the client-only
+ * fallback the parser emits for any payload the canonical union doesn't
+ * recognise.
  */
 
 import type { AssistantEvent as APIAssistantEvent } from "@vellumai/assistant-api";
-import type { DiskPressureStatus } from "@/assistant/types";
-import type { SyncChangedEvent } from "@/lib/sync/types";
-import type {
-  SubagentEventEvent,
-  SubagentSpawnedEvent,
-  SubagentStatusChangedEvent,
-} from "@vellumai/assistant-api";
 
 // ---------------------------------------------------------------------------
 // SSE event interfaces
@@ -29,46 +22,10 @@ import type {
 /** Valid decisions accepted by the assistant runtime's POST /v1/confirm endpoint. */
 export type ConfirmationDecision = "allow" | "deny";
 
-export interface DocumentEditorUpdateEvent {
-  type: "document_editor_update";
-  surfaceId: string;
-  markdown: string;
-  mode: string;
-  conversationId?: string;
-}
-
 export interface UnknownEvent {
   type: "unknown";
   rawType: string;
   data: Record<string, unknown>;
-  conversationId?: string;
-}
-
-// ---------------------------------------------------------------------------
-// Conversation lifecycle events
-// ---------------------------------------------------------------------------
-
-/**
- * Emitted by the daemon when the inference profile is auto-routed for the
- * current turn (e.g. tool-based routing selects a different model profile).
- * The client renders a subtle inline notification so the user knows which
- * profile is handling the response.
- */
-export interface TurnProfileAutoRoutedEvent {
-  type: "turn_profile_auto_routed";
-  conversationId: string;
-  profile: string;
-  profileLabel: string;
-  conversationKey?: string;
-}
-
-export interface DiskPressureStatusChangedEvent {
-  type: "disk_pressure_status_changed";
-  status: DiskPressureStatus | null;
-  conversationId?: string;
-}
-
-export interface AssistantSyncChangedEvent extends SyncChangedEvent {
   conversationId?: string;
 }
 
@@ -114,30 +71,15 @@ export const USER_FACING_INTERACTION_KINDS: ReadonlySet<string> =
     "acp_confirmation",
   ]);
 
-/**
- * Emitted when a daemon-side pending interaction (confirmation, secret,
- * question, host-proxy request) transitions to a resolved state. Drives
- * push-based attention reconciliation in the sidebar.
- */
 // ---------------------------------------------------------------------------
 // AssistantEvent union
 // ---------------------------------------------------------------------------
 
 /**
- * Every event the chat SSE stream might emit. Schema-validated events
- * are covered by `APIAssistantEvent` (the inferred union from
+ * Every event the chat SSE stream might emit. All wire events are
+ * covered by `APIAssistantEvent` (the inferred union from
  * `@vellumai/assistant-api`); each new schema added there appears here
- * automatically. The members listed individually are events still on
- * the hand-rolled legacy parser path — they peel off this union one by
- * one as they migrate into the canonical schema.
+ * automatically. `UnknownEvent` is the client-only fallback for any
+ * payload the canonical union doesn't recognise.
  */
-export type AssistantEvent =
-  | APIAssistantEvent
-  | DiskPressureStatusChangedEvent
-  | AssistantSyncChangedEvent
-  | SubagentSpawnedEvent
-  | SubagentStatusChangedEvent
-  | SubagentEventEvent
-  | DocumentEditorUpdateEvent
-  | TurnProfileAutoRoutedEvent
-  | UnknownEvent;
+export type AssistantEvent = APIAssistantEvent | UnknownEvent;

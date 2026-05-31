@@ -1,4 +1,3 @@
-
 import {
   type MutableRefObject,
   type Dispatch,
@@ -80,7 +79,8 @@ export type {
 } from "@/domains/chat/types";
 
 import type { ChatError } from "@/domains/chat/types";
-import type { AssistantEvent, AssistantSyncChangedEvent } from "@/types/event-types";
+import type { AssistantEvent } from "@/types/event-types";
+import type { SyncChangedEvent } from "@/lib/sync/types";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 
 // ---------------------------------------------------------------------------
@@ -121,9 +121,7 @@ export interface UseStreamEventHandlerParams {
   contextWindowUsageByConversationRef: MutableRefObject<
     Map<string, ContextWindowUsage>
   >;
-  setContextWindowUsage: Dispatch<
-    SetStateAction<ContextWindowUsage | null>
-  >;
+  setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
 
   // --- Conversations ---
   scheduleConversationListRefetch: () => void;
@@ -132,7 +130,7 @@ export interface UseStreamEventHandlerParams {
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
   // --- Sync router ---
-  dispatchSyncChanged: (event: AssistantSyncChangedEvent) => void;
+  dispatchSyncChanged: (event: SyncChangedEvent) => void;
 
   // --- Queue management ---
   pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
@@ -202,13 +200,13 @@ export function useStreamEventHandler(
         recordDiagnostic("sse_event_stale", {
           epoch,
           currentEpoch: streamEpochRef.current,
-          activeConversationId: useConversationStore.getState().activeConversationId,
+          activeConversationId:
+            useConversationStore.getState().activeConversationId,
           ...eventSummary,
         });
         return;
       }
-      const streamConversationId =
-        streamContextRef.current?.conversationId;
+      const streamConversationId = streamContextRef.current?.conversationId;
       // Defense-in-depth: even though useEventStream's filter already
       // rejects conversation-scoped events without an explicit matching
       // conversationId, gate here too so any future caller of
@@ -220,7 +218,8 @@ export function useStreamEventHandler(
         if (!event.conversationId || !streamConversationId) {
           recordDiagnostic("sse_event_wrong_conversation", {
             epoch,
-            activeConversationId: useConversationStore.getState().activeConversationId,
+            activeConversationId:
+              useConversationStore.getState().activeConversationId,
             streamContext: streamContextRef.current,
             reason: !event.conversationId ? "missing" : "no_stream_context",
             ...eventSummary,
@@ -230,7 +229,8 @@ export function useStreamEventHandler(
         if (event.conversationId !== streamConversationId) {
           recordDiagnostic("sse_event_wrong_conversation", {
             epoch,
-            activeConversationId: useConversationStore.getState().activeConversationId,
+            activeConversationId:
+              useConversationStore.getState().activeConversationId,
             streamContext: streamContextRef.current,
             reason: "mismatch",
             ...eventSummary,
@@ -252,7 +252,8 @@ export function useStreamEventHandler(
             : "sse_event",
           {
             epoch,
-            activeConversationId: useConversationStore.getState().activeConversationId,
+            activeConversationId:
+              useConversationStore.getState().activeConversationId,
             streamContext: streamContextRef.current,
             ...eventSummary,
           },

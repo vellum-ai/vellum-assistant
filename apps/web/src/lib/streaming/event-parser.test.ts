@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
+import type { DiskPressureStatus } from "@vellumai/assistant-api";
+
 import { parseAssistantEvent } from "@/lib/streaming/event-parser";
 import { SYNC_TAGS } from "@/lib/sync/types";
 
@@ -1126,31 +1128,36 @@ describe("parseAssistantEvent", () => {
     expect("originClientId" in event).toBe(false);
   });
 
-  test("ignores blank or non-string originClientId on sync_changed", () => {
-    const blank = parseAssistantEvent({
+  test("preserves originClientId verbatim and rejects invalid values", () => {
+    // GIVEN a non-empty originClientId — the canonical schema keeps it
+    // verbatim; the daemon stamps a clean header value, so no trimming.
+    const verbatim = parseAssistantEvent({
       type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar],
-      originClientId: "   ",
+      originClientId: "client-xyz",
     });
-    expect("originClientId" in blank).toBe(false);
+    expect(verbatim).toEqual({
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantAvatar],
+      originClientId: "client-xyz",
+    });
 
+    // AND an empty originClientId fails the schema's min-length guard, so
+    // the whole event falls through to unknown rather than being parsed.
+    const empty = parseAssistantEvent({
+      type: "sync_changed",
+      tags: [SYNC_TAGS.assistantAvatar],
+      originClientId: "",
+    });
+    expect(empty.type).toBe("unknown");
+
+    // AND a non-string originClientId likewise fails validation.
     const nonString = parseAssistantEvent({
       type: "sync_changed",
       tags: [SYNC_TAGS.assistantAvatar],
       originClientId: 42,
     });
-    expect("originClientId" in nonString).toBe(false);
-
-    const trimmed = parseAssistantEvent({
-      type: "sync_changed",
-      tags: [SYNC_TAGS.assistantAvatar],
-      originClientId: "  client-xyz  ",
-    });
-    expect(trimmed).toEqual({
-      type: "sync_changed",
-      tags: [SYNC_TAGS.assistantAvatar],
-      originClientId: "client-xyz",
-    });
+    expect(nonString.type).toBe("unknown");
   });
 
   test("parses assistant_activity_state idle", () => {
@@ -1315,134 +1322,211 @@ describe("parseAssistantEvent", () => {
     });
   });
 
-  test("parses disk_pressure_status_changed", () => {
-    const event = parseAssistantEvent({
-      type: "disk_pressure_status_changed",
-      status: {
-        enabled: true,
-        state: "critical",
-        locked: true,
-        acknowledged: false,
-        overrideActive: false,
-        effectivelyLocked: true,
-        lockId: "lock-123",
-        usagePercent: 94.3,
-        thresholdPercent: 90,
-        path: "/workspace",
-        lastCheckedAt: "2026-05-05T12:00:00.000Z",
-        blockedCapabilities: [
-          "agent-turns",
-          "background-work",
-          "remote-ingress",
-          "unknown-capability",
-        ],
-        error: null,
-      },
-    });
-
-    expect(event).toEqual({
-      type: "disk_pressure_status_changed",
-      status: {
-        enabled: true,
-        state: "critical",
-        locked: true,
-        acknowledged: false,
-        overrideActive: false,
-        effectivelyLocked: true,
-        lockId: "lock-123",
-        usagePercent: 94.3,
-        thresholdPercent: 90,
-        path: "/workspace",
-        lastCheckedAt: "2026-05-05T12:00:00.000Z",
-        blockedCapabilities: [
-          "agent-turns",
-          "background-work",
-          "remote-ingress",
-        ],
-        error: null,
-      },
-      conversationId: undefined,
-    });
-  });
-
-  test("parses flat disk_pressure_status_changed payloads", () => {
-    const event = parseAssistantEvent({
-      type: "disk_pressure_status_changed",
+  describe("disk_pressure_status_changed", () => {
+    const criticalStatus: DiskPressureStatus = {
       enabled: true,
       state: "critical",
       locked: true,
       acknowledged: false,
       overrideActive: false,
       effectivelyLocked: true,
-      lockId: "lock-flat",
-      usagePercent: 96,
+      lockId: "lock-123",
+      usagePercent: 94.3,
       thresholdPercent: 90,
       path: "/workspace",
-      lastCheckedAt: "2026-05-05T12:05:00.000Z",
-      blockedCapabilities: ["background-work", "remote-ingress"],
+      lastCheckedAt: "2026-05-05T12:00:00.000Z",
+      blockedCapabilities: ["agent-turns", "background-work", "remote-ingress"],
       error: null,
-      conversationId: "conversation-123",
+    };
+
+    test("parses a critical status verbatim with no conversationId", () => {
+      // GIVEN a fully-populated critical disk-pressure snapshot
+      // WHEN parsed
+      const event = parseAssistantEvent({
+        type: "disk_pressure_status_changed",
+        status: criticalStatus,
+      });
+      // THEN the nested status round-trips and the global event carries
+      // no conversationId (the daemon broadcasts it workspace-wide).
+      expect(event).toEqual({
+        type: "disk_pressure_status_changed",
+        status: criticalStatus,
+      });
+      expect("conversationId" in event).toBe(false);
     });
 
-    expect(event).toEqual({
-      type: "disk_pressure_status_changed",
-      status: {
-        enabled: true,
-        state: "critical",
-        locked: true,
+    test("parses the warning state (added by canonicalization)", () => {
+      // GIVEN a snapshot in the `warning` state — a value the legacy web
+      // type omitted but the daemon contract has always emitted.
+      const event = parseAssistantEvent({
+        type: "disk_pressure_status_changed",
+        status: { ...criticalStatus, state: "warning" },
+      });
+      if (event.type !== "disk_pressure_status_changed") {
+        throw new Error("expected disk_pressure_status_changed");
+      }
+      expect(event.status.state).toBe("warning");
+    });
+
+    test("parses a disabled status", () => {
+      const status: DiskPressureStatus = {
+        enabled: false,
+        state: "disabled",
+        locked: false,
         acknowledged: false,
         overrideActive: false,
-        effectivelyLocked: true,
-        lockId: "lock-flat",
-        usagePercent: 96,
+        effectivelyLocked: false,
+        lockId: null,
+        usagePercent: null,
         thresholdPercent: 90,
-        path: "/workspace",
-        lastCheckedAt: "2026-05-05T12:05:00.000Z",
-        blockedCapabilities: ["background-work", "remote-ingress"],
+        path: null,
+        lastCheckedAt: null,
+        blockedCapabilities: [],
         error: null,
-      },
-      conversationId: "conversation-123",
+      };
+      const event = parseAssistantEvent({
+        type: "disk_pressure_status_changed",
+        status,
+      });
+      expect(event).toEqual({
+        type: "disk_pressure_status_changed",
+        status,
+      });
+    });
+
+    test("strips unknown fields (strip-mode) on the event and status", () => {
+      // GIVEN unknown fields on both the event and the nested status
+      const event = parseAssistantEvent({
+        type: "disk_pressure_status_changed",
+        conversationId: "conv-should-be-stripped",
+        status: { ...criticalStatus, futureField: "ignored" },
+      });
+      // THEN unknown fields are discarded, leaving the canonical shape.
+      expect(event).toEqual({
+        type: "disk_pressure_status_changed",
+        status: criticalStatus,
+      });
+    });
+
+    test("falls through to unknown for an unrecognised blocked capability", () => {
+      // GIVEN a blockedCapabilities entry outside the canonical enum
+      const data = {
+        type: "disk_pressure_status_changed",
+        status: {
+          ...criticalStatus,
+          blockedCapabilities: ["agent-turns", "unknown-capability"],
+        },
+      };
+      // THEN the schema rejects it and the parser yields an unknown event.
+      const event = parseAssistantEvent(data);
+      expect(event.type).toBe("unknown");
+    });
+
+    test("falls through to unknown for a flat (statusless) payload", () => {
+      // GIVEN a flat payload with status fields hoisted to the top level —
+      // a shape the daemon never emits (it always nests under `status`).
+      const event = parseAssistantEvent({
+        type: "disk_pressure_status_changed",
+        ...criticalStatus,
+      });
+      // THEN the missing `status` object means it parses as unknown.
+      expect(event.type).toBe("unknown");
     });
   });
 
-  test("parses disk_pressure_status_changed disabled status", () => {
-    const event = parseAssistantEvent({
-      type: "disk_pressure_status_changed",
-      status: {
-        enabled: false,
-        state: "disabled",
-        locked: false,
-        acknowledged: false,
-        overrideActive: false,
-        effectivelyLocked: false,
-        lockId: null,
-        usagePercent: null,
-        thresholdPercent: 90,
-        path: null,
-        lastCheckedAt: null,
-        blockedCapabilities: [],
-        error: null,
-      },
+  describe("document_editor_update", () => {
+    test("parses a conversation-scoped editor update", () => {
+      // GIVEN an inner message carrying its own conversationId
+      const event = parseAssistantEvent({
+        type: "document_editor_update",
+        conversationId: "conv-1",
+        surfaceId: "surface-1",
+        markdown: "# Hello",
+        mode: "replace",
+      });
+      // THEN every field round-trips unchanged
+      expect(event).toEqual({
+        type: "document_editor_update",
+        conversationId: "conv-1",
+        surfaceId: "surface-1",
+        markdown: "# Hello",
+        mode: "replace",
+      });
     });
 
-    expect(event).toEqual({
-      type: "disk_pressure_status_changed",
-      status: {
-        enabled: false,
-        state: "disabled",
-        locked: false,
-        acknowledged: false,
-        overrideActive: false,
-        effectivelyLocked: false,
-        lockId: null,
-        usagePercent: null,
-        thresholdPercent: 90,
-        path: null,
-        lastCheckedAt: null,
-        blockedCapabilities: [],
-        error: null,
-      },
-      conversationId: undefined,
+    test("strips unknown fields (strip-mode)", () => {
+      const event = parseAssistantEvent({
+        type: "document_editor_update",
+        conversationId: "conv-1",
+        surfaceId: "surface-1",
+        markdown: "body",
+        mode: "append",
+        futureField: "ignored",
+      });
+      expect(event).toEqual({
+        type: "document_editor_update",
+        conversationId: "conv-1",
+        surfaceId: "surface-1",
+        markdown: "body",
+        mode: "append",
+      });
+    });
+
+    test("falls through to unknown when conversationId is missing", () => {
+      // GIVEN a payload lacking the required conversationId — the parser
+      // never grafts the envelope routing key onto a canonical event.
+      const event = parseAssistantEvent({
+        type: "document_editor_update",
+        surfaceId: "surface-1",
+        markdown: "body",
+        mode: "replace",
+      });
+      expect(event.type).toBe("unknown");
+    });
+  });
+
+  describe("turn_profile_auto_routed", () => {
+    test("parses an auto-routed profile notification", () => {
+      const event = parseAssistantEvent({
+        type: "turn_profile_auto_routed",
+        conversationId: "conv-1",
+        profile: "quality-optimized",
+        profileLabel: "Quality",
+      });
+      expect(event).toEqual({
+        type: "turn_profile_auto_routed",
+        conversationId: "conv-1",
+        profile: "quality-optimized",
+        profileLabel: "Quality",
+      });
+    });
+
+    test("strips the legacy conversationKey field (strip-mode)", () => {
+      // GIVEN a payload still carrying the legacy conversationKey field
+      // the daemon no longer emits
+      const event = parseAssistantEvent({
+        type: "turn_profile_auto_routed",
+        conversationId: "conv-1",
+        profile: "quality-optimized",
+        profileLabel: "Quality",
+        conversationKey: "legacy-key",
+      });
+      // THEN it is discarded by strip-mode
+      expect(event).toEqual({
+        type: "turn_profile_auto_routed",
+        conversationId: "conv-1",
+        profile: "quality-optimized",
+        profileLabel: "Quality",
+      });
+    });
+
+    test("falls through to unknown when profileLabel is missing", () => {
+      const event = parseAssistantEvent({
+        type: "turn_profile_auto_routed",
+        conversationId: "conv-1",
+        profile: "quality-optimized",
+      });
+      expect(event.type).toBe("unknown");
     });
   });
 
@@ -2959,11 +3043,11 @@ describe("envelope format parsing", () => {
     });
   });
 
-  test("envelope-level conversationId is stamped onto legacy conversation-scoped events", () => {
-    // Legacy fallback path: events not yet migrated to AssistantEventSchema
-    // (here: `document_editor_update`) read the envelope-level conversationId
-    // via `mergeEnvelopeConversationId`. This codepath disappears as each
-    // legacy case migrates to a strict schema.
+  test("envelope conversationId is NOT grafted onto a conversation-scoped canonical event", () => {
+    // `document_editor_update` declares `conversationId` as required on the
+    // inner message. When the inner omits it, the parser does NOT rescue the
+    // event with the envelope-level routing key — it falls through to unknown.
+    // This is the drift `@vellumai/assistant-api` exists to prevent.
     const event = parseAssistantEvent({
       conversationId: "conv-from-envelope",
       message: {
@@ -2973,18 +3057,12 @@ describe("envelope format parsing", () => {
         mode: "replace",
       },
     });
-    expect(event).toEqual({
-      type: "document_editor_update",
-      surfaceId: "surface-1",
-      markdown: "# Hello",
-      mode: "replace",
-      conversationId: "conv-from-envelope",
-    });
+    expect(event.type).toBe("unknown");
   });
 
-  test("envelope-level conversationId does NOT override an event-supplied conversationId", () => {
-    // Same legacy fallback path — when the inner message carries its own
-    // conversationId, it wins over the envelope-level routing key.
+  test("a conversation-scoped event reads its own inner conversationId", () => {
+    // When the inner message carries its own conversationId, the canonical
+    // schema reads it directly; the envelope-level routing key is never used.
     const event = parseAssistantEvent({
       conversationId: "envelope-conv",
       message: {

@@ -15,6 +15,7 @@ import type { QuestionRequestEvent } from "../../api/events/question-request.js"
 import type { SecretRequestEvent } from "../../api/events/secret-request.js";
 import type { ToolResultEvent } from "../../api/events/tool-result.js";
 import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
+import type { TurnProfileAutoRoutedEvent } from "../../api/events/turn-profile-auto-routed.js";
 import type { UserMessageEchoEvent } from "../../api/events/user-message-echo.js";
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
@@ -148,20 +149,7 @@ export interface ConfirmationStateChanged {
   toolUseId?: string;
 }
 
-/**
- * Emitted when the query complexity auto-router selects a non-default
- * profile for the current turn. Clients use this to show an inline
- * notification (e.g. "Using Quality for this response"). Only fires when
- * the router picks a profile — not when the user explicitly pinned one.
- */
-export interface TurnProfileAutoRouted {
-  type: "turn_profile_auto_routed";
-  conversationId: string;
-  /** Profile key (e.g. "quality-optimized"). */
-  profile: string;
-  /** Human-readable label (e.g. "Quality"). */
-  profileLabel: string;
-}
+export type { TurnProfileAutoRoutedEvent };
 
 /**
  * Broadcast to clients when a conversation's inference-profile override
@@ -240,6 +228,6 @@ export type _MessagesServerMessages =
   | TraceEvent
   | ConfirmationStateChanged
   | AssistantActivityStateEvent
-  | TurnProfileAutoRouted
+  | TurnProfileAutoRoutedEvent
   | ConversationInferenceProfileUpdated
   | InteractionResolvedEvent;
