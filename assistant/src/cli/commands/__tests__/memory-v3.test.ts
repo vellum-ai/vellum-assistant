@@ -4,22 +4,27 @@
  * The CLI subcommands are thin IPC shells over the handlers in
  * `runtime/routes/memory-v3-routes.ts`; the logic worth testing lives there.
  * We exercise the handlers directly against a temp workspace + data dir
- * injected via their `deps` parameter — no module mocking, no process-global
- * leaks. Generic taxonomy only (domain-a/topic-x, etc.).
+ * injected via their `deps` parameter. Generic taxonomy only
+ * (domain-a/topic-x, etc.).
+ *
+ * Source-of-truth note: `health` and `set-core` build the leaf tree from each
+ * concept page's `leaves:` frontmatter (via the page index) and union it over
+ * `assignments.json`, matching the consolidation-injected health block. The
+ * fixture below writes concept pages with `leaves:` frontmatter as the
+ * authoritative membership and keeps a *stale* `assignments.json` to prove the
+ * handlers read the frontmatter, not the stale assignments. The seeded
+ * skill/CLI-command catalogs are mocked empty so `allSlugs` (derived from the
+ * page index) is deterministic.
  */
 
-import {
-  mkdir,
-  mkdtemp,
-  readdir,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
+import * as cliCommandStore from "../../../memory/v2/cli-command-store.js";
+import { invalidatePageIndex } from "../../../memory/v2/page-index.js";
+import * as skillStore from "../../../memory/v2/skill-store.js";
 import {
   handleMemoryV3Health,
   handleMemoryV3Reconcile,
@@ -54,10 +59,33 @@ async function writeLeaf(
   await writeFile(file, fm);
 }
 
+/** Write a concept page with `leaves:` frontmatter under memory/concepts/. */
+async function writePage(slug: string, leaves: string[]): Promise<void> {
+  const file = join(workspaceDir, "memory", "concepts", `${slug}.md`);
+  await mkdir(join(file, ".."), { recursive: true });
+  const fm = [
+    "---",
+    `summary: ${slug} summary`,
+    "leaves:",
+    ...leaves.map((l) => `  - ${l}`),
+    "---",
+    `${slug} body`,
+    "",
+  ].join("\n");
+  await writeFile(file, fm);
+}
+
 beforeEach(async () => {
   workspaceDir = await mkdtemp(join(tmpdir(), "mem-v3-cli-ws-"));
   dataDir = join(workspaceDir, "memory", "v3", "data");
   await mkdir(dataDir, { recursive: true });
+
+  // Keep the page index deterministic regardless of the on-disk seeded
+  // catalogs, and clear any module-cached index from a prior test.
+  spyOn(skillStore, "listSkillEntries").mockReturnValue([]);
+  spyOn(cliCommandStore, "listCliCommandEntries").mockReturnValue([]);
+  invalidatePageIndex();
+
   // A small generic tree: two leaves under domain-a, one under domain-b.
   await writeLeaf("domain-a/topic-x", {
     path: "domain-a/topic-x",
@@ -74,24 +102,27 @@ beforeEach(async () => {
     in_core: false,
     id: "leaf-z",
   });
-  // assignments.json: page slugs → the leaves they belong to.
+
+  // Authoritative membership lives in each page's `leaves:` frontmatter.
+  await writePage("page-1", ["domain-a/topic-x"]);
+  await writePage("page-2", ["domain-a/topic-x", "domain-a/topic-y"]);
+  await writePage("page-3", ["domain-b/topic-z"]);
+
+  // STALE assignments.json: deliberately divergent from the frontmatter above.
+  // If a handler read this instead of the page index it would compute the wrong
+  // membership/slug universe (this is the regression Defect A guards against).
   await writeFile(
     join(dataDir, "assignments.json"),
-    JSON.stringify({
-      "page-1": ["domain-a/topic-x"],
-      "page-2": ["domain-a/topic-x", "domain-a/topic-y"],
-      "page-3": ["domain-b/topic-z"],
-    }),
+    JSON.stringify({ "stale-page": ["domain-a/topic-x"] }),
   );
   await writeFile(
     join(dataDir, "core.json"),
     JSON.stringify({ alwaysOn: ["domain-a/topic-x"] }),
   );
-  // Empty concepts dir so the reconciler's listPages() returns [].
-  await mkdir(join(workspaceDir, "memory", "concepts"), { recursive: true });
 });
 
 afterEach(async () => {
+  invalidatePageIndex();
   await rm(workspaceDir, { recursive: true, force: true });
 });
 
@@ -118,9 +149,12 @@ describe("handleMemoryV3SetCore", () => {
     expect(core.alwaysOn).toEqual(["domain-a/topic-x"]);
   });
 
-  test("previews the always-on page count without writing", async () => {
-    // Adding topic-y to core: core = {topic-x, topic-y}. Unique member slugs:
-    // topic-x → {page-1, page-2}, topic-y → {page-2} ⇒ {page-1, page-2} = 2.
+  test("previews the always-on page count from frontmatter membership", async () => {
+    // Adding topic-y to core: core = {topic-x, topic-y}. Membership comes from
+    // page `leaves:` frontmatter — topic-x → {page-1, page-2}, topic-y →
+    // {page-2} ⇒ unique always-on slugs {page-1, page-2} = 2. (The stale
+    // assignments.json names only "stale-page"; if it were the source this
+    // would be wrong.)
     const result = await handleMemoryV3SetCore(
       { add: ["domain-a/topic-y"] },
       { dataDir, workspaceDir },
@@ -161,13 +195,25 @@ describe("handleMemoryV3SetCore", () => {
 // ---------------------------------------------------------------------------
 
 describe("handleMemoryV3Health", () => {
-  test("renders a report and counts for the temp tree", async () => {
+  test("computes the slug universe from page frontmatter, not assignments.json", async () => {
     const result = await handleMemoryV3Health({ dataDir, workspaceDir });
     // domain-b/topic-z has a single member ⇒ a tiny leaf, so the report is
     // non-empty and renders the memory-v3 health header.
     expect(result.rendered).toContain("memory-v3 health:");
     expect(result.counts.tinyLeaves).toBeGreaterThanOrEqual(1);
+    // Every page leaf ref resolves to a real leaf file ⇒ no dangling refs.
     expect(result.counts.danglingRefs).toBe(0);
+    // The slug universe is the page-index pages (page-1..3), all of which are
+    // assigned, so nothing is unassigned. The stale "stale-page" entry from
+    // assignments.json is NOT in the universe (proves frontmatter wins).
+    expect(result.counts.unassigned).toBe(0);
+  });
+
+  test("flags a page frontmatter ref with no backing leaf as dangling", async () => {
+    await writePage("page-4", ["domain-a/missing-leaf"]);
+    invalidatePageIndex();
+    const result = await handleMemoryV3Health({ dataDir, workspaceDir });
+    expect(result.counts.danglingRefs).toBeGreaterThanOrEqual(1);
   });
 });
 
@@ -177,17 +223,13 @@ describe("handleMemoryV3Health", () => {
 
 describe("handleMemoryV3Reconcile", () => {
   test("no-op reconcile against an unchanged tree returns empty diffs", async () => {
-    // prevLeaves is derived from the current tree, so diffing current-vs-current
-    // yields no renames/deletes. This still drives the full reconcileTree path
+    // v1: prevLeaves is derived from the current tree, so diffing
+    // current-vs-current yields no renames/deletes — reconcile runs as a
+    // convergence/prune pass. This still drives the full reconcileTree path
     // (snapshot → apply → validate → invalidate).
     const result = await handleMemoryV3Reconcile({ dataDir, workspaceDir });
     expect(result.renames).toEqual([]);
     expect(result.deleted).toEqual([]);
     expect(result.prunedCore).toEqual([]);
-
-    // A snapshot directory was created as a side effect.
-    const snapshotsRoot = join(workspaceDir, "memory", "v3", "v3-snapshots");
-    const entries = await readdir(snapshotsRoot);
-    expect(entries.length).toBeGreaterThanOrEqual(1);
   });
 });

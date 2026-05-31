@@ -12,8 +12,10 @@
  * Subcommands:
  *
  *   - `health` — print the structural health report (read-only).
- *   - `reconcile` — reconcile page/core refs against the current on-disk tree
- *     after a restructuring; reports renames, deletes, and pruned core entries.
+ *   - `reconcile` — v1 convergence pass: rewrites any dangling page/core ref to
+ *     the current on-disk tree and prunes stale core entries. It does NOT yet
+ *     detect renames/moves/splits — that requires a captured prior leaf
+ *     snapshot (a follow-up), so `renames` is always empty in v1.
  *   - `set-core` — add/remove always-on core leaves. Validates that every added
  *     leaf exists, previews the resulting always-on page count, and writes only
  *     on `--yes`.
@@ -114,24 +116,27 @@ Examples:
 
       v3.command("reconcile")
         .description(
-          "Reconcile page/core refs against the current on-disk leaf tree",
+          "v1 convergence/prune pass over page/core refs (no rename detection yet)",
         )
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .addHelpText(
           "after",
           `
-After restructuring the leaf tree on disk (rename/move/split/delete a
-leaf), this rewrites every page's leaves: frontmatter and core.json to
-point at the current paths. Diffs leaves by stable id so a rename is
-distinguished from a delete+add; deleted leaves' member pages are re-homed
-across the surviving tree before their dangling refs are dropped.
+Runs a convergence pass over the leaf tree: rewrites any page leaves:
+frontmatter or core.json entry that dangles to a path the current on-disk
+tree no longer has, and prunes stale core entries. Fail-closed: snapshots
+before mutating and rolls back if any dangling reference survives
+validation. On success the v3 lanes are invalidated.
 
-Fail-closed: snapshots before mutating and rolls back if any dangling
-reference survives validation. On success the v3 lanes are invalidated.
+Limitation: v1 cannot detect renames/moves/splits. The reconciler diffs
+the current tree against itself (there is no captured "before" snapshot),
+so renames always report as empty and a true rename surfaces as a
+delete + add. Full rename/move/split detection requires persisting a prior
+leaf snapshot and is a planned follow-up.
 
 Examples:
   $ assistant memory v3 reconcile
-  $ assistant memory v3 reconcile --json | jq '.renames'`,
+  $ assistant memory v3 reconcile --json | jq '.prunedCore'`,
         )
         .action(async (opts: { json?: boolean }) => {
           const result = await cliIpcCall<MemoryV3ReconcileResult>(

@@ -18,6 +18,7 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { getPageIndex } from "../../memory/v2/page-index.js";
 import { loadCore } from "../../memory/v3/core.js";
 import { computeV3Health, renderV3Health } from "../../memory/v3/health.js";
 import { type LeafRef, reconcileTree } from "../../memory/v3/reconcile.js";
@@ -50,18 +51,36 @@ export interface MemoryV3Deps {
 // Shared loading helpers
 // ---------------------------------------------------------------------------
 
-/** Load the live leaf tree + its full slug universe from the resolved data dir. */
+/**
+ * Load the live leaf tree + its full slug universe.
+ *
+ * Page `leaves:` frontmatter is the authoritative source of page→leaf
+ * membership: we build a `pageLeaves` map from the page index and union it over
+ * `assignments.json` via `loadLeafTree(dataDir, pageLeaves)`, and derive the
+ * slug universe (`allSlugs`) from the page index itself. This mirrors
+ * `maybePrependV3Health` in `memory/v2/consolidation-job.ts` so the CLI
+ * `health` / `set-core` cost computations agree with the consolidation-injected
+ * health block instead of disagreeing by reading stale assignments.json only.
+ */
 async function loadTreeAndSlugs(deps?: MemoryV3Deps): Promise<{
   dataDir: string;
   tree: LeafTree;
   allSlugs: Slug[];
 }> {
+  const workspaceDir = deps?.workspaceDir ?? getWorkspaceDir();
   const dataDir = deps?.dataDir ?? resolveDataDir();
-  const tree = await loadLeafTree(dataDir);
-  // The full slug universe is every page the tree knows about (its `byPage`
-  // keys). A slug is "unassigned" when it maps to no leaf, so the universe must
-  // include those slugs too — `byPage` carries them from assignments.json.
-  const allSlugs = [...tree.byPage.keys()];
+
+  // Each page contributes its `leaves:` frontmatter as the authoritative leaf
+  // set for that slug; the slug universe is every page the index knows about.
+  const pageIndex = await getPageIndex(workspaceDir);
+  const pageLeaves = new Map<Slug, LeafPath[]>();
+  const allSlugs: Slug[] = [];
+  for (const entry of pageIndex.entries) {
+    pageLeaves.set(entry.slug, entry.leaves);
+    allSlugs.push(entry.slug);
+  }
+
+  const tree = await loadLeafTree(dataDir, pageLeaves);
   return { dataDir, tree, allSlugs };
 }
 
@@ -208,6 +227,9 @@ export async function handleMemoryV3Reconcile(
 ): Promise<MemoryV3ReconcileResult> {
   const workspaceDir = deps?.workspaceDir ?? getWorkspaceDir();
   const dataDir = deps?.dataDir ?? resolveDataDir();
+  // v1: prev == current is intentional. Without a captured prior leaf snapshot
+  // we cannot detect renames/moves/splits, so this runs as a convergence /
+  // dangling-ref prune pass. Full rename detection is a follow-up.
   const prevLeaves = await loadPrevLeaves(dataDir);
 
   const result = await reconcileTree({ prevLeaves, dataDir, workspaceDir });
@@ -289,7 +311,8 @@ export const ROUTES: RouteDefinition[] = [
     policy: POLICY,
     endpoint: "memory/v3/reconcile",
     handler: () => handleMemoryV3Reconcile(),
-    summary: "Reconcile page/core refs against the current on-disk leaf tree",
+    summary:
+      "v1 convergence/prune pass over page+core refs (no rename detection without a prior snapshot)",
     tags: ["memory"],
   },
   {
