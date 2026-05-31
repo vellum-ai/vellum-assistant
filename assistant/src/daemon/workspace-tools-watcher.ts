@@ -50,7 +50,6 @@ import {
   classifyWorkspaceToolEntry,
   findWinningWorkspaceToolPath,
   loadSingleWorkspaceTool,
-  type LoadWorkspaceToolsOptions,
 } from "../tools/workspace-tools/loader.js";
 import { DebouncerMap } from "../util/debounce.js";
 import { getLogger } from "../util/logger.js";
@@ -65,21 +64,32 @@ const log = getLogger("workspace-tools-watcher");
  */
 const RECONCILE_DEBOUNCE_MS = 250;
 
-/**
- * Singleton — there's only ever one workspace-tools watcher per
- * assistant process. Exposed via {@link getWorkspaceToolsWatcher} for
- * the daemon bootstrap and (eventually) any code path that needs to
- * trigger a manual reconcile.
- */
-let instance: WorkspaceToolsWatcher | undefined;
-
 export class WorkspaceToolsWatcher {
+  /**
+   * Process-wide singleton. Callers reach the watcher via
+   * {@link WorkspaceToolsWatcher.getInstance} rather than instantiating
+   * directly so the daemon `start()`/`stop()` lifecycle and any future
+   * "trigger a manual reconcile" code paths share one watcher across the
+   * assistant process lifetime.
+   */
+  private static singleton: WorkspaceToolsWatcher | null = null;
+
+  static getInstance(): WorkspaceToolsWatcher {
+    WorkspaceToolsWatcher.singleton ??= new WorkspaceToolsWatcher();
+    return WorkspaceToolsWatcher.singleton;
+  }
+
+  /** Test-only — drops the singleton so the next `getInstance()` rebuilds. */
+  static resetForTests(): void {
+    WorkspaceToolsWatcher.singleton?.stop();
+    WorkspaceToolsWatcher.singleton = null;
+  }
+
   private watcher: FSWatcher | null = null;
   private debouncer = new DebouncerMap({
     defaultDelayMs: RECONCILE_DEBOUNCE_MS,
     maxEntries: 100,
   });
-  private options: LoadWorkspaceToolsOptions;
   /**
    * Promise queue per stem — guarantees that two events for the same
    * stem can't run concurrently and corrupt the unregister/load
@@ -90,10 +100,6 @@ export class WorkspaceToolsWatcher {
    * in-flight reconcile's `await loadSingleWorkspaceTool`.
    */
   private inflight = new Map<string, Promise<void>>();
-
-  constructor(options: LoadWorkspaceToolsOptions = {}) {
-    this.options = options;
-  }
 
   start(): void {
     if (this.watcher) return;
@@ -245,7 +251,7 @@ export class WorkspaceToolsWatcher {
         unregisterWorkspaceTool(stem);
       }
 
-      const registered = await loadSingleWorkspaceTool(livePath, this.options);
+      const registered = await loadSingleWorkspaceTool(livePath);
       if (registered) {
         log.info(
           { stem, livePath },
@@ -288,30 +294,4 @@ export class WorkspaceToolsWatcher {
   async _testReconcile(stem: string): Promise<void> {
     await this.reconcileStem(stem);
   }
-}
-
-/**
- * Return the singleton watcher, creating it if necessary. Callers
- * (daemon bootstrap, future "trigger a manual reconcile" code paths)
- * share one watcher across the assistant process lifetime.
- */
-export function getWorkspaceToolsWatcher(
-  options: LoadWorkspaceToolsOptions = {},
-): WorkspaceToolsWatcher {
-  if (!instance) {
-    instance = new WorkspaceToolsWatcher(options);
-  }
-  return instance;
-}
-
-/**
- * Test-only reset — drops the singleton so a fresh instance is built
- * on next `getWorkspaceToolsWatcher()` call. Production code never
- * needs this.
- */
-export function _resetWorkspaceToolsWatcherForTests(): void {
-  if (instance) {
-    instance.stop();
-  }
-  instance = undefined;
 }

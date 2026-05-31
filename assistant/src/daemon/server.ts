@@ -47,7 +47,7 @@ import type { ConversationCreateOptions } from "./handlers/shared.js";
 import { setGlobalSkillIpcSender } from "./meet-host-supervisor.js";
 import { PluginSourceWatcher } from "./plugin-source-watcher.js";
 import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
-import { getWorkspaceToolsWatcher } from "./workspace-tools-watcher.js";
+import { WorkspaceToolsWatcher } from "./workspace-tools-watcher.js";
 
 const log = getLogger("server");
 
@@ -83,7 +83,6 @@ export class DaemonServer {
   private configWatcher = getConfigWatcher();
   private appSourceWatcher = new AppSourceWatcher();
   private pluginSourceWatcher = PluginSourceWatcher.getInstance();
-  private workspaceToolsWatcher = getWorkspaceToolsWatcher();
   private cliIpc = new AssistantIpcServer();
   private skillIpc = new SkillIpcServer();
 
@@ -310,7 +309,7 @@ export class DaemonServer {
     this.appSourceWatcher.start((appId) => this.handleAppSourceChange(appId));
 
     this.pluginSourceWatcher.start();
-    this.workspaceToolsWatcher.start();
+    WorkspaceToolsWatcher.getInstance().start();
 
     // Broadcast contacts_changed to all clients when any contact mutation occurs.
     this.unsubscribeContactChange = onContactChange(() => {
@@ -327,7 +326,7 @@ export class DaemonServer {
     this.configWatcher.stop();
     this.appSourceWatcher.stop();
     this.pluginSourceWatcher.stop();
-    this.workspaceToolsWatcher.stop();
+    WorkspaceToolsWatcher.getInstance().stop();
     this.cliIpc.stop();
     this.skillIpc.stop();
     if (this.unsubscribeContactChange) {

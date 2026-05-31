@@ -85,12 +85,12 @@ export default tool;
 
 Defaults applied when fields are omitted:
 
-| Field              | Default                                                        |
-| ------------------ | -------------------------------------------------------------- |
-| `description`      | `""`                                                            |
-| `defaultRiskLevel` | `"high"`                                                        |
-| `executionTarget`  | `"sandbox"`                                                     |
-| `input_schema`     | `{ type: "object", properties: {}, additionalProperties: false }` |
+| Field              | Default                                                                                     |
+| ------------------ | ------------------------------------------------------------------------------------------- |
+| `description`      | `""`                                                                                        |
+| `defaultRiskLevel` | `"high"`                                                                                    |
+| `executionTarget`  | `"sandbox"`                                                                                 |
+| `input_schema`     | `{ type: "object", properties: {}, additionalProperties: false }`                           |
 | `execute`          | Returns `{ content: "workspace tool <name> has no execute implementation", isError: true }` |
 
 ## Override semantics
@@ -134,10 +134,10 @@ initializeTools()             # core tools register
 
 # after providers-setup completes:
 DaemonServer.start()
-  → workspaceToolsWatcher.start()   # hot register/unregister via fs.watch
+  → WorkspaceToolsWatcher.getInstance().start()   # hot register/unregister via fs.watch
 ```
 
-Workspace tools register *after* core tools and *before* every other
+Workspace tools register _after_ core tools and _before_ every other
 extension surface during the initial scan so that every subsequent
 registration sees the workspace tool as already-owned. The filesystem
 watcher then runs for the lifetime of the assistant, picking up

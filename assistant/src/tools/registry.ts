@@ -928,6 +928,20 @@ export async function initializeTools(): Promise<void> {
   }
 
   log.info({ count: tools.size }, "Tools initialized");
+
+  // Load workspace tool overrides from `<workspaceDir>/tools/<name>.{ts,js,json}`
+  // immediately after core tools have settled, before MCP / plugin
+  // registrations get a chance to claim names. This ordering makes
+  // workspace tools the canonical owner per name:
+  //   core registrations → workspace tools → MCP → plugins.
+  // Workspace tools land after the core snapshot above so they're never
+  // baked into the test-reset baseline.
+  //
+  // Imported dynamically because the loader imports back from this module
+  // (registerWorkspaceTools / removeCoreToolViaWorkspace); a static import
+  // here would create a registry ↔ loader cycle.
+  const { loadWorkspaceTools } = await import("./workspace-tools/loader.js");
+  await loadWorkspaceTools();
 }
 
 /**
