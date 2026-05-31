@@ -122,15 +122,11 @@ describe("handleAssistantTextDelta", () => {
   it("creates a new bubble when the tail is not a streaming assistant", () => {
     // Empty messages → tail derivation says "create new bubble".
     const ctx = makeCtx();
-    handleAssistantTextDelta(
-      { type: "assistant_text_delta", text: "Hi" },
-      ctx,
-    );
+    handleAssistantTextDelta({ type: "assistant_text_delta", text: "Hi" }, ctx);
     expect(ctx.setMessages).toHaveBeenCalled();
     // Apply the updater to an empty array to confirm a new bubble emerges.
-    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>).mock.calls[0][0] as (
-      prev: never[],
-    ) => unknown[];
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
+      .mock.calls[0][0] as (prev: never[]) => unknown[];
     const next = updater([]);
     expect(next).toHaveLength(1);
     expect(next[0]).toMatchObject({
@@ -215,7 +211,9 @@ describe("handleAssistantActivityState", () => {
       },
       ctx,
     );
-    expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith("Processing bash results");
+    expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith(
+      "Processing bash results",
+    );
   });
 
   it("returns early for non-idle, non-thinking phase", () => {
@@ -227,12 +225,15 @@ describe("handleAssistantActivityState", () => {
         phase: "streaming",
         anchor: "assistant_turn",
         reason: "first_text_delta",
+        conversationId: "conv-1",
       },
       ctx,
     );
-    expect(ctx.lastActivityVersionRef.current.get(
-      ctx.streamContextRef.current!.conversationId,
-    )).toBe(1);
+    expect(
+      ctx.lastActivityVersionRef.current.get(
+        ctx.streamContextRef.current!.conversationId,
+      ),
+    ).toBe(1);
     expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
     expect(ctx.endTurn).not.toHaveBeenCalled();
   });

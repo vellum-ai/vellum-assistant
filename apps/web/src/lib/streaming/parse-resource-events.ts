@@ -3,9 +3,9 @@
  *
  * These events notify the client about server-side state changes
  * (cache invalidation tags, identity/avatar refreshes, conversation
- * renames, notification intents, disk pressure) so the appropriate
- * TanStack Query keys or Zustand stores can be updated. None of
- * these carry chat-turn content — they are broadcast signals.
+ * renames, disk pressure) so the appropriate TanStack Query keys or
+ * Zustand stores can be updated. None of these carry chat-turn
+ * content — they are broadcast signals.
  */
 
 import type {
@@ -32,37 +32,6 @@ export function parseSyncChanged(
     type: "sync_changed",
     tags: tags as SyncInvalidationTag[],
     ...(rawOriginClientId ? { originClientId: rawOriginClientId } : {}),
-  };
-}
-
-export function parseNotificationIntent(
-  data: Record<string, unknown>,
-): AssistantEvent {
-  const title = typeof data.title === "string" ? data.title : "";
-  const body = typeof data.body === "string" ? data.body : "";
-  const sourceEventName =
-    typeof data.sourceEventName === "string" ? data.sourceEventName : "";
-  if (!title || !sourceEventName) {
-    return unknownEvent("notification_intent", data);
-  }
-  const deepLinkMetadata =
-    typeof data.deepLinkMetadata === "object" &&
-    data.deepLinkMetadata !== null &&
-    !Array.isArray(data.deepLinkMetadata)
-      ? (data.deepLinkMetadata as Record<string, unknown>)
-      : undefined;
-  return {
-    type: "notification_intent",
-    deliveryId:
-      typeof data.deliveryId === "string" ? data.deliveryId : undefined,
-    sourceEventName,
-    title,
-    body,
-    deepLinkMetadata,
-    targetGuardianPrincipalId:
-      typeof data.targetGuardianPrincipalId === "string"
-        ? data.targetGuardianPrincipalId
-        : undefined,
   };
 }
 
