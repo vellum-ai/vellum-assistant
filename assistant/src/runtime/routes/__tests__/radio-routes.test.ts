@@ -180,6 +180,7 @@ describe("radio routes", () => {
         currentTrackId: softLaunch.id,
         recentTrackIds: [softLaunch.id],
         locale: "en-US",
+        timeZone: "America/Denver",
       },
     });
 
@@ -189,6 +190,7 @@ describe("radio routes", () => {
       currentTrackId: softLaunch.id,
       recentTrackIds: [softLaunch.id],
       locale: "en-US",
+      timeZone: "America/Denver",
     });
     expect(ttsCalls).toEqual([
       {

@@ -128,6 +128,14 @@ function getBrowserLocale(): string | undefined {
   return navigator.language || undefined;
 }
 
+function getBrowserTimeZone(): string | undefined {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function errorMessageFrom(error: unknown): string {
   return error instanceof Error ? error.message : "Radio is unavailable.";
 }
@@ -174,6 +182,7 @@ function buildAdvanceRequest(
   assistantId: string,
 ): RadioAdvanceRequest {
   const locale = getBrowserLocale();
+  const timeZone = getBrowserTimeZone();
   const canReuseStationState =
     !state.assistantId || state.assistantId === assistantId;
   return {
@@ -188,6 +197,7 @@ function buildAdvanceRequest(
       ? { recentTrackIds: state.recentTrackIds }
       : {}),
     ...(locale ? { locale } : {}),
+    ...(timeZone ? { timeZone } : {}),
   };
 }
 

@@ -27,6 +27,7 @@ export interface RadioAdvanceRequest {
   recentTrackIds?: readonly string[];
   reason: RadioAdvanceReason;
   locale?: string;
+  timeZone?: string;
 }
 
 export interface RadioAdvanceResponse {

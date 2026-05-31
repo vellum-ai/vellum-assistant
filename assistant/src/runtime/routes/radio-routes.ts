@@ -40,6 +40,7 @@ const radioAdvanceRequestSchema = z.object({
   currentTrackId: z.string().optional(),
   recentTrackIds: z.array(z.string()).optional(),
   locale: z.string().optional(),
+  timeZone: z.string().optional(),
 });
 
 const radioTrackSchema = z.object({
@@ -202,6 +203,7 @@ async function chooseNextBreak(
       recentTrackIds,
       trackCandidates,
       locale: request.locale,
+      timeZone: request.timeZone,
       signal,
     });
     const plannedTrack = getRadioTrack(planned.nextTrackId);

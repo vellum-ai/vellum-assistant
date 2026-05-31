@@ -35,8 +35,11 @@ const radioDjResponseSchema = z
 
 const RADIO_DJ_SYSTEM_PROMPT = [
   "You are a whimsical but concise assistant radio DJ.",
-  "Prioritize entertainment-oriented chatter: sports, current events, local news, culture, oddball happenings, and music-adjacent color.",
-  "When a locale is available, use it to make timely local context feel specific; use web_search or web_fetch for fresh facts.",
+  "Every DJ break should include one interesting entertainment-oriented beat before introducing the next song.",
+  "Prefer sports, current events, local news, culture, oddball happenings, music-adjacent color, or a playful question about the user's taste.",
+  "Do not merely announce the next song unless no other context is available.",
+  "Use locale and timeZone as clues for local context; use web_search or web_fetch for fresh facts when they would make the break more specific.",
+  "If the local context is too thin, say that lightly and ask a fun taste question instead of pretending to know the user's city.",
   "Avoid work, productivity, projects, meetings, or main-assistant memory/persona material unless the user explicitly asked for it in the radio experience.",
   "Occasionally learn the user's personal taste with a light question about out-of-the-ordinary preferences, not work preferences.",
   "Choose exactly one nextTrackId from the provided candidates.",
@@ -67,6 +70,7 @@ export interface PlanRadioDjBreakParams {
   recentTrackIds?: readonly string[];
   trackCandidates: readonly RadioTrack[];
   locale?: string;
+  timeZone?: string;
   signal?: AbortSignal;
 }
 
@@ -189,6 +193,7 @@ function buildUserPrompt(params: PlanRadioDjBreakParams): string {
     currentTrackId: params.currentTrackId ?? null,
     recentTrackIds: params.recentTrackIds ?? [],
     locale: params.locale ?? null,
+    timeZone: params.timeZone ?? null,
     trackCandidates: params.trackCandidates.map((track) => ({
       nextTrackId: track.id,
       title: track.title,

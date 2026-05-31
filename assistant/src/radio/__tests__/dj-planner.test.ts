@@ -169,6 +169,8 @@ function baseParams(signal?: AbortSignal) {
     reason: "song_ended" as const,
     currentTrackId: "soft-launch",
     recentTrackIds: ["soft-launch"],
+    locale: "en-US",
+    timeZone: "America/Denver",
     trackCandidates,
     signal,
   };
@@ -207,9 +209,15 @@ describe("planRadioDjBreak", () => {
       "Tiny weather in the wires, then Buffer Bloom rolls in.",
     );
 
-    const [, options] = currentProvider.sendMessage.mock.calls[0] as Parameters<
-      Provider["sendMessage"]
-    >;
+    const [messages, options] = currentProvider.sendMessage.mock
+      .calls[0] as Parameters<Provider["sendMessage"]>;
+    const userPrompt = JSON.parse(
+      (messages[0]!.content[0] as { text: string }).text,
+    ) as Record<string, unknown>;
+    expect(userPrompt).toMatchObject({
+      locale: "en-US",
+      timeZone: "America/Denver",
+    });
     expect(options?.tools?.map((tool) => tool.name)).toEqual([
       "web_search",
       "web_fetch",
@@ -218,6 +226,10 @@ describe("planRadioDjBreak", () => {
     expect(options?.systemPrompt).toContain("sports");
     expect(options?.systemPrompt).toContain("current events");
     expect(options?.systemPrompt).toContain("local news");
+    expect(options?.systemPrompt).toContain(
+      "Do not merely announce the next song",
+    );
+    expect(options?.systemPrompt).toContain("timeZone");
     expect(options?.systemPrompt).toContain("Avoid work");
     expect(options?.systemPrompt).toContain("personal taste");
     expect(options?.config?.callSite).toBe("radioDj");

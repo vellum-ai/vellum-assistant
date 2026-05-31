@@ -15462,6 +15462,8 @@ paths:
                     type: string
                 locale:
                   type: string
+                timeZone:
+                  type: string
               additionalProperties: false
   /v1/radio/tracks/{trackId}:
     get:

@@ -187,7 +187,10 @@ describe("useRadioStore", () => {
     const state = store.getState();
     expect(advanceRadioMock).toHaveBeenCalledWith(
       "assistant 1",
-      expect.objectContaining({ reason: "start" }),
+      expect.objectContaining({
+        reason: "start",
+        timeZone: expect.any(String),
+      }),
     );
     expect(state.status).toBe("playing");
     expect(state.segmentId).toBe("segment-1");

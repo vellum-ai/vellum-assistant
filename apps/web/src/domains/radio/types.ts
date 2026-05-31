@@ -46,6 +46,7 @@ export interface RadioAdvanceRequest {
   currentTrackId?: string;
   recentTrackIds?: string[];
   locale?: string;
+  timeZone?: string;
 }
 
 export interface RadioAdvanceResponse {
