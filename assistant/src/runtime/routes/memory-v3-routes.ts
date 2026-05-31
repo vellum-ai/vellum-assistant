@@ -30,7 +30,7 @@ import {
 import type { LeafPath, LeafTree, Slug } from "../../memory/v3/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS, type RoutePolicy } from "../auth/route-policy.js";
 import { RouteError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -250,10 +250,10 @@ export async function handleMemoryV3RebuildIndex(): Promise<MemoryV3RebuildIndex
 // Route definitions (RouteHandlerArgs adapters over the handlers above)
 // ---------------------------------------------------------------------------
 
-const POLICY = {
+const POLICY: RoutePolicy = {
   requiredScopes: ["settings.read"],
   allowedPrincipalTypes: ACTOR_PRINCIPALS,
-} as const;
+};
 
 export const ROUTES: RouteDefinition[] = [
   {

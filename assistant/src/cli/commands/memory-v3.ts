@@ -35,6 +35,12 @@ import type {
 import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 
+/** Commander collector for a repeatable option: accumulates each value. */
+function collect(val: string, acc: string[]): string[] {
+  acc.push(val);
+  return acc;
+}
+
 export function registerMemoryV3Command(program: Command): void {
   // Reuse an existing `memory` parent if some other registrar attached to it
   // first; otherwise create one. This keeps the registration order between
@@ -165,19 +171,13 @@ Examples:
         .option(
           "--add <leaf>",
           "Leaf path to add to the always-on core set (repeatable)",
-          (val: string, acc: string[]) => {
-            acc.push(val);
-            return acc;
-          },
+          collect,
           [] as string[],
         )
         .option(
           "--remove <leaf>",
           "Leaf path to remove from the always-on core set (repeatable)",
-          (val: string, acc: string[]) => {
-            acc.push(val);
-            return acc;
-          },
+          collect,
           [] as string[],
         )
         .option("--yes", "Apply the change (otherwise preview only)")
