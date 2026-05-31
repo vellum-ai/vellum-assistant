@@ -7,9 +7,15 @@
  * can trigger a reconcile/refetch.
  *
  * Writes are monotonic — `setLastSeenSeq` only updates when the new
- * value is strictly greater than the current value. All localStorage
- * operations are wrapped in try/catch so private-browsing or
- * quota-exceeded environments fall back to in-memory-only tracking.
+ * value is strictly greater than the current value.
+ *
+ * `replaceLastSeenSeq` unconditionally replaces the cursor. Used when
+ * the server seq counter restarts (e.g., daemon restart) and the
+ * observed seq is lower than the stored value.
+ *
+ * All localStorage operations are wrapped in try/catch so
+ * private-browsing or quota-exceeded environments fall back to
+ * in-memory-only tracking.
  */
 
 const STORAGE_KEY_PREFIX = "vellum.lastSeenSeq.";
@@ -35,8 +41,24 @@ export function getLastSeenSeq(conversationId: string): number | null {
  */
 export function setLastSeenSeq(conversationId: string, seq: number): void {
   const current = seqMap.get(conversationId);
-  if (current !== undefined && seq <= current) return;
+  if (current !== undefined && seq <= current) {
+    return;
+  }
 
+  seqMap.set(conversationId, seq);
+  try {
+    localStorage.setItem(storageKey(conversationId), String(seq));
+  } catch {
+    // Quota exceeded or private browsing — in-memory only.
+  }
+}
+
+/**
+ * Unconditionally replace the cursor for a conversation. Used when
+ * a backwards seq is observed (server restarted and counters reset).
+ * Unlike `setLastSeenSeq`, this does not enforce monotonicity.
+ */
+export function replaceLastSeenSeq(conversationId: string, seq: number): void {
   seqMap.set(conversationId, seq);
   try {
     localStorage.setItem(storageKey(conversationId), String(seq));

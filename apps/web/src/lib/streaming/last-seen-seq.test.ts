@@ -9,6 +9,7 @@ import {
   clearLastSeenSeq,
   getLastSeenSeq,
   hydrateLastSeenSeqFromStorage,
+  replaceLastSeenSeq,
   setLastSeenSeq,
 } from "@/lib/streaming/last-seen-seq";
 
@@ -235,5 +236,55 @@ describe("clearLastSeenSeq", () => {
 
     // THEN conv-2 should be unaffected
     expect(getLastSeenSeq("conv-2")).toBe(20);
+  });
+});
+
+describe("replaceLastSeenSeq", () => {
+  test("replaces a higher value with a lower value", () => {
+    /**
+     * After a server restart, seq counters reset. replaceLastSeenSeq
+     * must accept the lower value unconditionally.
+     */
+
+    // GIVEN a conversation with a high stored seq
+    setLastSeenSeq("conv-1", 500);
+
+    // WHEN we replace with a low seq (server restarted)
+    replaceLastSeenSeq("conv-1", 1);
+
+    // THEN the stored value should be the new low value
+    expect(getLastSeenSeq("conv-1")).toBe(1);
+  });
+
+  test("writes through to localStorage", () => {
+    /**
+     * replaceLastSeenSeq should persist the replacement to localStorage.
+     */
+
+    // GIVEN a conversation with a high stored seq
+    setLastSeenSeq("conv-1", 500);
+
+    // WHEN we replace with a lower value
+    replaceLastSeenSeq("conv-1", 3);
+
+    // THEN localStorage should have the new value
+    expect(localStorage.getItem("vellum.lastSeenSeq.conv-1")).toBe("3");
+  });
+
+  test("subsequent monotonic writes work from the new baseline", () => {
+    /**
+     * After a replace, setLastSeenSeq should accept values above the
+     * new baseline.
+     */
+
+    // GIVEN a conversation replaced to seq=1 (server restart)
+    setLastSeenSeq("conv-1", 500);
+    replaceLastSeenSeq("conv-1", 1);
+
+    // WHEN we set seq=2 (next event in new generation)
+    setLastSeenSeq("conv-1", 2);
+
+    // THEN the stored value should advance to 2
+    expect(getLastSeenSeq("conv-1")).toBe(2);
   });
 });

@@ -42,6 +42,7 @@ import {
 } from "@/lib/diagnostics";
 import {
   getLastSeenSeq,
+  replaceLastSeenSeq,
   setLastSeenSeq,
 } from "@/lib/streaming/last-seen-seq";
 import type {
@@ -266,16 +267,30 @@ export function useEventStream({
 
       // --- B7.3 gap detection ---
       const eventSeq = envelope.seq;
+      let gapDetected = false;
       if (typeof eventSeq === "number" && eventConversationId) {
         if (seededSeqForConversation) {
           const stored = getLastSeenSeq(eventConversationId) ?? 0;
-          if (eventSeq > stored + 1) {
+          if (eventSeq < stored) {
+            // Server seq counter restarted (daemon restart). Replace
+            // the stale cursor and reconcile to pick up any state
+            // changes from the restart.
+            recordDiagnostic("sse_seq_generation_reset", {
+              conversationId: eventConversationId,
+              stored,
+              observed: eventSeq,
+            });
+            replaceLastSeenSeq(eventConversationId, eventSeq);
+            gapDetected = true;
+            reconcileActiveConversationRef.current();
+          } else if (eventSeq > stored + 1) {
             recordDiagnostic("sse_seq_gap_detected", {
               conversationId: eventConversationId,
               stored,
               observed: eventSeq,
               gap: eventSeq - stored,
             });
+            gapDetected = true;
             reconcileActiveConversationRef.current();
           }
         } else {
@@ -287,7 +302,10 @@ export function useEventStream({
 
       // Advance the seq cursor AFTER the handler returns so a thrown
       // handler does not advance the cursor past unapplied work.
-      if (typeof eventSeq === "number" && eventConversationId) {
+      // Skip advancement when a gap was detected — the reconcile
+      // refetch will deliver authoritative state. If reconcile fails,
+      // the next contiguous event will re-detect the gap and retry.
+      if (typeof eventSeq === "number" && eventConversationId && !gapDetected) {
         setLastSeenSeq(eventConversationId, eventSeq);
       }
     });
