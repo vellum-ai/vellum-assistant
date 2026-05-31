@@ -30,8 +30,9 @@ export function useSettingsSync(): void {
   // assistant switch.
   const registry = useMemoizedRegistry(queryClient, assistantId);
 
-  useBusSubscription("sse.event", (event) => {
+  useBusSubscription("sse.event", (envelope) => {
     if (!registry) return;
+    const event = envelope.message;
     if (event.type === "sync_changed") {
       void registry.dispatch(event);
     }

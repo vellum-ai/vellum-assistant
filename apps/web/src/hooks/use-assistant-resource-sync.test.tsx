@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import {
@@ -39,7 +40,11 @@ function syncEvent(tags: string[]): SyncChangedEvent {
 }
 
 function emit(event: AssistantEvent): void {
-  useEventBusStore.getState().publish("sse.event", event);
+  useEventBusStore.getState().publish("sse.event", {
+    id: "evt-1",
+    emittedAt: new Date().toISOString(),
+    message: event,
+  } as AssistantEventEnvelope);
 }
 
 beforeEach(() => {

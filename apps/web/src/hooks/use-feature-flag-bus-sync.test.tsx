@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import {
   assistantFlagValuesQueryKey,
@@ -33,10 +34,11 @@ function syncEvent(tags: string[]): SyncChangedEvent {
 }
 
 function emit(event: SyncChangedEvent): void {
-  // SyncChangedEvent is structurally assignable to AssistantSyncChangedEvent
-  // (which only adds an optional conversationId field), so this cast is safe.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  useEventBusStore.getState().publish("sse.event", event as any);
+  useEventBusStore.getState().publish("sse.event", {
+    id: "evt-1",
+    emittedAt: new Date().toISOString(),
+    message: event,
+  } as AssistantEventEnvelope);
 }
 
 function emitOpened(
