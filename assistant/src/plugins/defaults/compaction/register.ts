@@ -2,11 +2,11 @@
  * Default `compaction` plugin.
  *
  * Delegates to the orchestrator's existing
- * {@link import("../../context/window-manager.js").ContextWindowManager}
+ * {@link import("../../../context/window-manager.js").ContextWindowManager}
  * instance. No behavior change relative to the pre-plugin call site — the
  * plugin only exists so custom plugins registered in later PRs can observe
  * arguments, short-circuit to a different summary, or post-process the
- * {@link import("../../context/window-manager.js").ContextWindowResult}
+ * {@link import("../../../context/window-manager.js").ContextWindowResult}
  * before the orchestrator consumes it.
  *
  * Lookup: the default middleware reads `ctx.contextWindowManager` from the
@@ -23,9 +23,9 @@ import type {
   ContextWindowCompactOptions,
   ContextWindowManager,
   ContextWindowResult,
-} from "../../context/window-manager.js";
-import type { Message } from "../../providers/types.js";
-import { registerPlugin } from "../registry.js";
+} from "../../../context/window-manager.js";
+import type { Message } from "../../../providers/types.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type CompactionArgs,
   type CompactionResult,
@@ -33,7 +33,8 @@ import {
   type Plugin,
   PluginExecutionError,
   type TurnContext,
-} from "../types.js";
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * Name under which the default plugin registers. Exposed so tests and later
@@ -110,8 +111,8 @@ const defaultCompactionMiddleware: Middleware<
  */
 export const defaultCompactionPlugin: Plugin = {
   manifest: {
-    name: DEFAULT_COMPACTION_PLUGIN_NAME,
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
   middleware: {
     compaction: defaultCompactionMiddleware,

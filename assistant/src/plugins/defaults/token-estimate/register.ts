@@ -14,7 +14,7 @@
  * provider-native `countTokens` override) participate normally.
  *
  * The terminal delegates to
- * {@link import("../../context/token-estimator.js").estimatePromptTokens estimatePromptTokens},
+ * {@link import("../../../context/token-estimator.js").estimatePromptTokens estimatePromptTokens},
  * which applies the EWMA calibration correction recorded from past provider
  * responses. Preflight + mid-loop checks must use the calibrated estimate —
  * the calibrated value keeps the overflow gate consistent with the
@@ -29,15 +29,16 @@
 import {
   estimatePromptTokens,
   estimateToolsTokens,
-} from "../../context/token-estimator.js";
-import { registerPlugin } from "../registry.js";
+} from "../../../context/token-estimator.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type EstimateArgs,
   type EstimateResult,
   type Middleware,
   type Plugin,
   PluginExecutionError,
-} from "../types.js";
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * Terminal handler for the `tokenEstimate` pipeline. Computes the tool token
@@ -70,8 +71,8 @@ const passthrough: Middleware<EstimateArgs, EstimateResult> = async (
  */
 export const defaultTokenEstimatePlugin: Plugin = {
   manifest: {
-    name: "default-token-estimate",
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
   middleware: {
     tokenEstimate: passthrough,

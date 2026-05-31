@@ -27,7 +27,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import {
   defaultToolResultTruncatePlugin,
   defaultToolResultTruncateTerminal,
-} from "../plugins/defaults/tool-result-truncate.js";
+} from "../plugins/defaults/tool-result-truncate/register.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

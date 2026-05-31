@@ -19,6 +19,7 @@ import {
   gatewayProxyUrl,
   fetchGuardianToken,
 } from "@/lib/local-mode";
+import { startLoopbackAuth } from "@/lib/auth/loopback-auth";
 import {
   startAuthFlow,
   startNativeLogin,
@@ -286,15 +287,11 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
   );
 
   const handlePlatformProvider = useCallback(
-    async (providerHint?: string) => {
+    async () => {
       setPlatformError(null);
       setPlatformLoading(true);
       try {
-        const callbackUrl = buildProviderCallbackUrl(returnTo);
-        await startAuthFlow(PROVIDER_ID, callbackUrl, {
-          ...(providerHint ? { providerHint } : {}),
-          returnTo,
-        });
+        await startLoopbackAuth(returnTo ?? undefined);
       } catch (err) {
         console.error("[local-login] platform auth flow failed:", err);
         setPlatformError("Something went wrong. Please try again.");
@@ -311,6 +308,14 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
     }
     // localAssistants excluded: new array ref each render, guarded by hasLocal
   }, [hasLocal, hasPlatform, connectingId, connectError, connectToLocal]);
+
+  // Auto-redirect to platform login when only platform assistants exist
+  useEffect(() => {
+    if (hasPlatform && !hasLocal && !platformLoading && !platformError) {
+      setPlatformLoading(true);
+      void handlePlatformProvider();
+    }
+  }, [hasPlatform, hasLocal, platformLoading, platformError, handlePlatformProvider]);
 
   // No assistants at all
   if (!hasLocal && !hasPlatform) {
@@ -337,9 +342,37 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
     );
   }
 
-  // Only platform assistants — render normal login
+  // Only platform assistants — auto-redirect to platform login
   if (hasPlatform && !hasLocal) {
-    return <WebLoginForm returnTo={returnTo} />;
+    return (
+      <DarkLoginShell>
+        <LoginCard>
+          <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
+            Vellum
+          </h1>
+          {platformError ? (
+            <>
+              <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
+                {platformError}
+              </p>
+              <div className="flex justify-center">
+                <Button
+                  type="button"
+                  variant="outlined"
+                  onClick={() => { setPlatformError(null); }}
+                >
+                  Retry
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="text-body-small-default text-center text-[var(--content-secondary)]">
+              Redirecting to sign in...
+            </p>
+          )}
+        </LoginCard>
+      </DarkLoginShell>
+    );
   }
 
   // Only local assistants — auto-connecting state
@@ -384,14 +417,26 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
     <DarkLoginShell>
       <div className="flex w-full max-w-[960px] flex-col items-start justify-center gap-6 md:flex-row">
         <LoginCard>
-          <PlatformLoginButtons
-            returnTo={returnTo}
-            loading={platformLoading}
-            errorMessage={platformError}
-            onProviderClick={(hint) => {
-              void handlePlatformProvider(hint);
-            }}
-          />
+          <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
+            Vellum Cloud
+          </h1>
+          {platformError && (
+            <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
+              {platformError}
+            </p>
+          )}
+          <div className="flex justify-center">
+            <Button
+              type="button"
+              variant="primary"
+              fullWidth
+              onClick={() => { void handlePlatformProvider(); }}
+              disabled={platformLoading}
+              className="max-w-[300px]"
+            >
+              {platformLoading ? "Redirecting…" : "Sign in"}
+            </Button>
+          </div>
         </LoginCard>
         <LoginCard>
           <h1 className="text-title-large text-center text-[var(--content-emphasised)]">

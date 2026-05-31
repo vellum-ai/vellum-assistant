@@ -32,8 +32,9 @@
  * container; the key is attached to the log record via the pipeline runner.
  */
 
-import { registerPlugin } from "../registry.js";
-import { type Plugin, PluginExecutionError } from "../types.js";
+import { registerPlugin } from "../../registry.js";
+import { type Plugin, PluginExecutionError } from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * Consecutive failures required to trip the breaker. Matches the legacy
@@ -53,8 +54,8 @@ export const COMPACTION_CIRCUIT_COOLDOWN_MS = 60 * 60 * 1000;
  */
 export const defaultCircuitBreakerPlugin: Plugin = {
   manifest: {
-    name: "default-circuit-breaker",
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
 
   middleware: {

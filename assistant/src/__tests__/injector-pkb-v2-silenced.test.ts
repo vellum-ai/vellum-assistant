@@ -30,7 +30,7 @@ mock.module("../memory/pkb/pkb-search.js", () => ({
 const { applyRuntimeInjections } =
   await import("../daemon/conversation-runtime-assembly.js");
 const { defaultInjectorsPlugin } =
-  await import("../plugins/defaults/injectors.js");
+  await import("../plugins/defaults/injectors/register.js");
 const { registerPlugin, resetPluginRegistryForTests } =
   await import("../plugins/registry.js");
 import type { TurnContext } from "../plugins/types.js";

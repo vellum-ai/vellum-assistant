@@ -29,7 +29,7 @@ import {
   type DefaultMemoryRetrievalDeps,
   defaultMemoryRetrievalPlugin,
   runDefaultMemoryRetrieval,
-} from "../plugins/defaults/memory-retrieval.js";
+} from "../plugins/defaults/memory-retrieval/register.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

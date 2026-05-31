@@ -8,10 +8,10 @@ import {
 } from "../context/token-estimator.js";
 import { calculateMaxToolResultChars } from "../context/tool-result-truncation.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
-import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response.js";
-import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate.js";
-import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error.js";
-import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate.js";
+import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response/register.js";
+import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/register.js";
+import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error/register.js";
+import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate/register.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
@@ -1083,7 +1083,7 @@ export class AgentLoop {
         // The actual decision (nudge vs. accept vs. error) is delegated to
         // the `emptyResponse` plugin pipeline. The pipeline returns a
         // decision; the loop carries out the side-effect (pushing the nudge
-        // or surfacing the error). See `plugins/defaults/empty-response.ts`
+        // or surfacing the error). See `plugins/defaults/empty-response/register.ts`
         // for the default decision logic.
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,

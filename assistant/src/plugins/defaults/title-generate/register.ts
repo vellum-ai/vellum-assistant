@@ -17,14 +17,15 @@
  * by the time {@link bootstrapPlugins} runs.
  */
 
-import { queueGenerateConversationTitle } from "../../memory/conversation-title-service.js";
-import { registerPlugin } from "../registry.js";
+import { queueGenerateConversationTitle } from "../../../memory/conversation-title-service.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type Plugin,
   PluginExecutionError,
   type TitleArgs,
   type TitleResult,
-} from "../types.js";
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * Invoke the title-generation service with the provided arguments. Used as
@@ -62,8 +63,8 @@ export async function defaultTitleGenerateTerminal(
  */
 export const defaultTitleGeneratePlugin: Plugin = {
   manifest: {
-    name: "default-title-generate",
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
 };
 

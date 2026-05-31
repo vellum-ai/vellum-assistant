@@ -23,15 +23,16 @@
  * in `daemon/conversation-agent-loop.ts`.
  */
 
-import { repairHistory } from "../../daemon/history-repair.js";
-import { registerPlugin } from "../registry.js";
+import { repairHistory } from "../../../daemon/history-repair.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type HistoryRepairArgs,
   type HistoryRepairResult,
   type Middleware,
   type Plugin,
   PluginExecutionError,
-} from "../types.js";
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * Terminal handler for the `historyRepair` pipeline. Exported so tests can
@@ -52,8 +53,8 @@ const passthrough: Middleware<HistoryRepairArgs, HistoryRepairResult> = async (
 
 export const defaultHistoryRepairPlugin: Plugin = {
   manifest: {
-    name: "default-history-repair",
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
   middleware: {
     historyRepair: passthrough,
