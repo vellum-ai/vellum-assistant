@@ -404,7 +404,7 @@ async function runWebInterface(): Promise<void> {
           req.headers.get("Cookie") ?? "",
         )?.[1];
         if (sessionToken) {
-          headers.set("Cookie", `sessionid=${sessionToken}`);
+          headers.set("Cookie", `sessionid=${sessionToken}; __Secure-sessionid=${sessionToken}`);
           headers.set("X-Session-Token", sessionToken);
         }
 
