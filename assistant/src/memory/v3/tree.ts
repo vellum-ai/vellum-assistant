@@ -79,7 +79,11 @@ function parseLeafFrontmatter(yaml: string, file: string): LeafFrontmatter {
       `leaf ${file} frontmatter is missing a boolean \`in_core\``,
     );
   }
-  return { path: record.path, in_core: record.in_core };
+  return {
+    path: record.path,
+    in_core: record.in_core,
+    ...(typeof record.id === "string" ? { id: record.id } : {}),
+  };
 }
 
 /** Derive the canonical leaf path from a file's location under `leaves/`. */
