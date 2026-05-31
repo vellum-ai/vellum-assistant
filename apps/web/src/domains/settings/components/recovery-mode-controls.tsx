@@ -8,6 +8,7 @@ import {
   assistantsMaintenanceModeExitCreate,
 } from "@/generated/api/sdk.gen";
 import type { MaintenanceMode } from "@/generated/api/types.gen";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { reportError } from "@/utils/error-report";
 
 interface RecoveryModeControlsProps {
@@ -23,6 +24,10 @@ export function RecoveryModeControls({
 }: RecoveryModeControlsProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const platformGate = usePlatformGate();
+
+  // Self-hosted assistants don't run platform-managed Recovery Mode.
+  if (platformGate === "gated") return null;
 
   const isActive = maintenanceMode?.enabled === true;
 
@@ -113,7 +118,7 @@ export function RecoveryModeControls({
         </div>
 
         <div className="ml-4 flex shrink-0 items-center gap-2">
-          {loading ? (
+          {platformGate === "disabled" ? null : loading ? (
             <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
           ) : isActive ? (
             <Button variant="outlined" onClick={handleExit}>
@@ -127,6 +132,11 @@ export function RecoveryModeControls({
         </div>
       </div>
 
+      {platformGate === "disabled" && (
+        <Notice tone="info">
+          Log in to the Vellum platform to {isActive ? "exit" : "enter"} Recovery Mode.
+        </Notice>
+      )}
       {error && <Notice tone="error">{error}</Notice>}
     </div>
   );
