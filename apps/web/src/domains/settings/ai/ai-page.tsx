@@ -1196,6 +1196,70 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     [byoProviderId],
   );
 
+  const yourOwnContent = (
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <label className="block text-body-small-default text-[var(--content-tertiary)]">
+          Provider
+        </label>
+        <Dropdown
+          value={byoProviderId}
+          onChange={(val) =>
+            setByoProviderId(val as EmailByoProvider["id"])
+          }
+          options={EMAIL_BYO_PROVIDERS.map((p) => ({
+            value: p.id,
+            label: p.displayName,
+          }))}
+        />
+      </div>
+
+      <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
+        <div className="flex flex-col gap-1">
+          <span>
+            Configure {selectedByoProvider.displayName} via the assistant
+            CLI: ask the assistant to run the{" "}
+            <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]">
+              {selectedByoProvider.setupSkill}
+            </code>{" "}
+            skill. It walks you through storing the API key, detecting the
+            domain, and (optionally) wiring up an inbound webhook.
+          </span>
+          <a
+            href={selectedByoProvider.docsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
+          >
+            Open {selectedByoProvider.displayName}
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <SaveButton onClick={handleSaveMode} disabled={savingMode} />
+        {savingMode && (
+          <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
+        )}
+      </div>
+    </div>
+  );
+
+  if (platformGate === "gated") {
+    return (
+      <DetailCard
+        id="email"
+        title="Email"
+        subtitle="Configure how your assistant sends and receives email"
+      >
+        <div className="h-px bg-[var(--surface-active)]" />
+        <div className="mt-4">{yourOwnContent}</div>
+      </DetailCard>
+    );
+  }
+
   return (
     <ServiceCard
       id="email"
@@ -1206,11 +1270,9 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     >
       {mode === "managed" ? (
         <div className="space-y-4">
-          {platformGate !== "full" ? (
+          {platformGate === "disabled" ? (
             <Notice tone="info">
-              {platformGate === "gated"
-                ? "Enable platform features to use managed email, or switch to Your Own."
-                : "Log in to the Vellum platform to manage email settings."}
+              Log in to the Vellum platform to manage email settings.
             </Notice>
           ) : (
           <>
@@ -1414,56 +1476,7 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
           </>
           )}
         </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Provider
-            </label>
-            <Dropdown
-              value={byoProviderId}
-              onChange={(val) =>
-                setByoProviderId(val as EmailByoProvider["id"])
-              }
-              options={EMAIL_BYO_PROVIDERS.map((p) => ({
-                value: p.id,
-                label: p.displayName,
-              }))}
-            />
-          </div>
-
-          <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
-            <div className="flex flex-col gap-1">
-              <span>
-                Configure {selectedByoProvider.displayName} via the assistant
-                CLI: ask the assistant to run the{" "}
-                <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]">
-                  {selectedByoProvider.setupSkill}
-                </code>{" "}
-                skill. It walks you through storing the API key, detecting the
-                domain, and (optionally) wiring up an inbound webhook.
-              </span>
-              <a
-                href={selectedByoProvider.docsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
-              >
-                Open {selectedByoProvider.displayName}
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <SaveButton onClick={handleSaveMode} disabled={savingMode} />
-            {savingMode && (
-              <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
-            )}
-          </div>
-        </div>
-      )}
+      ) : yourOwnContent}
     </ServiceCard>
   );
 }
