@@ -25,7 +25,10 @@ export interface RadioDjBreak {
   contentType: string;
 }
 
-export type RadioSetupReason = "tts_not_configured" | "tts_unavailable";
+export type RadioSetupReason =
+  | "tts_not_configured"
+  | "tts_unavailable"
+  | "llm_unavailable";
 
 export interface RadioSetup {
   reason: RadioSetupReason;

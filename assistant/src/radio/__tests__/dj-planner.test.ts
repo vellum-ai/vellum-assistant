@@ -230,6 +230,9 @@ describe("planRadioDjBreak", () => {
       "Do not merely announce the next song",
     );
     expect(options?.systemPrompt).toContain("timeZone");
+    expect(options?.systemPrompt).toContain("Do not invent local facts");
+    expect(options?.systemPrompt).toContain("first use web_search");
+    expect(options?.systemPrompt).toContain("not a precise city");
     expect(options?.systemPrompt).toContain("Avoid work");
     expect(options?.systemPrompt).toContain("personal taste");
     expect(options?.config?.callSite).toBe("radioDj");

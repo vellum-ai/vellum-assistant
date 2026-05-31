@@ -7,7 +7,10 @@ import {
   listRadioTracks,
   pickFallbackTrack,
 } from "../../radio/catalog.js";
-import { planRadioDjBreak } from "../../radio/dj-planner.js";
+import {
+  planRadioDjBreak,
+  RadioDjPlannerError,
+} from "../../radio/dj-planner.js";
 import {
   isRadioTtsSetupRequiredError,
   RADIO_TTS_SETTINGS_PATH,
@@ -29,10 +32,14 @@ import type {
   RadioTrack,
   RadioTrackResponse,
 } from "../../radio/types.js";
+import { ProviderError } from "../../util/errors.js";
+import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError, RouteError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 import { RouteResponse } from "./types.js";
+
+const log = getLogger("radio-routes");
 
 const radioAdvanceRequestSchema = z.object({
   segmentId: z.string().optional(),
@@ -76,7 +83,11 @@ const radioAdvanceResponseSchema = z.object({
   djBreak: radioDjBreakSchema.optional(),
   setup: z
     .object({
-      reason: z.enum(["tts_not_configured", "tts_unavailable"]),
+      reason: z.enum([
+        "tts_not_configured",
+        "tts_unavailable",
+        "llm_unavailable",
+      ]),
       settingsPath: z.literal(RADIO_TTS_SETTINGS_PATH),
       message: z.string(),
     })
@@ -108,9 +119,23 @@ async function handleRadioAdvance({
     return responseForCurrentState(request.reason);
   }
 
-  const { nextTrack, djText } = await chooseNextBreak(request, abortSignal);
+  const { nextTrack, djText, setup } = await chooseNextBreak(
+    request,
+    abortSignal,
+  );
   if (!isCurrentRadioAdvance(advanceToken)) {
     return responseForCurrentState(request.reason);
+  }
+
+  if (setup) {
+    const state = commitRadioTransition(nextTrack, djText);
+    return buildAdvanceResponse({
+      segmentId: state.segmentId,
+      reason: request.reason,
+      displayCue: "setup_needed",
+      track: nextTrack,
+      setup,
+    });
   }
 
   try {
@@ -189,7 +214,7 @@ function parseAdvanceRequest(
 async function chooseNextBreak(
   request: RadioAdvanceRequest,
   signal?: AbortSignal,
-): Promise<{ nextTrack: RadioTrack; djText: string }> {
+): Promise<{ nextTrack: RadioTrack; djText: string; setup?: RadioSetup }> {
   const currentState = getRadioStationState();
   const currentTrackId = request.currentTrackId ?? currentState?.currentTrackId;
   const recentTrackIds =
@@ -214,9 +239,33 @@ async function chooseNextBreak(
         djText: planned.djText,
       };
     }
-  } catch {
-    // Fall back below. The station should remain playful even when planning
-    // takes a wrong turn.
+  } catch (error) {
+    log.warn(
+      {
+        err: error,
+        reason: request.reason,
+        currentTrackId,
+        recentTrackIds,
+        locale: request.locale,
+        timeZone: request.timeZone,
+      },
+      "Radio DJ planning failed",
+    );
+
+    if (isRadioDjSetupError(error)) {
+      const fallbackTrack = pickFallbackTrack({
+        currentTrackId,
+        recentTrackIds,
+      });
+      return {
+        nextTrack: fallbackTrack,
+        djText: "",
+        setup: setupFromDjPlannerError(),
+      };
+    }
+
+    // Fall back below. The station should remain playable if the model returns
+    // malformed DJ JSON or chooses a stale track id.
   }
 
   const fallbackTrack = pickFallbackTrack({ currentTrackId, recentTrackIds });
@@ -248,6 +297,30 @@ function responseForCurrentState(
     displayCue: "song",
     track,
   });
+}
+
+function isRadioDjSetupError(error: unknown): boolean {
+  if (
+    error instanceof RadioDjPlannerError &&
+    error.code === "provider_unavailable"
+  ) {
+    return true;
+  }
+
+  if (error instanceof ProviderError) {
+    return error.statusCode === 401 || error.statusCode === 403;
+  }
+
+  return false;
+}
+
+function setupFromDjPlannerError(): RadioSetup {
+  return {
+    reason: "llm_unavailable",
+    settingsPath: RADIO_TTS_SETTINGS_PATH,
+    message:
+      "The radio DJ model is unavailable. Open Settings -> AI to check your model profile.",
+  };
 }
 
 function setupFromTtsError(error: unknown): RadioSetup {

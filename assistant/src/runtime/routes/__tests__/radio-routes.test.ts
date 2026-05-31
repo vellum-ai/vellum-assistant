@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { RadioDjBreak, RadioTrack } from "../../../radio/types.js";
+import { ProviderError } from "../../../util/errors.js";
 import { NotFoundError, RouteError } from "../errors.js";
 import { RouteResponse } from "../types.js";
 
@@ -301,6 +302,42 @@ describe("radio routes", () => {
       track: { id: softLaunch.id },
     });
     expect(ttsCalls.at(-1)!.text).toContain(softLaunch.title);
+  });
+
+  test("provider auth failures return AI setup instead of fallback DJ audio", async () => {
+    const route = getRoute("radio/advance", "POST");
+    const start = (await route.handler({
+      body: { reason: "start" },
+    })) as { segmentId: string };
+    plannerError = new ProviderError(
+      "Anthropic API error (403): Invalid or revoked API key.",
+      "anthropic",
+      403,
+    );
+
+    const response = await route.handler({
+      body: {
+        reason: "song_ended",
+        segmentId: start.segmentId,
+        currentTrackId: softLaunch.id,
+        recentTrackIds: [softLaunch.id],
+      },
+    });
+
+    expect(response).toMatchObject({
+      displayCue: "setup_needed",
+      track: { id: bufferBloom.id },
+      setup: {
+        reason: "llm_unavailable",
+        settingsPath: "/assistant/settings/ai",
+      },
+      playbackPlan: {
+        displayCue: "setup_needed",
+        track: { id: bufferBloom.id },
+      },
+    });
+    expect((response as { djBreak?: unknown }).djBreak).toBeUndefined();
+    expect(ttsCalls).toHaveLength(0);
   });
 
   test("stale segment requests return current state without advancing", async () => {

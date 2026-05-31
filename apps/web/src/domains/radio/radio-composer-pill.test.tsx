@@ -161,6 +161,26 @@ describe("RadioComposerPill", () => {
     expect(screen.getByRole("button", { name: "Configure Text-to-Speech" })).toBeTruthy();
   });
 
+  test("renders model setup-needed content with AI settings CTA", () => {
+    useRadioStore.setState({
+      status: "setup_needed",
+      displayCue: "setup_needed",
+      isExpanded: true,
+      currentTrack: track,
+      setup: {
+        reason: "llm_unavailable",
+        settingsPath: "/assistant/settings/ai",
+        message: "The radio DJ model is unavailable.",
+      },
+    });
+
+    render(<RadioComposerPill assistantId="assistant-123" />);
+
+    expect(screen.getByText("The radio DJ model is unavailable.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Configure AI" })).toBeTruthy();
+  });
+
+
   test("hide and show use the session store without changing feature flags", () => {
     useRadioStore.setState({
       status: "playing",

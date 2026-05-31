@@ -732,6 +732,36 @@ describe("resolveCallSiteConfig", () => {
     expect(balancedSite.model).toBe("gpt-5.5");
   });
 
+  test("radioDj tracks usage as its own call site while following the active profile", () => {
+    const llm = LLMSchema.parse({
+      default: {
+        ...fullDefault,
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        provider_connection: "anthropic-managed",
+      },
+      profiles: {
+        balanced: {
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          provider_connection: "anthropic-managed",
+        },
+        "custom-balanced": {
+          provider: "openai",
+          model: "gpt-5.5",
+          provider_connection: "openai-personal",
+        },
+      },
+      activeProfile: "custom-balanced",
+    });
+
+    const resolved = resolveCallSiteConfig("radioDj", llm);
+
+    expect(resolved.provider).toBe("openai");
+    expect(resolved.model).toBe("gpt-5.5");
+    expect(resolved.provider_connection).toBe("openai-personal");
+  });
+
   test("BYOK: tuning overrides from defaults apply on top of custom-* fallback profile", () => {
     const byokConfig = LLMSchema.parse({
       default: {

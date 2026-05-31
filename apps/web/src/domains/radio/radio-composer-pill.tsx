@@ -55,6 +55,12 @@ function statusText(status: RadioStatus): string {
   return "On Air";
 }
 
+function setupActionLabel(reason: string | undefined): string {
+  return reason === "llm_unavailable"
+    ? "Configure AI"
+    : "Configure Text-to-Speech";
+}
+
 export function RadioComposerPill({ assistantId }: RadioComposerPillProps) {
   const navigate = useNavigate();
   const stationAssistantId = useRadioStore.use.assistantId();
@@ -101,6 +107,7 @@ export function RadioComposerPill({ assistantId }: RadioComposerPillProps) {
   const canResume = isPaused;
   const canPause = scopedStatus === "playing" || scopedStatus === "transitioning";
   const setupNeeded = scopedStatus === "setup_needed" || !!scopedSetup;
+  const setupLabel = setupActionLabel(scopedSetup?.reason);
 
   const handlePrimaryPlayback = useCallback(() => {
     if (canResume) {
@@ -232,9 +239,9 @@ export function RadioComposerPill({ assistantId }: RadioComposerPillProps) {
                 size="compact"
                 leftIcon={<Settings className="h-3.5 w-3.5" />}
                 onClick={handleSettings}
-                aria-label="Configure Text-to-Speech"
+                aria-label={setupLabel}
               >
-                Configure Text-to-Speech
+                {setupLabel}
               </Button>
             </div>
           ) : null}
