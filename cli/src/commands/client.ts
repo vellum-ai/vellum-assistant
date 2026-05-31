@@ -368,6 +368,15 @@ async function handleLocalEndpoints(
   server: { requestIP(req: Request): { address: string } | null },
 ): Promise<Response | null> {
   const { pathname } = url;
+
+  // All __local and __gateway endpoints are restricted to loopback clients.
+  // The server binds 0.0.0.0 for LAN access to the SPA, but these endpoints
+  // must not be reachable from other machines.
+  const peer = server.requestIP(req)?.address ?? "";
+  if (!isLoopbackAddr(peer)) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const lockfilePaths = _lockfilePaths;
   const configDir = _configDir;
 
@@ -462,7 +471,6 @@ async function handleLocalEndpoints(
     if (req.method !== "GET") return new Response(null, { status: 405 });
 
     const assistantId = decodeURIComponent(guardianMatch[1]!);
-    const peer = server.requestIP(req)?.address ?? "";
 
     let cliPath: string;
     try {
@@ -471,7 +479,7 @@ async function handleLocalEndpoints(
       return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
     }
 
-    const result = await getGuardianAccessToken(assistantId, configDir, cliPath, isLoopbackAddr(peer), _localEnv);
+    const result = await getGuardianAccessToken(assistantId, configDir, cliPath, true, _localEnv);
     if (result.ok) {
       return Response.json({ accessToken: result.accessToken });
     }
@@ -485,7 +493,7 @@ async function handleLocalEndpoints(
       return new Response("Port must be between 1024 and 65535", { status: 400 });
     }
     const { target: gatewayTarget } = gatewayResult;
-    const targetUrl = `http://127.0.0.1:${gatewayTarget.port}${gatewayTarget.path}`;
+    const targetUrl = `http://127.0.0.1:${gatewayTarget.port}${gatewayTarget.path}${url.search}`;
     const headers = new Headers(req.headers);
     headers.set("host", `127.0.0.1:${gatewayTarget.port}`);
 
