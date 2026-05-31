@@ -88,7 +88,7 @@ The wrapper is **not** the dockerd `default-runtime`, and the network-namespace
 drop is **not** applied to every container. Doing so was a container-isolation
 regression: the inner dockerd creates more than just the species container
 (recording sidecars, sub-containers the agent itself launches, etc.). Forcing
-*all* of them to share the eval-pod netns means an untrusted eval/species
+_all_ of them to share the eval-pod netns means an untrusted eval/species
 container could:
 
 - reach pod-local `localhost` services it should never see,
