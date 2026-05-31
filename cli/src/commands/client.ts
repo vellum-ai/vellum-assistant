@@ -24,6 +24,18 @@ import {
   WEB_INTERFACE_ID,
   getClientRegistrationHeaders,
 } from "../lib/client-identity";
+import {
+  getLockfileData,
+  upsertLockfileAssistant,
+  runHatch,
+  runRetire,
+  getGuardianAccessToken,
+  parseGatewayUrl,
+  isLoopbackAddr,
+  resolveCliPath,
+  resolveLockfilePaths,
+  resolveConfigDir,
+} from "../lib/local-endpoints";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
 import {
   fetchOrganizationId,
@@ -332,6 +344,191 @@ function findWebSourceDir(): string | null {
   return null;
 }
 
+const LOCKFILE_PATTERN = /^(?:\/assistant)?\/__local\/lockfile$/;
+const HATCH_PATTERN = /^(?:\/assistant)?\/__local\/hatch$/;
+const RETIRE_PATTERN = /^(?:\/assistant)?\/__local\/retire$/;
+const GUARDIAN_TOKEN_PATTERN = /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
+
+function getEnvRecord(): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (v !== undefined) result[k] = v;
+  }
+  return result;
+}
+
+const _localEnv = getEnvRecord();
+const _lockfilePaths = resolveLockfilePaths(_localEnv);
+const _configDir = resolveConfigDir(_localEnv);
+const _baseDir = getBaseDir();
+
+async function handleLocalEndpoints(
+  req: Request,
+  url: URL,
+  server: { requestIP(req: Request): { address: string } | null },
+): Promise<Response | null> {
+  const { pathname } = url;
+  const lockfilePaths = _lockfilePaths;
+  const configDir = _configDir;
+
+  // Lockfile
+  if (LOCKFILE_PATTERN.test(pathname)) {
+    if (req.method === "GET") {
+      const result = getLockfileData(lockfilePaths);
+      if (result.ok) {
+        return Response.json(result.data);
+      }
+      return new Response(null, { status: result.status });
+    }
+    if (req.method === "POST") {
+      let body: Record<string, unknown>;
+      try {
+        body = (await req.json()) as Record<string, unknown>;
+      } catch {
+        return Response.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+      }
+      const result = upsertLockfileAssistant(
+        lockfilePaths,
+        body.assistant as Record<string, unknown>,
+        body.activeAssistant as string | undefined,
+      );
+      return Response.json(result, { status: result.ok ? 200 : result.status });
+    }
+    return new Response(null, { status: 405 });
+  }
+
+  // Hatch
+  if (HATCH_PATTERN.test(pathname)) {
+    if (req.method !== "POST") return new Response(null, { status: 405 });
+
+    let species = "vellum";
+    const contentType = req.headers.get("content-type") ?? "";
+    if (contentType.includes("json")) {
+      try {
+        const body = (await req.json()) as { species?: string };
+        if (body.species) species = body.species;
+      } catch {
+        return Response.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+      }
+    }
+
+    let cliPath: string;
+    try {
+      cliPath = resolveCliPath(_baseDir);
+    } catch (err) {
+      return Response.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    }
+
+    const result = await runHatch(species, cliPath);
+    if (result.ok) {
+      return Response.json({ ok: true, assistantId: result.assistantId });
+    }
+    return Response.json({ ok: false, error: result.error }, { status: result.status });
+  }
+
+  // Retire
+  if (RETIRE_PATTERN.test(pathname)) {
+    if (req.method !== "POST") return new Response(null, { status: 405 });
+
+    let assistantId: string | undefined;
+    try {
+      const body = (await req.json()) as { assistantId?: string };
+      assistantId = body.assistantId;
+    } catch {
+      return Response.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
+    }
+
+    if (!assistantId) {
+      return Response.json({ ok: false, error: "Missing assistantId" }, { status: 400 });
+    }
+
+    let cliPath: string;
+    try {
+      cliPath = resolveCliPath(_baseDir);
+    } catch (err) {
+      return Response.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    }
+
+    const result = await runRetire(assistantId, cliPath);
+    if (result.ok) {
+      return Response.json({ ok: true });
+    }
+    return Response.json({ ok: false, error: result.error }, { status: result.status });
+  }
+
+  // Guardian token
+  const guardianMatch = pathname.match(GUARDIAN_TOKEN_PATTERN);
+  if (guardianMatch) {
+    if (req.method !== "GET") return new Response(null, { status: 405 });
+
+    const assistantId = decodeURIComponent(guardianMatch[1]!);
+    const peer = server.requestIP(req)?.address ?? "";
+
+    let cliPath: string;
+    try {
+      cliPath = resolveCliPath(_baseDir);
+    } catch (err) {
+      return Response.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 });
+    }
+
+    const result = await getGuardianAccessToken(assistantId, configDir, cliPath, isLoopbackAddr(peer), _localEnv);
+    if (result.ok) {
+      return Response.json({ accessToken: result.accessToken });
+    }
+    return Response.json({ error: result.error }, { status: result.status });
+  }
+
+  // Gateway proxy
+  const gatewayResult = parseGatewayUrl(pathname);
+  if (gatewayResult.match) {
+    if (!gatewayResult.valid) {
+      return new Response("Port must be between 1024 and 65535", { status: 400 });
+    }
+    const { target: gatewayTarget } = gatewayResult;
+    const targetUrl = `http://127.0.0.1:${gatewayTarget.port}${gatewayTarget.path}`;
+    const headers = new Headers(req.headers);
+    headers.set("host", `127.0.0.1:${gatewayTarget.port}`);
+
+    try {
+      const hasBody = req.method !== "GET" && req.method !== "HEAD";
+      const proxyRes = await fetch(targetUrl, {
+        method: req.method,
+        headers,
+        body: hasBody ? req.body : undefined,
+        redirect: "manual",
+      });
+      const resHeaders = new Headers(proxyRes.headers);
+      resHeaders.delete("transfer-encoding");
+      return new Response(proxyRes.body, {
+        status: proxyRes.status,
+        statusText: proxyRes.statusText,
+        headers: resHeaders,
+      });
+    } catch {
+      return new Response("Gateway proxy error", { status: 502 });
+    }
+  }
+
+  return null;
+}
+
+function getBaseDir(): string {
+  let dir = import.meta.dir;
+  for (let depth = 0; depth < 8; depth++) {
+    if (existsSync(path.join(dir, "cli", "src", "index.ts"))) {
+      return dir;
+    }
+    const pkgPath = path.join(dir, "package.json");
+    if (existsSync(pkgPath)) {
+      return dir;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return path.resolve(import.meta.dir, "..", "..", "..");
+}
+
 async function runWebInterface(): Promise<void> {
   // Prefer Vite dev server in source checkouts for full local-mode support
   // (HMR, __local endpoints, gateway proxy).
@@ -382,6 +579,10 @@ async function runWebInterface(): Promise<void> {
           headers: { "Content-Type": "application/json" },
         });
       }
+
+      // __local endpoints for local-mode (lockfile, hatch, retire, guardian-token, gateway-proxy).
+      const localResponse = await handleLocalEndpoints(req, url, server);
+      if (localResponse) return localResponse;
 
       // Reverse-proxy platform API requests.
       if (

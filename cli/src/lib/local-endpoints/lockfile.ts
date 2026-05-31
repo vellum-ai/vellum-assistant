@@ -1,0 +1,87 @@
+import fs from "node:fs";
+import path from "node:path";
+
+import { stripSensitiveFields } from "./util";
+
+export type LockfileResult =
+  | { ok: true; data: Record<string, unknown> }
+  | { ok: false; status: number; error?: string };
+
+export function getLockfileData(lockfilePaths: string[]): LockfileResult {
+  let raw: string | undefined;
+  for (const candidate of lockfilePaths) {
+    try {
+      raw = fs.readFileSync(candidate, "utf-8");
+      break;
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+        return { ok: false, status: 500 };
+      }
+    }
+  }
+
+  if (!raw) {
+    return { ok: true, data: { assistants: [], activeAssistant: null } };
+  }
+
+  try {
+    const data = JSON.parse(raw) as Record<string, unknown>;
+    stripSensitiveFields(data);
+    return { ok: true, data };
+  } catch {
+    return { ok: false, status: 500 };
+  }
+}
+
+export type WriteResult =
+  | { ok: true; lockfile: Record<string, unknown> }
+  | { ok: false; status: number; error: string };
+
+export function upsertLockfileAssistant(
+  lockfilePaths: string[],
+  assistant: Record<string, unknown>,
+  activeAssistant: string | undefined,
+): WriteResult {
+  if (!assistant || typeof assistant.assistantId !== "string") {
+    return { ok: false, status: 400, error: "Missing assistant.assistantId" };
+  }
+
+  let lockfile: Record<string, unknown> = { assistants: [], activeAssistant: null };
+  for (const candidate of lockfilePaths) {
+    try {
+      lockfile = JSON.parse(fs.readFileSync(candidate, "utf-8")) as Record<string, unknown>;
+      break;
+    } catch {
+      // continue
+    }
+  }
+
+  const assistants = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
+  const existingIdx = assistants.findIndex(
+    (a: Record<string, unknown>) => a?.assistantId === assistant.assistantId,
+  );
+  if (existingIdx >= 0) {
+    assistants[existingIdx] = { ...assistants[existingIdx], ...assistant };
+  } else {
+    assistants.push(assistant);
+  }
+  lockfile.assistants = assistants;
+  if (activeAssistant !== undefined) {
+    lockfile.activeAssistant = activeAssistant;
+  }
+
+  const writePath = lockfilePaths[0]!;
+  try {
+    const dir = path.dirname(writePath);
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = `${writePath}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(lockfile, null, 2));
+    fs.renameSync(tmp, writePath);
+  } catch (err) {
+    return { ok: false, status: 500, error: `Failed to write lockfile: ${err}` };
+  }
+
+  const stripped = JSON.parse(JSON.stringify(lockfile)) as Record<string, unknown>;
+  stripSensitiveFields(stripped);
+  return { ok: true, lockfile: stripped };
+}
