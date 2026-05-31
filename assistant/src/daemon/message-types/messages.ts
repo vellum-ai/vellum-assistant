@@ -12,6 +12,7 @@ import type { MessageRequestCompleteEvent } from "../../api/events/message-reque
 import type { QuestionRequestEvent } from "../../api/events/question-request.js";
 import type { SecretRequestEvent } from "../../api/events/secret-request.js";
 import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
+import type { UserMessageEchoEvent } from "../../api/events/user-message-echo.js";
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
 import type { ToolActivityMetadata } from "./web-activity.js";
@@ -37,7 +38,7 @@ export interface UserMessage {
   /** Structured command intent — bypasses text parsing when present. */
   commandIntent?: CommandIntent;
   /** Client-generated correlation nonce for echo dedup. See
-   *  `UserMessageEcho.clientMessageId` — the server echoes this value
+   *  `UserMessageEchoEvent.clientMessageId` — the server echoes this value
    *  back on the matching `user_message_echo` event. */
   clientMessageId?: string;
 }
@@ -65,24 +66,6 @@ export interface SuggestionRequest {
 }
 
 // === Server → Client ===
-
-export interface UserMessageEcho {
-  type: "user_message_echo";
-  text: string;
-  conversationId?: string;
-  /** Database ID of the persisted user message, used by the originating
-   *  client to dedupe its optimistic row. Absent for synthetic echoes
-   *  (e.g. surface-action prompts) where no distinct user row is persisted. */
-  messageId?: string;
-  /** Server-generated request ID for the send. Allows correlation with
-   *  `message_queued` / `message_dequeued` events for the same turn. */
-  requestId?: string;
-  /** Client-generated correlation nonce from the HTTP POST body. Echoed
-   *  back so the originating client can dedupe its optimistic row even
-   *  if the SSE echo beats the 202 response. Absent for synthetic echoes
-   *  (e.g. surface-action prompts) that did not originate from a client POST. */
-  clientMessageId?: string;
-}
 
 export interface AssistantThinkingDelta {
   type: "assistant_thinking_delta";
@@ -343,7 +326,7 @@ export type _MessagesClientMessages =
   | SuggestionRequest;
 
 export type _MessagesServerMessages =
-  | UserMessageEcho
+  | UserMessageEchoEvent
   | AssistantTurnStartEvent
   | AssistantTextDeltaEvent
   | AssistantThinkingDelta
