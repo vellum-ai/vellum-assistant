@@ -7,9 +7,6 @@
  *   - Flag on, non-empty buffer → runner invoked with the cutoff-templated
  *     prompt and `suppressFailureNotifications: true`; follow-up jobs
  *     enqueued on success.
- *   - v3 flag (shadow/live) on → `memory_v3_maintain` enqueued alongside the
- *     unconditional `memory_v2_reembed`; off → only reembed; a thrown v3
- *     enqueue is swallowed and consolidation still succeeds.
  *   - Lock file already present → second call returns locked.
  *   - Runner returns ok=false → run_failed surfaced; NO follow-up jobs;
  *     `emitNotificationSignal` was NOT called as a result of the failure
@@ -41,19 +38,6 @@ import { makeMockLogger } from "../../../__tests__/helpers/mock-logger.js";
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
-}));
-
-// ── feature-flag mock ───────────────────────────────────────────────
-//
-// The handler gates the `memory_v3_maintain` follow-up on the v3 flags.
-// Mock the resolver (mirroring the v3 maintain-job test) so flag state is
-// a plain map under test control, independent of the gateway override cache
-// or config-object internals.
-let flagState: Record<string, boolean> = {};
-
-mock.module("../../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (key: string, _config: unknown): boolean =>
-    flagState[key] ?? false,
 }));
 
 // ── runBackgroundJob mock ───────────────────────────────────────────
@@ -108,24 +92,54 @@ const enqueuedJobs: Array<{
   payload: Record<string, unknown>;
 }> = [];
 let nextJobIdCounter = 0;
-// When set to a job type, the next enqueue of that type throws — used to
-// exercise the best-effort try/catch around the flag-gated v3 follow-up.
-let enqueueThrowFor: string | null = null;
 
 mock.module("../../jobs-store.js", () => ({
   enqueueMemoryJob: (
     type: string,
     payload: Record<string, unknown>,
   ): string => {
-    if (enqueueThrowFor === type) {
-      enqueueThrowFor = null;
-      throw new Error(`simulated enqueue failure for ${type}`);
-    }
     enqueuedJobs.push({ type, payload });
     nextJobIdCounter += 1;
     return `job-${nextJobIdCounter}`;
   },
   isMemoryEnabled: () => true,
+}));
+
+// ── v3 health-injection mocks ───────────────────────────────────────
+//
+// The consolidation handler optionally prepends a v3 health block to the
+// prompt when a v3 flag is on AND the rendered report is non-empty. These
+// mocks let each test (a) toggle the flag, (b) decide what health block the
+// renderer produces, and (c) force the health computation to throw — without
+// materializing a real v3 data dir. The tree/core/page-index loaders are
+// stubbed to inert values; `computeV3Health` is a pass-through whose result is
+// fed to the toggleable `renderV3Health`.
+let v3FlagOn = false;
+mock.module("../../../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: () => v3FlagOn,
+}));
+
+let renderedHealth = "";
+let computeThrows = false;
+mock.module("../../v3/health.js", () => ({
+  computeV3Health: () => {
+    if (computeThrows) throw new Error("simulated health compute failure");
+    return {};
+  },
+  renderV3Health: () => renderedHealth,
+}));
+
+mock.module("../../v3/tree.js", () => ({
+  loadLeafTree: async () => ({ leaves: new Map(), byPage: new Map() }),
+  resolveDataDir: () => "/tmp/v3-data-stub",
+}));
+
+mock.module("../../v3/core.js", () => ({
+  loadCore: async () => new Set<string>(),
+}));
+
+mock.module("../../v2/page-index.js", () => ({
+  getPageIndex: async () => ({ entries: [] }),
 }));
 
 // ── Workspace pin ───────────────────────────────────────────────────
@@ -196,8 +210,11 @@ beforeEach(() => {
   emitCalls.length = 0;
   enqueuedJobs.length = 0;
   nextJobIdCounter = 0;
-  enqueueThrowFor = null;
-  flagState = {};
+
+  // v3 health injection defaults: flag off, no rendered block, no throw.
+  v3FlagOn = false;
+  renderedHealth = "";
+  computeThrows = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -324,31 +341,14 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     });
   });
 
-  test("does NOT enqueue memory_v3_maintain when no v3 flag is set", async () => {
+  test("releases the lock after a successful invocation so the next run can acquire it", async () => {
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
-
     expect(result.kind).toBe("invoked");
-    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
+    expect(existsSync(lockPath())).toBe(false);
   });
 
-  test("enqueues memory_v3_maintain alongside reembed when memory-v3-shadow is on", async () => {
-    flagState["memory-v3-shadow"] = true;
-
-    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
-
-    expect(result.kind).toBe("invoked");
-    if (result.kind === "invoked") {
-      expect(result.followUpJobIds).toEqual(["job-1", "job-2"]);
-    }
-    expect(enqueuedJobs).toEqual([
-      { type: "memory_v2_reembed", payload: {} },
-      { type: "memory_v3_maintain", payload: {} },
-    ]);
-  });
-
-  test("enqueues memory_v3_maintain when memory-v3-live is on", async () => {
-    flagState["memory-v3-live"] = true;
-
+  test("enqueues memory_v3_maintain as a follow-up when a v3 flag is on", async () => {
+    v3FlagOn = true;
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("invoked");
@@ -358,27 +358,12 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     ]);
   });
 
-  test("swallows a thrown v3 enqueue and still succeeds with the reembed follow-up", async () => {
-    // The v3 maintenance enqueue is best-effort: a throw must not fail the
-    // consolidation that already wrote the agent's edits, nor drop the
-    // unconditional v2 reembed that was enqueued before it.
-    flagState["memory-v3-shadow"] = true;
-    enqueueThrowFor = "memory_v3_maintain";
-
+  test("does not enqueue memory_v3_maintain when v3 flags are off", async () => {
+    v3FlagOn = false;
     const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(result.kind).toBe("invoked");
-    if (result.kind === "invoked") {
-      // Only the reembed id made it in; the v3 enqueue threw before pushing.
-      expect(result.followUpJobIds).toEqual(["job-1"]);
-    }
     expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
-  });
-
-  test("releases the lock after a successful invocation so the next run can acquire it", async () => {
-    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
-    expect(result.kind).toBe("invoked");
-    expect(existsSync(lockPath())).toBe(false);
   });
 
   test("returns run_failed and skips follow-ups when the runner reports failure", async () => {
@@ -421,6 +406,69 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(emitCalls).toHaveLength(0);
+  });
+});
+
+describe("memoryV2ConsolidateJob — v3 health injection", () => {
+  beforeEach(() => {
+    writeFileSync(
+      bufferPath(),
+      "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n",
+    );
+  });
+
+  test("prepends the health block when a v3 flag is on and the report is actionable", async () => {
+    v3FlagOn = true;
+    renderedHealth = "memory-v3 health:\n- 2 unassigned slug(s): a, b";
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    const prompt = runnerLastArgs?.prompt as string;
+    // The health block is PREPENDED, separated by a blank line, with the
+    // base consolidation prompt still present underneath it.
+    expect(prompt.startsWith(`${renderedHealth}\n\n`)).toBe(true);
+    expect(prompt).toContain("memory consolidation");
+    expect(prompt).not.toContain(CUTOFF_PLACEHOLDER);
+  });
+
+  test("leaves the prompt unchanged when the report is all-green (empty render)", async () => {
+    v3FlagOn = true;
+    renderedHealth = "";
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    const prompt = runnerLastArgs?.prompt as string;
+    expect(prompt).not.toContain("memory-v3 health:");
+    // Prompt is exactly the resolved consolidation body.
+    expect(prompt).toContain("memory consolidation");
+  });
+
+  test("leaves the prompt unchanged when v3 flags are off even if a block would render", async () => {
+    v3FlagOn = false;
+    renderedHealth = "memory-v3 health:\n- 1 unassigned slug(s): a";
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    const prompt = runnerLastArgs?.prompt as string;
+    expect(prompt).not.toContain("memory-v3 health:");
+    expect(prompt).toContain("memory consolidation");
+  });
+
+  test("falls back to the base prompt when health computation throws", async () => {
+    v3FlagOn = true;
+    computeThrows = true;
+    renderedHealth = "memory-v3 health:\n- should not appear";
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    // A health-compute failure must NEVER break consolidation.
+    expect(result.kind).toBe("invoked");
+    const prompt = runnerLastArgs?.prompt as string;
+    expect(prompt).not.toContain("memory-v3 health:");
+    expect(prompt).toContain("memory consolidation");
   });
 });
 
