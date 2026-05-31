@@ -13332,6 +13332,42 @@ paths:
               type: object
               properties: {}
               additionalProperties: false
+  /v1/memory/v3/health:
+    post:
+      operationId: memory_v3_health_post
+      summary: Print the v3 structural health report (read-only)
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+  /v1/memory/v3/rebuild-index:
+    post:
+      operationId: memory_v3_rebuildindex_post
+      summary: Invalidate the v3 lanes so the next turn rebuilds
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+  /v1/memory/v3/reconcile:
+    post:
+      operationId: memory_v3_reconcile_post
+      summary: v1 convergence/prune pass over page+core refs (no rename detection without a prior snapshot)
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+  /v1/memory/v3/set-core:
+    post:
+      operationId: memory_v3_setcore_post
+      summary: Add/remove always-on core leaves (validates + previews cost)
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
   /v1/messages:
     get:
       operationId: messages_get

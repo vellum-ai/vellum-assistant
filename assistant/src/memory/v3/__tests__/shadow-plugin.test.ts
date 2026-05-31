@@ -43,6 +43,9 @@ const realNeedle = { ...(await import("../needle.js")) };
 const realOrchestrate = { ...(await import("../orchestrate.js")) };
 const realPlatform = { ...(await import("../../../util/platform.js")) };
 const realPageStore = { ...(await import("../../v2/page-store.js")) };
+const realConversationCrud = {
+  ...(await import("../../conversation-crud.js")),
+};
 
 let shadowMockActive = false;
 
@@ -106,7 +109,12 @@ mock.module("../../../config/loader.js", () => ({
   }),
 }));
 
+// Spread the real module so every export the live path transitively imports
+// (e.g. `getMessageById` via page-content.ts) stays present — replacing the
+// whole module with a bare `{ getMessages }` made those consumers fail to load.
+// Only `getMessages` is overridden, since that's the one the plugin reads.
 mock.module("../../conversation-crud.js", () => ({
+  ...realConversationCrud,
   getMessages: () => messages.map((m, i) => ({ ...m, id: `m${i}` })),
 }));
 
