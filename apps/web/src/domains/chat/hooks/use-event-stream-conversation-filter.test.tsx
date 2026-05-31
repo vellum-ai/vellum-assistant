@@ -67,9 +67,9 @@ function publishDelta(conversationId: string): void {
     message: {
       type: "assistant_text_delta",
       conversationId,
-      delta: "hi",
+      text: "hi",
     },
-  } as unknown as AssistantEventEnvelope);
+  } as AssistantEventEnvelope);
 }
 
 beforeEach(() => {
@@ -125,7 +125,7 @@ describe("useEventStream — conversation-switch filtering", () => {
         type: "sync_changed",
         tags: ["assistant:self:identity"],
       },
-    } as unknown as AssistantEventEnvelope);
+    } as AssistantEventEnvelope);
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
@@ -143,9 +143,9 @@ describe("useEventStream — conversation-switch filtering", () => {
       emittedAt: new Date().toISOString(),
       message: {
         type: "assistant_text_delta",
-        delta: "should be rejected",
+        text: "should be rejected",
       },
-    } as unknown as AssistantEventEnvelope);
+    } as AssistantEventEnvelope);
     expect(handler).not.toHaveBeenCalled();
   });
 
@@ -161,11 +161,11 @@ describe("useEventStream — conversation-switch filtering", () => {
         conversationId: "conv-A",
         messageId: "m1",
       },
-    } as unknown as AssistantEventEnvelope);
+    } as AssistantEventEnvelope);
     expect(handler).toHaveBeenCalledTimes(1);
   });
 
-  test("a tool_call event for another conversation is dropped even when the active conversation has no current SSE epoch yet", () => {
+  test("a conversation-scoped event for another conversation is dropped even when the active conversation has no current SSE epoch yet", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
     useEventBusStore.getState().publish("sse.event", {
@@ -173,11 +173,11 @@ describe("useEventStream — conversation-switch filtering", () => {
       conversationId: "conv-B",
       emittedAt: new Date().toISOString(),
       message: {
-        type: "tool_call",
+        type: "assistant_text_delta",
         conversationId: "conv-B",
-        toolName: "bash",
+        text: "should be dropped",
       },
-    } as unknown as AssistantEventEnvelope);
+    } as AssistantEventEnvelope);
     expect(handler).not.toHaveBeenCalled();
   });
 });

@@ -87,9 +87,9 @@ function publishDelta(conversationId: string): void {
     message: {
       type: "assistant_text_delta",
       conversationId,
-      delta: `delta-${Math.random().toString(36).slice(2, 6)}`,
+      text: `delta-${Math.random().toString(36).slice(2, 6)}`,
     },
-  } as unknown as AssistantEventEnvelope);
+  } as AssistantEventEnvelope);
 }
 
 beforeEach(() => {
@@ -245,7 +245,7 @@ describe("useEventStream — rapid conversation switch stress", () => {
         type: "sync_changed",
         tags: ["assistant:self:identity"],
       },
-    } as unknown as AssistantEventEnvelope);
+    } as AssistantEventEnvelope);
     act(() => {
       rerender({ key: "conv-B" });
     });
@@ -256,7 +256,7 @@ describe("useEventStream — rapid conversation switch stress", () => {
         type: "sync_changed",
         tags: ["assistant:self:avatar"],
       },
-    } as unknown as AssistantEventEnvelope);
+    } as AssistantEventEnvelope);
     expect(captured).toHaveLength(2);
     expect((captured[0]!.event as { type: string }).type).toBe("sync_changed");
     expect((captured[1]!.event as { type: string }).type).toBe("sync_changed");
