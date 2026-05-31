@@ -12,13 +12,17 @@ import {
   setNestedValue,
 } from "../../config/loader.js";
 import { VellumPlatformClient } from "../../platform/client.js";
+import { getLogger } from "../../util/logger.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, RouteError, UnauthorizedError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
+const log = getLogger("domain-routes");
+
 // ── Helpers ───────────────────────────────────────────────────────────
 
 interface DomainListResponse {
+  next?: string | null;
   results: {
     id: string;
     subdomain?: string;
@@ -167,7 +171,13 @@ async function handleDomainVerificationStatus({
   }
   const client = await requireClient();
 
-  const { results } = await fetchDomains(client);
+  const { results, next } = await fetchDomains(client);
+  if (next) {
+    log.error(
+      { extra: { domain_id, next } },
+      "Domain list is paginated; ownership check may produce false negatives",
+    );
+  }
   if (!results?.some((d) => d.id === domain_id)) {
     throw new BadRequestError(
       "domain_id is not registered for this assistant",
