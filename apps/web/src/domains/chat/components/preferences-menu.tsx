@@ -22,6 +22,7 @@ import { LazyBoundary } from "@/components/lazy-boundary";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { adminUrl, routes } from "@/utils/routes";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -125,6 +126,7 @@ function PreferencesMenuContent({
   const navigate = useNavigate();
   const logout = useAuthStore.use.logout();
   const user = useAuthStore.use.user();
+  const platformGate = usePlatformGate();
 
   return (
     <>
@@ -150,14 +152,16 @@ function PreferencesMenuContent({
         }}
       />
 
-      <PanelItem
-        icon={MessageSquareText}
-        label="Share Feedback"
-        onSelect={() => {
-          onClose();
-          onShareFeedback();
-        }}
-      />
+      {platformGate === "full" && (
+        <PanelItem
+          icon={MessageSquareText}
+          label="Share Feedback"
+          onSelect={() => {
+            onClose();
+            onShareFeedback();
+          }}
+        />
+      )}
 
       {user?.isStaff ? (
         <PanelItem

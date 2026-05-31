@@ -23,6 +23,7 @@ import {
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { isLocalMode } from "@/lib/local-mode";
 import {
   applyThemePreference,
@@ -137,6 +138,7 @@ export function GeneralPage() {
   const multiPlatformAssistant = useAssistantFeatureFlagStore.use.multiPlatformAssistant();
   const settingsSleepPolicy = useAssistantFeatureFlagStore.use.settingsSleepPolicy();
   const isLoggedIn = useAuthStore.use.isLoggedIn();
+  const platformGate = usePlatformGate();
 
   const platformAssistant = assistant?.is_local && !isLocalMode() ? null : assistant;
 
@@ -166,7 +168,7 @@ export function GeneralPage() {
         />
       </DetailCard>
 
-      {isLoggedIn && <ProfileCard assistant={platformAssistant} />}
+      {isLoggedIn && platformGate === "full" && <ProfileCard assistant={platformAssistant} />}
 
       {assistant && (
         <ResizeCard
