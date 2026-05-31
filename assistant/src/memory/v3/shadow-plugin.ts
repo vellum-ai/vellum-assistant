@@ -125,7 +125,12 @@ async function pageSummary(slug: Slug): Promise<string> {
 
 async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const dataDir = resolveDataDir();
-  const tree = await loadLeafTree(dataDir);
+  const pageIndex = await getPageIndex(getWorkspaceDir());
+  const pageLeaves = new Map<Slug, LeafPath[]>();
+  for (const entry of pageIndex.entries) {
+    pageLeaves.set(entry.slug, entry.leaves);
+  }
+  const tree = await loadLeafTree(dataDir, pageLeaves);
   const core = await loadCore(dataDir);
 
   const needle = await buildNeedleIndex(tree, pageSummary);

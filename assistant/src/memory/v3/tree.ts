@@ -99,8 +99,18 @@ function pathFromLocation(leavesDir: string, file: string): LeafPath {
  * - `leaves`: leaf path → {@link LeafNode} (frontmatter, description, domain,
  *   and the slugs assigned to it).
  * - `byPage`: slug → the leaf paths it is assigned to (inverted assignments).
+ *
+ * Page→leaf membership precedence is per-page: when `pageLeaves` supplies a
+ * non-empty array for a slug, those frontmatter-derived leaves win for that
+ * page; slugs absent from `pageLeaves` (or mapped to an empty array) fall back
+ * to `assignments.json`. Omitting `pageLeaves` reproduces the legacy
+ * assignments.json-only behavior exactly (used by the bundled stub and tests);
+ * orchestrators supply `pageLeaves` from the page index.
  */
-export async function loadLeafTree(dataDir: string): Promise<LeafTree> {
+export async function loadLeafTree(
+  dataDir: string,
+  pageLeaves?: Map<Slug, LeafPath[]>,
+): Promise<LeafTree> {
   const leavesDir = join(dataDir, "leaves");
   const files = await collectMarkdownFiles(leavesDir);
 
@@ -129,8 +139,16 @@ export async function loadLeafTree(dataDir: string): Promise<LeafTree> {
   );
   const assignments = JSON.parse(assignmentsRaw) as Record<Slug, LeafPath[]>;
 
+  const slugs = new Set<Slug>(Object.keys(assignments));
+  if (pageLeaves) for (const slug of pageLeaves.keys()) slugs.add(slug);
+
   const byPage = new Map<Slug, LeafPath[]>();
-  for (const [slug, leafPaths] of Object.entries(assignments)) {
+  for (const slug of slugs) {
+    const fromFrontmatter = pageLeaves?.get(slug);
+    const leafPaths =
+      fromFrontmatter && fromFrontmatter.length > 0
+        ? fromFrontmatter
+        : (assignments[slug] ?? []);
     byPage.set(slug, [...leafPaths]);
     for (const leafPath of leafPaths) {
       leaves.get(leafPath)?.members.push(slug);
