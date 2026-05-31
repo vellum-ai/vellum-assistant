@@ -45,7 +45,7 @@ mock.module("../config/loader.js", () => ({
 const { applyRuntimeInjections, composeInjectorChain } =
   await import("../daemon/conversation-runtime-assembly.js");
 const { DEFAULT_INJECTOR_ORDER, defaultInjectorsPlugin } =
-  await import("../plugins/defaults/injectors.js");
+  await import("../plugins/defaults/injectors/register.js");
 import {
   getInjectors,
   registerPlugin,

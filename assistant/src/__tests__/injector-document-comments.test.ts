@@ -9,7 +9,7 @@ mock.module("../documents/document-comments-store.js", () => ({
 }));
 
 const { DEFAULT_INJECTOR_ORDER, defaultInjectorsPlugin } =
-  await import("../plugins/defaults/injectors.js");
+  await import("../plugins/defaults/injectors/register.js");
 import type { Injector, TurnContext } from "../plugins/types.js";
 
 function findInjector(name: string): Injector {

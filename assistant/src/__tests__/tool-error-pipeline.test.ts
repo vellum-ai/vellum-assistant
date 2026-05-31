@@ -20,7 +20,7 @@ import {
   DEFAULT_TOOL_ERROR_NUDGE_TEXT,
   defaultToolErrorPlugin,
   defaultToolErrorTerminal,
-} from "../plugins/defaults/tool-error.js";
+} from "../plugins/defaults/tool-error/register.js";
 import { runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

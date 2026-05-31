@@ -24,7 +24,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import {
   defaultHistoryRepairPlugin,
   defaultHistoryRepairTerminal,
-} from "../plugins/defaults/history-repair.js";
+} from "../plugins/defaults/history-repair/register.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

@@ -23,20 +23,21 @@
  * → (for the forced-compaction tier only) nested `compaction` pipeline.
  */
 
-import type { ContextWindowCompactOptions } from "../../context/window-manager.js";
+import type { ContextWindowCompactOptions } from "../../../context/window-manager.js";
 import {
   createInitialReducerState,
   reduceContextOverflow,
   type ReducerState,
-} from "../../daemon/context-overflow-reducer.js";
-import { registerPlugin } from "../registry.js";
+} from "../../../daemon/context-overflow-reducer.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type Middleware,
   type OverflowReduceArgs,
   type OverflowReduceResult,
   type Plugin,
   PluginExecutionError,
-} from "../types.js";
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * Default middleware — implements the historical tier-loop semantics.
@@ -154,8 +155,8 @@ export const defaultOverflowReduceMiddleware: Middleware<
  */
 export const defaultOverflowReducePlugin: Plugin = {
   manifest: {
-    name: "default-overflow-reduce",
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
   middleware: {
     overflowReduce: defaultOverflowReduceMiddleware,

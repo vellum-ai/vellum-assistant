@@ -15,15 +15,16 @@
  * Design doc: `.private/plans/agent-plugin-system.md` (PR 17).
  */
 
-import { truncateToolResultText } from "../../context/tool-result-truncation.js";
-import { registerPlugin } from "../registry.js";
+import { truncateToolResultText } from "../../../context/tool-result-truncation.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type Middleware,
   type Plugin,
   PluginExecutionError,
   type ToolResultTruncateArgs,
   type ToolResultTruncateResult,
-} from "../types.js";
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * Terminal handler for the `toolResultTruncate` pipeline. Exported so tests
@@ -53,8 +54,8 @@ const passthrough: Middleware<
  */
 export const defaultToolResultTruncatePlugin: Plugin = {
   manifest: {
-    name: "default-tool-result-truncate",
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
   middleware: {
     toolResultTruncate: passthrough,

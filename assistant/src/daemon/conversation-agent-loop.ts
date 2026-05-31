@@ -95,17 +95,17 @@ import {
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
-import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
-import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
+import { defaultCompactionTerminal } from "../plugins/defaults/compaction/register.js";
+import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair/register.js";
 import {
   asDefaultGraphPayload,
   type DefaultMemoryRetrievalDeps,
   type GraphMemoryPayload,
   runDefaultMemoryRetrieval,
-} from "../plugins/defaults/memory-retrieval.js";
-import { defaultPersistenceTerminal } from "../plugins/defaults/persistence.js";
-import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate.js";
-import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate.js";
+} from "../plugins/defaults/memory-retrieval/register.js";
+import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/register.js";
+import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate/register.js";
+import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/register.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
@@ -280,7 +280,7 @@ function formatDiskPressureBlockedMessage(): string {
 //
 // The circuit-breaker behavior (3 consecutive summary-LLM failures trips a
 // 1-hour cooldown) is now implemented by the `circuitBreaker` plugin
-// pipeline. The default plugin (`plugins/defaults/circuit-breaker.ts`)
+// pipeline. The default plugin (`plugins/defaults/circuit-breaker/register.ts`)
 // replicates the legacy threshold/cooldown constants and event-emission
 // semantics exactly — it operates on the `consecutiveCompactionFailures` /
 // `compactionCircuitOpenUntil` fields the conversation still owns so the
@@ -403,7 +403,7 @@ async function isCompactionCircuitOpen(ctx: {
  * paths don't silently reset the 3-strike counter.
  *
  * The default plugin handles threshold-based tripping and cooldown reset;
- * see `plugins/defaults/circuit-breaker.ts` for the canonical semantics.
+ * see `plugins/defaults/circuit-breaker/register.ts` for the canonical semantics.
  */
 export async function trackCompactionOutcome(
   ctx: {

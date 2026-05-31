@@ -15,7 +15,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
+import { defaultInjectorsPlugin } from "../plugins/defaults/injectors/register.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 
 function findInjector(name: string): Injector {
