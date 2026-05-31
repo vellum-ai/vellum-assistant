@@ -61,6 +61,7 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import type { AssistantConfig } from "../../config/types.js";
 import { runBackgroundJob } from "../../runtime/background-job-runner.js";
 import { getLogger } from "../../util/logger.js";
@@ -208,6 +209,25 @@ export async function memoryV2ConsolidateJob(
         log.warn(
           { err, jobType },
           "consolidation: failed to enqueue follow-up job; continuing",
+        );
+      }
+    }
+
+    // v3 maintenance is a flag-gated follow-up, kept OUT of the unconditional
+    // FOLLOW_UP_JOB_TYPES array so it only fans out while a v3 path (shadow or
+    // live) is active. Same best-effort posture as the v2 follow-ups above: a
+    // failed enqueue logs and never fails the consolidation that already
+    // succeeded.
+    if (
+      isAssistantFeatureFlagEnabled(config, "memory-v3-shadow") ||
+      isAssistantFeatureFlagEnabled(config, "memory-v3-live")
+    ) {
+      try {
+        followUpJobIds.push(enqueueMemoryJob("memory_v3_maintain", {}));
+      } catch (err) {
+        log.warn(
+          { err, jobType: "memory_v3_maintain" },
+          "consolidation: failed to enqueue v3 maintenance follow-up; continuing",
         );
       }
     }
