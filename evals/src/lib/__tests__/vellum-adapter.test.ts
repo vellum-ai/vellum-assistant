@@ -3,7 +3,13 @@ import { resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import type { AgentEvent } from "../adapter";
-import { VellumAgent, normalizeVellumEventStream } from "../adapters/vellum";
+import {
+  VellumAgent,
+  inferProviderFromVellumModel,
+  normalizeVellumEventStream,
+  synthesizeUsageFromVellumUsageProgress,
+} from "../adapters/vellum";
+import { summarizeAssistantUsage } from "../usage";
 import type { Profile } from "../profile";
 import type {
   CommandResult,
@@ -810,5 +816,154 @@ describe("normalizeVellumEventStream", () => {
     );
     expect(out[0]?.message.text).toBeUndefined();
     expect(out[1]?.message.text).toBeUndefined();
+  });
+
+  test("synthesizes a canonical `usage` event after each `usage_progress` so the cost ledger picks it up", async () => {
+    const out = await collect(
+      normalizeVellumEventStream(
+        source([
+          {
+            message: {
+              type: "usage_progress",
+              conversationId: "abc",
+              inputTokens: 15_312,
+              outputTokens: 319,
+              estimatedCost: 0.0966,
+              model: "claude-sonnet-4-6",
+            },
+          },
+        ]),
+      ),
+    );
+    // Original event flows through (with text/chunk zeroed by the
+    // default branch), then the synthetic `usage` event follows.
+    expect(out).toHaveLength(2);
+    expect(out[0]?.message.type).toBe("usage_progress");
+    expect(out[0]?.message.inputTokens).toBe(15_312);
+    expect(out[1]?.message).toEqual({
+      type: "usage",
+      usage: {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        input_tokens: 15_312,
+        output_tokens: 319,
+      },
+    });
+  });
+
+  test("end-to-end: a stream of usage_progress events is priced by summarizeAssistantUsage (the Tier B cost-missing fix)", async () => {
+    const out = await collect(
+      normalizeVellumEventStream(
+        source([
+          {
+            message: {
+              type: "usage_progress",
+              inputTokens: 15_312,
+              outputTokens: 319,
+              estimatedCost: 0.097,
+              model: "claude-sonnet-4-6",
+            },
+          },
+          {
+            message: {
+              type: "usage_progress",
+              inputTokens: 16_344,
+              outputTokens: 205,
+              estimatedCost: 0.012,
+              model: "claude-sonnet-4-6",
+            },
+          },
+        ]),
+      ),
+    );
+    const summary = summarizeAssistantUsage(out);
+    expect(summary.costStatus).toBe("ok");
+    expect(summary.totalInputTokens).toBe(31_656);
+    expect(summary.totalOutputTokens).toBe(524);
+    expect(summary.totalCostUsd).toBeGreaterThan(0);
+  });
+});
+
+describe("inferProviderFromVellumModel", () => {
+  test("maps the Claude family to anthropic", () => {
+    expect(inferProviderFromVellumModel("claude-sonnet-4-6")).toBe("anthropic");
+    expect(inferProviderFromVellumModel("claude-opus-4-7")).toBe("anthropic");
+    expect(inferProviderFromVellumModel("Claude-Haiku-4-5")).toBe("anthropic");
+  });
+
+  test("maps the GPT / o-series families to openai", () => {
+    expect(inferProviderFromVellumModel("gpt-5.4")).toBe("openai");
+    expect(inferProviderFromVellumModel("gpt-4o-mini")).toBe("openai");
+    expect(inferProviderFromVellumModel("o3")).toBe("openai");
+    expect(inferProviderFromVellumModel("o4-mini")).toBe("openai");
+  });
+
+  test("maps gemini to google", () => {
+    expect(inferProviderFromVellumModel("gemini-1.5-pro")).toBe("google");
+  });
+
+  test("returns undefined for unknown / empty / whitespace inputs", () => {
+    expect(inferProviderFromVellumModel("mistral-large")).toBeUndefined();
+    expect(inferProviderFromVellumModel("")).toBeUndefined();
+    expect(inferProviderFromVellumModel("   ")).toBeUndefined();
+  });
+});
+
+describe("synthesizeUsageFromVellumUsageProgress", () => {
+  test("returns null when neither token field is present", () => {
+    expect(
+      synthesizeUsageFromVellumUsageProgress({
+        message: { type: "usage_progress", model: "claude-sonnet-4-6" },
+      }),
+    ).toBeNull();
+  });
+
+  test("returns null when token fields are non-finite", () => {
+    expect(
+      synthesizeUsageFromVellumUsageProgress({
+        message: {
+          type: "usage_progress",
+          inputTokens: Number.NaN,
+          outputTokens: Number.POSITIVE_INFINITY,
+        },
+      }),
+    ).toBeNull();
+  });
+
+  test("emits a usage event with input-only tokens (output may legitimately be 0/missing for tool-call-only turns)", () => {
+    const synth = synthesizeUsageFromVellumUsageProgress({
+      message: {
+        type: "usage_progress",
+        inputTokens: 1234,
+        model: "claude-sonnet-4-6",
+      },
+    });
+    expect(synth?.message).toEqual({
+      type: "usage",
+      usage: {
+        provider: "anthropic",
+        model: "claude-sonnet-4-6",
+        input_tokens: 1234,
+      },
+    });
+  });
+
+  test("omits provider when the model is unknown (downstream emits an `unpriced_model` diagnostic)", () => {
+    const synth = synthesizeUsageFromVellumUsageProgress({
+      message: {
+        type: "usage_progress",
+        inputTokens: 100,
+        outputTokens: 50,
+        model: "mistral-large",
+      },
+    });
+    expect(synth?.message).toEqual({
+      type: "usage",
+      usage: {
+        model: "mistral-large",
+        input_tokens: 100,
+        output_tokens: 50,
+      },
+    });
   });
 });

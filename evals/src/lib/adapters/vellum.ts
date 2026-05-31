@@ -124,6 +124,82 @@ const VELLUM_ASSISTANT_TRANSCRIPT_EVENT_TYPES = new Set([
 ]);
 
 /**
+ * Heuristic provider inference from a bare model id. The Vellum daemon
+ * emits `usage_progress` events with `model` but no `provider` field
+ * (see `assistant/src/daemon/conversation-agent-loop-handlers.ts` —
+ * `providerName` is in scope at the emit site but not on the payload),
+ * so the evals harness has to recover the provider before pricing.
+ *
+ * Mirrors the prefix conventions baked into `evals/src/lib/pricing.ts`'s
+ * `PRICING_TABLE` keys — Anthropic's `claude-*` family and OpenAI's
+ * `gpt-*` / `o3-*` / `o4-*` families. Anything outside those returns
+ * `undefined`, which trips `priceUsageRecord`'s `missing_provider`
+ * diagnostic on the report — the operator sees the model and the
+ * "couldn't price" reason instead of a silent zero.
+ *
+ * Exported for unit tests.
+ */
+export function inferProviderFromVellumModel(
+  model: string,
+): string | undefined {
+  const m = model.trim().toLowerCase();
+  if (m.length === 0) return undefined;
+  if (m.startsWith("claude")) return "anthropic";
+  if (m.startsWith("gpt") || /^o\d/.test(m)) return "openai";
+  if (m.startsWith("gemini")) return "google";
+  return undefined;
+}
+
+/**
+ * Build a canonical `{type: "usage", usage: {...}}` event from a
+ * Vellum `usage_progress` payload, or return `null` when there isn't
+ * enough information to be worth pricing.
+ *
+ * Vellum's daemon emits per-LLM-call usage as a flat record:
+ *
+ *   { type: "usage_progress",
+ *     conversationId,
+ *     inputTokens, outputTokens, estimatedCost, model }
+ *
+ * `summarizeAssistantUsage` reads `event.message.usage` (nested) and
+ * skips events without that field, so without this synthesis those
+ * records were silently dropped — the symptom that landed cost as
+ * `"missing"` on the Tier B run despite Vellum having priced every
+ * call internally. We re-emit a parallel event in the canonical shape
+ * (snake_case fields to match `usage.ts`'s preferred read path) without
+ * dropping the original `usage_progress` — other consumers (the report
+ * artifact log, future trajectory views) keep seeing it unchanged.
+ *
+ * Exported for unit tests.
+ */
+export function synthesizeUsageFromVellumUsageProgress(
+  event: AgentEvent,
+): AgentEvent | null {
+  const msg = event.message as Record<string, unknown>;
+  const inputTokens =
+    typeof msg.inputTokens === "number" && Number.isFinite(msg.inputTokens)
+      ? msg.inputTokens
+      : undefined;
+  const outputTokens =
+    typeof msg.outputTokens === "number" && Number.isFinite(msg.outputTokens)
+      ? msg.outputTokens
+      : undefined;
+  if (inputTokens === undefined && outputTokens === undefined) return null;
+
+  const model = typeof msg.model === "string" ? msg.model : undefined;
+  const provider =
+    model !== undefined ? inferProviderFromVellumModel(model) : undefined;
+
+  const usage: Record<string, unknown> = {};
+  if (provider !== undefined) usage.provider = provider;
+  if (model !== undefined) usage.model = model;
+  if (inputTokens !== undefined) usage.input_tokens = inputTokens;
+  if (outputTokens !== undefined) usage.output_tokens = outputTokens;
+
+  return { message: { type: "usage", usage } };
+}
+
+/**
  * Wrap a raw `parseNdjson<AgentEvent>` stream from `vellum events --json`
  * with a normalization step that **clears `text` and `chunk` on events
  * that don't carry assistant transcript text**. The event itself is
@@ -156,6 +232,15 @@ export async function* normalizeVellumEventStream(
         chunk: undefined,
       },
     };
+    // After the original passthrough, synthesize a canonical `usage`
+    // event when the source was `usage_progress` so the evals cost
+    // ledger (`summarizeAssistantUsage`, which reads `event.message.usage`)
+    // picks up tokens Vellum already metered. See
+    // `synthesizeUsageFromVellumUsageProgress` for shape details.
+    if (type === "usage_progress") {
+      const synth = synthesizeUsageFromVellumUsageProgress(event);
+      if (synth) yield synth;
+    }
   }
 }
 
