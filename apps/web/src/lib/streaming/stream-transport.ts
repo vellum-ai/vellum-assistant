@@ -10,7 +10,7 @@
 import { client } from "@/generated/api/client.gen";
 import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
-import { parseAssistantEventEnvelope } from "@/lib/streaming/event-parser";
+import { parseAssistantEvent } from "@/lib/streaming/event-parser";
 
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
@@ -286,7 +286,7 @@ export function subscribeChatEvents(
             reconnectCount = 0;
           }
 
-          const envelope = parseAssistantEventEnvelope(data);
+          const envelope = parseAssistantEvent(data);
 
           pushSseEvent(sseDebugClientId, envelope.message);
           try {
