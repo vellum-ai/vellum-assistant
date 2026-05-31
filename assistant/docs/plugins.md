@@ -1,14 +1,14 @@
 # Plugin authoring guide
 
 > **Note:** This guide documents the **legacy** plugin architecture — the
-> in-tree `register.ts` + middleware-pipeline system. The schema we are
-> converging on lives at
-> [`experimental/plugins/README.md`](../../experimental/plugins/README.md):
-> file-based discovery, a `package.json` manifest, and the
-> `@vellumai/plugin-api` public contract. New plugins should target the
-> modern schema. This guide is being reduced to the
-> [consolidation checklist](#consolidation-checklist) below — the set of
-> gaps to close before the two systems merge.
+> in-tree `register.ts` + middleware-pipeline system. We are converging on
+> the schema at
+> [`experimental/plugins/README.md`](../../experimental/plugins/README.md)
+> (file-based discovery, a `package.json` manifest, the
+> `@vellumai/plugin-api` public contract). The plan is to reshape this guide
+> section by section until it matches that one; wherever the two still
+> differ is the next piece of consolidation work. New plugins should target
+> the modern schema.
 
 Plugins let you extend the assistant by hooking middleware into named
 runtime pipelines, contributing tools/routes/skills, and injecting
@@ -23,7 +23,8 @@ way to see the system in action.
 
 ## Table of contents
 
-- [Consolidation checklist](#consolidation-checklist)
+- [TL;DR](#tldr)
+- [What a plugin can contribute today](#what-a-plugin-can-contribute-today)
 - [Anatomy of a plugin](#anatomy-of-a-plugin)
 - [Where plugins live](#where-plugins-live)
 - [Manifest](#manifest)
@@ -40,43 +41,31 @@ way to see the system in action.
 
 ---
 
-## Consolidation checklist
+## TL;DR
 
-The legacy system (this guide) and the
-[modern schema](../../experimental/plugins/README.md) differ on the axes
-below. Each unchecked box is consolidation work still to do; the goal is
-to retire this guide once every row converges on the modern schema.
+1. Create a directory `<workspaceDir>/plugins/my-plugin/`.
+2. Add a `register.ts` that builds a `Plugin` object and passes it to
+   `registerPlugin()` as an import-time side effect.
+3. Give the manifest a `name` and `version`.
+4. Hang middleware, tools, routes, skills, or injectors off the `Plugin`
+   object.
+5. Restart the assistant — the loader scans `<workspaceDir>/plugins/*` and
+   registers the plugin on startup.
 
-- [ ] **Discovery.** Legacy dynamic-imports one `register.ts` per plugin
-      that calls `registerPlugin()` as an import-time side effect. Modern
-      walks `hooks/<name>.ts` and `tools/<name>.ts` and reads default
-      exports — no entry-point file, no import-time side effects.
-- [ ] **Manifest.** Legacy declares a `PluginManifest` object in code;
-      modern reads `package.json` (`name`, `version`,
-      `peerDependencies["@vellumai/plugin-api"]`).
-- [ ] **Public contract.** Legacy imports assistant-internal
-      [`src/plugins/types.ts`](../src/plugins/types.ts); modern imports
-      only `@vellumai/plugin-api`.
-- [ ] **Install path.** Legacy scans `<workspaceDir>/plugins/*` in place;
-      modern installs packages via `assistant plugins install <name>`.
-- [ ] **Extension model.** Legacy hooks middleware into named runtime
-      pipelines; modern exposes lifecycle hooks (`init`, `shutdown`,
-      `user-prompt-submit`) driven by a single polymorphic `PluginHookFn`
-      ctx transform.
-- [ ] **Contribution surfaces.** Legacy contributes tools, routes,
-      skills, and injectors; modern wires only hooks and tools today —
-      routes / skills / injectors have no modern equivalent yet.
-- [ ] **Config & credentials.** Legacy uses `manifest.config`,
-      `requiresCredential`, and `requiresFlag`; modern surfaces
-      `ctx.config` and `ctx.credentials` at `init`, with flag-gating still
-      to be defined.
-- [ ] **Version compat.** Legacy `manifest.version` is informational;
-      modern checks the `@vellumai/plugin-api` peer range against the host
-      (soft-fail today, hard-reject once the install path stabilizes).
+## What a plugin can contribute today
 
-Everything below this section documents the legacy surface as it exists
-today, and remains the reference for already-shipped plugins until the
-boxes above are checked.
+| Surface                 | Where                     | Discovery                                         |
+| ----------------------- | ------------------------- | ------------------------------------------------- |
+| Pipeline middleware     | `plugin.middleware`       | keyed by pipeline name in `PipelineMiddlewareMap` |
+| Model-visible tools     | `plugin.tools`            | each `PluginToolRegistration`                     |
+| HTTP routes             | `plugin.routes`           | each `PluginRouteRegistration`                    |
+| Skills                  | `plugin.skills`           | each `PluginSkillRegistration`                    |
+| System-prompt injectors | `plugin.injectors`        | each `Injector`                                   |
+| Lifecycle               | `init()` / `onShutdown()` | methods on the `Plugin` object                    |
+
+The modern schema wires only **hooks** and **tools**; the middleware
+pipelines, routes, skills, and injectors above are the surfaces that still
+have no modern equivalent.
 
 ---
 
