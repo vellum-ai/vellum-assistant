@@ -52,7 +52,7 @@ mock.module("../../../util/logger.js", () => ({
 let flagState: Record<string, boolean> = {};
 
 mock.module("../../../config/assistant-feature-flags.js", () => ({
-  isAssistantFeatureFlagEnabled: (_config: unknown, key: string): boolean =>
+  isAssistantFeatureFlagEnabled: (key: string, _config: unknown): boolean =>
     flagState[key] ?? false,
 }));
 

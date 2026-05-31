@@ -219,8 +219,8 @@ export async function memoryV2ConsolidateJob(
     // failed enqueue logs and never fails the consolidation that already
     // succeeded.
     if (
-      isAssistantFeatureFlagEnabled(config, "memory-v3-shadow") ||
-      isAssistantFeatureFlagEnabled(config, "memory-v3-live")
+      isAssistantFeatureFlagEnabled("memory-v3-shadow", config) ||
+      isAssistantFeatureFlagEnabled("memory-v3-live", config)
     ) {
       try {
         followUpJobIds.push(enqueueMemoryJob("memory_v3_maintain", {}));
