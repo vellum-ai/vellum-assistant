@@ -52,6 +52,34 @@ export async function createSchedule(
   }
 }
 
+export interface UpdateSchedulePayload {
+  timeoutMs?: number | null;
+}
+
+export async function updateSchedule(
+  assistantId: string,
+  scheduleId: string,
+  payload: UpdateSchedulePayload,
+): Promise<void> {
+  const { error, response } = await client.patch<
+    SchedulesListResponse,
+    unknown
+  >({
+    url: "/v1/assistants/{assistant_id}/schedules/{schedule_id}/",
+    path: { assistant_id: assistantId, schedule_id: scheduleId },
+    body: payload,
+    headers: { "Content-Type": "application/json" },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to update schedule.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to update schedule."),
+    );
+  }
+}
+
 export async function fetchSchedules(assistantId: string): Promise<Schedule[]> {
   const { data, error, response } = await client.get<
     SchedulesListResponse,

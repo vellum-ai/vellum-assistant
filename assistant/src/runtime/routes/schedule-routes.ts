@@ -12,7 +12,10 @@ import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import { getConversation } from "../../memory/conversation-crud.js";
 import { normalizeScheduleSyntax } from "../../schedule/recurrence-types.js";
-import { runScript } from "../../schedule/run-script.js";
+import {
+  runScript,
+  validateScriptTimeoutMs,
+} from "../../schedule/run-script.js";
 import {
   cancelSchedule,
   completeScheduleRun,
@@ -60,6 +63,7 @@ function handleListSchedules(queryParams: Record<string, string>) {
       retryCount: j.retryCount,
       maxRetries: j.maxRetries,
       retryBackoffMs: j.retryBackoffMs,
+      timeoutMs: j.timeoutMs,
       description:
         j.syntax === "cron"
           ? describeCronExpression(j.cronExpression)
@@ -195,10 +199,19 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     "wakeConversationId",
     "maxRetries",
     "retryBackoffMs",
+    "timeoutMs",
   ] as const) {
     if (key in body) {
       updates[key] = body[key];
     }
+  }
+
+  if (updates.timeoutMs != null) {
+    if (typeof updates.timeoutMs !== "number") {
+      throw new BadRequestError("timeoutMs must be a number or null");
+    }
+    const timeoutError = validateScriptTimeoutMs(updates.timeoutMs);
+    if (timeoutError) throw new BadRequestError(timeoutError);
   }
 
   try {
@@ -379,7 +392,7 @@ export const ROUTES: RouteDefinition[] = [
     endpoint: "schedules/:id",
     method: "PATCH",
     policy: {
-      requiredScopes: ["settings.read"],
+      requiredScopes: ["settings.write"],
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Update schedule",
@@ -399,6 +412,10 @@ export const ROUTES: RouteDefinition[] = [
       reuseConversation: z.boolean(),
       maxRetries: z.number().describe("Maximum retry attempts"),
       retryBackoffMs: z.number().describe("Retry backoff in milliseconds"),
+      timeoutMs: z
+        .number()
+        .nullable()
+        .describe("Script-mode execution timeout in ms; null = use default"),
     }),
     responseBody: z.object({
       schedules: z.array(z.unknown()).describe("Updated schedule list"),
@@ -459,7 +476,9 @@ async function handleRunScheduleNow(id: string) {
         { jobId: schedule.id, name: schedule.name },
         "Executing script schedule manually (run now)",
       );
-      const result = await runScript(schedule.script);
+      const result = await runScript(schedule.script, {
+        timeoutMs: schedule.timeoutMs ?? undefined,
+      });
       completeScheduleRun(runId, {
         status: result.exitCode === 0 ? "ok" : "error",
         output: result.stdout || undefined,

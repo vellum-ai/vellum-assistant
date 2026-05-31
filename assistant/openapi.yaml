@@ -15702,6 +15702,11 @@ paths:
                 retryBackoffMs:
                   type: number
                   description: Retry backoff in milliseconds
+                timeoutMs:
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                  description: Script-mode execution timeout in ms; null = use default
               required:
                 - name
                 - expression
@@ -15714,6 +15719,7 @@ paths:
                 - reuseConversation
                 - maxRetries
                 - retryBackoffMs
+                - timeoutMs
               additionalProperties: false
   /v1/schedules/{id}/cancel:
     post:

@@ -11,6 +11,7 @@ import {
 import { useCallback, useMemo, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
+import { Input } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
 import { PanelItem } from "@vellum/design-library/components/panel-item";
 import { Tag } from "@vellum/design-library/components/tag";
@@ -29,6 +30,7 @@ import {
   runHeartbeatNow,
   runScheduleNow,
   toggleSchedule,
+  updateSchedule,
 } from "@/domains/settings/api/schedules";
 import { reportError } from "@/utils/error-report";
 import {
@@ -269,16 +271,140 @@ function RecentRunsCard({
 // Schedule detail view (runs list)
 // ---------------------------------------------------------------------------
 
+const DEFAULT_SCRIPT_TIMEOUT_MS = 60_000;
+const MIN_SCRIPT_TIMEOUT_SECONDS = 1;
+const MAX_SCRIPT_TIMEOUT_SECONDS = 30 * 60;
+
+/**
+ * Inline editor for a script schedule's execution timeout. Displays the
+ * effective timeout (the per-schedule override, or the default when unset)
+ * and lets the guardian change it or reset it back to the default.
+ */
+function ScriptTimeoutField({
+  schedule,
+  assistantId,
+  onUpdated,
+}: {
+  schedule: Schedule;
+  assistantId: string;
+  onUpdated: () => void;
+}) {
+  const effectiveSeconds = Math.round(
+    (schedule.timeoutMs ?? DEFAULT_SCRIPT_TIMEOUT_MS) / 1000,
+  );
+  const [isEditing, setIsEditing] = useState(false);
+  const [value, setValue] = useState(String(effectiveSeconds));
+  const [isSaving, setIsSaving] = useState(false);
+
+  const startEditing = useCallback(() => {
+    setValue(String(effectiveSeconds));
+    setIsEditing(true);
+  }, [effectiveSeconds]);
+
+  const save = useCallback(
+    async (timeoutMs: number | null) => {
+      setIsSaving(true);
+      try {
+        await updateSchedule(assistantId, schedule.id, { timeoutMs });
+        setIsEditing(false);
+        onUpdated();
+      } catch (error) {
+        reportError(error, {
+          context: "schedule_update_timeout",
+          userMessage: "Failed to update timeout.",
+        });
+        toast.error("Failed to update timeout.");
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [assistantId, schedule.id, onUpdated],
+  );
+
+  const handleSave = useCallback(() => {
+    const seconds = Number(value);
+    if (
+      !Number.isInteger(seconds) ||
+      seconds < MIN_SCRIPT_TIMEOUT_SECONDS ||
+      seconds > MAX_SCRIPT_TIMEOUT_SECONDS
+    ) {
+      toast.error(
+        `Timeout must be a whole number between ${MIN_SCRIPT_TIMEOUT_SECONDS} and ${MAX_SCRIPT_TIMEOUT_SECONDS} seconds.`,
+      );
+      return;
+    }
+    void save(seconds * 1000);
+  }, [value, save]);
+
+  if (isEditing) {
+    return (
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[var(--content-secondary)]">Timeout</span>
+        <div className="flex items-center gap-2">
+          <Input
+            type="number"
+            min={MIN_SCRIPT_TIMEOUT_SECONDS}
+            max={MAX_SCRIPT_TIMEOUT_SECONDS}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="w-24"
+            aria-label="Timeout in seconds"
+          />
+          <span className="text-[var(--content-tertiary)]">sec</span>
+          <Button size="compact" onClick={handleSave} disabled={isSaving}>
+            {isSaving ? "Saving…" : "Save"}
+          </Button>
+          <Button
+            variant="outlined"
+            size="compact"
+            onClick={() => setIsEditing(false)}
+            disabled={isSaving}
+          >
+            Cancel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[var(--content-secondary)]">Timeout</span>
+      <div className="flex items-center gap-2">
+        <span>
+          {effectiveSeconds}s
+          {schedule.timeoutMs == null ? " (default)" : ""}
+        </span>
+        <Button variant="outlined" size="compact" onClick={startEditing}>
+          Edit
+        </Button>
+        {schedule.timeoutMs != null && (
+          <Button
+            variant="outlined"
+            size="compact"
+            onClick={() => void save(null)}
+            disabled={isSaving}
+          >
+            Reset
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ScheduleDetailView({
   schedule,
   assistantId,
   onBack,
   onDeleted,
+  onUpdated,
 }: {
   schedule: Schedule;
   assistantId: string;
   onBack: () => void;
   onDeleted: () => void;
+  onUpdated: () => void;
 }) {
   const [selectedRun, setSelectedRun] = useState<ScheduleRun | null>(null);
 
@@ -381,6 +507,13 @@ export function ScheduleDetailView({
                 {schedule.script}
               </pre>
             </div>
+          )}
+          {schedule.mode === "script" && (
+            <ScriptTimeoutField
+              schedule={schedule}
+              assistantId={assistantId}
+              onUpdated={onUpdated}
+            />
           )}
           <div className="flex items-center justify-between">
             <span className="text-[var(--content-secondary)]">Status</span>
@@ -1023,6 +1156,7 @@ export function SchedulesPage() {
           setSelectedScheduleId(null);
           void refetch();
         }}
+        onUpdated={() => void refetch()}
       />
     );
   }

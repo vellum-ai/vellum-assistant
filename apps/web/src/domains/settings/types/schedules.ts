@@ -16,6 +16,7 @@ export interface Schedule {
   status: "active" | "firing" | "fired" | "cancelled";
   routingIntent: string;
   reuseConversation: boolean;
+  timeoutMs: number | null;
   isOneShot: boolean;
 }
 
