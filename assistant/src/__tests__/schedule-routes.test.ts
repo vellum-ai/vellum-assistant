@@ -538,3 +538,73 @@ describe("wake mode in schedule routes", () => {
     expect(wakeSchedule!.wakeConversationId).toBe("conv-abc");
   });
 });
+
+describe("PATCH /schedules/:id — timeout override", () => {
+  beforeEach(() => {
+    clearTables();
+  });
+
+  function listOne(): { id: string; timeoutMs: number | null } {
+    const route = findRoute("schedules", "GET");
+    const result = route.handler({}) as {
+      schedules: Array<{ id: string; timeoutMs: number | null }>;
+    };
+    return result.schedules[0];
+  }
+
+  test("sets and clears the script timeout, exposing it in the list", () => {
+    // GIVEN a script schedule with no timeout override
+    const schedule = createSchedule({
+      name: "Script job",
+      cronExpression: "0 9 * * *",
+      message: "",
+      script: "echo hi",
+      mode: "script",
+      syntax: "cron",
+    });
+    expect(listOne().timeoutMs).toBeNull();
+
+    const patch = findRoute("schedules/:id", "PATCH");
+
+    // WHEN the guardian sets a custom timeout
+    patch.handler({
+      pathParams: { id: schedule.id },
+      body: { timeoutMs: 5000 },
+    });
+
+    // THEN the list reflects the override
+    expect(listOne().timeoutMs).toBe(5000);
+
+    // AND WHEN the guardian clears it
+    patch.handler({
+      pathParams: { id: schedule.id },
+      body: { timeoutMs: null },
+    });
+
+    // THEN it reverts to null
+    expect(listOne().timeoutMs).toBeNull();
+  });
+
+  test("rejects an out-of-range timeout", () => {
+    // GIVEN a script schedule
+    const schedule = createSchedule({
+      name: "Guarded job",
+      cronExpression: "0 9 * * *",
+      message: "",
+      script: "echo hi",
+      mode: "script",
+      syntax: "cron",
+    });
+
+    const patch = findRoute("schedules/:id", "PATCH");
+
+    // WHEN/THEN patching with a below-minimum timeout throws a RouteError
+    expect(() =>
+      patch.handler({
+        pathParams: { id: schedule.id },
+        body: { timeoutMs: 10 },
+      }),
+    ).toThrow("timeout_ms must be between");
+    expect(listOne().timeoutMs).toBeNull();
+  });
+});

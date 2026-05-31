@@ -303,7 +303,9 @@ export async function runScheduleDueWorkOnce(
           { jobId: job.id, name: job.name, isOneShot },
           "Executing script schedule",
         );
-        const result: ScriptResult = await runScript(job.script);
+        const result: ScriptResult = await runScript(job.script, {
+          timeoutMs: job.timeoutMs ?? undefined,
+        });
         completeScheduleRun(runId, {
           status: result.exitCode === 0 ? "ok" : "error",
           output: result.stdout || undefined,

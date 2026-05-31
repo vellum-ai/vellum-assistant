@@ -186,6 +186,7 @@ import {
   migrateScheduleRetryPolicy,
   migrateScheduleReuseConversation,
   migrateScheduleScriptColumn,
+  migrateScheduleScriptTimeout,
   migrateScheduleWakeConversationId,
   migrateSchemaIndexesAndColumns,
   migrateScrubCorruptedImageAttachments,
@@ -470,6 +471,7 @@ export function initializeDb(): void {
     migrateMessagesClientMessageId,
     migrateLlmUsageEventsAddAssistantVersion,
     migrateAddMemoryV3Selections,
+    migrateScheduleScriptTimeout,
   ];
 
   // Run each migration step, catching and logging individual failures so one
