@@ -92,9 +92,21 @@ export interface ShadowLanes {
  */
 let lanesPromise: Promise<ShadowLanes> | null = null;
 
-/** Test-only: drop the memoized lanes so a fresh init runs next turn. */
-export function resetShadowLanesForTests(): void {
+/**
+ * Drop the memoized lanes so the NEXT `getLanes` rebuilds them from scratch
+ * (fresh topic-tree load + fresh needle index). The rebuild is lazy — this only
+ * clears the cache, so the cost is paid by the next caller, and concurrent
+ * first-callers after the invalidation still share a single build via the
+ * re-memoized promise. Call this whenever the underlying tree or needle sources
+ * change on disk.
+ */
+export function invalidateLanes(): void {
   lanesPromise = null;
+}
+
+/** Test-only alias for {@link invalidateLanes}. */
+export function resetShadowLanesForTests(): void {
+  invalidateLanes();
 }
 
 /**
