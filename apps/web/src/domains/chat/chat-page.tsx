@@ -181,10 +181,6 @@ export function ChatPage() {
     () => lifecycleService.retryAssistant(),
     [],
   );
-  const hatchVersion = useCallback(
-    (version?: string) => lifecycleService.hatchVersion(version),
-    [],
-  );
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const doctor = useClientFeatureFlagStore.use.doctor();
@@ -1501,7 +1497,20 @@ export function ChatPage() {
   }
 
   if (assistantState.kind === "awaiting_version_selection") {
-    return <VersionSelectionScreen onHatch={hatchVersion} />;
+    // `VersionSelectionScreen` is rendered by *this* ChatPage instance
+    // (no remount across the click), so `markExpectingFirstMessage()`
+    // inside `lifecycleService.hatchVersion` only affects future
+    // mounts. Flip the local state directly too, so the gate also
+    // shows in the edge case where the URL is already a conversation
+    // route and no post-hatch redirect remounts ChatPage.
+    return (
+      <VersionSelectionScreen
+        onHatch={(version) => {
+          setAutoGreetPending(true);
+          lifecycleService.hatchVersion(version);
+        }}
+      />
+    );
   }
 
   if (assistantState.kind === "retired") {
