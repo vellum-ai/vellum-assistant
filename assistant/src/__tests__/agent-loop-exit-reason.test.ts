@@ -387,7 +387,6 @@ describe("AgentLoop exit-reason instrumentation", () => {
         prepared = true;
         return { rawHistory: history, options: undefined };
       },
-      onTimeout: async () => {},
       persist: async () => {
         persisted = true;
         return { exhausted: false };
@@ -430,31 +429,37 @@ describe("AgentLoop exit-reason instrumentation", () => {
       toolExecutor: toolExecutor,
     });
 
-    let timedOut = false;
     const compaction: MidLoopCompaction = {
       prepare: (history) => ({ rawHistory: history, options: undefined }),
-      onTimeout: async () => {
-        timedOut = true;
-      },
       persist: async () => ({ exhausted: false }),
       reinject: async () => {
         throw new Error("reinject must not run after a timeout");
       },
     };
+    const events: AgentEvent[] = [];
 
     // WHEN the compaction pipeline throws a PluginTimeoutError
-    const result = await loop.run([userMessage], () => {}, {
-      resolveContextWindow: () => ({
-        maxInputTokens: 10,
-        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
-      }),
-      compaction,
-      turnContext: timeoutCompactionTurnContext(),
-    });
+    const result = await loop.run(
+      [userMessage],
+      (event) => {
+        events.push(event);
+      },
+      {
+        resolveContextWindow: () => ({
+          maxInputTokens: 10,
+          overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+        }),
+        compaction,
+        turnContext: timeoutCompactionTurnContext(),
+      },
+    );
 
-    // THEN the loop records the timeout and yields for budget so the
-    // orchestrator can escalate.
-    expect(timedOut).toBe(true);
+    // THEN the loop emits the timeout signal so the orchestrator can record
+    // it against the compaction circuit breaker, and yields for budget so
+    // the orchestrator can escalate.
+    expect(events.some((event) => event.type === "compaction_timed_out")).toBe(
+      true,
+    );
     expect(result.exitReason).toBe("budget");
   });
 
@@ -471,7 +476,6 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const compaction: MidLoopCompaction = {
       prepare: (history) => ({ rawHistory: history, options: undefined }),
-      onTimeout: async () => {},
       persist: async () => ({ exhausted: true }),
       reinject: async () => {
         throw new Error("reinject must not run when exhausted");

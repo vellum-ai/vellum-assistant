@@ -67,9 +67,10 @@ import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
 } from "./assistant-attachments.js";
-import type {
-  AgentLoopConversationContext,
-  AssistantSurface,
+import {
+  type AgentLoopConversationContext,
+  type AssistantSurface,
+  trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
 import {
   buildConversationErrorMessage,
@@ -1886,6 +1887,12 @@ export async function dispatchAgentEvent(
           deps.reqId,
           "Compacting context",
         );
+        break;
+      case "compaction_timed_out":
+        // A compaction-pipeline timeout is recorded against this
+        // conversation's durable compaction circuit breaker, which trips
+        // after repeated timeouts to suspend auto-compaction.
+        await trackCompactionOutcome(deps.ctx, true, deps.onEvent);
         break;
       case "error":
         handleError(state, deps, event);

@@ -138,6 +138,7 @@ function translateAgentEventToServerMessage(
     case "provider_error":
     case "max_tokens_reached":
     case "context_compacting":
+    case "compaction_timed_out":
     case "agent_loop_exit":
       return null;
     case "llm_call_started":
