@@ -93,6 +93,51 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("line2");
   });
 
+  test("hardLineBreaks leaves fenced code blocks verbatim (no trailing-space injection)", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "```js\nconst a = 1\nconst b = 2\n```",
+        hardLineBreaks: true,
+      }),
+    );
+
+    // The newline inside the code block must stay a bare newline — a blind
+    // string replace would harden it into "  \n", corrupting the code with
+    // trailing whitespace and/or a <br>.
+    expect(html).toContain("const a = 1\nconst b = 2");
+    expect(html).not.toContain("const a = 1  \n");
+    expect(html.match(/<code[\s\S]*?<\/code>/)?.[0]).not.toContain("<br");
+  });
+
+  test("hardLineBreaks does not break table parsing", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "| a | b |\n| - | - |\n| 1 | 2 |",
+        hardLineBreaks: true,
+      }),
+    );
+
+    // Row-separating newlines are structural, not prose text nodes, so the
+    // table still parses instead of collapsing into a <br>-laden paragraph.
+    expect(html).toContain("<table");
+    expect(html).not.toContain("<br");
+  });
+
+  test("h4-h6 render with bold typography instead of unstyled defaults", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "#### H4\n\n##### H5\n\n###### H6",
+      }),
+    );
+
+    expect(html).toContain("<h4");
+    expect(html).toContain("<h5");
+    expect(html).toContain("<h6");
+    // Every heading override restores bold weight on a canonical size token.
+    expect(html.match(/<h4[^>]*>/)?.[0]).toContain("!font-bold");
+    expect(html.match(/<h6[^>]*>/)?.[0]).toContain("!font-bold");
+  });
+
   test("monetary text is not mangled into math typography", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
