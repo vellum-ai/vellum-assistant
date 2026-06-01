@@ -7,7 +7,7 @@ import {
   Loader2,
   Moon,
 } from "lucide-react";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Navigate } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -454,6 +454,20 @@ export function NotificationsPage() {
   // disable mutation triggers, show the loading spinner.
   const isResolving = platformGate === "full" && !isPlatformHosted;
   const showLoading = isResolving || isLoading;
+
+  // The pause-alerts trigger is unmounted while `isResolving` (below), so
+  // a Popover/BottomSheet open during a gate transition (e.g. assistant
+  // switch refreshing the lifecycle) closes via unmount. Reset the open
+  // flag too — otherwise when `isResolving` flips back to false the
+  // popover would re-mount with `open={true}` and spring open
+  // unexpectedly. (The trigger is hidden anyway, so the popover content's
+  // `createRule` mutation can't fire post-unmount, but this keeps the
+  // state honest across transitions.)
+  useEffect(() => {
+    if (isResolving && pauseOpen) {
+      setPauseOpen(false);
+    }
+  }, [isResolving, pauseOpen]);
 
   const notifications = data?.results ?? [];
   const unreadOpen = notifications.filter(

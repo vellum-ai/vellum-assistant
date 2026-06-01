@@ -994,6 +994,44 @@ toggles, popover triggers, "mark all as read" buttons, etc. The rule
 is: **if it can fire a mutation, it must be disabled (or hidden)
 while `!isPlatformHosted`.**
 
+##### Deferred-action UI: dialog/popover lifetime spans gate transitions
+
+Disabling only the **opener** isn't enough when the action is deferred
+behind a modal dialog or a persistent popover with its own confirm
+button. The dialog can be opened while the assistant is resolved as
+platform-hosted, the lifecycle can then drop back to `loading` (assistant
+switch, refresh), and the user can press Confirm during that window —
+firing the mutation against an assistant that may resolve as self-hosted.
+
+Two patterns, used together:
+
+```ts
+// 1. Close the dialog/popover when isResolving flips true. UX-correct:
+//    the user sees the dismiss, then the disabled button + spinner
+//    explain the state.
+useEffect(() => {
+  if (isResolving && confirmOpen) {
+    setConfirmOpen(false);
+  }
+}, [isResolving, confirmOpen]);
+
+// 2. Guard the action handler defensively for same-tick edge cases.
+<ConfirmDialog
+  onConfirm={() => {
+    if (isResolving) {
+      setConfirmOpen(false);
+      return;
+    }
+    mutation.mutate(...);
+  }}
+/>
+```
+
+**Auto-close trumps onclick-guard for UX**, but both belong. Auto-close
+handles the long window (user opens dialog, walks away, lifecycle
+changes); onclick-guard handles the millisecond edge where the click
+event arrives the same tick `isResolving` flips.
+
 ### Daemon-owned endpoints routed through the platform proxy
 
 Many features use the platform API client but actually hit

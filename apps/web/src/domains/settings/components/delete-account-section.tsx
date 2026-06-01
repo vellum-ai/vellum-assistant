@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
@@ -55,6 +55,20 @@ export function DeleteAccountSection() {
 
   const isResolving = platformGate === "full" && !isPlatformHosted;
 
+  // Dialog lifetime can span gate transitions: a user can open the dialog
+  // while resolved-as-hosted, then trigger an assistant switch (lifecycle
+  // re-enters `loading`), then press Confirm. The opener-button gate above
+  // does NOT protect against that — `confirmOpen` is already true and the
+  // ConfirmDialog stays mounted. Close the dialog when `isResolving`
+  // flips true so the user sees it dismiss; the disabled button + spinner
+  // then explain the state. Belt-and-suspenders: also guard `onConfirm`
+  // for the same-tick edge case.
+  useEffect(() => {
+    if (isResolving && confirmOpen) {
+      setConfirmOpen(false);
+    }
+  }, [isResolving, confirmOpen]);
+
   return (
     <>
       <DetailCard
@@ -89,6 +103,13 @@ export function DeleteAccountSection() {
         confirmLabel="Delete Account"
         destructive
         onConfirm={() => {
+          // Defensive: the useEffect above closes the dialog when
+          // `isResolving` flips true, but a click landing in the same
+          // tick as the transition would still reach this handler.
+          if (isResolving) {
+            setConfirmOpen(false);
+            return;
+          }
           setConfirmOpen(false);
           deleteMutation.mutate({});
         }}
