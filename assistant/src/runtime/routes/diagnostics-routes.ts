@@ -4,6 +4,7 @@
 
 import { z } from "zod";
 
+import { DictationRequestSchema } from "../../api/requests/dictation.js";
 import {
   type ProfileResolution,
   resolveProfile,
@@ -455,26 +456,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Classify voice input as dictation or action, clean up text, and apply user style preferences.",
     tags: ["diagnostics"],
-    requestBody: z.object({
-      transcription: z.string().describe("Raw speech transcription"),
-      context: z
-        .object({
-          cursorInTextField: z
-            .boolean()
-            .optional()
-            .describe(
-              "Whether the cursor is in an editable text field when dictation started",
-            ),
-        })
-        .passthrough()
-        .describe(
-          "Dictation context (app name, window title, bundle ID, cursor state, selected text)",
-        ),
-      profileId: z
-        .string()
-        .describe("Optional dictation profile ID")
-        .optional(),
-    }),
+    requestBody: DictationRequestSchema,
     responseBody: z.object({
       text: z.string().describe("Processed text output"),
       mode: z.string().describe("Detected mode: dictation, command, or action"),
