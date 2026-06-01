@@ -252,7 +252,7 @@ function useIsPlatformLocal(): boolean | null {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/__config");
+        const res = await fetch("/assistant/__config");
         if (!res.ok) { if (!cancelled) setResult(false); return; }
         const config = (await res.json()) as { webUrl?: string };
         if (!cancelled) {

@@ -13,11 +13,15 @@ import {
   retireLocalAssistant,
 } from "@/lib/local-mode";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
 function getPostRetireRoute(): string {
   if (isNativePlatform()) return routes.onboarding.prechat;
-  if (isLocalMode()) return routes.onboarding.welcome;
+  if (isLocalMode()) {
+    const { hasPlatformSession } = useAuthStore.getState();
+    return hasPlatformSession ? routes.onboarding.hosting : routes.onboarding.welcome;
+  }
   return routes.onboarding.privacy;
 }
 

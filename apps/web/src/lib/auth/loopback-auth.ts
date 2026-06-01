@@ -21,7 +21,7 @@ function generateState(): string {
 
 async function getWebUrl(): Promise<string> {
   try {
-    const res = await fetch("/__config");
+    const res = await fetch("/assistant/__config");
     if (res.ok) {
       const config = (await res.json()) as { webUrl?: string };
       if (config.webUrl) return config.webUrl;

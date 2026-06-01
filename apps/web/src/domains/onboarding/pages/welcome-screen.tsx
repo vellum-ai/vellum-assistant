@@ -10,7 +10,7 @@ import { routes } from "@/utils/routes";
 
 async function isPlatformLocal(): Promise<boolean> {
   try {
-    const res = await fetch("/__config");
+    const res = await fetch("/assistant/__config");
     if (!res.ok) return false;
     const config = (await res.json()) as { webUrl?: string };
     return config.webUrl === window.location.origin;

@@ -65,7 +65,7 @@ function configMiddleware(webUrl: string, platformUrl: string): Connect.NextHand
   const body = JSON.stringify({ webUrl, platformUrl });
 
   return (req, res, next) => {
-    if (req.url !== "/__config") return next();
+    if (req.url !== "/assistant/__config" && req.url !== "/__config") return next();
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(body);
   };

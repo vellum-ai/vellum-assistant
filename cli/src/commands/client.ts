@@ -594,7 +594,7 @@ async function runWebInterface(): Promise<void> {
       }
 
       // Expose environment config to the SPA.
-      if (pathname === "/__config") {
+      if (pathname === "/assistant/__config" || pathname === "/__config") {
         return new Response(configJson, {
           headers: { "Content-Type": "application/json" },
         });
