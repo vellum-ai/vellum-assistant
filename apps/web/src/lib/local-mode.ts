@@ -144,14 +144,14 @@ export async function saveLockfileAssistant(
  * current set from the API. Removes stale entries and adds new ones atomically.
  */
 export async function syncPlatformAssistantsToLockfile(
-  assistants: Array<{ id: string; is_local: boolean; ingress_url: string | null; created: string }>,
+  assistants: Array<{ id: string; is_local: boolean; created: string }>,
 ): Promise<void> {
   const platformAssistants = assistants
     .filter((a) => !a.is_local)
     .map((a) => ({
       assistantId: a.id,
       cloud: "vellum",
-      runtimeUrl: a.ingress_url ?? "",
+      runtimeUrl: window.location.origin,
       hatchedAt: a.created,
     }));
 
