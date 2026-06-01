@@ -446,7 +446,12 @@ export function NotificationsPage() {
   // surface, not chrome+notice) AND (b) lifecycle positively resolved as
   // platform-hosted (so we never fire during the `loading` window on a
   // deep-link to settings).
-  const { data, isLoading, isError, refetch } = useQuery({
+  const {
+    data,
+    isLoading: queryIsLoading,
+    isError: queryIsError,
+    refetch,
+  } = useQuery({
     ...organizationsNotificationsListOptions({
       query: { status: statusFilter },
     }),
@@ -462,6 +467,7 @@ export function NotificationsPage() {
   // spinner. After the lifecycle resolves (any kind), this falls back
   // to the query's own `isLoading` signal.
   const isResolving = platformGate === "full" && isLifecycleLoading;
+  const isLoading = isPlatformHosted ? queryIsLoading : false;
   const showLoading = isResolving || isLoading;
 
   // The pause-alerts trigger is unmounted whenever `!isPlatformHosted`
@@ -479,17 +485,25 @@ export function NotificationsPage() {
   }, [isPlatformHosted, pauseOpen]);
 
   // The `useQuery` is `enabled: false` in any non-hosted state, but React
-  // Query keeps the previously-fetched cache. If the user loaded
+  // Query keeps the observer state alive: `data`, `isError`, and the
+  // `refetch()` action all survive (and `refetch()` *bypasses* `enabled`
+  // by design — manual triggers always fire). If the user loaded
   // notifications while hosted and the lifecycle then moved to a resolved
   // non-hosted state (`retired`, `error`, `awaiting_version_selection`,
-  // `self_hosted`) in the same session, `data` is still populated and the
-  // notification cards would render with active "Mark all as read" /
-  // per-row ack / snooze handlers that fire org-scoped mutations against
-  // an org with no platform-hosted target. Treat cached data as invalid
-  // whenever `!isPlatformHosted`, mirroring the `enabled` predicate. This
-  // is the single source of truth for the data-availability gate that
-  // suppresses both `unreadOpen` (→ "Mark all as read" button) and the
-  // list map (→ per-row SnoozeMenu + ack controls).
+  // `self_hosted`) in the same session, ANY surviving query status can
+  // render an interactive control whose handler fires an org-scoped
+  // request against an org with no platform-hosted target:
+  //
+  //   - cached `data`  → notification cards render → "Mark all as read"
+  //                      / per-row ack / SnoozeMenu mutations.
+  //   - cached error   → "Failed to load notifications. Retry" button
+  //                      renders → click → manual `refetch()` GET.
+  //
+  // Mirror the `enabled` predicate at the derivation layer for *every*
+  // piece of query state we render. One source of truth (`isPlatformHosted`)
+  // collapses both leak surfaces into a single gate without scattering
+  // `isPlatformHosted &&` checks across the render tree.
+  const isError = isPlatformHosted ? queryIsError : false;
   const notifications = isPlatformHosted ? (data?.results ?? []) : [];
   const unreadOpen = notifications.filter(
     (n) => !n.is_read && !n.is_resolved,
