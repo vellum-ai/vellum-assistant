@@ -2,7 +2,6 @@ import type { DictationContext } from "@vellumai/assistant-api";
 
 import { dictationPost } from "@/generated/daemon/sdk.gen";
 import type { DictationPostResponse } from "@/generated/daemon/types.gen";
-import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 
 /**
  * POST /v1/dictation
@@ -22,7 +21,6 @@ export async function postDictation(
 ): Promise<DictationPostResponse | null> {
   try {
     const { data, response } = await dictationPost({
-      ...SDK_BASE_OPTIONS,
       path: { assistant_id: assistantId },
       body: { transcription, context },
       throwOnError: false,

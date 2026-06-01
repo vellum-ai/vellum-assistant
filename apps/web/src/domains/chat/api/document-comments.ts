@@ -41,15 +41,6 @@ export interface CreateCommentParams {
 }
 
 // ---------------------------------------------------------------------------
-// SDK base options — same pattern as documents.ts
-// ---------------------------------------------------------------------------
-
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
-
-// ---------------------------------------------------------------------------
 // API functions
 // ---------------------------------------------------------------------------
 
@@ -66,7 +57,6 @@ export async function fetchComments(
     ListCommentsResponse,
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/documents/{document_id}/comments",
     path: { assistant_id: assistantId, document_id: surfaceId },
     query,
@@ -74,7 +64,11 @@ export async function fetchComments(
   });
   assertHasResponse(response, error, "Failed to fetch comments.");
   if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to fetch comments.");
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to fetch comments.",
+    );
     throw new ApiError(response.status, msg);
   }
   const payload = data as ListCommentsResponse | undefined;
@@ -90,7 +84,6 @@ export async function createComment(
     DocumentComment & { success: boolean },
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/documents/{document_id}/comments",
     path: { assistant_id: assistantId, document_id: surfaceId },
     body: params,
@@ -98,7 +91,11 @@ export async function createComment(
   });
   assertHasResponse(response, error, "Failed to create comment.");
   if (!response.ok || !data) {
-    const msg = extractErrorMessage(error, response, "Failed to create comment.");
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to create comment.",
+    );
     throw new ApiError(response.status, msg);
   }
   return data;
@@ -115,7 +112,6 @@ async function patchCommentStatus(
     DocumentComment & { success: boolean },
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/documents/{document_id}/comments/{comment_id}",
     path: {
       assistant_id: assistantId,
@@ -158,11 +154,7 @@ export async function deleteComment(
   surfaceId: string,
   commentId: string,
 ): Promise<{ success: boolean }> {
-  const { error, response } = await client.delete<
-    unknown,
-    unknown
-  >({
-    ...SDK_BASE_OPTIONS,
+  const { error, response } = await client.delete<unknown, unknown>({
     url: "/v1/assistants/{assistant_id}/documents/{document_id}/comments/{comment_id}",
     path: {
       assistant_id: assistantId,

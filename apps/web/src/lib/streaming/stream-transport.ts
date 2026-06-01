@@ -8,7 +8,6 @@
  */
 
 import { client } from "@/generated/api/client.gen";
-import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { parseAssistantEvent } from "@/lib/streaming/event-parser";
 
@@ -186,43 +185,44 @@ export function subscribeChatEvents(
       // `conversationKey` (create-or-lookup) so locally-minted draft
       // ids still resolve. See
       // `lib/backwards-compat/conversation-id-wire-field.ts`.
-      const { stream } = await client.sse.get<Record<string, unknown> | string>({
-        ...SDK_BASE_OPTIONS,
-        url: "/v1/assistants/{assistant_id}/events/",
-        path: { assistant_id: assistantId },
-        ...(requestedConversationId
-          ? {
-              query: {
-                [pickConversationIdWireField()]: requestedConversationId,
-              },
+      const { stream } = await client.sse.get<Record<string, unknown> | string>(
+        {
+          url: "/v1/assistants/{assistant_id}/events/",
+          path: { assistant_id: assistantId },
+          ...(requestedConversationId
+            ? {
+                query: {
+                  [pickConversationIdWireField()]: requestedConversationId,
+                },
+              }
+            : {}),
+          headers: {
+            Accept: "text/event-stream, application/json",
+            ...getClientRegistrationHeaders(),
+          },
+          signal: abortController.signal,
+          // Keep reconnect behavior controlled by this function.
+          sseMaxRetryAttempts: 1,
+          onSseError: (error) => {
+            streamError =
+              error instanceof Error ? error : new Error("Stream disconnected");
+          },
+          onSseEvent: (event) => {
+            // Fires for every parsed SSE chunk including heartbeat
+            // comments (which the SDK surfaces with `data === undefined`
+            // because comment frames have no `data:` line).
+            const isData =
+              typeof (event as { data?: unknown }).data !== "undefined";
+            if (isData) {
+              markClientEstablished(sseDebugClientId);
             }
-          : {}),
-        headers: {
-          Accept: "text/event-stream, application/json",
-          ...getClientRegistrationHeaders(),
+            watchdog.recordTraffic(isData);
+            if (!cancelled) {
+              watchdog.arm(abortController, reconnectCount);
+            }
+          },
         },
-        signal: abortController.signal,
-        // Keep reconnect behavior controlled by this function.
-        sseMaxRetryAttempts: 1,
-        onSseError: (error) => {
-          streamError = error instanceof Error
-            ? error
-            : new Error("Stream disconnected");
-        },
-        onSseEvent: (event) => {
-          // Fires for every parsed SSE chunk including heartbeat
-          // comments (which the SDK surfaces with `data === undefined`
-          // because comment frames have no `data:` line).
-          const isData = typeof (event as { data?: unknown }).data !== "undefined";
-          if (isData) {
-            markClientEstablished(sseDebugClientId);
-          }
-          watchdog.recordTraffic(isData);
-          if (!cancelled) {
-            watchdog.arm(abortController, reconnectCount);
-          }
-        },
-      });
+      );
 
       if (isReconnect && !cancelled) {
         const cause: ChatStreamReconnectCause =
@@ -259,21 +259,28 @@ export function subscribeChatEvents(
           // callback ordering.
           watchdog.arm(abortController, reconnectCount);
 
-          const data = typeof payload === "string"
-            ? (() => {
-              try {
-                const parsed = JSON.parse(payload);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-                  return parsed as Record<string, unknown>;
-                }
-              } catch {
-                // not JSON
-              }
-              return null;
-            })()
-            : payload && typeof payload === "object" && !Array.isArray(payload)
-              ? (payload as Record<string, unknown>)
-              : null;
+          const data =
+            typeof payload === "string"
+              ? (() => {
+                  try {
+                    const parsed = JSON.parse(payload);
+                    if (
+                      parsed &&
+                      typeof parsed === "object" &&
+                      !Array.isArray(parsed)
+                    ) {
+                      return parsed as Record<string, unknown>;
+                    }
+                  } catch {
+                    // not JSON
+                  }
+                  return null;
+                })()
+              : payload &&
+                  typeof payload === "object" &&
+                  !Array.isArray(payload)
+                ? (payload as Record<string, unknown>)
+                : null;
 
           if (!data) {
             continue;
@@ -334,9 +341,7 @@ export function subscribeChatEvents(
 
   connect().catch((err) => {
     if (!cancelled) {
-      onError(
-        err instanceof Error ? err : new Error("Stream setup failed"),
-      );
+      onError(err instanceof Error ? err : new Error("Stream setup failed"));
     }
   });
 

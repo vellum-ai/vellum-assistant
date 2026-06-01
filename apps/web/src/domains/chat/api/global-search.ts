@@ -1,4 +1,3 @@
-
 import { client } from "@/generated/api/client.gen";
 
 // ---------------------------------------------------------------------------
@@ -38,11 +37,6 @@ export interface GlobalSearchResponse {
 // API
 // ---------------------------------------------------------------------------
 
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
-
 const EMPTY_RESULTS: GlobalSearchResponse = {
   conversations: [],
   schedules: [],
@@ -64,7 +58,6 @@ export async function searchGlobal(
 
   try {
     const { data, response } = await client.get<GlobalSearchResponse, unknown>({
-      ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/search/global",
       path: { assistant_id: assistantId },
       query: {
@@ -88,7 +81,9 @@ export async function searchGlobal(
         (data as unknown as Record<string, unknown>).results ?? data;
       if (results && typeof results === "object") {
         return {
-          conversations: Array.isArray((results as GlobalSearchResponse).conversations)
+          conversations: Array.isArray(
+            (results as GlobalSearchResponse).conversations,
+          )
             ? (results as GlobalSearchResponse).conversations
             : [],
           schedules: Array.isArray((results as GlobalSearchResponse).schedules)

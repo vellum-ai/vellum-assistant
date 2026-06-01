@@ -1,108 +1,26 @@
-export type FeedItemType = "notification";
-export type FeedItemStatus = "new" | "seen" | "acted_on" | "dismissed";
-export type FeedItemUrgency = "low" | "medium" | "high" | "critical";
-export type FeedItemCategory =
-  | "security"
-  | "scheduling"
-  | "background"
-  | "email"
-  | "system";
+/**
+ * Home feed and relationship-state types.
+ *
+ * The wire shapes are owned by the daemon and surfaced through the generated
+ * daemon SDK, so they are derived from the generated response types rather
+ * than re-declared here. Purely client-side concepts that never cross the
+ * wire (e.g. feed time bucketing) are declared directly.
+ */
+import type {
+  HomeFeedGetResponse,
+  HomeStateGetResponse,
+} from "@/generated/daemon/types.gen";
 
-export type FeedItemDetailPanelKind =
-  | "emailDraft"
-  | "documentPreview"
-  | "permissionChat"
-  | "paymentAuth"
-  | "toolPermission"
-  | "updatesList";
+export type HomeFeedResponse = HomeFeedGetResponse;
+export type FeedItem = HomeFeedResponse["items"][number];
+export type FeedItemStatus = FeedItem["status"];
+export type FeedItemCategory = NonNullable<FeedItem["category"]>;
+export type SuggestedPrompt = HomeFeedResponse["suggestedPrompts"][number];
 
-export interface FeedAction {
-  id: string;
-  label: string;
-  prompt: string;
-}
+export type RelationshipState = HomeStateGetResponse;
 
-export interface FeedItemDetailPanel {
-  kind: FeedItemDetailPanelKind;
-}
-
-export interface FeedItem {
-  id: string;
-  type: FeedItemType;
-  priority: number;
-  title?: string;
-  summary: string;
-  timestamp: string;
-  status: FeedItemStatus;
-  expiresAt?: string;
-  actions?: FeedAction[];
-  urgency?: FeedItemUrgency;
-  conversationId?: string;
-  detailPanel?: FeedItemDetailPanel;
-  category?: FeedItemCategory;
-  metadata?: Record<string, unknown>;
-  createdAt: string;
-}
-
-export type SuggestedPromptSource = "deterministic" | "assistant";
-export interface SuggestedPrompt {
-  id: string;
-  label: string;
-  icon?: string;
-  prompt: string;
-  source: SuggestedPromptSource;
-}
-
-export interface ContextBanner {
-  greeting: string;
-  timeAwayLabel: string;
-  newCount: number;
-}
-
-export interface HomeFeedResponse {
-  items: FeedItem[];
-  updatedAt: string;
-  contextBanner: ContextBanner;
-  suggestedPrompts: SuggestedPrompt[];
-}
-
-export type RelationshipTier = 1 | 2 | 3 | 4;
-export type FactCategory = "voice" | "world" | "priorities";
-export type FactConfidence = "strong" | "uncertain";
-export type FactSource = "onboarding" | "inferred";
-
-export interface Fact {
-  id: string;
-  category: FactCategory;
-  text: string;
-  confidence: FactConfidence;
-  source: FactSource;
-}
-
-export type CapabilityTier = "unlocked" | "next-up" | "earned";
-
-export interface Capability {
-  id: string;
-  name: string;
-  description: string;
-  tier: CapabilityTier;
-  gate: string;
-  unlockHint?: string;
-  ctaLabel?: string;
-}
-
-export interface RelationshipState {
-  version: number;
-  assistantId: string;
-  tier: RelationshipTier;
-  progressPercent: number;
-  facts: Fact[];
-  capabilities: Capability[];
-  conversationCount: number;
-  hatchedDate: string;
-  assistantName: string;
-  userName?: string;
-  updatedAt: string;
-}
-
+/**
+ * Client-side grouping of feed items by recency. Not part of the wire
+ * contract — derived in the UI from each item's `createdAt`.
+ */
 export type FeedTimeGroup = "today" | "yesterday" | "older";

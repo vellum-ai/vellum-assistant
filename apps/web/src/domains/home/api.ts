@@ -1,10 +1,13 @@
 /**
- * Hand-written fetch wrappers for daemon home endpoints.
- *
- * These endpoints are not in the Django OpenAPI schema, so we use the
- * HeyAPI client singleton directly rather than generated hooks.
+ * Fetch wrappers for the daemon home endpoints, built on the generated
+ * daemon SDK so request/response types stay in sync with the route schemas.
  */
-import { client } from "@/generated/api/client.gen";
+import {
+  homeFeedByIdActionsByActionIdPost,
+  homeFeedByIdPatch,
+  homeFeedGet,
+  homeStateGet,
+} from "@/generated/daemon/sdk.gen";
 import { assertHasResponse } from "@/utils/api-errors";
 import type {
   FeedItem,
@@ -17,30 +20,28 @@ export async function fetchHomeFeed(
   assistantId: string,
   timeAwaySeconds: number = 0,
 ): Promise<HomeFeedResponse> {
-  const { data, error, response } = await client.get({
-    url: "/v1/assistants/{assistant_id}/home/feed",
+  const { data, error, response } = await homeFeedGet({
     path: { assistant_id: assistantId },
     query: { timeAwaySeconds },
   });
   assertHasResponse(response, error, "Failed to fetch home feed");
-  if (!response.ok) {
+  if (!response.ok || !data) {
     throw new Error(`Failed to fetch home feed: ${response.status}`);
   }
-  return data as HomeFeedResponse;
+  return data;
 }
 
 export async function fetchRelationshipState(
   assistantId: string,
 ): Promise<RelationshipState> {
-  const { data, error, response } = await client.get({
-    url: "/v1/assistants/{assistant_id}/home/state",
+  const { data, error, response } = await homeStateGet({
     path: { assistant_id: assistantId },
   });
   assertHasResponse(response, error, "Failed to fetch relationship state");
-  if (!response.ok) {
+  if (!response.ok || !data) {
     throw new Error(`Failed to fetch relationship state: ${response.status}`);
   }
-  return data as RelationshipState;
+  return data;
 }
 
 export async function updateFeedItemStatus(
@@ -48,16 +49,15 @@ export async function updateFeedItemStatus(
   itemId: string,
   status: FeedItemStatus,
 ): Promise<FeedItem> {
-  const { data, error, response } = await client.patch({
-    url: "/v1/assistants/{assistant_id}/home/feed/{item_id}",
-    path: { assistant_id: assistantId, item_id: itemId },
+  const { data, error, response } = await homeFeedByIdPatch({
+    path: { assistant_id: assistantId, id: itemId },
     body: { status },
   });
   assertHasResponse(response, error, "Failed to update feed item");
-  if (!response.ok) {
+  if (!response.ok || !data) {
     throw new Error(`Failed to update feed item: ${response.status}`);
   }
-  return data as FeedItem;
+  return data;
 }
 
 export async function triggerFeedAction(
@@ -65,18 +65,16 @@ export async function triggerFeedAction(
   itemId: string,
   actionId: string,
 ): Promise<{ conversationId: string }> {
-  const { data, error, response } = await client.post({
-    url: "/v1/assistants/{assistant_id}/home/feed/{item_id}/actions/{action_id}",
+  const { data, error, response } = await homeFeedByIdActionsByActionIdPost({
     path: {
       assistant_id: assistantId,
-      item_id: itemId,
-      action_id: actionId,
+      id: itemId,
+      actionId,
     },
-    body: {},
   });
   assertHasResponse(response, error, "Failed to trigger feed action");
-  if (!response.ok) {
+  if (!response.ok || !data) {
     throw new Error(`Failed to trigger feed action: ${response.status}`);
   }
-  return data as { conversationId: string };
+  return data;
 }

@@ -1,7 +1,10 @@
 import { client } from "@/generated/api/client.gen";
 
-
-import { ApiError, assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
+import {
+  ApiError,
+  assertHasResponse,
+  extractErrorMessage,
+} from "@/utils/api-errors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,15 +35,6 @@ interface ListConversationStartersResponse {
   total?: number;
   status?: ConversationStartersStatus;
 }
-
-// ---------------------------------------------------------------------------
-// SDK base options — same pattern as chat/apps.ts
-// ---------------------------------------------------------------------------
-
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
 
 // ---------------------------------------------------------------------------
 // Defaults
@@ -75,7 +69,6 @@ export async function listConversationStarters(
     ListConversationStartersResponse,
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/conversation-starters",
     path: { assistant_id: assistantId },
     query: {

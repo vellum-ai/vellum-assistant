@@ -2,7 +2,7 @@ import {
   workspaceFileGet,
   workspaceWritePost,
 } from "@/generated/daemon/sdk.gen";
-import { assertHasResponse, SDK_BASE_OPTIONS } from "@/utils/api-errors";
+import { assertHasResponse } from "@/utils/api-errors";
 import {
   type PreChatOnboardingContext,
   type PreChatOnboardingProfileFields,
@@ -65,7 +65,6 @@ async function fetchWorkspaceTextFile(
   path: string,
 ): Promise<string | null> {
   const { data, error, response } = await workspaceFileGet({
-    ...SDK_BASE_OPTIONS,
     path: { assistant_id: assistantId },
     query: { path },
     throwOnError: false,
@@ -92,7 +91,6 @@ async function writeWorkspaceTextFile(
   content: string,
 ): Promise<void> {
   const { error, response } = await workspaceWritePost({
-    ...SDK_BASE_OPTIONS,
     path: { assistant_id: assistantId },
     body: { path, content },
     throwOnError: false,

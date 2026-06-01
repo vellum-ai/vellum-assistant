@@ -13,7 +13,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { identityIntroGet } from "@/generated/daemon/sdk.gen";
-import { assertHasResponse, SDK_BASE_OPTIONS } from "@/utils/api-errors";
+import { assertHasResponse } from "@/utils/api-errors";
 import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants";
 
 const STALE_TIME_MS = 5 * 60 * 1000;
@@ -21,7 +21,6 @@ const STALE_TIME_MS = 5 * 60 * 1000;
 async function fetchIdentityIntro(assistantId: string): Promise<string | null> {
   try {
     const { data, error, response } = await identityIntroGet({
-      ...SDK_BASE_OPTIONS,
       path: { assistant_id: assistantId },
       throwOnError: false,
     });
