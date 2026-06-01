@@ -3,14 +3,17 @@ import { useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
+import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
 import { DetailCard } from "@/components/detail-card";
 import { userDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
 export function DeleteAccountSection() {
+  const platformGate = usePlatformGate();
   const logout = useAuthStore.use.logout();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -28,6 +31,12 @@ export function DeleteAccountSection() {
     },
   });
 
+  // User accounts are a platform concept — there is no account to delete on
+  // a self-hosted assistant. Early return must follow every hook above so
+  // gate transitions (e.g. `disabled` → `gated` as feature flags hydrate)
+  // never skip a hook and trigger a hook-order violation.
+  if (platformGate === "gated") return null;
+
   return (
     <>
       <DetailCard
@@ -35,14 +44,20 @@ export function DeleteAccountSection() {
         subtitle="Permanently delete your account and all associated data."
         variant="danger"
       >
-        <Button
-          variant="dangerOutline"
-          onClick={() => setConfirmOpen(true)}
-          disabled={deleteMutation.isPending}
-          className="self-start"
-        >
-          Delete My Account
-        </Button>
+        {platformGate === "disabled" ? (
+          <Notice tone="info">
+            Log in to the Vellum platform to delete your account.
+          </Notice>
+        ) : (
+          <Button
+            variant="dangerOutline"
+            onClick={() => setConfirmOpen(true)}
+            disabled={deleteMutation.isPending}
+            className="self-start"
+          >
+            Delete My Account
+          </Button>
+        )}
       </DetailCard>
       <ConfirmDialog
         open={confirmOpen}

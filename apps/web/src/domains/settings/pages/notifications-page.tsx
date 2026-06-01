@@ -18,6 +18,7 @@ import { Notice } from "@vellum/design-library/components/notice";
 import { PanelItem } from "@vellum/design-library/components/panel-item";
 import { Popover } from "@vellum/design-library/components/popover";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import {
   organizationsNotificationsAcknowledgeCreateMutation,
   organizationsNotificationsListOptions,
@@ -406,6 +407,7 @@ function NotificationCard({
 type StatusFilter = "open" | "resolved";
 
 export function NotificationsPage() {
+  const platformGate = usePlatformGate();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
 
@@ -413,11 +415,16 @@ export function NotificationsPage() {
   const [pauseOpen, setPauseOpen] = useState(false);
   const [pauseRules, setPauseRules] = useState<PauseRuleRead[]>([]);
 
-  const { data, isLoading, isError, refetch } = useQuery(
-    organizationsNotificationsListOptions({
+  // Notifications are an organization-scoped platform concept — they have no
+  // meaningful behavior on a self-hosted assistant. The query is suppressed
+  // unless the gate is fully open so we don't fire a doomed platform request
+  // in the "disabled" (logged-out) state.
+  const { data, isLoading, isError, refetch } = useQuery({
+    ...organizationsNotificationsListOptions({
       query: { status: statusFilter },
     }),
-  );
+    enabled: platformGate === "full",
+  });
 
   const notifications = data?.results ?? [];
   const unreadOpen = notifications.filter(
@@ -495,6 +502,32 @@ export function NotificationsPage() {
       }
     />
   );
+
+  // The page is fully platform-routed (organization-scoped notifications and
+  // pause-rule APIs). Hide it on self-hosted assistants; render the page
+  // chrome with a login notice when logged out.
+  if (platformGate === "gated") return null;
+
+  if (platformGate === "disabled") {
+    return (
+      <div className="max-w-[940px] space-y-4">
+        <div className="flex items-center gap-3">
+          <Bell className="h-5 w-5 text-[var(--content-secondary)]" />
+          <div className="flex-1">
+            <h2 className="text-title-medium text-[var(--content-default)]">
+              Notifications
+            </h2>
+            <p className="text-body-medium-lighter text-[var(--content-secondary)]">
+              Platform alerts and status notifications
+            </p>
+          </div>
+        </div>
+        <Notice tone="info">
+          Log in to the Vellum platform to view notifications.
+        </Notice>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-[940px] space-y-4">
