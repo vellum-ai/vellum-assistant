@@ -5,28 +5,120 @@
  * The route-level test in `runtime/routes/acp-routes.test.ts` covers the same
  * behavior through the HTTP handler; these tests pin the helper in isolation
  * so the contract is clear and a future refactor can't silently break it.
+ *
+ * Credential reads go through the credential broker (`serverUse`), so we
+ * mock the broker and metadata store rather than the raw secure-keys backend.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-// Stub the secure-keys backend BEFORE importing the helper. Bun's
-// `mock.module` is process-global and only takes effect for imports that
-// follow it — the dynamic import below ensures correctness.
-const secureKeyStore = new Map<string, string>();
+// ---------------------------------------------------------------------------
+// Stubs — wired BEFORE importing the helper via dynamic import.
+// ---------------------------------------------------------------------------
 
-mock.module("../../security/secure-keys.js", () => ({
-  getSecureKeyAsync: async (key: string) => secureKeyStore.get(key),
+/** Simulates the credential metadata store. */
+const metadataStore = new Map<
+  string,
+  { allowedTools: string[]; usageDescription?: string }
+>();
+
+mock.module("../../tools/credentials/metadata-store.js", () => ({
+  getCredentialMetadata: (service: string, field: string) => {
+    const key = `${service}/${field}`;
+    const entry = metadataStore.get(key);
+    if (!entry) return undefined;
+    return {
+      credentialId: `cred-${key}`,
+      service,
+      field,
+      allowedTools: entry.allowedTools,
+      allowedDomains: [],
+      usageDescription: entry.usageDescription,
+      createdAt: 0,
+      updatedAt: 0,
+    };
+  },
+  upsertCredentialMetadata: (
+    service: string,
+    field: string,
+    policy?: { allowedTools?: string[]; usageDescription?: string },
+  ) => {
+    const key = `${service}/${field}`;
+    const existing = metadataStore.get(key);
+    metadataStore.set(key, {
+      allowedTools: policy?.allowedTools ?? existing?.allowedTools ?? [],
+      usageDescription:
+        policy?.usageDescription ?? existing?.usageDescription,
+    });
+    return {
+      credentialId: `cred-${key}`,
+      service,
+      field,
+      allowedTools: metadataStore.get(key)!.allowedTools,
+      allowedDomains: [],
+      createdAt: 0,
+      updatedAt: 0,
+    };
+  },
+}));
+
+/**
+ * Simulates the credential broker's serverUse method. The vault stores
+ * plaintext values keyed by `service/field`; the broker enforces tool
+ * policy via the metadata store before passing the value to the callback.
+ */
+const vaultStore = new Map<string, string>();
+
+mock.module("../../tools/credentials/broker.js", () => ({
+  credentialBroker: {
+    serverUse: async <T>(request: {
+      service: string;
+      field: string;
+      toolName: string;
+      execute: (value: string) => Promise<T>;
+    }) => {
+      const key = `${request.service}/${request.field}`;
+      const meta = metadataStore.get(key);
+      if (!meta) {
+        return { success: false, reason: `No credential found for ${key}` };
+      }
+      if (!meta.allowedTools.includes(request.toolName)) {
+        return {
+          success: false,
+          reason: `Tool "${request.toolName}" not allowed`,
+        };
+      }
+      const value = vaultStore.get(key);
+      if (!value) {
+        return {
+          success: false,
+          reason: `No stored value for ${key}`,
+        };
+      }
+      const result = await request.execute(value);
+      return { success: true, result };
+    },
+  },
 }));
 
 const { prepareAgentEnv } = await import("../prepare-agent-env.js");
 
 beforeEach(() => {
-  secureKeyStore.clear();
+  metadataStore.clear();
+  vaultStore.clear();
 });
 
+// ---------------------------------------------------------------------------
+// Helper to seed a vault entry (simulates `assistant credentials set`).
+// ---------------------------------------------------------------------------
+
+function seedVaultToken(token: string): void {
+  vaultStore.set("acp/claude_oauth_token", token);
+}
+
 describe("prepareAgentEnv — claude-agent-acp gating", () => {
-  test("injects CLAUDE_CODE_OAUTH_TOKEN from the secure store when agent.env has no override", async () => {
-    secureKeyStore.set("credential/acp/claude_oauth_token", "vault-AAA");
+  test("injects CLAUDE_CODE_OAUTH_TOKEN from the vault via the broker when agent.env has no override", async () => {
+    seedVaultToken("vault-AAA");
 
     const prepared = await prepareAgentEnv({
       command: "claude-agent-acp",
@@ -34,6 +126,29 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     });
 
     expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("vault-AAA");
+  });
+
+  test("auto-registers metadata with acp_spawn in allowedTools when none exists", async () => {
+    seedVaultToken("vault-auto-meta");
+
+    await prepareAgentEnv({ command: "claude-agent-acp", args: [] });
+
+    const meta = metadataStore.get("acp/claude_oauth_token");
+    expect(meta).toBeDefined();
+    expect(meta!.allowedTools).toContain("acp_spawn");
+  });
+
+  test("adds acp_spawn to existing metadata that lacks it", async () => {
+    metadataStore.set("acp/claude_oauth_token", {
+      allowedTools: ["other_tool"],
+    });
+    seedVaultToken("vault-augment");
+
+    await prepareAgentEnv({ command: "claude-agent-acp", args: [] });
+
+    const meta = metadataStore.get("acp/claude_oauth_token");
+    expect(meta!.allowedTools).toContain("acp_spawn");
+    expect(meta!.allowedTools).toContain("other_tool");
   });
 
   test("accepts CLAUDE_CODE_OAUTH_TOKEN from agent.env (config.json override) with no vault entry", async () => {
@@ -46,10 +161,8 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     expect(prepared.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe("config-BBB");
   });
 
-  test("agent.env override wins over the secure-store entry (precedence pin)", async () => {
-    // The config-supplied env wins so users can rotate per-workspace without
-    // racing the vault. Mirrors the route-level precedence test.
-    secureKeyStore.set("credential/acp/claude_oauth_token", "vault-CCC");
+  test("agent.env override wins over the vault entry (precedence pin)", async () => {
+    seedVaultToken("vault-CCC");
 
     const prepared = await prepareAgentEnv({
       command: "claude-agent-acp",
@@ -61,7 +174,7 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
   });
 
   test("preserves unrelated env vars on agent.env when injecting from the vault", async () => {
-    secureKeyStore.set("credential/acp/claude_oauth_token", "vault-EEE");
+    seedVaultToken("vault-EEE");
 
     const prepared = await prepareAgentEnv({
       command: "claude-agent-acp",
@@ -74,19 +187,13 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
   });
 
   test("throws FailedDependencyError when no token is provided from either route", async () => {
-    // secureKeyStore empty, no agent.env override — the preflight must throw
-    // so callers fail fast instead of spawning a zombie subprocess that the
-    // SDK rejects with 'Authentication required' after the first prompt.
     await expect(
       prepareAgentEnv({ command: "claude-agent-acp", args: [] }),
     ).rejects.toThrow("CLAUDE_CODE_OAUTH_TOKEN");
   });
 
   test("gates on the resolved command BASENAME (alias to /custom/path/claude-agent-acp still gets the token)", async () => {
-    // A user-supplied `acp.agents.my-claude = { command: "/opt/.../claude-agent-acp" }`
-    // is the only realistic path that lands a non-bare basename here. The
-    // helper must still recognize it.
-    secureKeyStore.set("credential/acp/claude_oauth_token", "vault-FFF");
+    seedVaultToken("vault-FFF");
 
     const prepared = await prepareAgentEnv({
       command: "/opt/bin/claude-agent-acp",
@@ -97,10 +204,7 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
   });
 
   test("does NOT mutate the caller's agentConfig", async () => {
-    // Callers pass `resolved.agent` which is shared state from the resolver's
-    // config cache. The helper must clone before mutating, otherwise repeated
-    // spawns would race on the same object.
-    secureKeyStore.set("credential/acp/claude_oauth_token", "vault-GGG");
+    seedVaultToken("vault-GGG");
     const original = {
       command: "claude-agent-acp",
       args: [],
@@ -119,10 +223,6 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
 
 describe("prepareAgentEnv — non-claude commands", () => {
   test("returns the config unchanged for codex-acp (no required env vars today)", async () => {
-    // codex-acp inherits auth from the underlying `codex` CLI binary
-    // (codex login / CODEX_API_KEY / OPENAI_API_KEY in process.env) — no
-    // ACP-level env injection. Pin that contract so a future change has
-    // to update this test explicitly.
     const prepared = await prepareAgentEnv({
       command: "codex-acp",
       args: [],
@@ -132,7 +232,7 @@ describe("prepareAgentEnv — non-claude commands", () => {
   });
 
   test("returns the config unchanged for an unrecognized command basename", async () => {
-    secureKeyStore.set("credential/acp/claude_oauth_token", "vault-HHH");
+    seedVaultToken("vault-HHH");
 
     const prepared = await prepareAgentEnv({
       command: "some-future-adapter",
@@ -140,7 +240,6 @@ describe("prepareAgentEnv — non-claude commands", () => {
       env: { FOO: "bar" },
     });
 
-    // No injection — basename gate skipped.
     expect(prepared.env).toEqual({ FOO: "bar" });
   });
 });
