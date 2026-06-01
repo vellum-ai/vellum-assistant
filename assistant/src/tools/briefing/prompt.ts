@@ -6,6 +6,11 @@
  * memory context (recent decisions, action items, workspace state) before the
  * agent processes the turn, so the briefing naturally draws on everything the
  * assistant knows about the user's work.
+ *
+ * Delivery: the agent is explicitly instructed to call
+ * `assistant notifications send` via the bash tool so the finished briefing
+ * reaches all active channels (Slack, Telegram, macOS push, etc.) rather than
+ * staying confined to the background conversation history.
  */
 export const DAILY_BRIEFING_PROMPT = `You are composing the user's proactive daily briefing. The memory context injected above contains recent decisions, action items, and workspace state — use it to surface what matters today.
 
@@ -32,7 +37,13 @@ Rules:
 - If memory context is sparse, say so briefly and recommend the user share more context.
 - End with a single encouraging sentence tied to the user's current work.
 
-After composing the briefing, send it as a notification so it reaches the user's active channels (Slack, Telegram, macOS, etc.).`;
+After composing the briefing text, deliver it to the user's active channels by running this bash command (substitute TITLE and BODY with your content — escape any double quotes inside BODY with backslash):
+
+\`\`\`bash
+assistant notifications send --title "Daily Briefing — <DATE>" --message "<BODY>" --source-event-name "briefing.daily"
+\`\`\`
+
+Do not skip this step. The bash call is what routes the briefing to Slack, Telegram, macOS, and other connected channels.`;
 
 /** Canonical name used to identify the briefing schedule in cron_jobs. */
 export const BRIEFING_SCHEDULE_NAME = "Daily Briefing";

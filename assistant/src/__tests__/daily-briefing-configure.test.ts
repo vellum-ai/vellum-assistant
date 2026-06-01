@@ -104,6 +104,24 @@ describe("action=enable", () => {
     expect(result.content).toContain("07:30");
   });
 
+  test("rejects malformed time on enable", async () => {
+    const result = await dailyBriefingConfigureTool.execute(
+      { action: "enable", time: "9am" },
+      guardianCtx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("invalid time");
+  });
+
+  test("rejects out-of-range hour on enable", async () => {
+    const result = await dailyBriefingConfigureTool.execute(
+      { action: "enable", time: "25:00" },
+      guardianCtx,
+    );
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("invalid time");
+  });
+
   test("uses custom timezone when provided", async () => {
     const result = await dailyBriefingConfigureTool.execute(
       { action: "enable", timezone: "Europe/London" },

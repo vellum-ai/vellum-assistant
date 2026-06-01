@@ -1,3 +1,4 @@
+import { getConfig } from "../../config/loader.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
 import {
@@ -28,8 +29,20 @@ function parseCronFromTime(time: string): string | null {
   return `${minute} ${hour} * * *`;
 }
 
+/**
+ * Resolve the timezone to use for the briefing schedule.
+ *
+ * Priority:
+ * 1. Explicit `timezone` argument passed by the agent.
+ * 2. `ui.userTimezone` — the timezone the user set in their profile.
+ * 3. `ui.detectedTimezone` — client-reported timezone (set on first login).
+ * 4. System timezone of the host process (last resort; may be UTC in containers).
+ */
 function resolveTimezone(inputTz?: string): string {
   if (inputTz) return inputTz;
+  const cfg = getConfig();
+  const configured = cfg.ui?.userTimezone ?? cfg.ui?.detectedTimezone;
+  if (configured) return configured;
   return Intl.DateTimeFormat().resolvedOptions().timeZone;
 }
 
@@ -83,7 +96,7 @@ export const dailyBriefingConfigureTool = {
       timezone: {
         type: "string",
         description:
-          'IANA timezone name, e.g. "America/New_York". Defaults to the workspace timezone or the system timezone.',
+          'IANA timezone name, e.g. "America/New_York". Defaults to ui.userTimezone, then ui.detectedTimezone, then system timezone.',
       },
     },
     required: ["action"],
@@ -175,7 +188,17 @@ export const dailyBriefingConfigureTool = {
       };
     }
 
-    // action === "enable"
+    // action === "enable" — validate time before writing anything
+    if (rawTime !== undefined) {
+      const cronCheck = parseCronFromTime(rawTime);
+      if (!cronCheck) {
+        return {
+          content: `Error: invalid time "${rawTime}". Use HH:MM 24-hour format, e.g. "09:00".`,
+          isError: true,
+        };
+      }
+    }
+
     const timezone = resolveTimezone(rawTz);
     const timeStr = rawTime ?? "09:00";
     const cron = parseCronFromTime(timeStr) ?? BRIEFING_DEFAULT_CRON;
