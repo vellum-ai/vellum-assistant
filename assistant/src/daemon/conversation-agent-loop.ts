@@ -2172,6 +2172,7 @@ export async function runAgentLoopImpl(
             conversationOriginChannel:
               getConversationOriginChannel(ctx.conversationId) ?? undefined,
             overrideProfile: resolveCurrentOverrideProfile() ?? null,
+            actorTrustClass: ctx.trustContext?.trustClass,
           },
         };
       },
@@ -2569,6 +2570,7 @@ export async function runAgentLoopImpl(
             ctx.contextWindowManager.maybeCompact(msgs, signal!, {
               ...(opts ?? {}),
               overrideProfile: resolveCurrentOverrideProfile() ?? null,
+              actorTrustClass: ctx.trustContext?.trustClass,
             }),
           abortController.signal,
         );
