@@ -14,7 +14,12 @@ block_mount_bind_spec() {
   block_ensure_dir "${source_path}"
   block_ensure_dir "${target}"
 
-  if block_find_mountpoint "${target}"; then
+  if block_find_mount_details "${target}"; then
+    if ! block_sources_match "${source_path}" "${BLOCK_MOUNT_SOURCE}" &&
+      ! block_mount_source_matches_device_fsroot "${source_name}" "${BLOCK_MOUNT_SOURCE}" "${BLOCK_MOUNT_FSROOT}"; then
+      block_die "${target} is mounted from ${BLOCK_MOUNT_SOURCE}; expected ${source_path}"
+    fi
+    block_verify_mount_mode "${target}" "${mode}" "${BLOCK_MOUNT_OPTIONS}"
     block_log "${target} is already mounted"
   else
     block_run "mount --bind ${source_path} ${target}" mount --bind "${source_path}" "${target}"
@@ -88,6 +93,7 @@ done
 [ "$#" -gt 0 ] || block_die "service command is required after --"
 
 block_validate_exec_env
+block_for_each_bind_spec "${VELLUM_BLOCK_BIND_SPECS:-}" :
 block_wait_for_device
 block_mount_root
 block_for_each_bind_spec "${VELLUM_BLOCK_BIND_SPECS:-}" block_mount_bind_spec

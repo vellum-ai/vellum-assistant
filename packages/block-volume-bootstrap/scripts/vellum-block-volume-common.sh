@@ -70,6 +70,11 @@ block_normalize_absolute_non_root_path() {
   done
 
   [ -n "${path}" ] || block_die "${name} must not be empty or /"
+  case "${path}" in
+    */./*|*/../*|*/.|*/..)
+      block_die "${name} must not contain . or .. path components"
+      ;;
+  esac
   printf '%s\n' "${path}"
 }
 
@@ -137,18 +142,121 @@ block_ensure_dir() {
   block_run "mkdir -p ${path}" mkdir -p "${path}"
 }
 
-block_find_mountpoint() {
+block_find_mount_details() {
   target="$1"
+  BLOCK_MOUNT_SOURCE=""
+  BLOCK_MOUNT_OPTIONS=""
+  BLOCK_MOUNT_FSROOT=""
+
   if block_is_dry_run; then
     block_dry_run "findmnt --mountpoint ${target}"
+    if [ "${VELLUM_BLOCK_DRY_RUN_FINDMNT_MOUNTED:-}" != "1" ]; then
+      return 1
+    fi
+    if [ -n "${VELLUM_BLOCK_DRY_RUN_FINDMNT_TARGET:-}" ] &&
+      [ "${VELLUM_BLOCK_DRY_RUN_FINDMNT_TARGET}" != "${target}" ]; then
+      return 1
+    fi
+    BLOCK_MOUNT_SOURCE="${VELLUM_BLOCK_DRY_RUN_FINDMNT_SOURCE:-}"
+    BLOCK_MOUNT_OPTIONS="${VELLUM_BLOCK_DRY_RUN_FINDMNT_OPTIONS:-}"
+    BLOCK_MOUNT_FSROOT="${VELLUM_BLOCK_DRY_RUN_FINDMNT_FSROOT:-}"
+    [ -n "${BLOCK_MOUNT_SOURCE}" ] || block_die "unable to determine mount source for ${target}"
+    [ -n "${BLOCK_MOUNT_OPTIONS}" ] || block_die "unable to determine mount options for ${target}"
+    return 0
+  fi
+
+  if ! findmnt --mountpoint "${target}" >/dev/null 2>&1; then
     return 1
   fi
-  findmnt --mountpoint "${target}" >/dev/null 2>&1
+
+  BLOCK_MOUNT_SOURCE="$(findmnt -rn -o SOURCE --mountpoint "${target}" 2>/dev/null || true)"
+  BLOCK_MOUNT_OPTIONS="$(findmnt -rn -o OPTIONS --mountpoint "${target}" 2>/dev/null || true)"
+  BLOCK_MOUNT_FSROOT="$(findmnt -rn -o FSROOT --mountpoint "${target}" 2>/dev/null || true)"
+  [ -n "${BLOCK_MOUNT_SOURCE}" ] || block_die "unable to determine mount source for ${target}"
+  [ -n "${BLOCK_MOUNT_OPTIONS}" ] || block_die "unable to determine mount options for ${target}"
+  return 0
+}
+
+block_sources_match() {
+  expected="$1"
+  actual="$2"
+  [ "${expected}" = "${actual}" ] && return 0
+  [ "${expected}[/]" = "${actual}" ] && return 0
+
+  if ! block_is_dry_run && command -v readlink >/dev/null 2>&1; then
+    expected_real="$(readlink -f "${expected}" 2>/dev/null || true)"
+    actual_real="$(readlink -f "${actual}" 2>/dev/null || true)"
+    if [ -n "${expected_real}" ] && [ -n "${actual_real}" ] &&
+      [ "${expected_real}" = "${actual_real}" ]; then
+      return 0
+    fi
+    if [ -n "${expected_real}" ] && [ "${expected_real}[/]" = "${actual}" ]; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+block_mount_source_matches_device_fsroot() {
+  source_name="$1"
+  actual_source="$2"
+  actual_fsroot="$3"
+  expected_fsroot="/${source_name}"
+
+  if block_sources_match "${BLOCK_DEVICE}" "${actual_source}" &&
+    [ "${actual_fsroot}" = "${expected_fsroot}" ]; then
+    return 0
+  fi
+  if [ "${actual_source}" = "${BLOCK_DEVICE}[${expected_fsroot}]" ]; then
+    return 0
+  fi
+
+  if ! block_is_dry_run && command -v readlink >/dev/null 2>&1; then
+    device_real="$(readlink -f "${BLOCK_DEVICE}" 2>/dev/null || true)"
+    if [ -n "${device_real}" ] &&
+      [ "${actual_source}" = "${device_real}[${expected_fsroot}]" ]; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+block_mount_options_include_mode() {
+  options="$1"
+  mode="$2"
+  case ",${options}," in
+    *",${mode},"*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+block_verify_mount_source() {
+  target="$1"
+  expected_source="$2"
+  actual_source="$3"
+
+  if ! block_sources_match "${expected_source}" "${actual_source}"; then
+    block_die "${target} is mounted from ${actual_source}; expected ${expected_source}"
+  fi
+}
+
+block_verify_mount_mode() {
+  target="$1"
+  expected_mode="$2"
+  actual_options="$3"
+
+  if ! block_mount_options_include_mode "${actual_options}" "${expected_mode}"; then
+    block_die "${target} is mounted with options ${actual_options}; expected ${expected_mode}"
+  fi
 }
 
 block_mount_root() {
   block_ensure_dir "${BLOCK_ROOT}"
-  if block_find_mountpoint "${BLOCK_ROOT}"; then
+  if block_find_mount_details "${BLOCK_ROOT}"; then
+    block_verify_mount_source "${BLOCK_ROOT}" "${BLOCK_DEVICE}" "${BLOCK_MOUNT_SOURCE}"
+    block_verify_mount_mode "${BLOCK_ROOT}" "rw" "${BLOCK_MOUNT_OPTIONS}"
     block_log "${BLOCK_ROOT} is already mounted"
     return 0
   fi
