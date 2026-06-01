@@ -53,7 +53,6 @@ export interface UseConversationSwitchParams {
   setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
   setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
   setError: Dispatch<SetStateAction<ChatError | null>>;
-  setAutoGreetPending: Dispatch<SetStateAction<boolean>>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
@@ -95,7 +94,6 @@ export function useConversationSwitch({
   setTranscriptPagination,
   setIsLoadingHistory,
   setError,
-  setAutoGreetPending,
   setContextWindowUsage,
   setCompactionCircuitOpenUntil,
   resetChatAttachments,
@@ -150,7 +148,6 @@ export function useConversationSwitch({
     });
     useInteractionStore.getState().resetAll();
     confirmationToolCallMapRef.current.clear();
-    setAutoGreetPending(false);
     resetChatAttachments();
     setCompactionCircuitOpenUntil(null);
     setContextWindowUsage(
@@ -188,7 +185,6 @@ export function useConversationSwitch({
     setTranscriptPagination,
     setIsLoadingHistory,
     setError,
-    setAutoGreetPending,
     setContextWindowUsage,
     setCompactionCircuitOpenUntil,
     shouldSuppressGenericChatErrorNotice,

@@ -75,14 +75,12 @@ interface UseConversationHistoryParams {
   requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  autoGreetRef: MutableRefObject<boolean>;
 
   // State setters
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
   setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
   setError: Dispatch<SetStateAction<ChatError | null>>;
-  setAutoGreetPending: Dispatch<SetStateAction<boolean>>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
@@ -114,12 +112,10 @@ export function useConversationHistory({
   requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  autoGreetRef,
   setMessages,
   setTranscriptPagination,
   setIsLoadingHistory,
   setError,
-  setAutoGreetPending,
   setContextWindowUsage,
   setCompactionCircuitOpenUntil,
   resetChatAttachments,
@@ -157,7 +153,6 @@ export function useConversationHistory({
     setTranscriptPagination,
     setIsLoadingHistory,
     setError,
-    setAutoGreetPending,
     setContextWindowUsage,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,
@@ -337,15 +332,6 @@ export function useConversationHistory({
         // Keep attention key on failure.
       }
     })();
-
-    // Auto-send greeting after fresh setup (no history).
-    if (
-      isFreshSwitch &&
-      autoGreetRef.current &&
-      pagination.messages.length === 0
-    ) {
-      setAutoGreetPending(true);
-    }
   }, [
     pagination.isSuccess,
     pagination.dataUpdatedAt,
@@ -357,11 +343,9 @@ export function useConversationHistory({
     assistantId,
     activeConversationId,
     dismissedSurfaceIdsRef,
-    autoGreetRef,
     setMessages,
     setTranscriptPagination,
     setIsLoadingHistory,
-    setAutoGreetPending,
     setError,
   ]);
 
