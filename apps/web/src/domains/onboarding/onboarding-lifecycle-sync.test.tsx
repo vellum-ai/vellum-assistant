@@ -64,6 +64,7 @@ mock.module("react-router", () => ({
 mock.module("@/assistant/lifecycle-service", () => ({
   lifecycleService: {
     checkAssistant: checkAssistantMock,
+    markExpectingFirstMessage: () => {},
   },
 }));
 

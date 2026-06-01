@@ -432,6 +432,12 @@ describe("lifecycleService — auto-hatch cascade", () => {
     lifecycleService.clearExpectingFirstMessage();
     expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
   });
+
+  test("markExpectingFirstMessage is the public seam onboarding uses (bypasses hatchVersion / auto-hatch)", () => {
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
+    lifecycleService.markExpectingFirstMessage();
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
+  });
 });
 
 describe("lifecycleService — pre-init guards", () => {

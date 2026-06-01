@@ -217,20 +217,19 @@ export function ChatPage() {
   //      initial message (via `setPendingPreChatContext`). The composer
   //      auto-send hook below consumes it.
   //   2. The lifecycle service marked a fresh hatch as expecting a
-  //      first message (vanilla auto-hatch or nonprod `hatchVersion`).
-  //      The server emits the greeting via SSE; we just hold the gate
-  //      until it arrives.
-  // Peek here (pure — `StrictMode` invokes the lazy initializer twice
-  // and a mutating call would clear the flag on the discarded first
-  // render); the lifecycle one-shot is drained by the `useEffect`
-  // below.
+  //      first message (vanilla auto-hatch, nonprod `hatchVersion`, or
+  //      the onboarding hatching screen). The server emits the greeting
+  //      via SSE; we hold the gate until it arrives.
+  // Both signals are peeks (pure — `StrictMode` invokes lazy
+  // initializers twice). The lifecycle one-shot is cleared from the
+  // exit-condition effects below (messages arrived, safety timer) so
+  // an intermediate `/assistant` mount that immediately redirects to
+  // `/assistant/conversations/:id` doesn't strand the destination
+  // mount with the flag already drained.
   const [autoGreetPending, setAutoGreetPending] = useState(() => {
     if (peekPendingPreChatContext()?.initialMessage != null) return true;
     return lifecycleService.peekExpectingFirstMessage();
   });
-  useEffect(() => {
-    lifecycleService.clearExpectingFirstMessage();
-  }, []);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
     hasMore: false,
@@ -602,12 +601,14 @@ export function ChatPage() {
   // Onboarding signal consumption
   // -------------------------------------------------------------------------
   // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
-  // it forwards the user after a successful hatch. The flag is stripped
-  // from the URL immediately so a page refresh doesn't re-trigger the greet.
+  // it forwards the user after a successful hatch. Owns the post-hatch
+  // draft conversation creation + redirect; the auto-greet gate itself
+  // is driven by `lifecycleService.expectingFirstMessage` (set by the
+  // hatching screens before they navigate). The flag is stripped from
+  // the URL immediately so a page refresh doesn't re-trigger the greet.
   useEffect(() => {
     if (searchParams.get("onboarding") !== "1") return;
     setDidOnboarding(true);
-    setAutoGreetPending(true);
     const onboardingDraftConversationId =
       onboardingDraftConversationIdRef.current ?? createDraftConversationId();
     onboardingDraftConversationIdRef.current = onboardingDraftConversationId;
@@ -800,23 +801,28 @@ export function ChatPage() {
     void sendMessage(message);
   }, [activeConversationId, assistantId, reachability.state.phase, sendMessage]);
 
-  // Clear the post-onboarding loading gate once the first message appears.
+  // Clear the post-hatch loading gate once the first message appears.
+  // Also drain the lifecycle one-shot here — clearing on the
+  // exit condition (rather than on mount) keeps the signal alive
+  // across the `/assistant` → `/assistant/conversations/:id`
+  // redirect that auto-hatch and onboarding both perform.
   useEffect(() => {
     if (!autoGreetPending) return;
     if (messages.length > 0) {
       setAutoGreetPending(false);
+      lifecycleService.clearExpectingFirstMessage();
     }
   }, [autoGreetPending, messages.length]);
 
-  // The onboarding redirect remounts ChatPage after leaving
-  // `/assistant?onboarding=1`; a timeout armed on the first mount is cancelled
-  // during that remount. Arm the safety timer from the actual mounted page
-  // that is rendering the loading gate so a failed auto-send cannot strand
-  // the user on "Connecting..." until refresh.
+  // The post-hatch redirect remounts ChatPage; a timeout armed on the
+  // first mount is cancelled during that remount. Arm the safety timer
+  // from the actual mounted page rendering the loading gate so a failed
+  // auto-send cannot strand the user on "Connecting..." until refresh.
   useEffect(() => {
     if (!autoGreetPending) return;
     const timeout = setTimeout(() => {
       setAutoGreetPending(false);
+      lifecycleService.clearExpectingFirstMessage();
     }, 10_000);
     return () => clearTimeout(timeout);
   }, [autoGreetPending]);

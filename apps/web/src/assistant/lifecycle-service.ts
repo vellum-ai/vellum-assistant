@@ -260,24 +260,36 @@ class AssistantLifecycleService {
   hatchVersion(version?: string): void {
     if (!this.ready) return;
     this.hatchRetryCount = 0;
-    this.expectingFirstMessage = true;
+    this.markExpectingFirstMessage();
     void this.hatchAndCheck(version);
+  }
+
+  /**
+   * Mark the next chat mount as expecting an auto-greet. Called from
+   * hatch paths (both inside this service and from the onboarding
+   * hatching screen, which owns its own progress UI and bypasses
+   * `hatchVersion`). One-shot — drained by the chat surface once the
+   * greeting arrives or the safety timer elapses.
+   */
+  markExpectingFirstMessage(): void {
+    this.expectingFirstMessage = true;
   }
 
   /**
    * Read `expectingFirstMessage` without clearing it. Pure — safe to
    * call from a `useState` lazy initializer (which React invokes
-   * twice under `StrictMode` to surface impurities).
+   * twice under `StrictMode` to surface impurities). Multiple mount
+   * cycles in the post-hatch redirect chain all read the same value;
+   * `clearExpectingFirstMessage` is called from the consumer's
+   * exit-condition effects (messages arrived, safety timer), not on
+   * mount, so an intermediate `/assistant` mount that unmounts
+   * before the greeting arrives doesn't strand the destination mount
+   * at `/assistant/conversations/:id`.
    */
   peekExpectingFirstMessage(): boolean {
     return this.expectingFirstMessage;
   }
 
-  /**
-   * Drain the one-shot. Caller pairs this with `peekExpectingFirstMessage()`
-   * — peek at render-time to seed UI state, clear from a `useEffect` so
-   * the second `StrictMode` render still observes the same value.
-   */
   clearExpectingFirstMessage(): void {
     this.expectingFirstMessage = false;
   }
@@ -428,7 +440,7 @@ class AssistantLifecycleService {
       // here. Mark the auto-greet one-shot so the next `ChatPage`
       // mount shows the loading gate until the server's greeting
       // SSE arrives.
-      this.expectingFirstMessage = true;
+      this.markExpectingFirstMessage();
       await this.hatchAndCheck();
       return;
     }
