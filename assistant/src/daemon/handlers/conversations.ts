@@ -3,7 +3,6 @@ import { v4 as uuid } from "uuid";
 import { clearAll, getConversation } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
-import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { truncate } from "../../util/truncate.js";
@@ -33,15 +32,6 @@ export function handleConfirmationResponse(msg: ConfirmationResponse): void {
         selectedScope: msg.selectedScope,
         emissionContext: { source: "button" },
       });
-      // Idempotent cleanup: the prompter's `resolveConfirmation` already
-      // resolved the interaction with the correct approved/rejected state
-      // before we reach here, so the entry is typically gone. This call is
-      // a safety net for paths where the prompter no-ops; map decision to
-      // state to keep the emitted event accurate when it does fire.
-      pendingInteractions.resolve(
-        msg.requestId,
-        decision === "allow" ? "approved" : "rejected",
-      );
       return;
     }
   }
