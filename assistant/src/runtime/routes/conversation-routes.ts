@@ -1883,11 +1883,7 @@ export async function handleSendMessage(
           clientMessageId,
         });
         publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.emitActivityState(
-          "thinking",
-          "context_compacting",
-          "assistant_turn",
-        );
+        conversation.emitActivityState("thinking", "context_compacting");
         const result = await conversation.forceCompact({
           targetInputTokensOverride: slashResult.targetInputTokensOverride,
         });

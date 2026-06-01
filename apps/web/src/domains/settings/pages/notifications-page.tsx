@@ -7,7 +7,8 @@ import {
   Loader2,
   Moon,
 } from "lucide-react";
-import { useCallback, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { Navigate } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -18,6 +19,11 @@ import { Notice } from "@vellum/design-library/components/notice";
 import { PanelItem } from "@vellum/design-library/components/panel-item";
 import { Popover } from "@vellum/design-library/components/popover";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
+import { routes } from "@/utils/routes";
 import {
   organizationsNotificationsAcknowledgeCreateMutation,
   organizationsNotificationsListOptions,
@@ -406,6 +412,20 @@ function NotificationCard({
 type StatusFilter = "open" | "resolved";
 
 export function NotificationsPage() {
+  // platformHostedOnly: the standard gate would still resolve to "full" for
+  // a logged-in platform session pointed at a self-hosted assistant (i.e.
+  // platform-mode app + `is_local: true` API response → lifecycle
+  // `kind: "self_hosted"`), which is exactly the case we need to hide.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // Settings routes are NOT mounted under `<ActiveAssistantGate>`, so a
+  // fresh deep-link to this page renders with the lifecycle still in
+  // `{ kind: "loading" }`. The gate above returns `"full"` during that
+  // window (no UI flicker on the page chrome), but firing the org
+  // notifications request before lifecycle resolves to platform-hosted
+  // would still hit a self-hosted assistant in the race window. Pair
+  // the gate value with a strict "positively resolved as platform-hosted"
+  // check in the query's `enabled`.
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
 
@@ -413,11 +433,41 @@ export function NotificationsPage() {
   const [pauseOpen, setPauseOpen] = useState(false);
   const [pauseRules, setPauseRules] = useState<PauseRuleRead[]>([]);
 
-  const { data, isLoading, isError, refetch } = useQuery(
-    organizationsNotificationsListOptions({
+  // Notifications are an organization-scoped platform concept — they have no
+  // meaningful behavior when the active assistant is self-hosted. The query
+  // requires BOTH (a) `platformGate === "full"` (UI is rendering the live
+  // surface, not chrome+notice) AND (b) lifecycle positively resolved as
+  // platform-hosted (so we never fire during the `loading` window on a
+  // deep-link to settings).
+  const { data, isLoading, isError, refetch } = useQuery({
+    ...organizationsNotificationsListOptions({
       query: { status: statusFilter },
     }),
-  );
+    enabled: platformGate === "full" && isPlatformHosted,
+  });
+
+  // `useQuery` with `enabled: false` reports `isLoading: false`, so during
+  // the resolution race we need to compute "still loading" ourselves —
+  // otherwise the render falls through to the empty state ("No open
+  // notifications") AND mutation-firing controls (pause-rules popover)
+  // render interactively. Treat the unresolved window as loading: hide /
+  // disable mutation triggers, show the loading spinner.
+  const isResolving = platformGate === "full" && !isPlatformHosted;
+  const showLoading = isResolving || isLoading;
+
+  // The pause-alerts trigger is unmounted while `isResolving` (below), so
+  // a Popover/BottomSheet open during a gate transition (e.g. assistant
+  // switch refreshing the lifecycle) closes via unmount. Reset the open
+  // flag too — otherwise when `isResolving` flips back to false the
+  // popover would re-mount with `open={true}` and spring open
+  // unexpectedly. (The trigger is hidden anyway, so the popover content's
+  // `createRule` mutation can't fire post-unmount, but this keeps the
+  // state honest across transitions.)
+  useEffect(() => {
+    if (isResolving && pauseOpen) {
+      setPauseOpen(false);
+    }
+  }, [isResolving, pauseOpen]);
 
   const notifications = data?.results ?? [];
   const unreadOpen = notifications.filter(
@@ -496,6 +546,38 @@ export function NotificationsPage() {
     />
   );
 
+  // The page is fully platform-routed (organization-scoped notifications and
+  // pause-rule APIs). On a self-hosted assistant the page is meaningless,
+  // so redirect to the general settings page instead of rendering null —
+  // a bookmark or shared link should land somewhere reasonable. (Sidebar
+  // entry is already filtered out in `settings-layout.tsx`, so the most
+  // likely way to reach this state is a deep link or browser back/forward.)
+  // Render the page chrome with a login notice when logged out.
+  if (platformGate === "gated") {
+    return <Navigate replace to={routes.settings.general} />;
+  }
+
+  if (platformGate === "disabled") {
+    return (
+      <div className="max-w-[940px] space-y-4">
+        <div className="flex items-center gap-3">
+          <Bell className="h-5 w-5 text-[var(--content-secondary)]" />
+          <div className="flex-1">
+            <h2 className="text-title-medium text-[var(--content-default)]">
+              Notifications
+            </h2>
+            <p className="text-body-medium-lighter text-[var(--content-secondary)]">
+              Platform alerts and status notifications
+            </p>
+          </div>
+        </div>
+        <Notice tone="info">
+          Log in to the Vellum platform to view notifications.
+        </Notice>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-[940px] space-y-4">
       <div className="flex items-center gap-3">
@@ -508,37 +590,46 @@ export function NotificationsPage() {
             Platform alerts and status notifications
           </p>
         </div>
-        {isMobile ? (
-          <BottomSheet.Root open={pauseOpen} onOpenChange={setPauseOpen}>
-            <BottomSheet.Trigger asChild>{pauseButton}</BottomSheet.Trigger>
-            <BottomSheet.Content>
-              <BottomSheet.Header>
-                <BottomSheet.Title>Pause alerts</BottomSheet.Title>
-              </BottomSheet.Header>
-              <BottomSheet.Body>
-                <PauseAlertsContent
-                  existingRules={pauseRules}
-                  onClose={() => setPauseOpen(false)}
-                  onPauseCreated={(rule) =>
-                    setPauseRules((prev) => [...prev, rule])
-                  }
-                  onPauseDeleted={(ruleId) =>
-                    setPauseRules((prev) =>
-                      prev.filter((r) => r.id !== ruleId),
-                    )
-                  }
-                  hideTitle
-                />
-              </BottomSheet.Body>
-            </BottomSheet.Content>
-          </BottomSheet.Root>
-        ) : (
-          <Popover.Root open={pauseOpen} onOpenChange={setPauseOpen}>
-            <Popover.Trigger asChild>{pauseButton}</Popover.Trigger>
-            <Popover.Content align="end" className="w-72">
-              {pauseContent}
-            </Popover.Content>
-          </Popover.Root>
+        {/*
+          Hide the pause-alerts trigger entirely during the resolution race.
+          The popover content fires `createRule` mutations against the
+          organization, which must not run before lifecycle resolves to
+          platform-hosted. Re-renders when `isPlatformHosted` flips, so the
+          control appears as soon as we know it's safe.
+        */}
+        {!isResolving && (
+          isMobile ? (
+            <BottomSheet.Root open={pauseOpen} onOpenChange={setPauseOpen}>
+              <BottomSheet.Trigger asChild>{pauseButton}</BottomSheet.Trigger>
+              <BottomSheet.Content>
+                <BottomSheet.Header>
+                  <BottomSheet.Title>Pause alerts</BottomSheet.Title>
+                </BottomSheet.Header>
+                <BottomSheet.Body>
+                  <PauseAlertsContent
+                    existingRules={pauseRules}
+                    onClose={() => setPauseOpen(false)}
+                    onPauseCreated={(rule) =>
+                      setPauseRules((prev) => [...prev, rule])
+                    }
+                    onPauseDeleted={(ruleId) =>
+                      setPauseRules((prev) =>
+                        prev.filter((r) => r.id !== ruleId),
+                      )
+                    }
+                    hideTitle
+                  />
+                </BottomSheet.Body>
+              </BottomSheet.Content>
+            </BottomSheet.Root>
+          ) : (
+            <Popover.Root open={pauseOpen} onOpenChange={setPauseOpen}>
+              <Popover.Trigger asChild>{pauseButton}</Popover.Trigger>
+              <Popover.Content align="end" className="w-72">
+                {pauseContent}
+              </Popover.Content>
+            </Popover.Root>
+          )
         )}
       </div>
 
@@ -585,7 +676,7 @@ export function NotificationsPage() {
         )}
       </div>
 
-      {isLoading ? (
+      {showLoading ? (
         <div className="flex items-center gap-2 py-6 text-body-medium-lighter text-[var(--content-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading notifications…

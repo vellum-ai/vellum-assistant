@@ -32,11 +32,7 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 import { clearFeatureFlagOverridesCache } from "../config/assistant-feature-flags.js";
-import type { AssistantConfig } from "../config/schema.js";
-import {
-  bootstrapPlugins,
-  type DaemonContext,
-} from "../daemon/external-plugins-bootstrap.js";
+import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
 import { runShutdownHooks } from "../daemon/shutdown-registry.js";
 import { RiskLevel } from "../permissions/types.js";
 import { registerDefaultPlugins } from "../plugins/defaults/index.js";
@@ -64,11 +60,6 @@ const TEST_WORKSPACE_DIR = join(
   `vellum-plugin-bootstrap-test-${process.pid}`,
 );
 process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
-
-const fakeConfig = {} as unknown as AssistantConfig;
-const fakeCtx: DaemonContext = {
-  config: fakeConfig,
-};
 
 /**
  * Test helper. Accepts the new `hooks` bag and ALSO legacy top-level
@@ -142,7 +133,7 @@ describe("plugin bootstrap", () => {
     });
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     expect(received).toBeDefined();
     const ctx = received!;
@@ -179,7 +170,7 @@ describe("plugin bootstrap", () => {
     );
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     expect(getSecureKeyAsyncMock).toHaveBeenCalledTimes(1);
     expect(getSecureKeyAsyncMock).toHaveBeenCalledWith("some-key");
@@ -199,7 +190,7 @@ describe("plugin bootstrap", () => {
 
     let caught: unknown;
     try {
-      await bootstrapPlugins(fakeCtx);
+      await bootstrapPlugins();
     } catch (err) {
       caught = err;
     }
@@ -231,7 +222,7 @@ describe("plugin bootstrap", () => {
 
     let caught: unknown;
     try {
-      await bootstrapPlugins(fakeCtx);
+      await bootstrapPlugins();
     } catch (err) {
       caught = err;
     }
@@ -279,7 +270,7 @@ describe("plugin bootstrap", () => {
 
     let caught: unknown;
     try {
-      await bootstrapPlugins(fakeCtx);
+      await bootstrapPlugins();
     } catch (err) {
       caught = err;
     }
@@ -307,7 +298,7 @@ describe("plugin bootstrap", () => {
       }),
     );
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
     await runShutdownHooks("test-shutdown");
 
     // The last plugin to register must shut down first; the first to register
@@ -323,7 +314,7 @@ describe("plugin bootstrap", () => {
     // tool-result truncate, etc.). Just assert bootstrap completes without
     // throwing — the surface of defaults is verified in each pipeline's own
     // dedicated test file.
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
   });
 
   test("startup ordering: defaults registered before the window closes survive bootstrap replay", async () => {
@@ -346,7 +337,7 @@ describe("plugin bootstrap", () => {
     closeRegistration();
 
     // WHEN bootstrap runs and replays the default registration
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     // THEN the defaults are still registered, ahead of the user plugin, so the
     // middleware onion order is unchanged
@@ -385,7 +376,7 @@ describe("plugin bootstrap", () => {
     );
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     expect(initFired).toBe(true);
   });
@@ -442,7 +433,7 @@ describe("plugin bootstrap", () => {
     const { matchSkillRoute } =
       await import("../runtime/skill-route-registry.js");
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     // init must not have fired.
     expect(initFired).toBe(false);
@@ -465,7 +456,7 @@ describe("plugin bootstrap", () => {
     });
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     expect(initFired).toBe(true);
   });
@@ -490,7 +481,7 @@ describe("plugin bootstrap", () => {
     );
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     expect(initFired).toBe(false);
   });
@@ -526,7 +517,7 @@ describe("plugin bootstrap", () => {
     );
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     // Neither the middleware slot nor the injector list should expose the
     // flag-gated plugin's contributions. The default plugins also contribute
@@ -554,7 +545,7 @@ describe("plugin bootstrap", () => {
     );
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
     await runShutdownHooks("test-shutdown");
 
     // The shutdown hook is a single registered callback that walks a

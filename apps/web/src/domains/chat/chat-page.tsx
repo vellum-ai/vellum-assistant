@@ -863,7 +863,6 @@ export function ChatPage() {
     conversationExistsOnServer,
     streamRef,
     streamEpochRef,
-    reconcileAfterNextStreamOpenRef,
     streamContextRef,
     handleStreamEvent,
     reconcileActiveConversation,

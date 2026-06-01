@@ -425,16 +425,11 @@ export class Conversation {
         this.emitActivityState(
           "awaiting_confirmation",
           "confirmation_requested",
-          "assistant_turn",
         );
       } else if (state === "timed_out") {
-        this.emitActivityState(
-          "thinking",
-          "confirmation_resolved",
-          "assistant_turn",
-          undefined,
-          "Resuming after timeout",
-        );
+        this.emitActivityState("thinking", "confirmation_resolved", {
+          statusText: "Resuming after timeout",
+        });
       }
     });
     this.secretPrompter = new SecretPrompter();
@@ -922,13 +917,9 @@ export class Conversation {
     });
     // Notify the agent loop of the confirmation outcome for persistence
     this.onConfirmationOutcome?.(requestId, resolvedState, toolUseId);
-    this.emitActivityState(
-      "thinking",
-      "confirmation_resolved",
-      "assistant_turn",
-      undefined,
-      "Resuming after approval",
-    );
+    this.emitActivityState("thinking", "confirmation_resolved", {
+      statusText: "Resuming after approval",
+    });
 
     // Sync the canonical guardian request status so stale "pending" DB
     // records don't get matched by later guardian reply routing. Best-effort:
@@ -1004,10 +995,13 @@ export class Conversation {
   emitActivityState(
     phase: AssistantActivityStateEvent["phase"],
     reason: AssistantActivityStateEvent["reason"],
-    anchor: AssistantActivityStateEvent["anchor"] = "assistant_turn",
-    requestId?: string,
-    statusText?: string,
+    options?: {
+      anchor?: AssistantActivityStateEvent["anchor"];
+      requestId?: string;
+      statusText?: string;
+    },
   ): void {
+    const { anchor = "assistant_turn", requestId, statusText } = options ?? {};
     this.activityVersion++;
     const msg: ServerMessage = {
       type: "assistant_activity_state",

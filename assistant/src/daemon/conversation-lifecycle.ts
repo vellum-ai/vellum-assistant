@@ -350,6 +350,13 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           ...parsedMessages.slice(preStrippedCount),
         ];
 
+  // Normalize the canonical persisted history once at load. Every consumer
+  // of `ctx.messages` outside the agent loop (history edit/undo, PKB context
+  // tracking, surfaces) reads this list directly, so it must satisfy the
+  // provider pairing/alternation rules before any of them run. The agent
+  // loop's pre-run repair only repairs the transient per-turn message list it
+  // sends to the provider and never writes back here, so this pass is not
+  // redundant with it.
   const { messages: repairedMessages, stats } =
     repairHistory(messagesBeforeRepair);
   if (

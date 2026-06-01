@@ -511,7 +511,9 @@ Signs a hook needs decomposition:
 - A single `useCallback` with a switch/if-else over many cases
   -> extract cases into domain handler functions
 - Multiple unrelated `useEffect` blocks -> split into focused hooks
-- The file exceeds ~300 lines of non-test code
+- Inline business logic that could be a pure handler function
+  taking a context object (see "Pure handler functions over inline
+  logic" below)
 
 Reference: [React — Reusing Logic with Custom Hooks](https://react.dev/learn/reusing-logic-with-custom-hooks)
 
@@ -898,10 +900,18 @@ Pass `{ platformHostedOnly: true }` to `usePlatformGate` for these:
 
 ```ts
 const gate = usePlatformGate({ platformHostedOnly: true });
-if (gate === "gated") return null;
+if (gate === "gated") return <Navigate replace to={routes.settings.general} />;
 if (gate === "disabled") return <PlatformLoginNotice />;
 // gate === "full" — render normally
 ```
+
+**Whole-page gates redirect, section-level gates render null.** When a
+*page* is fully platform-hosted-only (notifications, billing, etc.),
+return `<Navigate replace />` to a reasonable sibling route — a
+bookmark or shared link to that page should land somewhere sensible
+on a self-hosted assistant. When a *section component* inside a mixed
+page (e.g. `AccessConsentSetting` inside `privacy-page.tsx`) is
+gated, return `null` and let the parent page render the rest.
 
 The decision is "is the **active assistant** self-hosted?" — not "is the
 app running in local mode?" Two cases this matters for:
@@ -935,6 +945,106 @@ The `platformFeaturesInLocalMode` flag and its hydration state do NOT
 apply to this branch — that flag gates the daemon-side API interceptor
 in local mode, which is orthogonal to "is this UI's target assistant
 platform-hosted?"
+
+#### Gating network fetches: pair the gate with `useActiveAssistantIsPlatformHosted`
+
+The truth table above shows `"full"` for *none resolved + platform
+session* on purpose: settings routes are NOT mounted under
+`<ActiveAssistantGate>`, so a fresh deep-link to a platform-hosted-only
+page renders with the lifecycle still in `{ kind: "loading" }`. We
+want the UI to render normally (no flicker), but we do NOT want to
+fire platform-API requests against a daemon that might later resolve
+to `self_hosted`.
+
+Pair the gate's `"full"` value with a strict "lifecycle positively
+resolved as platform-hosted" check on the query's `enabled`:
+
+```ts
+const platformGate = usePlatformGate({ platformHostedOnly: true });
+const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+
+const query = useQuery({
+  ...someOrgScopedOptions(),
+  enabled: platformGate === "full" && isPlatformHosted,
+});
+```
+
+`useActiveAssistantIsPlatformHosted` returns `true` only when the
+lifecycle has projected `{ kind: "platform_hosted" }` or
+`{ kind: "active", isLocal: false }` — `false` for `loading` and every
+other state. The rendering decision (gate) and the fetch decision
+(resolved) are intentionally split: render eagerly, fetch + interact
+strictly.
+
+#### Interactive controls follow `useActiveAssistantIsPlatformHosted`, not `isLoading`
+
+**A `useQuery` with `enabled: false` reports `isLoading: false`.** That
+means any `disabled` predicate that derives only from `isLoading` will
+evaluate to "enabled" during the resolution race — and a click on the
+control fires the mutation the gate exists to prevent. Treat the
+unresolved window as still-loading for the purposes of every
+interactive control on a platform-hosted-only surface:
+
+```ts
+const isResolving = platformGate === "full" && !isPlatformHosted;
+
+const disabled =
+  platformGate !== "full" ||
+  !isPlatformHosted ||           // strict-too on interaction
+  isLoading ||
+  isError ||
+  mutation.isPending;
+
+// Or, for whole sub-trees that should disappear during the race:
+{!isResolving && <MutationFiringPopoverTrigger />}
+
+// And surface loading state to the user so they know to wait:
+const showLoading = isResolving || isLoading;
+{showLoading ? <Spinner /> : <Content />}
+```
+
+This applies to every UI surface gated by `platformHostedOnly: true`:
+toggles, popover triggers, "mark all as read" buttons, etc. The rule
+is: **if it can fire a mutation, it must be disabled (or hidden)
+while `!isPlatformHosted`.**
+
+##### Deferred-action UI: dialog/popover lifetime spans gate transitions
+
+Disabling only the **opener** isn't enough when the action is deferred
+behind a modal dialog or a persistent popover with its own confirm
+button. The dialog can be opened while the assistant is resolved as
+platform-hosted, the lifecycle can then drop back to `loading` (assistant
+switch, refresh), and the user can press Confirm during that window —
+firing the mutation against an assistant that may resolve as self-hosted.
+
+Two patterns, used together:
+
+```ts
+// 1. Close the dialog/popover when isResolving flips true. UX-correct:
+//    the user sees the dismiss, then the disabled button + spinner
+//    explain the state.
+useEffect(() => {
+  if (isResolving && confirmOpen) {
+    setConfirmOpen(false);
+  }
+}, [isResolving, confirmOpen]);
+
+// 2. Guard the action handler defensively for same-tick edge cases.
+<ConfirmDialog
+  onConfirm={() => {
+    if (isResolving) {
+      setConfirmOpen(false);
+      return;
+    }
+    mutation.mutate(...);
+  }}
+/>
+```
+
+**Auto-close trumps onclick-guard for UX**, but both belong. Auto-close
+handles the long window (user opens dialog, walks away, lifecycle
+changes); onclick-guard handles the millisecond edge where the click
+event arrives the same tick `isResolving` flips.
 
 ### Daemon-owned endpoints routed through the platform proxy
 

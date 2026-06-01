@@ -4861,7 +4861,30 @@ paths:
                 properties:
                   starters:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        label:
+                          type: string
+                        prompt:
+                          type: string
+                        category:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        batch:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                      required:
+                        - id
+                        - label
+                        - prompt
+                        - category
+                        - batch
+                      additionalProperties: false
                     description: Ordered list of starter chips
                   total:
                     type: integer

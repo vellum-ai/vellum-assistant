@@ -1,67 +1,47 @@
 /**
- * Conversation-scoped consumer of the bus-owned SSE stream.
+ * Conversation-scoped wiring for the bus-owned SSE stream.
  *
- * Subscribes to `bus.sse.event` and routes events whose
- * `conversationId` matches (or is missing on) the active conversation
- * to `handleStreamEvent`. Subscribes to `bus.sse.opened` to bump the
- * conversation epoch and run a reconcile pass on every non-fresh
- * (re)open — `"fresh"` is the very first connection per assistant
- * and is covered by the regular history-load path. On `"watchdog"` /
- * `"error"` causes the reconcile additionally records its result to
- * Sentry so stalled-turn rescues are observable. Subscribes to
- * `bus.sse.closed` to end the in-flight turn, drop the matching
- * processing key, and bump reachability so the burst-limited retry
- * below can take over.
+ * React adapter that connects four concerns:
  *
- * Reachability retry lives here because the 3-burst limiter is
- * conversation-scoped. On success it publishes
- * `bus.reachability.retry-requested` and the bus bounces its SSE
- * connection; on exhaustion it surfaces a "Connection lost" error so
- * the user can manually retry.
+ * 1. `sse.event` → `sseEventConsumer` (cross-conversation filter,
+ *    seq-gap detection, dispatch into the chat domain).
+ * 2. `sse.opened` → `reconcileOnReopen` (post-reconnect reconcile,
+ *    epoch bump, watchdog rescue telemetry).
+ * 3. `sse.closed` → end the in-flight turn, kick the reachability
+ *    probe so the burst-limiter below can take over.
+ * 4. `reachabilityPhase` → `reachabilityBurstLimiter` (3-burst /
+ *    10s window retry budget; on success publishes
+ *    `reachability.retry-requested` so the bus bounces its SSE).
  *
  * Visibility / app-state are owned by `useEventBusInit`. This hook
  * does not register any `visibilitychange` listener of its own.
  */
 
-import * as Sentry from "@sentry/react";
 import {
   type MutableRefObject,
   useEffect,
   useLayoutEffect,
   useRef,
 } from "react";
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
-import type { AssistantEvent } from "@/types/event-types";
-import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import {
-  bucketMessagesAdded,
-  recordDiagnostic,
-  resolvePlatformTag,
-} from "@/lib/diagnostics";
-import {
-  getLastSeenSeq,
-  replaceLastSeenSeq,
-  setLastSeenSeq,
-} from "@/lib/streaming/last-seen-seq";
-import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
+  createReachabilityBurstLimiter,
+  type ReachabilityBurstLimiter,
+} from "@/domains/chat/streaming/reachability-burst-limiter";
+import { createReconcileOnReopen } from "@/domains/chat/streaming/reconcile-on-reopen";
+import { createSseEventConsumer } from "@/domains/chat/streaming/sse-event-consumer";
+import { endTurn } from "@/domains/chat/turn-coordinator";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
+import { subscribe } from "@/lib/event-bus";
+import { recordDiagnostic } from "@/lib/diagnostics";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncRouter,
 } from "@/lib/sync/web-sync-router";
-
-import { endTurn } from "@/domains/chat/turn-coordinator";
-import {
-  isSending,
-  useTurnStore,
-} from "@/domains/chat/turn-store";
-import { publish, subscribe } from "@/lib/event-bus";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
+import type { AssistantEvent } from "@/types/event-types";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 /** Params accepted by {@link useEventStream}. */
 export interface UseEventStreamParams {
@@ -82,7 +62,6 @@ export interface UseEventStreamParams {
   // polling is needed.
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
   streamContextRef: MutableRefObject<{
     assistantId: string;
     conversationId: string;
@@ -108,10 +87,6 @@ export interface UseEventStreamParams {
   > | null>;
 }
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
 export function useEventStream({
   assistantStateKind,
   assistantId,
@@ -119,7 +94,6 @@ export function useEventStream({
   conversationExistsOnServer,
   streamRef,
   streamEpochRef,
-  reconcileAfterNextStreamOpenRef,
   streamContextRef,
   handleStreamEvent,
   reconcileActiveConversation,
@@ -131,10 +105,6 @@ export function useEventStream({
   syncRouterRef,
   conversationListInvalidatedTimerRef,
 }: UseEventStreamParams): void {
-  // ---- Internal refs (burst-limiter, owned by this hook) ----
-  const streamRetryBurstCountRef = useRef(0);
-  const streamRetryBurstStartRef = useRef(0);
-
   // ---- Ref-stabilize unstable callback params ----
   const handleStreamEventRef = useRef(handleStreamEvent);
   handleStreamEventRef.current = handleStreamEvent;
@@ -181,6 +151,21 @@ export function useEventStream({
     activeConversationIdLatestRef.current = activeConversationId;
   }, [activeConversationId]);
 
+  // Stable burst-limiter — its internal counter / window state must
+  // survive `reachabilityPhase` ticks. Lazy-init pattern via `useRef`:
+  // a fresh limiter on every render would reset the burst counter and
+  // let the user retry forever. `useMemo` would also work but is
+  // misleading here — there's no dep that could legitimately change.
+  const burstLimiterRef = useRef<ReachabilityBurstLimiter | null>(null);
+  if (!burstLimiterRef.current) {
+    burstLimiterRef.current = createReachabilityBurstLimiter({
+      onReady: () => useTurnStore.getState().resetTurn(),
+      onClearError: () => useChatSessionStore.getState().setError(null),
+      onExhausted: (err) => useChatSessionStore.getState().setError(err),
+      onReset: () => reachabilityResetRef.current(),
+    });
+  }
+
   // --------------------------------------------------------------------------
   // Effect 1: Subscribe to the bus-owned SSE for the active conversation.
   // --------------------------------------------------------------------------
@@ -210,92 +195,19 @@ export function useEventStream({
     const presence: ChatEventStream = { cancel: () => {} };
     streamRef.current = presence;
 
-    // Read once at subscription setup — the flag requires a reload to
-    // flip, so it cannot change during the lifetime of this effect.
-    const seqGapEnabled = isSeqGapDetectionEnabled();
-
-    // Gate so the very first event after a conversation switch seeds
-    // the seq cursor without triggering a reconcile. Prevents spurious
-    // refetches when switching to a conversation whose stored cursor
-    // is stale (e.g., stored=50 but server is at seq=500).
-    let seededSeqForConversation = false;
-
-    const unsubEvent = subscribe("sse.event", (envelope) => {
-      const event = envelope.message;
-      const eventConversationId = envelope.conversationId;
-      // Two-stage filter to prevent cross-conversation event leakage.
-      // The bus opens a single unfiltered SSE connection, so every
-      // event for every conversation flows through this subscriber.
-      //
-      // 1. Global events (`sync_changed`, `home_feed_updated`, etc.)
-      //    are not tied to a conversation — always pass them through.
-      // 2. Conversation-scoped events must have an explicit
-      //    `conversationId` matching the current active conversation.
-      //    Events whose conversationId is missing or mismatched are
-      //    rejected: a missing id is treated as "unknown
-      //    conversation" rather than "broadcast", because under the
-      //    bus-owned unfiltered SSE there is no per-conversation
-      //    subscription URL to fall back to for routing.
-      if (!isConversationScopedStreamEvent(event)) {
-        handleStreamEventRef.current(event, streamEpochRef.current);
-        return;
-      }
-      if (
-        eventConversationId === undefined ||
-        eventConversationId !== activeConversationIdLatestRef.current
-      ) {
-        recordDiagnostic("sse_event_wrong_conversation_filtered", {
-          eventConversationId,
-          activeConversationId: activeConversationIdLatestRef.current,
-          eventType: event.type,
-          reason: eventConversationId === undefined ? "missing" : "mismatch",
-        });
-        return;
-      }
-
-      const eventSeq = envelope.seq;
-      let gapDetected = false;
-      if (seqGapEnabled && eventSeq != null && eventConversationId) {
-        if (seededSeqForConversation) {
-          const stored = getLastSeenSeq(eventConversationId) ?? 0;
-          if (eventSeq < stored) {
-            // Server seq counter restarted (daemon restart). Replace
-            // the stale cursor and reconcile to pick up any state
-            // changes from the restart.
-            recordDiagnostic("sse_seq_generation_reset", {
-              conversationId: eventConversationId,
-              stored,
-              observed: eventSeq,
-            });
-            replaceLastSeenSeq(eventConversationId, eventSeq);
-            gapDetected = true;
-            reconcileActiveConversationRef.current();
-          } else if (eventSeq > stored + 1) {
-            recordDiagnostic("sse_seq_gap_detected", {
-              conversationId: eventConversationId,
-              stored,
-              observed: eventSeq,
-              gap: eventSeq - stored,
-            });
-            gapDetected = true;
-            reconcileActiveConversationRef.current();
-          }
-        } else {
-          seededSeqForConversation = true;
-        }
-      }
-
-      handleStreamEventRef.current(event, streamEpochRef.current);
-
-      // Advance the seq cursor AFTER the handler returns so a thrown
-      // handler does not advance the cursor past unapplied work.
-      // Skip advancement when a gap was detected — the reconcile
-      // refetch will deliver authoritative state. If reconcile fails,
-      // the next contiguous event will re-detect the gap and retry.
-      if (seqGapEnabled && eventSeq != null && eventConversationId && !gapDetected) {
-        setLastSeenSeq(eventConversationId, eventSeq);
-      }
+    const consumer = createSseEventConsumer({
+      activeConversationIdRef: activeConversationIdLatestRef,
+      streamEpochRef,
+      handleStreamEvent: (event, epoch) =>
+        handleStreamEventRef.current(event, epoch),
+      reconcileActive: () => {
+        void reconcileActiveConversationRef.current();
+      },
     });
+
+    const unsubEvent = subscribe("sse.event", (envelope) =>
+      consumer.handleSseEvent(envelope),
+    );
 
     return () => {
       unsubEvent();
@@ -321,12 +233,8 @@ export function useEventStream({
   ]);
 
   // --------------------------------------------------------------------------
-  // Effect 2: React to bus-owned SSE (re)opens.
-  //
-  // Bumps the conversation epoch so any in-flight reconcile from the
-  // previous attempt is ignored. Runs the pending-reconcile flag set
-  // by app.resume, and the watchdog-recovery reconcile that today
-  // lives in `subscribeChatEvents`' `onReconnect` callback.
+  // Effect 2: React to bus-owned SSE (re)opens — runs the post-reconnect
+  // reconcile pass via the `reconcileOnReopen` module.
   // --------------------------------------------------------------------------
   useEffect(() => {
     if (
@@ -336,124 +244,25 @@ export function useEventStream({
     ) {
       return;
     }
-    const capturedAssistantId = assistantId;
-    const capturedConversationId = activeConversationId;
 
-    const unsub = subscribe("sse.opened", ({ assistantId: openedFor, cause }) => {
-        if (openedFor !== capturedAssistantId) return;
-        const epoch = ++streamEpochRef.current;
-        recordDiagnostic("sse_stream_opened", {
-          assistantId: capturedAssistantId,
-          conversationId: capturedConversationId,
-          epoch,
-          cause,
-        });
-        if (cause === "fresh") {
-          // First open per assistant — the regular history-load path
-          // that ran when the conversation was mounted owns the
-          // initial fetch, so we don't reconcile here.
-          return;
-        }
-        reconcileAfterNextStreamOpenRef.current = false;
-        // `"watchdog"` and `"error"` indicate a transport-level
-        // recovery the daemon may have rescued via its own reconnect
-        // path. Prefer the sync router's `dispatchReconnect()` result
-        // — it returns the active conversation's refreshed messages
-        // in the same roundtrip — and fall back to the standalone
-        // reconcile only when the sync router didn't return them.
-        // The Sentry rescue diagnostic uses the same reconcile result
-        // so it accurately reflects what the user saw recover.
-        // Other non-fresh causes (`"resume"`) only need the standalone
-        // reconcile.
-        if (cause === "watchdog" || cause === "error") {
-          void (async () => {
-            recordDiagnostic("sse_stream_reconnect", {
-              assistantId: capturedAssistantId,
-              conversationId: capturedConversationId,
-              epoch,
-              cause,
-            });
-            const startedAt = Date.now();
-            const syncReconnectResult =
-              await syncRouterRef.current?.dispatchReconnect();
-            const reconcileResult =
-              syncReconnectResult?.activeConversationMessages ??
-              (await reconcileActiveConversationRef.current());
-            // Stale-epoch guard: two close-together reopens can race —
-            // if a newer sse.opened has bumped the epoch while we were
-            // awaiting, this completion is for a superseded epoch and
-            // must not touch the reconciliation loop or emit Sentry
-            // diagnostics that would mislead the rescue metric.
-            // Without this, calling startReconciliationLoop(staleEpoch)
-            // would cancel the newer loop and then exit as stale,
-            // leaving no active loop running.
-            if (epoch !== streamEpochRef.current) {
-              recordDiagnostic("sse_post_reconnect_stale", {
-                assistantId: capturedAssistantId,
-                conversationId: capturedConversationId,
-                epoch,
-                currentEpoch: streamEpochRef.current,
-                cause,
-              });
-              return;
-            }
-            startReconciliationLoopRef.current(epoch);
-            if (cause !== "watchdog") return;
-            const latencyMs = Date.now() - startedAt;
-            recordDiagnostic("sse_post_watchdog_reconcile_result", {
-              assistantId: capturedAssistantId,
-              conversationId: capturedConversationId,
-              epoch,
-              latencyMs,
-              changed: reconcileResult.changed,
-              messagesAdded: reconcileResult.messagesAdded,
-              assistantProgress: reconcileResult.assistantProgress,
-            });
-            Sentry.addBreadcrumb({
-              category: "sse.watchdog",
-              level: "info",
-              message: "post_watchdog_reconcile_result",
-              data: {
-                latencyMs,
-                changed: reconcileResult.changed,
-                messagesAdded: reconcileResult.messagesAdded,
-                assistantProgress: reconcileResult.assistantProgress,
-              },
-            });
-            Sentry.captureMessage("sse_post_watchdog_reconcile_result", {
-              level: "info",
-              tags: {
-                context: "sse_watchdog",
-                platform: resolvePlatformTag(),
-                assistantProgress: String(reconcileResult.assistantProgress),
-                rescued: String(reconcileResult.messagesAdded > 0),
-                messagesAddedBucket: bucketMessagesAdded(
-                  reconcileResult.messagesAdded,
-                ),
-              },
-              extra: {
-                latencyMs,
-                messagesAdded: reconcileResult.messagesAdded,
-                changed: reconcileResult.changed,
-                assistantProgress: reconcileResult.assistantProgress,
-                conversationId: capturedConversationId,
-                epoch,
-              },
-            });
-          })();
-          return;
-        }
-        void reconcileActiveConversationRef.current();
-        startReconciliationLoopRef.current(epoch);
-      });
+    const handler = createReconcileOnReopen({
+      assistantId,
+      conversationId: activeConversationId,
+      streamEpochRef,
+      reconcileActive: () => reconcileActiveConversationRef.current(),
+      startReconciliationLoop: (epoch) =>
+        startReconciliationLoopRef.current(epoch),
+      syncRouterRef,
+    });
 
-    return () => unsub();
+    return subscribe("sse.opened", (payload) =>
+      handler.handleSseOpened(payload),
+    );
   }, [
     assistantStateKind,
     assistantId,
     activeConversationId,
     streamEpochRef,
-    reconcileAfterNextStreamOpenRef,
     syncRouterRef,
   ]);
 
@@ -464,7 +273,7 @@ export function useEventStream({
   // in-flight assistant streaming flag so the composer doesn't sit in
   // "thinking" forever, drop the matching processing key so the
   // sidebar's indicator clears, and bounce reachability so the
-  // burst-limiter in effect 5 can kick a retry.
+  // burst-limiter below can kick a retry.
   // --------------------------------------------------------------------------
   useEffect(() => {
     if (
@@ -477,29 +286,27 @@ export function useEventStream({
     const capturedAssistantId = assistantId;
     const capturedConversationId = activeConversationId;
 
-    const unsub = subscribe("sse.closed", ({ reason }) => {
-        const hadActiveTurn = isSending(useTurnStore.getState());
-        recordDiagnostic("sse_stream_error", {
-          assistantId: capturedAssistantId,
-          conversationId: capturedConversationId,
-          epoch: streamEpochRef.current,
-          messageLength: reason.length,
-        });
-        endTurn({
-          conversationId: streamContextRef.current?.conversationId,
-          reason: "session_error",
-        });
-        // Idle SSE drops should reopen the stream without interrupting the
-        // user; active turns still surface the reconnect state immediately.
-        if (hadActiveTurn) {
-          reachabilityProbeRef.current({ showConnectingImmediately: true });
-        } else {
-          backgroundReachabilityProbeRef.current = true;
-          reachabilityProbeRef.current({ mode: "background" });
-        }
+    return subscribe("sse.closed", ({ reason }) => {
+      const hadActiveTurn = isSending(useTurnStore.getState());
+      recordDiagnostic("sse_stream_error", {
+        assistantId: capturedAssistantId,
+        conversationId: capturedConversationId,
+        epoch: streamEpochRef.current,
+        messageLength: reason.length,
       });
-
-    return () => unsub();
+      endTurn({
+        conversationId: streamContextRef.current?.conversationId,
+        reason: "session_error",
+      });
+      // Idle SSE drops should reopen the stream without interrupting the
+      // user; active turns still surface the reconnect state immediately.
+      if (hadActiveTurn) {
+        reachabilityProbeRef.current({ showConnectingImmediately: true });
+      } else {
+        backgroundReachabilityProbeRef.current = true;
+        reachabilityProbeRef.current({ mode: "background" });
+      }
+    });
   }, [
     assistantStateKind,
     assistantId,
@@ -537,70 +344,17 @@ export function useEventStream({
   }, [assistantStateKind, assistantId, activeConversationId]);
 
   // --------------------------------------------------------------------------
-  // Effect 5: Schedule a post-resume reconcile.
-  //
-  // The bus tears down + reopens its SSE around app.resume; we listen
-  // here so the next `sse.opened` runs the reconcile pass for the
-  // active conversation. Effect 2's `reconcileAfterNextStreamOpenRef`
-  // gate is the rendezvous point.
+  // Effect 5: Reachability retry — drive the burst-limiter from the
+  // probe's phase. The limiter publishes `reachability.retry-requested`
+  // on success so the bus bounces its SSE; `reconcileOnReopen` runs
+  // the post-reconnect reconcile on the resulting `sse.opened`.
   // --------------------------------------------------------------------------
   useEffect(() => {
-    if (
-      assistantStateKind !== "active" ||
-      !assistantId ||
-      !activeConversationId
-    ) {
-      return;
-    }
-    const unsub = subscribe("app.resume", () => {
-      reconcileAfterNextStreamOpenRef.current = true;
-    });
-    return () => unsub();
-  }, [
-    assistantStateKind,
-    assistantId,
-    activeConversationId,
-    reconcileAfterNextStreamOpenRef,
-  ]);
+    burstLimiterRef.current!.handleReachabilityPhase(reachabilityPhase);
+  }, [reachabilityPhase]);
 
   // --------------------------------------------------------------------------
-  // Effect 6: Reachability retry — request a bus-level SSE bounce
-  // when the reachability probe flips back to "ready" or a background
-  // probe exhausts its window and needs the bus to keep retrying.
-  // --------------------------------------------------------------------------
-  useEffect(() => {
-    if (reachabilityPhase !== "ready" && reachabilityPhase !== "retrying") {
-      return;
-    }
-    const now = Date.now();
-    const STREAM_RETRY_BURST_WINDOW_MS = 10_000;
-    const STREAM_RETRY_BURST_LIMIT = 3;
-    if (
-      now - streamRetryBurstStartRef.current >
-      STREAM_RETRY_BURST_WINDOW_MS
-    ) {
-      streamRetryBurstStartRef.current = now;
-      streamRetryBurstCountRef.current = 0;
-    }
-    streamRetryBurstCountRef.current += 1;
-    if (streamRetryBurstCountRef.current > STREAM_RETRY_BURST_LIMIT) {
-      useChatSessionStore.getState().setError({ message: "Connection lost. Please try again." });
-      reachabilityResetRef.current();
-      return;
-    }
-    if (reachabilityPhase === "ready") {
-      useTurnStore.getState().resetTurn();
-      useChatSessionStore.getState().setError(null);
-    }
-    reconcileAfterNextStreamOpenRef.current = true;
-    publish("reachability.retry-requested", {});
-    if (reachabilityPhase === "retrying") {
-      reachabilityResetRef.current();
-    }
-  }, [reachabilityPhase, reconcileAfterNextStreamOpenRef]);
-
-  // --------------------------------------------------------------------------
-  // Effect 7: Unmount cleanup.
+  // Effect 6: Unmount cleanup.
   // --------------------------------------------------------------------------
   useEffect(() => {
     return () => {
