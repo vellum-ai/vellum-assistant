@@ -55,7 +55,6 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
 import { type UIContext } from "@/domains/chat/turn-selectors";
 import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
-import { consumeAutoGreetPending } from "@/assistant/auto-greet-signal";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
 import type { SyncChangedEvent } from "@/lib/sync/types";
@@ -212,31 +211,26 @@ export function ChatPage() {
 
   const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  // Two sticky-one-shot signal sources, either of which means "the next
-  // conversation that loads should auto-greet":
+  // Two signal sources, either of which means "the next conversation
+  // that loads should show the auto-greet loading gate":
   //   1. The onboarding-screen flow staged a pre-chat context with an
   //      initial message (via `setPendingPreChatContext`). The composer
   //      auto-send hook below consumes it.
-  //   2. The lifecycle service marked auto-greet pending after a vanilla
-  //      auto-hatch or `hatchVersion` (via `setAutoGreetPending` in
-  //      `auto-greet-signal.ts`). The server emits the greeting via SSE;
-  //      `autoGreetRef` keeps the loading gate up across the
-  //      `use-conversation-switch` reset that fires on first mount.
-  // sessionStorage survives the route redirect that
-  // `useConversationLoader` performs after a fresh hatch, which is why
-  // neither signal can live in component state or on the bus.
-  const initialAutoGreetSignal = useState(() => {
-    if (peekPendingPreChatContext()?.initialMessage != null) {
-      return { pending: true, autoGreet: false };
-    }
-    if (consumeAutoGreetPending()) {
-      return { pending: true, autoGreet: true };
-    }
-    return { pending: false, autoGreet: false };
-  })[0];
-  const [autoGreetPending, setAutoGreetPending] = useState(
-    initialAutoGreetSignal.pending,
-  );
+  //   2. The lifecycle service marked a fresh hatch as expecting a
+  //      first message (vanilla auto-hatch or nonprod `hatchVersion`).
+  //      The server emits the greeting via SSE; we just hold the gate
+  //      until it arrives.
+  // Peek here (pure — `StrictMode` invokes the lazy initializer twice
+  // and a mutating call would clear the flag on the discarded first
+  // render); the lifecycle one-shot is drained by the `useEffect`
+  // below.
+  const [autoGreetPending, setAutoGreetPending] = useState(() => {
+    if (peekPendingPreChatContext()?.initialMessage != null) return true;
+    return lifecycleService.peekExpectingFirstMessage();
+  });
+  useEffect(() => {
+    lifecycleService.clearExpectingFirstMessage();
+  }, []);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
     hasMore: false,
@@ -371,7 +365,6 @@ export function ChatPage() {
   const pendingLocalDeletionsRef = useRef<Set<string>>(new Set());
   const confirmationToolCallMapRef = useRef<Map<string, string>>(new Map());
   const streamingMessageIdsRef = useRef<Set<string>>(new Set());
-  const autoGreetRef = useRef(initialAutoGreetSignal.autoGreet);
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInitialMessageRef = useRef<{ conversationId: string; content: string } | null>(null);
@@ -569,7 +562,6 @@ export function ChatPage() {
     requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    autoGreetRef,
     conversationListInvalidatedTimerRef,
     pendingInitialMessageRef,
     setMessages,
@@ -610,13 +602,10 @@ export function ChatPage() {
   // Onboarding signal consumption
   // -------------------------------------------------------------------------
   // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
-  // it forwards the user after a successful hatch. Flipping `autoGreetRef`
-  // mirrors the existing auto-greet paths so the first assistant message
-  // fires once the chat history loads. The flag is stripped from the URL
-  // immediately so a page refresh doesn't re-trigger the greet.
+  // it forwards the user after a successful hatch. The flag is stripped
+  // from the URL immediately so a page refresh doesn't re-trigger the greet.
   useEffect(() => {
     if (searchParams.get("onboarding") !== "1") return;
-    autoGreetRef.current = true;
     setDidOnboarding(true);
     setAutoGreetPending(true);
     const onboardingDraftConversationId =

@@ -88,7 +88,6 @@ interface UseConversationLoaderParams {
   requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  autoGreetRef: MutableRefObject<boolean>;
   conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   pendingInitialMessageRef: MutableRefObject<{ conversationId: string; content: string } | null>;
 
@@ -152,7 +151,6 @@ export function useConversationLoader({
   requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  autoGreetRef,
   conversationListInvalidatedTimerRef,
   pendingInitialMessageRef,
   setMessages,
@@ -458,7 +456,6 @@ export function useConversationLoader({
     requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    autoGreetRef,
     setMessages,
     setTranscriptPagination,
     setIsLoadingHistory,

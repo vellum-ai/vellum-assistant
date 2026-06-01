@@ -150,7 +150,13 @@ export function useConversationSwitch({
     });
     useInteractionStore.getState().resetAll();
     confirmationToolCallMapRef.current.clear();
-    setAutoGreetPending(false);
+    // Auto-greet gate is scoped to "the conversation the lifecycle
+    // service landed us on" — keep it up on initial mount (no real
+    // switch yet) and only clear when the user navigates to a
+    // different conversation.
+    if (isConversationSwitch) {
+      setAutoGreetPending(false);
+    }
     resetChatAttachments();
     setCompactionCircuitOpenUntil(null);
     setContextWindowUsage(

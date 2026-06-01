@@ -38,7 +38,6 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
-import { setAutoGreetPending } from "@/assistant/auto-greet-signal";
 import { ASSISTANT_QUERY_KEY, POLL_INTERVAL_MS } from "@/assistant/queries";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import type { AssistantState } from "@/assistant/types";
@@ -104,6 +103,21 @@ class AssistantLifecycleService {
    * parents' in the same render cycle.
    */
   private ready = false;
+  /**
+   * One-shot signal: a fresh hatch just completed and the chat
+   * surface should show the loading gate until the server's first
+   * greeting message arrives. Set on the two hatch paths that
+   * don't go through the `/onboarding/hatching` flow (vanilla
+   * auto_hatch for a new signup, nonprod `hatchVersion`), consumed
+   * once at the next `ChatPage` mount.
+   *
+   * Lives on the service rather than in component state because
+   * `useConversationLoader`'s `/assistant` → `/assistant/conversations/:id`
+   * redirect after hatch remounts `ChatPage` — the singleton service
+   * survives the redirect, so the consumer reads it on the destination
+   * mount.
+   */
+  private expectingFirstMessage = false;
   private inputs: LifecycleServiceInputs = {
     isLoggedIn: false,
     isLoading: true,
@@ -246,13 +260,26 @@ class AssistantLifecycleService {
   hatchVersion(version?: string): void {
     if (!this.ready) return;
     this.hatchRetryCount = 0;
-    // Version selection in nonprod is a user-initiated fresh start —
-    // signal the chat surface that the next conversation should
-    // auto-greet. Sticky one-shot via sessionStorage so the signal
-    // survives the `/assistant` → `/assistant/conversations/:id`
-    // redirect that `useConversationLoader` performs after hatch.
-    setAutoGreetPending();
+    this.expectingFirstMessage = true;
     void this.hatchAndCheck(version);
+  }
+
+  /**
+   * Read `expectingFirstMessage` without clearing it. Pure — safe to
+   * call from a `useState` lazy initializer (which React invokes
+   * twice under `StrictMode` to surface impurities).
+   */
+  peekExpectingFirstMessage(): boolean {
+    return this.expectingFirstMessage;
+  }
+
+  /**
+   * Drain the one-shot. Caller pairs this with `peekExpectingFirstMessage()`
+   * — peek at render-time to seed UI state, clear from a `useEffect` so
+   * the second `StrictMode` render still observes the same value.
+   */
+  clearExpectingFirstMessage(): void {
+    this.expectingFirstMessage = false;
   }
 
   // ---------------------------------------------------------------------------
@@ -397,12 +424,11 @@ class AssistantLifecycleService {
         this.transition({ kind: "awaiting_version_selection" });
         return;
       }
-      // Vanilla auto-hatch path: a new signup with no assistant lands
-      // here. Signal the chat surface that the next conversation
-      // should auto-greet. Sticky one-shot via sessionStorage so the
-      // signal survives the `/assistant` → `/assistant/conversations/:id`
-      // redirect that `useConversationLoader` performs after hatch.
-      setAutoGreetPending();
+      // Vanilla auto-hatch: a new signup with no assistant lands
+      // here. Mark the auto-greet one-shot so the next `ChatPage`
+      // mount shows the loading gate until the server's greeting
+      // SSE arrives.
+      this.expectingFirstMessage = true;
       await this.hatchAndCheck();
       return;
     }
@@ -653,6 +679,7 @@ class AssistantLifecycleService {
     this.hatchingVersion = undefined;
     this.generation = 0;
     this.ready = false;
+    this.expectingFirstMessage = false;
     this.inputs = {
       isLoggedIn: false,
       isLoading: true,

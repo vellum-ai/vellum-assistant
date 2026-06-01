@@ -75,7 +75,6 @@ interface UseConversationHistoryParams {
   requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  autoGreetRef: MutableRefObject<boolean>;
 
   // State setters
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
@@ -114,7 +113,6 @@ export function useConversationHistory({
   requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  autoGreetRef,
   setMessages,
   setTranscriptPagination,
   setIsLoadingHistory,
@@ -337,15 +335,6 @@ export function useConversationHistory({
         // Keep attention key on failure.
       }
     })();
-
-    // Auto-send greeting after fresh setup (no history).
-    if (
-      isFreshSwitch &&
-      autoGreetRef.current &&
-      pagination.messages.length === 0
-    ) {
-      setAutoGreetPending(true);
-    }
   }, [
     pagination.isSuccess,
     pagination.dataUpdatedAt,
@@ -357,11 +346,9 @@ export function useConversationHistory({
     assistantId,
     activeConversationId,
     dismissedSurfaceIdsRef,
-    autoGreetRef,
     setMessages,
     setTranscriptPagination,
     setIsLoadingHistory,
-    setAutoGreetPending,
     setError,
   ]);
 

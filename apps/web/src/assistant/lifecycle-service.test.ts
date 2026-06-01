@@ -83,9 +83,6 @@ mock.module("@/assistant/lifecycle", () => ({
 const { lifecycleService } = await import("./lifecycle-service");
 const { useAssistantLifecycleStore } = await import("./lifecycle-store");
 const { useAssistantSelectionStore } = await import("./selection-store");
-const { __resetAutoGreetSignalForTesting, peekAutoGreetPending } = await import(
-  "./auto-greet-signal"
-);
 
 // --- fake query client --- //
 
@@ -127,12 +124,10 @@ beforeEach(() => {
   }));
   getAssistantMock.mockImplementation(async () => ({ ok: false, status: 404 }));
   lifecycleService.__resetForTesting();
-  __resetAutoGreetSignalForTesting();
 });
 
 afterEach(() => {
   lifecycleService.__resetForTesting();
-  __resetAutoGreetSignalForTesting();
 });
 
 describe("lifecycleService — server state projection", () => {
@@ -350,7 +345,7 @@ describe("lifecycleService — auto-hatch cascade", () => {
     );
   });
 
-  test("vanilla auto_hatch marks the auto-greet sticky signal — chat-page consumes it on mount", async () => {
+  test("vanilla auto_hatch marks expecting-first-message — chat-page consumes it on mount", async () => {
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
       status: 404,
@@ -367,10 +362,10 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(peekAutoGreetPending()).toBe(true);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
   });
 
-  test("auto_hatch + nonprod does NOT mark auto-greet — user has to pick a version first", async () => {
+  test("auto_hatch + nonprod does NOT mark expecting-first-message — user has to pick a version first", async () => {
     // The user clicking the version button is what fires the
     // auto-greet, via `hatchVersion`. Auto-hatch alone in nonprod
     // doesn't hatch, so it shouldn't set the signal.
@@ -386,10 +381,10 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(peekAutoGreetPending()).toBe(false);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
   });
 
-  test("auto_hatch + isRetired does NOT mark auto-greet", async () => {
+  test("auto_hatch + isRetired does NOT mark expecting-first-message", async () => {
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
       status: 404,
@@ -402,17 +397,40 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(peekAutoGreetPending()).toBe(false);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
   });
 
-  test("hatchVersion marks the auto-greet sticky signal — the nonprod version-selection greet", () => {
+  test("hatchVersion marks expecting-first-message — the nonprod version-selection greet", () => {
     lifecycleService.setInputs({
       ...baseInputs,
       queryClient: makeQueryClient(),
     });
     lifecycleService.hatchVersion("v1");
 
-    expect(peekAutoGreetPending()).toBe(true);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
+  });
+
+  test("peek is pure (does not clear) — multiple peeks return the same value until cleared", async () => {
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 404,
+    }));
+    hatchAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 201,
+      data: { id: "asst-fresh", status: "initializing" },
+    }));
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
+    lifecycleService.clearExpectingFirstMessage();
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
   });
 });
 
