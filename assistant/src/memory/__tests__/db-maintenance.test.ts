@@ -206,10 +206,10 @@ describe("getLastUserMessageTimestamp", () => {
     expect(result).toBe(0);
   });
 
-  test("returns the latest user message, skipping trailing non-user rows", () => {
-    /** The lookup walks newest-first by rowid and must skip trailing
-     *  assistant rows to find the most recent user message. */
-    // GIVEN two user messages followed by a newer assistant message
+  test("returns the most recent user message by timestamp, ignoring assistant rows", () => {
+    /** The lookup reports the newest user-message timestamp and must skip
+     *  non-user rows even when they are more recent. */
+    // GIVEN two user messages and a newer assistant message
     const base = Date.now();
     insertMessage("user", base - 10_000);
     insertMessage("user", base - 5_000);
@@ -219,6 +219,25 @@ describe("getLastUserMessageTimestamp", () => {
     const result = getLastUserMessageTimestamp();
 
     // THEN it returns the most recent user message, not the assistant row
+    expect(result).toBe(base - 5_000);
+  });
+
+  test("reports the newest user timestamp even when an older turn was inserted later", () => {
+    /** `forkConversation` copies a parent's user turns into the fork with
+     *  their original (older) `created_at` but fresh row ids, so insertion
+     *  order can place an old turn last. The lookup must key off `created_at`
+     *  so a fork can't make recent activity look stale and prematurely
+     *  un-gate maintenance. */
+    // GIVEN a recent user message
+    const base = Date.now();
+    insertMessage("user", base - 5_000);
+    // AND a later insert of an older user turn (as a fork copy would produce)
+    insertMessage("user", base - 60 * 60 * 1000);
+
+    // WHEN the last user message timestamp is read
+    const result = getLastUserMessageTimestamp();
+
+    // THEN it reports the genuinely most recent turn, not the last-inserted one
     expect(result).toBe(base - 5_000);
   });
 });

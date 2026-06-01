@@ -1623,10 +1623,13 @@ export function getLastUserTimestampBefore(
  * Most recent user-message timestamp (epoch ms) across all conversations, or
  * `0` when no user message exists.
  *
- * Iterates rows newest-first by `rowid` — the implicit integer primary key, so
- * the traversal is index-ordered — and stops at the first `role = "user"` row.
- * In practice this touches only the handful of trailing assistant/tool rows
- * before the latest user turn rather than scanning the whole (potentially
+ * Ordered by `created_at` rather than insertion order, because `forkConversation`
+ * copies a parent's messages into the fork while preserving their original
+ * `created_at`. Those copies receive fresh row ids, so an insertion-order scan
+ * could surface an old forked turn as if it were the latest activity and let
+ * maintenance run while the user is in fact active. The `(role, created_at)`
+ * index (`idx_messages_role_created_at`) makes this an indexed seek to the
+ * newest `role = "user"` row rather than a scan of the whole (potentially
  * multi-GB) table.
  */
 export function getLastUserMessageTimestamp(): number {
@@ -1635,7 +1638,7 @@ export function getLastUserMessageTimestamp(): number {
     .select({ createdAt: messages.createdAt })
     .from(messages)
     .where(eq(messages.role, "user"))
-    .orderBy(sql`rowid DESC`)
+    .orderBy(desc(messages.createdAt))
     .limit(1)
     .get();
   return row?.createdAt ?? 0;
