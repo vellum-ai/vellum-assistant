@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 
 import { STORAGE_KEY } from "@/domains/onboarding/prechat";
@@ -52,6 +58,10 @@ type TestOnboardingRecipe = {
 
 let onboardingCompleted = false;
 let prechatOnboardingCondensedFlow = true;
+let isIOSWeb = false;
+let isMacOSWeb = false;
+let iosAppDownloaded = true;
+let macOsAppDownloaded = true;
 let fetchOnboardingRecipeImpl: () => Promise<TestOnboardingRecipe | null> =
   async () => null;
 const fetchOnboardingRecipeMock = mock(() => fetchOnboardingRecipeImpl());
@@ -211,16 +221,16 @@ mock.module("@/hooks/use-prefilled-input", () => ({
 }));
 
 mock.module("@/runtime/platform-detection", () => ({
-  useIsIOSWeb: () => false,
-  useIsMacOSWeb: () => false,
+  useIsIOSWeb: () => isIOSWeb,
+  useIsMacOSWeb: () => isMacOSWeb,
 }));
 
 mock.module("@/hooks/use-ios-app-nudge", () => ({
-  readIOSAppDownloaded: () => true,
+  readIOSAppDownloaded: () => iosAppDownloaded,
 }));
 
 mock.module("@/hooks/use-macos-app-nudge", () => ({
-  readMacOsAppDownloaded: () => true,
+  readMacOsAppDownloaded: () => macOsAppDownloaded,
 }));
 
 mock.module("@/domains/onboarding/screens/name-exchange-screen", () => ({
@@ -267,14 +277,6 @@ mock.module("@/domains/onboarding/screens/get-ios-app-screen", () => ({
   ),
 }));
 
-mock.module("@/domains/onboarding/screens/get-macos-app-screen", () => ({
-  GetMacOSAppScreen: ({ onComplete }: { onComplete: () => void }) => (
-    <button type="button" data-testid="macos-app-continue" onClick={onComplete}>
-      macOS app
-    </button>
-  ),
-}));
-
 const { HatchingScreen } = await import(
   "@/domains/onboarding/pages/hatching-screen"
 );
@@ -287,6 +289,10 @@ beforeEach(() => {
   checkAssistantImpl = async () => {};
   onboardingCompleted = false;
   prechatOnboardingCondensedFlow = true;
+  isIOSWeb = false;
+  isMacOSWeb = false;
+  iosAppDownloaded = true;
+  macOsAppDownloaded = true;
   fetchOnboardingRecipeImpl = async () => null;
   sessionStorage.clear();
   localStorage.clear();
@@ -396,6 +402,28 @@ describe("onboarding lifecycle sync", () => {
 
     expect(await screen.findByTestId("task-continue")).toBeTruthy();
     expect(screen.queryByText("Connect Google")).toBeNull();
+  });
+
+  test("pre-chat control flow skips the macOS app step on macOS web", async () => {
+    prechatOnboardingCondensedFlow = false;
+    isMacOSWeb = true;
+    macOsAppDownloaded = false;
+
+    render(<PreChatFlow />);
+
+    fireEvent.click(await screen.findByTestId("name-continue"));
+    fireEvent.click(await screen.findByTestId("task-continue"));
+    fireEvent.click(await screen.findByTestId("tools-continue"));
+    fireEvent.click(await screen.findByTestId("prior-continue"));
+
+    expect(screen.queryByTestId("macos-app-continue")).toBeNull();
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith(
+        `${routes.assistant}?onboarding=1`,
+        { replace: true },
+      ),
+    );
   });
 
   test("pre-chat waits for the web recipe decision before showing standard screens", async () => {
