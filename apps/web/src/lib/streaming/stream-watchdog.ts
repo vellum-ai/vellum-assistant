@@ -8,10 +8,10 @@
  * watchdog aborts the active fetch when no SSE traffic (events OR
  * heartbeat comments) arrives within a configurable window.
  *
- * Telemetry is recorded to both sessionStorage diagnostics (via
- * {@link recordDiagnostic}) and Sentry (breadcrumb + captureMessage)
- * so fleet-wide stall frequency can be measured without relying on
- * user-submitted diagnostic bundles.
+ * Telemetry is recorded to both the durable lifecycle diagnostics ring
+ * (via {@link recordLifecycleDiagnostic}) and Sentry (breadcrumb +
+ * captureMessage) so fleet-wide stall frequency can be measured without
+ * relying on user-submitted diagnostic bundles.
  *
  * @see https://docs.sentry.io/platforms/javascript/enriching-events/breadcrumbs/
  * @see https://docs.sentry.io/product/explore/discover-queries/
@@ -19,7 +19,7 @@
 
 import * as Sentry from "@sentry/browser";
 
-import { recordDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
+import { recordLifecycleDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
 import type { ChatStreamReconnectCause } from "@/lib/streaming/stream-transport";
 
 // ---------------------------------------------------------------------------
@@ -120,7 +120,7 @@ export function createStreamWatchdog(
       const lastByteAgeMs =
         lastSseAtMs === null ? null : Date.now() - lastSseAtMs;
 
-      recordDiagnostic("sse_watchdog_fired", {
+      recordLifecycleDiagnostic("sse_watchdog_fired", {
         assistantId,
         conversationId: conversationId ?? null,
         attempt,

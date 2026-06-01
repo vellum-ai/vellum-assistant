@@ -40,6 +40,7 @@
  *     pinned so the next event re-triggers the gap path.
  */
 
+import { useStreamStore } from "@/domains/chat/stream-store";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
@@ -71,8 +72,6 @@ export interface SseEventConsumerDeps {
    * concurrent React (see module docstring).
    */
   activeConversationIdRef: { current: string | null };
-  /** Caller-owned epoch counter — passed to the handler for staleness checks. */
-  streamEpochRef: { current: number };
   /** Dispatch the event into the chat domain's reducer. */
   handleStreamEvent: (event: AssistantEvent, epoch: number) => void;
   /** Reconcile the active conversation when a seq gap is detected. */
@@ -102,7 +101,7 @@ export function createSseEventConsumer(
 
       // Stage 1: global events pass through unconditionally.
       if (!isConversationScopedStreamEvent(event)) {
-        deps.handleStreamEvent(event, deps.streamEpochRef.current);
+        deps.handleStreamEvent(event, useStreamStore.getState().streamEpoch);
         return;
       }
       // Stage 2: conversation-scoped events need an exact match.
@@ -151,7 +150,7 @@ export function createSseEventConsumer(
         }
       }
 
-      deps.handleStreamEvent(event, deps.streamEpochRef.current);
+      deps.handleStreamEvent(event, useStreamStore.getState().streamEpoch);
 
       // Advance the seq cursor AFTER the handler returns so a thrown
       // handler does not advance the cursor past unapplied work.

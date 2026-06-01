@@ -8,15 +8,8 @@ import type { ContextWindowUsage } from "@/domains/chat/components/context-windo
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { TurnActions, TurnState } from "@/domains/chat/turn-store";
 import type { EndTurnArgs } from "@/domains/chat/turn-coordinator";
-import type { ChatError, PendingQuestionState } from "@/domains/chat/types";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
-
-export type { PendingQuestionState };
-
-export interface StreamContext {
-  assistantId: string;
-  conversationId: string;
-}
+import type { ChatError } from "@/domains/chat/types";
+import type { StreamContext } from "@/domains/chat/stream-store";
 
 /** Minimal push-based navigation adapter for stream event handlers. */
 export interface Router {
@@ -37,9 +30,9 @@ export interface StreamHandlerContext {
   router: Router;
   isNative: boolean;
 
-  // --- Stream context ---
-  streamContextRef: MutableRefObject<StreamContext | null>;
-  assistantIdRef: MutableRefObject<string | null>;
+  // --- Stream context (resolved from stream-store / selection-store) ---
+  streamContext: StreamContext | null;
+  assistantId: string | null;
 
   // --- Messages ---
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
@@ -63,7 +56,8 @@ export interface StreamHandlerContext {
 
   // --- Error & stream lifecycle ---
   setError: Dispatch<SetStateAction<ChatError | null>>;
-  streamRef: MutableRefObject<ChatEventStream | null>;
+  /** Cancel the active SSE stream and clear the store's stream state. */
+  cancelAndClearStream: () => void;
 
   // --- Reconciliation ---
   cancelReconciliation: () => void;

@@ -11,11 +11,7 @@ import type { AssistantDomainEvents } from "../events/domain-events.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
 import { enqueueAutoAnalysisIfEnabled } from "../memory/auto-analysis-enqueue.js";
 import { isAutoAnalysisConversation } from "../memory/auto-analysis-guard.js";
-import {
-  getConversation,
-  getMessages,
-  type MessageRow,
-} from "../memory/conversation-crud.js";
+import { getConversation, getMessages } from "../memory/conversation-crud.js";
 import { enqueueMemoryJob, isMemoryEnabled } from "../memory/jobs-store.js";
 import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospective-enqueue.js";
 import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
@@ -40,41 +36,10 @@ import type {
   SurfaceType,
   UsageStats,
 } from "./message-protocol.js";
+import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-lifecycle");
-
-function parseProvenanceTrustClass(
-  metadata: string | null,
-): TrustClass | undefined {
-  if (!metadata) return undefined;
-  try {
-    const parsed = JSON.parse(metadata) as { provenanceTrustClass?: unknown };
-    const trustClass = parsed?.provenanceTrustClass;
-    if (
-      trustClass === "guardian" ||
-      trustClass === "trusted_contact" ||
-      trustClass === "unknown"
-    ) {
-      return trustClass;
-    }
-  } catch {
-    // Ignore malformed metadata and treat as unknown provenance.
-  }
-  return undefined;
-}
-
-export function filterMessagesForUntrustedActor(
-  messages: MessageRow[],
-): MessageRow[] {
-  return messages.filter((m) => {
-    const provenanceTrustClass = parseProvenanceTrustClass(m.metadata);
-    return (
-      provenanceTrustClass === "trusted_contact" ||
-      provenanceTrustClass === "unknown"
-    );
-  });
-}
 
 /**
  * Re-inject image source path annotations into message content blocks.

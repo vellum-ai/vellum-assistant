@@ -25,6 +25,14 @@ export interface SseDebugClient {
   initiatedAt: number;
   /** When the first SSE data frame arrived (null until then). */
   establishedAt: number | null;
+  /** Epoch ms of the last SSE frame of any kind (data OR heartbeat). */
+  lastTrafficAt: number | null;
+  /** Epoch ms of the last SSE *data* frame (excludes heartbeat comments). */
+  lastDataAt: number | null;
+  /** Count of SSE data frames seen on this client. */
+  dataFrames: number;
+  /** Count of heartbeat comment frames seen on this client. */
+  keepalives: number;
 }
 
 export interface SseDebugEventEntry {
@@ -69,6 +77,10 @@ export function registerSseClient(
     conversationId,
     initiatedAt: Date.now(),
     establishedAt: null,
+    lastTrafficAt: null,
+    lastDataAt: null,
+    dataFrames: 0,
+    keepalives: 0,
   };
   clients.set(id, client);
 
@@ -93,6 +105,30 @@ export function markClientEstablished(clientId: string): void {
   const client = clients.get(clientId);
   if (client && client.establishedAt === null) {
     client.establishedAt = Date.now();
+  }
+}
+
+/**
+ * Record that an SSE frame arrived on a client. Called from the
+ * `onSseEvent` callback inside {@link subscribeChatEvents} for every
+ * parsed chunk, including heartbeat comment frames. `isData`
+ * distinguishes data frames (yielded through the iterator) from
+ * heartbeat comments (`data === undefined`), so a reader can tell
+ * "bytes are flowing" apart from "the daemon is still keeping the
+ * socket warm" — the fingerprint of a half-open connection.
+ */
+export function recordSseTraffic(clientId: string, isData: boolean): void {
+  const client = clients.get(clientId);
+  if (!client) {
+    return;
+  }
+  const now = Date.now();
+  client.lastTrafficAt = now;
+  if (isData) {
+    client.lastDataAt = now;
+    client.dataFrames++;
+  } else {
+    client.keepalives++;
   }
 }
 

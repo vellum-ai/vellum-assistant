@@ -2,15 +2,12 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 import { useRef, type MutableRefObject } from "react";
 
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
   __resetForTesting,
   publish,
 } from "@/lib/event-bus";
 
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
-
-type StreamContext = { assistantId: string; conversationId: string };
 
 function renderEventStream(params: {
   activeConversationId: string;
@@ -23,9 +20,6 @@ function renderEventStream(params: {
   startReconciliationLoop?: (epoch: number) => void;
 }) {
   return renderHook(() => {
-    const streamRef = useRef<ChatEventStream | null>(null);
-    const streamEpochRef = useRef(0);
-    const streamContextRef = useRef<StreamContext | null>(null);
     const syncRouterRef = useRef(null) as MutableRefObject<null> as never;
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     useEventStream({
@@ -33,9 +27,6 @@ function renderEventStream(params: {
       assistantId: "asst-1",
       activeConversationId: params.activeConversationId,
       conversationExistsOnServer: true,
-      streamRef,
-      streamEpochRef,
-      streamContextRef,
       handleStreamEvent: params.handleStreamEvent ?? (() => {}),
       reconcileActiveConversation:
         params.reconcileActiveConversation ??

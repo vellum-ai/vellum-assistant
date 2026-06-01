@@ -139,7 +139,7 @@ import {
 import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
+
 import {
   ChatRouteContent,
   type ChatRouteContentProps,
@@ -331,9 +331,7 @@ export function ChatPage() {
   useEffect(() => { assistantIdRef.current = assistantId; }, [assistantId]);
 
 
-  const streamRef = useRef<ChatEventStream | null>(null);
-  const streamEpochRef = useRef(0);
-  const streamContextRef = useRef<{ assistantId: string; conversationId: string } | null>(null);
+
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
   const onboardingDraftConversationIdRef = useRef<string | null>(null);
   const [didOnboarding, setDidOnboarding] = useState(false);
@@ -583,8 +581,6 @@ export function ChatPage() {
     cancelReconciliation,
     reconcileActiveConversation,
   } = useMessageReconciliation({
-    streamContextRef,
-    streamEpochRef,
     initialPageOldestTsRef,
   });
 
@@ -654,10 +650,6 @@ export function ChatPage() {
   const { handleStreamEvent } = useStreamEventHandler({
     push,
     isNative,
-    streamEpochRef,
-    streamContextRef,
-    assistantIdRef,
-    streamRef,
     cancelReconciliation,
     startReconciliationLoop,
     setAssetsRefreshKey,
@@ -681,10 +673,6 @@ export function ChatPage() {
     activeConversationId,
     diskPressureChatBlockReason,
     messages,
-    assistantIdRef,
-    streamRef,
-    streamContextRef,
-    streamEpochRef,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
     setInput,
@@ -848,9 +836,7 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Interaction actions
   // -------------------------------------------------------------------------
-  const interactionActions = useInteractionActions({
-    streamContextRef,
-  });
+  const interactionActions = useInteractionActions();
 
   // -------------------------------------------------------------------------
   // Event stream (SSE lifecycle)
@@ -860,9 +846,6 @@ export function ChatPage() {
     assistantId,
     activeConversationId,
     conversationExistsOnServer,
-    streamRef,
-    streamEpochRef,
-    streamContextRef,
     handleStreamEvent,
     reconcileActiveConversation,
     startReconciliationLoop,
@@ -894,9 +877,6 @@ export function ChatPage() {
     sanitizedMessagesRef,
     transcriptItemsRef,
     transcriptRef,
-    streamContextRef,
-    streamRef,
-    streamEpochRef,
     getAssistantId: () => assistantIdRef.current,
     getTurnState: () => useTurnStore.getState(),
     getUIContext: () => _uiContext,
@@ -1434,9 +1414,6 @@ export function ChatPage() {
       sanitizedMessagesRef,
       transcriptItemsRef,
       assistantIdRef,
-      streamContextRef,
-      streamRef,
-      streamEpochRef,
       transcriptRef,
     },
     isChannelReadonly,

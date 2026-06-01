@@ -367,7 +367,7 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Platform features gate (LUM-2113)
+// Platform features gate
 // ---------------------------------------------------------------------------
 //
 // In local mode with platform features disabled, the abort interceptor
