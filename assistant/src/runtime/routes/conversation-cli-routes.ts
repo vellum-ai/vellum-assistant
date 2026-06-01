@@ -44,7 +44,7 @@ function handleListCli({ body = {} }: RouteHandlerArgs) {
 
   const rows = listConversations(
     limit,
-    "foreground",
+    "standard",
     0,
     includeArchived ? "all" : "active",
   );
@@ -130,7 +130,7 @@ function handleExportCli({ body = {} }: RouteHandlerArgs) {
   if (!conversation) {
     const all = listConversations(
       Number.MAX_SAFE_INTEGER,
-      "foreground",
+      "standard",
       0,
       "all",
     );

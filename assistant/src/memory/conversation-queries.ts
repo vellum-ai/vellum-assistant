@@ -11,6 +11,7 @@ import type { ConversationRow } from "./conversation-crud.js";
 import { parseConversation } from "./conversation-crud.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
+import type { ConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import { rawAll } from "./raw-query.js";
 import { conversations, messages } from "./schema.js";
@@ -73,39 +74,33 @@ function archiveStatusClause(status: ArchiveStatusFilter) {
 }
 
 /**
- * Which conversation-type bucket {@link listConversations} and
- * {@link countConversations} return.
+ * SQL predicate selecting which bucket {@link listConversations} and
+ * {@link countConversations} return, keyed by the canonical
+ * {@link ConversationType}:
  *
- * - `"foreground"` — standard conversations only; excludes background,
- *   scheduled, and private rows. The default for the sidebar's primary list.
+ * - `"standard"` — the primary sidebar list: standard conversations only,
+ *   excluding background, scheduled, and private rows. `"private"` is excluded
+ *   defensively because in-place snapshot restore swaps the SQLite file without
+ *   running migrations in-process, so legacy private rows can briefly exist
+ *   before migration cleanup deletes them.
  * - `"background"` — the background **umbrella**: background *and* scheduled
- *   rows together. Retained as the back-compat value for the single
- *   `conversationType=background` fetch that older clients (e.g. the macOS
- *   app, which ships out of lockstep with the daemon) rely on to populate
- *   both the Background and Scheduled sidebar sections from one request.
- * - `"scheduled"` — scheduled rows only. Lets the Scheduled section load
+ *   rows together. The back-compat bucket for the single
+ *   `conversationType=background` fetch that older clients (e.g. the macOS app,
+ *   which ships out of lockstep with the daemon) rely on to populate both the
+ *   Background and Scheduled sidebar sections from one request.
+ * - `"scheduled"` — scheduled rows only, so the Scheduled section can load
  *   independently of the broader background backlog without over-fetching it.
- */
-export type ConversationTypeFilter = "foreground" | "background" | "scheduled";
-
-/**
- * SQL predicate selecting rows for a {@link ConversationTypeFilter}.
  *
- * `group_id` is checked alongside `conversationType` so that conversations
- * routed to `system:background` / `system:scheduled` (e.g. heartbeat) via
- * conversationMetadata but created with conversationType `"standard"` (vellum
- * channel strategy) land in the correct bucket. Subagent runs are excluded
- * from the background/scheduled buckets so the sidebar never surfaces them.
- *
- * `"private"` is excluded from the foreground bucket defensively: in-place
- * snapshot restore swaps the SQLite file without running migrations
- * in-process, so legacy private rows can briefly exist before migration
- * cleanup — hide them until the next migration pass deletes them.
+ * `group_id` is matched alongside `conversationType` so conversations routed to
+ * `system:background` / `system:scheduled` (heartbeat, reminders, schedule-job
+ * runs) but created with conversationType `"standard"` still land in the
+ * correct bucket. Subagent runs are excluded from the background/scheduled
+ * buckets so the sidebar never surfaces them.
  */
-function conversationTypeClause(filter: ConversationTypeFilter) {
+function conversationTypeClause(type: ConversationType) {
   const notSubagent = sql`(${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`;
-  switch (filter) {
-    case "foreground":
+  switch (type) {
+    case "standard":
       return sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
     case "background":
       return sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND ${notSubagent}`;
@@ -116,14 +111,14 @@ function conversationTypeClause(filter: ConversationTypeFilter) {
 
 export function listConversations(
   limit?: number,
-  typeFilter: ConversationTypeFilter = "foreground",
+  conversationType: ConversationType = "standard",
   offset = 0,
   archiveStatus: ArchiveStatusFilter = "active",
 ): ConversationRow[] {
   ensureDisplayOrderMigration();
   ensureGroupMigration();
   const db = getDb();
-  const typeCond = conversationTypeClause(typeFilter);
+  const typeCond = conversationTypeClause(conversationType);
   const archiveCond = archiveStatusClause(archiveStatus);
   const where = archiveCond ? sql`${typeCond} AND ${archiveCond}` : typeCond;
   const query = db
@@ -306,12 +301,12 @@ export function listConversationsByTitlePrefix(
 }
 
 export function countConversations(
-  typeFilter: ConversationTypeFilter = "foreground",
+  conversationType: ConversationType = "standard",
   archiveStatus: ArchiveStatusFilter = "active",
 ): number {
   ensureGroupMigration();
   const db = getDb();
-  const typeCond = conversationTypeClause(typeFilter);
+  const typeCond = conversationTypeClause(conversationType);
   const archiveCond = archiveStatusClause(archiveStatus);
   const where = archiveCond ? sql`${typeCond} AND ${archiveCond}` : typeCond;
   const [{ total }] = db

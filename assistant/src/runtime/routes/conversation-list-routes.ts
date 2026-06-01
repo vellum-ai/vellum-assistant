@@ -23,11 +23,11 @@ import {
 } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import {
-  type ConversationTypeFilter,
   countConversations,
   listConversations,
   listPinnedConversations,
 } from "../../memory/conversation-queries.js";
+import type { ConversationType } from "../../memory/conversation-types.js";
 import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
 import { listGroups } from "../../memory/group-crud.js";
 import { UserError } from "../../util/errors.js";
@@ -179,13 +179,13 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   const offset = Number(queryParams.offset ?? 0);
   // "background" is the back-compat umbrella (background + scheduled); newer
   // clients can pass "scheduled" to load only the Scheduled section. Anything
-  // else (including absent) defaults to the foreground list.
-  const conversationType: ConversationTypeFilter =
+  // else (including absent) defaults to the standard foreground list.
+  const conversationType: ConversationType =
     queryParams.conversationType === "background"
       ? "background"
       : queryParams.conversationType === "scheduled"
         ? "scheduled"
-        : "foreground";
+        : "standard";
   // Defaults to `active` so sidebar restores no longer pull archived rows.
   // The Archive page opts into `archived` to render only archived rows
   // without dragging the entire live history through pagination first.
@@ -205,7 +205,7 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   // rows in archive-time order, not pin order.
   if (
     offset === 0 &&
-    conversationType === "foreground" &&
+    conversationType === "standard" &&
     archiveStatus === "active"
   ) {
     const pinned = listPinnedConversations(archiveStatus);
