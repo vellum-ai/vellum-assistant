@@ -506,7 +506,7 @@ export function registerServerCommand(program: Command): void {
     )
     .option(
       "--ngrok",
-      "Expose the server publicly via an ngrok HTTPS tunnel (requires `ngrok` on PATH and a configured authtoken)",
+      "Expose the server publicly via an ngrok HTTPS tunnel (requires `ngrok` on PATH; supply an authtoken via `NGROK_AUTHTOKEN` env var or `ngrok config add-authtoken`)",
     )
     .action(async (opts: { host: string; port: number; ngrok?: boolean }) => {
       // Before starting the server, clean up any stale runs.

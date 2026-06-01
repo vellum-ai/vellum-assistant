@@ -21,7 +21,8 @@ import { useViewerStore } from "@/stores/viewer-store";
  * store is global and document surface ids are globally unique.
  */
 export function useDocumentEditorSync(): void {
-  useBusSubscription("sse.event", (event) => {
+  useBusSubscription("sse.event", (envelope) => {
+    const event = envelope.message;
     if (event.type !== "document_editor_update") return;
     useViewerStore
       .getState()

@@ -41,7 +41,6 @@ import {
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/chat/subagent-store";
-import type { SubagentStatus } from "@vellumai/assistant-api";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -70,6 +69,7 @@ import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
+import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useConversationLoader } from "@/domains/conversations/use-conversation-loader";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
 import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration";
@@ -83,6 +83,8 @@ import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-han
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
+import { hydrateLastSeenSeqFromStorage } from "@/lib/streaming/last-seen-seq";
+import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
 import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
@@ -221,6 +223,15 @@ export function ChatPage() {
   });
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
+
+  // Hydrate per-conversation seq cursors from localStorage once so gap
+  // detection in use-event-stream has a seeded cursor before the first
+  // bus event arrives. Gated behind the debug flag.
+  useEffect(() => {
+    if (isSeqGapDetectionEnabled()) {
+      hydrateLastSeenSeqFromStorage();
+    }
+  }, []);
 
   // -------------------------------------------------------------------------
   // Conversation list / groups (server state via TanStack Query)
@@ -856,10 +867,9 @@ export function ChatPage() {
       let eventCounter = 0;
       const events: SubagentTimelineEvent[] = [];
 
-      for (const evt of detail.events ?? []) {
-        const rawType = typeof evt.type === "string" ? evt.type : "unknown";
+      for (const evt of detail.events) {
         let type: SubagentTimelineEvent["type"];
-        switch (rawType) {
+        switch (evt.type) {
           case "text":
           case "assistant_text_delta":
             type = "text";
@@ -878,14 +888,7 @@ export function ChatPage() {
             continue;
         }
 
-        const content =
-          typeof evt.content === "string"
-            ? evt.content
-            : typeof evt.text === "string"
-              ? evt.text
-              : typeof evt.result === "string"
-                ? evt.result
-                : "";
+        const content = evt.content;
 
         if (type === "text" && content === "") continue;
 
@@ -900,15 +903,15 @@ export function ChatPage() {
           id: `detail-${++eventCounter}`,
           type,
           content,
-          toolName: typeof evt.toolName === "string" ? evt.toolName : undefined,
-          isError: typeof evt.isError === "boolean" ? evt.isError : undefined,
-          timestamp: typeof evt.timestamp === "number" ? evt.timestamp : Date.now(),
+          toolName: evt.toolName,
+          isError: evt.isError,
+          timestamp: Date.now(),
         });
       }
 
       useSubagentStore.getState().loadDetail({
         subagentId,
-        status: (detail.status as SubagentStatus) || undefined,
+        status: detail.status,
         objective: detail.objective,
         inputTokens: detail.usage?.inputTokens,
         outputTokens: detail.usage?.outputTokens,
@@ -1279,24 +1282,10 @@ export function ChatPage() {
     return () => { setTopBarCenter(null); };
   }, [topBarCenterContent, setTopBarCenter]);
 
-  // Open an app from inside a chat (assets pill, "Open App" on a message).
-  // On macOS this enters side-by-side editing mode (chat + app preview);
-  // we mirror that here by transitioning the viewer to `app-editing` once
-  // the load lands, keeping the current conversation as the edit chat.
-  // Bail if the load failed or a newer open superseded this one.
-  const handleOpenAppFromChat = useCallback(
-    async (appId: string) => {
-      if (!assistantId) return;
-      haptic.light();
-      await useViewerStore.getState().loadApp(assistantId, appId);
-      const { activeAppId, openedAppState } = useViewerStore.getState();
-      if (activeConversationId && openedAppState && activeAppId === appId) {
-        useConversationStore.getState().setEditingConversationId(activeConversationId);
-        useViewerStore.getState().enterAppEditing();
-      }
-    },
-    [assistantId, activeConversationId],
-  );
+  // Open an app from inside a chat (assets pill, "Open App" on a message,
+  // sidebar pinned-app click). Shared with `chat-layout.tsx` — see
+  // `use-open-app-from-chat.ts` for the loadApp → enterAppEditing flow.
+  const handleOpenAppFromChat = useOpenAppFromChat();
 
   const handleOpenDocument = useCallback(
     (surfaceId: string) => {

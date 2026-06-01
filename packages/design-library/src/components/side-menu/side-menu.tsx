@@ -426,8 +426,20 @@ function SideMenuSubList({
 // Item
 // ---------------------------------------------------------------------------
 
+/**
+ * Leading icon for a SideMenu.Item.
+ *
+ * Polymorphic by design: most call sites pass a Lucide component (`Globe`,
+ * `Rocket`, …), but app-shaped surfaces (pinned apps, library entries) carry
+ * an emoji string on their record (`app.icon: "🚀"`) sourced from the app
+ * manifest. Accepting either keeps the prop name consistent end-to-end with
+ * the underlying field and lets callers express the fallback inline:
+ * `icon={app.icon ?? Rocket}`.
+ */
+export type SideMenuItemIcon = LucideIcon | string;
+
 export interface SideMenuItemProps {
-  icon?: LucideIcon;
+  icon?: SideMenuItemIcon;
   label: string;
   badge?: ReactNode;
   trailingIcon?: LucideIcon;
@@ -443,12 +455,12 @@ export interface SideMenuItemProps {
 }
 
 function ItemLeadingIcon({
-  Icon,
+  icon,
   indent,
   active,
   collapsed,
 }: {
-  Icon: LucideIcon | undefined;
+  icon: SideMenuItemIcon | undefined;
   indent: boolean;
   active: boolean;
   collapsed: boolean;
@@ -461,7 +473,24 @@ function ItemLeadingIcon({
       />
     );
   }
-  if (!Icon) return null;
+  if (!icon) return null;
+  // String icons (emoji) render in a fixed-size span sized to match the 14px
+  // Lucide icons so layout stays uniform whether the row is a Lucide-backed
+  // nav entry or an app row pulling an emoji from its manifest.
+  if (typeof icon === "string") {
+    return (
+      <span
+        aria-hidden
+        className={cn(
+          "inline-flex h-[14px] w-[14px] shrink-0 items-center justify-center text-[14px] leading-none",
+          collapsed ? "mx-auto" : undefined,
+        )}
+      >
+        {icon}
+      </span>
+    );
+  }
+  const Icon = icon;
   const iconClass = cn(
     "shrink-0",
     active
@@ -498,7 +527,7 @@ type SharedButtonProps = Omit<
 >;
 
 function SideMenuItem({
-  icon: Icon,
+  icon,
   label,
   badge,
   trailingIcon: TrailingIcon,
@@ -554,7 +583,7 @@ function SideMenuItem({
 
   const leadingIconNode = (
     <ItemLeadingIcon
-      Icon={Icon}
+      icon={icon}
       indent={indent}
       active={active}
       collapsed={collapsed}

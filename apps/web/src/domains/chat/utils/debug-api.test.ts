@@ -766,6 +766,7 @@ type DebugWindow = Window & {
     flags?: {
       impersonateVersion?: (v?: string | null) => string | null;
       toggleProgressBadge?: (v?: boolean | null) => boolean;
+      toggleSeqGapDetection?: (v?: boolean | null) => boolean;
     };
     other?: unknown;
   };
@@ -774,6 +775,7 @@ type DebugWindow = Window & {
 const makeFlagsApi = () => ({
   impersonateVersion: (_value?: string | null): string | null => null,
   toggleProgressBadge: (_value?: boolean | null): boolean => false,
+  toggleSeqGapDetection: (_value?: boolean | null): boolean => false,
 });
 
 describe("installVellumDebugApi", () => {

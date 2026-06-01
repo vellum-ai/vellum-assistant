@@ -5,9 +5,19 @@ import type {
   AgentEvent,
   AgentLoopRunOptions,
   AgentLoopRunResult,
+  MidLoopCompaction,
 } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  CompactionArgs,
+  CompactionResult,
+  TurnContext,
+} from "../plugins/types.js";
+import { PluginTimeoutError } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
@@ -552,6 +562,45 @@ type AgentLoopRun = (
 ) => Promise<Message[]>;
 
 /**
+ * Faithful re-implementation of `AgentLoop.compact()` for the mock loop: run
+ * the compaction pipeline against the supplied turn context (which carries the
+ * test's `contextWindowManager`), invoke the orchestrator-supplied hooks, and
+ * return the continuation history — or `null` on timeout/exhaustion so the
+ * caller yields "budget".
+ */
+async function simulateInlineCompaction(
+  compaction: MidLoopCompaction,
+  history: Message[],
+  turnContext: TurnContext | undefined,
+  signal: AbortSignal | undefined,
+): Promise<Message[] | null> {
+  compaction.onCompacting?.();
+  const { rawHistory, options } = compaction.prepare(history);
+  let result: CompactionResult;
+  try {
+    result = await runPipeline<CompactionArgs, CompactionResult>(
+      "compaction",
+      getMiddlewaresFor("compaction"),
+      (args) => defaultCompactionTerminal(args, turnContext as TurnContext),
+      { messages: rawHistory, signal, options },
+      turnContext as TurnContext,
+      DEFAULT_TIMEOUTS.compaction,
+    );
+  } catch (error) {
+    if (error instanceof PluginTimeoutError) {
+      await compaction.onTimeout();
+      return null;
+    }
+    throw error;
+  }
+  const { exhausted } = await compaction.persist(result, rawHistory);
+  if (exhausted) {
+    return null;
+  }
+  return compaction.reinject();
+}
+
+/**
  * Adapt a `Message[]`-returning mock loop body into `run()`'s real result
  * shape. Mirrors the production loop: the pause-reason carried back is
  * whatever the most recent `onCheckpoint` call yielded with (null when it
@@ -579,10 +628,12 @@ const asAgentLoopRun = (
             exitReason = decision;
             return decision;
           }
-          // The mid-loop budget gate lives inside `AgentLoop.run`. Replicate
-          // it here — using the same formula and the stubbed estimator — so
-          // these orchestrator-escalation tests still drive the budget-yield
-          // path now that the orchestrator's `onCheckpoint` is handoff-only.
+          // The mid-loop budget gate and inline compaction both live inside
+          // `AgentLoop.run`. Replicate them here — same formula, stubbed
+          // estimator, and the loop's own `compact()` ceremony — so these
+          // orchestrator tests drive the real escalation path now that the
+          // orchestrator's `onCheckpoint` is handoff-only and compaction runs
+          // inline rather than via an orchestrator re-entry loop.
           const contextWindow = options.resolveContextWindow?.();
           if (contextWindow?.overflowRecovery.enabled) {
             const { maxInputTokens, overflowRecovery } = contextWindow;
@@ -594,6 +645,21 @@ const asAgentLoopRun = (
               maxInputTokens * (1 - safetyMargin),
             );
             if (mockEstimateTokens > preflightBudget * 0.85) {
+              // Mirror `AgentLoop.compact()`: when a compaction path is
+              // supplied, run it in place and continue; on timeout or
+              // exhaustion it returns null, so the loop yields "budget".
+              const compacted = options.compaction
+                ? await simulateInlineCompaction(
+                    options.compaction,
+                    info.history,
+                    options.turnContext,
+                    options.signal,
+                  )
+                : null;
+              if (compacted) {
+                exitReason = null;
+                return "continue";
+              }
               exitReason = "budget";
               return "budget";
             }
@@ -4366,12 +4432,15 @@ describe("session-agent-loop", () => {
       ) => {
         runCount++;
         if (runCount === 1) {
+          // The loop reaches its mid-loop budget checkpoint with the raw
+          // persistent basis as its in-loop history; the wrapped onCheckpoint
+          // trips the gate and runs inline compaction over that basis.
           mockEstimateTokens = 90_000;
           const decision = await options?.onCheckpoint?.({
             turnIndex: 0,
             toolCount: 1,
             hasToolUse: true,
-            history: messages,
+            history: rawMidLoopBasis,
           });
           mockEstimateTokens = 1000;
           if (decision !== "continue") {

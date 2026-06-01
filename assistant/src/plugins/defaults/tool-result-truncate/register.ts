@@ -2,12 +2,12 @@
  * Default `toolResultTruncate` plugin.
  *
  * The plugin's middleware is a passthrough — it calls `next(args)` and returns
- * the result unchanged. The actual truncation lives in
- * {@link defaultToolResultTruncateTerminal}, which is wired in as the
- * pipeline's `terminal` argument by the `runPipeline` call site in
- * `agent/loop.ts`. This separation matters: the default plugin is registered
- * before any user plugin (defaults load first in `bootstrapPlugins()`), which
- * puts it at the OUTERMOST position of the onion chain. If the default
+ * the result unchanged. The actual truncation lives in the terminal handler in
+ * `./terminal.ts`, which is wired in as the pipeline's `terminal` argument by
+ * the `runPipeline` call site in `agent/loop.ts`. This separation matters: the
+ * default plugin is registered before any user plugin (defaults load first in
+ * `bootstrapPlugins()`), which puts it at the OUTERMOST position of the onion
+ * chain. If the default
  * middleware were to invoke the terminal directly without calling `next`, it
  * would shadow every later-registered plugin (including hot-reloaded ones).
  * Routing through `next(args)` lets user middleware participate normally.
@@ -15,31 +15,15 @@
  * Design doc: `.private/plans/agent-plugin-system.md` (PR 17).
  */
 
-import { truncateToolResultText } from "../../context/tool-result-truncation.js";
-import { registerPlugin } from "../registry.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type Middleware,
   type Plugin,
   PluginExecutionError,
   type ToolResultTruncateArgs,
   type ToolResultTruncateResult,
-} from "../types.js";
-
-/**
- * Terminal handler for the `toolResultTruncate` pipeline. Exported so tests
- * can verify default behavior directly without going through `runPipeline`,
- * and so `agent/loop.ts` can pass it as the `terminal` argument to
- * `runPipeline`.
- */
-export function defaultToolResultTruncateTerminal(
-  args: ToolResultTruncateArgs,
-): ToolResultTruncateResult {
-  const truncated = truncateToolResultText(args.content, args.maxChars);
-  return {
-    content: truncated,
-    truncated: truncated !== args.content,
-  };
-}
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 const passthrough: Middleware<
   ToolResultTruncateArgs,
@@ -53,8 +37,8 @@ const passthrough: Middleware<
  */
 export const defaultToolResultTruncatePlugin: Plugin = {
   manifest: {
-    name: "default-tool-result-truncate",
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
   middleware: {
     toolResultTruncate: passthrough,

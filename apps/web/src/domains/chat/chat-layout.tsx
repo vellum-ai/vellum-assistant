@@ -20,6 +20,10 @@ import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
+import {
+  chooseSidebarOpenAppDestination,
+  useOpenAppFromChat,
+} from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 
 import { useVellumCommands } from "@/runtime/vellum-commands";
@@ -511,6 +515,28 @@ export function ChatLayout() {
 
   const isLibraryActive = location.pathname.startsWith("/assistant/library");
 
+  // Sidebar pinned-app open. The viewer panel only renders under ChatPage
+  // (mounted at `/assistant` index + `/assistant/conversations/:id`), so a
+  // pinned-app click from home / library / identity / inspector etc. would
+  // mutate the viewer store with no surface to display against. Navigate
+  // to a chat route first when off-chat, then run the shared open flow.
+  //
+  // See `use-open-app-from-chat.ts` for the loadApp → enterAppEditing flow
+  // shared with the transcript / assets-pill open path.
+  const openAppFromChat = useOpenAppFromChat();
+  const activeAppId = useViewerStore.use.activeAppId();
+  const handleOpenAppFromSidebar = useCallback(
+    async (appId: string) => {
+      const dest = chooseSidebarOpenAppDestination(
+        location.pathname,
+        activeConversationId,
+      );
+      if (dest) void navigate(dest);
+      await openAppFromChat(appId);
+    },
+    [location.pathname, navigate, activeConversationId, openAppFromChat],
+  );
+
   // Inspector affordance for the sidebar context menu. The topbar variant
   // (in `chat-page.tsx`) uses `useConversationSecondaryActions` so it can
   // enrich the URL with the latest assistant `messageId` from the active
@@ -546,6 +572,8 @@ export function ChatLayout() {
         onOpenIntelligence={handleOpenIdentity}
         isLibraryActive={isLibraryActive}
         onOpenLibrary={handleOpenLibrary}
+        activeAppId={activeAppId ?? undefined}
+        onOpenApp={handleOpenAppFromSidebar}
         onPinConversation={handleTogglePinConversation}
         onRenameConversation={handleRenameConversation}
         onArchiveConversation={handleArchiveConversation}
@@ -593,6 +621,8 @@ export function ChatLayout() {
       handleOpenIdentity,
       isLibraryActive,
       handleOpenLibrary,
+      activeAppId,
+      handleOpenAppFromSidebar,
       showLlmInspector,
       handleInspectConversation,
     ],

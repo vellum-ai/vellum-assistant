@@ -490,7 +490,7 @@ export function buildSubagentStatusBlock(
 }
 
 // The `<active_subagents>` block is emitted by the `subagent-status` default
-// injector (`plugins/defaults/injectors.ts`) as an `append-user-tail`
+// injector (`plugins/defaults/injectors/register.ts`) as an `append-user-tail`
 // placement. Use {@link applyRuntimeInjections} with
 // `options.subagentStatusBlock` set, or drive the injector chain directly
 // via `collectInjectorBlocks`.
@@ -533,7 +533,7 @@ export function readNowScratchpad(): string | null {
 
 /**
  * The `<NOW.md>` block is emitted by the `now-md` default injector
- * (`plugins/defaults/injectors.ts`) as an `after-memory-prefix` placement.
+ * (`plugins/defaults/injectors/register.ts`) as an `after-memory-prefix` placement.
  * Use {@link applyRuntimeInjections} with `options.nowScratchpad` set.
  */
 

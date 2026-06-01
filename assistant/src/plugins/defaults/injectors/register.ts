@@ -48,13 +48,13 @@
 
 import { resolve } from "node:path";
 
-import { getConfig } from "../../config/loader.js";
-import { getInContextPkbPaths } from "../../daemon/pkb-context-tracker.js";
-import { buildPkbReminder } from "../../daemon/pkb-reminder-builder.js";
-import { listComments } from "../../documents/document-comments-store.js";
-import { searchPkbFiles } from "../../memory/pkb/pkb-search.js";
-import { getLogger } from "../../util/logger.js";
-import { registerPlugin } from "../registry.js";
+import { getConfig } from "../../../config/loader.js";
+import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
+import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
+import { listComments } from "../../../documents/document-comments-store.js";
+import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
+import { getLogger } from "../../../util/logger.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type InjectionBlock,
   type Injector,
@@ -62,7 +62,8 @@ import {
   PluginExecutionError,
   type TurnContext,
   type TurnInjectionInputs,
-} from "../types.js";
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 const pkbReminderLog = getLogger("pkb-reminder");
 
@@ -686,8 +687,8 @@ const threadFocusInjector: Injector = {
  */
 export const defaultInjectorsPlugin: Plugin = {
   manifest: {
-    name: "default-injectors",
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
   injectors: [
     diskPressureWarningInjector,

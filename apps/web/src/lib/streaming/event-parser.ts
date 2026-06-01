@@ -2,91 +2,61 @@
  * SSE event parsing for the assistant chat stream.
  *
  * Exports `parseAssistantEvent`, which takes a raw SSE payload and
- * returns a typed `AssistantEvent`. The parser unwraps the
- * envelope/flat shape and validates the inner message against the
- * canonical `AssistantEventSchema` from `@vellumai/assistant-api`,
- * which is the source of truth for every wire event. Anything the
- * union doesn't recognise becomes an `UnknownEvent` so callers can
- * safely ignore it without crashing.
+ * returns a typed `AssistantEventEnvelope`. The primary path validates
+ * the full envelope (metadata + inner message) against
+ * `AssistantEventEnvelopeSchema` from `@vellumai/assistant-api`.
+ * Payloads that don't match (unknown event types, legacy flat shapes)
+ * are wrapped in an envelope with an `UnknownEvent` message so callers
+ * can safely ignore them without crashing.
  */
 
 import type { AssistantEvent } from "@/types/event-types";
-import { AssistantEventSchema } from "@vellumai/assistant-api";
+import {
+  AssistantEventEnvelopeSchema,
+  AssistantEventSchema,
+  type AssistantEventEnvelope,
+} from "@vellumai/assistant-api";
 import { unknownEvent } from "@/lib/streaming/parse-helpers";
 
 /**
- * Unwrap envelope-shape payloads `{ message: { type, ...fields }, conversationId }`
- * into the inner event. Flat-shape payloads `{ type, ...fields }` pass
- * through unchanged.
+ * Parse a raw SSE payload into a typed `AssistantEventEnvelope`.
  *
- * Pure unwrap: the envelope-level `conversationId` (SSE routing key)
- * is NOT merged onto the inner message. Canonical schemas that don't
- * declare `conversationId` stay strict; the routing key is only folded
- * back in via `mergeEnvelopeConversationId` when building the
- * `UnknownEvent` fallback.
- */
-function unwrapEnvelope(data: Record<string, unknown>): {
-  inner: Record<string, unknown>;
-  envelopeConversationId: string | undefined;
-} {
-  const message = data.message;
-  if (
-    message &&
-    typeof message === "object" &&
-    !Array.isArray(message) &&
-    typeof (message as Record<string, unknown>).type === "string"
-  ) {
-    return {
-      inner: message as Record<string, unknown>,
-      envelopeConversationId:
-        typeof data.conversationId === "string"
-          ? data.conversationId
-          : undefined,
-    };
-  }
-  return { inner: data, envelopeConversationId: undefined };
-}
-
-/**
- * Merge the envelope-level `conversationId` onto the inner data when
- * the inner doesn't already declare one. Applied only when building the
- * `UnknownEvent` fallback, so per-conversation SSE subscribers can
- * still route an unrecognised payload by its envelope scope. Canonical
- * events never go through this — they declare the fields they require,
- * so the envelope routing key never leaks onto a parsed event.
- */
-function mergeEnvelopeConversationId(
-  inner: Record<string, unknown>,
-  envelopeConversationId: string | undefined,
-): Record<string, unknown> {
-  if (envelopeConversationId && typeof inner.conversationId !== "string") {
-    return { ...inner, conversationId: envelopeConversationId };
-  }
-  return inner;
-}
-
-/**
- * Parse a raw SSE payload into a typed `AssistantEvent`. Owns envelope
- * unwrap and canonical-schema dispatch. Tolerant of unknown event
- * types — returns an `UnknownEvent` for anything unrecognised so
- * callers can safely ignore it without crashing.
+ * Primary path: `AssistantEventEnvelopeSchema.safeParse` validates the
+ * full envelope in one shot. Fallback: extract the inner event (from
+ * `data.message` if envelope-shaped, or `data` itself if flat), try the
+ * inner schema, and wrap the result in a synthetic envelope.
  */
 export function parseAssistantEvent(
   data: Record<string, unknown>,
-): AssistantEvent {
-  const { inner, envelopeConversationId } = unwrapEnvelope(data);
+): AssistantEventEnvelope {
+  const envelopeResult = AssistantEventEnvelopeSchema.safeParse(data);
+  if (envelopeResult.success) {
+    return envelopeResult.data;
+  }
 
-  // The discriminated union in `@vellumai/assistant-api` is the source
-  // of truth for every wire event. The schema sees the pure inner
-  // message (no envelope merge): every schema declares the fields it
-  // requires (including `conversationId` for conversation-scoped
-  // events), so the envelope-level routing key never needs grafting on.
-  const schemaResult = AssistantEventSchema.safeParse(inner);
-  if (schemaResult.success) return schemaResult.data as AssistantEvent;
+  // Determine the inner payload: envelope-wrapped or flat shape.
+  const msg = data.message;
+  const inner =
+    msg &&
+    typeof msg === "object" &&
+    !Array.isArray(msg) &&
+    typeof (msg as Record<string, unknown>).type === "string"
+      ? (msg as Record<string, unknown>)
+      : data;
 
-  // Unrecognised payload. Stamp the envelope conversationId onto the
-  // fallback so per-conversation subscribers can still route it.
-  const merged = mergeEnvelopeConversationId(inner, envelopeConversationId);
-  const rawType = typeof merged.type === "string" ? merged.type : "";
-  return unknownEvent(rawType, merged);
+  const innerResult = AssistantEventSchema.safeParse(inner);
+  const event: AssistantEvent = innerResult.success
+    ? (innerResult.data as AssistantEvent)
+    : unknownEvent(typeof inner.type === "string" ? inner.type : "", inner);
+
+  return {
+    id: typeof data.id === "string" ? data.id : "",
+    conversationId:
+      typeof data.conversationId === "string"
+        ? data.conversationId
+        : undefined,
+    seq: typeof data.seq === "number" ? data.seq : undefined,
+    emittedAt: typeof data.emittedAt === "string" ? data.emittedAt : "",
+    message: event,
+  } as AssistantEventEnvelope;
 }

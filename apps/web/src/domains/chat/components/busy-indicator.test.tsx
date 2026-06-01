@@ -3,11 +3,11 @@
  *
  * The dot is a bare `<span>`, whose default `display: inline` makes the
  * CSS box model ignore `width`/`height`. Inside a flex parent the dot is
- * blockified and sizes correctly, but standalone (e.g. the avatar
- * `ProgressBadge`) it would collapse to 0×0 and never paint. The
- * `inline-block` class guarantees the dot lays out at its declared size
- * regardless of its parent's layout. Uses happy-dom via the bun:test
- * preload configured in `web/bunfig.toml`.
+ * blockified and sizes correctly, but standalone (outside a flex parent)
+ * it would collapse to 0×0 and never paint. The `inline-block` class
+ * guarantees the dot lays out at its declared size regardless of its
+ * parent's layout. Uses happy-dom via the bun:test preload configured in
+ * `web/bunfig.toml`.
  */
 
 import { afterEach, describe, expect, test } from "bun:test";

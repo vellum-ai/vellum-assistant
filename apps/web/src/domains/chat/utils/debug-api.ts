@@ -49,6 +49,9 @@ import {
   setProgressBadgeEnabled,
 } from "@/lib/feature-flags/progress-badge-flag";
 import {
+  setSeqGapDetectionEnabled,
+} from "@/lib/feature-flags/seq-gap-detection-flag";
+import {
   classifyScrollPosition,
   type TranscriptHandle,
 } from "@/domains/chat/transcript/use-transcript-scroll";
@@ -802,6 +805,20 @@ export interface VellumDebugFlagsApi {
    *
    *  Returns the value in effect after the call. */
   toggleProgressBadge(value?: boolean | null): boolean;
+
+  /** Opt into client-side seq gap detection. When enabled, the bus
+   *  subscriber tracks per-conversation seq cursors and triggers
+   *  reconcile on gaps or server restarts. Persists to localStorage
+   *  and reloads.
+   *
+   *  - `toggleSeqGapDetection(true)`   — enable + reload.
+   *  - `toggleSeqGapDetection(false)`  — disable + reload.
+   *  - `toggleSeqGapDetection(null)`   — clear + reload (same as false).
+   *  - `toggleSeqGapDetection()`       — log + return current value
+   *    (no reload, no mutation).
+   *
+   *  Returns the value in effect after the call. */
+  toggleSeqGapDetection(value?: boolean | null): boolean;
 }
 
 interface VellumDebugRoot extends Record<string, unknown> {
@@ -918,6 +935,7 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
     const flagsApi: VellumDebugFlagsApi = {
       impersonateVersion: setImpersonatedAssistantVersion,
       toggleProgressBadge: setProgressBadgeEnabled,
+      toggleSeqGapDetection: setSeqGapDetectionEnabled,
     };
     const uninstall = installVellumDebugApi(api, flagsApi);
     return uninstall;

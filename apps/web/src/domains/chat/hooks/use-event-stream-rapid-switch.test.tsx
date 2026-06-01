@@ -3,6 +3,7 @@ import { cleanup, renderHook } from "@testing-library/react";
 import { act } from "react";
 import { useRef, type MutableRefObject } from "react";
 
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
@@ -79,10 +80,15 @@ function renderEventStreamWithCapture(
 
 function publishDelta(conversationId: string): void {
   useEventBusStore.getState().publish("sse.event", {
-    type: "assistant_text_delta",
+    id: `evt-${Math.random().toString(36).slice(2, 6)}`,
     conversationId,
-    delta: `delta-${Math.random().toString(36).slice(2, 6)}`,
-  } as unknown as AssistantEvent);
+    emittedAt: new Date().toISOString(),
+    message: {
+      type: "assistant_text_delta",
+      conversationId,
+      text: `delta-${Math.random().toString(36).slice(2, 6)}`,
+    },
+  } as AssistantEventEnvelope);
 }
 
 beforeEach(() => {
@@ -232,16 +238,24 @@ describe("useEventStream — rapid conversation switch stress", () => {
       observeKey,
     );
     useEventBusStore.getState().publish("sse.event", {
-      type: "sync_changed",
-      tags: ["assistant:self:identity"],
-    } as unknown as AssistantEvent);
+      id: "evt-sync-1",
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "sync_changed",
+        tags: ["assistant:self:identity"],
+      },
+    } as AssistantEventEnvelope);
     act(() => {
       rerender({ key: "conv-B" });
     });
     useEventBusStore.getState().publish("sse.event", {
-      type: "sync_changed",
-      tags: ["assistant:self:avatar"],
-    } as unknown as AssistantEvent);
+      id: "evt-sync-2",
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "sync_changed",
+        tags: ["assistant:self:avatar"],
+      },
+    } as AssistantEventEnvelope);
     expect(captured).toHaveLength(2);
     expect((captured[0]!.event as { type: string }).type).toBe("sync_changed");
     expect((captured[1]!.event as { type: string }).type).toBe("sync_changed");

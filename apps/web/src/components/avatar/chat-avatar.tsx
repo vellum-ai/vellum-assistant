@@ -1,7 +1,7 @@
 import { motion, useReducedMotion } from "motion/react";
 import { useCallback, useMemo, useState, type CSSProperties } from "react";
 
-import { BusyIndicator } from "@/domains/chat/components/busy-indicator";
+import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
 import { isProgressBadgeEnabled } from "@/lib/feature-flags/progress-badge-flag";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { AnimatedAvatar } from "./animated-avatar";
@@ -18,25 +18,28 @@ export interface ChatAvatarProps {
 }
 
 /** Tunable badge geometry. Sizes scale with avatar size for visual consistency. */
-const BADGE_DOT_RATIO = 0.16; // dot diameter / avatar size — 56px avatar → ~9px dot
+const BADGE_DOT_RATIO = 0.1; // each dot diameter / avatar size — 56px avatar → ~6px dot
+const BADGE_GAP_RATIO = 0.05; // gap between dots / avatar size
 const BADGE_RING_RATIO = 0.04; // ring thickness / avatar size
 
 /**
- * Pulsing dot in the bottom-right corner of the avatar. Reuses
- * `BusyIndicator` for the pulse so the visual matches every other
- * "busy" affordance in the app (card-header status, tool-call chip).
+ * Pulsing three-dot "thinking" indicator in the bottom-right corner of the
+ * avatar. Reuses `ThreeDotIndicator` so the badge reads as the same typing
+ * affordance shown elsewhere in chat. A pill is wide enough to fit all three
+ * dots; a single round dot was too narrow to convey "thinking".
  *
- * A solid ring (same color as the surrounding chat surface) separates
- * the dot from the avatar background so it reads cleanly against either
- * a character avatar or a custom image.
+ * A solid ring (same color as the surrounding chat surface) separates the
+ * dots from the avatar background so they read cleanly against either a
+ * character avatar or a custom image.
  */
 function ProgressBadge({ size }: { size: number }) {
-  const dot = Math.max(6, Math.round(size * BADGE_DOT_RATIO));
+  const dot = Math.max(3, Math.round(size * BADGE_DOT_RATIO));
+  const gap = Math.max(2, Math.round(size * BADGE_GAP_RATIO));
   const ring = Math.max(1, Math.round(size * BADGE_RING_RATIO));
   return (
     <span
       aria-hidden="true"
-      className="absolute rounded-full"
+      className="absolute flex items-center justify-center rounded-full"
       style={{
         bottom: 0,
         right: 0,
@@ -44,7 +47,7 @@ function ProgressBadge({ size }: { size: number }) {
         backgroundColor: "var(--surface-base)",
       }}
     >
-      <BusyIndicator size={dot} />
+      <ThreeDotIndicator dotSize={dot} gap={gap} />
     </span>
   );
 }

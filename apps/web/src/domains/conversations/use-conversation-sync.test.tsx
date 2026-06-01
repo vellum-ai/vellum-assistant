@@ -6,7 +6,7 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import {
   conversationGroupsQueryKey,
 } from "@/domains/conversations/conversation-queries";
-import type { AssistantEvent } from "@/types/event-types";
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { Conversation } from "@/types/conversation-types";
 import { conversationsQueryKey } from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
@@ -68,10 +68,11 @@ function syncEvent(tags: string[]): SyncChangedEvent {
 }
 
 function emit(event: SyncChangedEvent): void {
-  // SyncChangedEvent is structurally assignable to AssistantSyncChangedEvent
-  // (which only adds an optional conversationId field), so this cast is safe.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  useEventBusStore.getState().publish("sse.event", event as any);
+  useEventBusStore.getState().publish("sse.event", {
+    id: "evt-1",
+    emittedAt: new Date().toISOString(),
+    message: event,
+  } as AssistantEventEnvelope);
 }
 
 function emitOpened(
@@ -304,10 +305,15 @@ describe("useConversationSync", () => {
       wrapper: createWrapper(queryClient),
     });
     useEventBusStore.getState().publish("sse.event", {
-      type: "conversation_title_updated",
+      id: "evt-title",
       conversationId: "conv-1",
-      title: "New Title",
-    } as unknown as AssistantEvent);
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "conversation_title_updated",
+        conversationId: "conv-1",
+        title: "New Title",
+      },
+    } as AssistantEventEnvelope);
     await waitFor(() => {
       const cached = queryClient.getQueryData<Conversation[]>(
         conversationsQueryKey("asst-1"),

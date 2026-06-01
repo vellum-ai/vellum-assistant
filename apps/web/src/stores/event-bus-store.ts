@@ -21,7 +21,7 @@
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import type { AssistantEvent } from "@/types/event-types";
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 /**
  * Source of a synthetic `"app.resume"` event.
@@ -49,12 +49,11 @@ export type AppHiddenSignal = "visibility" | "app_state";
 export interface BusEventMap {
   /**
    * Re-broadcast of an SSE event received on the bus-owned
-   * assistant-scoped `/v1/events` connection. Subscribers narrow on
-   * `payload.type`. Conversation-scoped consumers must filter on
-   * `event.conversationId` themselves — the bus delivers every
-   * event the underlying stream sees.
+   * assistant-scoped `/v1/events` connection. The envelope carries
+   * transport metadata (`seq`, `conversationId`, `emittedAt`);
+   * subscribers read the semantic event from `envelope.message`.
    */
-  "sse.event": AssistantEvent;
+  "sse.event": AssistantEventEnvelope;
   /**
    * The bus-owned SSE connection just opened (or reopened). Carries the
    * `cause` of the (re)open so consumers can distinguish a fresh

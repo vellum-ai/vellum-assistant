@@ -20,13 +20,14 @@
  * Design doc: `.private/plans/agent-plugin-system.md` (PR 15).
  */
 
-import { registerPlugin } from "../registry.js";
+import { registerPlugin } from "../../registry.js";
 import {
   type LLMCallArgs,
   type LLMCallResult,
   type Plugin,
   PluginExecutionError,
-} from "../types.js";
+} from "../../types.js";
+import pkg from "./package.json" with { type: "json" };
 
 /**
  * The default LLM-call plugin. Its `llmCall` middleware is a passthrough that
@@ -40,8 +41,8 @@ import {
  */
 export const defaultLlmCallPlugin: Plugin = {
   manifest: {
-    name: "default-llm-call",
-    version: "1.0.0",
+    name: pkg.name,
+    version: pkg.version,
   },
   middleware: {
     llmCall: async function defaultLlmCall(

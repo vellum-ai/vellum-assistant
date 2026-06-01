@@ -21,10 +21,8 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { repairHistory } from "../daemon/history-repair.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import {
-  defaultHistoryRepairPlugin,
-  defaultHistoryRepairTerminal,
-} from "../plugins/defaults/history-repair.js";
+import { defaultHistoryRepairPlugin } from "../plugins/defaults/history-repair/register.js";
+import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair/terminal.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

@@ -139,7 +139,7 @@ mock.module("../security/token-manager.js", () => ({
 
 // ── Imports — after mock.module so the executor under test picks them up ──
 import { PermissionPrompter } from "../permissions/prompter.js";
-import { defaultToolExecutePlugin } from "../plugins/defaults/tool-execute.js";
+import { defaultToolExecutePlugin } from "../plugins/defaults/tool-execute/register.js";
 import {
   getMiddlewaresFor,
   registerPlugin,

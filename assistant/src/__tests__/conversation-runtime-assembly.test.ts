@@ -65,7 +65,7 @@ import {
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
-import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
+import { defaultInjectorsPlugin } from "../plugins/defaults/injectors/register.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,

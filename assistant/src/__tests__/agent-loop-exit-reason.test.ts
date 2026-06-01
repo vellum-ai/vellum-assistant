@@ -20,8 +20,11 @@ import type {
   AgentEvent,
   CheckpointDecision,
   CheckpointInfo,
+  MidLoopCompaction,
 } from "../agent/loop.js";
 import { AgentLoop, isMaxTokensStopReason } from "../agent/loop.js";
+import type { TurnContext } from "../plugins/types.js";
+import { PluginTimeoutError } from "../plugins/types.js";
 import type {
   Message,
   Provider,
@@ -98,6 +101,40 @@ const userMessage: Message = {
   role: "user",
   content: [{ type: "text", text: "Hello" }],
 };
+
+// A turn context whose `contextWindowManager.maybeCompact` returns a canned
+// result, so the loop's native compaction pipeline runs without the real
+// orchestrator machinery.
+function fakeCompactionTurnContext(result: {
+  compacted: boolean;
+  exhausted: boolean;
+}): TurnContext {
+  return {
+    requestId: "req-compact",
+    conversationId: "conv-compact",
+    turnIndex: 0,
+    trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    contextWindowManager: {
+      maybeCompact: async () => result,
+    },
+  } as unknown as TurnContext;
+}
+
+// A turn context whose compaction call times out, exercising the loop's
+// PluginTimeoutError handling.
+function timeoutCompactionTurnContext(): TurnContext {
+  return {
+    requestId: "req-compact",
+    conversationId: "conv-compact",
+    turnIndex: 0,
+    trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    contextWindowManager: {
+      maybeCompact: async () => {
+        throw new PluginTimeoutError("compaction", "default-compaction", 1);
+      },
+    },
+  } as unknown as TurnContext;
+}
 
 function lastExitEvent(
   events: AgentEvent[],
@@ -337,6 +374,144 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     // THEN it never yields for budget.
     expect(result.exitReason).not.toBe("budget");
+  });
+
+  test("compacts in place and continues when the budget gate trips with a compaction hook", async () => {
+    // GIVEN a tool round that reaches a checkpoint, followed by a plain text
+    // response that ends the run after compaction continues the loop.
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("done after compaction"),
+    ]);
+    const toolExecutor = async () => ({ content: "ok", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    let prepared = false;
+    let persisted = false;
+    let reinjected = false;
+    const compaction: MidLoopCompaction = {
+      prepare: (history) => {
+        prepared = true;
+        return { rawHistory: history, options: undefined };
+      },
+      onTimeout: async () => {},
+      persist: async () => {
+        persisted = true;
+        return { exhausted: false };
+      },
+      reinject: async () => {
+        reinjected = true;
+        return [userMessage];
+      },
+    };
+
+    // WHEN the in-loop budget gate trips at the checkpoint
+    const result = await loop.run([userMessage], () => {}, {
+      resolveContextWindow: () => ({
+        maxInputTokens: 10,
+        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+      }),
+      compaction,
+      turnContext: fakeCompactionTurnContext({
+        compacted: true,
+        exhausted: false,
+      }),
+    });
+
+    // THEN the loop runs the compaction ceremony in place and continues to a
+    // clean exit instead of yielding for budget.
+    expect(prepared).toBe(true);
+    expect(persisted).toBe(true);
+    expect(reinjected).toBe(true);
+    expect(result.exitReason).not.toBe("budget");
+  });
+
+  test("yields 'budget' when inline compaction times out", async () => {
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("never reached"),
+    ]);
+    const toolExecutor = async () => ({ content: "ok", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    let timedOut = false;
+    const compaction: MidLoopCompaction = {
+      prepare: (history) => ({ rawHistory: history, options: undefined }),
+      onTimeout: async () => {
+        timedOut = true;
+      },
+      persist: async () => ({ exhausted: false }),
+      reinject: async () => {
+        throw new Error("reinject must not run after a timeout");
+      },
+    };
+
+    // WHEN the compaction pipeline throws a PluginTimeoutError
+    const result = await loop.run([userMessage], () => {}, {
+      resolveContextWindow: () => ({
+        maxInputTokens: 10,
+        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+      }),
+      compaction,
+      turnContext: timeoutCompactionTurnContext(),
+    });
+
+    // THEN the loop records the timeout and yields for budget so the
+    // orchestrator can escalate.
+    expect(timedOut).toBe(true);
+    expect(result.exitReason).toBe("budget");
+  });
+
+  test("yields 'budget' when inline compaction reports exhausted", async () => {
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("never reached"),
+    ]);
+    const toolExecutor = async () => ({ content: "ok", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    const compaction: MidLoopCompaction = {
+      prepare: (history) => ({ rawHistory: history, options: undefined }),
+      onTimeout: async () => {},
+      persist: async () => ({ exhausted: true }),
+      reinject: async () => {
+        throw new Error("reinject must not run when exhausted");
+      },
+    };
+
+    // WHEN compaction exhausts its retry budget
+    const result = await loop.run([userMessage], () => {}, {
+      resolveContextWindow: () => ({
+        maxInputTokens: 10,
+        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+      }),
+      compaction,
+      turnContext: fakeCompactionTurnContext({
+        compacted: false,
+        exhausted: true,
+      }),
+    });
+
+    // THEN the loop yields for budget so the orchestrator can escalate.
+    expect(result.exitReason).toBe("budget");
   });
 
   test("emits 'error' when provider throws an unhandled error", async () => {

@@ -6,13 +6,11 @@ export type PlatformGateState = "full" | "disabled" | "gated";
 
 export function usePlatformGate(): PlatformGateState {
   const hasPlatformSession = useAuthStore.use.hasPlatformSession();
-  const { platformFeaturesOff, hasHydrated } = useAssistantFeatureFlagStore(
-    (s) => ({
-      platformFeaturesOff:
-        (s as Record<string, unknown>).platformFeaturesInLocalMode === false,
-      hasHydrated: s.hasHydrated,
-    }),
+  const platformFeaturesOff = useAssistantFeatureFlagStore(
+    (s) =>
+      (s as Record<string, unknown>).platformFeaturesInLocalMode === false,
   );
+  const hasHydrated = useAssistantFeatureFlagStore((s) => s.hasHydrated);
 
   if (isLocalMode() && platformFeaturesOff) return "gated";
   if (isLocalMode() && !hasHydrated) return "disabled";

@@ -36,7 +36,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import {
   defaultOverflowReduceMiddleware,
   defaultOverflowReducePlugin,
-} from "../plugins/defaults/overflow-reduce.js";
+} from "../plugins/defaults/overflow-reduce/register.js";
 import { runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

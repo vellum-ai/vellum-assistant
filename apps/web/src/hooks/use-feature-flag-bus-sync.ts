@@ -36,8 +36,9 @@ export function useFeatureFlagBusSync(
 ): void {
   const queryClient = useQueryClient();
 
-  useBusSubscription("sse.event", (event) => {
+  useBusSubscription("sse.event", (envelope) => {
     if (!assistantId || !isAssistantActive) return;
+    const event = envelope.message;
     if (event.type !== "sync_changed") return;
     for (const tag of event.tags) {
       if (tag === SYNC_TAGS.featureFlagsClient) {

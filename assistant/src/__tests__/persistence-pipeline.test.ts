@@ -31,10 +31,8 @@ import {
 } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import {
-  defaultPersistencePlugin,
-  defaultPersistenceTerminal,
-} from "../plugins/defaults/persistence.js";
+import { defaultPersistencePlugin } from "../plugins/defaults/persistence/register.js";
+import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/terminal.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,
