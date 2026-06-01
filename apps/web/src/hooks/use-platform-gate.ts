@@ -113,6 +113,45 @@ export function useActiveAssistantIsPlatformHosted(): boolean {
   return false;
 }
 
+/**
+ * Is the active assistant's hosting still being resolved?
+ *
+ * Use this to compute the **race-window predicate** `isResolving` on
+ * platform-hosted-only surfaces. `useActiveAssistantIsPlatformHosted()`
+ * returns `false` for both *"resolving"* states AND *"already-resolved
+ * non-hosted"* states (`retired`, `error`, `awaiting_version_selection`,
+ * `self_hosted`, `active`+`isLocal:true`). Conflating those breaks UX:
+ * a permanent spinner / permanent disabled button in already-decided
+ * non-hosted states is not "still loading," it's "no hosted assistant."
+ *
+ * This helper isolates the *genuinely loading* state — `kind: "loading"`,
+ * before any server resolution or short-circuit has landed. That's the
+ * only state where the gate intentionally returns `"full"` despite
+ * unknown hosting (to avoid chrome flicker on deep-links). Pair it with
+ * the gate value to build `isResolving`:
+ *
+ * ```ts
+ * const platformGate = usePlatformGate({ platformHostedOnly: true });
+ * const isResolving =
+ *   platformGate === "full" && useActiveAssistantLifecycleIsLoading();
+ * ```
+ *
+ * Already-resolved non-hosted lifecycle kinds (`retired`, `error`,
+ * `awaiting_version_selection`) should fall through to whatever empty /
+ * error UX the surface already has — the gate's `"gated"` branch is
+ * reserved for *self-hosted* assistants, and these states aren't
+ * self-hosted, they're absent / broken. Don't gate them as "still
+ * loading."
+ *
+ * Returns `true` ONLY for `kind: "loading"`. Returns `false` for every
+ * other state, including transitional states (`initializing`,
+ * `cleaning_up`) that already know which assistant they're acting on.
+ */
+export function useActiveAssistantLifecycleIsLoading(): boolean {
+  const assistantState = useAssistantLifecycleStore.use.assistantState();
+  return assistantState.kind === "loading";
+}
+
 export function usePlatformGate(
   options: PlatformGateOptions = {},
 ): PlatformGateState {

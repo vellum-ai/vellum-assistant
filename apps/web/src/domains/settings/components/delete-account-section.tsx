@@ -9,7 +9,7 @@ import { toast } from "@vellum/design-library/components/toast";
 import { DetailCard } from "@/components/detail-card";
 import { userDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import {
-  useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
@@ -27,9 +27,12 @@ export function DeleteAccountSection() {
   // `{ kind: "loading" }`. The gate above returns `"full"` during that
   // window (intentional — prevents chrome flicker), but a click on the
   // delete button during the race would fire `userDeletionRequestCreate`
-  // against a possibly self-hosted assistant. The button MUST stay
-  // disabled until lifecycle resolves positively as platform-hosted.
-  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  // before we know which assistant is active. The button MUST stay
+  // disabled until lifecycle lands a resolution — note this is the
+  // genuine loading window only; already-resolved non-hosted states
+  // (`retired`, `error`) should NOT block account deletion, since the
+  // user's platform account exists independently of any assistant.
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
   const logout = useAuthStore.use.logout();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -53,7 +56,7 @@ export function DeleteAccountSection() {
   // API resolves) never skip a hook and trigger a hook-order violation.
   if (platformGate === "gated") return null;
 
-  const isResolving = platformGate === "full" && !isPlatformHosted;
+  const isResolving = platformGate === "full" && isLifecycleLoading;
 
   // Dialog lifetime can span gate transitions: a user can open the dialog
   // while resolved-as-hosted, then trigger an assistant switch (lifecycle

@@ -976,37 +976,57 @@ other state. The rendering decision (gate) and the fetch decision
 (resolved) are intentionally split: render eagerly, fetch + interact
 strictly.
 
-#### Interactive controls follow `useActiveAssistantIsPlatformHosted`, not `isLoading`
+#### Interactive controls: split `disabled` (strict) from `isResolving` (narrow)
 
 **A `useQuery` with `enabled: false` reports `isLoading: false`.** That
 means any `disabled` predicate that derives only from `isLoading` will
 evaluate to "enabled" during the resolution race — and a click on the
-control fires the mutation the gate exists to prevent. Treat the
-unresolved window as still-loading for the purposes of every
-interactive control on a platform-hosted-only surface:
+control fires the mutation the gate exists to prevent. The fix needs
+two predicates, doing two different jobs:
+
+1. **`disabled` is strict** on `!isPlatformHosted` — it covers every
+   state where the mutation has no meaningful target, including both
+   the deep-link race window AND already-resolved non-hosted states
+   (`retired`, `error`, `awaiting_version_selection`, `self_hosted`).
+2. **`isResolving` is narrow** on `useActiveAssistantLifecycleIsLoading()`
+   — it covers ONLY the genuine `kind: "loading"` window. This is the
+   indicator used for *loading UX*: spinners, hide-during-race popovers,
+   deferred-action auto-close. Resolved-non-hosted states are not
+   "still loading" — they're decided, and the surface should fall
+   through to its empty / error state, not stick on a spinner.
 
 ```ts
-const isResolving = platformGate === "full" && !isPlatformHosted;
+const platformGate = usePlatformGate({ platformHostedOnly: true });
+const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
 
 const disabled =
   platformGate !== "full" ||
-  !isPlatformHosted ||           // strict-too on interaction
+  !isPlatformHosted ||           // strict — every non-hosted state
   isLoading ||
   isError ||
   mutation.isPending;
 
-// Or, for whole sub-trees that should disappear during the race:
+const isResolving = platformGate === "full" && isLifecycleLoading;
+
+// Hide whole sub-trees during the race window only (not in retired etc):
 {!isResolving && <MutationFiringPopoverTrigger />}
 
-// And surface loading state to the user so they know to wait:
+// Surface loading state to the user so they know to wait — but only
+// during the genuine race:
 const showLoading = isResolving || isLoading;
 {showLoading ? <Spinner /> : <Content />}
 ```
 
+The rule is: **`disabled` blocks the click; `isResolving` shows the
+UX cue for "we're working on it."** Conflating the two breaks UX in
+already-decided non-hosted states (permanent spinner, permanent
+disabled button with no explanation).
+
 This applies to every UI surface gated by `platformHostedOnly: true`:
-toggles, popover triggers, "mark all as read" buttons, etc. The rule
-is: **if it can fire a mutation, it must be disabled (or hidden)
-while `!isPlatformHosted`.**
+toggles, popover triggers, "mark all as read" buttons, etc. Mutation
+must be impossible while `!isPlatformHosted`; loading UX must reflect
+only the genuine `lifecycleIsLoading` window.
 
 ##### Deferred-action UI: dialog/popover lifetime spans gate transitions
 

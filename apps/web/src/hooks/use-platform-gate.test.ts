@@ -12,6 +12,7 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { AssistantState } from "@/assistant/types";
 import {
   useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 
@@ -260,6 +261,78 @@ describe("useActiveAssistantIsPlatformHosted", () => {
       setLifecycle(assistantState);
       const { result, unmount } = renderHook(() =>
         useActiveAssistantIsPlatformHosted(),
+      );
+      expect(result.current).toBe(false);
+      unmount();
+    }
+  });
+});
+
+describe("useActiveAssistantLifecycleIsLoading", () => {
+  test("returns true for kind: loading", () => {
+    setLifecycle({ kind: "loading" });
+    const { result } = renderHook(() =>
+      useActiveAssistantLifecycleIsLoading(),
+    );
+    expect(result.current).toBe(true);
+  });
+
+  test("returns false for kind: platform_hosted (resolved)", () => {
+    setLifecycle({ kind: "platform_hosted" });
+    const { result } = renderHook(() =>
+      useActiveAssistantLifecycleIsLoading(),
+    );
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false for kind: self_hosted (resolved)", () => {
+    setLifecycle({ kind: "self_hosted" });
+    const { result } = renderHook(() =>
+      useActiveAssistantLifecycleIsLoading(),
+    );
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false for kind: active (resolved)", () => {
+    setLifecycle({ kind: "active", isLocal: false });
+    const { result } = renderHook(() =>
+      useActiveAssistantLifecycleIsLoading(),
+    );
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false for already-resolved non-hosted kinds", () => {
+    // This is the trap the helper exists to avoid: these states are
+    // *decided non-hosted*, not *still resolving*. UI that uses
+    // `!isPlatformHosted` as the race-window signal would treat them as
+    // resolving forever and stick on a spinner / disabled button.
+    const kinds: AssistantState[] = [
+      { kind: "retired" },
+      { kind: "awaiting_version_selection" },
+      { kind: "error", message: "boom" },
+    ];
+    for (const assistantState of kinds) {
+      setLifecycle(assistantState);
+      const { result, unmount } = renderHook(() =>
+        useActiveAssistantLifecycleIsLoading(),
+      );
+      expect(result.current).toBe(false);
+      unmount();
+    }
+  });
+
+  test("returns false for transitional kinds that already know their assistant (initializing, cleaning_up)", () => {
+    // `initializing` / `cleaning_up` are post-resolution transitions —
+    // the daemon has an assistant in hand, it's just busy. Hosting is
+    // known. Treat them like resolved states.
+    const kinds: AssistantState[] = [
+      { kind: "initializing" },
+      { kind: "cleaning_up" },
+    ];
+    for (const assistantState of kinds) {
+      setLifecycle(assistantState);
+      const { result, unmount } = renderHook(() =>
+        useActiveAssistantLifecycleIsLoading(),
       );
       expect(result.current).toBe(false);
       unmount();
