@@ -2,34 +2,18 @@
  * Default `tokenEstimate` plugin.
  *
  * The plugin's middleware is a passthrough — it calls `next(args)` and returns
- * the result unchanged. The actual estimate lives in
- * {@link defaultTokenEstimateTerminal}, which is wired in as the pipeline's
- * `terminal` argument by `runPipeline` call sites in
- * `daemon/conversation-agent-loop.ts`. This separation matters: the default
- * plugin is registered before any user plugin (defaults load first in
- * `bootstrapPlugins()`), which puts it at the OUTERMOST position of the onion
- * chain. If the default middleware were to invoke the terminal directly
- * without calling `next`, it would shadow every later-registered plugin. The
- * passthrough lets user middleware that wraps the default (e.g. a doubler, a
- * provider-native `countTokens` override) participate normally.
- *
- * The terminal delegates to
- * {@link import("../../../context/token-estimator.js").estimatePromptTokens estimatePromptTokens},
- * which applies the EWMA calibration correction recorded from past provider
- * responses. Preflight + mid-loop checks must use the calibrated estimate —
- * the calibrated value keeps the overflow gate consistent with the
- * convergence path in the reducer. The pre-send
- * calibration capture in `agent/loop.ts` still uses `estimatePromptTokensRaw`
- * on purpose — the calibrator must learn against the raw estimate so the EWMA
- * converges against provider ground truth rather than chasing its own
- * corrected output. Pipelines produce user-facing estimates; calibration
- * capture stays outside the pipeline.
+ * the result unchanged. The actual estimate lives in the terminal handler in
+ * `./terminal.ts`, which is wired in as the pipeline's `terminal` argument by
+ * `runPipeline` call sites in `daemon/conversation-agent-loop.ts`. This
+ * separation matters: the default plugin is registered before any user plugin
+ * (defaults load first in `bootstrapPlugins()`), which puts it at the
+ * OUTERMOST position of the onion chain. If the default middleware were to
+ * invoke the terminal directly without calling `next`, it would shadow every
+ * later-registered plugin. The passthrough lets user middleware that wraps the
+ * default (e.g. a doubler, a provider-native `countTokens` override)
+ * participate normally.
  */
 
-import {
-  estimatePromptTokens,
-  estimateToolsTokens,
-} from "../../../context/token-estimator.js";
 import { registerPlugin } from "../../registry.js";
 import {
   type EstimateArgs,
@@ -39,25 +23,6 @@ import {
   PluginExecutionError,
 } from "../../types.js";
 import pkg from "./package.json" with { type: "json" };
-
-/**
- * Terminal handler for the `tokenEstimate` pipeline. Computes the tool token
- * budget from `args.tools` and delegates to {@link estimatePromptTokens} with
- * the canonical provider key, applying the EWMA calibration correction.
- * Exported so tests can verify default behavior directly without going through
- * `runPipeline`, and so `daemon/conversation-agent-loop.ts` can pass it as the
- * `terminal` argument to `runPipeline`.
- */
-export const defaultTokenEstimateTerminal = async (
-  args: EstimateArgs,
-): Promise<EstimateResult> => {
-  const toolTokenBudget =
-    args.tools.length > 0 ? estimateToolsTokens(args.tools) : 0;
-  return estimatePromptTokens(args.history, args.systemPrompt, {
-    providerName: args.providerName,
-    toolTokenBudget,
-  });
-};
 
 const passthrough: Middleware<EstimateArgs, EstimateResult> = async (
   args,

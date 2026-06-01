@@ -41,7 +41,7 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
-import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/register.js";
+import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/terminal.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {

@@ -36,7 +36,7 @@ mock.module("../memory/conversation-title-service.js", () => ({
   queueGenerateConversationTitle: queueGenerateConversationTitleMock,
 }));
 
-import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate/register.js";
+import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate/terminal.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

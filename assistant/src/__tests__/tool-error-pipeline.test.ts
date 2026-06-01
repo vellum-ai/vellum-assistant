@@ -16,11 +16,11 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import type { TrustContext } from "../daemon/trust-context.js";
+import { defaultToolErrorPlugin } from "../plugins/defaults/tool-error/register.js";
 import {
   DEFAULT_TOOL_ERROR_NUDGE_TEXT,
-  defaultToolErrorPlugin,
   defaultToolErrorTerminal,
-} from "../plugins/defaults/tool-error/register.js";
+} from "../plugins/defaults/tool-error/terminal.js";
 import { runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

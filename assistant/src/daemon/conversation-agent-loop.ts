@@ -96,17 +96,17 @@ import {
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
-import { defaultCompactionTerminal } from "../plugins/defaults/compaction/register.js";
-import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair/register.js";
+import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
+import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair/terminal.js";
 import {
   asDefaultGraphPayload,
   type DefaultMemoryRetrievalDeps,
   type GraphMemoryPayload,
   runDefaultMemoryRetrieval,
 } from "../plugins/defaults/memory-retrieval/register.js";
-import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/register.js";
-import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate/register.js";
-import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/register.js";
+import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/terminal.js";
+import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate/terminal.js";
+import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
