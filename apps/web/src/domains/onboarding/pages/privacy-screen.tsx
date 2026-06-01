@@ -60,6 +60,14 @@ function SettingRow({
   );
 }
 
+// Consent checkboxes mirror the primary button: the checked fill uses
+// --primary-base and the check uses --content-inset (the on-primary
+// foreground). This stays correct in every theme — dark fill + white check in
+// light mode, white fill + dark check in dark mode — whereas the design
+// library's hardcoded white check vanishes on the near-white dark-mode fill.
+const CONSENT_CHECKBOX_CLASS =
+  "[&_button[data-state=checked]]:bg-[var(--primary-base)] [&_svg]:text-[var(--content-inset)]";
+
 export function PrivacyScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -211,6 +219,7 @@ export function PrivacyScreen() {
             onCheckedChange={(next) => setAiDataConsent(next === true)}
             label={aiConsentLabel}
             aria-label="I agree to the AI Data Sharing Policy"
+            className={CONSENT_CHECKBOX_CLASS}
           />
         </div>
 
@@ -220,6 +229,7 @@ export function PrivacyScreen() {
             onCheckedChange={(next) => setTosAccepted(next === true)}
             label={tosLabel}
             aria-label="I agree to the Terms of Service and Privacy Policy"
+            className={CONSENT_CHECKBOX_CLASS}
           />
         </div>
 
