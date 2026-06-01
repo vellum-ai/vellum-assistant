@@ -50,6 +50,7 @@ import {
   extractErrorMessage,
 } from "@/utils/api-errors";
 import { isLocalMode } from "@/lib/local-mode";
+import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import {
   archivedConversationsQueryKey,
@@ -216,12 +217,17 @@ const QUERY_STALE_TIME_MS = 30_000;
  * has a value until `fetchOrganizations()` completes — firing the query
  * before that produces a headerless request that Django rejects with 400.
  *
- * Returns `true` when local/self-hosted (org header not needed) or when
- * the org store has been populated.
+ * Returns `true` when:
+ *   - local mode (gateway auth, no org header needed), or
+ *   - no platform session (self-hosted/gateway-auth assistant — the
+ *     interceptor rewrites to the user's gateway with Bearer auth and
+ *     the org store intentionally stays empty), or
+ *   - the org store has been populated.
  */
 function useHasOrgContext(): boolean {
   const currentOrgId = useOrganizationStore.use.currentOrganizationId();
-  return isLocalMode() || currentOrgId != null;
+  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
+  return isLocalMode() || !hasPlatformSession || currentOrgId != null;
 }
 
 /**

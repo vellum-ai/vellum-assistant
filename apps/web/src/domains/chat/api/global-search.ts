@@ -22,7 +22,12 @@ export interface GlobalSearchResponse {
   }>;
   memories: Array<{
     id: string;
-    content: string;
+    kind: string;
+    text: string;
+    subject: string | null;
+    confidence: number;
+    updatedAt: number;
+    source: "lexical" | "semantic";
   }>;
   schedules: Array<{
     id: string;
