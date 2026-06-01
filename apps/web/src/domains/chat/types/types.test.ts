@@ -158,4 +158,29 @@ describe("isSurfaceToolCallComplete", () => {
       isSurfaceToolCallComplete(makeSurface({ toolCallId: "tc-1" }), undefined),
     ).toBe(true);
   });
+
+  test("falls back to the latest surface tool call when the surface has no link", () => {
+    expect(
+      isSurfaceToolCallComplete(makeSurface(), [
+        makeToolCall({ id: "tc-1", toolName: "app_create", status: "running" }),
+      ]),
+    ).toBe(false);
+  });
+
+  test("fallback picks the latest surface tool call, not an earlier completed one", () => {
+    expect(
+      isSurfaceToolCallComplete(makeSurface(), [
+        makeToolCall({ id: "tc-1", toolName: "ui_show", status: "completed" }),
+        makeToolCall({ id: "tc-2", toolName: "app_create", status: "running" }),
+      ]),
+    ).toBe(false);
+  });
+
+  test("fallback ignores non-surface tool calls", () => {
+    expect(
+      isSurfaceToolCallComplete(makeSurface(), [
+        makeToolCall({ id: "tc-1", toolName: "bash", status: "running" }),
+      ]),
+    ).toBe(true);
+  });
 });

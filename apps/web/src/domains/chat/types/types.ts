@@ -101,11 +101,11 @@ export interface Surface {
    *  renders as a non-interactive chip instead of the active widget. */
   completed?: boolean;
   completionSummary?: string;
-  /** Id of the tool call that produced this surface (the `ui_show` tool).
-   *  App previews gate on whether this tool call's result has arrived
-   *  (`isSurfaceToolCallComplete`) rather than on whole-turn streaming
-   *  state. Absent for surfaces with no linked tool call (historical or
-   *  daemon-pushed), which are treated as complete. */
+  /** Id of the tool call that produced this surface (e.g. the `ui_show` or
+   *  `app_open` proxy tool). App previews gate on whether this tool call's
+   *  result has arrived (`isSurfaceToolCallComplete`) rather than on
+   *  whole-turn streaming state. When absent, completeness falls back to the
+   *  latest surface-producing tool call in the message. */
   toolCallId?: string;
 }
 
@@ -141,28 +141,59 @@ export function isSurfaceInteractive(surface: Surface): boolean {
 }
 
 /**
+ * Tool names that produce or re-render a surface. Used to locate a surface's
+ * likely originating tool call when the surface itself doesn't carry an
+ * explicit `toolCallId`.
+ */
+const SURFACE_PRODUCING_TOOL_NAMES = new Set([
+  "ui_show",
+  "ui_update",
+  "app_open",
+  "app_create",
+  "app_update",
+  "app_refresh",
+]);
+
+/**
  * Whether the tool call that produced a surface has finished.
  *
  * Display-only app previews (`dynamic_page`) gate on whether their
- * originating `ui_show` tool call has returned its result — once the result
- * arrives the app HTML is finalized and the preview can load. The surface
- * carries its originating tool call's id (`toolCallId`); completeness is read
- * from that tool call's status. This is per-surface and independent of
- * whole-turn streaming state, so an app whose tool finishes early unlocks
- * without waiting for the rest of the reply.
+ * originating tool call has returned its result — once the result arrives the
+ * app HTML is finalized and the preview can load. This is per-surface and
+ * independent of whole-turn streaming state, so an app whose tool finishes
+ * early unlocks without waiting for the rest of the reply.
  *
- * Surfaces with no linked tool call (loaded from history or pushed by the
- * daemon outside a tool call) are treated as complete — matching how
- * finalized messages have always rendered.
+ * When the surface carries its originating tool call's id (`toolCallId`),
+ * completeness is read directly from that tool call's status. Otherwise it
+ * falls back to the latest surface-producing tool call in the same message —
+ * covering surfaces that arrive without an explicit link (e.g. from a daemon
+ * that predates the field).
+ *
+ * Surfaces with no resolvable tool call (loaded from history, or pushed
+ * outside any surface-producing tool call) are treated as complete — matching
+ * how finalized messages have always rendered.
  */
 export function isSurfaceToolCallComplete(
   surface: Surface,
   toolCalls: ChatMessageToolCall[] | undefined,
 ): boolean {
-  if (!surface.toolCallId) return true;
-  const toolCall = toolCalls?.find((tc) => tc.id === surface.toolCallId);
-  if (!toolCall) return true;
-  return toolCall.status === "completed";
+  if (surface.toolCallId) {
+    const linked = toolCalls?.find((tc) => tc.id === surface.toolCallId);
+    if (linked) {
+      return linked.status === "completed";
+    }
+    return true;
+  }
+  let latestSurfaceToolCall: ChatMessageToolCall | undefined;
+  for (const toolCall of toolCalls ?? []) {
+    if (SURFACE_PRODUCING_TOOL_NAMES.has(toolCall.toolName)) {
+      latestSurfaceToolCall = toolCall;
+    }
+  }
+  if (!latestSurfaceToolCall) {
+    return true;
+  }
+  return latestSurfaceToolCall.status === "completed";
 }
 
 /**

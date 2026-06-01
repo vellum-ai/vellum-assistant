@@ -23,7 +23,6 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import {
   getSlackLinkUrl,
-  isSurfaceToolCallComplete,
   type Surface,
 } from "@/domains/chat/types/types";
 import { isPointerCoarse } from "@/utils/pointer";
@@ -458,7 +457,7 @@ export function TranscriptMessageBody({
                     onOpenApp={onOpenApp}
                     onOpenDocument={onOpenDocument}
                     assistantId={assistantId}
-                    isToolCallComplete={isSurfaceToolCallComplete(seg.surface, message.toolCalls)}
+                    toolCalls={message.toolCalls}
                   />
                 </div>
               );
@@ -659,7 +658,7 @@ export function TranscriptMessageBody({
                     onOpenApp={onOpenApp}
                     onOpenDocument={onOpenDocument}
                     assistantId={assistantId}
-                    isToolCallComplete={isSurfaceToolCallComplete(surface, message.toolCalls)}
+                    toolCalls={message.toolCalls}
                   />
                 </div>
               );
@@ -726,7 +725,7 @@ export function TranscriptMessageBody({
                 onOpenApp={onOpenApp}
                 onOpenDocument={onOpenDocument}
                 assistantId={assistantId}
-                isToolCallComplete={isSurfaceToolCallComplete(surface, message.toolCalls)}
+                toolCalls={message.toolCalls}
               />
             </div>,
           );
@@ -822,7 +821,7 @@ export function TranscriptMessageBody({
                 onOpenApp={onOpenApp}
                 onOpenDocument={onOpenDocument}
                 assistantId={assistantId}
-                isToolCallComplete={isSurfaceToolCallComplete(surface, message.toolCalls)}
+                toolCalls={message.toolCalls}
               />
             </div>
           ));
