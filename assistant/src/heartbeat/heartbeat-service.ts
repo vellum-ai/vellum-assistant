@@ -436,7 +436,6 @@ export class HeartbeatService {
 
   async stop(): Promise<void> {
     this._consecutiveRuns = 0;
-    persistConsecutiveRuns(0);
     this._resetGeneration++;
     this.stopped = true;
     if (this.timer) {
