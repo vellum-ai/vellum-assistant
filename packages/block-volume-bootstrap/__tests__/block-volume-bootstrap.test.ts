@@ -76,6 +76,23 @@ describe("block volume bootstrap scripts", () => {
     );
   });
 
+  test("mount helper normalizes trailing slashes on bind targets", () => {
+    const result = runScript(mountScript, {
+      args: ["--", "true"],
+      env: {
+        VELLUM_BLOCK_BIND_SPECS: "workspace:/workspace///:ro",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("DRY-RUN: mkdir -p /workspace");
+    expect(result.stderr).toContain(
+      "DRY-RUN: mount --bind /mnt/test-root/workspace /workspace",
+    );
+    expect(result.stderr).toContain("DRY-RUN: mount -o remount,bind,ro /workspace");
+    expect(result.stderr).not.toContain("/workspace///");
+  });
+
   test("mount helper logs setpriv execution when uid and gid are set", () => {
     const result = runScript(mountScript, {
       args: ["--", "bun", "run", "src/managed-main.ts"],
@@ -136,6 +153,20 @@ describe("block volume bootstrap scripts", () => {
     expect(result.stderr).toContain("invalid bind mode 'readonly'");
   });
 
+  test("mount helper rejects slash-only bind targets", () => {
+    const result = runScript(mountScript, {
+      args: ["--", "true"],
+      env: {
+        VELLUM_BLOCK_BIND_SPECS: "workspace:////:ro",
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("bind target must not be empty or /");
+    expect(result.stderr).not.toContain("mount --bind");
+    expect(result.stderr).not.toContain("remount,bind,ro");
+  });
+
   test("init helper formats only devices with no filesystem", () => {
     const result = runScript(initScript);
 
@@ -148,6 +179,33 @@ describe("block volume bootstrap scripts", () => {
     expect(result.stderr).not.toContain("/mnt/test-root/gateway-security");
     expect(result.stderr).not.toContain("/mnt/test-root/ces-security");
     expect(result.stderr).toContain("DRY-RUN: chown 0:0 /mnt/test-root/dockerd-data");
+  });
+
+  test("init helper normalizes trailing slashes on block root", () => {
+    const result = runScript(initScript, {
+      env: {
+        VELLUM_BLOCK_ROOT: "/mnt/test-root///",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("DRY-RUN: mkdir -p /mnt/test-root");
+    expect(result.stderr).toContain("DRY-RUN: mount /dev/test-block /mnt/test-root");
+    expect(result.stderr).toContain("DRY-RUN: mkdir -p /mnt/test-root/workspace");
+    expect(result.stderr).not.toContain("/mnt/test-root///");
+  });
+
+  test("init helper rejects slash-only block roots", () => {
+    const result = runScript(initScript, {
+      env: {
+        VELLUM_BLOCK_ROOT: "////",
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("VELLUM_BLOCK_ROOT must not be empty or /");
+    expect(result.stderr).not.toContain("wait for block device");
+    expect(result.stderr).not.toContain("mkdir -p");
   });
 
   test("resize helper grows ext4 and prints requested bind path evidence", () => {
@@ -168,6 +226,34 @@ describe("block volume bootstrap scripts", () => {
         "DRY-RUN: df -h /workspace",
       ].join("\n"),
     );
+  });
+
+  test("resize helper normalizes trailing slashes on evidence paths", () => {
+    const result = runScript(resizeScript, {
+      args: ["/workspace///"],
+      env: {
+        VELLUM_BLOCK_DRY_RUN_BLKID_TYPE: "ext4",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("DRY-RUN: findmnt --target /workspace");
+    expect(result.stderr).toContain("DRY-RUN: df -h /workspace");
+    expect(result.stderr).not.toContain("/workspace///");
+  });
+
+  test("resize helper rejects slash-only evidence paths", () => {
+    const result = runScript(resizeScript, {
+      args: ["////"],
+      env: {
+        VELLUM_BLOCK_DRY_RUN_BLKID_TYPE: "ext4",
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("bind target must not be empty or /");
+    expect(result.stderr).not.toContain("findmnt --target");
+    expect(result.stderr).not.toContain("df -h");
   });
 
   test("resize helper rejects non-ext4 filesystems", () => {

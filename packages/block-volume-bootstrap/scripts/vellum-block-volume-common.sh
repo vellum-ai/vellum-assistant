@@ -52,6 +52,27 @@ block_validate_number() {
   esac
 }
 
+block_normalize_absolute_non_root_path() {
+  name="$1"
+  path="$2"
+
+  case "${path}" in
+    '') block_die "${name} must not be empty or /" ;;
+    /*) ;;
+    *) block_die "${name} must be an absolute path" ;;
+  esac
+
+  while :; do
+    case "${path}" in
+      */) path="${path%/}" ;;
+      *) break ;;
+    esac
+  done
+
+  [ -n "${path}" ] || block_die "${name} must not be empty or /"
+  printf '%s\n' "${path}"
+}
+
 block_detect_fs_type() {
   if block_is_dry_run; then
     block_dry_run "blkid -o value -s TYPE ${BLOCK_DEVICE}"
@@ -70,18 +91,7 @@ block_init_defaults() {
     *) block_die "VELLUM_BLOCK_DEVICE must be an absolute path" ;;
   esac
 
-  case "${BLOCK_ROOT}" in
-    ''|/) block_die "VELLUM_BLOCK_ROOT must not be empty or /" ;;
-    /*) ;;
-    *) block_die "VELLUM_BLOCK_ROOT must be an absolute path" ;;
-  esac
-
-  while [ "${BLOCK_ROOT}" != "/" ]; do
-    case "${BLOCK_ROOT}" in
-      */) BLOCK_ROOT="${BLOCK_ROOT%/}" ;;
-      *) break ;;
-    esac
-  done
+  BLOCK_ROOT="$(block_normalize_absolute_non_root_path "VELLUM_BLOCK_ROOT" "${BLOCK_ROOT}")"
 }
 
 block_validate_child_name() {
@@ -98,13 +108,9 @@ block_child_path() {
   printf '%s/%s\n' "${BLOCK_ROOT}" "$1"
 }
 
-block_validate_target_path() {
+block_normalize_target_path() {
   target="$1"
-  case "${target}" in
-    ''|/) block_die "bind target must not be empty or /" ;;
-    /*) ;;
-    *) block_die "bind target '${target}' must be an absolute path" ;;
-  esac
+  block_normalize_absolute_non_root_path "bind target" "${target}"
 }
 
 block_wait_for_device() {
@@ -175,7 +181,7 @@ block_parse_bind_spec() {
   fi
 
   block_validate_child_name "${BIND_SOURCE_NAME}"
-  block_validate_target_path "${BIND_TARGET}"
+  BIND_TARGET="$(block_normalize_target_path "${BIND_TARGET}")"
   case "${BIND_MODE}" in
     ro|rw) ;;
     *) block_die "invalid bind mode '${BIND_MODE}' in '${spec}'; expected ro or rw" ;;

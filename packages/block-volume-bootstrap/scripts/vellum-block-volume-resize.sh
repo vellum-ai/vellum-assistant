@@ -9,7 +9,7 @@ block_print_resize_evidence() {
   path="$1"
   [ -n "${path}" ] || return 0
 
-  block_validate_target_path "${path}"
+  path="$(block_normalize_target_path "${path}")"
   block_run "findmnt --target ${path}" findmnt --target "${path}"
   block_run "df -h ${path}" df -h "${path}"
 }
