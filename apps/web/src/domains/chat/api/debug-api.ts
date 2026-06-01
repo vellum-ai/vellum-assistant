@@ -21,12 +21,15 @@ import {
   getSseClients,
   getSseEvents,
 } from "@/lib/streaming/stream-debug";
+import { getSeqCursors } from "@/lib/streaming/last-seen-seq";
 
 export interface ChatDebugEventsApi {
   /** Snapshot of currently-live SSE clients. */
   getClients: () => SseDebugClient[];
   /** Last 1 000 parsed SSE events (most-recent last). */
   getEvents: () => SseDebugEventEntry[];
+  /** Per-conversation seq cursors tracked by gap detection. */
+  getSeqCursors: () => Record<string, number>;
 }
 
 /**
@@ -36,4 +39,5 @@ export interface ChatDebugEventsApi {
 export const eventsDebugApi: ChatDebugEventsApi = {
   getClients: getSseClients,
   getEvents: getSseEvents,
+  getSeqCursors,
 };

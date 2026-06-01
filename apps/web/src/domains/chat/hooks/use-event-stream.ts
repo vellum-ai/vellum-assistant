@@ -40,6 +40,12 @@ import {
   recordDiagnostic,
   resolvePlatformTag,
 } from "@/lib/diagnostics";
+import {
+  getLastSeenSeq,
+  replaceLastSeenSeq,
+  setLastSeenSeq,
+} from "@/lib/streaming/last-seen-seq";
+import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncRouter,
@@ -221,6 +227,16 @@ export function useEventStream({
     const presence: ChatEventStream = { cancel: () => {} };
     streamRef.current = presence;
 
+    // Read once at subscription setup — the flag requires a reload to
+    // flip, so it cannot change during the lifetime of this effect.
+    const seqGapEnabled = isSeqGapDetectionEnabled();
+
+    // Gate so the very first event after a conversation switch seeds
+    // the seq cursor without triggering a reconcile. Prevents spurious
+    // refetches when switching to a conversation whose stored cursor
+    // is stale (e.g., stored=50 but server is at seq=500).
+    let seededSeqForConversation = false;
+
     const unsubEvent = bus.subscribe("sse.event", (envelope) => {
       const event = envelope.message;
       const eventConversationId = envelope.conversationId;
@@ -253,7 +269,49 @@ export function useEventStream({
         });
         return;
       }
+
+      const eventSeq = envelope.seq;
+      let gapDetected = false;
+      if (seqGapEnabled && eventSeq != null && eventConversationId) {
+        if (seededSeqForConversation) {
+          const stored = getLastSeenSeq(eventConversationId) ?? 0;
+          if (eventSeq < stored) {
+            // Server seq counter restarted (daemon restart). Replace
+            // the stale cursor and reconcile to pick up any state
+            // changes from the restart.
+            recordDiagnostic("sse_seq_generation_reset", {
+              conversationId: eventConversationId,
+              stored,
+              observed: eventSeq,
+            });
+            replaceLastSeenSeq(eventConversationId, eventSeq);
+            gapDetected = true;
+            reconcileActiveConversationRef.current();
+          } else if (eventSeq > stored + 1) {
+            recordDiagnostic("sse_seq_gap_detected", {
+              conversationId: eventConversationId,
+              stored,
+              observed: eventSeq,
+              gap: eventSeq - stored,
+            });
+            gapDetected = true;
+            reconcileActiveConversationRef.current();
+          }
+        } else {
+          seededSeqForConversation = true;
+        }
+      }
+
       handleStreamEventRef.current(event, streamEpochRef.current);
+
+      // Advance the seq cursor AFTER the handler returns so a thrown
+      // handler does not advance the cursor past unapplied work.
+      // Skip advancement when a gap was detected — the reconcile
+      // refetch will deliver authoritative state. If reconcile fails,
+      // the next contiguous event will re-detect the gap and retry.
+      if (seqGapEnabled && eventSeq != null && eventConversationId && !gapDetected) {
+        setLastSeenSeq(eventConversationId, eventSeq);
+      }
     });
 
     return () => {
