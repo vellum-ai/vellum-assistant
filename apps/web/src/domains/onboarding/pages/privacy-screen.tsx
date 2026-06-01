@@ -60,13 +60,6 @@ function SettingRow({
   );
 }
 
-// Consent checkboxes use the primary fill (not the green positive fill the
-// shared Checkbox defaults to) so they read as the screen's action color,
-// distinct from the green preference toggles above. Overridden locally to
-// avoid changing the shared design-library checkbox everywhere.
-const CONSENT_CHECKBOX_CLASS =
-  "[&_button[data-state=checked]]:bg-[var(--primary-base)]";
-
 export function PrivacyScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -218,7 +211,6 @@ export function PrivacyScreen() {
             onCheckedChange={(next) => setAiDataConsent(next === true)}
             label={aiConsentLabel}
             aria-label="I agree to the AI Data Sharing Policy"
-            className={CONSENT_CHECKBOX_CLASS}
           />
         </div>
 
@@ -228,7 +220,6 @@ export function PrivacyScreen() {
             onCheckedChange={(next) => setTosAccepted(next === true)}
             label={tosLabel}
             aria-label="I agree to the Terms of Service and Privacy Policy"
-            className={CONSENT_CHECKBOX_CLASS}
           />
         </div>
 
