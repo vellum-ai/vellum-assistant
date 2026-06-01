@@ -4,6 +4,8 @@ import { join, resolve } from "node:path";
 import { describe, expect, test } from "bun:test";
 
 import {
+  DEFAULT_ALLOW_HOSTS,
+  DEFAULT_INFRA_ALLOW_HOSTS,
   DEFAULT_MODEL_ALLOW_HOSTS,
   applyDockerEgressJail,
   dockerEgressJailContainerName,
@@ -95,7 +97,7 @@ describe("docker egress jail", () => {
     });
   });
 
-  test("defaults to the shared model-provider allowlist", async () => {
+  test("defaults to the combined model+infra allowlist", async () => {
     const runner = new FakeRunner();
     const dir = `.runs/test-allowlist-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     await mkdir(dir, { recursive: true });
@@ -109,7 +111,58 @@ describe("docker egress jail", () => {
     // runs[0] is the pre-clean `rm -f`; runs[1] is the recording image
     // build; runs[2] is the `docker run -d` that wires up ALLOW_HOSTS.
     expect(runner.runs[2]?.args).toContain(
-      `ALLOW_HOSTS=${DEFAULT_MODEL_ALLOW_HOSTS.join(",")}`,
+      `ALLOW_HOSTS=${DEFAULT_ALLOW_HOSTS.join(",")}`,
     );
+  });
+
+  test("default allowlist exposes the plugin-install hosts used by simple-memory setup", () => {
+    // `assistant plugins install <name>` calls api.github.com for the
+    // directory listing, then follows each entry's download_url which
+    // points at raw.githubusercontent.com. Both must be reachable from
+    // inside the jailed assistant container.
+    expect(DEFAULT_INFRA_ALLOW_HOSTS).toContain("api.github.com");
+    expect(DEFAULT_INFRA_ALLOW_HOSTS).toContain("raw.githubusercontent.com");
+    expect(DEFAULT_ALLOW_HOSTS).toContain("api.github.com");
+    expect(DEFAULT_ALLOW_HOSTS).toContain("raw.githubusercontent.com");
+  });
+
+  test("default allowlist covers every vellum platform environment seed", () => {
+    // Mirror of cli/src/lib/environments/seeds.ts. If a new environment
+    // ships, the allowlist needs to track it or that environment's eval
+    // runs silently lose platform reachability.
+    for (const host of [
+      "platform.vellum.ai",
+      "staging-platform.vellum.ai",
+      "dev-platform.vellum.ai",
+      "test-platform.vellum.ai",
+    ]) {
+      expect(DEFAULT_ALLOW_HOSTS).toContain(host);
+    }
+  });
+
+  test("DEFAULT_MODEL_ALLOW_HOSTS stays bounded to recognized model providers", () => {
+    // The mitmproxy addon (addon.py) parses usage out of these hosts'
+    // response bodies. Adding a non-model host here would either be
+    // dead code in the addon or, worse, would trip its parser. New
+    // infra hosts belong in DEFAULT_INFRA_ALLOW_HOSTS.
+    expect(DEFAULT_MODEL_ALLOW_HOSTS.sort()).toEqual([
+      "api.anthropic.com",
+      "api.openai.com",
+      "generativelanguage.googleapis.com",
+    ]);
+  });
+
+  test("an explicit allowHosts override still wins over the default", async () => {
+    const runner = new FakeRunner();
+    const dir = `.runs/test-allowlist-override-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    await mkdir(dir, { recursive: true });
+
+    await applyDockerEgressJail(runner, {
+      containerName: "eval-run-3-assistant",
+      recordingDir: dir,
+      allowHosts: ["example.test"],
+    });
+
+    expect(runner.runs[2]?.args).toContain("ALLOW_HOSTS=example.test");
   });
 });
