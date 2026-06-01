@@ -7,7 +7,7 @@ import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-lay
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { useAuthStore } from "@/stores/auth-store";
-import { routes } from "@/utils/routes";
+import { docsUrl, routes } from "@/utils/routes";
 
 type HostingMode = "vellum-cloud" | "local" | "docker";
 
@@ -71,6 +71,10 @@ export function HostingScreen() {
     }
   };
 
+  const onBack = () => {
+    void navigate(routes.onboarding.welcome);
+  };
+
   return (
     <OnboardingLayout>
       <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col items-center px-6 pb-40 pt-16 text-[var(--content-default)]">
@@ -88,7 +92,7 @@ export function HostingScreen() {
         </p>
 
         <div
-          className="mt-10 flex w-full flex-col gap-3"
+          className="mt-10 grid w-full auto-rows-fr gap-3"
           style={{ animation: "fadeInUp 0.5s ease-out 0.4s both" }}
         >
           {options.map((opt) => (
@@ -104,7 +108,7 @@ export function HostingScreen() {
         </div>
 
         <div
-          className="mt-8 w-full max-w-sm"
+          className="mt-8 flex w-full flex-col gap-2"
           style={{ animation: "fadeInUp 0.5s ease-out 0.5s both" }}
         >
           <Button
@@ -116,7 +120,26 @@ export function HostingScreen() {
           >
             Continue
           </Button>
+          <Button
+            variant="outlined"
+            size="regular"
+            fullWidth
+            className="h-11 text-base"
+            onClick={onBack}
+          >
+            Back
+          </Button>
         </div>
+
+        <a
+          href={docsUrl(routes.docs.hostingOptions)}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-6 text-body-medium-default text-[var(--content-default)] underline"
+          style={{ animation: "fadeInUp 0.5s ease-out 0.6s both" }}
+        >
+          Need help choosing?
+        </a>
       </div>
     </OnboardingLayout>
   );
@@ -143,7 +166,7 @@ function HostingCard({
       } ${
         selected && !option.disabled
           ? "border-[var(--primary-base)] bg-[var(--primary-base)]/5"
-          : "border-[var(--border-default)] bg-transparent"
+          : "border-[var(--border-element)] bg-transparent"
       }`}
     >
       {option.icon}
@@ -167,7 +190,7 @@ function HostingCard({
           className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 ${
             selected
               ? "border-[var(--primary-base)]"
-              : "border-[var(--border-default)]"
+              : "border-[var(--border-element)]"
           }`}
         >
           {selected && (

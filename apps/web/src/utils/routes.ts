@@ -111,6 +111,7 @@ export const routes = {
   },
 
   docs: {
+    hostingOptions: r("/docs/hosting-options"),
     legal: {
       privacyPolicy: r("/docs/privacy-policy"),
       termsOfUse: r("/docs/vellum-terms-of-use"),
@@ -127,6 +128,11 @@ const WWW_DOMAIN = "vellum.ai";
 export function legalUrl(
   path: (typeof routes.docs.legal)[keyof typeof routes.docs.legal],
 ): string {
+  return `https://${WWW_DOMAIN}${path}`;
+}
+
+/** Full external URL for a docs page hosted on the marketing site. */
+export function docsUrl(path: string): string {
   return `https://${WWW_DOMAIN}${path}`;
 }
 
