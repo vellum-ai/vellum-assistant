@@ -55,7 +55,6 @@ interface MessagePayload {
   id: string;
   mergedMessageIds?: string[];
   role: string;
-  content: string;
   toolCalls?: ToolCallPayload[];
   textSegments?: string[];
 }
@@ -174,7 +173,7 @@ describe("handleListMessages tool_result merging", () => {
 
     expect(body.messages).toHaveLength(3);
     expect(body.messages[2].role).toBe("user");
-    expect(body.messages[2].content).toBe("how are you?");
+    expect(body.messages[2].textSegments).toEqual(["how are you?"]);
   });
 
   test("includes merged assistant ids for consecutive assistant history rows", async () => {
@@ -236,7 +235,7 @@ describe("handleListMessages tool_result merging", () => {
     // User row dropped entirely; only the assistant survives.
     expect(body.messages).toHaveLength(1);
     expect(body.messages[0].role).toBe("assistant");
-    expect(body.messages[0].content).toBe("response");
+    expect(body.messages[0].textSegments).toEqual(["response"]);
   });
 
   test("mixed content at pagination boundary keeps real user text", async () => {
@@ -267,10 +266,10 @@ describe("handleListMessages tool_result merging", () => {
 
     expect(body.messages).toHaveLength(2);
     expect(body.messages[0].role).toBe("user");
-    expect(body.messages[0].content).toBe("what about this?");
+    expect(body.messages[0].textSegments).toEqual(["what about this?"]);
     expect(body.messages[0].toolCalls).toBeUndefined();
     expect(body.messages[1].role).toBe("assistant");
-    expect(body.messages[1].content).toBe("answering");
+    expect(body.messages[1].textSegments).toEqual(["answering"]);
   });
 
   test("orphan tool_result + system_notice at boundary is suppressed", async () => {
@@ -368,7 +367,7 @@ describe("handleListMessages tool_result merging", () => {
     expect(body.messages[1].toolCalls![1].name).toBe("file_read");
     expect(body.messages[1].toolCalls![1].result).toBe("file data");
     expect(body.messages[2].role).toBe("user");
-    expect(body.messages[2].content).toBe("thanks");
+    expect(body.messages[2].textSegments).toEqual(["thanks"]);
   });
 
   test("tool_result with is_error propagates error status", async () => {

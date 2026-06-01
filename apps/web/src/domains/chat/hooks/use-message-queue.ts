@@ -18,6 +18,7 @@ import {
 } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { deleteQueuedMessage, steerToMessage } from "@/domains/chat/api/messages";
@@ -144,7 +145,7 @@ export function useMessageQueue({
     if (!tail) {
       return;
     }
-    setInput(tail.content);
+    setInput(segmentsToPlainText(tail.textSegments));
     handleCancelQueuedMessage(tail.id);
   }, [queuedMessages, handleCancelQueuedMessage]);
 

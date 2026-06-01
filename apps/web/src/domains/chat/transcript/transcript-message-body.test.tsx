@@ -41,6 +41,7 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
 
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 const noop = () => {};
 
 afterAll(() => {
@@ -74,7 +75,7 @@ describe("TranscriptMessageBody", () => {
     const html = renderMessage({
       id: "m1",
       role: "assistant",
-      content: "",
+      ...textBody(""),
       timestamp: 1_000,
       toolCalls: [
         {
@@ -96,7 +97,7 @@ describe("TranscriptMessageBody", () => {
     const html = renderMessage({
       id: "m1",
       role: "assistant",
-      content: "",
+      ...textBody(""),
       timestamp: 1_000,
       toolCalls: [
         {
@@ -118,7 +119,7 @@ describe("TranscriptMessageBody", () => {
       {
         id: "m1",
         role: "assistant",
-        content: "hello from Slack",
+        ...textBody("hello from Slack"),
         slackMessage: {
           channelId: "C123",
           channelTs: "1710000000.000300",
@@ -140,7 +141,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "slack-1",
           role: "assistant",
-          content: "Slack context",
+          ...textBody("Slack context"),
           slackMessage: {
             channelId: "C123",
             channelTs: "1710000000.000300",
@@ -187,7 +188,7 @@ describe("TranscriptMessageBody", () => {
           message={{
             id: "slack-1",
             role: "assistant",
-            content: "Slack context",
+            ...textBody("Slack context"),
             slackMessage: {
               channelId: "C123",
               channelTs: "1710000000.000300",
@@ -227,7 +228,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "local-1",
           role: "assistant",
-          content: "hello",
+          ...textBody("hello"),
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
@@ -247,7 +248,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "message-1",
           role: "user",
-          content: "hello",
+          ...textBody("hello"),
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
@@ -266,7 +267,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "m1",
           role: "assistant",
-          content: "",
+          ...textBody(""),
           contentOrder: [{ type: "tool", id: "tc-1" }],
           toolCalls: [
             {
@@ -295,7 +296,6 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "m1",
           role: "assistant",
-          content: "",
           contentOrder: [
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
@@ -328,7 +328,6 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "m1",
           role: "assistant",
-          content: "",
           contentOrder: [
             { type: "tool", id: "tc-1" },
             { type: "text", id: "0" },
@@ -370,7 +369,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "u1",
           role: "user",
-          content: "look at this",
+          ...textBody("look at this"),
           attachments: [
             {
               id: "att-1",
@@ -413,7 +412,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "u2",
           role: "user",
-          content: "",
+          ...textBody(""),
           attachments: [
             {
               id: "att-1",
@@ -446,7 +445,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "a1",
           role: "assistant",
-          content: "here you go",
+          ...textBody("here you go"),
           attachments: [
             {
               id: "att-1",
@@ -476,7 +475,6 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "u3",
           role: "user",
-          content: "",
           contentOrder: [
             { type: "text", id: "0" },
             { type: "surface", id: "s-1" },
@@ -510,7 +508,6 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "u-order-1",
           role: "user",
-          content: "",
           contentOrder: [
             { type: "surface", id: "s-1" },
             { type: "text", id: "0" },
@@ -550,7 +547,6 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "u-order-2",
           role: "user",
-          content: "",
           contentOrder: [
             { type: "text", id: "0" },
             { type: "tool", id: "tc-1" },
@@ -611,7 +607,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "u4",
           role: "user",
-          content: "",
+          ...textBody(""),
           contentOrder: [{ type: "tool", id: "tc-1" }],
           toolCalls: [
             {
@@ -645,7 +641,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "m1",
           role: "assistant",
-          content: "",
+          ...textBody(""),
           toolCalls: [
             {
               id: "tc-1",
@@ -670,7 +666,7 @@ describe("TranscriptMessageBody", () => {
         message={{
           id: "m1",
           role: "assistant",
-          content: "Done.",
+          ...textBody("Done."),
           toolCalls: [
             {
               id: "tc-1",

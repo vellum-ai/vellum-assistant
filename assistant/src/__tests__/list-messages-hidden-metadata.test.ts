@@ -48,7 +48,7 @@ function resetTables() {
 
 interface MessagePayload {
   role: string;
-  content: string;
+  textSegments?: string[];
 }
 
 describe("handleListMessages metadata.hidden filtering", () => {
@@ -79,10 +79,12 @@ describe("handleListMessages metadata.hidden filtering", () => {
     const body = response as { messages: MessagePayload[] };
 
     expect(body.messages).toHaveLength(2);
-    expect(body.messages[0].content).toBe("first visible");
-    expect(body.messages[1].content).toBe("second visible");
+    expect(body.messages[0].textSegments).toEqual(["first visible"]);
+    expect(body.messages[1].textSegments).toEqual(["second visible"]);
     expect(
-      body.messages.some((m) => m.content.includes("internal scaffolding")),
+      body.messages.some((m) =>
+        (m.textSegments ?? []).some((s) => s.includes("internal scaffolding")),
+      ),
     ).toBe(false);
 
     // LLM-side loader must include the hidden row so agent context is intact.
@@ -151,7 +153,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
       oldestMessageId: string | null;
     };
 
-    expect(latest.messages.map((m) => m.content)).toEqual([
+    expect(latest.messages.map((m) => m.textSegments?.[0])).toEqual([
       "new visible 0",
       "new visible 1",
     ]);
@@ -172,7 +174,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
       hasMore: boolean;
     };
 
-    expect(older.messages.map((m) => m.content)).toEqual([
+    expect(older.messages.map((m) => m.textSegments?.[0])).toEqual([
       "old visible 2",
       "old visible 3",
     ]);
@@ -247,7 +249,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
         },
       }) as { messages: MessagePayload[]; hasMore: boolean };
 
-      expect(older.messages.map((m) => m.content)).toEqual([
+      expect(older.messages.map((m) => m.textSegments?.[0])).toEqual([
         "visible 0",
         "visible 1",
       ]);
@@ -287,7 +289,7 @@ describe("handleListMessages metadata.hidden filtering", () => {
       oldestTimestamp: number | null;
     };
 
-    expect(latest.messages.map((m) => m.content)).toEqual([
+    expect(latest.messages.map((m) => m.textSegments?.[0])).toEqual([
       "old visible 0",
       "old visible 1",
     ]);

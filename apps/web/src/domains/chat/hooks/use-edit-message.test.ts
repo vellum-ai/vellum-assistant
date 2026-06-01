@@ -2,9 +2,11 @@ import { describe, expect, test } from "bun:test";
 import { renderHook, act } from "@testing-library/react";
 import { useEditMessage } from "./use-edit-message";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 
 function makeMsg(overrides: Partial<DisplayMessage> & { id: string; role: DisplayMessage["role"]; content: string }): DisplayMessage {
-  return { ...overrides };
+  const { content, ...rest } = overrides;
+  return { ...rest, ...textBody(content) };
 }
 
 describe("useEditMessage", () => {

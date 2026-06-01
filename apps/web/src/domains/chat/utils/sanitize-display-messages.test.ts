@@ -3,13 +3,14 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 function makeMessage(
   overrides: Partial<DisplayMessage> & { id?: string },
 ): DisplayMessage {
   return {
     id: overrides.id ?? crypto.randomUUID(),
     role: "assistant",
-    content: "",
+    ...textBody(""),
     ...overrides,
   };
 }
@@ -27,8 +28,8 @@ function makeToolCall(
 describe("sanitizeDisplayMessages", () => {
   test("returns the input unchanged when no sub-method fires", () => {
     const messages: DisplayMessage[] = [
-      makeMessage({ id: "u-1", role: "user", content: "hi", timestamp: 1 }),
-      makeMessage({ id: "a-1", role: "assistant", content: "hello", timestamp: 2 }),
+      makeMessage({ id: "u-1", role: "user", ...textBody("hi"), timestamp: 1 }),
+      makeMessage({ id: "a-1", role: "assistant", ...textBody("hello"), timestamp: 2 }),
     ];
     const result = sanitizeDisplayMessages(messages);
     expect(result.map((m) => m.id)).toEqual(["u-1", "a-1"]);
@@ -36,8 +37,8 @@ describe("sanitizeDisplayMessages", () => {
 
   test("does not mutate the input array", () => {
     const messages: DisplayMessage[] = [
-      makeMessage({ id: "b", role: "assistant", content: "b", timestamp: 200 }),
-      makeMessage({ id: "a", role: "assistant", content: "a", timestamp: 100 }),
+      makeMessage({ id: "b", role: "assistant", ...textBody("b"), timestamp: 200 }),
+      makeMessage({ id: "a", role: "assistant", ...textBody("a"), timestamp: 100 }),
     ];
     const snapshot = messages.map((m) => m.id);
     sanitizeDisplayMessages(messages);
@@ -55,9 +56,9 @@ describe("sanitizeDisplayMessages · timestamp sort", () => {
   // isolation.
   test("orders timestamped messages ascending", () => {
     const messages: DisplayMessage[] = [
-      makeMessage({ id: "c", role: "user", content: "c", timestamp: 300 }),
-      makeMessage({ id: "a", role: "user", content: "a", timestamp: 100 }),
-      makeMessage({ id: "b", role: "user", content: "b", timestamp: 200 }),
+      makeMessage({ id: "c", role: "user", ...textBody("c"), timestamp: 300 }),
+      makeMessage({ id: "a", role: "user", ...textBody("a"), timestamp: 100 }),
+      makeMessage({ id: "b", role: "user", ...textBody("b"), timestamp: 200 }),
     ];
     const result = sanitizeDisplayMessages(messages);
     expect(result.map((m) => m.id)).toEqual(["a", "b", "c"]);
@@ -65,9 +66,9 @@ describe("sanitizeDisplayMessages · timestamp sort", () => {
 
   test("rows without a timestamp keep their original slot", () => {
     const messages: DisplayMessage[] = [
-      makeMessage({ id: "later-ts", role: "user", content: "x", timestamp: 200 }),
-      makeMessage({ id: "no-ts", role: "user", content: "y" }),
-      makeMessage({ id: "earlier-ts", role: "user", content: "z", timestamp: 100 }),
+      makeMessage({ id: "later-ts", role: "user", ...textBody("x"), timestamp: 200 }),
+      makeMessage({ id: "no-ts", role: "user", ...textBody("y") }),
+      makeMessage({ id: "earlier-ts", role: "user", ...textBody("z"), timestamp: 100 }),
     ];
     const result = sanitizeDisplayMessages(messages);
     expect(result.map((m) => m.id)).toEqual([
@@ -84,8 +85,8 @@ describe("sanitizeDisplayMessages · timestamp sort", () => {
 
 describe("sanitizeDisplayMessages · invalid row filter", () => {
   test("drops blank user rows with no content / segments / surfaces / attachments / tool calls", () => {
-    const blank = makeMessage({ id: "blank", role: "user", content: "" });
-    const real = makeMessage({ id: "real", role: "user", content: "hi", timestamp: 1 });
+    const blank = makeMessage({ id: "blank", role: "user", ...textBody("") });
+    const real = makeMessage({ id: "real", role: "user", ...textBody("hi"), timestamp: 1 });
     const result = sanitizeDisplayMessages([blank, real]);
     expect(result.map((m) => m.id)).toEqual(["real"]);
   });
@@ -94,7 +95,7 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
     const whitespace = makeMessage({
       id: "whitespace",
       role: "user",
-      content: "   \n\t  ",
+      ...textBody("   \n\t  "),
     });
     const result = sanitizeDisplayMessages([whitespace]);
     expect(result).toEqual([]);
@@ -104,7 +105,6 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
     const emptySegments = makeMessage({
       id: "empty-segments",
       role: "user",
-      content: "",
       textSegments: [{ type: "text", content: "" }],
     });
     const result = sanitizeDisplayMessages([emptySegments]);
@@ -115,7 +115,7 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
     const phantom = makeMessage({
       id: "phantom",
       role: "user",
-      content: "",
+      ...textBody(""),
       toolCalls: [
         makeToolCall({ id: "tc-1", toolName: "unknown", result: "orphan" }),
       ],
@@ -128,7 +128,7 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
     const mixed = makeMessage({
       id: "mixed",
       role: "user",
-      content: "",
+      ...textBody(""),
       toolCalls: [
         makeToolCall({ id: "tc-1", toolName: "unknown", result: "orphan" }),
         makeToolCall({ id: "tc-2", toolName: "bash", result: "file.txt" }),
@@ -142,7 +142,7 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
     const emptyAssistant = makeMessage({
       id: "empty-asst",
       role: "assistant",
-      content: "",
+      ...textBody(""),
     });
     const result = sanitizeDisplayMessages([emptyAssistant]);
     expect(result.map((m) => m.id)).toEqual(["empty-asst"]);
@@ -152,7 +152,7 @@ describe("sanitizeDisplayMessages · invalid row filter", () => {
     const queued = makeMessage({
       id: "queued",
       role: "user",
-      content: "",
+      ...textBody(""),
       queueStatus: "queued",
     });
     const result = sanitizeDisplayMessages([queued]);
@@ -172,7 +172,6 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const server = makeMessage({
       id: "msg-1",
       role: "assistant",
-      content: "Final answer",
       textSegments: [{ type: "text", content: "Final answer" }],
       toolCalls: [
         makeToolCall({ id: "tc-1", toolName: "bash", result: "ok" }),
@@ -182,7 +181,6 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const orphan = makeMessage({
       id: "assistant-abc",
       role: "assistant",
-      content: "Final answer",
       textSegments: [{ type: "text", content: "Final answer" }],
       toolCalls: [
         makeToolCall({ id: "tc-1", toolName: "bash", result: "ok" }),
@@ -195,11 +193,11 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
   });
 
   test("keeps both rows when only one is the assistant", () => {
-    const user = makeMessage({ id: "u", role: "user", content: "hi", timestamp: 1 });
+    const user = makeMessage({ id: "u", role: "user", ...textBody("hi"), timestamp: 1 });
     const assistant = makeMessage({
       id: "a",
       role: "assistant",
-      content: "hi",
+      ...textBody("hi"),
       timestamp: 2,
     });
     const result = sanitizeDisplayMessages([user, assistant]);
@@ -360,7 +358,7 @@ describe("sanitizeDisplayMessages · drop trailing assistant duplicate", () => {
     const only = makeMessage({
       id: "only",
       role: "assistant",
-      content: "lonely",
+      ...textBody("lonely"),
       timestamp: 1,
     });
     const result = sanitizeDisplayMessages([only]);
@@ -392,7 +390,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     const later = makeMessage({
       id: "a-new",
       role: "assistant",
-      content: "follow-up",
+      ...textBody("follow-up"),
       timestamp: 200,
     });
     const [patchedOld, untouchedNew] = sanitizeDisplayMessages([older, later]);
@@ -412,7 +410,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     const userMsg = makeMessage({
       id: "u",
       role: "user",
-      content: "go",
+      ...textBody("go"),
       timestamp: 100,
     });
     const last = makeMessage({
@@ -440,7 +438,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     const trailingUser = makeMessage({
       id: "u",
       role: "user",
-      content: "ping",
+      ...textBody("ping"),
       timestamp: 200,
     });
     const result = sanitizeDisplayMessages([onlyAssistant, trailingUser]);
@@ -460,13 +458,13 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     const u = makeMessage({
       id: "u",
       role: "user",
-      content: "more",
+      ...textBody("more"),
       timestamp: 200,
     });
     const a2 = makeMessage({
       id: "a2",
       role: "assistant",
-      content: "result",
+      ...textBody("result"),
       timestamp: 300,
     });
     const result = sanitizeDisplayMessages([a1, u, a2]);
@@ -491,7 +489,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     const later = makeMessage({
       id: "a-new",
       role: "assistant",
-      content: "follow-up",
+      ...textBody("follow-up"),
       timestamp: 200,
     });
     const result = sanitizeDisplayMessages([older, later]);
@@ -519,7 +517,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     const later = makeMessage({
       id: "a-new",
       role: "assistant",
-      content: "ok",
+      ...textBody("ok"),
       timestamp: 200,
     });
     const result = sanitizeDisplayMessages([older, later]);
@@ -551,7 +549,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     const later = makeMessage({
       id: "a-new",
       role: "assistant",
-      content: "done",
+      ...textBody("done"),
       timestamp: 200,
     });
     const result = sanitizeDisplayMessages([older, later]);
@@ -582,7 +580,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     const a3 = makeMessage({
       id: "a3",
       role: "assistant",
-      content: "done",
+      ...textBody("done"),
       timestamp: 300,
     });
     const result = sanitizeDisplayMessages([a1, a2, a3]);
@@ -602,7 +600,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     const later = makeMessage({
       id: "a-new",
       role: "assistant",
-      content: "ok",
+      ...textBody("ok"),
       timestamp: 200,
     });
     sanitizeDisplayMessages([older, later]);
@@ -632,7 +630,7 @@ describe("sanitizeDisplayMessages · repair dangling tool calls", () => {
     const a2 = makeMessage({
       id: "a2",
       role: "assistant",
-      content: "done",
+      ...textBody("done"),
       timestamp: 200,
     });
     const result = sanitizeDisplayMessages([a1, a2]);
@@ -804,7 +802,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     const u = makeMessage({
       id: "u",
       role: "user",
-      content: "go",
+      ...textBody("go"),
       timestamp: started - 100,
     });
     const lastAssistant = makeMessage({
@@ -908,7 +906,7 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
     const m2 = makeMessage({
       id: "a2",
       role: "assistant",
-      content: "done",
+      ...textBody("done"),
       timestamp: 200,
     });
     mockNow(10_000_000);
@@ -928,7 +926,7 @@ describe("sanitizeDisplayMessages · integration", () => {
     const phantom = makeMessage({
       id: "phantom",
       role: "user",
-      content: "",
+      ...textBody(""),
       toolCalls: [
         makeToolCall({ id: "p", toolName: "unknown", result: "orphan" }),
       ],
@@ -937,7 +935,7 @@ describe("sanitizeDisplayMessages · integration", () => {
     const userTurn = makeMessage({
       id: "user",
       role: "user",
-      content: "What's the answer?",
+      ...textBody("What's the answer?"),
       timestamp: 100,
     });
     // An older assistant message with a running tool call — its `tool_result`

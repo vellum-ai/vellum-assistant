@@ -10,6 +10,7 @@ import {
   handleGenerationCancelled,
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 
 describe("handleAssistantTurnStart", () => {
   it("seeds currentAssistantMessageIdRef from the event's messageId", () => {
@@ -46,7 +47,7 @@ describe("handleAssistantTextDelta", () => {
     expect(next).toHaveLength(1);
     expect(next[0]).toMatchObject({
       role: "assistant",
-      content: "Hi",
+      ...textBody("Hi"),
     });
   });
 });

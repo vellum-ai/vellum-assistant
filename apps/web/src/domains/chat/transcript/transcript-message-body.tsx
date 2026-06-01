@@ -22,6 +22,7 @@ import {
 } from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types";
 import { isPointerCoarse } from "@/utils/pointer";
 import {
@@ -354,6 +355,10 @@ export function TranscriptMessageBody({
   const isSlackMessage = Boolean(message.slackMessage);
   const isUser = message.role === "user";
   const hasAttachments = Boolean(message.attachments?.length);
+  // Flat plain-text body derived from the ordered text segments. Used for the
+  // copy action and as the render fallback when `contentOrder` carries no text
+  // groups (e.g. a tool_use lands before the first assistant_text_delta).
+  const messageText = segmentsToPlainText(message.textSegments);
 
   // `textBubbleClass` applies only to the assistant text path: it carries the
   // text bubble per segment inside `segmentClass`'s assistant branch. User
@@ -746,12 +751,12 @@ export function TranscriptMessageBody({
     // Order-preserving flat list for the assistant branch.
     const interleavedGroupElements = interleavedGroupEntries.map((e) => e.node);
 
-    // Fallback: if message.content exists but no text groups rendered
-    // (e.g. tool_use_start before any assistant_text_delta), show the content.
+    // Fallback: if derived text exists but no text groups rendered
+    // (e.g. tool_use_start before any assistant_text_delta), show the text.
     const interleavedFallback =
-      !groups.some((g) => g.type === "text") && message.content
+      !groups.some((g) => g.type === "text") && messageText
         ? renderTextWithInlineSurfaces(
-            message.content,
+            messageText,
             "fallback",
             message.role === "user",
           )
@@ -805,7 +810,7 @@ export function TranscriptMessageBody({
           />
           <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
             <MessageHoverActions
-              content={message.content}
+              content={messageText}
               timestamp={messageTimestamp}
               role={message.role}
               isStreaming={isStreaming}
@@ -860,17 +865,17 @@ export function TranscriptMessageBody({
         }
       }
     }
-    if (contentEntries.length === 0 && message.content) {
+    if (contentEntries.length === 0 && messageText) {
       contentEntries.push({
         type: "text",
-        node: renderTextWithInlineSurfaces(message.content, "fallback", message.role === "user"),
+        node: renderTextWithInlineSurfaces(messageText, "fallback", message.role === "user"),
       });
     }
   } else {
     contentEntries.push({
       type: "text",
-      node: message.content
-        ? renderTextWithInlineSurfaces(message.content, "content", message.role === "user")
+      node: messageText
+        ? renderTextWithInlineSurfaces(messageText, "content", message.role === "user")
         : null,
     });
   }
@@ -983,7 +988,7 @@ export function TranscriptMessageBody({
         />
         <div className="h-6 opacity-0 transition-opacity duration-150 group-hover/msg:opacity-100 has-[:focus-visible]:opacity-100 group-data-[revealed=true]/msg:opacity-100">
           <MessageHoverActions
-            content={message.content}
+            content={messageText}
             timestamp={messageTimestamp}
             role={message.role}
             isStreaming={isStreaming}

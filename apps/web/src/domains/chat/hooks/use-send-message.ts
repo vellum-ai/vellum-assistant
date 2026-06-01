@@ -49,6 +49,7 @@ import {
 } from "@/domains/onboarding/prechat";
 
 import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters";
+import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
 
@@ -439,26 +440,20 @@ export function useSendMessage({
             if (serverMessages.length > 0) {
               return reconcileMessages(prev, serverMessages);
             }
+            const mapped = mapRuntimeToDisplayMessage(reply);
             const existingIdx = prev.findIndex((m) => m.id === reply.id);
             if (existingIdx >= 0) {
               const existing = prev[existingIdx];
               const updated = [...prev];
               updated[existingIdx] = {
-                id: reply.id,
-                role: "assistant",
-                content: reply.content,
-                timestamp: existing?.timestamp ?? Date.now(),
+                ...mapped,
+                timestamp: existing?.timestamp ?? mapped.timestamp ?? Date.now(),
               };
               return updated;
             }
             return [
               ...prev,
-              {
-                id: reply.id,
-                role: "assistant",
-                content: reply.content,
-                timestamp: Date.now(),
-              },
+              { ...mapped, timestamp: mapped.timestamp ?? Date.now() },
             ];
           });
           if (restoredConfData) {
@@ -560,7 +555,8 @@ export function useSendMessage({
         id: optimisticUserId,
         isOptimistic: true,
         role: "user",
-        content,
+        textSegments: [{ type: "text", content }],
+        contentOrder: [{ type: "text", id: "0" }],
         timestamp: Date.now(),
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(willQueue ? { queueStatus: "queued" as const, queuePosition: 0 } : {}),

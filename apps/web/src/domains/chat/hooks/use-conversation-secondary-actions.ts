@@ -23,6 +23,7 @@ import { conversationsByIdAnalyzePost, conversationsForkPost } from "@/generated
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import type { ChatError } from "@/domains/chat/types";
 
 // ---------------------------------------------------------------------------
@@ -193,9 +194,10 @@ export function useConversationSecondaryActions({
       parts.push(`# ${activeConversation.title}`);
     }
     for (const msg of messagesRef.current) {
-      if (!msg.content.trim()) continue;
+      const text = segmentsToPlainText(msg.textSegments);
+      if (!text.trim()) continue;
       const sender = msg.role === "user" ? "You" : name;
-      parts.push(`### ${sender}\n${msg.content}`);
+      parts.push(`### ${sender}\n${text}`);
     }
     if (parts.length === 0) return;
     const markdown = parts.join("\n\n---\n\n");

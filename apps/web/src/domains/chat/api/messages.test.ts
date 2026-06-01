@@ -11,6 +11,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { client } from "@/generated/api/client.gen";
 import { getChatHistory, normalizeContentOrder, normalizeTextSegments, postChatMessage } from "@/domains/chat/api/messages";
+import { messageText } from "@/domains/chat/utils/message-test-helpers";
 
 // ---------------------------------------------------------------------------
 // Spy setup — replace client.post per-test, restore after
@@ -237,8 +238,13 @@ describe("getChatHistory", () => {
           {
             id: "msg-slack",
             role: "user",
-            content:
-              "Slack reply\n[File attachment] file.pdf, type=application/pdf",
+            textSegments: [
+              { type: "text", content: "Slack reply" },
+              {
+                type: "text",
+                content: "[File attachment] file.pdf, type=application/pdf",
+              },
+            ],
             metadata: { source: "slack" },
             slackMessage,
             timestamp: "2026-05-15T12:34:56.000Z",
@@ -258,11 +264,11 @@ describe("getChatHistory", () => {
     expect(result.messages[0]).toMatchObject({
       id: "msg-slack",
       role: "user",
-      content: "Slack reply",
       metadata: { source: "slack" },
       slackMessage,
       timestamp: Date.parse("2026-05-15T12:34:56.000Z"),
     });
+    expect(messageText(result.messages[0])).toBe("Slack reply");
   });
 });
 
