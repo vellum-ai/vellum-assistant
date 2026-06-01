@@ -1123,7 +1123,6 @@ export function ChatPage() {
   // complete actions menu without duplicating hooks or state.
   const headerSupplements = useMemo<ChatHeaderSupplements>(() => ({
     hasPersistedMessage,
-    isChannelReadonly,
     slackHeaderLabel,
     onAnalyze: handleAnalyzeConversation,
     onForkConversation: handleForkConversationFromMenu,
@@ -1133,7 +1132,6 @@ export function ChatPage() {
     onRefresh: refreshLatestMessages,
   }), [
     hasPersistedMessage,
-    isChannelReadonly,
     slackHeaderLabel,
     handleAnalyzeConversation,
     handleForkConversationFromMenu,

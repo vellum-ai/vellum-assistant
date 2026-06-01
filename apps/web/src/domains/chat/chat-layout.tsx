@@ -233,11 +233,14 @@ export function ChatLayout() {
   // nearest outlet) can register content without the lost-Provider
   // problem outlet context has across intermediate routes.
   //
-  // `topBarCenter` is overridden by non-chat routes (e.g. HomePageRoute
-  // writes "Home" text for mobile). When null, ChatLayout renders the
-  // self-contained ChatConversationHeader directly.
-  const topBarCenterOverride = useChatLayoutSlotsStore.use.topBarCenter();
-  const topBarCenter = topBarCenterOverride ?? <ChatConversationHeader />;
+  // ChatPage writes `headerSupplements` to signal it's active. When
+  // supplements are present and no explicit `topBarCenter` override
+  // exists, ChatLayout renders the self-contained ChatConversationHeader.
+  // Non-chat routes (e.g. HomePageRoute) write `null` to topBarCenter
+  // and never set supplements, so they get an empty center as before.
+  const topBarCenterSlot = useChatLayoutSlotsStore.use.topBarCenter();
+  const headerSupplements = useChatLayoutSlotsStore.use.headerSupplements();
+  const topBarCenter = topBarCenterSlot ?? (headerSupplements ? <ChatConversationHeader /> : null);
   const topBarRightSlot = useChatLayoutSlotsStore.use.topBarRightSlot();
   const onSearchClick = useChatLayoutSlotsStore.use.onSearchClick();
 

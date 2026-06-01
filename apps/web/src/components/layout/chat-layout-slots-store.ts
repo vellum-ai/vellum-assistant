@@ -31,7 +31,6 @@ import type { Conversation } from "@/types/conversation-types";
 
 export interface ChatHeaderSupplements {
   hasPersistedMessage: boolean;
-  isChannelReadonly: boolean;
   slackHeaderLabel: string | null;
   /** Secondary action callbacks — ChatPage-specific because they need
    *  access to the message list, active stream, or ChatPage-local state. */
