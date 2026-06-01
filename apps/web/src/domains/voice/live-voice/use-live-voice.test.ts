@@ -151,6 +151,7 @@ class FakeCapture {
 class FakePlayer {
   enqueued: unknown[] = [];
   stopCount = 0;
+  disposeCount = 0;
   isPlaying = false;
   private drainResolvers: Array<() => void> = [];
 
@@ -162,6 +163,10 @@ class FakePlayer {
     this.stopCount++;
     this.isPlaying = false;
     this.resolveDrain();
+  }
+  async dispose(): Promise<void> {
+    this.disposeCount++;
+    this.stop();
   }
   async waitUntilDrained(): Promise<void> {
     if (!this.isPlaying) return;
@@ -508,7 +513,9 @@ describe("teardown", () => {
     });
 
     expect(h.client.ended).toBe(true);
-    expect(h.player.stopCount).toBeGreaterThanOrEqual(1);
+    // dispose() releases the AudioContext (not just stop()); confirm capture is
+    // fully shut down too.
+    expect(h.player.disposeCount).toBeGreaterThanOrEqual(1);
     expect(capture.shutdownCount).toBe(1);
     expect(h.view.result.current.state).toBe("idle");
   });
@@ -523,7 +530,8 @@ describe("teardown", () => {
     });
 
     expect(h.client.closed).toBe(true);
-    expect(h.player.stopCount).toBeGreaterThanOrEqual(1);
+    // Unmount must dispose the player so the AudioContext is released.
+    expect(h.player.disposeCount).toBeGreaterThanOrEqual(1);
     expect(capture.shutdownCount).toBe(1);
   });
 

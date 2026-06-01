@@ -363,4 +363,50 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(ctx.sources.length).toBe(0);
     expect(player.isPlaying).toBe(false);
   });
+
+  // -------------------------------------------------------------------------
+  // dispose: release the underlying AudioContext (resource-leak guard)
+  // -------------------------------------------------------------------------
+
+  test("dispose() stops playback and closes the underlying context", async () => {
+    player.enqueue(chunk(new Array(24000).fill(1)));
+    player.enqueue(chunk(new Array(24000).fill(1)));
+    expect(player.isPlaying).toBe(true);
+
+    await player.dispose();
+
+    // Every scheduled source was halted, the queue cleared, and the context
+    // released so it can't leak across repeated sessions.
+    expect(ctx.sources.every((s) => s.stopped)).toBe(true);
+    expect(ctx.closed).toBe(true);
+    expect(player.isPlaying).toBe(false);
+    expect(player.queuedCount).toBe(0);
+  });
+
+  test("dispose() is a no-op when no context was ever created", async () => {
+    // No enqueue, so the lazy context was never constructed: dispose must not
+    // throw and must not fabricate/close a context.
+    await player.dispose();
+    expect(ctx.closed).toBe(false);
+  });
+
+  test("dispose() is idempotent: repeat calls don't re-close the context", async () => {
+    player.enqueue(chunk(new Array(24000).fill(1)));
+
+    await player.dispose();
+    ctx.closed = false; // detect any erroneous second close
+    await player.dispose();
+
+    expect(ctx.closed).toBe(false);
+  });
+
+  test("player is reusable after dispose() — the next enqueue recreates context", async () => {
+    player.enqueue(chunk(new Array(24000).fill(1)));
+    await player.dispose();
+
+    // A fresh enqueue lazily rebuilds a context and schedules normally.
+    player.enqueue(chunk(new Array(24000).fill(1)));
+    expect(player.isPlaying).toBe(true);
+    expect(player.queuedCount).toBe(1);
+  });
 });

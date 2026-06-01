@@ -156,7 +156,9 @@ export function useLiveVoice(
     for (const unsubscribe of session.unsubscribes) unsubscribe();
     session.unsubscribes = [];
     session.client.close();
-    session.player.stop();
+    // dispose() stops playback *and* releases the AudioContext; a bare stop()
+    // would leak the context across repeated sessions until page unload.
+    void session.player.dispose();
     void session.capture.shutdown();
   }, []);
 
@@ -172,7 +174,8 @@ export function useLiveVoice(
     for (const unsubscribe of session.unsubscribes) unsubscribe();
     session.unsubscribes = [];
     session.client.end();
-    session.player.stop();
+    // Release the AudioContext, not just the scheduled sources (see teardown).
+    await session.player.dispose();
     await session.capture.shutdown();
     useLiveVoiceStore.getState().reset();
   }, []);
