@@ -250,7 +250,8 @@ RUN chmod +x \
     /app/assistant/docker-kata-runtime-family.sh \
     /usr/local/bin/vellum-block-volume-common.sh \
     /usr/local/bin/vellum-block-volume-init.sh \
-    /usr/local/bin/vellum-block-volume-mount.sh
+    /usr/local/bin/vellum-block-volume-mount.sh \
+    /usr/local/bin/vellum-block-volume-resize.sh
 
 # Run the daemon + http server
 CMD ["/app/assistant/docker-entrypoint.sh"]

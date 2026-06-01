@@ -466,7 +466,7 @@ docker run --rm -p 3001:3001 \
 
 The image exposes port `3001` and bundles the `assistant` CLI binary.
 
-The image also includes the opt-in block-volume helper scripts used by vembda for Kata-family block-mode deployments. Default startup does not invoke them; vembda must wrap the service command explicitly. Assistant block mode uses `assistant-data:/data:rw;workspace:/workspace:rw;dockerd-data:/var/lib/docker:rw`. See [Kata Block-Mode Image Contract](../docs/kata-block-mode-image-contract.md).
+The image also includes the opt-in block-volume helper scripts used by vembda for Kata-family block-mode deployments. Default startup does not invoke them; vembda must wrap the service command explicitly. Assistant block mode uses `assistant-data:/data:rw;workspace:/workspace:rw;dockerd-data:/var/lib/docker:rw`; security storage remains on separate service-owned volumes. The mount helper must run as root and, when the service should run as the existing non-root user, drop with `VELLUM_BLOCK_EXEC_UID=1001` and `VELLUM_BLOCK_EXEC_GID=1001`. After raw block PVC expansion, vembda may invoke `vellum-block-volume-resize.sh` through Kubernetes exec to grow ext4 online, with pod restart as the fallback. See [Kata Block-Mode Image Contract](../docs/kata-block-mode-image-contract.md).
 
 ## Troubleshooting
 

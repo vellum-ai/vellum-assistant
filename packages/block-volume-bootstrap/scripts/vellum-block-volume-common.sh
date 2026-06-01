@@ -52,6 +52,15 @@ block_validate_number() {
   esac
 }
 
+block_detect_fs_type() {
+  if block_is_dry_run; then
+    block_dry_run "blkid -o value -s TYPE ${BLOCK_DEVICE}"
+    printf '%s\n' "${VELLUM_BLOCK_DRY_RUN_BLKID_TYPE:-}"
+    return 0
+  fi
+  blkid -o value -s TYPE "${BLOCK_DEVICE}" 2>/dev/null || true
+}
+
 block_init_defaults() {
   BLOCK_DEVICE="${VELLUM_BLOCK_DEVICE:-/dev/assistant-data}"
   BLOCK_ROOT="${VELLUM_BLOCK_ROOT:-/mnt/vellum-block-root}"
