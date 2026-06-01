@@ -12,6 +12,7 @@ import {
   isCesToolsEnabled,
 } from "../credential-execution/feature-gates.js";
 import { askQuestionTool } from "./ask-question/ask-question-tool.js";
+import { dailyBriefingConfigureTool } from "./briefing/configure.js";
 import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
 import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
 import { runAuthenticatedCommandTool } from "./credential-execution/run-authenticated-command.js";
@@ -90,6 +91,7 @@ export const explicitTools: ToolDefinition[] = [
   // Always-explicit tools
   rememberTool,
   recallTool,
+  dailyBriefingConfigureTool,
   credentialStoreTool,
   notifyParentTool,
   askQuestionTool,
