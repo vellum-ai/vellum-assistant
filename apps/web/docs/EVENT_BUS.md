@@ -178,16 +178,17 @@ Rules:
    return the unsubscribe synchronously — use an internal
    `cancelled` flag if the listener registration is async.
    See `capacitor-app-state.ts` for the pattern.
-5. **Colocated unit test.** Test in isolation with a
-   `{ publish: mock() }` stub — don't reach for the integration
+5. **Colocated unit test.** Test in isolation via
+   `spyOn(eventBus, "publish")` on an `import * as eventBus from
+   "@/lib/event-bus"` namespace — don't reach for the integration
    test in `use-event-bus-init.test.tsx`. The integration test is
    for SSE-policy behavior, not source wiring.
 6. **Wire it in.** Add a single line to `useEventBusInit`'s Effect 1:
    ```ts
    const unsubscribers = [
-     publishVisibilitySource(bus),
+     publishVisibilitySource(),
      // ...
-     publishMySignalSource(bus),
+     publishMySignalSource(),
    ];
    ```
 
@@ -295,8 +296,7 @@ has a colocated unit test exercising its publish contract via
 
 ## References
 
-- [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
-- [`STATE_MANAGEMENT.md`](./STATE_MANAGEMENT.md) — why the bus is a
-  Zustand store even though it doesn't expose reactive state.
+- [`STATE_MANAGEMENT.md`](./STATE_MANAGEMENT.md#when-zustand-does-not-apply-stateless-registries)
+  — why the bus is a plain pub/sub module, not a Zustand store.
 - [`CAPACITOR.md`](./CAPACITOR.md) — Capacitor `App.appStateChange`
   feeds the bus's `app.resume` / `app.hidden` channels on iOS.
