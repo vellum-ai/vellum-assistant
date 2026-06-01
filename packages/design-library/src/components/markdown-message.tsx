@@ -260,6 +260,37 @@ function buildMarkdownComponents(
 }
 
 /**
+ * remark-math treats `$…$` as inline LaTeX, so monetary text like
+ * "$65B series H at $965B post-money" gets greedily paired into a math span
+ * and mangled into italic math typography. Escape the leading `$` of anything
+ * that looks like a currency amount so the math parser leaves it as literal
+ * text.
+ *
+ * A currency amount is `$` immediately followed by a digit, with optional
+ * thousands separators, a decimal, and a K/M/B/T(/bn/tn/trn) scale suffix,
+ * ending at a word/punctuation boundary. The match is intentionally narrow so
+ * real inline/block math is preserved:
+ *   - `$E = mc^2$`, `$x^2$`, `$\frac12$` — no digit after `$`, never matched.
+ *   - `$2x + 1$` — the digit is followed by a variable, not a boundary; the
+ *     whole expression stays math.
+ *   - `$$…$$` block math — the inner `$` is preceded by `$`, so it is skipped.
+ * The rare degenerate case `$3.14$` (a bare numeric "equation") renders as
+ * literal text rather than math, which is the safer default. Dollars already
+ * escaped as `\$` are left untouched.
+ */
+function escapeCurrencyDollars(text: string): string {
+  return text.replace(
+    /\$(\d[\d,]*(?:\.\d+)?(?:bn|tn|trn|[KMBT])?)(?=$|[\s).,;:!?%"'’\]}/-]|&)/gi,
+    (match, amount: string, offset: number, full: string) => {
+      const prev = offset > 0 ? full[offset - 1] : "";
+      // `\$` is already escaped; a preceding `$` means this is a `$$…$$` fence.
+      if (prev === "\\" || prev === "$") return match;
+      return `\\$${amount}`;
+    },
+  );
+}
+
+/**
  * Convert lone newlines to CommonMark hard line breaks (two trailing
  * spaces before `\n`) so user-typed Shift+Enter breaks render as `<br>`.
  * Double-newlines (paragraph breaks) are left untouched.
@@ -293,7 +324,8 @@ export function MarkdownMessage({
   hardLineBreaks,
   linkComponent,
 }: MarkdownMessageProps) {
-  const processed = hardLineBreaks ? preserveNewlines(content) : content;
+  const escaped = escapeCurrencyDollars(content);
+  const processed = hardLineBreaks ? preserveNewlines(escaped) : escaped;
   const Link = linkComponent ?? DefaultLink;
   const components = useMemo(() => buildMarkdownComponents(Link), [Link]);
   return (

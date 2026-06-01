@@ -93,6 +93,55 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("line2");
   });
 
+  test("monetary text is not mangled into math typography", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Anthropic raised a $65B series H at $965B post-money.",
+      }),
+    );
+
+    // The currency dollars are escaped, so KaTeX never runs and the literal
+    // amounts survive verbatim.
+    expect(html).not.toContain("katex");
+    expect(html).toContain("$65B");
+    expect(html).toContain("$965B");
+  });
+
+  test("assorted currency formats survive as literal text", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "Pay $5, then $1,000.50, up to $1.5T or $100 billion.",
+      }),
+    );
+
+    expect(html).not.toContain("katex");
+    expect(html).toContain("$5");
+    expect(html).toContain("$1,000.50");
+    expect(html).toContain("$1.5T");
+    expect(html).toContain("$100");
+  });
+
+  test("legitimate inline math still renders via KaTeX", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "The identity $E = mc^2$ and $2x + 1$ are math.",
+      }),
+    );
+
+    expect(html).toContain("katex");
+  });
+
+  test("currency and real math coexist in one message", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "It costs $5 but $E = mc^2$ still holds.",
+      }),
+    );
+
+    expect(html).toContain("katex");
+    expect(html).toContain("$5");
+  });
+
   test("custom linkComponent replaces the default link renderer", () => {
     function CustomLink({ href, children }: { href?: string; children?: React.ReactNode }) {
       return <a href={href} data-custom="true">{children}</a>;
