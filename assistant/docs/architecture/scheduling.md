@@ -1,6 +1,6 @@
 # Scheduling Architecture
 
-Recurring schedules, watchers, and queued task execution architecture.
+Recurring schedules and queued task execution architecture.
 
 ## Recurrence Schedules — Cron and RRULE Dual-Syntax Engine
 
@@ -123,71 +123,6 @@ If a channel becomes unavailable between reminder creation and fire time, it is 
 
 ---
 
-## Watcher System — Event-Driven Polling
-
-Watchers poll external APIs on an interval, detect new events via watermark-based change tracking, and process them through a background LLM session.
-
-```mermaid
-graph TD
-    subgraph "Scheduler (15s tick)"
-        TICK["runScheduleOnce()"]
-        CRON["Recurrence Schedules<br/>(cron + RRULE)"]
-        REMIND["Reminders"]
-        WATCH["runWatchersOnce()"]
-    end
-
-    subgraph "Watcher Engine"
-        CLAIM["claimDueWatchers()"]
-        POLL["provider.fetchNew()"]
-        DEDUP["insertWatcherEvent()"]
-        PROCESS["processMessage()"]
-    end
-
-    subgraph "Provider Registry"
-        GMAIL["Gmail Provider"]
-        SLACK_W["Slack Provider"]
-        GCAL["Google Calendar Provider"]
-        GH_W["GitHub Provider"]
-        LINEAR_W["Linear Provider"]
-        FUTURE["Future Providers..."]
-    end
-
-    subgraph "Disposition"
-        SILENT["silent → log"]
-        NOTIFY["notify → macOS notification"]
-        ESCALATE["escalate → user chat"]
-    end
-
-    TICK --> CRON
-    TICK --> REMIND
-    TICK --> WATCH
-    WATCH --> CLAIM
-    CLAIM --> POLL
-    POLL --> GMAIL
-    POLL --> SLACK_W
-    POLL --> GCAL
-    POLL --> GH_W
-    POLL --> LINEAR_W
-    POLL --> FUTURE
-    POLL --> DEDUP
-    DEDUP --> PROCESS
-    PROCESS --> SILENT
-    PROCESS --> NOTIFY
-    PROCESS --> ESCALATE
-```
-
-**Key design decisions:**
-
-| Decision                             | Rationale                                                                                            |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| Watermark-based polling              | Efficient change detection without webhooks; each provider defines its own cursor format             |
-| Background conversations             | LLM retains context across polls (e.g. "already replied to this thread"); invisible to user's chat   |
-| Circuit breaker (5 errors → disable) | Prevents runaway polling when credentials expire or APIs break                                       |
-| Provider interface                   | Extensible: implement `WatcherProvider` for any external API (Gmail, Stripe, Gong, Salesforce, etc.) |
-| Optimistic claim locking             | Prevents double-polling in concurrent scheduler ticks                                                |
-
-**Data tables:** `watchers` (config, watermark, status, error tracking) and `watcher_events` (detected events, dedup on `(watcher_id, external_id)`, disposition tracking).
-
 ## Task Queue — Conversation-Managed Task Execution
 
 The Task Queue provides an ordered execution pipeline with human-in-the-loop review. Task management happens entirely through conversation — the user creates, updates, runs, and reviews tasks by talking to the assistant. There is no standalone Tasks UI window.
@@ -214,7 +149,7 @@ The `work_items` table links to the existing `tasks` table and tracks execution 
 | `last_run_id`              | text                | Most recent `task_runs.id` for this item             |
 | `last_run_conversation_id` | text                | Conversation used by the last run                    |
 | `last_run_status`          | text                | Status of the last run (`completed`, `failed`, etc.) |
-| `source_type`              | text                | Reserved — origin type (e.g., `watcher`, `manual`)   |
+| `source_type`              | text                | Reserved — origin type (e.g., `schedule`, `manual`)   |
 | `source_id`                | text                | Reserved — origin identifier                         |
 | `created_at`               | integer             | Epoch ms                                             |
 | `updated_at`               | integer             | Epoch ms                                             |

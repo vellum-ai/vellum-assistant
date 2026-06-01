@@ -1,4 +1,4 @@
-// Schedule, watcher, and heartbeat types.
+// Schedule and heartbeat types.
 
 // === Client → Server ===
 

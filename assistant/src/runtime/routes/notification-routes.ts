@@ -70,7 +70,6 @@ const EmitSignalParams = z.object({
     "telegram",
     "slack",
     "scheduler",
-    "watcher",
   ]),
   sourceContextId: z.string().min(1),
   attentionHints: AttentionHintsSchema,

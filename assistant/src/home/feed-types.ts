@@ -110,7 +110,7 @@ export interface FeedItem {
    * Source conversation that emitted this notification, when known. Used by
    * the "Go to Thread" affordance in the detail panel. Omitted when the
    * source context is not a navigable conversation (scheduler job ids,
-   * watcher event ids, CLI tool-call ids).
+   * CLI tool-call ids).
    */
   conversationId?: string;
   /** Server-driven detail panel descriptor; when present, the client opens this panel kind. */

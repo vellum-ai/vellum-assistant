@@ -16,7 +16,6 @@ export const NOTIFICATION_SOURCE_CHANNELS = [
   { id: "telegram", description: "Telegram channel" },
   { id: "slack", description: "Slack channel" },
   { id: "scheduler", description: "Scheduled task runner (reminders, cron)" },
-  { id: "watcher", description: "File/event watcher subsystem" },
 ] as const;
 
 export type NotificationSourceChannel =
@@ -75,14 +74,6 @@ export const NOTIFICATION_SOURCE_EVENT_NAMES = [
   {
     id: "ingress.trusted_contact.activated",
     description: "Trusted contact activated",
-  },
-  {
-    id: "watcher.notification",
-    description: "Watcher detected a notable event",
-  },
-  {
-    id: "watcher.escalation",
-    description: "Watcher event requiring immediate attention",
   },
   {
     id: "tool_confirmation.required_action",

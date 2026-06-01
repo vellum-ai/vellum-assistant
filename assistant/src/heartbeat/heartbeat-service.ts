@@ -689,7 +689,7 @@ export class HeartbeatService {
       try {
         await emitNotificationSignal({
           sourceEventName: "credential.health_alert",
-          sourceChannel: "watcher",
+          sourceChannel: "scheduler",
           sourceContextId: result.connectionId,
           dedupeKey: `credential-health:${result.connectionId}:${result.status}`,
           attentionHints: {

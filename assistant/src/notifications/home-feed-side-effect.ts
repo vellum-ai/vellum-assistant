@@ -139,7 +139,6 @@ const EVENT_CATEGORY_MAP: Record<string, FeedItemCategory> = {
   "credential.health_alert": "security",
   "activity.failed": "background",
   "activity.complete": "background",
-  "watcher.notification": "system",
   "schedule.notify": "scheduling",
   "guardian.question": "security",
   "guardian.channel_activation": "security",

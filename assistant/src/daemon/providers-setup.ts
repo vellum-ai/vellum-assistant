@@ -19,14 +19,6 @@ import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { initializeTools, registerMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
-import { initWatcherEngine } from "../watcher/engine.js";
-import { registerWatcherProvider } from "../watcher/provider-registry.js";
-import { githubProvider } from "../watcher/providers/github.js";
-import { gmailProvider } from "../watcher/providers/gmail.js";
-import { googleCalendarProvider } from "../watcher/providers/google-calendar.js";
-import { linearProvider } from "../watcher/providers/linear.js";
-import { outlookProvider } from "../watcher/providers/outlook.js";
-import { outlookCalendarProvider } from "../watcher/providers/outlook-calendar.js";
 import { startMeetHost } from "./meet-host-startup.js";
 
 const log = getLogger("lifecycle");
@@ -144,17 +136,6 @@ export async function initializeProvidersAndTools(
   }
 
   log.info("Daemon startup: providers and tools initialized");
-}
-
-export function registerWatcherProviders(): void {
-  registerWatcherProvider(gmailProvider);
-  registerWatcherProvider(googleCalendarProvider);
-  registerWatcherProvider(githubProvider);
-  registerWatcherProvider(linearProvider);
-  registerWatcherProvider(outlookProvider);
-  registerWatcherProvider(outlookCalendarProvider);
-
-  initWatcherEngine();
 }
 
 export function registerMessagingProviders(): void {

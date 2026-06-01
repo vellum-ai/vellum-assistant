@@ -699,7 +699,6 @@ export async function checkAllCredentials(): Promise<CredentialHealthReport> {
  * Checks BYO connections first; if none exist, falls back to checking
  * managed connections on the platform.
  *
- * Used by the watcher engine for pre-poll gating.
  */
 export async function checkCredentialForProvider(
   provider: string,

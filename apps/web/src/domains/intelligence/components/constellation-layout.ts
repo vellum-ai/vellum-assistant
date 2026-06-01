@@ -50,7 +50,7 @@ export const SUB_CATEGORY_MAP: Partial<Record<SkillCategory, SubCategoryDef[]>> 
   ],
   automation: [
     { label: "Control", emoji: "\u{1F3AE}", skillIds: new Set(["computer-use", "macos-automation", "browser"]) },
-    { label: "Triggers", emoji: "\u{23F0}", skillIds: new Set(["watcher", "time-based-actions"]) },
+    { label: "Triggers", emoji: "\u{23F0}", skillIds: new Set(["time-based-actions"]) },
   ],
   webSocial: [
     { label: "Social", emoji: "\u{1F4F1}", skillIds: new Set(["influencer"]) },

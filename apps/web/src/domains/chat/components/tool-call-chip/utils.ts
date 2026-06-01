@@ -577,7 +577,6 @@ export function toolCategory(toolName: string): string {
   // Prefix-based grouping
   if (name.startsWith("browser_")) return "Browser";
   if (name.startsWith("schedule_")) return "Scheduling";
-  if (name.startsWith("watcher_")) return "Watcher";
   if (name.startsWith("memory_")) return "Memory";
 
   return titleCaseToolName(toolName);

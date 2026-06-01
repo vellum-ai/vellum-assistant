@@ -126,7 +126,7 @@ Suggested checklist groups:
 - Channels, clients, contacts, and guardian verification
 - Integrations, OAuth apps, credentials, and secrets
 - Trust rules, approvals, and permission expectations
-- Schedules, heartbeats, watchers, followups, and task queues
+- Schedules, heartbeats, followups, and task queues
 - Workspace files, projects, notes, and persistent artifacts
 - Inference profiles and provider connections
 
@@ -168,7 +168,6 @@ When rebuilding, explain the Vellum equivalent and ask whether the creator wants
 | Secrets, API keys, tokens, OAuth refresh tokens       | Credential Vault and OAuth Integrations                      | Never paste or import raw secrets. Rebind through secure prompts, OAuth connect flows, or provider setup skills.                                |
 | Autonomy settings, allowlists, deny rules             | Trust Rules and Permissions                                  | Translate intent, not syntax. Start conservative when semantics are unclear.                                                                    |
 | Timed jobs and reminders                              | Schedules                                                    | Recreate one-shot and recurring tasks using Vellum schedules. Preserve the user-visible intent and delivery channel.                            |
-| Autonomous monitors and polling jobs                  | Watchers                                                     | Rebuild as watchers when the source monitors external events. Reconnect provider credentials first.                                             |
 | Periodic self-checks                                  | Heartbeats                                                   | Use Vellum heartbeats for agenda-free self-checking, not for specific timed jobs.                                                               |
 | Pending replies or nudges                             | Followups                                                    | Preserve expected-response workflows as followups when the source tracks sent messages awaiting replies.                                        |
 | Reusable action templates and queues                  | Task Queue                                                   | Recreate repeatable work as tasks or queued work items when the creator expects review before completion.                                       |

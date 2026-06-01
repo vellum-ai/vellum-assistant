@@ -62,7 +62,7 @@ const CATEGORY_KEYWORDS: [SkillCategory, string[]][] = [
       "cli discovery",
     ],
   ],
-  ["automation", ["browser", "computer use", "macos", "watcher", "automat"]],
+  ["automation", ["browser", "computer use", "macos", "automat"]],
   [
     "media",
     ["image", "screen", "media", "transcri", "video", "audio", "recording"],

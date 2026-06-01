@@ -495,16 +495,6 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
       str(payload.senderIdentifier, "An incoming message") + " needs attention",
   }),
 
-  "watcher.notification": (payload) => ({
-    title: str(payload.title, "Watcher Notification"),
-    body: str(payload.body, "A watcher event occurred"),
-  }),
-
-  "watcher.escalation": (payload) => ({
-    title: str(payload.title, "Watcher Escalation"),
-    body: str(payload.body, "A watcher event requires your attention"),
-  }),
-
   "tool_confirmation.required_action": (payload) => ({
     title: "Tool Confirmation",
     body: str(payload.toolName, "A tool") + " requires your confirmation",

@@ -822,14 +822,6 @@ describe("toolCategory", () => {
     expect(toolCategory("schedule_delete")).toBe("Scheduling");
   });
 
-  test("watcher_create returns Watcher (prefix grouping)", () => {
-    expect(toolCategory("watcher_create")).toBe("Watcher");
-  });
-
-  test("watcher_remove returns Watcher (prefix grouping)", () => {
-    expect(toolCategory("watcher_remove")).toBe("Watcher");
-  });
-
   test("memory_read returns Memory (prefix grouping)", () => {
     expect(toolCategory("memory_read")).toBe("Memory");
   });

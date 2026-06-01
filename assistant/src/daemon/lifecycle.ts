@@ -122,7 +122,6 @@ import { runProfilerSweep } from "./profiler-run-store.js";
 import {
   initializeProvidersAndTools,
   registerMessagingProviders,
-  registerWatcherProviders,
 } from "./providers-setup.js";
 import { DaemonServer } from "./server.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
@@ -910,7 +909,6 @@ export async function runDaemon(): Promise<void> {
       }
     }
 
-    registerWatcherProviders();
     registerMessagingProviders();
 
     try {
@@ -964,24 +962,6 @@ export async function runDaemon(): Promise<void> {
           },
           dedupeKey: `schedule:notify:${schedule.id}:${Date.now()}`,
           throwOnError: true,
-        });
-      },
-      (notification) => {
-        void emitNotificationSignal({
-          sourceEventName: "watcher.notification",
-          sourceChannel: "watcher",
-          sourceContextId: `watcher-${Date.now()}`,
-          attentionHints: {
-            requiresAction: false,
-            urgency: "low",
-            isAsyncBackground: true,
-            visibleInSourceNow: false,
-          },
-          contextPayload: {
-            title: notification.title,
-            body: notification.body,
-          },
-          dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
         });
       },
       (info) => {

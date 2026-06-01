@@ -248,12 +248,6 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "usage totals",
   "usage daily",
   "usage breakdown",
-  "watchers",
-  "watchers list",
-  "watchers create",
-  "watchers update",
-  "watchers delete",
-  "watchers digest",
   "webhooks",
   "webhooks register",
   "webhooks list",
@@ -578,9 +572,6 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "task queue remove", risk: "medium" },
   { path: "task queue run", risk: "medium" },
   { path: "tts synthesize", risk: "medium" },
-  { path: "watchers create", risk: "medium" },
-  { path: "watchers update", risk: "medium" },
-  { path: "watchers delete", risk: "medium" },
   { path: "webhooks register", risk: "high" },
 
   // Browser automation commands (mutating external browser/page state)

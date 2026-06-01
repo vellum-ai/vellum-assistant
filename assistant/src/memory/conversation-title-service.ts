@@ -30,7 +30,6 @@ export type TitleOrigin =
   | "guardian_request"
   | "schedule"
   | "task"
-  | "watcher"
   | "subagent"
   | "sequence"
   | "heartbeat"

@@ -174,9 +174,6 @@ sequenceDiagram
 | `assistant/src/messaging/providers/gmail/`       | Gmail adapter, client, types                                                                           |
 | `assistant/src/config/bundled-skills/messaging/` | Core messaging skill (send, read, search, reply across platforms)                                      |
 | `assistant/src/config/bundled-skills/sequences/` | Email sequence management skill (drip campaigns, enrollment, analytics)                                |
-| `assistant/src/watcher/providers/gmail.ts`       | Gmail watcher using History API                                                                        |
-| `assistant/src/watcher/providers/github.ts`      | GitHub watcher for PRs, issues, review requests, and mentions                                          |
-| `assistant/src/watcher/providers/linear.ts`      | Linear watcher for assigned issues, status changes, and @mentions                                      |
 | `assistant/src/oauth/seed-providers.ts`          | Provider seed data: injection templates, identity config, setup metadata (seeded to DB on startup)     |
 | `assistant/src/oauth/connect-orchestrator.ts`    | Shared OAuth connect orchestrator: profile resolution, scope resolution, flow execution, token storage |
 | `assistant/src/oauth/connect-types.ts`           | Shared types: `AvailableScopes`, `OAuthConnectResult`                                                  |

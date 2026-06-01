@@ -11,7 +11,6 @@ import { wakeAgentForOpportunity } from "../runtime/agent-wake.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { runSequencesOnce } from "../sequence/engine.js";
 import { getLogger } from "../util/logger.js";
-import { runWatchersOnce, type WatcherNotifier } from "../watcher/engine.js";
 import { hasSetConstructs } from "./recurrence-engine.js";
 import { applyRetryDecision, decideRetry } from "./retry-policy.js";
 import { runScript, type ScriptResult } from "./run-script.js";
@@ -121,7 +120,6 @@ function handleExecutionFailure(params: {
 export function startScheduler(
   processMessage: ScheduleMessageProcessor,
   notifyScheduleOneShot: ScheduleNotifyModeNotifier,
-  watcherNotifier?: WatcherNotifier,
   onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
 ): SchedulerHandle {
   let stopped = false;
@@ -134,7 +132,6 @@ export function startScheduler(
       await runScheduleOnce(
         processMessage,
         notifyScheduleOneShot,
-        watcherNotifier,
         onScheduleConversationCreated,
       );
     } catch (err) {
@@ -155,7 +152,6 @@ export function startScheduler(
       return runScheduleOnce(
         processMessage,
         notifyScheduleOneShot,
-        watcherNotifier,
         onScheduleConversationCreated,
       );
     },
@@ -165,7 +161,6 @@ export function startScheduler(
       return runScheduleDueWorkOnce(
         processMessage,
         notifyScheduleOneShot,
-        watcherNotifier,
         onScheduleConversationCreated,
         options,
       );
@@ -180,13 +175,11 @@ export function startScheduler(
 export async function runScheduleOnce(
   processMessage: ScheduleMessageProcessor,
   notifyScheduleOneShot: ScheduleNotifyModeNotifier,
-  watcherNotifier?: WatcherNotifier,
   onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
 ): Promise<number> {
   const result = await runScheduleDueWorkOnce(
     processMessage,
     notifyScheduleOneShot,
-    watcherNotifier,
     onScheduleConversationCreated,
   );
   return result.completed + result.failed + result.skipped;
@@ -195,7 +188,6 @@ export async function runScheduleOnce(
 export async function runScheduleDueWorkOnce(
   processMessage: ScheduleMessageProcessor,
   notifyScheduleOneShot: ScheduleNotifyModeNotifier,
-  watcherNotifier?: WatcherNotifier,
   onScheduleConversationCreated?: ScheduleConversationCreatedNotifier,
   options: SchedulerRunDueWorkOptions = {},
 ): Promise<SchedulerDueWorkResult> {
@@ -689,16 +681,6 @@ export async function runScheduleDueWorkOnce(
         }
       }
       mark("failed");
-    }
-  }
-
-  // ── Watchers (event-driven polling) ────────────────────────────────
-  if (watcherNotifier) {
-    try {
-      const watcherProcessed = await runWatchersOnce(watcherNotifier);
-      result.completed += watcherProcessed;
-    } catch (err) {
-      log.error({ err }, "Watcher tick failed");
     }
   }
 

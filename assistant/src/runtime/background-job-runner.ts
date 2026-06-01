@@ -3,7 +3,7 @@
  *
  * `runBackgroundJob()` consolidates the bootstrap → processMessage → timeout
  * pattern that every background producer (heartbeat, filing, scheduler, memory
- * consolidation, watcher, update-bulletin, subagent, sequence) has been
+ * consolidation, update-bulletin, subagent, sequence) has been
  * open-coding. Wrapping it here lets us:
  *
  *  - apply a single timeout policy
@@ -121,9 +121,6 @@ export interface RunBackgroundJobOptions {
    * (often empty or a short kicker) since the conversation already carries
    * the seed.
    *
-   * Used by the watcher engine to ingest external provider events safely:
-   * a malicious Linear title or Gmail subject reaches the model only in
-   * the `assistant` role and cannot override the action prompt.
    */
   assistantSandwich?: { preamble: string; content: string; postamble: string };
   /**
@@ -322,7 +319,7 @@ export async function runBackgroundJob(
         visibleInSourceNow: false,
       };
       // Dedupe by jobName + UTC date so repeated failures of the same
-      // background job (e.g. a watcher whose credentials are revoked)
+      // background job (e.g. a schedule whose credentials are revoked)
       // collapse into a single home-feed entry per day rather than
       // spamming on every tick.
       const day = new Date().toISOString().slice(0, 10);

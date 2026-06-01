@@ -53,7 +53,6 @@ import { registerTrustCommand } from "./commands/trust.js";
 import { registerTtsCommand } from "./commands/tts.js";
 import { registerUiCommand } from "./commands/ui.js";
 import { registerUsageCommand } from "./commands/usage.js";
-import { registerWatchersCommand } from "./commands/watchers.js";
 import { registerWebhooksCommand } from "./commands/webhooks.js";
 import { red } from "./lib/cli-colors.js";
 import { log } from "./logger.js";
@@ -151,7 +150,6 @@ Examples:
   registerTtsCommand(program);
   registerUiCommand(program);
   registerUsageCommand(program);
-  registerWatchersCommand(program);
   registerWebhooksCommand(program);
 
   // Fail fast when no assistant workspace exists on disk. The workspace is
