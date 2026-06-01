@@ -47,20 +47,26 @@ function setupCommands(profile: Profile): string[] {
 }
 
 /**
- * Flatten the profile's `featureFlags` map into stable-ordered
- * `[key, value]` pairs suitable for sequential application.
+ * Feature flags every vellum-species hatch turns on before any setup
+ * commands fire.
  *
- * Ordering is alphabetical-by-key so that:
- *   - run logs and subprocess-feature-flag-N.log filenames are
+ * Lives as a hardcoded constant — not a manifest field — because the
+ * baseline gated surfaces a vellum assistant ships with are a property
+ * of the species, not of an individual profile. A reader of a profile's
+ * `manifest.json` doesn't need to opt into `external-plugins` to use
+ * `assistant plugins install` in `setup`; that's the species default.
+ * If a hypothetical future vellum profile ever needs the flag OFF, the
+ * fix is to widen this constant into a (species default) ∪ (manifest
+ * override) merge — but YAGNI until that profile exists.
+ *
+ * Ordered alphabetically by key so that:
+ *   - run logs and `subprocess-feature-flag-N.log` filenames are
  *     deterministic across runs;
- *   - tests can assert on the recorded call sequence without relying
- *     on insertion order of object literals.
+ *   - tests assert on the recorded call sequence without relying on
+ *     object-literal insertion order.
  */
-function featureFlagOverrides(profile: Profile): Array<[string, boolean]> {
-  const flags = profile.manifest.featureFlags;
-  if (!flags) return [];
-  return Object.entries(flags).sort(([a], [b]) => a.localeCompare(b));
-}
+const VELLUM_DEFAULT_FEATURE_FLAGS: ReadonlyArray<readonly [string, boolean]> =
+  [["external-plugins", true]] as const;
 
 /**
  * Canonical environment variable names for LLM provider API keys.
@@ -324,17 +330,18 @@ export class VellumAgent implements BaseAgent {
         recordingDir: runArtifacts(this.id).runDir,
       });
 
-      // Apply feature-flag overrides BEFORE setup commands. Setup
-      // commands execute inside the assistant container via
+      // Apply species-default feature flags BEFORE setup commands.
+      // Setup commands execute inside the assistant container via
       // `vellum exec`, but flag overrides live on the host gateway —
       // so any setup step that depends on a gated surface (e.g.
       // `assistant plugins install` gated by `external-plugins`) needs
       // the flag flipped first. `vellum flags set --assistant <id>`
       // targets this specific instance without mutating the user's
       // active-assistant pointer.
-      for (const [idx, [key, value]] of featureFlagOverrides(
-        this.profile,
-      ).entries()) {
+      for (const [
+        idx,
+        [key, value],
+      ] of VELLUM_DEFAULT_FEATURE_FLAGS.entries()) {
         const flagStep = await this.runner.run(
           this.cliCommand,
           [
@@ -354,7 +361,7 @@ export class VellumAgent implements BaseAgent {
         );
         assertSuccess(
           flagStep,
-          `feature-flag override "${key}=${value}" for profile ${this.profile.id}`,
+          `vellum species default feature flag "${key}=${value}" for profile ${this.profile.id}`,
         );
       }
 
