@@ -71,6 +71,7 @@ describe("block volume bootstrap scripts", () => {
         "DRY-RUN: findmnt --mountpoint /workspace",
         "DRY-RUN: mount --bind /mnt/test-root/workspace /workspace",
         "DRY-RUN: mount -o remount,bind,ro /workspace",
+        "DRY-RUN: umount /mnt/test-root",
         "DRY-RUN: exec bun run src/index.ts",
       ].join("\n"),
     );
@@ -107,6 +108,22 @@ describe("block volume bootstrap scripts", () => {
     expect(result.stderr).toContain(
       "DRY-RUN: exec setpriv --reuid 1001 --regid 1001 --clear-groups -- bun run src/managed-main.ts",
     );
+  });
+
+  test("mount helper hides the staging root before service exec", () => {
+    const result = runScript(mountScript, {
+      args: ["--", "bun", "run", "src/index.ts"],
+      env: {
+        VELLUM_BLOCK_BIND_SPECS: "workspace:/workspace:ro",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    const hideRootIndex = result.stderr.indexOf("DRY-RUN: umount /mnt/test-root");
+    const execIndex = result.stderr.indexOf("DRY-RUN: exec bun run src/index.ts");
+    expect(hideRootIndex).toBeGreaterThan(-1);
+    expect(execIndex).toBeGreaterThan(-1);
+    expect(hideRootIndex).toBeLessThan(execIndex);
   });
 
   test("mount helper rejects uid-only privilege drops", () => {
@@ -256,6 +273,25 @@ describe("block volume bootstrap scripts", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain("/workspace is already mounted");
     expect(result.stderr).not.toContain("mount --bind /mnt/test-root/workspace /workspace");
+    expect(result.stderr).toContain("DRY-RUN: exec true");
+  });
+
+  test("mount helper repairs matching read-write binds when read-only is requested", () => {
+    const result = runScript(mountScript, {
+      args: ["--", "true"],
+      env: {
+        VELLUM_BLOCK_BIND_SPECS: "workspace:/workspace:ro",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_MOUNTED: "1",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_TARGET: "/workspace",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_SOURCE: "/mnt/test-root/workspace",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_OPTIONS: "rw,relatime",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("/workspace is mounted rw; remounting ro");
+    expect(result.stderr).not.toContain("mount --bind /mnt/test-root/workspace /workspace");
+    expect(result.stderr).toContain("DRY-RUN: mount -o remount,bind,ro /workspace");
     expect(result.stderr).toContain("DRY-RUN: exec true");
   });
 
