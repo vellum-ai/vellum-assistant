@@ -60,7 +60,9 @@ function Divider() {
 }
 
 export function PrivacyPage() {
-  const platformGate = usePlatformGate();
+  // platformHostedOnly so the divider visibility matches the gate inside
+  // `AccessConsentSetting` exactly.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
   const [shareAnalytics, setShareAnalytics] = useState(
     () => getDeviceBool("shareAnalytics", true),
   );

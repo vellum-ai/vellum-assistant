@@ -13,7 +13,11 @@ import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
 export function DeleteAccountSection() {
-  const platformGate = usePlatformGate();
+  // platformHostedOnly: deleting a Vellum platform account from a UI that
+  // is actively connected to a self-hosted assistant is confusing /
+  // disruptive — the user can switch to a platform-hosted assistant to
+  // access this action. The standard gate would still expose it.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
   const logout = useAuthStore.use.logout();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -33,8 +37,8 @@ export function DeleteAccountSection() {
 
   // User accounts are a platform concept — there is no account to delete on
   // a self-hosted assistant. Early return must follow every hook above so
-  // gate transitions (e.g. `disabled` → `gated` as feature flags hydrate)
-  // never skip a hook and trigger a hook-order violation.
+  // gate transitions (e.g. lifecycle flipping to `self_hosted` after the
+  // API resolves) never skip a hook and trigger a hook-order violation.
   if (platformGate === "gated") return null;
 
   return (

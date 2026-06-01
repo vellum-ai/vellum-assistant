@@ -12,7 +12,12 @@ import { assistantsAccessConsentPartialUpdate } from "@/generated/api/sdk.gen";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 
 export function AccessConsentSetting() {
-  const platformGate = usePlatformGate();
+  // platformHostedOnly: this consent toggle is per-assistant — Vellum
+  // admins cannot reach a self-hosted daemon, so the setting has no
+  // meaning whenever the active assistant is self-hosted. The standard
+  // gate would still show it for a logged-in platform session pointed
+  // at a self-hosted assistant.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
@@ -44,12 +49,11 @@ export function AccessConsentSetting() {
     },
   });
 
-  // "Allow Vellum administrators to access your data" only makes sense for
-  // platform-hosted assistants — Vellum admins cannot reach a self-hosted
-  // daemon. Early return must follow every hook above so gate transitions
-  // never skip a hook and trigger a hook-order violation. The surrounding
-  // dividers in `privacy-page.tsx` are also gated so the layout stays
-  // visually clean.
+  // Early return must follow every hook above so gate transitions
+  // (e.g. lifecycle flipping to `self_hosted` after the API resolves)
+  // never skip a hook and trigger a hook-order violation. The trailing
+  // divider in `privacy-page.tsx` is also gated on the same condition
+  // so the layout doesn't render two adjacent dividers.
   if (platformGate === "gated") return null;
 
   const checked = data?.access_consented ?? false;

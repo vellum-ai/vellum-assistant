@@ -407,7 +407,11 @@ function NotificationCard({
 type StatusFilter = "open" | "resolved";
 
 export function NotificationsPage() {
-  const platformGate = usePlatformGate();
+  // platformHostedOnly: the standard gate would still resolve to "full" for
+  // a logged-in platform session pointed at a self-hosted assistant (i.e.
+  // platform-mode app + `is_local: true` API response → lifecycle
+  // `kind: "self_hosted"`), which is exactly the case we need to hide.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
 
@@ -416,9 +420,9 @@ export function NotificationsPage() {
   const [pauseRules, setPauseRules] = useState<PauseRuleRead[]>([]);
 
   // Notifications are an organization-scoped platform concept — they have no
-  // meaningful behavior on a self-hosted assistant. The query is suppressed
-  // unless the gate is fully open so we don't fire a doomed platform request
-  // in the "disabled" (logged-out) state.
+  // meaningful behavior when the active assistant is self-hosted. The query
+  // is suppressed unless the gate is fully open so we don't fire a doomed
+  // platform request in the "disabled" (logged-out) state.
   const { data, isLoading, isError, refetch } = useQuery({
     ...organizationsNotificationsListOptions({
       query: { status: statusFilter },
