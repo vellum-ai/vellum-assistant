@@ -19354,7 +19354,41 @@ paths:
                 properties:
                   breakdown:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        group:
+                          type: string
+                        groupId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        groupKey:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        totalInputTokens:
+                          type: number
+                        totalOutputTokens:
+                          type: number
+                        totalCacheCreationTokens:
+                          type: number
+                        totalCacheReadTokens:
+                          type: number
+                        totalEstimatedCostUsd:
+                          type: number
+                        eventCount:
+                          type: number
+                      required:
+                        - group
+                        - groupId
+                        - totalInputTokens
+                        - totalOutputTokens
+                        - totalCacheCreationTokens
+                        - totalCacheReadTokens
+                        - totalEstimatedCostUsd
+                        - eventCount
+                      additionalProperties: false
                     description: Grouped usage entries
                 required:
                   - breakdown
@@ -19395,7 +19429,31 @@ paths:
                 properties:
                   buckets:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        bucketId:
+                          type: string
+                        date:
+                          type: string
+                        displayLabel:
+                          type: string
+                        totalInputTokens:
+                          type: number
+                        totalOutputTokens:
+                          type: number
+                        totalEstimatedCostUsd:
+                          type: number
+                        eventCount:
+                          type: number
+                      required:
+                        - bucketId
+                        - date
+                        - totalInputTokens
+                        - totalOutputTokens
+                        - totalEstimatedCostUsd
+                        - eventCount
+                      additionalProperties: false
                     description: Usage bucket objects
                 required:
                   - buckets
@@ -19447,7 +19505,61 @@ paths:
                 properties:
                   buckets:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        bucketId:
+                          type: string
+                        date:
+                          type: string
+                        displayLabel:
+                          type: string
+                        totalInputTokens:
+                          type: number
+                        totalOutputTokens:
+                          type: number
+                        totalEstimatedCostUsd:
+                          type: number
+                        eventCount:
+                          type: number
+                        groups:
+                          type: object
+                          propertyNames:
+                            type: string
+                          additionalProperties:
+                            type: object
+                            properties:
+                              group:
+                                type: string
+                              groupKey:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                              totalInputTokens:
+                                type: number
+                              totalOutputTokens:
+                                type: number
+                              totalEstimatedCostUsd:
+                                type: number
+                              eventCount:
+                                type: number
+                            required:
+                              - group
+                              - groupKey
+                              - totalInputTokens
+                              - totalOutputTokens
+                              - totalEstimatedCostUsd
+                              - eventCount
+                            additionalProperties: false
+                      required:
+                        - bucketId
+                        - date
+                        - totalInputTokens
+                        - totalOutputTokens
+                        - totalEstimatedCostUsd
+                        - eventCount
+                        - groups
+                      additionalProperties: false
                     description: Grouped usage bucket objects
                 required:
                   - buckets
@@ -19498,6 +19610,37 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalInputTokens:
+                    type: number
+                  totalOutputTokens:
+                    type: number
+                  totalCacheCreationTokens:
+                    type: number
+                  totalCacheReadTokens:
+                    type: number
+                  totalEstimatedCostUsd:
+                    type: number
+                  eventCount:
+                    type: number
+                  pricedEventCount:
+                    type: number
+                  unpricedEventCount:
+                    type: number
+                required:
+                  - totalInputTokens
+                  - totalOutputTokens
+                  - totalCacheCreationTokens
+                  - totalCacheReadTokens
+                  - totalEstimatedCostUsd
+                  - eventCount
+                  - pricedEventCount
+                  - unpricedEventCount
+                additionalProperties: false
       parameters:
         - name: from
           in: query
