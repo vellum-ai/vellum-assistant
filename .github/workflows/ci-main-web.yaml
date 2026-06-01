@@ -120,16 +120,25 @@ jobs:
           done
 
   # ── CD: build + publish the SPA to each environment's GCS bucket ──────────
-  # Runs only after every CI check passes (a `needs` dependency on a failed job
-  # skips this job automatically). One matrix leg per GitHub environment, all in
-  # parallel (fail-fast: false). Each leg builds under its own `environment:` so
-  # the env-scoped secrets and variables resolve to that environment.
-  # `production` gates here if it has required reviewers.
-  deploy:
-    name: Deploy SPA (${{ matrix.environment }})
+  # Split into two jobs so the privileged publish never shares a runner with
+  # repository/dependency-controlled build code. `build-and-package` runs the
+  # untrusted build (bun install/postinstall, openapi-ts, vite build) with NO
+  # cloud credentials and uploads the resulting `dist/` as an artifact. `deploy`
+  # then downloads that artifact into a fresh runner that holds the `id-token`
+  # OIDC permission and authenticates to GCP — so build code can no longer plant
+  # a $GITHUB_ENV/$GITHUB_PATH/BASH_ENV hook (or a fake `gcloud`) that would fire
+  # in the post-auth publish step and exfiltrate the short-lived GCP credentials.
+  #
+  # Both jobs run one matrix leg per GitHub environment (fail-fast: false) under
+  # their own `environment:` so the env-scoped secrets and variables resolve to
+  # that environment. `production` gates at `build-and-package` if it has
+  # required reviewers; `deploy` then inherits the gate via `needs`.
+  build-and-package:
+    name: Build SPA (${{ matrix.environment }})
     needs: [checks]
-    # workflow_dispatch has no branch filter, so guard `deploy` step explicitly to
-    # prevent accidental dispatch from feature branch.
+    # workflow_dispatch has no branch filter, so guard the CD chain explicitly to
+    # prevent accidental dispatch from a feature branch. `deploy` needs this job,
+    # so guarding here gates the whole chain.
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     defaults:
@@ -140,9 +149,10 @@ jobs:
       matrix:
         environment: [dev, staging, production]
     environment: ${{ matrix.environment }}
+    # No id-token: this job runs untrusted build code and must never hold cloud
+    # credentials.
     permissions:
       contents: read
-      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -187,6 +197,36 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
         run: bun run build
 
+      # `path` is resolved from the workspace root and is NOT affected by the
+      # job's `working-directory` default, so it must be the full `apps/web/dist`.
+      - name: Upload SPA artifact
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808 # v4.3.3
+        with:
+          name: web-dist-${{ matrix.environment }}
+          path: apps/web/dist
+          if-no-files-found: error
+
+  deploy:
+    name: Deploy SPA (${{ matrix.environment }})
+    needs: [build-and-package]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        environment: [dev, staging, production]
+    environment: ${{ matrix.environment }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # Download into workspace-root `dist/` (this job sets no working-directory
+      # default), matching the `dist/...` paths the publish step references.
+      - name: Download SPA artifact
+        uses: actions/download-artifact@95815c38cf15ff21684b820601a6c15f4d7f6513 # v4.2.1
+        with:
+          name: web-dist-${{ matrix.environment }}
+          path: dist
+
       - name: Authenticate to GCP
         uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
@@ -227,7 +267,7 @@ jobs:
 
   notify-web:
     name: Slack Notification (Web)
-    needs: [checks, deploy]
+    needs: [checks, build-and-package, deploy]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -240,9 +280,9 @@ jobs:
         run: |
           GITHUB_USER="${{ github.actor }}"
 
-          if [[ "${{ needs.checks.result }}" == "failure" || "${{ needs.deploy.result }}" == "failure" ]]; then
+          if [[ "${{ needs.checks.result }}" == "failure" || "${{ needs.build-and-package.result }}" == "failure" || "${{ needs.deploy.result }}" == "failure" ]]; then
             STATUS="failure"
-          elif [[ "${{ needs.checks.result }}" == "cancelled" || "${{ needs.deploy.result }}" == "cancelled" ]]; then
+          elif [[ "${{ needs.checks.result }}" == "cancelled" || "${{ needs.build-and-package.result }}" == "cancelled" || "${{ needs.deploy.result }}" == "cancelled" ]]; then
             STATUS="cancelled"
           elif [[ "${{ needs.checks.result }}" == "skipped" ]]; then
             STATUS="skipped"
