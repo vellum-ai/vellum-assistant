@@ -271,6 +271,30 @@ describe("lifecycleService — bootstrap branches", () => {
     expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
   });
 
+  test("transition to error drops the auto-greet one-shot — a subsequent retry-to-existing-active won't show a spurious gate", async () => {
+    // Set the flag (as auto-hatch / hatchVersion would), then drive
+    // the service into the error state via the network-error catch
+    // in `checkAssistant` (the simplest reachable error transition
+    // without exhausting the hatch-retry budget or the watchdog).
+    lifecycleService.markExpectingFirstMessage();
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
+
+    getAssistantMock.mockImplementationOnce(async () => {
+      throw new Error("network down");
+    });
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "error",
+    );
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
+  });
+
   test("gateway-auth short-circuit writes active state without calling the server", async () => {
     isGatewayAuthModeMock.mockImplementation(() => true);
 

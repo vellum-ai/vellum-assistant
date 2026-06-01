@@ -311,6 +311,16 @@ class AssistantLifecycleService {
     } else if (prevKind !== "initializing") {
       this.armInitializingWatchdog();
     }
+    // Drop the auto-greet one-shot when entering a state that means
+    // no greeting is forthcoming — otherwise a failed hatch leaves
+    // the flag set and a subsequent retry that resolves into an
+    // already-active assistant (no fresh hatch) would inherit a
+    // spurious "Connecting..." gate. A retry that re-enters
+    // `auto_hatch` re-marks the flag, so this only clears the path
+    // where the expectation has actually been invalidated.
+    if (next.kind === "error" || next.kind === "retired") {
+      this.expectingFirstMessage = false;
+    }
   }
 
   private armInitializingWatchdog(): void {
