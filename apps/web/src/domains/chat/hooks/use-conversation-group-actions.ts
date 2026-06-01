@@ -18,12 +18,12 @@ import type {
 import {
   appendGroup,
   conversationGroupsQueryKey,
-  conversationsQueryKey,
   deleteGroupAndResetConversations,
   patchGroup,
   removeGroup,
   replaceOptimisticGroup,
 } from "@/hooks/conversation-queries";
+import { conversationsQueryKey } from "@/lib/sync/query-tags";
 
 import { haptic } from "@/utils/haptics";
 import type { ConversationGroup } from "@/types/conversation-types";

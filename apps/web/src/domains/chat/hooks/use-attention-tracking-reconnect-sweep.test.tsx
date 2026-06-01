@@ -31,9 +31,12 @@ import {
 // hook does not try to hit a real backend during renderHook.
 mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: [] }),
+  markConversationSeenLocal: () => {},
+}));
+
+mock.module("@/utils/conversation-cache", () => ({
   getConversations: () => [],
   findConversation: () => undefined,
-  markConversationSeenLocal: () => {},
 }));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({

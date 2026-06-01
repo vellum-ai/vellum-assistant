@@ -40,9 +40,12 @@ let markConversationSeenImpl: () => Promise<void> = async () => {};
 
 mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: conversationsImpl }),
+  markConversationSeenLocal: () => {},
+}));
+
+mock.module("@/utils/conversation-cache", () => ({
   getConversations: () => conversationsImpl,
   findConversation: () => undefined,
-  markConversationSeenLocal: () => {},
 }));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({

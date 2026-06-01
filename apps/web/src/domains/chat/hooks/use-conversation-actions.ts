@@ -3,7 +3,7 @@ import * as Sentry from "@sentry/react";
 import { type MutableRefObject, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { patchConversation } from "@/hooks/conversation-queries";
+import { patchConversation } from "@/utils/conversation-cache";
 import { archivedConversationsQueryKey } from "@/lib/sync/query-tags";
 import { isSlackConversation } from "@/domains/chat/utils/group-conversations";
 import {
@@ -258,62 +258,6 @@ export function useConversationActions({
     [assistantId, queryClient],
   );
 
-  const handleTogglePinConversation = useCallback(
-    async (conversation: Conversation) => {
-      if (!assistantId) return;
-      haptic.light();
-
-      const currentlyPinned =
-        conversation.isPinned || conversation.groupId === "system:pinned";
-      const newIsPinned = !currentlyPinned;
-
-      let newGroupId: string;
-      if (newIsPinned) {
-        prePinGroupIdsRef.current.set(
-          conversation.conversationId,
-          conversation.groupId,
-        );
-        newGroupId = "system:pinned";
-      } else {
-        newGroupId = resolveUnpinGroupId(
-          conversation,
-          prePinGroupIdsRef.current,
-        );
-      }
-
-      const prevIsPinned = conversation.isPinned;
-      const prevGroupId = conversation.groupId;
-
-      patchConversation(queryClient, assistantId, conversation.conversationId, { isPinned: newIsPinned, groupId: newGroupId });
-
-      try {
-        await conversationsReorderPost({
-          path: { assistant_id: assistantId },
-          body: {
-            updates: [{
-              conversationId: conversation.conversationId,
-              isPinned: newIsPinned,
-              groupId: newGroupId,
-            }],
-          },
-          throwOnError: true,
-        });
-        if (!newIsPinned) {
-          prePinGroupIdsRef.current.delete(conversation.conversationId);
-        }
-      } catch (err) {
-        if (newIsPinned) {
-          prePinGroupIdsRef.current.delete(conversation.conversationId);
-        }
-        patchConversation(queryClient, assistantId, conversation.conversationId, { isPinned: prevIsPinned, groupId: prevGroupId });
-        Sentry.captureException(err, {
-          tags: { context: "togglePinConversation" },
-        });
-      }
-    },
-    [assistantId, prePinGroupIdsRef, queryClient],
-  );
-
   const handleMoveToGroup = useCallback(
     async (conversation: Conversation, groupId: string) => {
       if (!assistantId) return;
@@ -358,6 +302,18 @@ export function useConversationActions({
       }
     },
     [assistantId, prePinGroupIdsRef, queryClient],
+  );
+
+  const handleTogglePinConversation = useCallback(
+    (conversation: Conversation) => {
+      const currentlyPinned =
+        conversation.isPinned || conversation.groupId === "system:pinned";
+      const targetGroupId = currentlyPinned
+        ? resolveUnpinGroupId(conversation, prePinGroupIdsRef.current)
+        : "system:pinned";
+      void handleMoveToGroup(conversation, targetGroupId);
+    },
+    [handleMoveToGroup, prePinGroupIdsRef],
   );
 
   const handleRemoveFromGroup = useCallback(

@@ -40,9 +40,9 @@ import type { Conversation } from "@/types/conversation-types";
 import { isBackgroundConversation } from "@/utils/conversation-predicates";
 import {
   conversationGroupsQueryKey,
-  conversationsQueryKey,
   useConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { conversationsQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Module constants

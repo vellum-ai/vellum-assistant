@@ -25,9 +25,9 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import {
   conversationGroupsQueryKey,
-  patchConversation,
   refreshConversationRow,
 } from "@/hooks/conversation-queries";
+import { patchConversation } from "@/utils/conversation-cache";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { conversationsQueryKey } from "@/lib/sync/query-tags";
 import {
