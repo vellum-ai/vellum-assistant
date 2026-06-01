@@ -81,6 +81,7 @@ function BenefitRow({ icon: Icon, text }: BenefitRowProps) {
 
 interface FeatureCardProps {
   accentColor: string;
+  iconColor?: string;
   label: string;
   icon: ReactNode;
   title: string;
@@ -92,6 +93,7 @@ interface FeatureCardProps {
 
 function FeatureCard({
   accentColor,
+  iconColor = "var(--aux-white)",
   label,
   icon,
   title,
@@ -106,7 +108,7 @@ function FeatureCard({
         <div className="flex items-start justify-between">
           <span
             className="flex size-10 items-center justify-center rounded-lg"
-            style={{ backgroundColor: accentColor, color: "#fff" }}
+            style={{ backgroundColor: accentColor, color: iconColor }}
           >
             {icon}
           </span>
@@ -220,6 +222,7 @@ export function CommunityPage() {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <FeatureCard
           accentColor="var(--content-emphasised)"
+          iconColor="var(--surface-base)"
           label="Open Source"
           icon={<GitHubLogo size={20} />}
           title="Vellum is open source"
