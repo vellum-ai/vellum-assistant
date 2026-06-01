@@ -86,19 +86,30 @@ export function readWorkspaceIdentityIntro(): string | null {
  */
 export function parseGreetingsSection(content: string): string[] | null {
   let inSection = false;
+  let sectionLevel: number | null = null;
   const greetings: string[] = [];
 
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
-    if (/^#+\s/.test(trimmed)) {
-      if (inSection) break;
-      inSection = /^#+\s+greetings\s*$/i.test(trimmed);
+    const heading = /^(#{1,6})\s+(.+?)\s*#*$/.exec(trimmed);
+    if (heading) {
+      const level = heading[1]!.length;
+      const title = heading[2]!.trim();
+      if (inSection) {
+        if (sectionLevel !== null && level <= sectionLevel) break;
+        continue;
+      }
+      if (level === 2 && /^greetings$/i.test(title)) {
+        inSection = true;
+        sectionLevel = level;
+      }
       continue;
     }
     if (!inSection) continue;
-    const bullet = trimmed.replace(/^[-*]\s+/, "");
-    if (bullet.length > 0 && bullet !== trimmed) {
-      greetings.push(bullet);
+    const bullet = /^(?:[-*+]\s+|\d+[.)]\s+)(.+)$/.exec(trimmed);
+    const greeting = bullet?.[1]?.trim();
+    if (greeting) {
+      greetings.push(greeting);
     }
   }
 
