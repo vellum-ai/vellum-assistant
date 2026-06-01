@@ -125,11 +125,59 @@ useEventBusStore.getState().publish("reachability.retry-requested", {});
    `event-bus-store.ts`. Keep the JSDoc on the field — it's how
    consumers learn when the event fires.
 2. Add the producer. SSE-derived events go in `use-event-bus-init.ts`'s
-   SSE effect. DOM-derived events go in its lifecycle effect.
+   SSE effect. Host-environment signals (DOM, Capacitor, Electron)
+   go in a new file under `runtime/event-sources/` — see
+   "Adding a new signal source" below.
 3. Add subscribers where needed via `useBusSubscription` (React) or
    `subscribeBus` (stores / non-React).
 4. Test the producer (publish round-trip in `use-event-bus-init.test.tsx`
    or `event-bus-store.test.ts`) and at least one consumer.
+
+## Adding a new signal source
+
+A *signal source* is the bridge between a host-environment event
+(DOM visibility, `window.online`, Capacitor `appStateChange`, Electron
+`powerMonitor`, deep links) and the bus. Each one lives in its own
+file under `runtime/event-sources/`. The shape is intentionally
+narrow:
+
+```ts
+export function publishMySignalSource(bus: EventBusPublisher): () => void {
+  // ...attach listener, publish via `bus.publish(...)`...
+  return () => {
+    // ...detach listener...
+  };
+}
+```
+
+Rules:
+
+1. **One source per file.** New host-environment signal → new file
+   in `runtime/event-sources/`. Don't add another `if` branch to
+   `useEventBusInit`'s lifecycle effect.
+2. **Accept `EventBusPublisher`, never the full store.** Sources
+   only publish — never subscribe. The `Pick<EventBusActions, "publish">`
+   type keeps the surface narrow and makes the helper trivial to
+   stub with `{ publish: mock() }`.
+3. **No-op off-platform.** If the source is platform-conditioned
+   (Capacitor-only, Electron-only), early-return a no-op
+   unsubscribe. `useEventBusInit` calls every source unconditionally.
+4. **Synchronous return.** Even lazy plugin imports (Capacitor) must
+   return the unsubscribe synchronously — use an internal
+   `cancelled` flag if the listener registration is async.
+   See `capacitor-app-state.ts` for the pattern.
+5. **Colocated unit test.** Test in isolation with a
+   `{ publish: mock() }` stub — don't reach for the integration
+   test in `use-event-bus-init.test.tsx`. The integration test is
+   for SSE-policy behavior, not source wiring.
+6. **Wire it in.** Add a single line to `useEventBusInit`'s Effect 1:
+   ```ts
+   const unsubscribers = [
+     publishVisibilitySource(bus),
+     // ...
+     publishMySignalSource(bus),
+   ];
+   ```
 
 ## Conventions
 

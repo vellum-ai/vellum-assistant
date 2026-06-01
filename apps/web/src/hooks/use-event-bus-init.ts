@@ -32,19 +32,16 @@
  */
 import { useEffect } from "react";
 import * as Sentry from "@sentry/browser";
-import type { PluginListenerHandle } from "@capacitor/core";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { subscribeChatEvents } from "@/lib/streaming/stream-transport";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
-import {
-  drainPendingDeepLinks,
-  subscribeToDeepLinks,
-  type DeepLink,
-} from "@/runtime/deep-links";
-import { subscribeToPowerEvents } from "@/runtime/power-events";
+import { publishCapacitorAppStateSource } from "@/runtime/event-sources/capacitor-app-state";
+import { publishVisibilitySource } from "@/runtime/event-sources/dom-visibility";
+import { publishElectronDeepLinksSource } from "@/runtime/event-sources/electron-deep-links";
+import { publishElectronPowerSource } from "@/runtime/event-sources/electron-power";
+import { publishWindowOnlineSource } from "@/runtime/event-sources/window-online";
 import { useEventBusStore } from "@/stores/event-bus-store";
-import { isNativePlatform } from "@/runtime/native-auth";
 
 interface UseEventBusInitParams {
   /** Resolved assistant id, or `null` when not yet loaded. */
@@ -60,127 +57,27 @@ export function useEventBusInit({
   isAssistantActive,
 }: UseEventBusInitParams): void {
   // -------------------------------------------------------------------------
-  // Effect 1: DOM + Capacitor lifecycle event sources
+  // Effect 1: signal sources publish into the bus
+  //
+  // Each helper in `runtime/event-sources/` wires one host-environment
+  // event source (DOM visibility, network online/offline, Capacitor
+  // app state, Electron powerMonitor, Electron deep links) and returns
+  // its own unsubscribe. New signal sources land as a new file there,
+  // not as another branch here — see the "Adding a new signal source"
+  // section in `apps/web/docs/EVENT_BUS.md`.
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (typeof window === "undefined") return;
-
     const bus = useEventBusStore.getState();
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        bus.publish("app.hidden", { signal: "visibility" });
-      } else {
-        bus.publish("app.resume", { signal: "visibility" });
-      }
-    };
-    const handleOnline = () => {
-      bus.publish("app.online", {});
-      bus.publish("app.resume", { signal: "online" });
-    };
-    const handleOffline = () => {
-      bus.publish("app.offline", {});
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    window.addEventListener("online", handleOnline);
-    window.addEventListener("offline", handleOffline);
-
-    let appStateHandle: PluginListenerHandle | null = null;
-    let appStateCancelled = false;
-    if (isNativePlatform()) {
-      import("@capacitor/app")
-        .then(({ App }) =>
-          App.addListener("appStateChange", ({ isActive }) => {
-            if (isActive) {
-              bus.publish("app.resume", { signal: "app_state" });
-            } else {
-              bus.publish("app.hidden", { signal: "app_state" });
-            }
-          }),
-        )
-        .then((registered) => {
-          if (appStateCancelled) {
-            void registered.remove();
-            return;
-          }
-          appStateHandle = registered;
-        })
-        .catch((err) => {
-          Sentry.captureException(err, {
-            level: "warning",
-            tags: { context: "event_bus_capacitor_init" },
-          });
-        });
-    }
-
-    // Electron host: subscribe to `powerMonitor` via the runtime
-    // wrapper. The bridge fans every system-level event in as a
-    // typed bus event. Off Electron the wrapper is a no-op and the
-    // unsubscribe-noop is returned — no effect on web / iOS.
-    const unsubPower = subscribeToPowerEvents(({ kind }) => {
-      switch (kind) {
-        case "suspend":
-          bus.publish("power.suspend", {});
-          break;
-        case "resume":
-          bus.publish("power.resume", {});
-          break;
-        case "lock":
-          bus.publish("power.lock", {});
-          break;
-        case "unlock":
-          bus.publish("power.unlock", {});
-          break;
-        case "active":
-          bus.publish("power.active", {});
-          break;
-      }
-    });
-
-    // Electron host: deep-link bridge. Subscribe-then-drain order
-    // matters — a link arriving between drain completion and
-    // subscription would be lost otherwise. Subscribe first, drain
-    // second; any in-flight link is delivered via `onLink` and the
-    // drained buffer carries the pre-renderer-ready backlog. The
-    // bus delivers handlers in registration order so duplicate
-    // delivery (live link also enqueued in main between subscribe
-    // and drain) is consumer's problem if it ever happens — the
-    // current main-side implementation buffers + broadcasts, so
-    // drain after subscribe sees no duplicates in practice.
-    const publishDeepLink = (link: DeepLink) => {
-      switch (link.kind) {
-        case "send":
-          bus.publish("deeplink.send", { message: link.message });
-          break;
-        case "openThread":
-          bus.publish("deeplink.openThread", { threadId: link.threadId });
-          break;
-        case "unknown":
-          bus.publish("deeplink.unknown", { url: link.url });
-          break;
-      }
-    };
-    const unsubDeepLinks = subscribeToDeepLinks(publishDeepLink);
-    void drainPendingDeepLinks()
-      .then((pending) => {
-        for (const link of pending) publishDeepLink(link);
-      })
-      .catch((err) => {
-        Sentry.captureException(err, {
-          level: "warning",
-          tags: { context: "deep_link_drain" },
-        });
-      });
-
+    const unsubscribers = [
+      publishVisibilitySource(bus),
+      publishWindowOnlineSource(bus),
+      publishCapacitorAppStateSource(bus),
+      publishElectronPowerSource(bus),
+      publishElectronDeepLinksSource(bus),
+    ];
     return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.removeEventListener("online", handleOnline);
-      window.removeEventListener("offline", handleOffline);
-      appStateCancelled = true;
-      void appStateHandle?.remove();
-      unsubPower();
-      unsubDeepLinks();
+      for (const unsub of unsubscribers) unsub();
     };
   }, []);
 
