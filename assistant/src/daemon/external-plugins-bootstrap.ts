@@ -65,6 +65,7 @@ import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import { registerDefaultPlugins } from "../plugins/defaults/index.js";
+import { installPluginRuntime } from "../plugins/external-api.js";
 import { buildExternalPlugin } from "../plugins/external-plugin-loader.js";
 import {
   registerPluginSkills,
@@ -82,6 +83,7 @@ import {
   type PluginShutdownContext,
   type PluginSkillRegistration,
 } from "../plugins/types.js";
+import { loadUserPlugins } from "../plugins/user-loader.js";
 import {
   registerSkillRoute,
   type SkillRouteHandle,
@@ -189,6 +191,42 @@ function getDisabledPluginFlag(
     if (!isAssistantFeatureFlagEnabled(flagKey, config)) return flagKey;
   }
   return undefined;
+}
+
+/**
+ * Bring the plugin layer up during daemon startup. Runs the full sequence in
+ * the one order the rest of the system depends on:
+ *
+ * 1. Install the `globalThis.__vellumPluginRuntime` bridge so plugins can touch
+ *    it from their module body (see `plugins/external-api.ts` — compiled-binary
+ *    module identity).
+ * 2. Register the first-party defaults so their middleware and injectors
+ *    compose innermost, ahead of any user plugins.
+ * 3. Load user plugins from `<workspaceDir>/plugins/*`. A failing user plugin is
+ *    logged and skipped; `loadUserPlugins()` closes the registration window
+ *    when it returns, so the defaults must already be registered by then.
+ * 4. Run every registered plugin's `init()` via {@link bootstrapPlugins}.
+ *
+ * Plugin bootstrap is wrapped so a failing plugin cannot block daemon startup —
+ * the daemon comes up with degraded plugin functionality instead.
+ */
+export async function initializePlugins(
+  ctx: DaemonContext = {
+    config: getConfig(),
+    assistantVersion: APP_VERSION,
+  },
+): Promise<void> {
+  installPluginRuntime();
+  registerDefaultPlugins();
+  await loadUserPlugins();
+  try {
+    await bootstrapPlugins(ctx);
+  } catch (err) {
+    log.warn(
+      { err },
+      "Plugin bootstrap failed — continuing startup with degraded plugin functionality",
+    );
+  }
 }
 
 /**

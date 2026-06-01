@@ -7,34 +7,24 @@
  *
  * Consumers:
  *
- * - the registry's default registrar: this module wires
- *   {@link registerDefaultPlugins} via `setDefaultPluginsRegistrar`. The daemon
- *   invokes it at startup (`ensureDefaultPluginsRegistered`, before
- *   `loadUserPlugins()` closes the window); any consumer that reads a pipeline /
- *   injector without an explicit bootstrap (benchmarks, ad-hoc callers) triggers
- *   the same registrar lazily on its first query.
- * - `daemon/external-plugins-bootstrap.ts` — replays {@link registerDefaultPlugins}
- *   inside `bootstrapPlugins()`; idempotent, so already-registered defaults are
- *   skipped.
+ * - `daemon/external-plugins-bootstrap.ts` — the daemon's `initializePlugins()`
+ *   calls {@link registerDefaultPlugins} explicitly at startup, before
+ *   `loadUserPlugins()` closes the registration window, so the defaults compose
+ *   innermost (ahead of any user plugins). `bootstrapPlugins()` replays it;
+ *   idempotent, so already-registered defaults are skipped.
  * - integration tests that reset the registry and then need a
  *   production-parity state (e.g. `conversation-agent-loop.test.ts`); those
  *   call {@link resetPluginRegistryAndRegisterDefaults}.
  *
  * Each `defaults/<name>/register.ts` module only builds and exports its
- * `Plugin` object; registration is centralized here. Wiring the registrar is a
- * pure function-reference assignment, so loading this aggregator mid-cycle
- * (e.g. through the `memory-retrieval/register.ts` → … → `pipeline.ts` →
- * `defaults/index.ts` chain) does no registration work and cannot trip a TDZ —
- * the plugin identifiers are dereferenced later, at registration time, once
- * every module has finished initializing.
+ * `Plugin` object; registration is centralized here. The plugin identifiers
+ * are dereferenced inside {@link registerDefaultPlugins} at call time, once
+ * every module has finished initializing, so importing this aggregator does no
+ * registration work.
  */
 
 import { memoryV3ShadowPlugin } from "../../memory/v3/shadow-plugin.js";
-import {
-  registerPlugin,
-  resetPluginRegistryForTests,
-  setDefaultPluginsRegistrar,
-} from "../registry.js";
+import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
 import { defaultCircuitBreakerPlugin } from "./circuit-breaker/register.js";
 import { defaultCompactionPlugin } from "./compaction/register.js";
@@ -119,9 +109,3 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
   registerDefaultPlugins();
 }
-
-// Wire the registry's lazy fallback so the first pipeline / injector query in
-// an unmanaged context (no explicit `bootstrapPlugins()` call) still observes a
-// populated registry. This is a function-reference assignment only — no
-// registration happens until the registrar is invoked at runtime.
-setDefaultPluginsRegistrar(registerDefaultPlugins);

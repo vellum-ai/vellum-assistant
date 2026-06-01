@@ -36,15 +36,6 @@ import {
   type TurnContext,
 } from "./types.js";
 
-// Side-effect import: wire the registry's lazy default-plugin registrar.
-// Every code path that calls `runPipeline` imports this module, so the
-// registrar is always in place before the first pipeline runs; the first
-// registry query then registers the defaults on demand (no registration
-// happens at import time). In the daemon, startup registers the defaults
-// explicitly before `loadUserPlugins()` runs, so the defaults are ordered
-// ahead of any user middleware.
-import "./defaults/index.js";
-
 const moduleLogger = getLogger("plugin-pipeline");
 
 // ─── Default timeouts ───────────────────────────────────────────────────────

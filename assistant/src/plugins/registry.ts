@@ -52,59 +52,6 @@ const registeredPlugins = new Map<string, Plugin>();
  */
 let registrationClosed = false;
 
-// ─── Default-plugin auto-registration ────────────────────────────────────────
-
-/**
- * Registers the first-party default plugins. Wired once by
- * `plugins/defaults/index.ts` at module load. The registry holds it behind an
- * indirection so this low-level module never statically imports the heavy
- * defaults graph — doing so would pull `conversation-runtime-assembly` and the
- * memory subsystem into every consumer of the registry and risk new import
- * cycles.
- */
-let defaultPluginsRegistrar: (() => void) | undefined;
-
-/**
- * `true` once the defaults have been registered, or once the registry has been
- * put into a test-managed state by {@link resetPluginRegistryForTests}. Guards
- * {@link ensureDefaultPluginsRegistered} so the registrar runs at most once per
- * managed window.
- */
-let defaultPluginsHandled = false;
-
-/**
- * Wire the default-plugin registrar. Called once by `plugins/defaults/index.ts`
- * when that module loads. Storing a function reference does no registration
- * work, so it is safe to run mid import-cycle.
- */
-export function setDefaultPluginsRegistrar(registrar: () => void): void {
-  defaultPluginsRegistrar = registrar;
-}
-
-/**
- * Register the first-party defaults exactly once per managed window. Invoked
- * two ways:
- *
- * - Explicitly at daemon startup, before `loadUserPlugins()` calls
- *   {@link closeRegistration}. Defaults must populate the registry while the
- *   window is still open *and* ahead of any user plugins so the onion ordering
- *   (defaults registered first) matches the prior import-time behavior.
- * - Lazily on the first registry query in an otherwise-unmanaged context
- *   (benchmarks, ad-hoc callers that never run `bootstrapPlugins()`), so those
- *   consumers still observe a populated registry without each default
- *   self-registering at import time.
- *
- * Idempotent, and a no-op once the registry is managed explicitly — a test that
- * resets the registry takes manual control of its contents.
- */
-export function ensureDefaultPluginsRegistered(): void {
-  if (defaultPluginsHandled || !defaultPluginsRegistrar) {
-    return;
-  }
-  defaultPluginsHandled = true;
-  defaultPluginsRegistrar();
-}
-
 // ─── Registration ────────────────────────────────────────────────────────────
 
 /**
@@ -194,7 +141,6 @@ export function registerPlugin(plugin: Plugin): void {
  * the registry.
  */
 export function getRegisteredPlugins(): Plugin[] {
-  ensureDefaultPluginsRegistered();
   return Array.from(registeredPlugins.values());
 }
 
@@ -209,7 +155,6 @@ export function getRegisteredPlugins(): Plugin[] {
 export function getMiddlewaresFor<P extends PipelineName>(
   pipeline: P,
 ): PipelineMiddlewareMap[P][] {
-  ensureDefaultPluginsRegistered();
   const out: PipelineMiddlewareMap[P][] = [];
   for (const plugin of registeredPlugins.values()) {
     const middleware = plugin.middleware?.[pipeline];
@@ -235,7 +180,6 @@ export function getMiddlewaresFor<P extends PipelineName>(
 export function getHooksFor<TCtx = unknown>(
   name: string,
 ): PluginHookFn<TCtx>[] {
-  ensureDefaultPluginsRegistered();
   const out: PluginHookFn<TCtx>[] = [];
   for (const plugin of registeredPlugins.values()) {
     const hook = plugin.hooks?.[name];
@@ -252,7 +196,6 @@ export function getHooksFor<TCtx = unknown>(
  * registration order (stable sort via `Array.prototype.sort`).
  */
 export function getInjectors(): Injector[] {
-  ensureDefaultPluginsRegistered();
   const out: Injector[] = [];
   for (const plugin of registeredPlugins.values()) {
     if (plugin.injectors && plugin.injectors.length > 0) {
@@ -293,7 +236,6 @@ export function unregisterPlugin(name: string): void {
 }
 
 export function getRegisteredPlugin(name: string): Plugin | undefined {
-  ensureDefaultPluginsRegistered();
   return registeredPlugins.get(name);
 }
 
@@ -324,9 +266,4 @@ export function resetPluginRegistryForTests(): void {
   // again. Without this, the latch set by a prior `closeRegistration()` call
   // would leak across test cases and reject legitimate registrations.
   registrationClosed = false;
-  // Hand registry contents to the test: a reset signals the caller is taking
-  // manual control, so queries must not lazily re-register the defaults the
-  // reset just cleared. Tests that want production-parity defaults call
-  // `resetPluginRegistryAndRegisterDefaults()`, which registers them directly.
-  defaultPluginsHandled = true;
 }

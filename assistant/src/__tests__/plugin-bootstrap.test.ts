@@ -336,7 +336,7 @@ describe("plugin bootstrap", () => {
      */
 
     // GIVEN the first-party defaults have registered while the window is open
-    // (what `ensureDefaultPluginsRegistered()` does at daemon startup)
+    // (what `initializePlugins()` does at daemon startup)
     registerDefaultPlugins();
 
     // AND a user plugin registers after them (what `loadUserPlugins()` does)

@@ -60,9 +60,6 @@ import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
-import { installPluginRuntime } from "../plugins/external-api.js";
-import { ensureDefaultPluginsRegistered } from "../plugins/registry.js";
-import { loadUserPlugins } from "../plugins/user-loader.js";
 import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
@@ -113,7 +110,7 @@ import {
   startDiskPressureGuard,
   stopDiskPressureGuard,
 } from "./disk-pressure-guard.js";
-import { bootstrapPlugins } from "./external-plugins-bootstrap.js";
+import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
 import {
@@ -711,45 +708,12 @@ export async function runDaemon(): Promise<void> {
       });
     }
 
-    // Install the `globalThis.__vellumPluginRuntime` bridge before scanning
-    // for user plugins. Plugins that touch the bridge from their module body
-    // would throw without this — see `plugins/external-api.ts` for the
-    // rationale (compiled-binary module identity).
-    installPluginRuntime();
-
-    // Register the first-party default plugins before scanning for user
-    // plugins. `loadUserPlugins()` closes the registration window when it
-    // returns, so the defaults must land in the registry while it is still
-    // open. Registering them first also fixes their onion order ahead of any
-    // user middleware.
-    ensureDefaultPluginsRegistered();
-
-    // Populate the registry with user plugins from `<workspaceDir>/plugins/*`
-    // AFTER the first-party defaults have registered. User plugins may fail to
-    // load individually; a failing user plugin is logged and skipped so one
-    // bad install can't prevent the daemon from starting. Ordering is
-    // load-bearing:
-    //   first-party registrations → user registrations → bootstrap (init).
-    // Both groups are fully registered before any `init()` runs so plugins
-    // that depend on each other's registration observably see a stable
-    // registry at init time.
-    await loadUserPlugins();
-
-    // Bootstrap registered plugins. Runs after the plugin registry is
-    // populated (first-party defaults + user plugins loaded above) and before
-    // the DaemonServer starts handling
-    // conversations. Credential resolution + per-plugin storage directory
-    // creation happen here. Wrapped in try/catch so a failing plugin can't
-    // block daemon startup — bootstrapPlugins internally tears down any
-    // partially-initialized plugins before throwing.
-    try {
-      await bootstrapPlugins({ config, assistantVersion: APP_VERSION });
-    } catch (err) {
-      log.warn(
-        { err },
-        "Plugin bootstrap failed — continuing startup with degraded plugin functionality",
-      );
-    }
+    // Bring up the plugin layer: install the runtime bridge, register the
+    // first-party defaults, load user plugins, and run every plugin's
+    // `init()`. Ordering is load-bearing (defaults register ahead of user
+    // plugins so they compose innermost) and plugin failures are contained so
+    // they can't block daemon startup.
+    await initializePlugins({ config, assistantVersion: APP_VERSION });
 
     // Start the DaemonServer (conversation manager) before Qdrant so HTTP
     // routes can begin accepting requests while Qdrant initializes.
