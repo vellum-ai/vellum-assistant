@@ -132,9 +132,16 @@ export const seedAvatarManifestMigration: WorkspaceMigration = {
     // Idempotent: if a manifest already exists, leave it untouched.
     if (existsSync(manifestPath)) return;
 
-    // For a brand-new workspace (no legacy files) this naturally derives
-    // { kind: "none" }, so we don't need to branch on ctx.isNewWorkspace.
     const state = deriveStateFromLegacyFiles(avatarDir);
+
+    // Only seed a manifest for a *real* avatar (character/image). An avatar-less
+    // workspace derives { kind: "none" }; we deliberately do NOT write that, so
+    // the workspace stays manifest-less and the read-time self-heal can still
+    // pick up a later legacy sidecar write (older clients / automation that set
+    // an avatar via the generic workspace-file API) instead of being shadowed by
+    // a stale `none` manifest. "No avatar" == absence of avatar.json everywhere.
+    if (state.kind === "none") return;
+
     writeManifest(state, avatarDir);
   },
   down(workspaceDir: string): void {

@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { getLogger } from "../util/logger.js";
 import {
   AVATAR_IMAGE_FILENAME,
+  AVATAR_MANIFEST_FILENAME,
   getAvatarDir,
   getAvatarImagePath,
 } from "../util/platform.js";
@@ -90,8 +91,14 @@ export function setImage(pngBuffer: Buffer, source: AvatarSource): void {
 }
 
 /**
- * Clears the avatar entirely: removes the PNG and character sidecars, then
- * records a `none` manifest. Idempotent — safe to call when nothing exists.
+ * Clears the avatar entirely: removes the PNG, character sidecars, and the
+ * manifest itself. Idempotent — safe to call when nothing exists.
+ *
+ * "No avatar" is represented by the ABSENCE of a manifest, not a persisted
+ * `kind:"none"`. Deleting avatar.json (rather than writing `none`) keeps an
+ * emptied workspace manifest-less, so a later legacy sidecar write is still
+ * picked up by the read-time self-heal instead of being shadowed by a stale
+ * `none` manifest.
  */
 export function clearAvatar(): void {
   const avatarDir = getAvatarDir();
@@ -100,8 +107,7 @@ export function clearAvatar(): void {
   rmSync(join(avatarDir, AVATAR_IMAGE_FILENAME), { force: true });
   rmSync(join(avatarDir, TRAITS_FILENAME), { force: true });
   rmSync(join(avatarDir, ASCII_FILENAME), { force: true });
-
-  writeManifest({ kind: "none", traits: null, source: null, image: null });
+  rmSync(join(avatarDir, AVATAR_MANIFEST_FILENAME), { force: true });
 
   log.info("Cleared avatar — removed all artifacts");
 }

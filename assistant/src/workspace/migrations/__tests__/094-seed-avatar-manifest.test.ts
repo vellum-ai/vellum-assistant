@@ -87,14 +87,12 @@ describe("094-seed-avatar-manifest", () => {
     expect(manifest.image).toBeNull();
   });
 
-  test("neither present → none", () => {
+  test("neither present → no manifest written (none == absence of avatar.json)", () => {
     seedAvatarManifestMigration.run(workspaceDir);
 
-    const manifest = readManifest();
-    expect(manifest.kind).toBe("none");
-    expect(manifest.traits).toBeNull();
-    expect(manifest.image).toBeNull();
-    expect(manifest.source).toBeNull();
+    // An avatar-less workspace must stay manifest-less so a later legacy sidecar
+    // write is still picked up by the read-time self-heal.
+    expect(existsSync(manifestPath)).toBe(false);
   });
 
   test("re-run is a no-op (does not overwrite an existing manifest)", () => {

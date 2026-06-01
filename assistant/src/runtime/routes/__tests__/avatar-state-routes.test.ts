@@ -140,7 +140,7 @@ describe("GET /avatar/state", () => {
     }
   });
 
-  test("self-heals and persists kind:none (no throw, no 404) for an empty workspace", async () => {
+  test("returns kind:none WITHOUT persisting a manifest for an empty workspace (no throw, no 404)", async () => {
     let result: AvatarState | undefined;
     expect(() => {
       result = getStateHandler()({}) as AvatarState;
@@ -152,10 +152,9 @@ describe("GET /avatar/state", () => {
       image: null,
     });
 
-    const persisted = JSON.parse(
-      readFileSync(join(avatarDir, MANIFEST_FILENAME), "utf-8"),
-    ) as AvatarState;
-    expect(persisted).toEqual(result!);
+    // `none` is deliberately NOT persisted — the workspace stays manifest-less
+    // so a later legacy sidecar write is still picked up by the next self-heal.
+    expect(existsSync(join(avatarDir, MANIFEST_FILENAME))).toBe(false);
   });
 });
 
@@ -377,12 +376,10 @@ describe("avatar write/remove handlers", () => {
       expect(existsSync(path(IMAGE_FILENAME))).toBe(false);
       expect(existsSync(path(TRAITS_FILENAME))).toBe(false);
       expect(existsSync(path(ASCII_FILENAME))).toBe(false);
-      expect(readManifestFile()).toEqual({
-        kind: "none",
-        traits: null,
-        source: null,
-        image: null,
-      });
+      // none == absence: the manifest is deleted, not written as kind:none.
+      expect(readManifestFile()).toBeNull();
+      // A subsequent read still derives kind:none for the empty workspace.
+      expect((getStateHandler()({}) as AvatarState).kind).toBe("none");
     });
 
     test("reports hadAvatar:true for a character-only workspace (traits, no PNG)", async () => {
@@ -407,10 +404,12 @@ describe("avatar write/remove handlers", () => {
       expect(result.ok).toBe(true);
       expect(result.hadAvatar).toBe(true);
       expect(existsSync(path(TRAITS_FILENAME))).toBe(false);
-      expect(readManifestFile()!.kind).toBe("none");
+      // none == absence: the manifest is deleted, and a read derives none.
+      expect(readManifestFile()).toBeNull();
+      expect((getStateHandler()({}) as AvatarState).kind).toBe("none");
     });
 
-    test("reports hadAvatar:false and still writes kind:none when nothing exists", async () => {
+    test("reports hadAvatar:false and leaves no manifest when nothing exists", async () => {
       const handler = getHandler("avatar_remove");
       const result = (await handler({ body: {} })) as {
         ok: boolean;
@@ -418,7 +417,7 @@ describe("avatar write/remove handlers", () => {
       };
       expect(result.ok).toBe(true);
       expect(result.hadAvatar).toBe(false);
-      expect(readManifestFile()!.kind).toBe("none");
+      expect(readManifestFile()).toBeNull();
     });
   });
 });

@@ -54,8 +54,10 @@ function handleGetCharacterComponents() {
  * The migration (092) seeds `avatar.json` for every workspace, so the manifest
  * is normally present. If it is somehow missing (e.g. a workspace that predates
  * the manifest and skipped the migration), we derive state from the legacy
- * sidecar files *once* and persist it via `writeManifest` so subsequent reads
- * hit the manifest directly — no per-request legacy inference.
+ * sidecar files. A *real* avatar (character/image) is persisted once so
+ * subsequent reads hit the manifest directly; an empty (`none`) result is NOT
+ * persisted, so an avatar-less workspace stays manifest-less and a later legacy
+ * sidecar write is still picked up by the next self-heal (backward compat).
  */
 function readManifestSelfHealing(): AvatarState {
   const manifest = readManifest();
@@ -63,13 +65,17 @@ function readManifestSelfHealing(): AvatarState {
     return manifest;
   }
   const derived = deriveStateFromLegacyFiles();
+  // Only persist a real avatar. Persisting `none` would shadow a later legacy
+  // sidecar write behind a stale manifest (see migration 094 + clearAvatar).
   // Persist is best-effort: on a read-only / permission-restricted workspace the
   // write can throw. Swallow it so a GET still returns the derived state instead
   // of turning into a 500 — the next read simply self-heals again.
-  try {
-    writeManifest(derived);
-  } catch (err) {
-    log.warn({ err }, "Failed to persist self-healed avatar manifest");
+  if (derived.kind !== "none") {
+    try {
+      writeManifest(derived);
+    } catch (err) {
+      log.warn({ err }, "Failed to persist self-healed avatar manifest");
+    }
   }
   return derived;
 }

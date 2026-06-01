@@ -169,7 +169,7 @@ describe("avatar-store", () => {
   });
 
   describe("clearAvatar", () => {
-    test("removes all artifacts and writes a none manifest", () => {
+    test("removes all artifacts AND the manifest (none == absence)", () => {
       writeFileSync(path(IMAGE_FILENAME), Buffer.from("png"));
       writeFileSync(path(TRAITS_FILENAME), JSON.stringify(VALID_TRAITS));
       writeFileSync(path(ASCII_FILENAME), "ascii art");
@@ -179,23 +179,15 @@ describe("avatar-store", () => {
       expect(existsSync(path(IMAGE_FILENAME))).toBe(false);
       expect(existsSync(path(TRAITS_FILENAME))).toBe(false);
       expect(existsSync(path(ASCII_FILENAME))).toBe(false);
-      expect(readManifestFile()).toEqual({
-        kind: "none",
-        traits: null,
-        source: null,
-        image: null,
-      });
+      // "No avatar" is represented by the absence of avatar.json, so a later
+      // legacy sidecar write isn't shadowed by a stale `none` manifest.
+      expect(readManifestFile()).toBeNull();
     });
 
     test("is idempotent when nothing exists", () => {
       clearAvatar();
       clearAvatar();
-      expect(readManifestFile()).toEqual({
-        kind: "none",
-        traits: null,
-        source: null,
-        image: null,
-      });
+      expect(readManifestFile()).toBeNull();
     });
   });
 });
