@@ -246,7 +246,6 @@ export interface ChatRouteRefs {
   streamContextRef: MutableRefObject<StreamContext | null>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
   /**
    * Imperative handle to the mounted `<Transcript />`. Owned by ChatPage
    * so `useChatDebugApi` (installed there) can read scroll geometry
@@ -517,7 +516,6 @@ export function ChatRouteContent({
     streamContextRef,
     streamRef: _streamRef,
     streamEpochRef: _streamEpochRef,
-    reconcileAfterNextStreamOpenRef: _reconcileAfterNextStreamOpenRef,
   } = refs;
 
   // -------------------------------------------------------------------------

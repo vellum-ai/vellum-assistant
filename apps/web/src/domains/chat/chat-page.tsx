@@ -70,7 +70,6 @@ import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loader";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
-import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
@@ -334,7 +333,6 @@ export function ChatPage() {
   const streamRef = useRef<ChatEventStream | null>(null);
   const streamEpochRef = useRef(0);
   const streamContextRef = useRef<{ assistantId: string; conversationId: string } | null>(null);
-  const reconcileAfterNextStreamOpenRef = useRef(false);
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
   const onboardingDraftConversationIdRef = useRef<string | null>(null);
   const [didOnboarding, setDidOnboarding] = useState(false);
@@ -344,11 +342,6 @@ export function ChatPage() {
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInitialMessageRef = useRef<{ conversationId: string; content: string } | null>(null);
   const syncRouterRef = useRef<WebSyncRouter | null>(null);
-
-  useContextWindowUsageHydration({
-    assistantId,
-    activeConversationId,
-  });
 
   // -------------------------------------------------------------------------
   // Routing
@@ -1438,7 +1431,6 @@ export function ChatPage() {
       streamContextRef,
       streamRef,
       streamEpochRef,
-      reconcileAfterNextStreamOpenRef,
       transcriptRef,
     },
     isChannelReadonly,

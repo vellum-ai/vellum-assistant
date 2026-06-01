@@ -20,6 +20,7 @@ import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
 import { loadDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
+import { loadContextWindowUsageMap } from "@/domains/chat/utils/context-window-storage";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { useTurnStore } from "@/domains/chat/turn-store";
@@ -233,10 +234,12 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       }
     }
 
-    // Clear the cross-conversation cache when the assistant changes so
-    // stale usage data from a previous assistant doesn't accumulate.
+    // Re-hydrate from localStorage when the assistant changes (or on first
+    // load) so persisted context-window data survives page reloads and
+    // assistant switches.
     const isAssistantSwitch = state.previousAssistantId !== null
       && state.previousAssistantId !== assistantId;
+    const needsHydration = isAssistantSwitch || state.previousAssistantId === null;
 
     recordDiagnostic("conversation_switch_reset", {
       assistantId,
@@ -249,8 +252,8 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
     useInteractionStore.getState().resetAll();
     resetChatAttachments();
 
-    const usageByConversation = isAssistantSwitch
-      ? new Map<string, ContextWindowUsage>()
+    const usageByConversation = needsHydration
+      ? loadContextWindowUsageMap(assistantId)
       : state.contextWindowUsageByConversation;
 
     set({
