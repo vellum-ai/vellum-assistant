@@ -144,13 +144,10 @@ describe("AgentLoop", () => {
       return { content: "file data here", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     const { history } = await loop.run([userMessage], collectEvents(events));
 
@@ -196,13 +193,10 @@ describe("AgentLoop", () => {
       overrideProfile = "quality-optimized";
       return { content: "ok", isError: false };
     };
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     await loop.run([userMessage], collectEvents([]), {
       requestId: "req-1",
@@ -228,13 +222,10 @@ describe("AgentLoop", () => {
       maxInputTokens = 10_000;
       return { content: toolOutput, isError: false };
     };
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     await loop.run([userMessage], collectEvents([]), {
       requestId: "req-1",
@@ -272,13 +263,10 @@ describe("AgentLoop", () => {
       };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const { history } = await loop.run([userMessage], () => {});
 
     // Provider called 3 times (two tool rounds + final text)
@@ -298,7 +286,7 @@ describe("AgentLoop", () => {
     ]);
 
     // No tool executor provided
-    const loop = new AgentLoop(provider, "system", {}, dummyTools);
+    const loop = new AgentLoop(provider, "system", { tools: dummyTools });
     const { history } = await loop.run([userMessage], () => {});
 
     // Should stop after first response (no executor to handle tool use)
@@ -365,13 +353,10 @@ describe("AgentLoop", () => {
       return { content: "data", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const { history } = await loop.run([userMessage], () => {}, {
       signal: controller.signal,
     });
@@ -414,13 +399,10 @@ describe("AgentLoop", () => {
       return { content: "should never return", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const start = Date.now();
     const { history } = await loop.run([userMessage], () => {}, {
       signal: controller.signal,
@@ -513,13 +495,10 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "file data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const events: AgentEvent[] = [];
     await loop.run([userMessage], collectEvents(events));
@@ -560,13 +539,10 @@ describe("AgentLoop", () => {
       content: "ENOENT: file not found",
       isError: true,
     });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     await loop.run([userMessage], () => {});
 
@@ -598,13 +574,10 @@ describe("AgentLoop", () => {
       return { content: "full output", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     await loop.run([userMessage], collectEvents(events));
 
@@ -623,7 +596,9 @@ describe("AgentLoop", () => {
   // 11. System prompt and tools are passed to provider
   test("passes system prompt and tools to provider", async () => {
     const { provider, calls } = createMockProvider([textResponse("Hi")]);
-    const loop = new AgentLoop(provider, "My system prompt", {}, dummyTools);
+    const loop = new AgentLoop(provider, "My system prompt", {
+      tools: dummyTools,
+    });
 
     await loop.run([userMessage], () => {});
 
@@ -689,13 +664,10 @@ describe("AgentLoop", () => {
       };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     const { history } = await loop.run([userMessage], collectEvents(events));
 
@@ -786,13 +758,10 @@ describe("AgentLoop", () => {
       return { content: "data", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     const { history } = await loop.run([userMessage], collectEvents(events), {
       signal: controller.signal,
@@ -863,13 +832,10 @@ describe("AgentLoop", () => {
       return { content: `contents of ${path}`, isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     await loop.run([userMessage], collectEvents(events));
 
@@ -898,13 +864,10 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "file data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const checkpoints: CheckpointInfo[] = [];
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
@@ -933,13 +896,10 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const onCheckpoint = (): CheckpointDecision => "continue";
 
@@ -963,13 +923,10 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const onCheckpoint = (): CheckpointDecision => "budget";
 
@@ -993,13 +950,10 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const { history } = await loop.run([userMessage], () => {});
 
@@ -1019,13 +973,10 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const checkpoints: CheckpointInfo[] = [];
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
@@ -1046,7 +997,7 @@ describe("AgentLoop", () => {
     const { provider } = createMockProvider([
       textResponse("Just a text response"),
     ]);
-    const loop = new AgentLoop(provider, "system", {}, dummyTools);
+    const loop = new AgentLoop(provider, "system", { tools: dummyTools });
 
     const checkpoints: CheckpointInfo[] = [];
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
@@ -1099,13 +1050,10 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const checkpoints: CheckpointInfo[] = [];
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
@@ -1133,13 +1081,10 @@ describe("AgentLoop", () => {
 
     const { provider, calls } = createMockProvider(responses);
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const checkpoints: CheckpointInfo[] = [];
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
@@ -1205,13 +1150,10 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "data", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       // Yield on the second turn (turnIndex 1)
@@ -1235,7 +1177,7 @@ describe("AgentLoop", () => {
   // 25. Without resolveTools, static tools are used
   test("without resolveTools, static tools are passed to provider", async () => {
     const { provider, calls } = createMockProvider([textResponse("Hi")]);
-    const loop = new AgentLoop(provider, "system", {}, dummyTools);
+    const loop = new AgentLoop(provider, "system", { tools: dummyTools });
 
     await loop.run([userMessage], () => {});
 
@@ -1268,14 +1210,10 @@ describe("AgentLoop", () => {
       return resolvedTools;
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      [],
-      toolExecutor,
-      resolveTools,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      toolExecutor: toolExecutor,
+      resolveTools: resolveTools,
+    });
     await loop.run([userMessage], () => {});
 
     // resolveTools should be called once per provider turn (2 turns total)
@@ -1304,14 +1242,10 @@ describe("AgentLoop", () => {
     const resolveTools = (): ToolDefinition[] => dynamicTools;
 
     // Pass different static tools to verify they are overridden
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      undefined,
-      resolveTools,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      resolveTools: resolveTools,
+    });
     await loop.run([userMessage], () => {});
 
     // Provider should receive the dynamically resolved tools, not the static ones
@@ -1365,14 +1299,10 @@ describe("AgentLoop", () => {
     ]);
 
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      [],
-      toolExecutor,
-      resolveTools,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      toolExecutor: toolExecutor,
+      resolveTools: resolveTools,
+    });
     await loop.run([userMessage], () => {});
 
     // Provider should have been called 3 times
@@ -1392,14 +1322,10 @@ describe("AgentLoop", () => {
       textResponse("No tools available"),
     ]);
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      undefined,
-      resolveTools,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      resolveTools: resolveTools,
+    });
     await loop.run([userMessage], () => {});
 
     // Empty array should result in undefined tools (same as no-tools behavior)
@@ -1424,13 +1350,11 @@ describe("AgentLoop", () => {
       return { content: largeContent, isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      { maxInputTokens: 180_000 },
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      config: { maxInputTokens: 180_000 },
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     const { history } = await loop.run([userMessage], collectEvents(events));
 
@@ -1475,13 +1399,11 @@ describe("AgentLoop", () => {
       return { content: smallContent, isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      { maxInputTokens: 180_000 },
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      config: { maxInputTokens: 180_000 },
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     const { history } = await loop.run([userMessage], collectEvents(events));
 
@@ -1535,13 +1457,10 @@ describe("AgentLoop", () => {
       ],
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     const { history } = await loop.run([userMessage], collectEvents(events));
 
@@ -1604,13 +1523,10 @@ describe("AgentLoop", () => {
       ],
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     await loop.run([userMessage], collectEvents(events));
 
@@ -1639,13 +1555,10 @@ describe("AgentLoop", () => {
       // No sensitiveBindings
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     const { history } = await loop.run([userMessage], collectEvents(events));
 
@@ -1684,13 +1597,10 @@ describe("AgentLoop", () => {
       return { content: "file contents", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     await loop.run([userMessage], () => {});
 
     // Provider should have been called 3 times (error -> retry -> final text)
@@ -1736,13 +1646,10 @@ describe("AgentLoop", () => {
       return { content: "service unavailable", isError: true };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     await loop.run([userMessage], () => {});
 
     expect(calls).toHaveLength(5);
@@ -1787,13 +1694,10 @@ describe("AgentLoop", () => {
       isError: false,
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     const { history } = await loop.run([userMessage], collectEvents(events));
 
@@ -1865,13 +1769,10 @@ describe("AgentLoop", () => {
       isError: false,
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     const { history } = await loop.run([userMessage], collectEvents(events));
 
@@ -1927,13 +1828,10 @@ describe("AgentLoop", () => {
       isError: false,
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     const { history } = await loop.run([userMessage], collectEvents(events));
 

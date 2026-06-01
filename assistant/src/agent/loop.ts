@@ -550,6 +550,14 @@ export type LoopToolExecutor = (
   activityMetadata?: ToolActivityMetadata;
 }>;
 
+export interface AgentLoopConstructorOptions {
+  config?: Partial<AgentLoopConfig>;
+  tools?: ToolDefinition[];
+  toolExecutor?: LoopToolExecutor;
+  resolveTools?: (history: Message[]) => ToolDefinition[];
+  resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt;
+}
+
 export class AgentLoop {
   private provider: Provider;
   private systemPrompt: string;
@@ -564,12 +572,10 @@ export class AgentLoop {
   constructor(
     provider: Provider,
     systemPrompt: string,
-    config?: Partial<AgentLoopConfig>,
-    tools?: ToolDefinition[],
-    toolExecutor?: LoopToolExecutor,
-    resolveTools?: (history: Message[]) => ToolDefinition[],
-    resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt,
+    options?: AgentLoopConstructorOptions,
   ) {
+    const { config, tools, toolExecutor, resolveTools, resolveSystemPrompt } =
+      options ?? {};
     this.provider = provider;
     this.systemPrompt = systemPrompt;
     this.config = { ...DEFAULT_CONFIG, ...config };

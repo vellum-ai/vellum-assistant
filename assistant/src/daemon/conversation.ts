@@ -527,15 +527,13 @@ export class Conversation {
       agentLoopConfig.maxTokens = configuredMaxTokens;
     }
 
-    this.agentLoop = new AgentLoop(
-      provider,
-      systemPrompt,
-      agentLoopConfig,
-      toolDefs.length > 0 ? toolDefs : undefined,
-      toolDefs.length > 0 ? toolExecutor : undefined,
+    this.agentLoop = new AgentLoop(provider, systemPrompt, {
+      config: agentLoopConfig,
+      tools: toolDefs.length > 0 ? toolDefs : undefined,
+      toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
-      resolveSystemPromptCallback,
-    );
+      resolveSystemPrompt: resolveSystemPromptCallback,
+    });
     this.contextWindowManager = new ContextWindowManager({
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,

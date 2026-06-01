@@ -229,7 +229,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
         stopReason: "max_tokens",
       },
     ]);
-    const loop = new AgentLoop(provider, "system prompt", {}, dummyTools);
+    const loop = new AgentLoop(provider, "system prompt", {
+      tools: dummyTools,
+    });
 
     const events: AgentEvent[] = [];
     const { history: result } = await loop.run([userMessage], (e) => {
@@ -272,13 +274,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       isError: false,
       yieldToUser: true,
     });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const events: AgentEvent[] = [];
     await loop.run([userMessage], (e) => {
@@ -295,13 +294,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       textResponse("never reached"),
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision =>
       "budget";
@@ -326,13 +322,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       textResponse("never reached"),
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     // AND an effective context window so small that any real token estimate
     // of the running history exceeds the mid-loop threshold.
@@ -356,13 +349,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       textResponse("done"),
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     // WHEN the loop runs to completion
     const result = await loop.run([userMessage], () => {}, {
@@ -384,13 +374,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       textResponse("done after compaction"),
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     let prepared = false;
     let persisted = false;
@@ -438,13 +425,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       textResponse("never reached"),
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     let timedOut = false;
     const compaction: MidLoopCompaction = {
@@ -480,13 +464,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       textResponse("never reached"),
     ]);
     const toolExecutor = async () => ({ content: "ok", isError: false });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const compaction: MidLoopCompaction = {
       prepare: (history) => ({ rawHistory: history, options: undefined }),
@@ -544,13 +525,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       isError: false,
       yieldToUser: true,
     });
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const events: AgentEvent[] = [];
     await loop.run([userMessage], (e) => {
@@ -571,13 +549,10 @@ describe("AgentLoop exit-reason instrumentation", () => {
       controller.abort();
       return { content: "ok", isError: false };
     };
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     const events: AgentEvent[] = [];
     await loop.run(

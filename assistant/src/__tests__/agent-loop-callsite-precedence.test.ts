@@ -100,7 +100,9 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", { maxTokens: 64000 });
+    const loop = new AgentLoop(provider, "system", {
+      config: { maxTokens: 64000 },
+    });
 
     await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
 
@@ -119,8 +121,10 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
-      maxTokens: 64000,
-      effort: "high",
+      config: {
+        maxTokens: 64000,
+        effort: "high",
+      },
     });
 
     await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
@@ -140,11 +144,13 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
-      maxTokens: 64000,
-      effort: "high",
-      // Conversation default is "fast" (which would normally be applied) —
-      // ensure the call-site value is the one that ends up on the wire.
-      speed: "fast",
+      config: {
+        maxTokens: 64000,
+        effort: "high",
+        // Conversation default is "fast" (which would normally be applied) —
+        // ensure the call-site value is the one that ends up on the wire.
+        speed: "fast",
+      },
     });
 
     await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
@@ -169,11 +175,13 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
-      maxTokens: 64000,
-      // Conversation default also has thinking on — without the fix, this
-      // would pre-set `thinking: { type: "adaptive" }` and mask the
-      // call-site override.
-      thinking: { enabled: true },
+      config: {
+        maxTokens: 64000,
+        // Conversation default also has thinking on — without the fix, this
+        // would pre-set `thinking: { type: "adaptive" }` and mask the
+        // call-site override.
+        thinking: { enabled: true },
+      },
     });
 
     await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
@@ -194,7 +202,9 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", { maxTokens: 64000 });
+    const loop = new AgentLoop(provider, "system", {
+      config: { maxTokens: 64000 },
+    });
 
     await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
 
@@ -218,10 +228,12 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
-      maxTokens: 64000,
-      effort: "high",
-      speed: "fast",
-      thinking: { enabled: true },
+      config: {
+        maxTokens: 64000,
+        effort: "high",
+        speed: "fast",
+        thinking: { enabled: true },
+      },
     });
 
     await loop.run([userMessage], () => {});
@@ -250,15 +262,10 @@ describe("AgentLoop — call-site precedence", () => {
       maxTokens: 8192,
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      { maxTokens: 64000 },
-      [],
-      undefined,
-      undefined,
-      resolveSystemPrompt,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      config: { maxTokens: 64000 },
+      resolveSystemPrompt: resolveSystemPrompt,
+    });
 
     await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
 
