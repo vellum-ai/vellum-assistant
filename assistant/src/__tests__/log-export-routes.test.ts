@@ -193,6 +193,63 @@ describe("POST /v1/export - conversation-scoped daemon logs", () => {
       rmSync(logPath, { force: true });
     }
   });
+
+  test("trims the retained daily log to the requested time window", async () => {
+    /**
+     * Tests that when a time window is requested, the retained daily log keeps
+     * in-window lines (including untagged failures) but drops lines from
+     * outside the window, so the export honors the caller's selected scope.
+     */
+
+    // GIVEN a daily log with an untagged in-window failure line
+    // AND an out-of-window line from an unrelated conversation
+    const conversationId = "conv-window-scope";
+    const now = Date.now();
+    const startTime = now - 60 * 60 * 1000;
+    const endTime = now;
+    const today = new Date().toISOString().slice(0, 10);
+    const logsDir = getLogsDir();
+    mkdirSync(logsDir, { recursive: true });
+    const logFileName = `assistant-${today}.log`;
+    const logPath = join(logsDir, logFileName);
+    const inWindowError = JSON.stringify({
+      level: 50,
+      time: now - 1000,
+      msg: "agent loop failed: stream aborted before first token",
+    });
+    const outOfWindowOther = JSON.stringify({
+      level: 30,
+      time: now - 2 * 60 * 60 * 1000,
+      conversationId: "conv-unrelated",
+      msg: "unrelated conversation activity",
+    });
+    writeFileSync(logPath, `${outOfWindowOther}\n${inWindowError}\n`, "utf-8");
+
+    try {
+      // WHEN we run a conversation-scoped export with a one-hour window
+      const result = await exportRoute.handler({
+        body: { conversationId, startTime, endTime },
+      });
+
+      // THEN the in-window untagged failure is retained
+      const dir = await extractArchive(result as Uint8Array);
+      try {
+        const exportedLog = readFileSync(
+          join(dir, "daemon-logs", logFileName),
+          "utf-8",
+        );
+        expect(exportedLog).toContain("stream aborted before first token");
+
+        // AND the out-of-window unrelated line is dropped
+        expect(exportedLog).not.toContain("unrelated conversation activity");
+        expect(exportedLog).not.toContain("conv-unrelated");
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(logPath, { force: true });
+    }
+  });
 });
 
 describe("POST /v1/export - LLM usage events", () => {
