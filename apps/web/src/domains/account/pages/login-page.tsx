@@ -349,8 +349,25 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
     }
   }, [hasPlatform, hasLocal, platformLoading, platformError, isPlatformLocal, handlePlatformProvider]);
 
-  // No assistants at all
+  // No assistants at all — show login buttons when Django is local,
+  // otherwise prompt the user to hatch via CLI.
   if (!hasLocal && !hasPlatform) {
+    if (isPlatformLocal) {
+      return (
+        <DarkLoginShell>
+          <LoginCard>
+            <PlatformLoginButtons
+              returnTo={returnTo}
+              loading={platformLoading}
+              errorMessage={platformError}
+              onProviderClick={(hint) => {
+                void handlePlatformProvider(hint);
+              }}
+            />
+          </LoginCard>
+        </DarkLoginShell>
+      );
+    }
     return (
       <DarkLoginShell>
         <LoginCard>

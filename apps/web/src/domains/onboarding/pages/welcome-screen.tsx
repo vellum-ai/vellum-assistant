@@ -8,6 +8,17 @@ import { startLoopbackAuth } from "@/lib/auth/loopback-auth";
 import { startAuthFlow } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 
+async function isPlatformLocal(): Promise<boolean> {
+  try {
+    const res = await fetch("/__config");
+    if (!res.ok) return false;
+    const config = (await res.json()) as { webUrl?: string };
+    return config.webUrl === window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 export function WelcomeScreen() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -15,6 +26,11 @@ export function WelcomeScreen() {
 
   const handleLogin = async () => {
     if (isLocalMode()) {
+      if (await isPlatformLocal()) {
+        const returnTo = routes.onboarding.hosting;
+        void navigate(`${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`);
+        return;
+      }
       await startLoopbackAuth(routes.onboarding.hosting);
       return;
     }
