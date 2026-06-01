@@ -220,30 +220,55 @@ describe("reconcileTree", () => {
     expect(result.prunedCore).toEqual(["domain-a/gone"]);
   });
 
-  test("residual dangling ref triggers validation throw + restore", async () => {
+  test("out-of-band dangling page ref converges (prune pass)", async () => {
     // The current tree has only leaf-x. page-a references leaf-x (fine) PLUS a
-    // residual leaf path that exists in NEITHER prev nor current — so it is
-    // not a rename target and not a deleted-path drop, and survives the
-    // rewrite as a dangling ref. Validation must fail closed and restore.
+    // residual leaf path that exists in NEITHER prev nor current — an out-of-band
+    // ref a maintainer left when deleting a leaf file without a `prevLeaves`
+    // entry. v1 reconcile is a convergence/prune pass: it drops the dangling ref
+    // (the page keeps its surviving leaf, so no re-home is needed) instead of
+    // failing closed.
     await writeLeaf("domain-a/topic-x", { id: "leaf-x" });
     await writeCore(["domain-a/topic-x"]);
+    await seedAssignments();
     await writePageWithLeaves("page-a", [
       "domain-a/topic-x",
       "domain-a/residual",
     ]);
 
     const prev: LeafRef[] = [{ id: "leaf-x", path: "domain-a/topic-x" }];
+    const result = await reconcileTree({
+      prevLeaves: prev,
+      dataDir,
+      workspaceDir,
+    });
 
-    await expect(
-      reconcileTree({ prevLeaves: prev, dataDir, workspaceDir }),
-    ).rejects.toThrow(/validation failed/);
-
-    // Restored: page frontmatter reverted to its pre-reconcile state (both
-    // refs, including the residual one) and core.json reverted.
-    expect(await pageLeaves("page-a")).toEqual([
-      "domain-a/topic-x",
-      "domain-a/residual",
-    ]);
+    // Converged: the dangling residual ref is gone; the surviving leaf remains.
+    expect(await pageLeaves("page-a")).toEqual(["domain-a/topic-x"]);
     expect(await coreOf()).toEqual(["domain-a/topic-x"]);
+    // The out-of-band drop is not a reconciler-tracked delete (no prev entry),
+    // so it is not reported in `deleted`.
+    expect(result.deleted).toEqual([]);
+  });
+
+  test("page whose ONLY leaf dangles out-of-band is re-homed, not orphaned", async () => {
+    // page-a's sole leaf was deleted on disk with no `prevLeaves` entry. The
+    // convergence pass must re-home it onto a surviving leaf before dropping the
+    // dead ref, so the page is never left with zero leaves.
+    await writeLeaf("domain-a/topic-x", { id: "leaf-x" });
+    await writeCore([]);
+    await seedAssignments();
+    // page-a points only at a leaf absent from the tree (out-of-band delete).
+    await writePageWithLeaves("page-a", ["domain-a/gone"]);
+
+    // Only surviving leaf is sorted index 1 → re-home target.
+    const provider = stubProvider(() => [1]);
+
+    const prev: LeafRef[] = [{ id: "leaf-x", path: "domain-a/topic-x" }];
+    await reconcileTree({ prevLeaves: prev, dataDir, workspaceDir, provider });
+
+    const after = await pageLeaves("page-a");
+    expect(after).not.toContain("domain-a/gone"); // dangling ref dropped
+    expect(after).toEqual(["domain-a/topic-x"]); // re-homed onto the survivor
+    expect(after.length).toBeGreaterThanOrEqual(1); // never orphaned
   });
 });

@@ -2,12 +2,10 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import { join, relative } from "node:path";
 
-import { parse, stringify } from "yaml";
-
 import { getLogger } from "../../util/logger.js";
 import type { WorkspaceMigration } from "./types.js";
 
-const log = getLogger("workspace-migration-092-backfill-leaf-ids");
+const log = getLogger("workspace-migration-093-backfill-leaf-ids");
 
 /** v3 leaf files live under this path relative to the workspace dir. */
 const LEAVES_REL = join("memory", "v3", "data", "leaves");
@@ -62,10 +60,31 @@ function collectLeafFiles(dir: string): string[] {
 }
 
 /**
+ * True when the frontmatter already declares a non-empty top-level `id:` field.
+ * A line-shaped check (rather than a YAML parse) keeps the migration free of an
+ * npm `yaml` dependency, as AGENTS.md requires — leaf frontmatter is simple
+ * flat key/value, so a `^id:` scan is sufficient and durable.
+ */
+function hasStableId(frontmatter: string): boolean {
+  for (const line of frontmatter.split(/\r?\n/)) {
+    const m = /^id:[ \t]*(.*)$/.exec(line);
+    if (!m) continue;
+    return m[1].trim().replace(/^["']|["']$/g, "").length > 0;
+  }
+  return false;
+}
+
+/**
  * Backfill a stable `id` into the frontmatter of `file` if it lacks one.
  * Returns `true` when the file was rewritten. Idempotent: a leaf that already
  * has an `id` is left untouched. The id is keyed off the leaf's path relative
  * to the leaves root so it is stable across machines and re-runs.
+ *
+ * Frontmatter is edited as text (the `id:` line is prepended to the existing
+ * block) rather than parsed/re-serialized through a YAML library: workspace
+ * migrations must stay self-contained with no npm deps (AGENTS.md), and a
+ * text splice also preserves the rest of the human-authored frontmatter
+ * verbatim (key order, comments, formatting).
  */
 function backfillLeaf(leavesDir: string, file: string): boolean {
   const content = fs.readFileSync(file, "utf8");
@@ -75,26 +94,15 @@ function backfillLeaf(leavesDir: string, file: string): boolean {
     return false;
   }
 
-  let data: Record<string, unknown>;
-  try {
-    const parsed = parse(split.frontmatter) as unknown;
-    data =
-      parsed && typeof parsed === "object"
-        ? (parsed as Record<string, unknown>)
-        : {};
-  } catch (err) {
-    log.warn({ err, file }, "Failed to parse leaf frontmatter; skipping");
-    return false;
-  }
-
-  if (typeof data.id === "string" && data.id.length > 0) {
+  if (hasStableId(split.frontmatter)) {
     return false; // Already has a stable id — idempotent skip.
   }
 
   const relPath = relative(leavesDir, file);
-  data.id = stableIdForPath(relPath);
-
-  const newFrontmatter = stringify(data).replace(/\n$/, "");
+  const idLine = `id: ${stableIdForPath(relPath)}`;
+  const existing = split.frontmatter.replace(/^\s+|\s+$/g, "");
+  const newFrontmatter =
+    existing.length > 0 ? `${idLine}\n${existing}` : idLine;
   const rebuilt = `${FRONTMATTER_DELIMITER}\n${newFrontmatter}\n${FRONTMATTER_DELIMITER}\n${split.body}`;
   fs.writeFileSync(file, rebuilt, "utf8");
   return true;

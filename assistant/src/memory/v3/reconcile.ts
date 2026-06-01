@@ -320,31 +320,60 @@ async function applyReconcile(args: ApplyArgs): Promise<ReconcileResult> {
     provider,
   } = args;
 
-  // 1. Re-home members of deleted leaves BEFORE dropping any refs, so a page
-  //    that loses its only leaf gains a surviving one (no orphan). We re-home
-  //    first, against the still-intact assignments, then drop the dead path.
+  // The set of leaf paths a ref may legitimately resolve to: the current tree
+  // plus every rename TARGET (a renamed leaf's new path is in `current`, but we
+  // include the map's values defensively). Any page ref or core entry that does
+  // NOT resolve into this set is dangling and must converge to a valid state.
+  const validPaths = new Set<LeafPath>(currentPaths);
+  for (const newPath of renames.values()) validPaths.add(newPath);
+
+  // A ref is "dangling" when, after rename resolution, it points outside the
+  // current tree. This covers BOTH reconciler-driven deletes (leaves in `prev`
+  // but not `current`) AND out-of-band deletes/renames a maintainer made on disk
+  // without a `prevLeaves` entry — the v1 convergence/prune case. We drop such
+  // refs in step 2; first (step 1) we re-home any page that would otherwise be
+  // orphaned so no page is left with zero leaves.
+  const isDangling = (resolved: LeafPath): boolean => !validPaths.has(resolved);
+
+  // 1. Re-home members of dangling leaves BEFORE dropping any refs, so a page
+  //    that would lose its only leaf gains a surviving one (no orphan). We
+  //    re-home first, against the still-intact assignments, then drop the dead
+  //    path. Reconciler-tracked deletes may carry a split directive; out-of-band
+  //    dangling leaves (discovered from page refs) re-home across the whole tree.
   const splitById = new Map<string, SplitDirective>(
     splits.map((s) => [s.fromId, s]),
   );
-  const deletedPaths = new Set<LeafPath>();
-  for (const leaf of deleted) {
-    deletedPaths.add(leaf.path);
+  const slugs = await listPages(workspaceDir);
 
-    const members = await pagesAssignedTo(workspaceDir, leaf.path);
-    if (members.length > 0) {
-      const split = leaf.id ? splitById.get(leaf.id) : undefined;
-      await rehomeMembers(workspaceDir, dataDir, members, split, provider);
+  // Collect every dangling leaf path: explicit deletes + any leaf referenced by
+  // a page that resolves outside the current tree.
+  const danglingLeafToMembers = new Map<LeafPath, Slug[]>();
+  for (const leaf of deleted) danglingLeafToMembers.set(leaf.path, []);
+  for (const slug of slugs) {
+    const page = await readPage(workspaceDir, slug);
+    if (!page) continue;
+    for (const ref of page.frontmatter.leaves ?? []) {
+      const resolved = renames.get(ref) ?? ref;
+      if (!isDangling(resolved)) continue;
+      const members = danglingLeafToMembers.get(ref) ?? [];
+      members.push(slug);
+      danglingLeafToMembers.set(ref, members);
     }
   }
 
-  // 2. Rewrite renamed paths and drop deleted paths from page frontmatter.
-  const slugs = await listPages(workspaceDir);
+  const deletedPaths = new Set<LeafPath>(danglingLeafToMembers.keys());
+  for (const [leafPath, members] of danglingLeafToMembers) {
+    if (members.length === 0) continue;
+    const id = deleted.find((l) => l.path === leafPath)?.id;
+    const split = id ? splitById.get(id) : undefined;
+    await rehomeMembers(workspaceDir, dataDir, members, split, provider);
+  }
+
+  // 2. Rewrite renamed paths and drop dangling paths from page frontmatter.
   for (const slug of slugs) {
     await rewritePageRefs(workspaceDir, slug, (leaves) =>
       dedupe(
-        leaves
-          .map((p) => renames.get(p) ?? p)
-          .filter((p) => !deletedPaths.has(p)),
+        leaves.map((p) => renames.get(p) ?? p).filter((p) => !isDangling(p)),
       ),
     );
   }
@@ -380,22 +409,6 @@ async function applyReconcile(args: ApplyArgs): Promise<ReconcileResult> {
     deleted: deleted.map((l) => l.path),
     prunedCore,
   };
-}
-
-/** Slugs whose `leaves:` frontmatter currently includes `leafPath`. */
-async function pagesAssignedTo(
-  workspaceDir: string,
-  leafPath: LeafPath,
-): Promise<Slug[]> {
-  const slugs = await listPages(workspaceDir);
-  const members: Slug[] = [];
-  for (const slug of slugs) {
-    const page = await readPage(workspaceDir, slug);
-    if (page && (page.frontmatter.leaves ?? []).includes(leafPath)) {
-      members.push(slug);
-    }
-  }
-  return members;
 }
 
 /**

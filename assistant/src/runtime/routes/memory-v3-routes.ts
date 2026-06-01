@@ -272,8 +272,21 @@ export async function handleMemoryV3RebuildIndex(): Promise<MemoryV3RebuildIndex
 // Route definitions (RouteHandlerArgs adapters over the handlers above)
 // ---------------------------------------------------------------------------
 
-const POLICY: RoutePolicy = {
+/** Read-only verbs (the `health` report) require only `settings.read`. */
+const READ_POLICY: RoutePolicy = {
   requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ACTOR_PRINCIPALS,
+};
+
+/**
+ * Mutating verbs require `settings.write`. `set-core --write`, `reconcile`, and
+ * `rebuild-index` write `core.json`, rewrite page frontmatter, and invalidate
+ * the live lanes, so a `settings.read`-only principal must not reach them.
+ * (`set-core` without `write` is a preview, but it shares this route, so the
+ * route as a whole is gated on write.)
+ */
+const WRITE_POLICY: RoutePolicy = {
+  requiredScopes: ["settings.write"],
   allowedPrincipalTypes: ACTOR_PRINCIPALS,
 };
 
@@ -281,7 +294,7 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v3_health",
     method: "POST",
-    policy: POLICY,
+    policy: READ_POLICY,
     endpoint: "memory/v3/health",
     handler: () => handleMemoryV3Health(),
     summary: "Print the v3 structural health report (read-only)",
@@ -290,7 +303,7 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v3_set_core",
     method: "POST",
-    policy: POLICY,
+    policy: WRITE_POLICY,
     endpoint: "memory/v3/set-core",
     handler: async ({ body = {} }: RouteHandlerArgs) => {
       try {
@@ -308,7 +321,7 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v3_reconcile",
     method: "POST",
-    policy: POLICY,
+    policy: WRITE_POLICY,
     endpoint: "memory/v3/reconcile",
     handler: () => handleMemoryV3Reconcile(),
     summary:
@@ -318,7 +331,7 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "memory_v3_rebuild_index",
     method: "POST",
-    policy: POLICY,
+    policy: WRITE_POLICY,
     endpoint: "memory/v3/rebuild-index",
     handler: () => handleMemoryV3RebuildIndex(),
     summary: "Invalidate the v3 lanes so the next turn rebuilds",
