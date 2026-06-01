@@ -702,16 +702,25 @@ export class AgentLoop {
         // Record the timeout as a compaction failure against the loop's
         // circuit breaker: three consecutive failures trip a cooldown that
         // suspends auto-compaction. Any open/closed transition is emitted on
-        // the loop's own event channel via `onEvent`.
-        await this.compactionCircuit.recordOutcome(
-          {
-            currentRequestId: turnContext.requestId,
-            currentTurnTrustContext: turnContext.trust,
-            turnCount: turnContext.turnIndex,
-          },
-          true,
-          onEvent,
-        );
+        // the loop's own event channel via `onEvent`. Circuit bookkeeping is
+        // best-effort — a failure here must not turn a recoverable compaction
+        // timeout into a user-visible turn failure.
+        try {
+          await this.compactionCircuit.recordOutcome(
+            {
+              currentRequestId: turnContext.requestId,
+              currentTurnTrustContext: turnContext.trust,
+              turnCount: turnContext.turnIndex,
+            },
+            true,
+            onEvent,
+          );
+        } catch (recordError) {
+          log.error(
+            { err: recordError, requestId: turnContext.requestId },
+            "Recording compaction timeout against the circuit breaker failed; suppressing to keep the agent loop alive",
+          );
+        }
         return null;
       }
       throw error;
