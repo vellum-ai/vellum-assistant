@@ -35,6 +35,17 @@ mock.module("@capacitor/app", () => ({
   },
 }));
 
+const captureExceptionMock = mock(() => {});
+// Full Sentry surface — `mock.module` is process-global in bun, so a
+// partial shape would shadow `addBreadcrumb` (used by other modules
+// transitively loaded in this run) for every later test file. Both
+// methods are kept here so the mock can satisfy any consumer that
+// happens to load Sentry through our module under test.
+mock.module("@sentry/browser", () => ({
+  captureException: captureExceptionMock,
+  addBreadcrumb: () => {},
+}));
+
 import * as eventBus from "@/lib/event-bus";
 
 const publishSpy = spyOn(eventBus, "publish");
@@ -65,6 +76,7 @@ beforeEach(() => {
   isNativePlatformMock.mockClear();
   addListenerMock.mockClear();
   handleRemoveMock.mockClear();
+  captureExceptionMock.mockClear();
   publishSpy.mockClear();
 });
 
@@ -122,20 +134,17 @@ describe("publishCapacitorAppStateSource", () => {
     expect(handleRemoveMock).toHaveBeenCalledTimes(1);
   });
 
-  test("does NOT propagate a lazy-import failure — the helper swallows it (Sentry logs it)", async () => {
-    // The contract under test: helper doesn't throw / reject the
-    // outer call site when the lazy `@capacitor/app` import fails.
-    // Whether the failure is logged to Sentry is implementation
-    // detail and tested via the source's hand-written `Sentry`
-    // import; spying on namespace exports isn't reliable across
-    // bun's module-mock surface.
+  test("reports a lazy-import failure to Sentry instead of throwing", async () => {
     publishCapacitorAppStateSource();
 
     await flushMicrotasks();
-    addListenerRejecter?.(new Error("plugin missing"));
+    const err = new Error("plugin missing");
+    addListenerRejecter?.(err);
     await flushMicrotasks();
 
-    // No assertion on Sentry — the test passes if no unhandled
-    // rejection escaped the .catch chain.
+    expect(captureExceptionMock).toHaveBeenCalledWith(err, {
+      level: "warning",
+      tags: { context: "event_bus_capacitor_init" },
+    });
   });
 });

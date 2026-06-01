@@ -397,16 +397,16 @@ owns it.
 
 | | `lib/` | `utils/` |
 |---|---|---|
-| **Purpose** | Third-party SDK integrations, infrastructure wrappers, code with initialization or lifecycle | Pure helper functions with no side effects |
-| **Side effects?** | Yes — initializes SDKs, configures interceptors, manages consent/lifecycle | No — pure input→output, no global state, no I/O |
-| **Third-party SDK dependency?** | Yes — wraps `@sentry/react`, `@heyapi/client-fetch`, etc. | No — only standard library / language utilities |
-| **Subdirectories?** | Yes — each integration gets its own directory (e.g. `lib/sentry/`, `lib/auth/`, `lib/sync/`) | Flat — individual utility files at the top level |
-| **Examples** | `lib/sentry/sentry-init.ts`, `lib/auth/allauth-client.ts`, `lib/api-client.ts` | `utils/format.ts`, `utils/browser.ts`, `utils/cn.ts` |
+| **Purpose** | Infrastructure with side effects or lifecycle — third-party SDK wrappers AND app-internal primitives (registries, transports, interceptors, middlewares) | Pure helper functions with no side effects |
+| **Side effects?** | Yes — module-level state, listener registration, SDK init, interceptors, or pub/sub registries | No — pure input→output, no global state, no I/O |
+| **Third-party SDK dependency?** | Optional — third-party wrappers (`@sentry/react`, `@heyapi/client-fetch`) AND first-party infrastructure (`event-bus.ts`, `chunk-errors.ts`, `local-mode.ts`) both belong here | No — only standard library / language utilities |
+| **Subdirectories?** | When a single integration warrants multiple files (`lib/sentry/`, `lib/auth/`, `lib/sync/`); single-file infrastructure stays at the `lib/` top level (`lib/diagnostics.ts`, `lib/event-bus.ts`) | Flat — individual utility files at the top level |
+| **Examples** | `lib/sentry/sentry-init.ts`, `lib/auth/allauth-client.ts`, `lib/api-client.ts`, `lib/event-bus.ts`, `lib/diagnostics.ts`, `lib/chunk-errors.ts` | `utils/format.ts`, `utils/browser.ts`, `utils/cn.ts` |
 
-If the code configures an SDK instance, runs at startup, or manages a
-third-party service lifecycle, it belongs in `lib/`. If it's a pure
-function you could copy-paste into any project without installing a
-dependency, it belongs in `utils/`.
+If the code holds state at module scope, registers global listeners,
+configures an SDK, manages a session, or runs at startup, it belongs
+in `lib/`. If it's a pure function you could copy-paste into any
+project without installing a dependency, it belongs in `utils/`.
 
 Reference: [Bulletproof React — `lib/` directory](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md)
 
@@ -414,10 +414,12 @@ Reference: [Bulletproof React — `lib/` directory](https://github.com/alan2207/
 
 Both contain infrastructure code, but they serve different purposes:
 
-- **`lib/`** — wraps *external* third-party services and SDKs (Sentry, HeyAPI, allauth). These are vendor integrations the app consumes.
+- **`lib/`** — third-party SDK wrappers (Sentry, HeyAPI, allauth) *and* app-internal infrastructure (event bus, diagnostics buffer, chunk-error recovery). The common thread: side effects, module-level state, or lifecycle ownership.
 - **`runtime/`** — adapts the app to its *host environment* (Capacitor native bridges, route adapters, platform detection). These handle differences between web, iOS, and macOS without third-party SDK dependencies.
 
-If the code imports a third-party SDK and configures it → `lib/`. If it bridges between the app and the native platform or framework runtime → `runtime/`.
+If the code bridges to the native platform / framework runtime →
+`runtime/`. Otherwise — whether it wraps a third-party SDK or owns
+app-internal infrastructure — `lib/`.
 
 ### No barrel files
 

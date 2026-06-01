@@ -27,6 +27,17 @@ mock.module("@/runtime/deep-links", () => ({
   subscribeToDeepLinks: subscribeToDeepLinksMock,
 }));
 
+const captureExceptionMock = mock(() => {});
+// Full Sentry surface — `mock.module` is process-global in bun, so a
+// partial shape would shadow `addBreadcrumb` (used by other modules
+// transitively loaded in this run) for every later test file. Both
+// methods are kept here so the mock can satisfy any consumer that
+// happens to load Sentry through our module under test.
+mock.module("@sentry/browser", () => ({
+  captureException: captureExceptionMock,
+  addBreadcrumb: () => {},
+}));
+
 import * as eventBus from "@/lib/event-bus";
 
 const publishSpy = spyOn(eventBus, "publish");
@@ -42,6 +53,7 @@ beforeEach(() => {
   subscribeToDeepLinksMock.mockClear();
   drainPendingDeepLinksMock.mockClear();
   unsubscribeMock.mockClear();
+  captureExceptionMock.mockClear();
   publishSpy.mockClear();
 });
 
@@ -87,19 +99,18 @@ describe("publishElectronDeepLinksSource", () => {
     ]);
   });
 
-  test("does NOT propagate a drain failure — the helper swallows it (Sentry logs it)", async () => {
-    // Helper-contract assertion: `drainPendingDeepLinks` rejecting
-    // does not surface as an unhandled rejection from the outer
-    // call site. Sentry capture is implementation detail and not
-    // reliably spyable on a frozen module-namespace import.
+  test("reports a drain failure to Sentry instead of propagating", async () => {
     drainError = new Error("ipc transport failed");
 
     publishElectronDeepLinksSource();
     await Promise.resolve();
     await Promise.resolve();
 
-    // No assertion on Sentry — the test passes if no unhandled
-    // rejection escaped the .catch chain.
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+    expect(captureExceptionMock).toHaveBeenCalledWith(drainError, {
+      level: "warning",
+      tags: { context: "deep_link_drain" },
+    });
   });
 
   test("returns the subscribe-side unsubscribe so cleanup detaches the live bridge", () => {
