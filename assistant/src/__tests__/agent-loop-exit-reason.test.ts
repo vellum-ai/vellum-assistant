@@ -14,7 +14,7 @@
  * require deeper provider fakery and are best covered by integration tests
  * once we wire up the empty-response pipeline mock.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 
 import type {
   AgentEvent,
@@ -436,30 +436,23 @@ describe("AgentLoop exit-reason instrumentation", () => {
         throw new Error("reinject must not run after a timeout");
       },
     };
-    const events: AgentEvent[] = [];
+    const recordOutcomeSpy = spyOn(loop.compactionCircuit, "recordOutcome");
 
     // WHEN the compaction pipeline throws a PluginTimeoutError
-    const result = await loop.run(
-      [userMessage],
-      (event) => {
-        events.push(event);
-      },
-      {
-        resolveContextWindow: () => ({
-          maxInputTokens: 10,
-          overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
-        }),
-        compaction,
-        turnContext: timeoutCompactionTurnContext(),
-      },
-    );
+    const result = await loop.run([userMessage], () => {}, {
+      resolveContextWindow: () => ({
+        maxInputTokens: 10,
+        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+      }),
+      compaction,
+      turnContext: timeoutCompactionTurnContext(),
+    });
 
-    // THEN the loop emits the timeout signal so the orchestrator can record
-    // it against the compaction circuit breaker, and yields for budget so
-    // the orchestrator can escalate.
-    expect(events.some((event) => event.type === "compaction_timed_out")).toBe(
-      true,
-    );
+    // THEN the loop records the timeout as a compaction failure against its
+    // own circuit breaker, and yields for budget so the orchestrator can
+    // escalate.
+    expect(recordOutcomeSpy).toHaveBeenCalledTimes(1);
+    expect(recordOutcomeSpy.mock.calls[0]?.[1]).toBe(true);
     expect(result.exitReason).toBe("budget");
   });
 

@@ -292,16 +292,6 @@ export type AgentEvent =
        */
       type: "context_compacting";
     }
-  | {
-      /**
-       * Emitted when the inline `compaction` pipeline times out. The
-       * orchestrator records the failure against the compaction circuit
-       * breaker, which trips after repeated timeouts to suspend
-       * auto-compaction. The loop abandons the compaction attempt for this
-       * turn after emitting it.
-       */
-      type: "compaction_timed_out";
-    }
   /**
    * Circuit-breaker transitions emitted when auto-compaction is paused
    * (`compaction_circuit_open`, after three consecutive summary-LLM
@@ -709,7 +699,19 @@ export class AgentLoop {
       );
     } catch (error) {
       if (error instanceof PluginTimeoutError) {
-        await onEvent({ type: "compaction_timed_out" });
+        // Record the timeout as a compaction failure against the loop's
+        // circuit breaker: three consecutive failures trip a cooldown that
+        // suspends auto-compaction. Any open/closed transition is emitted on
+        // the loop's own event channel via `onEvent`.
+        await this.compactionCircuit.recordOutcome(
+          {
+            currentRequestId: turnContext.requestId,
+            currentTurnTrustContext: turnContext.trust,
+            turnCount: turnContext.turnIndex,
+          },
+          true,
+          onEvent,
+        );
         return null;
       }
       throw error;
