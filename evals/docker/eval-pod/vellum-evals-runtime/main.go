@@ -1,15 +1,27 @@
 // Package main: vellum-evals-runtime — a thin OCI runtime wrapper.
 //
-// Configured as the inner dockerd's default-runtime inside the privileged
-// eval-pod. Every container the inner dockerd creates is born with our
-// recording CA trusted and its egress passing through the pod-netns
-// iptables NAT that redirects to mitmproxy.
+// Registered as a named (non-default) runtime of the inner dockerd inside
+// the privileged eval-pod. The eval orchestrator selects it for the single
+// run/species container with:
+//
+//	docker run --runtime vellum-evals-runtime \
+//	  --annotation ai.vellum.evals.mitm=1 ...
+//
+// Only that opted-in container is rewritten so it trusts our recording CA
+// and inherits the pod netns where iptables NAT redirects to mitmproxy.
+// Every other container the inner dockerd creates keeps its own network
+// namespace and default trust store. Scoping it this way (rather than as
+// the dockerd default-runtime) is a security boundary: untrusted eval /
+// species containers and their sidecars must not be silently forced into
+// the shared pod netns.
 //
 // Lifecycle: this binary is invoked once per `docker run` (containerd-shim
 // invokes it with arguments matching the runc CLI). On the `create`
-// subcommand we read the OCI config.json from the bundle dir, mutate it
-// in place, and then exec the real runc. All other subcommands
-// (start, state, kill, delete, ...) are a pure pass-through.
+// subcommand we read the OCI config.json from the bundle dir and, only if
+// the container is opted in (see mitmOptIn), mutate it in place; then we
+// exec the real runc. All other subcommands (start, state, kill, delete,
+// ...) — and every container that is not opted in — are a pure
+// pass-through.
 //
 // The wrapper exits the moment it execs runc — it does NOT live for the
 // lifetime of the container. Networking/TLS interception is the job of
@@ -105,6 +117,12 @@ func detectSubcommand(args []string) string {
 // mutateCreateBundle finds the bundle dir from args (defaulting to cwd)
 // and rewrites <bundle>/config.json with the CA + mount + netns
 // mutations from mutate.go.
+//
+// The rewrite is scoped to the single run/species container the
+// orchestrator opted in via the mitmOptInAnnotation. Any container without
+// that annotation is left byte-for-byte untouched so its network isolation
+// and trust store survive — this is what keeps the wrapper from collapsing
+// every container into the shared pod netns.
 func mutateCreateBundle(args []string) error {
 	bundleDir, err := findBundleDir(args)
 	if err != nil {
@@ -114,6 +132,9 @@ func mutateCreateBundle(args []string) error {
 	raw, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", configPath, err)
+	}
+	if !mitmOptIn(raw) {
+		return nil
 	}
 	caHost := os.Getenv(envCAHostPath)
 	if caHost == "" {

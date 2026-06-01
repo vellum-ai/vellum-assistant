@@ -1327,7 +1327,8 @@ async function main() {
     {
       path: "/v1/trust-rules",
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => handleTrustRulesList(req),
     },
     {
@@ -1335,32 +1336,37 @@ async function main() {
       // the /:id catch-all regex so the literal path is matched first.
       path: "/v1/trust-rules/suggest",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesSuggest(req),
     },
     {
       path: "/v1/trust-rules",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesCreate(req),
     },
     {
       // Reset must be registered before the /:id catch-all regex
       path: /^\/v1\/trust-rules\/([^/]+)\/reset$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesReset(req, params[0]),
     },
     {
       path: /^\/v1\/trust-rules\/([^/]+)$/,
       method: "PATCH",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesUpdate(req, params[0]),
     },
     {
       path: /^\/v1\/trust-rules\/([^/]+)$/,
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
 
@@ -1378,7 +1384,8 @@ async function main() {
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => handleTrustRulesList(req),
     },
     {
@@ -1386,32 +1393,37 @@ async function main() {
       // so the literal /suggest segment is matched first.
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/suggest\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesSuggest(req),
     },
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesCreate(req),
     },
     {
       // Reset must be registered before the /:id catch-all regex.
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/reset\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesReset(req, params[0]),
     },
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/?$/,
       method: "PATCH",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesUpdate(req, params[0]),
     },
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/?$/,
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
   ];

@@ -52,13 +52,20 @@ jobs:
       - name: Resolve version
         id: resolve-version
         working-directory: clients/chrome-extension
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
-          INPUT_VERSION="${{ inputs.version }}"
           if [ -n "$INPUT_VERSION" ]; then
             VERSION="$INPUT_VERSION"
           else
             VERSION=$(jq -r '.version' manifest.json)
           fi
+
+          if ! [[ "$VERSION" =~ ^[0-9]+(\.[0-9]+){0,3}(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid version '$VERSION'. Expected digits with 1-4 dot-separated components and optional prerelease suffix."
+            exit 1
+          fi
+
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Using version: $VERSION"
 
@@ -82,8 +89,10 @@ jobs:
 
       - name: Verify manifest version
         working-directory: clients/chrome-extension
+        env:
+          EXPECTED_RAW: ${{ steps.resolve-version.outputs.version }}
         run: |
-          EXPECTED="${{ steps.resolve-version.outputs.version }}"
+          EXPECTED="$EXPECTED_RAW"
           # build.sh strips prerelease suffixes (e.g. "0.6.0-staging.3" -> "0.6.0")
           # to satisfy Chrome's version format requirement. Match that here.
           EXPECTED="${EXPECTED%%-*}"

@@ -16,11 +16,15 @@
  *      port shows up, or we hit the timeout.
  *   3. The returned `stop()` kills the child and waits for it to exit.
  *
- * Operator surface is deliberately minimal: no authtoken management, no
- * region pinning, no custom subdomains. The user is expected to have
- * `ngrok` on PATH and (if they want anything beyond the random ephemeral
- * subdomain ngrok hands out) an authtoken already configured via
- * `ngrok config add-authtoken`. We do not touch their config.
+ * Operator surface is deliberately minimal: no region pinning, no custom
+ * subdomains. The user is expected to have `ngrok` on PATH. If they want
+ * anything beyond the random ephemeral subdomain ngrok hands out, they
+ * supply an authtoken via the `NGROK_AUTHTOKEN` environment variable
+ * (preferred — works headlessly and is documented in `evals/.env.example`)
+ * or via `ngrok config add-authtoken` ahead of time. The `ngrok` agent
+ * reads `NGROK_AUTHTOKEN` from its inherited environment at startup, so
+ * no extra plumbing is needed here beyond making sure the env survives
+ * the `spawn` (which it does by default — we don't override `env`).
  */
 
 import { spawn, type ChildProcessByStdio } from "node:child_process";
@@ -166,7 +170,8 @@ export async function startNgrokTunnel(
     if (info) {
       throw new Error(
         `ngrok exited before publishing a tunnel (code=${info.code} signal=${info.signal}). ` +
-          `Common causes: missing authtoken, port already tunnelled, or no internet. ` +
+          `Common causes: missing authtoken (set NGROK_AUTHTOKEN or run \`ngrok config add-authtoken\`), ` +
+          `port already tunnelled, or no internet. ` +
           `Try \`ngrok http ${opts.port}\` directly to see the agent's error.`,
       );
     }

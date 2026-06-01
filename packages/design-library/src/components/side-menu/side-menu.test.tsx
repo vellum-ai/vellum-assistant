@@ -316,3 +316,63 @@ describe("SideMenu.Item rendering", () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("SideMenu.Item polymorphic icon", () => {
+  test("string icon renders the emoji glyph in the leading slot", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SideMenu,
+        { ariaLabel: "Primary" },
+        createElement(
+          SideMenu.Body,
+          { key: "body" },
+          createElement(SideMenu.Item, {
+            key: "i",
+            icon: "🚀",
+            label: "HQ",
+          }),
+        ),
+      ),
+    );
+    // The emoji renders inside an aria-hidden inline span, not as a Lucide
+    // <svg>. The label remains in its own span.
+    expect(html).toContain("🚀");
+    expect(html).toContain(">HQ<");
+  });
+
+  test("Lucide icon still renders an svg, not a glyph span", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SideMenu,
+        { ariaLabel: "Primary" },
+        createElement(
+          SideMenu.Body,
+          { key: "body" },
+          createElement(SideMenu.Item, {
+            key: "i",
+            icon: Globe,
+            label: "Home",
+          }),
+        ),
+      ),
+    );
+    expect(html).toContain("<svg");
+    expect(html).not.toContain("🚀");
+  });
+
+  test("undefined icon renders neither glyph nor svg", () => {
+    const html = renderToStaticMarkup(
+      createElement(
+        SideMenu,
+        { ariaLabel: "Primary" },
+        createElement(
+          SideMenu.Body,
+          { key: "body" },
+          createElement(SideMenu.Item, { key: "i", label: "Bare" }),
+        ),
+      ),
+    );
+    expect(html).not.toContain("<svg");
+    expect(html).toContain(">Bare<");
+  });
+});

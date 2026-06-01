@@ -129,9 +129,18 @@ describe("toConversation — originChannel plumbing", () => {
     expect(result.originChannel).toBe("telegram");
   });
 
-  test("treats notification:* origin channel as a literal pass-through", () => {
+  test("preserves a notification:* sourceChannel as a literal pass-through", () => {
     const result = toConversation(
-      makeRaw({ id: "c", conversationOriginChannel: "notification:reminder" }),
+      makeRaw({
+        id: "c",
+        channelBinding: {
+          sourceChannel: "notification:reminder",
+          externalChatId: "ext-1",
+          externalUserId: "",
+          displayName: "",
+          username: "",
+        },
+      }),
     );
     expect(result.originChannel).toBe("notification:reminder");
   });

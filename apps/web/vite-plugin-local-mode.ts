@@ -4,8 +4,7 @@ import http from "node:http";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import type { Plugin, Connect, ViteDevServer } from "vite";
-import { SEEDS } from "../../cli/src/lib/environments/seeds";
+import type { Plugin, Connect } from "vite";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 const CLI_PACKAGE_NAME = "@vellumai/cli";
@@ -119,74 +118,12 @@ export function localModePlugin(env: Record<string, string>): Plugin {
   return {
     name: "vellum-local-mode",
     configureServer(server) {
-      server.middlewares.use(loopbackCallbackMiddleware());
-      server.middlewares.use(configMiddleware(env));
       server.middlewares.use(lockfileMiddleware(lockfilePaths));
       server.middlewares.use(hatchMiddleware());
       server.middlewares.use(retireMiddleware());
       server.middlewares.use(guardianTokenMiddleware(env));
       server.middlewares.use(gatewayProxyMiddleware());
-      server.middlewares.use(accountSpaFallback(server));
     },
-  };
-}
-
-/**
- * Redirect `/callback` from the platform's CLI loopback auth flow
- * into the SPA route that processes the session token.
- */
-function loopbackCallbackMiddleware(): Connect.NextHandleFunction {
-  return (req, res, next) => {
-    if (req.url?.startsWith("/callback")) {
-      const qs = req.url.slice("/callback".length);
-      res.writeHead(302, { Location: `/account/platform-callback${qs}` });
-      res.end();
-      return;
-    }
-    next();
-  };
-}
-
-/**
- * Serve environment config so the SPA can resolve the platform web URL
- * for loopback auth without hardcoding it.
- */
-function configMiddleware(env: Record<string, string>): Connect.NextHandleFunction {
-  const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
-  const seed = SEEDS[vellumEnv] ?? SEEDS[PRODUCTION_ENVIRONMENT_NAME]!;
-
-  const webUrl = env.VELLUM_WEB_URL || seed.webUrl;
-  const platformUrl = env.VELLUM_PLATFORM_URL || seed.platformUrl;
-  const body = JSON.stringify({ webUrl, platformUrl });
-
-  return (req, res, next) => {
-    if (req.url !== "/__config") return next();
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(body);
-  };
-}
-
-/**
- * SPA fallback for `/account/*` routes. Vite's base is `/assistant/` so
- * paths outside it don't get the default SPA fallback. This middleware
- * serves the transformed index.html for account routes so React Router
- * can handle them.
- */
-function accountSpaFallback(server: ViteDevServer): Connect.NextHandleFunction {
-  return (req, res, next) => {
-    if (!req.url?.startsWith("/account/") && !req.url?.startsWith("/account?") && req.url !== "/account") return next();
-
-    const indexPath = path.join(server.config.root, "index.html");
-    fs.readFile(indexPath, "utf-8", (err, html) => {
-      if (err) return next(err);
-      server
-        .transformIndexHtml(req.url!, html)
-        .then((transformed) => {
-          res.writeHead(200, { "Content-Type": "text/html" });
-          res.end(transformed);
-        })
-        .catch(next);
-    });
   };
 }
 

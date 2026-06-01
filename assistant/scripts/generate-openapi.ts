@@ -127,11 +127,7 @@ function dropDefaultedFromRequired(node: unknown): void {
   const obj = node as Record<string, unknown>;
   const props = obj.properties;
   const required = obj.required;
-  if (
-    Array.isArray(required) &&
-    props != null &&
-    typeof props === "object"
-  ) {
+  if (Array.isArray(required) && props != null && typeof props === "object") {
     const propsRecord = props as Record<string, unknown>;
     const filtered = required.filter((name) => {
       if (typeof name !== "string") return true;
@@ -496,7 +492,7 @@ function buildSpec(
   }
 
   return {
-    openapi: "3.0.0",
+    openapi: "3.1.0",
     info: {
       title: "Vellum Assistant API",
       version,
@@ -580,14 +576,21 @@ async function main() {
         }
       }
       if (firstDiff >= 0) {
-        const lineNo = (existing.slice(0, firstDiff).match(/\n/g) ?? []).length + 1;
+        const lineNo =
+          (existing.slice(0, firstDiff).match(/\n/g) ?? []).length + 1;
         const winStart = Math.max(0, firstDiff - 120);
         const winEnd = Math.min(maxLen, firstDiff + 120);
-        console.error(`First divergence at byte ${firstDiff} (~line ${lineNo}):`);
+        console.error(
+          `First divergence at byte ${firstDiff} (~line ${lineNo}):`,
+        );
         console.error(`  existing[${winStart}..${winEnd}]:`);
-        console.error(`    ${JSON.stringify(existing.slice(winStart, winEnd))}`);
+        console.error(
+          `    ${JSON.stringify(existing.slice(winStart, winEnd))}`,
+        );
         console.error(`  generated[${winStart}..${winEnd}]:`);
-        console.error(`    ${JSON.stringify(yamlOutput.slice(winStart, winEnd))}`);
+        console.error(
+          `    ${JSON.stringify(yamlOutput.slice(winStart, winEnd))}`,
+        );
       }
       // Also flag which path operations are present in one but not the other —
       // the common failure mode is a missing or duplicated route entry, and
@@ -611,11 +614,15 @@ async function main() {
         );
         if (inGeneratedOnly.length) {
           console.error(`  Only in generated (missing from committed yaml):`);
-          for (const p of inGeneratedOnly.slice(0, 20)) console.error(`    + ${p}`);
+          for (const p of inGeneratedOnly.slice(0, 20))
+            console.error(`    + ${p}`);
         }
         if (inExistingOnly.length) {
-          console.error(`  Only in existing (stale entries in committed yaml):`);
-          for (const p of inExistingOnly.slice(0, 20)) console.error(`    - ${p}`);
+          console.error(
+            `  Only in existing (stale entries in committed yaml):`,
+          );
+          for (const p of inExistingOnly.slice(0, 20))
+            console.error(`    - ${p}`);
         }
       }
       process.exit(1);

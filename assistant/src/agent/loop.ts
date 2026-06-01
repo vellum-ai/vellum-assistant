@@ -1110,6 +1110,7 @@ export class AgentLoop {
           emptyResponseRetries,
           maxEmptyResponseRetries: MAX_EMPTY_RESPONSE_RETRIES,
           priorAssistantHadVisibleText,
+          stopReason: response.stopReason,
         };
         const emptyResponseCtx = resolveLoopTurnContext(
           turnContext,
