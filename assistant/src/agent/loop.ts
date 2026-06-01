@@ -8,6 +8,7 @@ import {
 } from "../context/token-estimator.js";
 import { calculateMaxToolResultChars } from "../context/tool-result-truncation.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
+import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response/terminal.js";
 import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error/terminal.js";
@@ -15,6 +16,8 @@ import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-resu
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
+  CompactionArgs,
+  CompactionResult,
   EmptyResponseArgs,
   EmptyResponseDecision,
   EstimateArgs,
@@ -27,6 +30,7 @@ import type {
   ToolResultTruncateResult,
   TurnContext,
 } from "../plugins/types.js";
+import { PluginTimeoutError } from "../plugins/types.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
 import type {
   ContentBlock,
@@ -46,20 +50,10 @@ import { isRetryableNetworkError } from "../util/retry.js";
 
 const log = getLogger("agent-loop");
 
-/**
- * Mid-loop yield threshold expressed as a fraction of the preflight budget.
- * When the running token estimate crosses this fraction at a tool-use
- * checkpoint, the loop yields (`exitReason = "budget"`) so the orchestrator
- * can compact before the next provider call would risk a hard
- * context-too-large rejection.
- */
+/** Fraction of the preflight budget at which a checkpoint triggers mid-loop compaction. */
 const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
 
-/**
- * Above this many in-context messages the budget gate raises the safety
- * margin floor: long histories accumulate hard-to-estimate residue (tool
- * results, media stubs), so a wider margin keeps the estimate conservative.
- */
+/** In-context message count above which the budget gate raises the safety-margin floor. */
 const LONG_HISTORY_MESSAGE_THRESHOLD = 50;
 const LONG_HISTORY_SAFETY_MARGIN_FLOOR = 0.15;
 
@@ -419,6 +413,40 @@ export interface ResolvedSystemPrompt {
   model?: string;
 }
 
+/**
+ * Orchestrator-supplied hooks the loop invokes when the mid-loop budget gate
+ * trips and inline compaction runs. The loop owns the trigger, the
+ * `compaction` pipeline call, and the inline continue; these hooks bridge the
+ * durable / injection state the loop is intentionally blind to. Persistence
+ * ({@link persist}, {@link onTimeout}) and re-injection ({@link reinject})
+ * remain orchestrator-supplied for now and are expected to move into the loop
+ * in a future change.
+ */
+export interface MidLoopCompaction {
+  /** Emit the "compacting context" activity state, when the caller surfaces one. */
+  onCompacting?: () => void;
+  /**
+   * Strip runtime injections from `history`, commit the stripped messages to
+   * durable state, and resolve the pipeline options for this attempt.
+   */
+  prepare: (history: Message[]) => {
+    rawHistory: Message[];
+    options: CompactionArgs["options"];
+  };
+  /** Record a compaction-pipeline timeout for the circuit breaker. */
+  onTimeout: () => Promise<void>;
+  /**
+   * Persist a compaction result (summary, watermark, circuit-breaker outcome)
+   * and report whether the compactor exhausted its retry budget.
+   */
+  persist: (
+    result: CompactionResult,
+    rawHistory: Message[],
+  ) => Promise<{ exhausted: boolean }>;
+  /** Re-apply runtime injections and return the history to continue from. */
+  reinject: () => Promise<Message[]>;
+}
+
 export interface AgentLoopRunOptions {
   signal?: AbortSignal;
   requestId?: string;
@@ -445,22 +473,24 @@ export interface AgentLoopRunOptions {
   overrideProfile?: string;
   resolveOverrideProfile?: () => string | undefined;
   /**
-   * Resolves the orchestrator's current effective context window for this
-   * conversation: the provider max-input-token ceiling plus the
-   * overflow-recovery config that drives the mid-loop budget gate. Resolved
-   * fresh per checkpoint so a mid-turn inference-profile change (which can
-   * shift both the ceiling and the margins) is reflected immediately.
-   *
-   * Drives two things: tool-result truncation reads `maxInputTokens`, and the
-   * mid-loop budget gate reads `overflowRecovery`. When absent, the loop
-   * falls back to `this.config.maxInputTokens` for truncation and skips the
-   * budget gate entirely (callers with no orchestrator-side compaction path,
-   * e.g. agent wakes, pass `overflowRecovery.enabled = false`).
+   * Resolves the orchestrator's effective context window for this turn: the
+   * provider max-input-token ceiling (read by tool-result truncation) plus the
+   * `overflowRecovery` config that drives the mid-loop budget gate. Resolved
+   * fresh per checkpoint so a mid-turn profile change is reflected. Absent →
+   * truncation falls back to `this.config.maxInputTokens` and the budget gate
+   * is skipped (agent wakes pass `overflowRecovery.enabled = false`).
    */
   resolveContextWindow?: () => {
     maxInputTokens: number;
     overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
   };
+  /**
+   * Hooks for inline mid-loop compaction. When supplied and the budget gate
+   * trips, the loop compacts in place and continues instead of yielding
+   * `exitReason = "budget"`. Callers without a compaction path (agent wakes,
+   * convergence/auto-compress reruns) omit this and keep yielding for budget.
+   */
+  compaction?: MidLoopCompaction;
   /**
    * When true, the latest user message carries a volatile per-turn block
    * (e.g. a memory-v3 `<memory>` injection) that varies across otherwise
@@ -576,12 +606,9 @@ export class AgentLoop {
   }
 
   /**
-   * Estimate the total prompt tokens for the given history via the
-   * `tokenEstimate` plugin pipeline. The history and resolved-tool arrays are
-   * shallow-frozen so a misbehaving middleware that mutates its args (e.g.
-   * `args.history.push(...)`) cannot silently strip context from the loop's
-   * live `history`: TypeScript `readonly` does not prevent runtime mutation,
-   * but the frozen wrapper throws in strict mode.
+   * Estimate total prompt tokens for `history` via the `tokenEstimate`
+   * pipeline. Args are shallow-frozen so a mutating middleware cannot strip
+   * context from the loop's live `history`.
    */
   private estimateTokens(
     history: Message[],
@@ -604,6 +631,47 @@ export class AgentLoop {
     );
   }
 
+  /**
+   * Compact the running history in place when the mid-loop budget gate trips.
+   *
+   * Runs the `compaction` pipeline natively (like {@link estimateTokens}) on
+   * the stripped history, then re-applies injections via the supplied hooks.
+   * Returns the history to continue from, or `null` when the compactor timed
+   * out or exhausted its retry budget so the caller yields
+   * `exitReason = "budget"` and the orchestrator escalates.
+   */
+  private async compact(
+    history: Message[],
+    turnContext: TurnContext,
+    compaction: MidLoopCompaction,
+    signal: AbortSignal | undefined,
+  ): Promise<Message[] | null> {
+    compaction.onCompacting?.();
+    const { rawHistory, options } = compaction.prepare(history);
+    let result: CompactionResult;
+    try {
+      result = await runPipeline<CompactionArgs, CompactionResult>(
+        "compaction",
+        getMiddlewaresFor("compaction"),
+        (args) => defaultCompactionTerminal(args, turnContext),
+        { messages: rawHistory, signal, options },
+        turnContext,
+        DEFAULT_TIMEOUTS.compaction,
+      );
+    } catch (error) {
+      if (error instanceof PluginTimeoutError) {
+        await compaction.onTimeout();
+        return null;
+      }
+      throw error;
+    }
+    const { exhausted } = await compaction.persist(result, rawHistory);
+    if (exhausted) {
+      return null;
+    }
+    return compaction.reinject();
+  }
+
   async run(
     messages: Message[],
     onEvent: (event: AgentEvent) => void | Promise<void>,
@@ -618,10 +686,11 @@ export class AgentLoop {
       overrideProfile,
       resolveOverrideProfile,
       resolveContextWindow,
+      compaction,
       mutableLatestUserMessage,
     } = options ?? {};
-    const history = [...messages];
-    const initialHistoryLength = messages.length;
+    let history = [...messages];
+    let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
     let consecutiveErrorTurns = 0;
     let emptyResponseRetries = 0;
@@ -1088,20 +1157,15 @@ export class AgentLoop {
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
-        const priorAssistantHadVisibleText = (() => {
-          for (let i = history.length - 1; i >= initialHistoryLength; i--) {
-            const msg = history[i];
-            if (msg.role !== "assistant") continue;
-            const hasText = msg.content.some(
-              (block) =>
-                block.type === "text" &&
-                typeof (block as { text?: unknown }).text === "string" &&
-                (block as { text: string }).text.trim().length > 0,
-            );
-            if (hasText) return true;
-          }
-          return false;
-        })();
+        // Track whether the model produced visible text earlier in this
+        // run() invocation. Run-scoped rather than derived from `history` so
+        // it survives inline compaction rewriting the message array: an empty
+        // completion after a compaction must not be nudged into re-sending
+        // text the user already saw.
+        const priorAssistantHadVisibleText = producedVisibleTextThisRun;
+        if (hasVisibleText) {
+          producedVisibleTextThisRun = true;
+        }
 
         const emptyResponseArgs: EmptyResponseArgs = {
           responseContent: response.content,
@@ -1479,12 +1543,14 @@ export class AgentLoop {
         }
 
         // Mid-loop budget gate: when overflow recovery is enabled, estimate
-        // the running context size and yield if it is approaching the
-        // preflight budget, letting the orchestrator compact before the next
-        // provider call would risk a hard context-too-large rejection. Keyed
-        // off the loop's own `history.length` (which reflects the messages
-        // actually in context this turn, including tool iterations) rather
-        // than the durable conversation count.
+        // the running context size as it approaches the preflight budget.
+        // With a `compaction` hook the loop compacts in place and continues;
+        // without one it yields (`exitReason = "budget"`) so the orchestrator
+        // can recover before the next provider call risks a hard
+        // context-too-large rejection. Keyed off the loop's own
+        // `history.length` (the messages actually in context this turn,
+        // including tool iterations) rather than the durable conversation
+        // count.
         const contextWindow = resolveContextWindow?.();
         if (contextWindow?.overflowRecovery.enabled) {
           const { maxInputTokens, overflowRecovery } = contextWindow;
@@ -1502,6 +1568,22 @@ export class AgentLoop {
             preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
           const estimated = await this.estimateTokens(history, turnCtx);
           if (estimated > midLoopThreshold) {
+            if (compaction) {
+              rlog.info(
+                { phase: "mid-loop", estimated, threshold: midLoopThreshold },
+                "Token estimate approaching budget — compacting in place",
+              );
+              const compacted = await this.compact(
+                history,
+                turnCtx,
+                compaction,
+                signal,
+              );
+              if (compacted) {
+                history = compacted;
+                continue;
+              }
+            }
             rlog.warn(
               { phase: "mid-loop", estimated, threshold: midLoopThreshold },
               "Token estimate approaching budget — yielding for compaction",

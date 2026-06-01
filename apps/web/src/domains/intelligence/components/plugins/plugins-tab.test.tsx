@@ -16,9 +16,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactNode } from "react";
 
 import type {
-  PluginCatalogResponse,
-  PluginsListResponse,
-} from "@/domains/intelligence/plugins/types";
+  PluginsGetResponse,
+  PluginsSearchGetResponse,
+} from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -28,8 +28,8 @@ import type {
 // fetch ever fires. The mock functions stay no-op since useQuery only
 // calls them on cache miss.
 mock.module("@/domains/intelligence/plugins/api", () => ({
-  fetchPlugins: async (): Promise<PluginsListResponse> => ({ plugins: [] }),
-  fetchPluginCatalog: async (): Promise<PluginCatalogResponse> => ({
+  fetchPlugins: async (): Promise<PluginsGetResponse> => ({ plugins: [] }),
+  fetchPluginCatalog: async (): Promise<PluginsSearchGetResponse> => ({
     query: "",
     ref: "main",
     matches: [],
@@ -43,9 +43,8 @@ mock.module("@/domains/intelligence/plugins/api", () => ({
   },
 }));
 
-const { PluginsTab } = await import(
-  "@/domains/intelligence/components/plugins/plugins-tab"
-);
+const { PluginsTab } =
+  await import("@/domains/intelligence/components/plugins/plugins-tab");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,8 +53,8 @@ const { PluginsTab } = await import(
 const ASSISTANT_ID = "asst-1";
 
 interface CachedState {
-  installed?: PluginsListResponse;
-  catalog?: PluginCatalogResponse;
+  installed?: PluginsGetResponse;
+  catalog?: PluginsSearchGetResponse;
 }
 
 function renderTab(state: CachedState): string {
