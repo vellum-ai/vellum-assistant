@@ -464,19 +464,19 @@ export function NotificationsPage() {
   const isResolving = platformGate === "full" && isLifecycleLoading;
   const showLoading = isResolving || isLoading;
 
-  // The pause-alerts trigger is unmounted while `isResolving` (below), so
-  // a Popover/BottomSheet open during a gate transition (e.g. assistant
-  // switch refreshing the lifecycle) closes via unmount. Reset the open
-  // flag too — otherwise when `isResolving` flips back to false the
-  // popover would re-mount with `open={true}` and spring open
-  // unexpectedly. (The trigger is hidden anyway, so the popover content's
-  // `createRule` mutation can't fire post-unmount, but this keeps the
-  // state honest across transitions.)
+  // The pause-alerts trigger is unmounted whenever `!isPlatformHosted`
+  // (below) — that covers both the race window AND already-resolved
+  // non-hosted states like `retired` / `error` / `awaiting_version_selection`,
+  // where the org-scoped pause-rules mutation has no valid target. Reset
+  // `pauseOpen` on the same condition so the popover doesn't re-mount
+  // with stale `open={true}` when `isPlatformHosted` flips back true
+  // (assistant switch back to hosted, etc.). The structural unmount
+  // already closes the popover; this keeps the state honest.
   useEffect(() => {
-    if (isResolving && pauseOpen) {
+    if (!isPlatformHosted && pauseOpen) {
       setPauseOpen(false);
     }
-  }, [isResolving, pauseOpen]);
+  }, [isPlatformHosted, pauseOpen]);
 
   const notifications = data?.results ?? [];
   const unreadOpen = notifications.filter(
@@ -600,13 +600,19 @@ export function NotificationsPage() {
           </p>
         </div>
         {/*
-          Hide the pause-alerts trigger entirely during the resolution race.
-          The popover content fires `createRule` mutations against the
-          organization, which must not run before lifecycle resolves to
-          platform-hosted. Re-renders when `isPlatformHosted` flips, so the
-          control appears as soon as we know it's safe.
+          Hide the pause-alerts trigger unless the lifecycle is positively
+          resolved as platform-hosted. The popover content fires
+          `createRule` mutations against the organization — those have no
+          valid target during the race window OR in already-resolved
+          non-hosted states (`retired`, `error`,
+          `awaiting_version_selection`). Re-renders when `isPlatformHosted`
+          flips, so the control appears as soon as we know it's safe.
+          (Other mutation-firing controls on this page — "Mark all as
+          read", per-row ack, snooze — are gated by data-availability:
+          the notifications query is disabled when not hosted, so
+          `notifications = []` and those rows can't render.)
         */}
-        {!isResolving && (
+        {isPlatformHosted && (
           isMobile ? (
             <BottomSheet.Root open={pauseOpen} onOpenChange={setPauseOpen}>
               <BottomSheet.Trigger asChild>{pauseButton}</BottomSheet.Trigger>
