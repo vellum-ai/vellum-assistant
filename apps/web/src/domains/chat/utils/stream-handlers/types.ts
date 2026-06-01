@@ -8,10 +8,8 @@ import type { ContextWindowUsage } from "@/domains/chat/components/context-windo
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { TurnActions, TurnState } from "@/domains/chat/turn-store";
 import type { EndTurnArgs } from "@/domains/chat/turn-coordinator";
-import type { ChatError, PendingQuestionState } from "@/domains/chat/types";
+import type { ChatError } from "@/domains/chat/types";
 import type { StreamContext } from "@/domains/chat/stream-store";
-
-export type { PendingQuestionState, StreamContext };
 
 /** Minimal push-based navigation adapter for stream event handlers. */
 export interface Router {

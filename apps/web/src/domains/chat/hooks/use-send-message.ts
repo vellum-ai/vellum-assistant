@@ -70,15 +70,6 @@ import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 
-// Re-export pure utilities so existing consumers don't break.
-export {
-  clearPendingConfirmationsFromMessages,
-  dismissInteractiveSurfaces,
-  resolvePostError,
-  parsePendingSecretState,
-  parsePendingConfirmationData,
-} from "@/domains/chat/hooks/send-message-utils";
-
 // ---------------------------------------------------------------------------
 // Stream send result
 // ---------------------------------------------------------------------------
@@ -338,7 +329,7 @@ export function useSendMessage({
         existingStreamContext?.assistantId === postResult.assistantId &&
         existingStreamContext.conversationId === effectiveConversationId;
 
-      useStreamStore.getState().setStreamContext({
+      streamState.setStreamContext({
         assistantId: postResult.assistantId,
         conversationId: effectiveConversationId,
       });
