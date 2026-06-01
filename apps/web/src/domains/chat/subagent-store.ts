@@ -596,11 +596,6 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       totalCost: detail.usage?.estimatedCost,
       events,
     });
-
-    // Allow retry once the subagent has produced events on the server.
-    if (events.length === 0) {
-      clearMarker();
-    }
   },
 
   reset: () =>
