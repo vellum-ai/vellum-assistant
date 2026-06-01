@@ -364,6 +364,112 @@ describe("TranscriptMessageBody", () => {
     ).toEqual(["false", "true"]);
   });
 
+  test("renders user text and an image attachment inside a single bubble", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "u1",
+          role: "user",
+          content: "look at this",
+          attachments: [
+            {
+              id: "att-1",
+              filename: "photo.png",
+              mimeType: "image/png",
+              sizeBytes: 1234,
+              previewUrl: "blob:preview",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const bubbles = container.querySelectorAll(
+      "[class*='bg-[var(--surface-lift)]']",
+    );
+    // Exactly one bubble container carries the surface-lift background.
+    expect(bubbles.length).toBe(1);
+
+    const bubble = bubbles[0]!;
+    // Text lives inside the bubble.
+    expect(bubble.querySelector("[data-testid='markdown']")?.textContent).toBe(
+      "look at this",
+    );
+    // The inline image preview is a descendant of the same bubble, not a sibling.
+    const img = bubble.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute("src")).toBe("blob:preview");
+
+    // The legacy separate strip is not rendered for user messages.
+    expect(container.querySelector("[data-testid='attachments']")).toBeNull();
+  });
+
+  test("renders an attachment-only user message inside a single bubble", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "u2",
+          role: "user",
+          content: "",
+          attachments: [
+            {
+              id: "att-1",
+              filename: "photo.png",
+              mimeType: "image/png",
+              sizeBytes: 1234,
+              previewUrl: "blob:preview",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const bubbles = container.querySelectorAll(
+      "[class*='bg-[var(--surface-lift)]']",
+    );
+    expect(bubbles.length).toBe(1);
+    expect(bubbles[0]!.querySelector("img")?.getAttribute("src")).toBe(
+      "blob:preview",
+    );
+    expect(container.querySelector("[data-testid='attachments']")).toBeNull();
+  });
+
+  test("renders assistant attachments via the separate MessageAttachments strip", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "a1",
+          role: "assistant",
+          content: "here you go",
+          attachments: [
+            {
+              id: "att-1",
+              filename: "photo.png",
+              mimeType: "image/png",
+              sizeBytes: 1234,
+              previewUrl: "blob:preview",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // Assistant path unchanged: separate strip still renders, no surface-lift bubble.
+    expect(container.querySelector("[data-testid='attachments']")).not.toBeNull();
+    expect(
+      container.querySelector("[class*='bg-[var(--surface-lift)]']"),
+    ).toBeNull();
+  });
+
   test("auto-expands legacy tool-only streaming messages until content appears", () => {
     const { getByTestId, rerender } = render(
       <TranscriptMessageBody
