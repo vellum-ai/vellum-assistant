@@ -1,5 +1,5 @@
-import { client } from "@/generated/api/client.gen";
-
+import { conversationstartersGet } from "@/generated/daemon/sdk.gen";
+import type { ConversationstartersGetResponse } from "@/generated/daemon/types.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -10,30 +10,17 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-export interface ConversationStarter {
-  id: string;
-  label: string;
-  prompt: string;
-  category: string | null;
-  batch: number;
-}
+/** A single conversation starter chip, as returned by the daemon. */
+export type ConversationStarter =
+  ConversationstartersGetResponse["starters"][number];
 
 export type ConversationStartersStatus =
-  | "ready"
-  | "refreshing"
-  | "empty"
-  | "generating";
+  ConversationstartersGetResponse["status"];
 
 export interface ListConversationStartersResult {
   starters: ConversationStarter[];
   total: number;
   status: ConversationStartersStatus;
-}
-
-interface ListConversationStartersResponse {
-  starters?: ConversationStarter[];
-  total?: number;
-  status?: ConversationStartersStatus;
 }
 
 // ---------------------------------------------------------------------------
@@ -65,15 +52,11 @@ export async function listConversationStarters(
   const offset = opts?.offset ?? DEFAULT_OFFSET;
   const scopeId = opts?.scopeId ?? DEFAULT_SCOPE_ID;
 
-  const { data, error, response } = await client.get<
-    ListConversationStartersResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/conversation-starters",
+  const { data, error, response } = await conversationstartersGet({
     path: { assistant_id: assistantId },
     query: {
-      limit: String(limit),
-      offset: String(offset),
+      limit,
+      offset,
       scope_id: scopeId,
     },
     throwOnError: false,
