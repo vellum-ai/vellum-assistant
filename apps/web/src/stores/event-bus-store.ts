@@ -186,16 +186,6 @@ export type EventBusStore = EventBusState & EventBusActions;
  */
 export type EventBusPublisher = Pick<EventBusActions, "publish">;
 
-/**
- * Narrowed bus surface for handlers that only consume events. The
- * counterpart to `EventBusPublisher` — together they enforce a clear
- * read/write split at the type level. Services that both produce and
- * consume (e.g. `sseService` republishes SSE events AND subscribes to
- * lifecycle signals to drive bounce policy) take
- * `EventBusPublisher & EventBusSubscriber`.
- */
-export type EventBusSubscriber = Pick<EventBusActions, "subscribe">;
-
 const useEventBusStoreBase = create<EventBusStore>()(() => ({
   _version: 1,
 
