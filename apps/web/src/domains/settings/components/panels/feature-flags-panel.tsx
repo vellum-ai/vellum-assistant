@@ -110,7 +110,7 @@ export function FeatureFlagsPanel() {
             placeholder="Search flags..."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--surface-default)] py-2 pl-9 pr-3 text-body-medium-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:border-[var(--border-focus)] focus:outline-none"
+            className="w-full rounded-lg border border-[var(--border-base)] bg-[var(--surface-default)] py-2 pl-9 pr-3 text-body-medium-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:border-[var(--border-focus)] focus:outline-none"
           />
         </div>
 
