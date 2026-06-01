@@ -179,29 +179,31 @@ function ResourceCard({
       className="flex flex-1 cursor-pointer"
     >
       <Card
-        className="flex flex-1 flex-col gap-3 transition-shadow hover:shadow-md"
+        className="flex-1 transition-shadow hover:shadow-md"
         padding="lg"
       >
-        <div className="flex items-start justify-between">
-          <span
-            className="flex size-10 items-center justify-center rounded-lg text-white"
-            style={{ backgroundColor: iconBg }}
-          >
-            {icon}
-          </span>
-          <ExternalLink
-            size={14}
-            className="text-[var(--content-tertiary)]"
-            aria-hidden
-          />
-        </div>
-        <div className="flex flex-col gap-2">
-          <span className="text-title-medium text-[var(--content-emphasised)]">
-            {title}
-          </span>
-          <p className="text-body-medium-lighter text-[color:var(--content-tertiary)]">
-            {description}
-          </p>
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start justify-between">
+            <span
+              className="flex size-10 items-center justify-center rounded-lg text-white"
+              style={{ backgroundColor: iconBg }}
+            >
+              {icon}
+            </span>
+            <ExternalLink
+              size={14}
+              className="text-[var(--content-tertiary)]"
+              aria-hidden
+            />
+          </div>
+          <div className="flex flex-col gap-2">
+            <span className="text-title-medium text-[var(--content-emphasised)]">
+              {title}
+            </span>
+            <p className="text-body-medium-lighter text-[color:var(--content-tertiary)]">
+              {description}
+            </p>
+          </div>
         </div>
       </Card>
     </a>
