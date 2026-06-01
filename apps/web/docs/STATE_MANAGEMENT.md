@@ -345,6 +345,30 @@ no-ops if `phase !== "thinking"`. The action stays a plain function;
 the rules stay testable in isolation; we don't need a dispatcher
 ceremony to enforce them.
 
+## Service-owned state outside Zustand
+
+Module-level singleton services (e.g. `lifecycle-service.ts`) may own
+state directly as private fields when **all** of:
+
+1. The state is read by a single consumer (typically one route
+   component).
+2. The consumer only needs the value at mount or in an event handler —
+   never as a render-time subscription.
+3. The state survives React mount/unmount cycles (the service is a
+   module singleton, the component is not).
+
+Expose via `peek<Field>()` (pure read, safe in `useState` lazy
+initializers under StrictMode), `mark<Field>()` / `set<Field>(value)`
+(mutators), and `clear<Field>()` (one-shot drain). Consumers seed local
+state from `peek` at mount and drain via `clear` from exit-condition
+effects.
+
+When the value needs reactive subscription from multiple consumers,
+promote it to the service's Zustand store and read via atomic selector.
+A service field with one mount-time React consumer doesn't need a
+store; mirroring it into one buys nothing and creates a two-state
+invariant to maintain.
+
 **Known exceptions** (slated for migration):
 
 - `apps/web/src/domains/terminal/use-terminal-state.ts` and
