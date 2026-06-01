@@ -285,12 +285,9 @@ export class SubagentManager {
       conversationRecord.id,
       provider,
       systemPrompt,
-      maxTokens,
       wrappedSendToClient,
       workingDir,
-      undefined, // sharedCesClient
-      undefined, // speedOverride
-      "5m", // cacheTtl — subagents run tight tool-use loops, 5m is always hot
+      { maxTokens, cacheTtl: "5m" },
     );
 
     // Mark conversation as having no direct client — it routes through parent.

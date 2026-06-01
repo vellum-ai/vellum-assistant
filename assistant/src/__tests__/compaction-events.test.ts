@@ -287,11 +287,11 @@ function makeConversation(
     id,
     makeProvider(),
     "system prompt",
-    4096,
     (msg) => {
       collected.push(msg);
     },
     "/tmp",
+    { maxTokens: 4096 },
   );
 }
 
