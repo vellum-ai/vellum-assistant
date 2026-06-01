@@ -1119,6 +1119,7 @@ export async function runAgentLoopImpl(
       conversationOriginChannel:
         getConversationOriginChannel(ctx.conversationId) ?? undefined,
       overrideProfile: resolveCurrentOverrideProfile() ?? null,
+      actorTrustClass: ctx.trustContext?.trustClass,
     };
     let compacted: Awaited<
       ReturnType<typeof ctx.contextWindowManager.maybeCompact>
@@ -1875,6 +1876,7 @@ export async function runAgentLoopImpl(
                 options: {
                   ...(opts ?? {}),
                   overrideProfile: resolveCurrentOverrideProfile() ?? null,
+                  actorTrustClass: ctx.trustContext?.trustClass,
                 },
               },
               buildPluginTurnContext(ctx, reqId),
