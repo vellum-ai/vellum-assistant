@@ -218,6 +218,37 @@ export function countCompletedHeartbeatRuns(): number {
 }
 
 /**
+ * Count the most recent consecutive heartbeat runs with status `ok`,
+ * walking backwards from newest. Stops at the first non-`ok` status
+ * (skipped, superseded, missed, error, timeout), which acts as a
+ * natural boundary for the consecutive-run counter. In-flight rows
+ * (`pending`, `running`) are skipped so they don't break the chain.
+ *
+ * Used to restore the in-memory consecutive-run counter on startup.
+ */
+export function countRecentConsecutiveRuns(maxToCheck: number): number {
+  const db = getDb();
+  const rows = db
+    .select({ status: heartbeatRuns.status })
+    .from(heartbeatRuns)
+    .orderBy(desc(heartbeatRuns.scheduledFor))
+    .limit(maxToCheck + 5)
+    .all();
+
+  let count = 0;
+  for (const row of rows) {
+    if (row.status === "ok") {
+      count++;
+    } else if (row.status === "pending" || row.status === "running") {
+      continue;
+    } else {
+      break;
+    }
+  }
+  return count;
+}
+
+/**
  * List heartbeat runs ordered by `scheduledFor` descending.
  */
 export function listHeartbeatRuns(limit = 20): HeartbeatRunRecord[] {

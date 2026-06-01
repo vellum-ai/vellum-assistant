@@ -25,6 +25,7 @@ import { stripCommentLines } from "../util/strip-comment-lines.js";
 import {
   completeHeartbeatRun,
   countCompletedHeartbeatRuns,
+  countRecentConsecutiveRuns,
   insertPendingHeartbeatRun,
   markStaleRunningAsError,
   markStaleRunsAsMissed,
@@ -75,30 +76,6 @@ export function isShallowProfile(): boolean {
 
 function getReengagementTimestampPath(): string {
   return join(getWorkspaceDir(), ".reengagement-ts");
-}
-
-function getConsecutiveRunsPath(): string {
-  return join(getWorkspaceDir(), ".heartbeat-consecutive-runs");
-}
-
-function loadPersistedConsecutiveRuns(): number {
-  const path = getConsecutiveRunsPath();
-  if (!existsSync(path)) return 0;
-  try {
-    const raw = readFileSync(path, "utf-8").trim();
-    const parsed = parseInt(raw, 10);
-    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function persistConsecutiveRuns(count: number): void {
-  try {
-    writeFileSync(getConsecutiveRunsPath(), count.toString());
-  } catch {
-    // Best-effort; don't block the heartbeat.
-  }
 }
 
 function isReengagementCooldownElapsed(): boolean {
@@ -180,7 +157,7 @@ export class HeartbeatService {
   // Counter of consecutive auto-heartbeats since the last guardian message.
   // Reset by resetTimer (guardian message), reconfigure, and stop. Force runs
   // bypass the cap and do not increment.
-  private _consecutiveRuns = loadPersistedConsecutiveRuns();
+  private _consecutiveRuns = 0;
   // Bumped every time the counter is reset so an in-flight run that finishes
   // after a guardian message can detect the reset and skip its increment.
   private _resetGeneration = 0;
@@ -305,6 +282,12 @@ export class HeartbeatService {
           });
         }
       }
+
+      if (config.maxConsecutiveRuns != null) {
+        this._consecutiveRuns = countRecentConsecutiveRuns(
+          config.maxConsecutiveRuns,
+        );
+      }
     }
 
     if (config.cronExpression != null) {
@@ -387,7 +370,6 @@ export class HeartbeatService {
   /** Restart the timer with the latest config (e.g. after settings change). */
   reconfigure(): void {
     this._consecutiveRuns = 0;
-    persistConsecutiveRuns(0);
     this._resetGeneration++;
     this.configEpoch++;
     if (this._pendingRunId) {
@@ -414,7 +396,6 @@ export class HeartbeatService {
     // Counter resets even when the timer is null so a guardian message during
     // a stopped window still clears the count.
     this._consecutiveRuns = 0;
-    persistConsecutiveRuns(0);
     this._resetGeneration++;
     if (!this.timer) return;
     if (this.cronMode) {
@@ -602,7 +583,6 @@ export class HeartbeatService {
       this._lastRunAt = Date.now();
       if (!force && this._resetGeneration === startGeneration) {
         this._consecutiveRuns++;
-        persistConsecutiveRuns(this._consecutiveRuns);
       }
       if (!this.cronMode) {
         this.scheduleNextRun(getConfig().heartbeat.intervalMs);
