@@ -581,6 +581,8 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       return;
     }
 
+    const events = mapDetailEvents(detail.events);
+
     get().loadDetail({
       subagentId,
       status: detail.status,
@@ -588,8 +590,16 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       inputTokens: detail.usage?.inputTokens,
       outputTokens: detail.usage?.outputTokens,
       totalCost: detail.usage?.estimatedCost,
-      events: mapDetailEvents(detail.events),
+      events,
     });
+
+    // If the detail had no usable events, clear the marker so the panel
+    // can retry once the subagent has produced events on the server.
+    if (events.length === 0) {
+      const rollback = new Map(get().fetchedAt);
+      rollback.delete(subagentId);
+      set({ fetchedAt: rollback });
+    }
   },
 
   reset: () =>
