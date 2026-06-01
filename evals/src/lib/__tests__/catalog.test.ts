@@ -53,6 +53,60 @@ describe("eval catalog discovery", () => {
     });
   });
 
+  test("loads featureFlags as a kebab-case → boolean map", async () => {
+    // featureFlags is the declarative path for runner-applied gateway
+    // flag overrides (e.g. `external-plugins: true` so a setup step that
+    // depends on a gated surface can run). Pin schema acceptance to
+    // catch removal regressions in `ProfileManifestSchema`.
+    const dir = await mkdtemp(join(tmpdir(), "evals-profiles-"));
+    process.env.EVALS_PROFILES_DIR = dir;
+    await mkdir(join(dir, "gated"), { recursive: true });
+    await writeFile(
+      join(dir, "gated", "manifest.json"),
+      JSON.stringify({
+        species: "vellum",
+        featureFlags: {
+          "external-plugins": true,
+          "voice-mode": false,
+        },
+        setup: ["assistant plugins install simple-memory"],
+      }),
+      "utf8",
+    );
+
+    await expect(loadProfile("gated")).resolves.toMatchObject({
+      id: "gated",
+      manifest: {
+        species: "vellum",
+        featureFlags: {
+          "external-plugins": true,
+          "voice-mode": false,
+        },
+      },
+    });
+  });
+
+  test("rejects featureFlags with non-boolean values", async () => {
+    // Schema is strict: keys are flag ids (strings), values are booleans
+    // only. A stray string would silently no-op in the gateway, so
+    // failing parse keeps the misconfig visible at profile-load time.
+    const dir = await mkdtemp(join(tmpdir(), "evals-profiles-"));
+    process.env.EVALS_PROFILES_DIR = dir;
+    await mkdir(join(dir, "bad-flag"), { recursive: true });
+    await writeFile(
+      join(dir, "bad-flag", "manifest.json"),
+      JSON.stringify({
+        species: "vellum",
+        featureFlags: { "external-plugins": "yes" },
+      }),
+      "utf8",
+    );
+
+    await expect(loadProfile("bad-flag")).rejects.toThrow(
+      /failed schema validation/,
+    );
+  });
+
   test("rejects unsafe catalog ids discovered on disk", async () => {
     const dir = await mkdtemp(join(tmpdir(), "evals-profiles-"));
     process.env.EVALS_PROFILES_DIR = dir;

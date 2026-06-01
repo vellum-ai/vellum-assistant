@@ -38,6 +38,27 @@ export const ProfileManifestSchema = z.object({
    *   "setup": ["vellum exec -- assistant plugins install simple-memory"]
    */
   setup: z.union([z.string(), z.array(z.string())]).optional(),
+  /**
+   * Feature-flag overrides to apply to the hatched assistant before any
+   * setup commands run. Keys are flag ids from
+   * `meta/feature-flags/feature-flag-registry.json` (kebab-case); values
+   * are the boolean override to push to the gateway.
+   *
+   * This is the **declarative** path for flag setup. Use it whenever a
+   * profile's setup commands rely on a gated surface — for example,
+   * `vellum-simple-memory` runs `assistant plugins install simple-memory`,
+   * which only works when the `external-plugins` flag is enabled. Setting
+   * the flag inside `setup` would be a chicken-and-egg problem because
+   * setup commands execute inside the assistant container via
+   * `vellum exec`, whereas flag overrides live on the host gateway.
+   *
+   * Translates to `vellum flags set <key> <bool> --assistant <id>` calls
+   * (species-specific adapters decide whether to apply them).
+   *
+   * Example:
+   *   "featureFlags": { "external-plugins": true }
+   */
+  featureFlags: z.record(z.string(), z.boolean()).optional(),
 });
 
 export type ProfileManifest = z.infer<typeof ProfileManifestSchema>;

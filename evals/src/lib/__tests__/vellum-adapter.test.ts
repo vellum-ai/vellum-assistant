@@ -188,6 +188,128 @@ describe("VellumAgent", () => {
     ]);
   });
 
+  test("applies profile featureFlags via `vellum flags set --assistant <id>` BEFORE setup commands, alphabetically ordered", async () => {
+    const runner = new FakeRunner();
+    // Two flags + one setup command. Ordering invariants under test:
+    //   (a) flag overrides come AFTER docker jail apply (runs[3]) but
+    //       BEFORE any setup command — gated setup steps (e.g.
+    //       `assistant plugins install`) depend on flags already being
+    //       flipped.
+    //   (b) flag overrides are alphabetized by key — deterministic log
+    //       filenames and stable test expectations regardless of object
+    //       literal insertion order.
+    //   (c) `--assistant <this.id>` is passed explicitly so the user's
+    //       active-assistant pointer is never mutated by an eval run.
+    const profileWithFlags: Profile = {
+      id: "vellum-simple-memory",
+      manifest: {
+        species: "vellum",
+        featureFlags: {
+          "voice-mode": false,
+          "external-plugins": true,
+        },
+        setup: ["assistant plugins install simple-memory"],
+      },
+      workspaceDir: "/profiles/vellum-simple-memory/workspace",
+    };
+    const agent = new VellumAgent({
+      runner,
+      cliCommand: "vellum",
+      profile: profileWithFlags,
+      testId: "timeline-recall",
+      runId: "eval-run-2",
+      processEnv: {},
+    });
+    await agent.hatch();
+
+    // runs[0..3] are hatch + jail rm/build/run — same as the canonical
+    // happy-path test. Just confirm the count to anchor the indices.
+    expect(runner.runs.length).toBe(7);
+    expect(runner.runs[0].args[0]).toBe("hatch");
+
+    // First feature flag — alphabetical: "external-plugins" wins over
+    // "voice-mode".
+    expect(runner.runs[4]).toEqual({
+      command: "vellum",
+      args: [
+        "flags",
+        "set",
+        "external-plugins",
+        "true",
+        "--assistant",
+        "eval-run-2",
+      ],
+      opts: {
+        logPath: expect.stringMatching(/\/subprocess-feature-flag-1\.log$/),
+        logStep: "feature-flag-1",
+      },
+    });
+
+    // Second feature flag — boolean `false` serialized as the string
+    // "false", per the `vellum flags set` CLI contract.
+    expect(runner.runs[5]).toEqual({
+      command: "vellum",
+      args: [
+        "flags",
+        "set",
+        "voice-mode",
+        "false",
+        "--assistant",
+        "eval-run-2",
+      ],
+      opts: {
+        logPath: expect.stringMatching(/\/subprocess-feature-flag-2\.log$/),
+        logStep: "feature-flag-2",
+      },
+    });
+
+    // Setup command lands AFTER all flag overrides — this is the
+    // chicken-and-egg property the new ordering protects.
+    expect(runner.runs[6]).toEqual({
+      command: "vellum",
+      args: [
+        "exec",
+        "eval-run-2",
+        "--",
+        "sh",
+        "-lc",
+        "assistant plugins install simple-memory",
+      ],
+      opts: {
+        logPath: expect.stringMatching(/\/subprocess-setup-1\.log$/),
+        logStep: "setup-1",
+      },
+    });
+  });
+
+  test("skips the feature-flag application phase entirely when the profile has no featureFlags", async () => {
+    const runner = new FakeRunner();
+    // No featureFlags AND no setup → after jail we should jump straight
+    // to `hatched = true`. No `vellum flags set` invocation should ever
+    // hit the runner.
+    const bareProfile: Profile = {
+      id: "vellum-bare",
+      manifest: { species: "vellum" },
+      workspaceDir: "/profiles/vellum-bare/workspace",
+    };
+    const agent = new VellumAgent({
+      runner,
+      cliCommand: "vellum",
+      profile: bareProfile,
+      testId: "timeline-recall",
+      runId: "eval-run-3",
+      processEnv: {},
+    });
+    await agent.hatch();
+
+    // Only hatch + jail rm/build/run — exactly 4 runs, none of which
+    // are `vellum flags set`.
+    expect(runner.runs.length).toBe(4);
+    for (const call of runner.runs) {
+      expect(call.args[0]).not.toBe("flags");
+    }
+  });
+
   test("forwards LLM provider API keys from process env into the hatch subprocess", async () => {
     const runner = new FakeRunner();
     // Mix recognized provider vars (should be forwarded), an empty provider

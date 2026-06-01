@@ -47,6 +47,22 @@ function setupCommands(profile: Profile): string[] {
 }
 
 /**
+ * Flatten the profile's `featureFlags` map into stable-ordered
+ * `[key, value]` pairs suitable for sequential application.
+ *
+ * Ordering is alphabetical-by-key so that:
+ *   - run logs and subprocess-feature-flag-N.log filenames are
+ *     deterministic across runs;
+ *   - tests can assert on the recorded call sequence without relying
+ *     on insertion order of object literals.
+ */
+function featureFlagOverrides(profile: Profile): Array<[string, boolean]> {
+  const flags = profile.manifest.featureFlags;
+  if (!flags) return [];
+  return Object.entries(flags).sort(([a], [b]) => a.localeCompare(b));
+}
+
+/**
  * Canonical environment variable names for LLM provider API keys.
  *
  * Mirrors the LLM half of `cli/src/shared/provider-env-vars.ts`. Duplicated
@@ -307,6 +323,40 @@ export class VellumAgent implements BaseAgent {
         containerName: this.assistantContainerName,
         recordingDir: runArtifacts(this.id).runDir,
       });
+
+      // Apply feature-flag overrides BEFORE setup commands. Setup
+      // commands execute inside the assistant container via
+      // `vellum exec`, but flag overrides live on the host gateway —
+      // so any setup step that depends on a gated surface (e.g.
+      // `assistant plugins install` gated by `external-plugins`) needs
+      // the flag flipped first. `vellum flags set --assistant <id>`
+      // targets this specific instance without mutating the user's
+      // active-assistant pointer.
+      for (const [idx, [key, value]] of featureFlagOverrides(
+        this.profile,
+      ).entries()) {
+        const flagStep = await this.runner.run(
+          this.cliCommand,
+          [
+            "flags",
+            "set",
+            key,
+            value ? "true" : "false",
+            "--assistant",
+            this.id,
+          ],
+          {
+            logPath:
+              runArtifacts(this.id).runDir +
+              `/subprocess-feature-flag-${idx + 1}.log`,
+            logStep: `feature-flag-${idx + 1}`,
+          },
+        );
+        assertSuccess(
+          flagStep,
+          `feature-flag override "${key}=${value}" for profile ${this.profile.id}`,
+        );
+      }
 
       for (const [idx, command] of setupCommands(this.profile).entries()) {
         const setup = await this.runner.run(
