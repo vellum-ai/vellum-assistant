@@ -2274,8 +2274,18 @@ export async function runAgentLoopImpl(
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
     };
-    const eventHandler = (event: AgentEvent) =>
-      dispatchAgentEvent(state, deps, event);
+    const eventHandler = async (event: AgentEvent): Promise<void> => {
+      // A compaction-pipeline timeout is recorded against this
+      // conversation's durable compaction circuit breaker, whose state and
+      // tracking live in this module. It is handled here rather than in the
+      // transport-oriented event dispatcher to keep that mutation colocated
+      // with the circuit-breaker helpers.
+      if (event.type === "compaction_timed_out") {
+        await trackCompactionOutcome(ctx, true, onEvent);
+        return;
+      }
+      await dispatchAgentEvent(state, deps, event);
+    };
     emitTerminalExit = async (reason: AgentLoopExitReason): Promise<void> => {
       await eventHandler({ type: "agent_loop_exit", reason });
     };
@@ -2323,9 +2333,6 @@ export async function runAgentLoopImpl(
             overrideProfile: resolveCurrentOverrideProfile() ?? null,
           },
         };
-      },
-      onTimeout: async () => {
-        await trackCompactionOutcome(ctx, true, onEvent);
       },
       persist: async (result, rawHistory) => {
         const compactResult = result as Awaited<

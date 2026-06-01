@@ -589,7 +589,7 @@ async function simulateInlineCompaction(
     );
   } catch (error) {
     if (error instanceof PluginTimeoutError) {
-      await compaction.onTimeout();
+      await onEvent({ type: "compaction_timed_out" });
       return null;
     }
     throw error;
