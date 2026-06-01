@@ -25,6 +25,14 @@ export interface SseDebugClient {
   initiatedAt: number;
   /** When the first SSE data frame arrived (null until then). */
   establishedAt: number | null;
+  /** Epoch ms of the last SSE frame of any kind (data OR heartbeat). */
+  lastTrafficAt: number | null;
+  /** Epoch ms of the last SSE *data* frame (excludes heartbeat comments). */
+  lastDataAt: number | null;
+  /** Count of SSE data frames seen on this client. */
+  dataFrames: number;
+  /** Count of heartbeat comment frames seen on this client. */
+  keepalives: number;
 }
 
 export interface SseDebugEventEntry {
@@ -34,29 +42,6 @@ export interface SseDebugEventEntry {
   receivedAt: number;
   /** The parsed event payload. */
   event: AssistantEvent;
-}
-
-/**
- * Point-in-time liveness summary of the SSE transport, captured for
- * support bundles. Lets a reader distinguish a healthy connection from
- * a half-open socket that is "alive" at the OS level but has had no
- * bytes flow for minutes.
- */
-export interface SseLivenessSnapshot {
-  /** Epoch ms of the last SSE frame of any kind (data OR heartbeat). */
-  lastTrafficAt: number | null;
-  /** Epoch ms of the last SSE *data* frame (excludes heartbeat comments). */
-  lastDataAt: number | null;
-  /** Age in ms of {@link lastTrafficAt} at capture time, or null if none. */
-  msSinceLastTraffic: number | null;
-  /** Age in ms of {@link lastDataAt} at capture time, or null if none. */
-  msSinceLastData: number | null;
-  /** Count of SSE data frames seen since the page loaded. */
-  dataFramesSinceLoad: number;
-  /** Count of heartbeat comment frames seen since the page loaded. */
-  keepalivesSinceLoad: number;
-  /** Number of stream clients currently registered (not yet aborted). */
-  activeClientCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -72,11 +57,6 @@ const MAX_EVENTS = 1000;
 let nextClientId = 0;
 const clients = new Map<string, SseDebugClient>();
 const events: SseDebugEventEntry[] = [];
-
-let lastTrafficAt: number | null = null;
-let lastDataAt: number | null = null;
-let dataFramesSinceLoad = 0;
-let keepalivesSinceLoad = 0;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -97,6 +77,10 @@ export function registerSseClient(
     conversationId,
     initiatedAt: Date.now(),
     establishedAt: null,
+    lastTrafficAt: null,
+    lastDataAt: null,
+    dataFrames: 0,
+    keepalives: 0,
   };
   clients.set(id, client);
 
@@ -125,40 +109,27 @@ export function markClientEstablished(clientId: string): void {
 }
 
 /**
- * Record that an SSE frame arrived. Called from the `onSseEvent`
- * callback inside {@link subscribeChatEvents} for every parsed chunk,
- * including heartbeat comment frames. `isData` distinguishes data
- * frames (yielded through the iterator) from heartbeat comments
- * (`data === undefined`), so liveness can report "bytes are flowing"
- * separately from "the daemon is still keeping the socket warm."
+ * Record that an SSE frame arrived on a client. Called from the
+ * `onSseEvent` callback inside {@link subscribeChatEvents} for every
+ * parsed chunk, including heartbeat comment frames. `isData`
+ * distinguishes data frames (yielded through the iterator) from
+ * heartbeat comments (`data === undefined`), so a reader can tell
+ * "bytes are flowing" apart from "the daemon is still keeping the
+ * socket warm" — the fingerprint of a half-open connection.
  */
-export function recordSseTraffic(isData: boolean): void {
-  const now = Date.now();
-  lastTrafficAt = now;
-  if (isData) {
-    lastDataAt = now;
-    dataFramesSinceLoad++;
-  } else {
-    keepalivesSinceLoad++;
+export function recordSseTraffic(clientId: string, isData: boolean): void {
+  const client = clients.get(clientId);
+  if (!client) {
+    return;
   }
-}
-
-/**
- * Capture a point-in-time liveness summary of the SSE transport for a
- * support bundle. Ages are computed at call time so the reader sees how
- * long it had been since any byte flowed when the bundle was collected.
- */
-export function getSseLivenessSnapshot(): SseLivenessSnapshot {
   const now = Date.now();
-  return {
-    lastTrafficAt,
-    lastDataAt,
-    msSinceLastTraffic: lastTrafficAt === null ? null : now - lastTrafficAt,
-    msSinceLastData: lastDataAt === null ? null : now - lastDataAt,
-    dataFramesSinceLoad,
-    keepalivesSinceLoad,
-    activeClientCount: clients.size,
-  };
+  client.lastTrafficAt = now;
+  if (isData) {
+    client.lastDataAt = now;
+    client.dataFrames++;
+  } else {
+    client.keepalives++;
+  }
 }
 
 /**
@@ -209,8 +180,4 @@ export function resetSseDebugStateForTests(): void {
   nextClientId = 0;
   clients.clear();
   events.length = 0;
-  lastTrafficAt = null;
-  lastDataAt = null;
-  dataFramesSinceLoad = 0;
-  keepalivesSinceLoad = 0;
 }

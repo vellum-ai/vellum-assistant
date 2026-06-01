@@ -3,7 +3,6 @@ import { describe, expect, test, beforeEach } from "bun:test";
 import {
   getSseClients,
   getSseEvents,
-  getSseLivenessSnapshot,
   markClientEstablished,
   pushSseEvent,
   recordSseTraffic,
@@ -42,6 +41,10 @@ describe("registerSseClient", () => {
     expect(found!.establishedAt).toBeNull();
     expect(found!.initiatedAt).toBeGreaterThanOrEqual(before);
     expect(found!.initiatedAt).toBeLessThanOrEqual(after);
+    expect(found!.lastTrafficAt).toBeNull();
+    expect(found!.lastDataAt).toBeNull();
+    expect(found!.dataFrames).toBe(0);
+    expect(found!.keepalives).toBe(0);
   });
 
   test("auto-removes client when signal aborts", () => {
@@ -159,71 +162,48 @@ describe("getSseEvents limit", () => {
   });
 });
 
-describe("getSseLivenessSnapshot", () => {
-  test("reports nulls and zero counters before any traffic", () => {
-    // GIVEN no SSE traffic has been recorded since reset
-    // WHEN a liveness snapshot is captured
-    const snapshot = getSseLivenessSnapshot();
+describe("recordSseTraffic", () => {
+  test("counts data frames and keepalives separately on the client", () => {
+    // GIVEN a live client
+    const ctrl = new AbortController();
+    const id = registerSseClient(ctrl.signal, "conv-traffic");
 
-    // THEN all timestamps are null and counters are zero
-    expect(snapshot.lastTrafficAt).toBeNull();
-    expect(snapshot.lastDataAt).toBeNull();
-    expect(snapshot.msSinceLastTraffic).toBeNull();
-    expect(snapshot.msSinceLastData).toBeNull();
-    expect(snapshot.dataFramesSinceLoad).toBe(0);
-    expect(snapshot.keepalivesSinceLoad).toBe(0);
-    expect(snapshot.activeClientCount).toBe(0);
-  });
-
-  test("counts data frames and keepalives separately", () => {
-    // GIVEN a mix of data frames and heartbeat comment frames arrive
-    recordSseTraffic(true);
-    recordSseTraffic(false);
-    recordSseTraffic(true);
-
-    // WHEN a liveness snapshot is captured
-    const snapshot = getSseLivenessSnapshot();
+    // WHEN a mix of data frames and heartbeat comment frames arrive
+    recordSseTraffic(id, true);
+    recordSseTraffic(id, false);
+    recordSseTraffic(id, true);
 
     // THEN data and keepalive frames are tallied independently
-    expect(snapshot.dataFramesSinceLoad).toBe(2);
-    expect(snapshot.keepalivesSinceLoad).toBe(1);
-    // AND both freshness ages are present once any frame has arrived
-    expect(snapshot.lastTrafficAt).not.toBeNull();
-    expect(snapshot.lastDataAt).not.toBeNull();
-    expect(snapshot.msSinceLastTraffic).toBeGreaterThanOrEqual(0);
-    expect(snapshot.msSinceLastData).toBeGreaterThanOrEqual(0);
+    const client = getSseClients().find((c) => c.id === id)!;
+    expect(client.dataFrames).toBe(2);
+    expect(client.keepalives).toBe(1);
+    // AND both freshness timestamps are present once any frame has arrived
+    expect(client.lastTrafficAt).not.toBeNull();
+    expect(client.lastDataAt).not.toBeNull();
   });
 
-  test("tracks last-data age independently of heartbeat-only traffic", () => {
-    // GIVEN a data frame arrived, then only heartbeats kept the socket warm
-    recordSseTraffic(true);
+  test("tracks last-data time independently of heartbeat-only traffic", () => {
+    // GIVEN a client received a data frame, then only heartbeats kept it warm
+    const ctrl = new AbortController();
+    const id = registerSseClient(ctrl.signal, "conv-halfopen");
+    recordSseTraffic(id, true);
     const start = Date.now();
     while (Date.now() - start < 3) {
       /* busy wait so a later heartbeat has a distinct timestamp */
     }
-    recordSseTraffic(false);
+    recordSseTraffic(id, false);
 
-    // WHEN a liveness snapshot is captured
-    const snapshot = getSseLivenessSnapshot();
+    // WHEN the client snapshot is read
+    const client = getSseClients().find((c) => c.id === id)!;
 
     // THEN last *data* is older than last *traffic* (a half-open shape)
-    expect(snapshot.lastDataAt!).toBeLessThan(snapshot.lastTrafficAt!);
-    expect(snapshot.msSinceLastData!).toBeGreaterThanOrEqual(
-      snapshot.msSinceLastTraffic!,
-    );
+    expect(client.lastDataAt!).toBeLessThan(client.lastTrafficAt!);
   });
 
-  test("reports the count of currently-registered stream clients", () => {
-    // GIVEN two live clients are registered
-    const a = new AbortController();
-    const b = new AbortController();
-    registerSseClient(a.signal, "conv-live-1");
-    registerSseClient(b.signal, "conv-live-2");
-
-    // WHEN a liveness snapshot is captured
-    const snapshot = getSseLivenessSnapshot();
-
-    // THEN the active client count reflects both
-    expect(snapshot.activeClientCount).toBe(2);
+  test("is a no-op for an unknown client id", () => {
+    // GIVEN no client registered under this id
+    // WHEN traffic is recorded against it
+    // THEN it does not throw and records nothing
+    expect(() => recordSseTraffic("sse-nonexistent", true)).not.toThrow();
   });
 });

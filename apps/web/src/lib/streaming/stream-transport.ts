@@ -217,7 +217,7 @@ export function subscribeChatEvents(
             if (isData) {
               markClientEstablished(sseDebugClientId);
             }
-            recordSseTraffic(isData);
+            recordSseTraffic(sseDebugClientId, isData);
             watchdog.recordTraffic(isData);
             if (!cancelled) {
               watchdog.arm(abortController, reconnectCount);
