@@ -41,6 +41,12 @@ export interface ToolCallProgressCardProps {
    * explicitly expanded, `false` = user explicitly collapsed.
    */
   expandedCardIds: Map<string, boolean>;
+  /**
+   * Ephemeral parent-driven expansion for the currently active tool-call
+   * group. Unlike `expandedCardIds`, this is not persisted; explicit user
+   * toggles still win.
+   */
+  autoExpand?: boolean;
   onOpenRuleEditor?: (context: {
     toolName: string;
     riskLevel?: string;
@@ -87,6 +93,7 @@ export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
     toolCalls,
     pendingConfirmationToolCallId,
     leadingThinkingText,
+    autoExpand = false,
   } = props;
 
   const hasActiveConfirmation =
@@ -106,6 +113,12 @@ export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
   const cardData = useToolCallCardData(
     toolCalls,
     leadingThinkingText ?? null,
+  );
+  const cardId = toolCalls[0]?.id ?? null;
+  const expanded = useCardExpanded(
+    cardId,
+    props.expandedCardIds,
+    autoExpand,
   );
 
   // Confirmation short-circuit — render the inline approve/deny UI via the
@@ -127,10 +140,24 @@ export function ToolCallProgressCard(props: ToolCallProgressCardProps) {
   // its mature rendering (carousel header, error chips). Mixed / non-web
   // groups fall through to the unified shell below.
   if (isPurelyWebGroup(toolCalls)) {
-    return <WebSearchView toolCalls={toolCalls} cardData={cardData} />;
+    return (
+      <WebSearchView
+        toolCalls={toolCalls}
+        cardData={cardData}
+        expanded={expanded.value}
+        onExpandChange={expanded.onChange}
+      />
+    );
   }
 
-  return <UnifiedToolCallProgressCard {...props} cardData={cardData} />;
+  return (
+    <UnifiedToolCallProgressCard
+      {...props}
+      cardData={cardData}
+      expanded={expanded.value}
+      onCardExpandChange={expanded.onChange}
+    />
+  );
 }
 
 /**
@@ -161,9 +188,13 @@ function isPurelyWebGroup(toolCalls: ChatMessageToolCall[]): boolean {
 function WebSearchView({
   toolCalls,
   cardData,
+  expanded,
+  onExpandChange,
 }: {
   toolCalls: ChatMessageToolCall[];
   cardData: ToolCallCardData;
+  expanded: boolean;
+  onExpandChange: (next: boolean) => void;
 }) {
   return (
     <WebSearchProgressCard
@@ -176,6 +207,8 @@ function WebSearchView({
       steps={cardData.steps as StepDescriptor[]}
       state={deriveWebShellState(toolCalls, cardData.state)}
       carouselItems={cardData.carouselItems}
+      expanded={expanded}
+      onExpandChange={onExpandChange}
     />
   );
 }
@@ -200,23 +233,22 @@ function deriveWebShellState(
  */
 function UnifiedToolCallProgressCard({
   toolCalls,
-  expandedCardIds,
   cardData,
+  expanded,
+  onCardExpandChange,
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-}: ToolCallProgressCardProps & { cardData: ToolCallCardData }) {
+}: ToolCallProgressCardProps & {
+  cardData: ToolCallCardData;
+  expanded: boolean;
+  onCardExpandChange: (next: boolean) => void;
+}) {
   const openToolDetail = useViewerStore.use.openToolDetail();
   // Drives the pill's active state — the pill whose detail drawer is currently
   // open renders selected. `null` when the drawer is closed or showing another
   // view, so no pill reads as active.
   const openToolDetailId = useViewerStore.use.activeToolDetail()?.toolCallId ?? null;
-  const cardId = toolCalls[0]?.id ?? null;
-  const expanded = useCardExpanded(
-    cardId,
-    expandedCardIds,
-  );
-
   const shellState: ToolProgressCardState = cardData.state;
 
   // Nudge rows need the raw call (riskLevel, allowlistOptions, …) which
@@ -230,8 +262,8 @@ function UnifiedToolCallProgressCard({
       currentStepTitle={cardData.currentStepTitle}
       currentStepInfo={cardData.currentStepInfo}
       stepCount={cardData.stepCount}
-      expanded={expanded.value}
-      onExpandChange={expanded.onChange}
+      expanded={expanded}
+      onExpandChange={onCardExpandChange}
     >
       <div className="flex w-full flex-col gap-3 px-3 pb-3">
         <PhaseGroupedStepList
@@ -265,7 +297,7 @@ function UnifiedToolCallProgressCard({
                     // which remounts the transcript and resets local expand
                     // state. Persisting the user's intent in `expandedCardIds`
                     // keeps the parent accordion open across that remount.
-                    expanded.onChange(true);
+                    onCardExpandChange(true);
                     openToolDetail({
                       toolCallId: tc.id,
                       toolName: tc.toolName,
@@ -298,9 +330,10 @@ function UnifiedToolCallProgressCard({
 
 /**
  * Drives the unified card's expand/collapse state. Tool progress cards default
- * collapsed in chat so ongoing tool activity stays compact; a user toggle (now
- * or in a previous mount, recorded in `expandedCardIds`) wins across state
- * transitions and remounts.
+ * collapsed in chat so past tool activity stays compact. The transcript can
+ * temporarily expand the current active group via `autoExpand`; a user toggle
+ * (now or in a previous mount, recorded in `expandedCardIds`) wins across
+ * state transitions and remounts.
  *
  * `localToggle` mirrors the map mutation so React re-renders on click —
  * mutating the map alone wouldn't trigger one.
@@ -308,6 +341,7 @@ function UnifiedToolCallProgressCard({
 function useCardExpanded(
   cardId: string | null,
   expandedCardIds: Map<string, boolean>,
+  autoExpand: boolean,
 ): { value: boolean; onChange: (next: boolean) => void } {
   const [localToggle, setLocalToggle] = useState<boolean | undefined>(
     undefined,
@@ -315,7 +349,7 @@ function useCardExpanded(
   const persisted =
     cardId != null ? expandedCardIds.get(cardId) : undefined;
   const userChoice = localToggle ?? persisted;
-  const value = userChoice ?? false;
+  const value = userChoice ?? autoExpand;
 
   const onChange = (next: boolean) => {
     setLocalToggle(next);

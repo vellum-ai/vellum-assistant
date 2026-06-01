@@ -21,7 +21,19 @@ mock.module("@/domains/chat/components/surfaces/surface-router", () => ({
 mock.module(
   "@/domains/chat/components/tool-call-progress-card/tool-call-progress-card",
   () => ({
-    ToolCallProgressCard: () => <div data-testid="tool-progress-card" />,
+    ToolCallProgressCard: ({
+      autoExpand,
+      toolCalls,
+    }: {
+      autoExpand?: boolean;
+      toolCalls: Array<{ id: string }>;
+    }) => (
+      <div
+        data-testid="tool-progress-card"
+        data-auto-expand={autoExpand ? "true" : "false"}
+        data-tool-call-ids={toolCalls.map((tc) => tc.id).join(",")}
+      />
+    ),
   }),
 );
 
@@ -246,5 +258,161 @@ describe("TranscriptMessageBody", () => {
 
     fireEvent.click(getByTitle("Inspect"));
     expect(inspectedIds).toEqual(["message-1"]);
+  });
+
+  test("auto-expands the latest interleaved tool-call group while the row is streaming", () => {
+    const { getByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          content: "",
+          contentOrder: [{ type: "tool", id: "tc-1" }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        isStreaming
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
+    ).toBe("true");
+  });
+
+  test("collapses an interleaved tool-call group once response text follows", () => {
+    const { getByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          content: "",
+          contentOrder: [
+            { type: "tool", id: "tc-1" },
+            { type: "text", id: "0" },
+          ],
+          textSegments: [{ type: "text", content: "Done." }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        isStreaming
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
+    ).toBe("false");
+  });
+
+  test("moves auto-expansion to a later interleaved tool-call group", () => {
+    const { getAllByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          content: "",
+          contentOrder: [
+            { type: "tool", id: "tc-1" },
+            { type: "text", id: "0" },
+            { type: "tool", id: "tc-2" },
+          ],
+          textSegments: [{ type: "text", content: "Next I will check logs." }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+            {
+              id: "tc-2",
+              toolName: "bash",
+              input: {},
+              status: "running",
+            },
+          ],
+        }}
+        isStreaming
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      getAllByTestId("tool-progress-card").map((el) =>
+        el.getAttribute("data-auto-expand"),
+      ),
+    ).toEqual(["false", "true"]);
+  });
+
+  test("auto-expands legacy tool-only streaming messages until content appears", () => {
+    const { getByTestId, rerender } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        isStreaming
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+    expect(
+      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
+    ).toBe("true");
+
+    rerender(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          content: "Done.",
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        isStreaming
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+    expect(
+      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
+    ).toBe("false");
   });
 });

@@ -213,6 +213,39 @@ describe("ToolCallProgressCard — web tool group regression", () => {
     // flow through the dedicated web-search card.
     expect(queryByTestId("tool-progress-card-shell")).toBeNull();
   });
+
+  test("web_search-only groups honor autoExpand through the shared shell", () => {
+    const expandedCardIds = new Map<string, boolean>();
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "web_search",
+        status: "running",
+        input: { query: "tigers" },
+      }),
+    ];
+    const { getByRole, rerender } = render(
+      <ToolCallProgressCard
+        toolCalls={toolCalls}
+        expandedToolCallIds={new Set()}
+        onExpandChange={() => {}}
+        expandedCardIds={expandedCardIds}
+        autoExpand
+      />,
+    );
+    expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
+
+    rerender(
+      <ToolCallProgressCard
+        toolCalls={toolCalls}
+        expandedToolCallIds={new Set()}
+        onExpandChange={() => {}}
+        expandedCardIds={expandedCardIds}
+        autoExpand={false}
+      />,
+    );
+    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
+  });
 });
 
 describe("ToolCallProgressCard — mixed group", () => {
@@ -605,6 +638,74 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
     ];
     const { getByRole } = renderCard(toolCalls, { expandedCardIds });
     expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
+  });
+
+  test("autoExpand opens the current loading card without persisting a user choice", () => {
+    const expandedCardIds = new Map<string, boolean>();
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "running",
+        input: { command: "ls" },
+      }),
+    ];
+    const { getByRole } = renderCard(toolCalls, {
+      expandedCardIds,
+      autoExpand: true,
+    });
+    expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
+    expect(expandedCardIds.size).toBe(0);
+  });
+
+  test("persisted collapse overrides autoExpand", () => {
+    const expandedCardIds = new Map<string, boolean>([["tc-1", false]]);
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "running",
+        input: { command: "ls" },
+      }),
+    ];
+    const { getByRole } = renderCard(toolCalls, {
+      expandedCardIds,
+      autoExpand: true,
+    });
+    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
+  });
+
+  test("collapses when autoExpand turns off and the user has not toggled", () => {
+    const expandedCardIds = new Map<string, boolean>();
+    const toolCalls = [
+      makeToolCall({
+        id: "tc-1",
+        toolName: "bash",
+        status: "running",
+        input: { command: "ls" },
+      }),
+    ];
+    const { getByRole, rerender } = render(
+      <ToolCallProgressCard
+        toolCalls={toolCalls}
+        expandedToolCallIds={new Set()}
+        onExpandChange={() => {}}
+        expandedCardIds={expandedCardIds}
+        autoExpand
+      />,
+    );
+    expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
+
+    rerender(
+      <ToolCallProgressCard
+        toolCalls={toolCalls}
+        expandedToolCallIds={new Set()}
+        onExpandChange={() => {}}
+        expandedCardIds={expandedCardIds}
+        autoExpand={false}
+      />,
+    );
+    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
   });
 });
 
