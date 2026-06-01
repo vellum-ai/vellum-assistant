@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 type PowerEvent = { kind: "suspend" | "resume" | "lock" | "unlock" | "active" };
 let activeCallback: ((event: PowerEvent) => void) | null = null;
@@ -16,30 +16,23 @@ mock.module("@/runtime/power-events", () => ({
   subscribeToPowerEvents: subscribeToPowerEventsMock,
 }));
 
+const eventBus = await import("@/lib/event-bus");
+const publishSpy = spyOn(eventBus, "publish");
+
 const { publishElectronPowerSource } = await import(
   "@/runtime/event-sources/electron-power"
 );
-import type {
-  BusEventName,
-  BusEventPayload,
-} from "@/stores/event-bus-store";
-
-const makePublisher = () => ({
-  publish: mock(
-    <K extends BusEventName>(_event: K, _payload: BusEventPayload<K>) => {},
-  ),
-});
 
 beforeEach(() => {
   activeCallback = null;
   subscribeToPowerEventsMock.mockClear();
   unsubscribeMock.mockClear();
+  publishSpy.mockClear();
 });
 
 describe("publishElectronPowerSource", () => {
   test("maps every PowerEventKind onto its typed bus event", () => {
-    const bus = makePublisher();
-    publishElectronPowerSource(bus);
+    publishElectronPowerSource();
 
     activeCallback!({ kind: "suspend" });
     activeCallback!({ kind: "resume" });
@@ -47,7 +40,7 @@ describe("publishElectronPowerSource", () => {
     activeCallback!({ kind: "unlock" });
     activeCallback!({ kind: "active" });
 
-    expect(bus.publish.mock.calls).toEqual([
+    expect(publishSpy.mock.calls).toEqual([
       ["power.suspend", {}],
       ["power.resume", {}],
       ["power.lock", {}],
@@ -57,8 +50,7 @@ describe("publishElectronPowerSource", () => {
   });
 
   test("returns the runtime-wrapper unsubscribe so cleanup tears the bridge down", () => {
-    const bus = makePublisher();
-    const unsubscribe = publishElectronPowerSource(bus);
+    const unsubscribe = publishElectronPowerSource();
 
     expect(unsubscribeMock).not.toHaveBeenCalled();
     unsubscribe();

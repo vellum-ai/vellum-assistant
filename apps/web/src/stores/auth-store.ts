@@ -40,7 +40,7 @@ import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { syncOnboardingUser, clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import { clearOrganization } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
-import { useEventBusStore } from "@/stores/event-bus-store";
+import { subscribe } from "@/lib/event-bus";
 import { isNativePlatform, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
 import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric";
 
@@ -320,9 +320,7 @@ export function setupAuthListeners(): () => void {
       console.warn("auth.refreshSession failed", err),
     );
 
-  const unsubResume = useEventBusStore
-    .getState()
-    .subscribe("app.resume", () => {
+  const unsubResume = subscribe("app.resume", () => {
       void safeRefresh();
     });
   cleanups.push(unsubResume);

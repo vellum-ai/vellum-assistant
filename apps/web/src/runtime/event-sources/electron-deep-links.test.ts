@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 type DeepLink =
   | { kind: "send"; message: string }
@@ -28,23 +28,23 @@ mock.module("@/runtime/deep-links", () => ({
 }));
 
 const captureExceptionMock = mock(() => {});
+// Full Sentry surface — `mock.module` is process-global in bun, so a
+// partial shape would shadow `addBreadcrumb` (used by other modules
+// transitively loaded in this run) for every later test file. Both
+// methods are kept here so the mock can satisfy any consumer that
+// happens to load Sentry through our module under test.
 mock.module("@sentry/browser", () => ({
   captureException: captureExceptionMock,
+  addBreadcrumb: () => {},
 }));
+
+import * as eventBus from "@/lib/event-bus";
+
+const publishSpy = spyOn(eventBus, "publish");
 
 const { publishElectronDeepLinksSource } = await import(
   "@/runtime/event-sources/electron-deep-links"
 );
-import type {
-  BusEventName,
-  BusEventPayload,
-} from "@/stores/event-bus-store";
-
-const makePublisher = () => ({
-  publish: mock(
-    <K extends BusEventName>(_event: K, _payload: BusEventPayload<K>) => {},
-  ),
-});
 
 beforeEach(() => {
   activeCallback = null;
@@ -54,18 +54,18 @@ beforeEach(() => {
   drainPendingDeepLinksMock.mockClear();
   unsubscribeMock.mockClear();
   captureExceptionMock.mockClear();
+  publishSpy.mockClear();
 });
 
 describe("publishElectronDeepLinksSource", () => {
   test("maps each DeepLink kind onto its typed bus event for live links", () => {
-    const bus = makePublisher();
-    publishElectronDeepLinksSource(bus);
+    publishElectronDeepLinksSource();
 
     activeCallback!({ kind: "send", message: "hi" });
     activeCallback!({ kind: "openThread", threadId: "t-1" });
     activeCallback!({ kind: "unknown", url: "javascript:alert(1)" });
 
-    expect(bus.publish.mock.calls).toEqual([
+    expect(publishSpy.mock.calls).toEqual([
       ["deeplink.send", { message: "hi" }],
       ["deeplink.openThread", { threadId: "t-1" }],
       ["deeplink.unknown", { url: "javascript:alert(1)" }],
@@ -73,7 +73,7 @@ describe("publishElectronDeepLinksSource", () => {
   });
 
   test("subscribes BEFORE draining — covers the in-flight race", async () => {
-    publishElectronDeepLinksSource(makePublisher());
+    publishElectronDeepLinksSource();
 
     expect(subscribeToDeepLinksMock).toHaveBeenCalled();
     expect(drainPendingDeepLinksMock).toHaveBeenCalled();
@@ -88,13 +88,12 @@ describe("publishElectronDeepLinksSource", () => {
       { kind: "send", message: "one" },
       { kind: "openThread", threadId: "thread-1" },
     ];
-    const bus = makePublisher();
 
-    publishElectronDeepLinksSource(bus);
+    publishElectronDeepLinksSource();
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(bus.publish.mock.calls).toEqual([
+    expect(publishSpy.mock.calls).toEqual([
       ["deeplink.send", { message: "one" }],
       ["deeplink.openThread", { threadId: "thread-1" }],
     ]);
@@ -102,9 +101,8 @@ describe("publishElectronDeepLinksSource", () => {
 
   test("reports a drain failure to Sentry instead of propagating", async () => {
     drainError = new Error("ipc transport failed");
-    const bus = makePublisher();
 
-    publishElectronDeepLinksSource(bus);
+    publishElectronDeepLinksSource();
     await Promise.resolve();
     await Promise.resolve();
 
@@ -116,7 +114,7 @@ describe("publishElectronDeepLinksSource", () => {
   });
 
   test("returns the subscribe-side unsubscribe so cleanup detaches the live bridge", () => {
-    const unsubscribe = publishElectronDeepLinksSource(makePublisher());
+    const unsubscribe = publishElectronDeepLinksSource();
 
     expect(unsubscribeMock).not.toHaveBeenCalled();
     unsubscribe();

@@ -13,9 +13,9 @@ import { createElement } from "react";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
-  __resetEventBusForTesting,
-  useEventBusStore,
-} from "@/stores/event-bus-store";
+  __resetForTesting,
+  publish,
+} from "@/lib/event-bus";
 
 // The hook fetches the conversation list and runs an initial sweep; stub
 // both so renderHook does not try to hit a real backend.
@@ -53,7 +53,7 @@ function publishInteractionResolved(payload: {
   kind?: string;
 }) {
   act(() => {
-    useEventBusStore.getState().publish("sse.event", {
+    publish("sse.event", {
       id: `evt-${payload.requestId}`,
       conversationId: payload.conversationId,
       emittedAt: new Date().toISOString(),
@@ -81,13 +81,13 @@ function publishInteractionResolved(payload: {
 }
 
 beforeEach(() => {
-  __resetEventBusForTesting();
+  __resetForTesting();
   useConversationStore.getState().reset();
 });
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetForTesting();
   useConversationStore.getState().reset();
 });
 

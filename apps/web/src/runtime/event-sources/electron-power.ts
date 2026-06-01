@@ -1,5 +1,5 @@
+import { publish } from "@/lib/event-bus";
 import { subscribeToPowerEvents } from "@/runtime/power-events";
-import type { EventBusPublisher } from "@/stores/event-bus-store";
 
 /**
  * Electron main-process `powerMonitor` → five typed bus events:
@@ -12,25 +12,23 @@ import type { EventBusPublisher } from "@/stores/event-bus-store";
  * narrow mapping from `kind` → typed bus event so consumers don't
  * have to switch on `kind` themselves.
  */
-export function publishElectronPowerSource(
-  bus: EventBusPublisher,
-): () => void {
+export function publishElectronPowerSource(): () => void {
   return subscribeToPowerEvents(({ kind }) => {
     switch (kind) {
       case "suspend":
-        bus.publish("power.suspend", {});
+        publish("power.suspend", {});
         break;
       case "resume":
-        bus.publish("power.resume", {});
+        publish("power.resume", {});
         break;
       case "lock":
-        bus.publish("power.lock", {});
+        publish("power.lock", {});
         break;
       case "unlock":
-        bus.publish("power.unlock", {});
+        publish("power.unlock", {});
         break;
       case "active":
-        bus.publish("power.active", {});
+        publish("power.active", {});
         break;
     }
   });

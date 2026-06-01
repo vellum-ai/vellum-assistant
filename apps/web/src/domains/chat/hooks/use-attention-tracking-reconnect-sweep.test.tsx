@@ -23,9 +23,9 @@ import { createElement } from "react";
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
-  __resetEventBusForTesting,
-  useEventBusStore,
-} from "@/stores/event-bus-store";
+  __resetForTesting,
+  publish,
+} from "@/lib/event-bus";
 
 // Stub the conversation-list query and the mark-seen endpoint so the
 // hook does not try to hit a real backend during renderHook.
@@ -84,7 +84,7 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 function publishOpened(cause: "fresh" | "error" | "watchdog" | "resume") {
-  useEventBusStore.getState().publish("sse.opened", {
+  publish("sse.opened", {
     assistantId: "asst-1",
     cause,
   });
@@ -102,14 +102,14 @@ function mountHook() {
 }
 
 beforeEach(() => {
-  __resetEventBusForTesting();
+  __resetForTesting();
   useConversationStore.getState().reset();
   bulkFetch.current = async () => new Set<string>();
 });
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetForTesting();
   useConversationStore.getState().reset();
 });
 

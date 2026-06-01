@@ -67,6 +67,8 @@ mock.module("@/utils/haptics", () => ({
 // confused with real exception reports.
 mock.module("@sentry/react", () => ({
   captureException: () => {},
+  captureMessage: () => {},
+  addBreadcrumb: () => {},
 }));
 
 const { useConversationActions } = await import(

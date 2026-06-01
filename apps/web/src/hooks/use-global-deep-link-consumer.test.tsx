@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook, act } from "@testing-library/react";
 
 import {
-  __resetEventBusForTesting,
-  useEventBusStore,
-} from "@/stores/event-bus-store";
+  __resetForTesting,
+  publish,
+} from "@/lib/event-bus";
 import {
   __resetPendingDeepLinkForTesting,
   usePendingDeepLinkStore,
@@ -21,8 +21,12 @@ mock.module("@/runtime/main-window", () => ({
 }));
 
 const sentryBreadcrumbMock = mock((_args: unknown) => undefined);
+// Full Sentry surface — `mock.module` is process-global in bun, so a
+// partial mock would shadow `captureException` (used by `runtime/event-sources/*`
+// and `sse-service`) for every later test file in the run.
 mock.module("@sentry/browser", () => ({
   addBreadcrumb: sentryBreadcrumbMock,
+  captureException: () => {},
 }));
 
 const { useGlobalDeepLinkConsumer } = await import(
@@ -30,7 +34,7 @@ const { useGlobalDeepLinkConsumer } = await import(
 );
 
 beforeEach(() => {
-  __resetEventBusForTesting();
+  __resetForTesting();
   __resetPendingDeepLinkForTesting();
   navigateMock.mockClear();
   ensureMainWindowVisibleMock.mockClear();
@@ -39,7 +43,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetForTesting();
   __resetPendingDeepLinkForTesting();
 });
 
@@ -48,7 +52,7 @@ describe("deeplink.send", () => {
     renderHook(() => useGlobalDeepLinkConsumer());
 
     act(() => {
-      useEventBusStore.getState().publish("deeplink.send", { message: "hi" });
+      publish("deeplink.send", { message: "hi" });
     });
 
     expect(navigateMock).toHaveBeenCalledWith("/assistant");
@@ -64,9 +68,7 @@ describe("deeplink.openThread", () => {
     renderHook(() => useGlobalDeepLinkConsumer());
 
     act(() => {
-      useEventBusStore
-        .getState()
-        .publish("deeplink.openThread", { threadId: "abc-123" });
+      publish("deeplink.openThread", { threadId: "abc-123" });
     });
 
     expect(navigateMock).toHaveBeenCalledWith(
@@ -81,9 +83,7 @@ describe("deeplink.unknown", () => {
     renderHook(() => useGlobalDeepLinkConsumer());
 
     act(() => {
-      useEventBusStore
-        .getState()
-        .publish("deeplink.unknown", { url: "javascript:alert(1)" });
+      publish("deeplink.unknown", { url: "javascript:alert(1)" });
     });
 
     expect(sentryBreadcrumbMock).toHaveBeenCalled();
@@ -103,15 +103,9 @@ describe("subscription lifecycle", () => {
     unmount();
 
     act(() => {
-      useEventBusStore
-        .getState()
-        .publish("deeplink.send", { message: "post-unmount" });
-      useEventBusStore
-        .getState()
-        .publish("deeplink.openThread", { threadId: "z" });
-      useEventBusStore
-        .getState()
-        .publish("deeplink.unknown", { url: "x" });
+      publish("deeplink.send", { message: "post-unmount" });
+      publish("deeplink.openThread", { threadId: "z" });
+      publish("deeplink.unknown", { url: "x" });
     });
 
     expect(navigateMock).not.toHaveBeenCalled();
