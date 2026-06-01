@@ -345,29 +345,31 @@ no-ops if `phase !== "thinking"`. The action stays a plain function;
 the rules stay testable in isolation; we don't need a dispatcher
 ceremony to enforce them.
 
-## Service-owned state outside Zustand
+## Service-owned state vs store-owned state
 
-Module-level singleton services (e.g. `lifecycle-service.ts`) may own
-state directly as private fields when **all** of:
+Module-level singleton services (e.g. `lifecycle-service.ts`) own
+*behavior* — async work, retry budgets, watchdogs, transitions. Any
+**state that React reads** lives in the service's Zustand store, not as
+a private service field, even if there's only one consumer today.
 
-1. The state is read by a single consumer (typically one route
-   component).
-2. The consumer only needs the value at mount or in an event handler —
-   never as a render-time subscription.
-3. The state survives React mount/unmount cycles (the service is a
-   module singleton, the component is not).
+The trap to avoid: a private singleton field + `peek()` method seems
+fine when the only consumer reads it once at mount. It breaks the
+moment a producer fires from *inside* the consumer's React tree
+(rather than from a sibling that navigates to it) — the singleton flip
+happens after the consumer's `useState` lazy initializer already
+peeked, no re-render is triggered, the UI goes stale. Patching by
+flipping a local mirror at the call site is a band-aid every future
+in-tree producer would need to repeat.
 
-Expose via `peek<Field>()` (pure read, safe in `useState` lazy
-initializers under StrictMode), `mark<Field>()` / `set<Field>(value)`
-(mutators), and `clear<Field>()` (one-shot drain). Consumers seed local
-state from `peek` at mount and drain via `clear` from exit-condition
-effects.
+Store-resident state avoids this entirely: `setState` on the store
+automatically re-renders every subscriber, regardless of where the
+producer fired from.
 
-When the value needs reactive subscription from multiple consumers,
-promote it to the service's Zustand store and read via atomic selector.
-A service field with one mount-time React consumer doesn't need a
-store; mirroring it into one buys nothing and creates a two-state
-invariant to maintain.
+Services expose `mark<Field>()` / `clear<Field>()` (or `set<Field>(v)`)
+that internally call `useTheStore.setState(...)`. React consumers read
+via the atomic selector `useTheStore.use.field()`; non-React callers
+read via `useTheStore.getState().field`. No mirror, no `peek`, no
+two-state invariant.
 
 **Known exceptions** (slated for migration):
 
