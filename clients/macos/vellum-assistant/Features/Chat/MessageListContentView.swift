@@ -337,7 +337,7 @@ struct MessageListContentView: View, Equatable {
         // during any item insertion, which measures ALL children via sizeThatFits —
         // causing multi-minute hangs on long conversations. Do NOT remove the
         // .transaction modifier or wrap content mutations in withAnimation.
-        MessageTranscriptStack(spacing: VSpacing.md) {
+        MessageTranscriptStack(spacing: VSpacing.sm) {
             let _ = os_signpost(.event, log: stallLog, name: "MessageList.bodyEval")
             let isUnanchoredThinking = state.shouldShowThinkingIndicator && !state.rows.contains(where: \.isAnchoredThinkingRow)
             let thinkingLabel = !hasEverSentMessage && state.hasUserMessage
