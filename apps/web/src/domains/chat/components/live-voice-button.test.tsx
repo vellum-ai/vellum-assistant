@@ -142,6 +142,42 @@ describe("LiveVoiceButton", () => {
     expect(stopSpy).not.toHaveBeenCalled();
   });
 
+  test("stays stoppable when disabled while a session is active", () => {
+    // GIVEN an active session and a parent that has raised `disabled`
+    mockVoiceMode = true;
+    mockState = "listening";
+    const { getByLabelText } = render(
+      <LiveVoiceButton assistantId="a1" disabled />,
+    );
+
+    // THEN the stop control remains enabled despite the external disabled prop
+    const button = getByLabelText("Stop voice mode") as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+
+    // WHEN the user clicks it, the session is stopped
+    fireEvent.click(button);
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+    expect(startSpy).not.toHaveBeenCalled();
+  });
+
+  test("prevents starting a session when disabled while idle", () => {
+    // GIVEN an idle, flag-enabled button that the parent has disabled
+    mockVoiceMode = true;
+    mockState = "idle";
+    const { getByLabelText } = render(
+      <LiveVoiceButton assistantId="a1" disabled />,
+    );
+
+    // THEN the start control is disabled
+    const button = getByLabelText("Start voice mode") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+
+    // WHEN the user clicks it, no session is started
+    fireEvent.click(button);
+    expect(startSpy).not.toHaveBeenCalled();
+    expect(stopSpy).not.toHaveBeenCalled();
+  });
+
   test("scales the icon with live amplitude while active", () => {
     // GIVEN an active session with non-zero mic amplitude
     mockVoiceMode = true;

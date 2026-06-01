@@ -51,11 +51,16 @@ export function LiveVoiceButton({
   const handleClick = useCallback(() => {
     if (connecting) return;
     if (active) {
+      // An active session must always be stoppable, even if the parent has
+      // raised `disabled` in the meantime — otherwise the user is stuck with a
+      // live mic/socket until some automatic teardown.
       void stop();
     } else {
+      // Only the start path honours the external `disabled` prop.
+      if (disabled) return;
       void start(assistantId, conversationId);
     }
-  }, [active, connecting, start, stop, assistantId, conversationId]);
+  }, [active, connecting, disabled, start, stop, assistantId, conversationId]);
 
   if (!voiceMode) return null;
 
@@ -78,7 +83,9 @@ export function LiveVoiceButton({
         )
       }
       onClick={handleClick}
-      disabled={disabled || connecting}
+      // An active session is always stoppable; the external `disabled` prop
+      // only gates the start path. `connecting` stays disabled/busy.
+      disabled={connecting || (!active && disabled)}
       aria-label={label}
       aria-pressed={active}
       aria-busy={connecting}
