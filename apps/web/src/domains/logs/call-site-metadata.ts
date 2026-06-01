@@ -5,7 +5,21 @@
  */
 
 import { configLlmCallsitesGet } from "@/generated/daemon/sdk.gen";
-import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
+
+/**
+ * Hand-written response shape for the LLM call-site catalog endpoint.
+ * The generated type is `200: unknown` — the daemon route doesn't yet
+ * declare a response schema.
+ */
+interface CallSiteCatalogResponse {
+  domains: Array<{ id: string; displayName: string }>;
+  callSites: Array<{
+    id: string;
+    displayName: string;
+    description: string;
+    domain: string;
+  }>;
+}
 
 export interface UsageCallSiteMetadata {
   id: string;
@@ -17,7 +31,7 @@ export interface UsageCallSiteMetadata {
 export type UsageCallSiteMetadataMap = Record<string, UsageCallSiteMetadata>;
 
 export function buildCallSiteMetadataMap(
-  catalog: ConfigLlmCallsitesGetResponse | null | undefined,
+  catalog: CallSiteCatalogResponse | null | undefined,
 ): UsageCallSiteMetadataMap {
   if (!catalog) {
     return {};
@@ -42,7 +56,7 @@ export function buildCallSiteMetadataMap(
 
 export async function fetchUsageCallSiteCatalog(
   assistantId: string,
-): Promise<ConfigLlmCallsitesGetResponse> {
+): Promise<CallSiteCatalogResponse> {
   const { data, response } = await configLlmCallsitesGet({
     path: { assistant_id: assistantId },
     throwOnError: false,
@@ -56,5 +70,5 @@ export async function fetchUsageCallSiteCatalog(
       text || response?.statusText || "Failed to load LLM call-site metadata.",
     );
   }
-  return data ?? { domains: [], callSites: [] };
+  return (data as CallSiteCatalogResponse | undefined) ?? { domains: [], callSites: [] };
 }
