@@ -3,9 +3,7 @@ import * as Sentry from "@sentry/react";
 import { useViewerStore } from "@/stores/viewer-store";
 
 import {
-  type Dispatch,
   type MutableRefObject,
-  type SetStateAction,
   useCallback,
   useEffect,
   useMemo,
@@ -13,7 +11,6 @@ import {
 } from "react";
 
 import { toast } from "@vellum/design-library";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   createDraftConversationId,
   resolveBootstrappedConversationId,
@@ -22,10 +19,8 @@ import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
 } from "@/utils/last-viewed-conversation-storage";
-import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
-
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
@@ -76,34 +71,17 @@ interface UseConversationLoaderParams {
   refreshEpoch: number;
   reachabilityReadyEpoch: number;
 
-  // Refs (owned by parent, read/written by this hook)
+  // Infrastructure refs (not per-conversation state)
   assistantIdRef: MutableRefObject<string | null>;
-  draftConversationIdResolutionRef: MutableRefObject<boolean>;
-  previousConversationIdRef: MutableRefObject<string | null>;
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
-  contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
-  streamingMessageIdsRef: MutableRefObject<Set<string>>;
-  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
-  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
-  pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
-  confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
   conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   pendingInitialMessageRef: MutableRefObject<{ conversationId: string; content: string } | null>;
 
-  // State setters
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
-  setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
-  setError: Dispatch<SetStateAction<ChatError | null>>;
-  setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
-  setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
-
-  // Callbacks
-  resetChatAttachments: () => void;
-
   // Error classification
   shouldSuppressGenericChatErrorNotice: (prev: ChatError | null) => boolean;
+
+  // Attachment reset (lives outside the session store)
+  resetChatAttachments: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -140,26 +118,11 @@ export function useConversationLoader({
   refreshEpoch,
   reachabilityReadyEpoch,
   assistantIdRef,
-  draftConversationIdResolutionRef,
-  previousConversationIdRef,
   onboardingDraftConversationIdRef,
-  contextWindowUsageByConversationRef,
-  dismissedSurfaceIdsRef,
-  streamingMessageIdsRef,
-  pendingQueuedMessageIdsRef,
-  requestIdToMessageIdRef,
-  pendingLocalDeletionsRef,
-  confirmationToolCallMapRef,
   conversationListInvalidatedTimerRef,
   pendingInitialMessageRef,
-  setMessages,
-  setTranscriptPagination,
-  setIsLoadingHistory,
-  setError,
-  setContextWindowUsage,
-  setCompactionCircuitOpenUntil,
-  resetChatAttachments,
   shouldSuppressGenericChatErrorNotice,
+  resetChatAttachments,
 }: UseConversationLoaderParams) {
   // -------------------------------------------------------------------------
   // Internal refs
@@ -311,7 +274,7 @@ export function useConversationLoader({
         level: "warning",
         tags: { context: "conversationList.bootstrap" },
       });
-      setError((prev) => {
+      useChatSessionStore.getState().setError((prev) => {
         if (shouldSuppressGenericChatErrorNotice(prev)) return prev;
         const status =
           conversationListError instanceof ApiError ? conversationListError.status : 0;
@@ -326,7 +289,7 @@ export function useConversationLoader({
       return;
     }
     if (hasUsableData) {
-      setError((prev) =>
+      useChatSessionStore.getState().setError((prev) =>
         prev?.code === CONVERSATION_LIST_LOAD_FAILED_CODE ? null : prev,
       );
     }
@@ -335,7 +298,6 @@ export function useConversationLoader({
     queryConversations,
     conversationListError,
     conversationListIsError,
-    setError,
     shouldSuppressGenericChatErrorNotice,
   ]);
 
@@ -445,23 +407,7 @@ export function useConversationLoader({
     assistantId,
     assistantStateKind,
     activeConversationId,
-    draftConversationIdResolutionRef,
-    previousConversationIdRef,
-    contextWindowUsageByConversationRef,
-    dismissedSurfaceIdsRef,
-    streamingMessageIdsRef,
-    pendingQueuedMessageIdsRef,
-    requestIdToMessageIdRef,
-    pendingLocalDeletionsRef,
-    confirmationToolCallMapRef,
-    setMessages,
-    setTranscriptPagination,
-    setIsLoadingHistory,
-    setError,
-    setContextWindowUsage,
-    setCompactionCircuitOpenUntil,
     resetChatAttachments,
-    shouldSuppressGenericChatErrorNotice,
   });
 
   // -------------------------------------------------------------------------

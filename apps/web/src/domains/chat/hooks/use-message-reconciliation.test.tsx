@@ -15,9 +15,10 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createElement, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { createElement, type RefObject } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
@@ -126,7 +127,6 @@ type HookReturn = ReturnType<typeof useMessageReconciliation>;
 // ---------------------------------------------------------------------------
 
 interface HarnessProps {
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
   streamEpochRef: RefObject<number>;
   initialPageOldestTsRef?: RefObject<number | null>;
@@ -139,7 +139,6 @@ let hookModule: typeof import("./use-message-reconciliation") | null = null;
 function HookHarness(props: HarnessProps): null {
   if (!hookModule) throw new Error("hookModule not loaded");
   const result = hookModule.useMessageReconciliation({
-    setMessages: props.setMessages,
     streamContextRef: props.streamContextRef,
     streamEpochRef: props.streamEpochRef,
     initialPageOldestTsRef: props.initialPageOldestTsRef ?? makeRef(null),
@@ -152,7 +151,13 @@ function HookHarness(props: HarnessProps): null {
 // Shared state + helpers
 // ---------------------------------------------------------------------------
 
+/** Read/write proxy for the store's `messages` field. Tests assign to
+ *  `messages` before creating the harness (seeding), then read it after
+ *  reconciliation to check the result. Under the hood everything flows
+ *  through the store's real `setMessages` action — no custom override.
+ *  A store subscription keeps this variable in sync automatically. */
 let messages: DisplayMessage[] = [];
+let unsubscribeMessages: (() => void) | null = null;
 let onPollReconciledSpy: ReturnType<typeof mock>;
 
 function makeRef<T>(value: T): RefObject<T> {
@@ -173,10 +178,6 @@ function createHarness(overrides?: {
   activeConversationId?: string | null;
   turnState?: TurnState;
 }): HookReturn {
-  const setMessages: Dispatch<SetStateAction<DisplayMessage[]>> = (updater) => {
-    messages = typeof updater === "function" ? updater(messages) : updater;
-  };
-
   // Set turn state on the Zustand store before rendering
   const turnState = overrides?.turnState ?? INITIAL_TURN_STATE;
   useTurnStore.setState(turnState);
@@ -191,9 +192,21 @@ function createHarness(overrides?: {
   });
 
   let captured: HookReturn | null = null;
+  // Seed the store's messages field with the current test messages so the
+  // hook's `setMessages` updater reads the correct `prev` value.
+  useChatSessionStore.setState({ messages });
+
+  // Subscribe to keep the local `messages` variable in sync with the store.
+  // This allows existing test assertions (`expect(messages).toHaveLength(...)`)
+  // to work without changes — the store's `setMessages` action updates
+  // `state.messages`, and the subscription propagates it here.
+  if (unsubscribeMessages) unsubscribeMessages();
+  unsubscribeMessages = useChatSessionStore.subscribe((state) => {
+    messages = state.messages;
+  });
+
   renderToStaticMarkup(
     createElement(HookHarness, {
-      setMessages,
       streamContextRef: makeRef(overrides?.streamContext ?? null),
       streamEpochRef: overrides?.streamEpochRef ?? makeRef(overrides?.streamEpoch ?? 0),
       collect: (result) => { captured = result; },
@@ -212,6 +225,11 @@ beforeEach(async () => {
   if (!hookModule) {
     hookModule = await import("./use-message-reconciliation");
   }
+  // Clean up any previous store subscription.
+  if (unsubscribeMessages) {
+    unsubscribeMessages();
+    unsubscribeMessages = null;
+  }
   messages = [];
   mockFetchResult = [];
   mockFetchError = null;
@@ -225,6 +243,18 @@ beforeEach(async () => {
     attentionConversationIds: new Set(),
     activeConversationId: null,
     editingConversationId: null,
+  });
+  // Reset the chat session store to initial state.
+  useChatSessionStore.setState({
+    messages: [],
+    error: null,
+    isLoadingHistory: true,
+    streamingMessageIds: new Set(),
+    pendingQueuedMessageIds: [],
+    requestIdToMessageId: new Map(),
+    pendingLocalDeletions: new Set(),
+    confirmationToolCallMap: new Map(),
+    expandedToolCallIds: new Set(),
   });
 });
 

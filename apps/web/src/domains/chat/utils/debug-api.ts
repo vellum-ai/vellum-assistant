@@ -42,6 +42,7 @@ import type {
 } from "@/types/interaction-ui-types";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
 import {
@@ -367,7 +368,6 @@ const FLAGS_NS = "flags";
  * current value at install time would freeze the API to the initial render.
  */
 export interface ChatDebugRefs {
-  messagesRef: MutableRefObject<DisplayMessage[]>;
   /**
    * Post-`sanitizeDisplayMessages` snapshot. Populated by
    * `chat-route-content.tsx` and read by `getClientMessages()`.
@@ -660,7 +660,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 
   function getScrollState(): ChatDebugScrollState {
     const capturedAt = new Date().toISOString();
-    const messages = refs.messagesRef.current ?? [];
+    const { messages } = useChatSessionStore.getState();
     const itemCount = messages.length;
     const pagination = refs.getScrollPagination();
 
@@ -919,7 +919,6 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
 
   useEffect(() => {
     const stableRefs: ChatDebugRefs = {
-      messagesRef: refs.messagesRef,
       sanitizedMessagesRef: refs.sanitizedMessagesRef,
       transcriptItemsRef: refs.transcriptItemsRef,
       transcriptRef: refs.transcriptRef,

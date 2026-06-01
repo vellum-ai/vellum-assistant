@@ -18,14 +18,13 @@
  */
 
 import {
-  type Dispatch,
   type MutableRefObject,
-  type SetStateAction,
   useEffect,
   useLayoutEffect,
   useRef,
 } from "react";
 
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import {
   createReachabilityBurstLimiter,
   type ReachabilityBurstLimiter,
@@ -79,9 +78,6 @@ export interface UseEventStreamParams {
   reachabilityPhase: string;
   reachabilityReset: () => void;
 
-  // Error
-  setError: Dispatch<SetStateAction<{ message: string; code?: string } | null>>;
-
   // Sync router ref for post-reconnect reconcile
   syncRouterRef: MutableRefObject<WebSyncRouter | null>;
 
@@ -106,7 +102,6 @@ export function useEventStream({
   reachabilityProbe,
   reachabilityPhase,
   reachabilityReset,
-  setError,
   syncRouterRef,
   conversationListInvalidatedTimerRef,
 }: UseEventStreamParams): void {
@@ -122,9 +117,6 @@ export function useEventStream({
 
   const reachabilityProbeRef = useRef(reachabilityProbe);
   reachabilityProbeRef.current = reachabilityProbe;
-
-  const setErrorRef = useRef(setError);
-  setErrorRef.current = setError;
 
   const cancelReconciliationRef = useRef(cancelReconciliation);
   cancelReconciliationRef.current = cancelReconciliation;
@@ -168,8 +160,8 @@ export function useEventStream({
   if (!burstLimiterRef.current) {
     burstLimiterRef.current = createReachabilityBurstLimiter({
       onReady: () => useTurnStore.getState().resetTurn(),
-      onClearError: () => setErrorRef.current(null),
-      onExhausted: (err) => setErrorRef.current(err),
+      onClearError: () => useChatSessionStore.getState().setError(null),
+      onExhausted: (err) => useChatSessionStore.getState().setError(err),
       onReset: () => reachabilityResetRef.current(),
     });
   }

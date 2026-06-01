@@ -50,7 +50,6 @@ function renderEventStream(params: {
       reachabilityProbe: () => {},
       reachabilityPhase: "ready",
       reachabilityReset: () => {},
-      setError: () => {},
       syncRouterRef,
       conversationListInvalidatedTimerRef: timerRef,
     });
