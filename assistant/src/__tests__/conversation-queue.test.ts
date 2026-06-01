@@ -443,9 +443,9 @@ function makeConversation(
     "conv-1",
     provider,
     "system prompt",
-    4096,
     sendToClient ?? (() => {}),
     "/tmp",
+    { maxTokens: 4096 },
   );
   const conversationWithWorkspaceDeps =
     conversationObj as ConversationWithWorkspaceDeps;

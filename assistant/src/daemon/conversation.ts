@@ -162,6 +162,14 @@ export type {
 } from "./conversation-queue-manager.js";
 import type { TrustContext } from "./trust-context.js";
 
+export interface ConversationConstructorOptions {
+  maxTokens?: number;
+  sharedCesClient?: CesClient;
+  speedOverride?: Speed;
+  cacheTtl?: "5m" | "1h";
+  modelOverride?: string;
+}
+
 export class Conversation {
   public readonly conversationId: string;
   /** @internal */ provider: Provider;
@@ -381,14 +389,17 @@ export class Conversation {
     conversationId: string,
     provider: Provider,
     systemPrompt: string,
-    maxTokens: number | undefined,
     sendToClient: (msg: ServerMessage) => void,
     workingDir: string,
-    sharedCesClient?: CesClient,
-    speedOverride?: Speed,
-    cacheTtl?: "5m" | "1h",
-    modelOverride?: string,
+    options?: ConversationConstructorOptions,
   ) {
+    const {
+      maxTokens,
+      sharedCesClient,
+      speedOverride,
+      cacheTtl,
+      modelOverride,
+    } = options ?? {};
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
