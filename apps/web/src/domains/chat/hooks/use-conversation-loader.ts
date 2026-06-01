@@ -42,7 +42,7 @@ import {
   conversationGroupsQueryKey,
   conversationsQueryKey,
   useConversationListQuery,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
 
 // ---------------------------------------------------------------------------
 // Module constants

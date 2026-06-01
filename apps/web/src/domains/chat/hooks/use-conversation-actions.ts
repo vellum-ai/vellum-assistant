@@ -3,7 +3,7 @@ import * as Sentry from "@sentry/react";
 import { type MutableRefObject, useCallback } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { patchConversation } from "@/domains/conversations/conversation-queries";
+import { patchConversation } from "@/hooks/conversation-queries";
 import { archivedConversationsQueryKey } from "@/lib/sync/query-tags";
 import { isSlackConversation } from "@/domains/chat/utils/group-conversations";
 import {
@@ -19,7 +19,7 @@ import { haptic } from "@/utils/haptics";
 import { shouldReturnToBackground } from "@/domains/chat/utils/chat";
 import type { Conversation } from "@/types/conversation-types";
 import { isBackgroundConversation } from "@/utils/conversation-predicates";
-import { useRenameRequestStore } from "@/domains/conversations/rename-request-store";
+import { useRenameRequestStore } from "@/domains/chat/rename-request-store";
 
 // ---------------------------------------------------------------------------
 // Helpers — pure functions, no React state

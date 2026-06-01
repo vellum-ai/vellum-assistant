@@ -23,7 +23,7 @@ import {
   patchGroup,
   removeGroup,
   replaceOptimisticGroup,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
 
 import { haptic } from "@/utils/haptics";
 import type { ConversationGroup } from "@/types/conversation-types";

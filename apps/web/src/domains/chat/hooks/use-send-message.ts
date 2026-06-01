@@ -41,7 +41,7 @@ import {
   prependConversation,
   removeConversation,
   resolveDraftKey,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import {
   consumePendingPreChatContext,

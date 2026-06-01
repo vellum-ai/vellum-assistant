@@ -37,13 +37,13 @@ import {
   conversationsQueryKey,
   useConversationGroupsQuery,
   useConversationListQuery,
-} from "@/domains/conversations/conversation-queries";
-import { useAttentionTracking } from "@/domains/conversations/use-attention-tracking";
-import { useConversationActions } from "@/domains/conversations/use-conversation-actions";
-import { useConversationGroupActions } from "@/domains/conversations/use-conversation-group-actions";
-import { RenameConversationDialog } from "@/domains/conversations/rename-conversation-dialog";
-import { useRenameRequestStore } from "@/domains/conversations/rename-request-store";
-import { patchConversation } from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
+import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking";
+import { useConversationActions } from "@/domains/chat/hooks/use-conversation-actions";
+import { useConversationGroupActions } from "@/domains/chat/hooks/use-conversation-group-actions";
+import { RenameConversationDialog } from "@/domains/chat/components/rename-conversation-dialog";
+import { useRenameRequestStore } from "@/domains/chat/rename-request-store";
+import { patchConversation } from "@/hooks/conversation-queries";
 import { conversationsByIdNamePatch } from "@/generated/daemon/sdk.gen";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";

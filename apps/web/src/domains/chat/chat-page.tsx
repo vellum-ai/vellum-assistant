@@ -35,7 +35,7 @@ import {
 } from "./composer-focus";
 import {
   useConversationListQuery,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -68,7 +68,7 @@ import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
-import { useConversationLoader } from "@/domains/conversations/use-conversation-loader";
+import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loader";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
 import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";

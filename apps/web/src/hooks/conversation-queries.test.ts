@@ -15,7 +15,7 @@ import {
   removeGroup,
   replaceOptimisticGroup,
   resolveDraftKey,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
 import type {
   Conversation,
   ConversationGroup,

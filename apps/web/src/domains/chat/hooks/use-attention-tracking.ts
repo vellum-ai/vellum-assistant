@@ -7,7 +7,7 @@ import {
   getConversations,
   markConversationSeenLocal,
   useConversationListQuery,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
 import { conversationsSeenPost } from "@/generated/daemon/sdk.gen";
 import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions";
 import { USER_FACING_INTERACTION_KINDS } from "@/types/event-types";

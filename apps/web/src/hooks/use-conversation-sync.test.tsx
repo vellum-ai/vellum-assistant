@@ -5,7 +5,7 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import {
   conversationGroupsQueryKey,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { Conversation } from "@/types/conversation-types";
 import { conversationsQueryKey } from "@/lib/sync/query-tags";
@@ -16,10 +16,10 @@ import {
 } from "@/stores/event-bus-store";
 
 // ---------------------------------------------------------------------------
-// Module mock — `@/domains/conversations/fetch-conversation-detail`.
+// Module mock — `@/utils/fetch-conversation-detail`.
 // ---------------------------------------------------------------------------
 const realFetchDetailModule = await import(
-  "@/domains/conversations/fetch-conversation-detail"
+  "@/utils/fetch-conversation-detail"
 );
 const { CONVERSATION_NOT_FOUND } = realFetchDetailModule;
 
@@ -37,7 +37,7 @@ const fetchConversationDetailCalls: Array<{
   conversationId: string;
 }> = [];
 
-mock.module("@/domains/conversations/fetch-conversation-detail", () => ({
+mock.module("@/utils/fetch-conversation-detail", () => ({
   ...realFetchDetailModule,
   fetchConversationDetail: (assistantId: string, conversationId: string) => {
     fetchConversationDetailCalls.push({ assistantId, conversationId });
@@ -46,7 +46,7 @@ mock.module("@/domains/conversations/fetch-conversation-detail", () => ({
 }));
 
 const { useConversationSync } = await import(
-  "@/domains/conversations/use-conversation-sync"
+  "@/hooks/use-conversation-sync"
 );
 
 function createWrapper(queryClient: QueryClient) {

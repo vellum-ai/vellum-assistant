@@ -27,7 +27,7 @@ import {
   conversationGroupsQueryKey,
   patchConversation,
   refreshConversationRow,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { conversationsQueryKey } from "@/lib/sync/query-tags";
 import {

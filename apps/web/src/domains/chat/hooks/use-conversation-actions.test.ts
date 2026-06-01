@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   findNextConversationId,
   resolveUnpinGroupId,
-} from "@/domains/conversations/use-conversation-actions";
+} from "@/domains/chat/hooks/use-conversation-actions";
 import type { Conversation } from "@/types/conversation-types";
 
 function makeConversation(overrides: Partial<Conversation> = {}): Conversation {

@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
-import { listConversations } from "@/domains/conversations/conversation-queries";
+import { listConversations } from "@/hooks/conversation-queries";
 import {
   toConversation,
   type RawConversationSummary,
-} from "@/domains/conversations/conversation-transforms";
+} from "@/utils/conversation-transforms";
 
 /**
  * Build a minimal valid `RawConversationSummary`. Callers override only the

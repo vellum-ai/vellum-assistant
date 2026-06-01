@@ -194,18 +194,17 @@ src/
       types.ts
       components/
         chat-body.tsx
-    conversations/                 # conversation CRUD, grouping, selection
-      conversation-queries.ts
-      use-conversation-loader.ts
-      types.ts
     chat/                          # chat feature module
       turn-store.ts                #   turn-level state machine
       turn-coordinator.ts          #   atomic turn-store + conversation-store transitions
       turn-selectors.ts            #   render-decision selectors from TurnState
   hooks/                           # cross-domain shared hooks
+    conversation-queries.ts        #   TanStack Query hooks + cache helpers
+    use-conversation-sync.ts       #   SSE-driven metadata sync
     use-is-mobile.ts
     use-visible-viewport.ts
   utils/                           # cross-domain shared utilities
+    conversation-transforms.ts     #   daemon → client field mapping
     format.ts
     browser.ts
   types/                           # cross-domain shared types (no owning module)

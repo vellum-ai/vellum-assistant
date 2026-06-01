@@ -1,5 +1,5 @@
 /**
- * TanStack Query hooks and cache helpers for the conversations domain.
+ * TanStack Query hooks and cache helpers for conversations.
  *
  * Conversations and conversation groups are server-derived data and live
  * in TanStack Query per `apps/web/docs/STATE_MANAGEMENT.md`. The
@@ -67,8 +67,8 @@ import {
   CONVERSATION_NOT_FOUND,
   fetchConversationDetail,
   type FetchConversationDetailResult,
-} from "./fetch-conversation-detail";
-import { toConversation } from "./conversation-transforms";
+} from "@/utils/fetch-conversation-detail";
+import { toConversation } from "@/utils/conversation-transforms";
 
 export { CONVERSATION_NOT_FOUND, type FetchConversationDetailResult };
 
