@@ -153,91 +153,65 @@ export async function rewriteForSelfHostedIngress(
 }
 
 /**
- * Interceptor for the platform and auth HeyAPI clients.
+ * Builds a request interceptor for a HeyAPI client.
  *
- * Uses the segment allowlist for self-hosted rewriting — only
- * explicitly listed segments are forwarded to the gateway. Platform-
- * owned routes fall through to Django.
- *
- * Exported for direct unit testing.
+ * @param skipSegmentAllowlist — `true` for the daemon client (every
+ *   daemon SDK endpoint is a daemon route by definition, so all
+ *   assistant sub-resource paths are forwarded to the self-hosted
+ *   gateway unconditionally). `false` for the platform and auth
+ *   clients (only allowlisted segments are forwarded; platform-owned
+ *   routes like maintenance-mode, system-events, etc. fall through
+ *   to Django).
  */
-export async function requestInterceptor(request: Request): Promise<Request> {
-  const newRequest = new Request(request);
+function createInterceptor({ skipSegmentAllowlist = false } = {}) {
+  return async (request: Request): Promise<Request> => {
+    const newRequest = new Request(request);
 
-  // Per-tab client identity — sent on *every* request (GET included) so
-  // SSE-via-fetch readers and short-lived mutations carry the same id.
-  // Stamped first so it rides on both the platform and self-hosted paths.
-  for (const [name, value] of Object.entries(getClientRegistrationHeaders())) {
-    newRequest.headers.set(name, value);
-  }
-
-  // Self-hosted assistant + runtime-proxied path → talk to the user's
-  // gateway directly instead of stamping the platform's session/CSRF
-  // headers and hitting the runtime proxy view that filters us out.
-  const selfHosted = await rewriteForSelfHostedIngress(newRequest);
-  if (selfHosted) {
-    return selfHosted;
-  }
-
-  // Platform path — Django session auth.
-  const organizationId = getActiveOrganizationIdForRequests();
-  if (organizationId) {
-    newRequest.headers.set("Vellum-Organization-Id", organizationId);
-  }
-
-  if (MUTATING_METHODS.has(request.method)) {
-    await ensureCsrfCookie();
-    const csrfToken = getCsrfToken();
-    if (csrfToken) {
-      newRequest.headers.set("X-CSRFToken", csrfToken);
+    // Per-tab client identity — sent on *every* request (GET included)
+    // so SSE-via-fetch readers and short-lived mutations carry the same
+    // id. Stamped first so it rides on both the platform and
+    // self-hosted paths.
+    for (const [name, value] of Object.entries(
+      getClientRegistrationHeaders(),
+    )) {
+      newRequest.headers.set(name, value);
     }
-  }
 
-  return newRequest;
+    // Self-hosted assistant + runtime-proxied path → talk to the user's
+    // gateway directly instead of stamping the platform's session/CSRF
+    // headers.
+    const selfHosted = await rewriteForSelfHostedIngress(newRequest, {
+      skipSegmentAllowlist,
+    });
+    if (selfHosted) {
+      return selfHosted;
+    }
+
+    // Platform path — Django session auth.
+    const organizationId = getActiveOrganizationIdForRequests();
+    if (organizationId) {
+      newRequest.headers.set("Vellum-Organization-Id", organizationId);
+    }
+
+    if (MUTATING_METHODS.has(request.method)) {
+      await ensureCsrfCookie();
+      const csrfToken = getCsrfToken();
+      if (csrfToken) {
+        newRequest.headers.set("X-CSRFToken", csrfToken);
+      }
+    }
+
+    return newRequest;
+  };
 }
 
-/**
- * Interceptor for the daemon HeyAPI client.
- *
- * Bypasses the segment allowlist — every daemon SDK request is a daemon
- * route by definition, so all assistant sub-resource paths are forwarded
- * to the self-hosted gateway unconditionally.
- *
- * Exported for direct unit testing.
- */
-export async function daemonRequestInterceptor(
-  request: Request,
-): Promise<Request> {
-  const newRequest = new Request(request);
+/** Platform + auth clients: uses the segment allowlist. */
+export const requestInterceptor = createInterceptor();
 
-  for (const [name, value] of Object.entries(getClientRegistrationHeaders())) {
-    newRequest.headers.set(name, value);
-  }
-
-  const selfHosted = await rewriteForSelfHostedIngress(newRequest, {
-    skipSegmentAllowlist: true,
-  });
-  if (selfHosted) {
-    return selfHosted;
-  }
-
-  // Fallback: platform path (platform-hosted assistants route daemon
-  // requests through Django's RuntimeProxyWildcardView).
-  const organizationId = getActiveOrganizationIdForRequests();
-  if (organizationId) {
-    newRequest.headers.set("Vellum-Organization-Id", organizationId);
-  }
-
-  if (MUTATING_METHODS.has(request.method)) {
-    await ensureCsrfCookie();
-    const csrfToken = getCsrfToken();
-    if (csrfToken) {
-      newRequest.headers.set("X-CSRFToken", csrfToken);
-    }
-  }
-
-  return newRequest;
-}
+/** Daemon client: bypasses the segment allowlist. */
+export const daemonRequestInterceptor = createInterceptor({
+  skipSegmentAllowlist: true,
+});
 
 daemonClient.interceptors.request.use(daemonRequestInterceptor);
 
