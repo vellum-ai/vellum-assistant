@@ -16,28 +16,9 @@
  */
 
 import { registerPlugin } from "../../registry.js";
-import {
-  type Middleware,
-  type Plugin,
-  PluginExecutionError,
-  type ToolErrorArgs,
-  type ToolErrorDecision,
-} from "../../types.js";
+import { type Plugin, PluginExecutionError } from "../../types.js";
+import defaultToolErrorMiddleware from "./middlewares/toolError.js";
 import pkg from "./package.json" with { type: "json" };
-
-/**
- * Default middleware for the `toolError` slot. Passthrough — calls `next(args)`
- * so later-registered user plugins still participate in the onion chain. The
- * actual decision logic lives in the terminal handler in `./terminal.ts`,
- * wired in at the `runPipeline` call site in `agent/loop.ts`.
- *
- * Named explicitly so the pipeline's structured log record carries
- * `"defaultToolErrorMiddleware"` in `chain` instead of an anonymous entry.
- */
-const defaultToolErrorMiddleware: Middleware<ToolErrorArgs, ToolErrorDecision> =
-  async function defaultToolErrorMiddleware(args, next) {
-    return next(args);
-  };
 
 /**
  * Plugin registration for the default `toolError` behavior. Registered by

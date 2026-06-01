@@ -21,12 +21,8 @@
  */
 
 import { registerPlugin } from "../../registry.js";
-import {
-  type LLMCallArgs,
-  type LLMCallResult,
-  type Plugin,
-  PluginExecutionError,
-} from "../../types.js";
+import { type Plugin, PluginExecutionError } from "../../types.js";
+import llmCall from "./middlewares/llmCall.js";
 import pkg from "./package.json" with { type: "json" };
 
 /**
@@ -45,13 +41,7 @@ export const defaultLlmCallPlugin: Plugin = {
     version: pkg.version,
   },
   middleware: {
-    llmCall: async function defaultLlmCall(
-      args: LLMCallArgs,
-      next,
-      _ctx,
-    ): Promise<LLMCallResult> {
-      return next(args);
-    },
+    llmCall,
   },
 };
 

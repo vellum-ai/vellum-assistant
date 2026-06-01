@@ -30,24 +30,9 @@
  */
 
 import { registerPlugin } from "../../registry.js";
-import {
-  type Middleware,
-  type Plugin,
-  PluginExecutionError,
-  type ToolExecuteArgs,
-  type ToolExecuteResult,
-} from "../../types.js";
+import { type Plugin, PluginExecutionError } from "../../types.js";
+import defaultToolExecute from "./middlewares/toolExecute.js";
 import pkg from "./package.json" with { type: "json" };
-
-/**
- * Passthrough middleware — forwards the call to `next`. Named so the
- * pipeline runner's `chain` log entry reads `defaultToolExecute` instead of
- * `anonymous`.
- */
-const defaultToolExecute: Middleware<ToolExecuteArgs, ToolExecuteResult> =
-  async function defaultToolExecute(args, next) {
-    return next(args);
-  };
 
 /**
  * The default `toolExecute` plugin. Exported as a module constant so the

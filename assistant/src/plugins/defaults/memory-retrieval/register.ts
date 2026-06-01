@@ -36,10 +36,10 @@ import { registerPlugin } from "../../registry.js";
 import {
   type MemoryArgs,
   type MemoryResult,
-  type Middleware,
   type Plugin,
   PluginExecutionError,
 } from "../../types.js";
+import defaultMemoryRetrievalMiddleware from "./middlewares/memoryRetrieval.js";
 import pkg from "./package.json" with { type: "json" };
 
 /**
@@ -166,21 +166,6 @@ export function asDefaultGraphPayload(
   }
   return null;
 }
-
-/**
- * Default `memoryRetrieval` middleware — a pure pass-through.
- *
- * Keeping a real middleware registered (rather than an empty list) makes
- * the pipeline observable in `plugin.pipeline` logs with a non-empty
- * `chain` field and lets third-party plugins rely on the default slot
- * being present even when nothing is overriding it. The work happens in
- * the terminal supplied by the agent loop, which calls
- * {@link runDefaultMemoryRetrieval}.
- */
-const defaultMemoryRetrievalMiddleware: Middleware<MemoryArgs, MemoryResult> =
-  async function defaultMemoryRetrieval(args, next) {
-    return next(args);
-  };
 
 /**
  * Default plugin exposing the `memoryRetrieval` pipeline slot. Registered

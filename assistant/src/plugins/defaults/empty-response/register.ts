@@ -13,19 +13,9 @@
  */
 
 import { registerPlugin } from "../../registry.js";
-import {
-  type EmptyResponseArgs,
-  type EmptyResponseResult,
-  type Middleware,
-  type Plugin,
-  PluginExecutionError,
-} from "../../types.js";
+import { type Plugin, PluginExecutionError } from "../../types.js";
+import emptyResponse from "./middlewares/emptyResponse.js";
 import pkg from "./package.json" with { type: "json" };
-
-const passthrough: Middleware<EmptyResponseArgs, EmptyResponseResult> = async (
-  args,
-  next,
-) => next(args);
 
 /** Singleton plugin — the registry rejects duplicate registrations by name. */
 export const defaultEmptyResponsePlugin: Plugin = {
@@ -34,7 +24,7 @@ export const defaultEmptyResponsePlugin: Plugin = {
     version: pkg.version,
   },
   middleware: {
-    emptyResponse: passthrough,
+    emptyResponse,
   },
 };
 

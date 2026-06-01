@@ -24,10 +24,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { trackCompactionOutcome } from "../daemon/conversation-agent-loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import {
-  COMPACTION_CIRCUIT_FAILURE_THRESHOLD,
-  defaultCircuitBreakerPlugin,
-} from "../plugins/defaults/circuit-breaker/register.js";
+import { COMPACTION_CIRCUIT_FAILURE_THRESHOLD } from "../plugins/defaults/circuit-breaker/middlewares/circuitBreaker.js";
+import { defaultCircuitBreakerPlugin } from "../plugins/defaults/circuit-breaker/register.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,
