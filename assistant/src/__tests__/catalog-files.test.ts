@@ -963,6 +963,7 @@ describe("createVellumCatalogProvider", () => {
     expect(slim!.kind).toBe("catalog");
     expect(slim!.origin).toBe("vellum");
     expect(slim!.status).toBe("available");
+    expect(slim!.category).toBe("knowledge");
   });
 
   test("toSlimSkill returns null for unknown skill", async () => {

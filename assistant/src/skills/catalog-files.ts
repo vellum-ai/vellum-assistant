@@ -30,6 +30,7 @@ import { basename, join, posix, sep } from "node:path";
 
 import { getPlatformBaseUrl } from "../config/env.js";
 import type { SlimSkillResponse } from "../daemon/message-types/skills.js";
+import { inferCategory } from "./category-inference.js";
 import {
   isTextMimeType as isTextMime,
   MAX_INLINE_TEXT_SIZE,
@@ -497,14 +498,16 @@ export async function readCatalogSkillFileContent(
  * otherwise be reachable via the handler module.
  */
 export function catalogSkillToSlim(cs: CatalogSkill): SlimSkillResponse {
+  const name = cs.metadata?.vellum?.["display-name"] ?? cs.name;
   return {
     id: cs.id,
-    name: cs.metadata?.vellum?.["display-name"] ?? cs.name,
+    name,
     description: cs.description,
     emoji: cs.emoji ?? cs.metadata?.emoji,
     kind: "catalog",
     origin: "vellum",
     status: "available",
+    category: inferCategory(name, cs.description),
   };
 }
 

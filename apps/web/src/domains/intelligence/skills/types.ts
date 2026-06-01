@@ -22,6 +22,7 @@ export interface SkillInfo {
   kind: SkillKind;
   status: SkillStatus;
   origin: SkillOrigin;
+  category: SkillCategory;
   slug?: string;
   author?: string;
   stars?: number;

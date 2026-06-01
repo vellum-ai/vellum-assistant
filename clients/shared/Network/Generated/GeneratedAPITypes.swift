@@ -4290,6 +4290,7 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let kind: String
     public let origin: String
     public let status: String
+    public let category: String
     // Clawhub + Skillssh shared:
     public let slug: String?
     public let installs: Int?
@@ -4303,7 +4304,7 @@ public struct SkillsListResponseSkill: Codable, Sendable {
     public let sourceRepo: String?
     public let audit: [String: PartnerAudit]?
 
-    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, version: String? = nil, sourceRepo: String? = nil, audit: [String: PartnerAudit]? = nil) {
+    public init(id: String, name: String, description: String, emoji: String? = nil, kind: String, origin: String, status: String, category: String = "knowledge", slug: String? = nil, installs: Int? = nil, author: String? = nil, stars: Int? = nil, reports: Int? = nil, publishedAt: String? = nil, version: String? = nil, sourceRepo: String? = nil, audit: [String: PartnerAudit]? = nil) {
         self.id = id
         self.name = name
         self.description = description
@@ -4311,6 +4312,7 @@ public struct SkillsListResponseSkill: Codable, Sendable {
         self.kind = kind
         self.origin = origin
         self.status = status
+        self.category = category
         self.slug = slug
         self.installs = installs
         self.author = author

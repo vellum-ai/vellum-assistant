@@ -13,6 +13,7 @@
 import { basename } from "node:path";
 
 import type { SlimSkillResponse } from "../daemon/message-types/skills.js";
+import { inferCategory } from "./category-inference.js";
 import {
   isTextMimeType as isTextMime,
   MAX_INLINE_TEXT_SIZE,
@@ -383,6 +384,7 @@ export function createSkillsShProvider(): SkillFileProvider {
           kind: "catalog",
           status: "available",
           origin: "skillssh",
+          category: inferCategory(source.skillSlug, ""),
           slug: skillId,
           sourceRepo: `${source.owner}/${source.repo}`,
           installs: 0,
