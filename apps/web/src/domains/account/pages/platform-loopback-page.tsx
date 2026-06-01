@@ -45,6 +45,11 @@ export function PlatformLoopbackPage() {
       return;
     }
 
+    if (!/^[a-zA-Z0-9]+$/.test(sessionToken)) {
+      setError("Login failed: invalid session token.");
+      return;
+    }
+
     document.cookie = `sessionid=${sessionToken}; path=/; samesite=lax; max-age=1209600`;
 
     void (async () => {

@@ -19,7 +19,7 @@ import {
   gatewayProxyUrl,
   fetchGuardianToken,
 } from "@/lib/local-mode";
-import { startLoopbackAuth } from "@/lib/auth/loopback-auth";
+import { startLoopbackAuth, useIsPlatformLocal } from "@/lib/auth/loopback-auth";
 import {
   startAuthFlow,
   startNativeLogin,
@@ -245,27 +245,6 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
 // ---------------------------------------------------------------------------
 // Local-mode login — lockfile-driven conditional rendering
 // ---------------------------------------------------------------------------
-
-function useIsPlatformLocal(): boolean | null {
-  const [result, setResult] = useState<boolean | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch("/assistant/__config");
-        if (!res.ok) { if (!cancelled) setResult(false); return; }
-        const config = (await res.json()) as { webUrl?: string };
-        if (!cancelled) {
-          setResult(config.webUrl === window.location.origin);
-        }
-      } catch {
-        if (!cancelled) setResult(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
-  return result;
-}
 
 function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
   const navigate = useNavigate();

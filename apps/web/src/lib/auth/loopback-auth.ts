@@ -9,6 +9,8 @@
  * session cookie.
  */
 
+import { useState, useEffect } from "react";
+
 const FALLBACK_WEB_URL = "https://www.vellum.ai";
 const LOOPBACK_STATE_KEY = "vellum:loopback:state";
 const LOOPBACK_RETURN_TO_KEY = "vellum:loopback:returnTo";
@@ -19,22 +21,39 @@ function generateState(): string {
   return Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function getWebUrl(): Promise<string> {
+async function fetchLocalConfig(): Promise<{ webUrl: string }> {
   try {
     const res = await fetch("/assistant/__config");
     if (res.ok) {
       const config = (await res.json()) as { webUrl?: string };
-      if (config.webUrl) return config.webUrl;
+      if (config.webUrl) return { webUrl: config.webUrl };
     }
   } catch {
     // Fall through to default
   }
-  return FALLBACK_WEB_URL;
+  return { webUrl: FALLBACK_WEB_URL };
+}
+
+export async function isPlatformLocal(): Promise<boolean> {
+  const { webUrl } = await fetchLocalConfig();
+  return webUrl === window.location.origin;
+}
+
+export function useIsPlatformLocal(): boolean | null {
+  const [result, setResult] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void isPlatformLocal().then((value) => {
+      if (!cancelled) setResult(value);
+    });
+    return () => { cancelled = true; };
+  }, []);
+  return result;
 }
 
 export async function startLoopbackAuth(returnTo?: string): Promise<void> {
-  const [webUrl, state] = await Promise.all([
-    getWebUrl(),
+  const [{ webUrl }, state] = await Promise.all([
+    fetchLocalConfig(),
     Promise.resolve(generateState()),
   ]);
   const port = window.location.port || "3000";

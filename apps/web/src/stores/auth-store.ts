@@ -261,7 +261,7 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       await allauthLogout();
     } finally {
       if (isLocalMode()) {
-        document.cookie = "sessionid=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC";
+        document.cookie = "sessionid=; path=/; samesite=lax; expires=Thu, 01 Jan 1970 00:00:00 UTC";
       }
       void deleteBiometricToken();
       clearOnboardingFlags();

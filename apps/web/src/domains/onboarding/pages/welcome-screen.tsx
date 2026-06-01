@@ -4,20 +4,9 @@ import { useNavigate } from "react-router";
 import { Button } from "@vellum/design-library/components/button";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { isLocalMode } from "@/lib/local-mode";
-import { startLoopbackAuth } from "@/lib/auth/loopback-auth";
+import { isPlatformLocal, startLoopbackAuth } from "@/lib/auth/loopback-auth";
 import { startAuthFlow } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
-
-async function isPlatformLocal(): Promise<boolean> {
-  try {
-    const res = await fetch("/assistant/__config");
-    if (!res.ok) return false;
-    const config = (await res.json()) as { webUrl?: string };
-    return config.webUrl === window.location.origin;
-  } catch {
-    return false;
-  }
-}
 
 export function WelcomeScreen() {
   const navigate = useNavigate();
