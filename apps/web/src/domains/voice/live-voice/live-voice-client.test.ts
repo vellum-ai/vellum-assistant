@@ -64,10 +64,18 @@ type SentMessage = string | ArrayBuffer;
 class FakeWebSocket {
   static instances: FakeWebSocket[] = [];
 
+  // Mirror the WHATWG readyState constants the client guards on.
+  static readonly CONNECTING = 0;
+  static readonly OPEN = 1;
+  static readonly CLOSING = 2;
+  static readonly CLOSED = 3;
+
   url: string;
   binaryType = "blob";
   sent: SentMessage[] = [];
   closed = false;
+  // Sockets start life CONNECTING, exactly like a real WebSocket.
+  readyState = FakeWebSocket.CONNECTING;
 
   onopen: (() => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
@@ -80,15 +88,21 @@ class FakeWebSocket {
   }
 
   send(data: SentMessage): void {
+    // Match browser behaviour: sending on a non-OPEN socket throws.
+    if (this.readyState !== FakeWebSocket.OPEN) {
+      throw new Error("InvalidStateError: WebSocket is not open");
+    }
     this.sent.push(data);
   }
 
   close(): void {
     this.closed = true;
+    this.readyState = FakeWebSocket.CLOSED;
   }
 
   // --- test drivers ---
   open(): void {
+    this.readyState = FakeWebSocket.OPEN;
     this.onopen?.();
   }
   receive(frame: object): void {
@@ -470,6 +484,45 @@ describe("teardown", () => {
     expect(ws.sentJson.at(-1)).toEqual({ type: "end" });
     expect(ws.closed).toBe(true);
     expect(closedCount).toBe(1);
+  });
+
+  test("end() during connect (socket still CONNECTING) cancels cleanly without throwing", async () => {
+    const client = makeClient();
+    // Construct the socket but never open() it -> it stays CONNECTING.
+    const ws = await connectAndGetSocket(client);
+    expect(ws.readyState).toBe(FakeWebSocket.CONNECTING);
+
+    const errors: { reason: string }[] = [];
+    let closedCount = 0;
+    client.on("error", (e) => errors.push(e));
+    client.on("closed", () => closedCount++);
+
+    // Must not throw even though the socket can't accept sends yet.
+    expect(() => client.end()).not.toThrow();
+
+    // No `end` frame could be sent on a CONNECTING socket.
+    expect(ws.sent).toHaveLength(0);
+    // The socket is closed and the session ended cleanly — no timeout/failure.
+    expect(ws.closed).toBe(true);
+    expect(closedCount).toBe(1);
+    expect(errors).toHaveLength(0);
+  });
+
+  test("close() during connect (socket still CONNECTING) closes cleanly without throwing", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    expect(ws.readyState).toBe(FakeWebSocket.CONNECTING);
+
+    const errors: unknown[] = [];
+    let closedCount = 0;
+    client.on("error", (e) => errors.push(e));
+    client.on("closed", () => closedCount++);
+
+    expect(() => client.close()).not.toThrow();
+
+    expect(ws.closed).toBe(true);
+    expect(closedCount).toBe(1);
+    expect(errors).toHaveLength(0);
   });
 
   test("close() is idempotent and emits closed exactly once", async () => {

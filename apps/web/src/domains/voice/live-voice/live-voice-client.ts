@@ -215,8 +215,8 @@ export class LiveVoiceChannelClient {
 
   /** Send a binary PCM audio frame. No-op unless the session is active. */
   sendAudio(pcm: ArrayBuffer): void {
-    if (this.state !== "active" || !this.ws) return;
-    this.ws.send(pcm);
+    if (this.state !== "active") return;
+    this.trySend(pcm);
   }
 
   /** Mark the current push-to-talk segment as released. */
@@ -229,10 +229,17 @@ export class LiveVoiceChannelClient {
     this.sendControlFrame("interrupt");
   }
 
-  /** End the session gracefully: send `end`, then close the socket. */
+  /**
+   * End the session gracefully: best-effort send `end`, then always close the
+   * socket. A quick-cancel while still CONNECTING simply skips the (impossible)
+   * `end` send and resolves as a clean close rather than a timeout failure.
+   */
   end(): void {
     if (this.state !== "connecting" && this.state !== "active") return;
-    this.sendControlFrame("end");
+    // Only the `end` frame is meaningful here, and it's strictly best-effort:
+    // trySend() no-ops unless the socket is OPEN, so this never throws while the
+    // socket is still CONNECTING. close() is reached unconditionally below.
+    this.trySend(JSON.stringify({ type: "end" }));
     this.close();
   }
 
@@ -250,7 +257,7 @@ export class LiveVoiceChannelClient {
       audio: START_AUDIO_CONFIG,
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
     };
-    this.ws.send(JSON.stringify(startFrame));
+    this.trySend(JSON.stringify(startFrame));
   }
 
   private handleMessage(event: MessageEvent): void {
@@ -314,11 +321,22 @@ export class LiveVoiceChannelClient {
     this.emit("closed", undefined);
   }
 
-  private sendControlFrame(type: "ptt_release" | "interrupt" | "end"): void {
-    if (this.state !== "active" && !(type === "end" && this.state === "connecting")) {
-      return;
+  private sendControlFrame(type: "ptt_release" | "interrupt"): void {
+    if (this.state !== "active") return;
+    this.trySend(JSON.stringify({ type }));
+  }
+
+  /**
+   * Best-effort send: only writes to the socket when it is actually OPEN.
+   * Calling `send()` on a CONNECTING (or CLOSING/CLOSED) WebSocket throws
+   * `InvalidStateError` in browsers, so guarding on `readyState` keeps a
+   * quick-cancel during connect (and any late send) from throwing.
+   */
+  private trySend(data: string | ArrayBuffer): void {
+    const ws = this.ws;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(data);
     }
-    this.ws?.send(JSON.stringify({ type }));
   }
 
   private fail(
