@@ -6,7 +6,7 @@
  *   - `X-CSRFToken` (mutations only) — required by Django's
  *     SessionAuthentication.
  *   - `X-Vellum-Client-Id` + `X-Vellum-Interface-Id` — identify the
- *     originating tab/interface to the daemon. Required by ATL-703 self-echo
+ *     originating tab/interface to the daemon. Required by self-echo
  *     suppression: the daemon echoes the client id back on the resulting
  *     `sync_changed` so the originator's SSE subscriber can be skipped.
  *
@@ -52,8 +52,8 @@ const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
  * Kept narrow for the platform client: the platform owns routes like
  * `maintenance-mode/`, `system-events/`, `terminal/`, `doctor/` under
  * the same namespace, and forwarding those to the gateway would 404.
- * Once all daemon endpoints are migrated to the daemon SDK (LUM-2108),
- * this list becomes dead code and can be removed (LUM-2112).
+ * Once all daemon endpoints are migrated to the daemon SDK, this list
+ * becomes dead code and can be removed.
  */
 const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>(["conversations"]);
 
@@ -232,7 +232,7 @@ function arePlatformFeaturesEnabled(): boolean {
  * already rewritten to the self-hosted gateway by the preceding
  * {@link requestInterceptor}. Without this check, daemon endpoints
  * (skills, memories, etc.) that route through the platform client would
- * be silently killed even though they target the local daemon. (LUM-2113)
+ * be silently killed even though they target the local daemon.
  *
  * Exported for direct unit testing.
  */
