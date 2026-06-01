@@ -164,12 +164,14 @@ export function useConversationHistory({
       });
 
       // Refresh surface content for embedded surfaces.
+      const requestedConversationForSurfaces = activeConversationId;
       for (const msg of filteredMessages) {
         if (!msg.surfaces) continue;
         for (const surface of msg.surfaces) {
           fetchSurfaceContent(assistantId, surface.surfaceId, activeConversationId).then(
             (fresh) => {
               if (!fresh) return;
+              if (useChatSessionStore.getState().previousConversationId !== requestedConversationForSurfaces) return;
               setMessages((prev) => {
                 for (let i = prev.length - 1; i >= 0; i--) {
                   const m = prev[i]!;

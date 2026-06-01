@@ -52,6 +52,9 @@ export interface ChatSessionState {
   compactionCircuitOpenUntil: Date | null;
 
   // --- Per-conversation mutable maps/sets ---
+  // Imperative-only: mutated in-place by stream handlers via getState().
+  // Do not subscribe to these fields with .use.*() — mutations bypass
+  // Zustand's set() and won't trigger re-renders.
   dismissedSurfaceIds: Set<string>;
   streamingMessageIds: Set<string>;
   pendingQueuedMessageIds: string[];
