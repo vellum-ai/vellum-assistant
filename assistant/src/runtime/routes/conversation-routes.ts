@@ -1338,7 +1338,10 @@ export async function handleSendMessage(
   }
 
   const isInteractive = isInteractiveInterface(sourceInterface);
-  const sourceActorPrincipalId = conversation.trustContext?.guardianPrincipalId;
+  // Use the JWT-verified requester principal — not guardianPrincipalId,
+  // which is the workspace owner and would let a trusted contact's web
+  // turn match against the guardian's macOS client.
+  const sourceActorPrincipalId = actorPrincipalId ?? undefined;
   // Bash/File/Transfer singletons are globally available via isAvailable() —
   // no per-conversation gating needed. CU is per-conversation (owns step
   // count, AX tree history, loop detection).
