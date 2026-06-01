@@ -456,7 +456,10 @@ export function TranscriptMessageBody({
     (tc.toolName === "ui_show" || tc.toolName === "ui_update" || tc.toolName === "ui_dismiss");
   const messageTimestamp = latestMessageActivityTimestamp(message);
 
-  const renderTextWithInlineSurfaces = (text: string, key: string, hardLineBreaks: boolean) => {
+  // Hard line breaks are enabled for every transcript message regardless of
+  // role: single `\n`s in assistant output (not just user Shift+Enter input)
+  // should render as `<br>` rather than collapse to a space — see JARVIS-1007.
+  const renderTextWithInlineSurfaces = (text: string, key: string) => {
     const inlineSegments = parseInlineSurfaces(text);
     if (inlineSegments) {
       return (
@@ -481,7 +484,7 @@ export function TranscriptMessageBody({
                 key={`inline-text-${si}`}
                 className={segmentClass}
               >
-                <ChatMarkdownMessage content={seg.content} hardLineBreaks={hardLineBreaks} />
+                <ChatMarkdownMessage content={seg.content} hardLineBreaks />
               </div>
             );
           })}
@@ -490,7 +493,7 @@ export function TranscriptMessageBody({
     }
     return (
       <div key={key} className={segmentClass}>
-        <ChatMarkdownMessage content={text} hardLineBreaks={hardLineBreaks} />
+        <ChatMarkdownMessage content={text} hardLineBreaks />
       </div>
     );
   };
@@ -720,7 +723,7 @@ export function TranscriptMessageBody({
               if (!text) {
                 return null;
               }
-              return renderTextWithInlineSurfaces(text, `text-${gi}`, message.role === "user");
+              return renderTextWithInlineSurfaces(text, `text-${gi}`);
             }
             if (group.type === "surface") {
               const surface = resolveSurface(group.id);
@@ -752,11 +755,7 @@ export function TranscriptMessageBody({
     // (e.g. tool_use_start before any assistant_text_delta), show the content.
     const interleavedFallback =
       !groups.some((g) => g.type === "text") && message.content
-        ? renderTextWithInlineSurfaces(
-            message.content,
-            "fallback",
-            message.role === "user",
-          )
+        ? renderTextWithInlineSurfaces(message.content, "fallback")
         : null;
 
     // For the user branch: walk the entries in canonical order, tagging text
@@ -839,7 +838,7 @@ export function TranscriptMessageBody({
         const segText = seg?.content ?? entry.id;
         contentEntries.push({
           type: "text",
-          node: renderTextWithInlineSurfaces(segText, `text-${entry.id}`, message.role === "user"),
+          node: renderTextWithInlineSurfaces(segText, `text-${entry.id}`),
         });
       } else if (entry.type === "surface") {
         const surface = resolveSurface(entry.id);
@@ -865,14 +864,14 @@ export function TranscriptMessageBody({
     if (contentEntries.length === 0 && message.content) {
       contentEntries.push({
         type: "text",
-        node: renderTextWithInlineSurfaces(message.content, "fallback", message.role === "user"),
+        node: renderTextWithInlineSurfaces(message.content, "fallback"),
       });
     }
   } else {
     contentEntries.push({
       type: "text",
       node: message.content
-        ? renderTextWithInlineSurfaces(message.content, "content", message.role === "user")
+        ? renderTextWithInlineSurfaces(message.content, "content")
         : null,
     });
   }
