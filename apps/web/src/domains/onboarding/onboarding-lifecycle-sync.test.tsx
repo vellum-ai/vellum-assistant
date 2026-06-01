@@ -378,7 +378,7 @@ describe("onboarding lifecycle sync", () => {
       tone: "grounded",
       userName: "Alice",
       googleConnected: false,
-      initialMessage: "Wake up, my friend!",
+      initialMessage: "Hi, I'm Alice. Nice to meet you.",
     });
 
     await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());

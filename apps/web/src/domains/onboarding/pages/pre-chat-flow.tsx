@@ -34,6 +34,7 @@ import { VibeStepScreen } from "@/domains/onboarding/screens/vibe-step-screen.js
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import { usePrefilledInput } from "@/hooks/use-prefilled-input.js";
 import {
+  buildPreChatInitialMessage,
   setPendingAssistantName,
   setPendingPreChatContext,
   type PreChatOnboardingContext,
@@ -376,7 +377,7 @@ export function PreChatFlow() {
         ...selectedPriorAssistantsForContext,
       ]);
     }
-    context.initialMessage = "Wake up, my friend!";
+    context.initialMessage = buildPreChatInitialMessage(context);
 
     setPendingPreChatContext(context);
     if (trimmedAssistant) setPendingAssistantName(trimmedAssistant);
@@ -444,7 +445,7 @@ export function PreChatFlow() {
         context.assistantName = trimmedAssistant;
       }
       context.googleConnected = false;
-      context.initialMessage = "Wake up, my friend!";
+      context.initialMessage = buildPreChatInitialMessage(context);
       setPendingPreChatContext(context);
       if (trimmedAssistant) {
         setPendingAssistantName(trimmedAssistant);

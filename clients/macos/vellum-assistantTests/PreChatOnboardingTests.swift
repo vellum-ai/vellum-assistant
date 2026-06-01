@@ -84,6 +84,25 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertEqual(decoded.assistantName, original.assistantName)
     }
 
+    func testBuildInitialMessageUsesOnboardingNames() {
+        XCTAssertEqual(
+            PreChatOnboardingContext.buildInitialMessage(userName: "Alex", assistantName: "Nova"),
+            "Hi Nova, I'm Alex. Nice to meet you."
+        )
+        XCTAssertEqual(
+            PreChatOnboardingContext.buildInitialMessage(userName: "Alex", assistantName: nil),
+            "Hi, I'm Alex. Nice to meet you."
+        )
+        XCTAssertEqual(
+            PreChatOnboardingContext.buildInitialMessage(userName: nil, assistantName: "Nova"),
+            "Hi Nova. Nice to meet you."
+        )
+        XCTAssertEqual(
+            PreChatOnboardingContext.buildInitialMessage(userName: "  ", assistantName: "  "),
+            PreChatOnboardingContext.defaultInitialMessage
+        )
+    }
+
     // MARK: - PersonalityGroup Name Pool
 
     func testAllNamesHasUniqueEntries() {
@@ -236,7 +255,11 @@ final class PreChatOnboardingTests: XCTestCase {
             tasks: Array(state.selectedTasks).sorted(),
             tone: "grounded",
             userName: state.userName.isEmpty ? nil : state.userName,
-            assistantName: state.assistantName.isEmpty ? nil : state.assistantName
+            assistantName: state.assistantName.isEmpty ? nil : state.assistantName,
+            initialMessage: PreChatOnboardingContext.buildInitialMessage(
+                userName: state.userName,
+                assistantName: state.assistantName
+            )
         )
         onComplete(context)
 
@@ -246,6 +269,7 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertEqual(receivedContext?.tone, "grounded")
         XCTAssertEqual(receivedContext?.userName, "Alex")
         XCTAssertEqual(receivedContext?.assistantName, "Penn")
+        XCTAssertEqual(receivedContext?.initialMessage, "Hi Penn, I'm Alex. Nice to meet you.")
     }
 
     // MARK: - Identity Cache Seeding

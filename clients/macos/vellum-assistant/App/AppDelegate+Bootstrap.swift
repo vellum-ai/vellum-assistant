@@ -131,7 +131,7 @@ extension AppDelegate {
             }
         }
 
-        let greeting = wakeUpGreeting()
+        let greeting = pendingPreChatContext?.initialMessage ?? wakeUpGreeting()
         showMainWindow(initialMessage: greeting, isFirstLaunch: true)
 
         // showMainWindow always creates mainWindow, but guard defensively.

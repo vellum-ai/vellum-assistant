@@ -2,6 +2,8 @@
 /// Serialized to JSON and sent with the first message so the assistant
 /// can personalize its opener.
 public struct PreChatOnboardingContext: Codable, Sendable {
+    public static let defaultInitialMessage = "Wake up, my friend!"
+
     public let tools: [String]              // e.g. ["slack", "linear", "figma"]
     public let tasks: [String]              // e.g. ["code-building", "writing"]
     public let tone: String                 // "grounded", "warm", "energetic", or "poetic"
@@ -27,5 +29,18 @@ public struct PreChatOnboardingContext: Codable, Sendable {
         self.bootstrapTemplate = bootstrapTemplate
         self.initialMessage = initialMessage
         self.skills = skills
+    }
+
+    public static func buildInitialMessage(userName: String?, assistantName: String?) -> String {
+        let assistant = assistantName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let user = userName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedAssistant = assistant?.isEmpty == false ? assistant : nil
+        let resolvedUser = user?.isEmpty == false ? user : nil
+        if resolvedAssistant == nil && resolvedUser == nil {
+            return defaultInitialMessage
+        }
+        let hi = resolvedAssistant.map { "Hi \($0)" } ?? "Hi"
+        let intro = resolvedUser.map { ", I'm \($0)" } ?? ""
+        return "\(hi)\(intro). Nice to meet you."
     }
 }
