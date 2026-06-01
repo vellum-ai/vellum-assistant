@@ -12,7 +12,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 
 // The default client factory in use-live-voice statically imports the real
 // LiveVoiceChannelClient, which pulls in connection.ts -> the generated SDK.
@@ -241,6 +241,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // Unmount any still-mounted controller so its session teardown runs — with
+  // continuous listening a session stays live (mic open) until stop()/unmount,
+  // so without this the store/session would leak into the next test.
+  cleanup();
   useLiveVoiceStore.getState().reset();
 });
 
@@ -249,7 +253,7 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("full turn", () => {
-  test("drives idle → connecting → listening → transcribing → thinking → speaking → idle", async () => {
+  test("drives idle → connecting → listening → thinking → speaking → listening (continuous)", async () => {
     const h = renderController();
 
     expect(h.view.result.current.state).toBe("idle");
@@ -327,15 +331,17 @@ describe("full turn", () => {
     expect(h.view.result.current.state).toBe("speaking");
     expect(h.player.enqueued).toHaveLength(1);
 
-    // tts_done stops capture and awaits playback drain, then returns to idle.
+    // tts_done awaits playback drain, then resumes listening for the next turn
+    // (continuous conversation): the mic is NOT shut down and the socket stays
+    // open.
     await act(async () => {
       h.client.emit("ttsDone", { type: "tts_done", seq: 8, turnId: "t1" });
       h.player.finishPlayback();
       await Promise.resolve();
     });
-    expect(h.view.result.current.state).toBe("idle");
-    expect(h.client.closed).toBe(true);
-    expect(h.getCapture().shutdownCount).toBeGreaterThanOrEqual(1);
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.closed).toBe(false);
+    expect(h.getCapture().shutdownCount).toBe(0);
   });
 });
 
@@ -389,6 +395,60 @@ describe("barge-in", () => {
     });
 
     expect(h.client.interruptCount).toBe(1);
+  });
+
+  test("realistic turn: auto-release → speaking → barge-in resumes listening → second auto-release", async () => {
+    const h = renderController();
+    await startListening(h);
+    const capture = h.getCapture();
+
+    // --- Turn 1: speak, then go silent so push-to-talk auto-releases. ---
+    act(() => {
+      capture.pushAmplitude(0.1); // speech
+      capture.pushChunk(pcmChunk(200));
+      capture.pushAmplitude(0.0); // trailing silence
+      capture.pushChunk(pcmChunk(1000));
+    });
+    expect(h.client.pttReleaseCount).toBe(1);
+    expect(h.view.result.current.state).toBe("transcribing");
+    // Forwarding is gated off after release, but the mic is still running.
+    const forwardedAfterRelease = h.client.sentAudio.length;
+
+    // Server thinks, then streams TTS — we move to speaking.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 4, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 5,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+
+    // The mic never stopped, so amplitude still flows while the assistant
+    // speaks: a loud reading interrupts (barge-in) and resumes listening.
+    act(() => {
+      capture.pushAmplitude(0.3); // over BARGE_IN_AMPLITUDE_THRESHOLD
+    });
+    expect(h.client.interruptCount).toBe(1);
+    expect(h.player.stopCount).toBe(1);
+    expect(h.view.result.current.state).toBe("listening");
+    // Capture was never shut down across the whole turn.
+    expect(capture.shutdownCount).toBe(0);
+
+    // --- Turn 2: forwarding resumed, so a fresh utterance auto-releases too. ---
+    act(() => {
+      capture.pushAmplitude(0.1); // speech again
+      capture.pushChunk(pcmChunk(200));
+      capture.pushAmplitude(0.0); // silence
+      capture.pushChunk(pcmChunk(1000));
+    });
+    expect(h.client.pttReleaseCount).toBe(2);
+    expect(h.view.result.current.state).toBe("transcribing");
+    // The second utterance's PCM was forwarded after listening resumed.
+    expect(h.client.sentAudio.length).toBeGreaterThan(forwardedAfterRelease);
   });
 });
 
@@ -520,10 +580,12 @@ describe("teardown", () => {
     expect(h.view.result.current.state).toBe("idle");
   });
 
-  test("unmount releases mic, socket, and audio", async () => {
+  test("unmount releases mic, socket, and audio and resets the store to idle", async () => {
     const h = renderController();
     await startListening(h);
     const capture = h.getCapture();
+    // Sanity: a live session leaves the store non-idle before unmount.
+    expect(h.view.result.current.state).toBe("listening");
 
     act(() => {
       h.view.unmount();
@@ -533,6 +595,9 @@ describe("teardown", () => {
     // Unmount must dispose the player so the AudioContext is released.
     expect(h.player.disposeCount).toBeGreaterThanOrEqual(1);
     expect(capture.shutdownCount).toBe(1);
+    // Gap 2: teardown must reset the store so a mid-session unmount doesn't
+    // strand it in a non-idle phase (which would keep dictation disabled).
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
   });
 
   test("stop() with no active session resets to idle without throwing", async () => {

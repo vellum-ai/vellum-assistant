@@ -13,19 +13,29 @@
  * controller instance drives at most one session at a time; `start()` while a
  * session is live is a no-op (matching the macOS guard).
  *
- * ## State transitions (full turn)
+ * ## State transitions (one turn of a continuous conversation)
  * `idle → connecting` (start) → `listening` (ready + capture started) →
  * `transcribing` (ptt released) → `thinking` (server response) → `speaking`
- * (tts_audio) → `idle` (tts_done drained + cleanup).
+ * (tts_audio) → `listening` (tts_done drained → resume for the next turn).
+ * The mic keeps capturing across the whole session; only `stop()`, teardown,
+ * an error, or a server `archived`/`closed` returns to `idle`/`failed`.
+ *
+ * ## Continuous listening
+ * The mic capture graph runs for the entire active session so amplitude keeps
+ * flowing for barge-in even while the assistant is thinking/speaking. What is
+ * gated per-turn is audio *forwarding* (`session.forwardingAudio`): captured
+ * PCM is only streamed to the server while forwarding is on. Push-to-talk
+ * release flips forwarding off (without stopping the mic); barge-in and
+ * end-of-response both flip it back on for the next utterance.
  *
  * ## Barge-in
  * While `speaking`, a captured amplitude over {@link BARGE_IN_AMPLITUDE_THRESHOLD}
- * stops playback and sends `interrupt` (once per response).
+ * stops playback, sends `interrupt` (once per response), and resumes listening.
  *
  * ## Automatic push-to-talk release
  * While `listening`, sustained speech (≥ {@link MINIMUM_SPEECH_DURATION_BEFORE_RELEASE_MS})
  * followed by {@link SILENCE_DURATION_BEFORE_RELEASE_MS} of silence releases
- * push-to-talk and moves to `transcribing`.
+ * push-to-talk and moves to `transcribing` (mic stays open).
  */
 
 import { useCallback, useEffect, useRef } from "react";
@@ -107,7 +117,15 @@ interface SessionContext {
   unsubscribes: Array<() => void>;
   /** Monotonic id; a stale callback whose generation differs is ignored. */
   generation: number;
+  /** Whether the mic capture graph is running (open for the whole session). */
   captureRunning: boolean;
+  /**
+   * Whether captured PCM is currently streamed to the server. Gated per-turn:
+   * on while the user is speaking (`listening`), off after an automatic
+   * push-to-talk release, and flipped back on by barge-in / end-of-response.
+   * Amplitude keeps flowing regardless so barge-in works while not forwarding.
+   */
+  forwardingAudio: boolean;
   /** Whether the assistant has sent any TTS audio for the current response. */
   responseAudioStarted: boolean;
   /** Whether an interrupt was already sent for the current response. */
@@ -146,7 +164,16 @@ export function useLiveVoice(
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
-  /** Tear down the active session's primitives and clear the ref. */
+  /**
+   * Tear down the active session's primitives, clear the ref, and reset the
+   * store to idle.
+   *
+   * Resetting here keeps the store from getting stuck non-idle when the
+   * consumer unmounts mid-session (otherwise the composer would permanently
+   * disable dictation and keep the transcript surface mounted). Callers that
+   * need a terminal state other than `idle` (e.g. `finishWithError` → `failed`)
+   * set it *after* calling `teardown()`, so the reset can't clobber it.
+   */
   const teardown = useCallback(() => {
     const session = sessionRef.current;
     if (!session) return;
@@ -160,6 +187,7 @@ export function useLiveVoice(
     // would leak the context across repeated sessions until page unload.
     void session.player.dispose();
     void session.capture.shutdown();
+    useLiveVoiceStore.getState().reset();
   }, []);
 
   const stop = useCallback(async () => {
@@ -203,6 +231,7 @@ export function useLiveVoice(
         unsubscribes: [],
         generation: 0,
         captureRunning: false,
+        forwardingAudio: false,
         responseAudioStarted: false,
         interruptSent: false,
         releaseInFlight: false,
@@ -230,14 +259,18 @@ export function useLiveVoice(
           if (!live()) return;
           const s = useLiveVoiceStore.getState();
           s.setPartialTranscript(frame.text);
-          if (session.captureRunning) s.setState("listening");
+          // Only while still forwarding (the user's turn) does a partial keep
+          // us in `listening`; after ptt-release we're transcribing/thinking.
+          if (session.forwardingAudio) s.setState("listening");
         }),
         client.on("sttFinal", (frame) => {
           if (!live()) return;
           const s = useLiveVoiceStore.getState();
           s.setFinalTranscript(frame.text);
           s.setPartialTranscript("");
-          s.setState(session.captureRunning ? "listening" : "thinking");
+          // Forwarding ⇒ the user is still speaking (stay listening); otherwise
+          // ptt was released and the server is about to think.
+          s.setState(session.forwardingAudio ? "listening" : "thinking");
         }),
         client.on("thinking", () => {
           if (!live()) return;
@@ -270,7 +303,7 @@ export function useLiveVoice(
         }),
         client.on("ttsDone", () => {
           if (!live()) return;
-          void finishResponseAfterPlayback(session, teardown);
+          void finishResponseAfterPlayback(session);
         }),
         client.on("archived", () => {
           if (!live()) return;
@@ -286,10 +319,10 @@ export function useLiveVoice(
         }),
         client.on("closed", () => {
           // A transport close after a clean end()/teardown is expected; only an
-          // unexpected close while still attached needs cleanup.
+          // unexpected close while still attached needs cleanup. teardown()
+          // resets the store to idle.
           if (!live()) return;
           teardown();
-          useLiveVoiceStore.getState().reset();
         }),
       );
 
@@ -298,7 +331,9 @@ export function useLiveVoice(
     [teardown],
   );
 
-  // Release everything if the consumer unmounts mid-session.
+  // Release everything if the consumer unmounts mid-session. teardown() also
+  // resets the store to idle so a mid-session unmount doesn't strand it in a
+  // non-idle phase (which would keep dictation disabled via the composer).
   useEffect(() => () => teardown(), [teardown]);
 
   return {
@@ -334,18 +369,30 @@ async function startCapture(
     return;
   }
   session.captureRunning = true;
+  session.forwardingAudio = true;
   const s = useLiveVoiceStore.getState();
   if (s.state === "connecting") s.setState("listening");
 }
 
-/** Forward a captured PCM chunk to the server and drive silence detection. */
+/**
+ * Forward a captured PCM chunk to the server and drive silence detection.
+ *
+ * The mic stays open across the whole session, but PCM is only streamed while
+ * `forwardingAudio` is on (i.e. during the user's turn). Silence detection runs
+ * on the same gate so auto-release only fires while we are actually forwarding.
+ */
 function handleChunk(session: SessionContext, buf: ArrayBuffer): void {
-  if (!session.captureRunning) return;
+  if (!session.captureRunning || !session.forwardingAudio) return;
   session.client.sendAudio(buf);
   updateAutomaticRelease(session, buf);
 }
 
-/** Apply the latest amplitude to the store and run barge-in detection. */
+/**
+ * Apply the latest amplitude to the store and run barge-in detection.
+ *
+ * Runs whenever the mic is open — including while not forwarding — so a loud
+ * amplitude can interrupt the assistant mid-response (barge-in).
+ */
 function handleAmplitude(session: SessionContext, amplitude: number): void {
   if (!session.captureRunning) return;
   useLiveVoiceStore.getState().setInputAmplitude(amplitude);
@@ -380,27 +427,46 @@ function updateAutomaticRelease(session: SessionContext, buf: ArrayBuffer): void
   releasePushToTalk(session);
 }
 
-/** Stop forwarding audio and release push-to-talk; moves to `transcribing`. */
+/**
+ * Stop *forwarding* audio and release push-to-talk; moves to `transcribing`.
+ *
+ * The mic capture graph keeps running (so amplitude continues to flow for
+ * barge-in); only the per-turn forwarding gate is closed here.
+ */
 function releasePushToTalk(session: SessionContext): void {
-  if (session.releaseInFlight || !session.captureRunning) return;
+  if (session.releaseInFlight || !session.forwardingAudio) return;
   session.releaseInFlight = true;
-  session.captureRunning = false;
-  void session.capture.stop();
+  session.forwardingAudio = false;
   session.client.pttRelease();
   const s = useLiveVoiceStore.getState();
   if (s.state === "listening") s.setState("transcribing");
   s.setInputAmplitude(0);
 }
 
-/** Barge-in: stop playback and interrupt the server once per response. */
+/**
+ * Resume listening for the next utterance: re-open the forwarding gate, clear
+ * the per-utterance counters/flags, and move to `listening`. The mic is already
+ * running (continuous capture), so there is nothing to restart here.
+ */
+function resumeListening(session: SessionContext): void {
+  session.forwardingAudio = true;
+  session.releaseInFlight = false;
+  session.speechMs = 0;
+  session.silenceMs = 0;
+  useLiveVoiceStore.getState().setState("listening");
+}
+
+/**
+ * Barge-in: stop playback and interrupt the server once per response, then
+ * resume listening so the user's interrupting speech becomes the next turn.
+ */
 function interruptIfSpeaking(session: SessionContext): void {
   if (useLiveVoiceStore.getState().state !== "speaking") return;
   if (!session.player.isPlaying || session.interruptSent) return;
   session.interruptSent = true;
   session.player.stop();
   session.client.interrupt();
-  const s = useLiveVoiceStore.getState();
-  s.setState(session.captureRunning ? "listening" : "idle");
+  resumeListening(session);
 }
 
 /** First TTS frame of a response: reset playback flags for the new utterance. */
@@ -411,25 +477,28 @@ function beginAssistantAudioIfNeeded(session: SessionContext): void {
 }
 
 /**
- * After `tts_done`, stop capturing then await playback drain before cleaning up
- * and returning to `idle`. Stopping capture first prevents drain-window audio
- * from being forwarded (mirrors the macOS ordering).
+ * After `tts_done`, await playback drain, then resume listening for the next
+ * turn — this is a continuous conversation, so the mic is never stopped here.
+ *
+ * Forwarding is suspended during the drain so playback audio captured by the
+ * (still-open) mic isn't streamed back to the server; `resumeListening` re-opens
+ * the gate once the assistant has finished speaking. A barge-in during the drain
+ * already flipped `forwardingAudio` back on and moved us to `listening`, so we
+ * leave that turn alone (only the still-`speaking` case resumes here).
  */
 async function finishResponseAfterPlayback(
   session: SessionContext,
-  teardown: () => void,
 ): Promise<void> {
   const generation = session.generation;
   session.responseAudioStarted = false;
-  session.captureRunning = false;
-  void session.capture.stop();
+  session.forwardingAudio = false;
 
   await session.player.waitUntilDrained();
   if (session.generation !== generation) return;
 
-  useLiveVoiceStore.getState().setState("ending");
-  teardown();
-  useLiveVoiceStore.getState().reset();
+  // A barge-in mid-drain already resumed listening; don't override its turn.
+  if (useLiveVoiceStore.getState().state !== "speaking") return;
+  resumeListening(session);
 }
 
 /** Fail the session: tear down primitives and surface the message. */

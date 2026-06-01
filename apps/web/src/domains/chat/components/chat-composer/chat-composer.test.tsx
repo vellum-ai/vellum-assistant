@@ -24,11 +24,13 @@ mock.module("@/hooks/use-is-mobile", () => ({
 }));
 
 // Live-voice integration mocks. The composer mounts `LiveVoiceButton` (which
-// self-gates on `voice-mode`) and reads `useLiveVoice()` for the transcript
-// surface + dictation mutual-exclusion. Both are mocked so the composer renders
-// in isolation: the flag via a mutable `mockVoiceMode`, and the session via a
-// mutable state + transcript bag. Defaults (flag off, idle, empty) keep the
-// existing HTML-surface assertions unchanged.
+// self-gates on `voice-mode`) and reads live-voice session state via the
+// `useLiveVoiceStore` per-field selectors for the transcript surface +
+// dictation mutual-exclusion. Both are mocked so the composer renders in
+// isolation: the flag via a mutable `mockVoiceMode`, and the session via a
+// mutable state + transcript bag exposed through the store's `.use.*`
+// selectors. Defaults (flag off, idle, empty) keep the existing HTML-surface
+// assertions unchanged.
 let mockVoiceMode = false;
 mock.module("@/stores/assistant-feature-flag-store", () => ({
   useAssistantFeatureFlagStore: {
@@ -52,6 +54,20 @@ const liveStartSpy = mock(
   async (_assistantId: string, _conversationId?: string) => {},
 );
 const liveStopSpy = mock(async () => {});
+// The composer reads session state through the store's per-field selectors
+// (`useLiveVoiceStore.use.state()` etc.), so mock the store rather than the
+// `useLiveVoice` controller. `LiveVoiceButton` is the only `useLiveVoice`
+// consumer, and it is mocked separately below.
+mock.module("@/domains/voice/live-voice/live-voice-store", () => ({
+  useLiveVoiceStore: {
+    use: {
+      state: () => mockLiveVoiceState,
+      partialTranscript: () => mockLivePartial,
+      finalTranscript: () => mockLiveFinal,
+      assistantTranscript: () => mockLiveAssistant,
+    },
+  },
+}));
 mock.module("@/domains/voice/live-voice/use-live-voice", () => ({
   useLiveVoice: () => ({
     state: mockLiveVoiceState,
