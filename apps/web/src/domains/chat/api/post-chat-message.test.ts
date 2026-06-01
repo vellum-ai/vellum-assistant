@@ -32,13 +32,13 @@ describe("postChatMessage onboarding payload", () => {
         bodyText = init.body;
       }
       capturedRequests.push({ url, body: bodyText ?? "" });
-      if (url.includes("/workspace/file/")) {
+      if (url.includes("/workspace/file")) {
         return new Response(JSON.stringify({ detail: "File not found" }), {
           status: 404,
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (url.includes("/workspace/write/")) {
+      if (url.includes("/workspace/write")) {
         return new Response(JSON.stringify({ path: "users/guardian.md", size: 1 }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
@@ -76,7 +76,7 @@ describe("postChatMessage onboarding payload", () => {
 
   function getWorkspaceWriteBodies(): Record<string, unknown>[] {
     return capturedRequests
-      .filter((request) => request.url.includes("/workspace/write/"))
+      .filter((request) => request.url.includes("/workspace/write"))
       .map((request) => JSON.parse(request.body) as Record<string, unknown>);
   }
 
