@@ -1619,6 +1619,28 @@ export function getLastUserTimestampBefore(
   return row?.createdAt ?? 0;
 }
 
+/**
+ * Most recent user-message timestamp (epoch ms) across all conversations, or
+ * `0` when no user message exists.
+ *
+ * Iterates rows newest-first by `rowid` — the implicit integer primary key, so
+ * the traversal is index-ordered — and stops at the first `role = "user"` row.
+ * In practice this touches only the handful of trailing assistant/tool rows
+ * before the latest user turn rather than scanning the whole (potentially
+ * multi-GB) table.
+ */
+export function getLastUserMessageTimestamp(): number {
+  const db = getDb();
+  const row = db
+    .select({ createdAt: messages.createdAt })
+    .from(messages)
+    .where(eq(messages.role, "user"))
+    .orderBy(sql`rowid DESC`)
+    .limit(1)
+    .get();
+  return row?.createdAt ?? 0;
+}
+
 /** Fetch a single message by ID, optionally scoped to a specific conversation. */
 export function getMessageById(
   messageId: string,
