@@ -392,6 +392,11 @@ export class HeartbeatService {
     // a stopped window still clears the count.
     this._consecutiveRuns = 0;
     this._resetGeneration++;
+    if (this._pendingRunId) {
+      supersedePendingRun(this._pendingRunId);
+      this._pendingRunId = null;
+    }
+    refreshBackgroundWakeIntentSoon("heartbeat-counter-reset");
     if (!this.timer) return;
     if (this.cronMode) {
       clearTimeout(this.timer as ReturnType<typeof setTimeout>);
