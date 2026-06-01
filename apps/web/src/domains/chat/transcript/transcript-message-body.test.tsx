@@ -504,6 +504,107 @@ describe("TranscriptMessageBody", () => {
     expect(bubble!.contains(surface)).toBe(false);
   });
 
+  test("preserves contentOrder for a [surface, text] user message (surface before text, outside the bubble)", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "u-order-1",
+          role: "user",
+          content: "",
+          contentOrder: [
+            { type: "surface", id: "s-1" },
+            { type: "text", id: "0" },
+          ],
+          textSegments: [{ type: "text", content: "after surface" }],
+          surfaces: [{ surfaceId: "s-1" } as never],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const surface = container.querySelector("[data-testid='surface']");
+    const markdown = container.querySelector("[data-testid='markdown']");
+    expect(surface).not.toBeNull();
+    expect(markdown?.textContent).toBe("after surface");
+
+    // DOM order matches contentOrder: surface appears before the text.
+    expect(
+      surface!.compareDocumentPosition(markdown!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // The surface is NOT inside a surface-lift bubble; the text IS.
+    const bubble = container.querySelector(
+      "[class*='bg-[var(--surface-lift)]']",
+    );
+    expect(bubble).not.toBeNull();
+    expect(bubble!.contains(surface)).toBe(false);
+    expect(bubble!.contains(markdown)).toBe(true);
+  });
+
+  test("preserves contentOrder for an interleaved [text, tool, text] user message (tool between text, outside bubbles)", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "u-order-2",
+          role: "user",
+          content: "",
+          contentOrder: [
+            { type: "text", id: "0" },
+            { type: "tool", id: "tc-1" },
+            { type: "text", id: "1" },
+          ],
+          textSegments: [
+            { type: "text", content: "before tool" },
+            { type: "text", content: "after tool" },
+          ],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const markdowns = container.querySelectorAll("[data-testid='markdown']");
+    const toolCard = container.querySelector(
+      "[data-testid='tool-progress-card']",
+    );
+    expect(markdowns.length).toBe(2);
+    expect(markdowns[0]!.textContent).toBe("before tool");
+    expect(markdowns[1]!.textContent).toBe("after tool");
+    expect(toolCard).not.toBeNull();
+
+    // DOM order matches contentOrder: text → tool → text.
+    expect(
+      markdowns[0]!.compareDocumentPosition(toolCard!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      toolCard!.compareDocumentPosition(markdowns[1]!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    // Two separate surface-lift bubbles wrap the two text runs; the tool card
+    // is outside both.
+    const bubbles = container.querySelectorAll(
+      "[class*='bg-[var(--surface-lift)]']",
+    );
+    expect(bubbles.length).toBe(2);
+    for (const bubble of bubbles) {
+      expect(bubble.contains(toolCard)).toBe(false);
+    }
+  });
+
   test("omits the user bubble when an interleaved user message has no text or attachments", () => {
     const { container } = render(
       <TranscriptMessageBody

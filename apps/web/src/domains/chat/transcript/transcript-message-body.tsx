@@ -553,6 +553,71 @@ export function TranscriptMessageBody({
     );
   };
 
+  // Render the user-message content from an ordered, tagged list. Walks the
+  // items in canonical `contentOrder` sequence, grouping CONTIGUOUS runs of
+  // text into one `userBubbleClass` bubble while each non-text element (surface
+  // / tool-call group) renders OUTSIDE any bubble in its canonical position —
+  // preserving `contentOrder` and keeping non-text out of the bubble chrome.
+  // Attachments aren't part of `contentOrder`: they append to the last text
+  // bubble (so "text then image" is one bubble) or, when there is no text, get
+  // their own bubble. Empty text runs are skipped so no empty padded box shows.
+  const renderUserContent = (
+    items: Array<{ kind: "text" | "nonText"; node: ReactNode }>,
+  ): ReactNode => {
+    // Plan slots first, then emit JSX once, so trailing attachments can be
+    // pushed into the last text bubble's node array before its element is
+    // created (React captures children at creation time).
+    type Slot =
+      | { kind: "bubble"; nodes: ReactNode[] }
+      | { kind: "raw"; node: ReactNode };
+    const slots: Slot[] = [];
+    let textRun: ReactNode[] = [];
+
+    const flushTextRun = () => {
+      if (textRun.length > 0) {
+        slots.push({ kind: "bubble", nodes: textRun });
+        textRun = [];
+      }
+    };
+
+    for (const item of items) {
+      if (item.kind === "text") {
+        if (item.node) textRun.push(item.node);
+        continue;
+      }
+      flushTextRun();
+      if (item.node) slots.push({ kind: "raw", node: item.node });
+    }
+    flushTextRun();
+
+    if (hasAttachments && message.attachments) {
+      const attachmentsNode = (
+        <BubbleAttachments
+          key="user-attachments"
+          attachments={message.attachments}
+          assistantId={assistantId}
+        />
+      );
+      const lastBubble = slots.findLast((slot) => slot.kind === "bubble");
+      if (lastBubble) {
+        lastBubble.nodes.push(attachmentsNode);
+      } else {
+        slots.push({ kind: "bubble", nodes: [attachmentsNode] });
+      }
+    }
+
+    let bubbleIndex = 0;
+    return slots.map((slot, i) =>
+      slot.kind === "raw" ? (
+        <Fragment key={`user-slot-${i}`}>{slot.node}</Fragment>
+      ) : (
+        <div key={`user-bubble-${bubbleIndex++}`} className={userBubbleClass}>
+          {slot.nodes}
+        </div>
+      ),
+    );
+  };
+
   if (hasInterleavedToolCalls && message.contentOrder) {
     // Group consecutive entries: merge adjacent toolCall/tool entries into a
     // single group (mirrors macOS `groupContentBlocks`).
@@ -680,14 +745,6 @@ export function TranscriptMessageBody({
 
     // Order-preserving flat list for the assistant branch.
     const interleavedGroupElements = interleavedGroupEntries.map((e) => e.node);
-    // For the user branch: text belongs in the bubble; tool-call/surface
-    // elements render outside it (after the bubble).
-    const interleavedTextElements = interleavedGroupEntries
-      .filter((e) => e.type === "text")
-      .map((e) => e.node);
-    const interleavedNonTextElements = interleavedGroupEntries
-      .filter((e) => e.type !== "text")
-      .map((e) => e.node);
 
     // Fallback: if message.content exists but no text groups rendered
     // (e.g. tool_use_start before any assistant_text_delta), show the content.
@@ -700,12 +757,20 @@ export function TranscriptMessageBody({
           )
         : null;
 
-    // Mirrors the legacy user branch's `(hasVisibleLegacyText || hasAttachments)`
-    // gate: only render the surface-lift bubble when it would have visible
-    // content. Without this, an interleaved user message with no resolvable
-    // text, no fallback, and no attachments renders an empty padded box.
-    const hasVisibleInterleavedText =
-      interleavedTextElements.some((el) => !!el) || !!interleavedFallback;
+    // For the user branch: walk the entries in canonical order, tagging text
+    // (and the fallback) as bubble content and tool-call/surface groups as
+    // non-text so `renderUserContent` can split the bubble around them while
+    // preserving `contentOrder`.
+    const interleavedUserItems: Array<{
+      kind: "text" | "nonText";
+      node: ReactNode;
+    }> = interleavedGroupEntries.map((e) => ({
+      kind: e.type === "text" ? "text" : "nonText",
+      node: e.node,
+    }));
+    if (interleavedFallback) {
+      interleavedUserItems.push({ kind: "text", node: interleavedFallback });
+    }
 
     return (
       <div
@@ -718,24 +783,10 @@ export function TranscriptMessageBody({
           className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
         >
           {isUser ? (
-            <>
-              {(hasVisibleInterleavedText || hasAttachments) && (
-                <div className={userBubbleClass}>
-                  {interleavedTextElements}
-                  {interleavedFallback}
-                  {hasAttachments && message.attachments ? (
-                    <BubbleAttachments
-                      attachments={message.attachments}
-                      assistantId={assistantId}
-                    />
-                  ) : null}
-                </div>
-              )}
-              {/* Tool-call cards and surfaces stay outside the user bubble
-                  (low-reachability for user messages, but kept for parity with
-                  the assistant path). */}
-              {interleavedNonTextElements}
-            </>
+            // Text runs render inside surface-lift bubbles; tool-call/surface
+            // groups render outside any bubble in their canonical position so
+            // `contentOrder` is preserved (see `renderUserContent`).
+            renderUserContent(interleavedUserItems)
           ) : (
             <>
               {interleavedGroupElements}
@@ -825,17 +876,19 @@ export function TranscriptMessageBody({
   }
   // Order-preserving flat list for the assistant branch.
   const contentElements = contentEntries.map((e) => e.node);
-  // For the user branch: text in the bubble, surfaces outside it.
-  const legacyTextElements = contentEntries
-    .filter((e) => e.type === "text")
-    .map((e) => e.node);
-  const legacyNonTextElements = contentEntries
-    .filter((e) => e.type !== "text")
-    .map((e) => e.node);
+  // For the user branch: walk the entries in canonical order, tagging text as
+  // bubble content and surfaces as non-text so `renderUserContent` can split
+  // the bubble around them while preserving `contentOrder`.
+  const legacyUserItems: Array<{
+    kind: "text" | "nonText";
+    node: ReactNode;
+  }> = contentEntries.map((e) => ({
+    kind: e.type === "text" ? "text" : "nonText",
+    node: e.node,
+  }));
   const legacyToolCalls =
     message.toolCalls?.filter((tc) => !isSuppressedUiTool(tc)) ?? [];
   const hasVisibleLegacyContent = contentElements.some((el) => !!el);
-  const hasVisibleLegacyText = legacyTextElements.some((el) => !!el);
 
   return (
     <div
@@ -872,25 +925,11 @@ export function TranscriptMessageBody({
           </>
         )}
         {isUser ? (
-          // User messages render text + attachments in a single bubble. The
-          // bubble background/padding live here (userBubbleClass) instead of
-          // per text segment. Rendered whenever there is any text content OR
-          // any attachments, so attachment-only messages still get a bubble.
-          // Surfaces (rare for user messages) render outside the bubble.
-          <>
-            {(hasVisibleLegacyText || hasAttachments) && (
-              <div className={userBubbleClass}>
-                {legacyTextElements}
-                {hasAttachments && message.attachments ? (
-                  <BubbleAttachments
-                    attachments={message.attachments}
-                    assistantId={assistantId}
-                  />
-                ) : null}
-              </div>
-            )}
-            {legacyNonTextElements}
-          </>
+          // User messages render contiguous text runs (plus attachments) inside
+          // surface-lift bubbles; surfaces (rare for user messages) render
+          // outside any bubble in their canonical position so `contentOrder` is
+          // preserved (see `renderUserContent`).
+          renderUserContent(legacyUserItems)
         ) : (
           <>
             {(hasVisibleLegacyContent ||
