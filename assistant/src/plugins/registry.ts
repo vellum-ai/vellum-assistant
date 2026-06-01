@@ -82,15 +82,22 @@ export function setDefaultPluginsRegistrar(registrar: () => void): void {
 }
 
 /**
- * Register the first-party defaults the first time a query reads the registry
- * in an otherwise-unmanaged context. This preserves the invariant that every
- * pipeline / injector consumer observes a populated registry even when it never
- * ran `bootstrapPlugins()` (benchmarks, ad-hoc callers), without each default
- * self-registering at import time. Idempotent, and a no-op once the registry is
- * managed explicitly — production bootstrap registers the defaults directly,
- * and a test that resets the registry takes manual control of its contents.
+ * Register the first-party defaults exactly once per managed window. Invoked
+ * two ways:
+ *
+ * - Explicitly at daemon startup, before `loadUserPlugins()` calls
+ *   {@link closeRegistration}. Defaults must populate the registry while the
+ *   window is still open *and* ahead of any user plugins so the onion ordering
+ *   (defaults registered first) matches the prior import-time behavior.
+ * - Lazily on the first registry query in an otherwise-unmanaged context
+ *   (benchmarks, ad-hoc callers that never run `bootstrapPlugins()`), so those
+ *   consumers still observe a populated registry without each default
+ *   self-registering at import time.
+ *
+ * Idempotent, and a no-op once the registry is managed explicitly — a test that
+ * resets the registry takes manual control of its contents.
  */
-function ensureDefaultPluginsRegistered(): void {
+export function ensureDefaultPluginsRegistered(): void {
   if (defaultPluginsHandled || !defaultPluginsRegistrar) {
     return;
   }

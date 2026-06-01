@@ -40,10 +40,9 @@ import {
 // Every code path that calls `runPipeline` imports this module, so the
 // registrar is always in place before the first pipeline runs; the first
 // registry query then registers the defaults on demand (no registration
-// happens at import time). User plugins load via `loadUserPlugins()` inside
-// `bootstrapPlugins()`, which registers the defaults explicitly first, so the
-// onion ordering (defaults inner, user middleware outer) is preserved in
-// production.
+// happens at import time). In the daemon, startup registers the defaults
+// explicitly before `loadUserPlugins()` runs, so the defaults are ordered
+// ahead of any user middleware.
 import "./defaults/index.js";
 
 const moduleLogger = getLogger("plugin-pipeline");

@@ -7,15 +7,18 @@
  *
  * Consumers:
  *
- * - `daemon/external-plugins-bootstrap.ts` — production/registry boot path;
- *   calls {@link registerDefaultPlugins} inside `bootstrapPlugins()`.
+ * - the registry's default registrar: this module wires
+ *   {@link registerDefaultPlugins} via `setDefaultPluginsRegistrar`. The daemon
+ *   invokes it at startup (`ensureDefaultPluginsRegistered`, before
+ *   `loadUserPlugins()` closes the window); any consumer that reads a pipeline /
+ *   injector without an explicit bootstrap (benchmarks, ad-hoc callers) triggers
+ *   the same registrar lazily on its first query.
+ * - `daemon/external-plugins-bootstrap.ts` — replays {@link registerDefaultPlugins}
+ *   inside `bootstrapPlugins()`; idempotent, so already-registered defaults are
+ *   skipped.
  * - integration tests that reset the registry and then need a
  *   production-parity state (e.g. `conversation-agent-loop.test.ts`); those
  *   call {@link resetPluginRegistryAndRegisterDefaults}.
- * - the registry's lazy fallback for any consumer that reads a pipeline /
- *   injector without an explicit bootstrap (benchmarks, ad-hoc callers): this
- *   module wires {@link registerDefaultPlugins} as the registry's default
- *   registrar, which the first registry query invokes on demand.
  *
  * Each `defaults/<name>/register.ts` module only builds and exports its
  * `Plugin` object; registration is centralized here. Wiring the registrar is a

@@ -61,6 +61,7 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { installPluginRuntime } from "../plugins/external-api.js";
+import { ensureDefaultPluginsRegistered } from "../plugins/registry.js";
 import { loadUserPlugins } from "../plugins/user-loader.js";
 import { backfillGuardIfNeeded } from "../proactive-artifact/index.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
@@ -716,11 +717,18 @@ export async function runDaemon(): Promise<void> {
     // rationale (compiled-binary module identity).
     installPluginRuntime();
 
+    // Register the first-party default plugins before scanning for user
+    // plugins. `loadUserPlugins()` closes the registration window when it
+    // returns, so the defaults must land in the registry while it is still
+    // open. Registering them first also fixes their onion order ahead of any
+    // user middleware.
+    ensureDefaultPluginsRegistered();
+
     // Populate the registry with user plugins from `<workspaceDir>/plugins/*`
-    // AFTER first-party plugins have already registered via their static
-    // side-effect imports. User plugins may fail to load individually; a
-    // failing user plugin is logged and skipped so one bad install can't
-    // prevent the daemon from starting. Ordering is load-bearing:
+    // AFTER the first-party defaults have registered. User plugins may fail to
+    // load individually; a failing user plugin is logged and skipped so one
+    // bad install can't prevent the daemon from starting. Ordering is
+    // load-bearing:
     //   first-party registrations → user registrations → bootstrap (init).
     // Both groups are fully registered before any `init()` runs so plugins
     // that depend on each other's registration observably see a stable
@@ -728,8 +736,8 @@ export async function runDaemon(): Promise<void> {
     await loadUserPlugins();
 
     // Bootstrap registered plugins. Runs after the plugin registry is
-    // populated (first-party static side-effect imports + user plugins
-    // loaded above) and before the DaemonServer starts handling
+    // populated (first-party defaults + user plugins loaded above) and before
+    // the DaemonServer starts handling
     // conversations. Credential resolution + per-plugin storage directory
     // creation happen here. Wrapped in try/catch so a failing plugin can't
     // block daemon startup — bootstrapPlugins internally tears down any
