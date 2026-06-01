@@ -392,9 +392,8 @@ async function exportFromAssistant(
     // daemon, the CLI is updated separately).
     let sourceRuntimeVersion: string;
     try {
-      const identity = await callRuntimeWithAuthRetry(
-        entry,
-        async (token) => localRuntimeIdentity(entry, token),
+      const identity = await callRuntimeWithAuthRetry(entry, async (token) =>
+        localRuntimeIdentity(entry, token),
       );
       sourceRuntimeVersion = identity.version;
     } catch (err) {
@@ -428,16 +427,13 @@ async function exportFromAssistant(
     let jobId: string;
     let accessToken: string;
     try {
-      const result = await callRuntimeWithAuthRetry(
-        entry,
-        async (token) => {
-          const r = await localRuntimeExportToGcs(entry, token, {
-            uploadUrl,
-            description: "teleport export",
-          });
-          return { jobId: r.jobId, token };
-        },
-      );
+      const result = await callRuntimeWithAuthRetry(entry, async (token) => {
+        const r = await localRuntimeExportToGcs(entry, token, {
+          uploadUrl,
+          description: "teleport export",
+        });
+        return { jobId: r.jobId, token };
+      });
       jobId = result.jobId;
       accessToken = result.token;
     } catch (err) {
@@ -719,10 +715,8 @@ async function importToAssistant(
       // download URL — the platform uses it for the bundle compatibility check.
       let targetRuntimeVersion: string;
       try {
-        const identity = await callRuntimeWithAuthRetry(
-          entry.runtimeUrl,
-          entry.assistantId,
-          (token) => localRuntimeIdentity(entry, token),
+        const identity = await callRuntimeWithAuthRetry(entry, (token) =>
+          localRuntimeIdentity(entry, token),
         );
         targetRuntimeVersion = identity.version;
       } catch (err) {
@@ -750,10 +744,8 @@ async function importToAssistant(
         throw err;
       }
 
-      const preflightData = await callRuntimeWithAuthRetry(
-        entry.runtimeUrl,
-        entry.assistantId,
-        (token) => localRuntimePreflightFromGcs(entry, token, { bundleUrl }),
+      const preflightData = await callRuntimeWithAuthRetry(entry, (token) =>
+        localRuntimePreflightFromGcs(entry, token, { bundleUrl }),
       );
       printPreflightSummary(preflightData as unknown as PreflightResponse);
       return;
@@ -774,9 +766,8 @@ async function importToAssistant(
     // target can't actually load) whenever the two drift apart.
     let targetRuntimeVersion: string;
     try {
-      const identity = await callRuntimeWithAuthRetry(
-        entry,
-        (token) => localRuntimeIdentity(entry, token),
+      const identity = await callRuntimeWithAuthRetry(entry, (token) =>
+        localRuntimeIdentity(entry, token),
       );
       targetRuntimeVersion = identity.version;
     } catch (err) {
@@ -819,15 +810,12 @@ async function importToAssistant(
     let jobId: string;
     let accessToken: string;
     try {
-      const result = await callRuntimeWithAuthRetry(
-        entry,
-        async (token) => {
-          const r = await localRuntimeImportFromGcs(entry, token, {
-            bundleUrl,
-          });
-          return { jobId: r.jobId, token };
-        },
-      );
+      const result = await callRuntimeWithAuthRetry(entry, async (token) => {
+        const r = await localRuntimeImportFromGcs(entry, token, {
+          bundleUrl,
+        });
+        return { jobId: r.jobId, token };
+      });
       jobId = result.jobId;
       accessToken = result.token;
     } catch (err) {
