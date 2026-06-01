@@ -16094,9 +16094,124 @@ paths:
                     type: string
                   results:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
-                    description: Results grouped by category
+                    properties:
+                      conversations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            title:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            updatedAt:
+                              type: number
+                            excerpt:
+                              type: string
+                            matchCount:
+                              type: integer
+                              minimum: -9007199254740991
+                              maximum: 9007199254740991
+                          required:
+                            - id
+                            - title
+                            - updatedAt
+                            - excerpt
+                            - matchCount
+                          additionalProperties: false
+                      memories:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            kind:
+                              type: string
+                            text:
+                              type: string
+                            subject:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            confidence:
+                              type: number
+                            updatedAt:
+                              type: number
+                            source:
+                              type: string
+                              enum:
+                                - lexical
+                                - semantic
+                          required:
+                            - id
+                            - kind
+                            - text
+                            - subject
+                            - confidence
+                            - updatedAt
+                            - source
+                          additionalProperties: false
+                      schedules:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            expression:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            message:
+                              type: string
+                            enabled:
+                              type: boolean
+                            nextRunAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                          required:
+                            - id
+                            - name
+                            - expression
+                            - message
+                            - enabled
+                            - nextRunAt
+                          additionalProperties: false
+                      contacts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            displayName:
+                              type: string
+                            notes:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            lastInteraction:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                          required:
+                            - id
+                            - displayName
+                            - notes
+                            - lastInteraction
+                          additionalProperties: false
+                    required:
+                      - conversations
+                      - memories
+                      - schedules
+                      - contacts
+                    additionalProperties: false
                 required:
                   - query
                   - results
