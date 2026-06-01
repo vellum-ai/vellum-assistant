@@ -46,7 +46,7 @@ function proxyExecute(toolName: string) {
 export const uiShowTool = {
   name: "ui_show",
   description:
-    "Surface structured data or UI in the conversation. For long-form writing use the document skill; for interactive apps use the app-builder skill.\n\n" +
+    'Surface structured data or UI in the conversation. For long-form writing use the document skill. For interactive apps, dashboards, games, calculators, or durable tools, call `skill_load` with `skill: "app-builder"` and use the app-builder workflow; do not use `dynamic_page` as a substitute for a persistent app.\n\n' +
     "Surface types (data shapes):\n" +
     '- card: { title, subtitle?, body, metadata?: [{ label, value }], template?, templateData? }. Templates: "weather_forecast" (native weather widget), "task_progress" (live step tracker - update via ui_update on data.templateData; shape: { title, status: "in_progress"|"completed"|"failed", steps: [{ label, status: "pending"|"in_progress"|"completed"|"failed", detail? }] })\n' +
     '- table: { columns: [{ id, label }], rows: [{ id, cells: Record<id, string | { text, icon?, iconColor?: "success"|"warning"|"error"|"muted" }>, selectable?, selected? }], selectionMode?: "none"|"single"|"multiple", caption? }\n' +
