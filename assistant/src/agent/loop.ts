@@ -17,6 +17,7 @@ import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
+  CompactionCircuitEvent,
   CompactionResult,
   EmptyResponseArgs,
   EmptyResponseDecision,
@@ -301,6 +302,15 @@ export type AgentEvent =
        */
       type: "compaction_timed_out";
     }
+  /**
+   * Circuit-breaker transitions emitted when auto-compaction is paused
+   * (`compaction_circuit_open`, after three consecutive summary-LLM
+   * failures) or resumed (`compaction_circuit_closed`). These are already
+   * in wire-contract shape; the daemon's event dispatcher forwards them to
+   * the client unchanged so the "auto-compaction paused" banner shows and
+   * dismisses.
+   */
+  | CompactionCircuitEvent
   | {
       /**
        * Emitted when an agent turn reaches a terminal state. Checkpoint
