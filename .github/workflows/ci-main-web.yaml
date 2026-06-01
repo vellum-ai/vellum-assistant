@@ -8,6 +8,9 @@ on:
       - 'apps/web/**'
       - 'packages/design-library/**'
       - '.github/workflows/ci-main-web.yaml'
+      # The deploy/publish logic lives in this reusable workflow, so a change to
+      # it alone must still exercise the full web CI/CD pipeline.
+      - '.github/workflows/deploy-web-spa.yaml'
 
 # Serialize runs per branch and cancel any superseded in-flight run, so an
 # older commit's deploy can never finish after — and overwrite the bucket's
