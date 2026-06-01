@@ -28,10 +28,24 @@ import type { AssistantState } from "./types";
 
 interface LifecycleState {
   assistantState: AssistantState;
+  /**
+   * One-shot signal: a fresh hatch just completed and the chat surface
+   * should hold the auto-greet loading gate until the first message
+   * arrives. Set on every hatch path (vanilla auto-hatch, nonprod
+   * `hatchVersion`, onboarding hatching-screen, pre-chat-flow) via
+   * `lifecycleService.markExpectingFirstMessage()`; cleared by the
+   * chat surface on exit conditions (messages arrived, 10s safety,
+   * conversation switch). Lives here rather than in `ChatPage`
+   * useState because `useConversationLoader`'s post-hatch redirect
+   * remounts ChatPage — store state survives the remount; component
+   * state does not.
+   */
+  expectingFirstMessage: boolean;
 }
 
 const useAssistantLifecycleStoreBase = create<LifecycleState>(() => ({
   assistantState: { kind: "loading" },
+  expectingFirstMessage: false,
 }));
 
 export const useAssistantLifecycleStore = createSelectors(

@@ -103,21 +103,6 @@ class AssistantLifecycleService {
    * parents' in the same render cycle.
    */
   private ready = false;
-  /**
-   * One-shot signal: a fresh hatch just completed and the chat
-   * surface should show the loading gate until the server's first
-   * greeting message arrives. Set on the two hatch paths that
-   * don't go through the `/onboarding/hatching` flow (vanilla
-   * auto_hatch for a new signup, nonprod `hatchVersion`), consumed
-   * once at the next `ChatPage` mount.
-   *
-   * Lives on the service rather than in component state because
-   * `useConversationLoader`'s `/assistant` → `/assistant/conversations/:id`
-   * redirect after hatch remounts `ChatPage` — the singleton service
-   * survives the redirect, so the consumer reads it on the destination
-   * mount.
-   */
-  private expectingFirstMessage = false;
   private inputs: LifecycleServiceInputs = {
     isLoggedIn: false,
     isLoading: true,
@@ -266,32 +251,20 @@ class AssistantLifecycleService {
 
   /**
    * Mark the next chat mount as expecting an auto-greet. Called from
-   * hatch paths (both inside this service and from the onboarding
-   * hatching screen, which owns its own progress UI and bypasses
-   * `hatchVersion`). One-shot — drained by the chat surface once the
-   * greeting arrives or the safety timer elapses.
+   * every hatch path (vanilla auto-hatch and `hatchVersion` inside
+   * this service; the onboarding hatching screen and pre-chat-flow
+   * externally — both bypass `hatchVersion` because they own their
+   * own progress UI). Drained by the chat surface on exit conditions
+   * (messages arrived, safety timer, conversation switch).
    */
   markExpectingFirstMessage(): void {
-    this.expectingFirstMessage = true;
-  }
-
-  /**
-   * Read `expectingFirstMessage` without clearing it. Pure — safe to
-   * call from a `useState` lazy initializer (which React invokes
-   * twice under `StrictMode` to surface impurities). Multiple mount
-   * cycles in the post-hatch redirect chain all read the same value;
-   * `clearExpectingFirstMessage` is called from the consumer's
-   * exit-condition effects (messages arrived, safety timer), not on
-   * mount, so an intermediate `/assistant` mount that unmounts
-   * before the greeting arrives doesn't strand the destination mount
-   * at `/assistant/conversations/:id`.
-   */
-  peekExpectingFirstMessage(): boolean {
-    return this.expectingFirstMessage;
+    if (useAssistantLifecycleStore.getState().expectingFirstMessage) return;
+    useAssistantLifecycleStore.setState({ expectingFirstMessage: true });
   }
 
   clearExpectingFirstMessage(): void {
-    this.expectingFirstMessage = false;
+    if (!useAssistantLifecycleStore.getState().expectingFirstMessage) return;
+    useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
   }
 
   // ---------------------------------------------------------------------------
@@ -691,7 +664,7 @@ class AssistantLifecycleService {
     this.hatchingVersion = undefined;
     this.generation = 0;
     this.ready = false;
-    this.expectingFirstMessage = false;
+    useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
     this.inputs = {
       isLoggedIn: false,
       isLoading: true,

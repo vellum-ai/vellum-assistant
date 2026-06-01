@@ -211,24 +211,15 @@ export function ChatPage() {
 
   const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  // The loading-gate signal is owned by `lifecycleService` — every
-  // hatch path (vanilla auto-hatch, nonprod `hatchVersion`, onboarding
-  // hatching-screen, pre-chat-flow) calls `markExpectingFirstMessage()`
-  // before navigating here, and the chat surface holds the gate until
-  // the greeting arrives. Peek is pure (`StrictMode` invokes lazy
-  // initializers twice). The lifecycle one-shot is drained by
-  // `dismissAutoGreetGate` from the exit-condition effects below
-  // (messages arrived, safety timer, conversation switch), not on
-  // mount — an intermediate `/assistant` mount that immediately
-  // redirects to `/assistant/conversations/:id` would otherwise
-  // strand the destination mount with the flag already cleared.
-  const [autoGreetPending, setAutoGreetPending] = useState(() =>
-    lifecycleService.peekExpectingFirstMessage(),
-  );
-  const dismissAutoGreetGate = useCallback(() => {
-    setAutoGreetPending(false);
-    lifecycleService.clearExpectingFirstMessage();
-  }, []);
+  // The loading-gate signal lives in `useAssistantLifecycleStore` —
+  // every hatch path (vanilla auto-hatch, nonprod `hatchVersion`,
+  // onboarding hatching-screen, pre-chat-flow) calls
+  // `lifecycleService.markExpectingFirstMessage()` before navigating
+  // here. Drained on exit conditions below (messages arrived, safety
+  // timer, conversation switch). Lives in the store rather than as
+  // local state because `useConversationLoader`'s post-hatch redirect
+  // remounts ChatPage — store state survives the remount.
+  const autoGreetPending = useAssistantLifecycleStore.use.expectingFirstMessage();
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
     hasMore: false,
@@ -802,8 +793,8 @@ export function ChatPage() {
   // Clear the post-hatch loading gate once the first message appears.
   useEffect(() => {
     if (!autoGreetPending) return;
-    if (messages.length > 0) dismissAutoGreetGate();
-  }, [autoGreetPending, messages.length, dismissAutoGreetGate]);
+    if (messages.length > 0) lifecycleService.clearExpectingFirstMessage();
+  }, [autoGreetPending, messages.length]);
 
   // The post-hatch redirect remounts ChatPage; a timeout armed on the
   // first mount is cancelled during that remount. Arm the safety timer
@@ -811,27 +802,30 @@ export function ChatPage() {
   // auto-send cannot strand the user on "Connecting..." until refresh.
   useEffect(() => {
     if (!autoGreetPending) return;
-    const timeout = setTimeout(dismissAutoGreetGate, 10_000);
+    const timeout = setTimeout(
+      () => lifecycleService.clearExpectingFirstMessage(),
+      10_000,
+    );
     return () => clearTimeout(timeout);
-  }, [autoGreetPending, dismissAutoGreetGate]);
+  }, [autoGreetPending]);
 
   // Clear the gate when `activeConversationId` changes after first
-  // mount. Self-contained here rather than threaded into
-  // `useConversationSwitch`'s reset block — auto-greet isn't
-  // per-conversation state, it's a system-wide "we just hatched"
-  // signal that happens to surface in the chat UI. Draft → real ID
-  // handoff also trips this, but by then the messages-arrived effect
-  // has already dismissed the gate (sending the first message is
-  // what resolves the draft), so the second dismiss is a no-op.
+  // mount. Auto-greet isn't per-conversation state — it's a
+  // system-wide "we just hatched" signal that happens to surface in
+  // the chat UI, so it doesn't belong in `useConversationSwitch`'s
+  // reset block. Draft → real ID handoff also trips this, but by
+  // then the messages-arrived effect has already dismissed the gate
+  // (sending the first message is what resolves the draft), so the
+  // second dismiss is a no-op.
   const lastSeenConvIdForGateRef = useRef<string | null>(null);
   useEffect(() => {
     if (activeConversationId == null) return;
     const previous = lastSeenConvIdForGateRef.current;
     lastSeenConvIdForGateRef.current = activeConversationId;
     if (previous != null && previous !== activeConversationId) {
-      dismissAutoGreetGate();
+      lifecycleService.clearExpectingFirstMessage();
     }
-  }, [activeConversationId, dismissAutoGreetGate]);
+  }, [activeConversationId]);
 
   // Derive onboardingTasksEmpty from the pending context in sessionStorage.
   // Runs once on mount — if initial message key is present, this is an
