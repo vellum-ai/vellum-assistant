@@ -174,8 +174,8 @@ export function useDiskPressureMonitor({
     // Capacitor foreground, and `window.online`, so a single
     // subscription drives the focus-style refetch.
     const unsubResume = subscribe("app.resume", () => {
-        void refresh();
-      });
+      void refresh();
+    });
 
     return () => {
       window.clearInterval(intervalId);

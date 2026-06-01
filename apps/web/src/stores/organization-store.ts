@@ -217,8 +217,8 @@ export function setupOrganizationStore(): () => void {
   };
 
   const unsubResume = subscribe("app.resume", () => {
-      refetchIfStale();
-    });
+    refetchIfStale();
+  });
 
   return () => {
     unsubStale();
