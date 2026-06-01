@@ -273,6 +273,53 @@ describe("RemoteFeatureFlagSync", () => {
     expect(cached).toEqual({ browser: true });
   });
 
+  test("syncNow re-fetches with current credentials after an identity change (warm-pool claim)", async () => {
+    // Regression for JARVIS-1018: a warm-pool pod that already synced flags
+    // for a previous identity gets reassigned to a new assistant. The
+    // credential-change wiring in index.ts calls syncNow(); it must re-fetch
+    // with the NEW api key and overwrite the cached per-assistant flag values
+    // immediately, rather than serving the previous identity's (or registry
+    // default) values until the next ~5-min poll.
+    const cache = fakeCredentialCache({
+      "credential/vellum/platform_base_url": "https://platform.example.com",
+      "credential/vellum/assistant_api_key": "old-assistant-key",
+    });
+
+    // Previous identity: self-intro-greeting OFF.
+    fetchMock = mock(async () =>
+      Response.json({ flags: { "self-intro-greeting": false } }),
+    );
+
+    const sync = new RemoteFeatureFlagSync({ credentials: cache });
+    await sync.start();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    clearRemoteFeatureFlagStoreCache();
+    expect(readRemoteFeatureFlags()).toEqual({ "self-intro-greeting": false });
+
+    // Warm-pool claim: credentials now belong to the newly-assigned assistant,
+    // whose flag evaluation returns self-intro-greeting ON.
+    cache._setValues({
+      "credential/vellum/platform_base_url": "https://platform.example.com",
+      "credential/vellum/assistant_api_key": "new-assistant-key",
+    });
+    fetchMock = mock(async () =>
+      Response.json({ flags: { "self-intro-greeting": true } }),
+    );
+
+    await sync.syncNow();
+    sync.stop();
+
+    // Re-fetched immediately, authenticated as the new identity...
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0];
+    const headers = init?.headers as Record<string, string>;
+    expect(headers.Authorization).toBe("Api-Key new-assistant-key");
+
+    // ...and the cached value now reflects the new assistant.
+    clearRemoteFeatureFlagStoreCache();
+    expect(readRemoteFeatureFlags()).toEqual({ "self-intro-greeting": true });
+  });
+
   test("preserves cached flags on non-OK response", async () => {
     // First, seed cached flags with a successful fetch
     fetchMock = mock(async () =>
