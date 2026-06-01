@@ -47,11 +47,48 @@ export function formatDeterministicRecallAnswer(
         searchedSources: result.searchedSources,
         inspectCalls: options.inspectCalls,
       }),
+      formatRecallProvenanceTrailer(result.evidence),
     ]
       .filter(Boolean)
       .join("\n"),
     evidence: result.evidence,
   };
+}
+
+/**
+ * Emits a small, machine-readable trailer marking recall output as stored
+ * memory (not live state) and stamping the recency of the evidence behind it.
+ * Consumers should treat recall as historical context and verify a resource's
+ * current status before asserting it. Returns an empty string when there is no
+ * evidence to stamp.
+ */
+export function formatRecallProvenanceTrailer(
+  evidence: readonly RecallEvidence[],
+): string {
+  if (evidence.length === 0) {
+    return "";
+  }
+
+  const latestTimestampMs = evidence.reduce<number | undefined>((max, item) => {
+    if (typeof item.timestampMs !== "number") {
+      return max;
+    }
+    return max === undefined || item.timestampMs > max ? item.timestampMs : max;
+  }, undefined);
+
+  const payload: {
+    provenance: "stored_memory";
+    mostRecentEvidenceAt?: string;
+  } = { provenance: "stored_memory" };
+  if (latestTimestampMs !== undefined) {
+    payload.mostRecentEvidenceAt = formatEvidenceDate(latestTimestampMs);
+  }
+
+  return ["```json", JSON.stringify(payload), "```"].join("\n");
+}
+
+function formatEvidenceDate(timestampMs: number): string {
+  return new Date(timestampMs).toISOString().slice(0, 10);
 }
 
 export function formatRecallFooter(options: RecallFooterOptions): string {

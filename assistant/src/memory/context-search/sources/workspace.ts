@@ -254,6 +254,7 @@ export async function searchWorkspaceSource(
     .slice(0, limit)
     .map(toEvidence);
 
+  await attachWorkspaceFileTimestamps(evidence, rootRealPath);
   return { evidence };
 }
 
@@ -309,7 +310,57 @@ export async function inspectWorkspacePaths(
     evidence.push(...matches.slice(0, 1).map(toEvidence));
   }
 
+  await attachWorkspaceFileTimestamps(evidence, rootRealPath);
   return { evidence, errors };
+}
+
+/**
+ * Stamps workspace evidence with the source file's last-modified time so recall
+ * can report how recent its workspace-sourced context is. Unlike memory and
+ * conversation evidence (which carry their own creation timestamps), workspace
+ * matches have no intrinsic timestamp, so the file mtime is the best available
+ * recency proxy. Files are statted once each; unreadable paths are left
+ * un-stamped.
+ */
+async function attachWorkspaceFileTimestamps(
+  evidence: readonly RecallEvidence[],
+  rootRealPath: string,
+): Promise<void> {
+  const mtimeByPath = new Map<string, number | null>();
+  for (const item of evidence) {
+    const relativePath =
+      typeof item.metadata?.path === "string" ? item.metadata.path : null;
+    if (!relativePath) {
+      continue;
+    }
+    let mtimeMs = mtimeByPath.get(relativePath);
+    if (mtimeMs === undefined) {
+      mtimeMs = await readWorkspaceFileMtimeMs(relativePath, rootRealPath);
+      mtimeByPath.set(relativePath, mtimeMs);
+    }
+    if (mtimeMs !== null) {
+      item.timestampMs = mtimeMs;
+    }
+  }
+}
+
+async function readWorkspaceFileMtimeMs(
+  relativePath: string,
+  rootRealPath: string,
+): Promise<number | null> {
+  const fileRealPath = await resolveContainedPath(
+    join(rootRealPath, relativePath),
+    rootRealPath,
+  );
+  if (!fileRealPath) {
+    return null;
+  }
+  try {
+    const stats = await stat(fileRealPath);
+    return stats.isFile() ? Math.floor(stats.mtimeMs) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function extractWorkspacePathLiterals(text: string): string[] {

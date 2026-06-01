@@ -16,6 +16,7 @@ import {
 import {
   formatDeterministicRecallAnswer,
   formatRecallFooter,
+  formatRecallProvenanceTrailer,
 } from "./format.js";
 import {
   isRecallSource,
@@ -700,6 +701,7 @@ function finishRecallFromToolUse(
       searchedSources: searchResult.searchedSources,
       inspectCalls: debug.inspectCalls,
     }),
+    provenanceTrailer: formatRecallProvenanceTrailer(citedEvidence),
   });
 
   return {
@@ -822,11 +824,13 @@ function formatAgenticRecallContent(options: {
   answer: string;
   availableEvidence: readonly RecallEvidence[];
   footer: string;
+  provenanceTrailer: string;
 }): string {
   return [
     options.answer.trim(),
     formatAvailableEvidence(options.availableEvidence),
     options.footer,
+    options.provenanceTrailer,
   ]
     .filter(Boolean)
     .join("\n\n");

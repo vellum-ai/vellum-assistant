@@ -37,6 +37,11 @@ interface SearchCall {
   signal?: AbortSignal;
 }
 
+// Recall stamps every evidence-backed answer with a provenance trailer. Fixtures
+// here carry no timestamps, so only the stored-memory flag is emitted.
+const STORED_MEMORY_TRAILER =
+  '\n\n```json\n{"provenance":"stored_memory"}\n```';
+
 const testDirs: string[] = [];
 
 afterEach(() => {
@@ -201,7 +206,7 @@ describe("runAgenticRecall", () => {
     );
 
     expect(result.content).toBe(
-      "Alice chose Friday.\n\nSearched sources: workspace.",
+      `Alice chose Friday.\n\nSearched sources: workspace.${STORED_MEMORY_TRAILER}`,
     );
     expect(result.debug.mode).toBe("agentic");
     expect(result.debug.roundsUsed).toBe(1);
@@ -389,7 +394,7 @@ describe("runAgenticRecall", () => {
       },
     ]);
     expect(result.content).toBe(
-      "The decision note says Friday.\n\nSearched sources: workspace.",
+      `The decision note says Friday.\n\nSearched sources: workspace.${STORED_MEMORY_TRAILER}`,
     );
     expect(result.debug.searchCalls).toEqual([
       {
@@ -706,7 +711,7 @@ describe("runAgenticRecall", () => {
     expect(finalTools.map((tool) => tool.name)).toEqual(["finish_recall"]);
     expect(result.evidence.map((item) => item.id)).toEqual(["workspace:more"]);
     expect(result.content).toBe(
-      "The follow-up note resolves it.\n\nAvailable evidence:\n1. [workspace] workspace:more title (workspace:more.md): workspace:more excerpt\n2. [workspace] workspace:seed title (workspace:seed.md): workspace:seed excerpt\n\nSearched sources: workspace.",
+      `The follow-up note resolves it.\n\nAvailable evidence:\n1. [workspace] workspace:more title (workspace:more.md): workspace:more excerpt\n2. [workspace] workspace:seed title (workspace:seed.md): workspace:seed excerpt\n\nSearched sources: workspace.${STORED_MEMORY_TRAILER}`,
     );
   });
 

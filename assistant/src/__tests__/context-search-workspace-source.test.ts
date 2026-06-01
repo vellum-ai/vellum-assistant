@@ -3,6 +3,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -87,6 +88,26 @@ describe("searchWorkspaceSource", () => {
       lineNumber: 3,
       matchedTerms: ["alpha", "beta"],
     });
+  });
+
+  test("stamps evidence with the source file's last-modified time", async () => {
+    // GIVEN a workspace file matching the query
+    const root = makeTempDir();
+    writeWorkspaceFile(root, "notes/project.md", "alpha beta launch checklist");
+    const expectedMtimeMs = Math.floor(
+      statSync(join(root, "notes/project.md")).mtimeMs,
+    );
+
+    // WHEN searching the workspace source
+    const result = await searchWorkspaceSource(
+      "alpha beta",
+      makeContext(root),
+      10,
+    );
+
+    // THEN the evidence carries the file mtime as its recency timestamp
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0].timestampMs).toBe(expectedMtimeMs);
   });
 
   test("rejects symlink entries that resolve outside the workspace root", async () => {
