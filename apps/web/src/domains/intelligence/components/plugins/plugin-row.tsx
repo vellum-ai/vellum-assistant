@@ -54,7 +54,7 @@ export function PluginRow({ plugin, onSelect }: PluginRowProps) {
                 className="shrink-0 text-body-small-default"
                 style={{ color: "var(--content-tertiary)" }}
               >
-                v{plugin.version}
+                v{String(plugin.version)}
               </span>
             ) : null}
           </div>
@@ -62,7 +62,7 @@ export function PluginRow({ plugin, onSelect }: PluginRowProps) {
             className="mt-1 truncate text-body-medium-lighter"
             style={{ color: "var(--content-secondary)" }}
           >
-            {plugin.description ?? "No description provided."}
+            {typeof plugin.description === "string" ? plugin.description : "No description provided."}
           </p>
           {plugin.issues && plugin.issues.length > 0 ? (
             <p

@@ -114,5 +114,6 @@ export function useGhostTextSuggestion({
     retry: false,
   });
 
-  return query.data?.suggestion ?? null;
+  const suggestion = query.data?.suggestion;
+  return typeof suggestion === "string" ? suggestion : null;
 }
