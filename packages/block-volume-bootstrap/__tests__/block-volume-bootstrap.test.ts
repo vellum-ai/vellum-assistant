@@ -167,6 +167,117 @@ describe("block volume bootstrap scripts", () => {
     expect(result.stderr).not.toContain("remount,bind,ro");
   });
 
+  test("mount helper rejects dot-segment block roots", () => {
+    const result = runScript(mountScript, {
+      args: ["--", "true"],
+      env: {
+        VELLUM_BLOCK_ROOT: "/mnt/..",
+        VELLUM_BLOCK_BIND_SPECS: "workspace:/workspace:rw",
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "VELLUM_BLOCK_ROOT must not contain . or .. path components",
+    );
+    expect(result.stderr).not.toContain("wait for block device");
+    expect(result.stderr).not.toContain("mkdir -p");
+  });
+
+  test("mount helper rejects dot-segment bind targets", () => {
+    const result = runScript(mountScript, {
+      args: ["--", "true"],
+      env: {
+        VELLUM_BLOCK_BIND_SPECS:
+          "workspace:/workspace/../gateway-security:rw",
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "bind target must not contain . or .. path components",
+    );
+    expect(result.stderr).not.toContain("wait for block device");
+    expect(result.stderr).not.toContain("mount --bind");
+  });
+
+  test("mount helper rejects existing block roots from the wrong source", () => {
+    const result = runScript(mountScript, {
+      args: ["--", "true"],
+      env: {
+        VELLUM_BLOCK_BIND_SPECS: "workspace:/workspace:rw",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_MOUNTED: "1",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_TARGET: "/mnt/test-root",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_SOURCE: "/dev/wrong-block",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_OPTIONS: "rw,relatime",
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "/mnt/test-root is mounted from /dev/wrong-block; expected /dev/test-block",
+    );
+    expect(result.stderr).not.toContain("mount --bind");
+    expect(result.stderr).not.toContain("exec true");
+  });
+
+  test("mount helper rejects existing bind targets from the wrong source", () => {
+    const result = runScript(mountScript, {
+      args: ["--", "true"],
+      env: {
+        VELLUM_BLOCK_BIND_SPECS: "workspace:/workspace:rw",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_MOUNTED: "1",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_TARGET: "/workspace",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_SOURCE: "/mnt/test-root/other",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_OPTIONS: "rw,relatime",
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "/workspace is mounted from /mnt/test-root/other; expected /mnt/test-root/workspace",
+    );
+    expect(result.stderr).not.toContain("exec true");
+  });
+
+  test("mount helper accepts matching existing bind targets", () => {
+    const result = runScript(mountScript, {
+      args: ["--", "true"],
+      env: {
+        VELLUM_BLOCK_BIND_SPECS: "workspace:/workspace:rw",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_MOUNTED: "1",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_TARGET: "/workspace",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_SOURCE: "/dev/test-block",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_FSROOT: "/workspace",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_OPTIONS: "rw,relatime",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain("/workspace is already mounted");
+    expect(result.stderr).not.toContain("mount --bind /mnt/test-root/workspace /workspace");
+    expect(result.stderr).toContain("DRY-RUN: exec true");
+  });
+
+  test("mount helper rejects stale read-only binds when rw is requested", () => {
+    const result = runScript(mountScript, {
+      args: ["--", "true"],
+      env: {
+        VELLUM_BLOCK_BIND_SPECS: "workspace:/workspace:rw",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_MOUNTED: "1",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_TARGET: "/workspace",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_SOURCE: "/mnt/test-root/workspace",
+        VELLUM_BLOCK_DRY_RUN_FINDMNT_OPTIONS: "ro,relatime",
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "/workspace is mounted with options ro,relatime; expected rw",
+    );
+    expect(result.stderr).not.toContain("exec true");
+  });
+
   test("init helper formats only devices with no filesystem", () => {
     const result = runScript(initScript);
 
@@ -252,6 +363,23 @@ describe("block volume bootstrap scripts", () => {
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("bind target must not be empty or /");
+    expect(result.stderr).not.toContain("findmnt --target");
+    expect(result.stderr).not.toContain("df -h");
+  });
+
+  test("resize helper rejects dot-segment evidence paths", () => {
+    const result = runScript(resizeScript, {
+      args: ["/workspace/.."],
+      env: {
+        VELLUM_BLOCK_DRY_RUN_BLKID_TYPE: "ext4",
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "bind target must not contain . or .. path components",
+    );
+    expect(result.stderr).not.toContain("resize2fs");
     expect(result.stderr).not.toContain("findmnt --target");
     expect(result.stderr).not.toContain("df -h");
   });

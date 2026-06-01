@@ -9,7 +9,6 @@ block_print_resize_evidence() {
   path="$1"
   [ -n "${path}" ] || return 0
 
-  path="$(block_normalize_target_path "${path}")"
   block_run "findmnt --target ${path}" findmnt --target "${path}"
   block_run "df -h ${path}" df -h "${path}"
 }
@@ -23,6 +22,9 @@ if [ "$#" -gt 1 ]; then
 fi
 if [ "$#" -eq 1 ]; then
   evidence_path="$1"
+fi
+if [ -n "${evidence_path}" ]; then
+  evidence_path="$(block_normalize_target_path "${evidence_path}")"
 fi
 
 block_wait_for_device
