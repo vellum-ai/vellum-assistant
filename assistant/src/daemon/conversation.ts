@@ -80,7 +80,6 @@ import {
   applyCompactionResult,
   runAgentLoopImpl,
 } from "./conversation-agent-loop.js";
-import { trackCompactionOutcome } from "./conversation-agent-loop-handlers.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
 import { undo as undoImpl } from "./conversation-history.js";
 import {
@@ -213,19 +212,6 @@ export class Conversation {
    * stripped and never re-emits them.
    */
   /** @internal */ pendingPostCompactReinject = false;
-  /**
-   * Tracks consecutive compaction failures (summary LLM call threw). In-memory
-   * only — resets to 0 on process restart, which is the intended "one free
-   * retry after restart" behavior. Reset to 0 on any successful compaction.
-   */
-  /** @internal */ consecutiveCompactionFailures = 0;
-  /**
-   * When the circuit breaker is open, this timestamp (ms since epoch) marks
-   * when auto-compaction is allowed to resume. Set to `Date.now() + 1h` after
-   * 3 consecutive failures; cleared on a successful compaction. User-initiated
-   * compaction (`force: true`) bypasses the breaker regardless.
-   */
-  /** @internal */ compactionCircuitOpenUntil: number | null = null;
   /** @internal */ currentRequestId?: string;
   /** @internal */ hasNoClient = false;
   /** @internal */ isSubagent = false;
@@ -539,6 +525,7 @@ export class Conversation {
     }
 
     this.agentLoop = new AgentLoop(provider, systemPrompt, {
+      conversationId: this.conversationId,
       config: agentLoopConfig,
       tools: toolDefs.length > 0 ? toolDefs : undefined,
       toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
@@ -1099,9 +1086,9 @@ export class Conversation {
     // is `undefined` on early-return paths (no eligible messages, disabled,
     // etc.) — skip those so they don't silently reset the counter.
     if (result.summaryFailed !== undefined) {
-      await trackCompactionOutcome(
-        this,
+      await this.agentLoop.compactionCircuit.recordOutcome(
         result.summaryFailed,
+        this,
         this.sendToClient,
       );
     }

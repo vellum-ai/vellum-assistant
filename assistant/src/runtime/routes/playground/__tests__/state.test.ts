@@ -53,8 +53,14 @@ function makeFakeConversation(
     getMessages: () => messages,
     contextCompactedMessageCount: overrides.contextCompactedMessageCount ?? 0,
     contextCompactedAt: overrides.contextCompactedAt ?? null,
-    consecutiveCompactionFailures: overrides.consecutiveCompactionFailures ?? 0,
-    compactionCircuitOpenUntil: overrides.compactionCircuitOpenUntil ?? null,
+    agentLoop: {
+      compactionCircuit: {
+        consecutiveCompactionFailures:
+          overrides.consecutiveCompactionFailures ?? 0,
+        compactionCircuitOpenUntil:
+          overrides.compactionCircuitOpenUntil ?? null,
+      },
+    },
   } as unknown as Conversation;
 }
 

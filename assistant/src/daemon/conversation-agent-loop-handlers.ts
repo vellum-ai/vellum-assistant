@@ -45,9 +45,6 @@ import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/term
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
-  CircuitBreakerArgs,
-  CircuitBreakerResult,
-  CompactionCircuitEvent,
   PersistArgs,
   PersistReserveResult,
   PersistResult,
@@ -93,7 +90,7 @@ import type {
   WebSearchMetadata,
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
-import type { TrustContext } from "./trust-context.js";
+import { FALLBACK_TURN_TRUST } from "./trust-context.js";
 
 const log = getLogger("agent-loop-handlers");
 
@@ -101,19 +98,6 @@ const log = getLogger("agent-loop-handlers");
 // Debounce for mid-turn `updateContent` writes from text deltas.
 // Indexer + projector still fire ONLY at `handleMessageComplete`.
 const PARTIAL_PERSIST_DEBOUNCE_MS = 1000;
-
-/**
- * Synthetic fallback trust context used when a pipeline fires before the
- * per-turn trust snapshot has been captured (e.g. fresh conversations before
- * the trust resolver runs, heartbeat turns that never bind an actor, or
- * non-turn invocations like `Conversation.forceCompact`). We bias to
- * `unknown` rather than `guardian` so a missing snapshot cannot accidentally
- * grant elevated trust to a custom plugin reading `ctx.trust`.
- */
-const FALLBACK_TURN_TRUST: TrustContext = {
-  sourceChannel: "vellum",
-  trustClass: "unknown",
-};
 
 /**
  * Build a {@link TurnContext} from the handler's deps for pipeline logging
@@ -140,154 +124,6 @@ function buildHandlerTurnContext(deps: EventHandlerDeps): TurnContext {
       deps.ctx.trustContext ??
       FALLBACK_TURN_TRUST,
   };
-}
-
-// ── Compaction circuit-breaker pipeline helpers ─────────────────────
-//
-// The circuit-breaker behavior (3 consecutive summary-LLM failures trips a
-// 1-hour cooldown) is now implemented by the `circuitBreaker` plugin
-// pipeline. The default plugin (`plugins/defaults/circuit-breaker/register.ts`)
-// replicates the legacy threshold/cooldown constants and event-emission
-// semantics exactly — it operates on the `consecutiveCompactionFailures` /
-// `compactionCircuitOpenUntil` fields the conversation still owns so the
-// dev-only playground routes (`POST /playground/reset-compaction-circuit`,
-// `POST /playground/inject-compaction-failures`) continue to read and
-// mutate those fields directly.
-//
-// The helpers below build the pipeline inputs and invoke the runner. They
-// are the sole entry points the rest of the daemon uses to query or update
-// the compaction circuit.
-
-/** Circuit-breaker key for a specific conversation's compaction pipeline. */
-function compactionCircuitKey(conversationId: string): string {
-  return `compaction:${conversationId}`;
-}
-
-/**
- * Build the minimal {@link TurnContext} the pipeline runner requires. Called
- * both from inside the agent loop (where turn identifiers are available) and
- * from non-turn invocations like `Conversation.forceCompact` (which falls
- * back to stable placeholders so the runner's log records still carry the
- * conversation identifier).
- */
-function buildCircuitTurnContext(ctx: {
-  readonly conversationId: string;
-  currentRequestId?: string;
-  currentTurnTrustContext?: TrustContext;
-  trustContext?: TrustContext;
-  turnCount: number;
-}): TurnContext {
-  const trust: TrustContext =
-    ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
-  return {
-    requestId: ctx.currentRequestId ?? "circuit-breaker",
-    conversationId: ctx.conversationId,
-    turnIndex: ctx.turnCount,
-    trust,
-  };
-}
-
-/**
- * Run the `circuitBreaker` pipeline for the compaction circuit on this
- * conversation. When `outcome` is provided, state is updated (and transition
- * events emit via `onEvent`); when omitted the call is query-only.
- *
- * Returns the post-call decision from the pipeline. Callers gate auto-paths
- * on `!result.open` and admit forced paths regardless of the decision.
- */
-async function runCompactionCircuitPipeline(
-  ctx: {
-    readonly conversationId: string;
-    consecutiveCompactionFailures: number;
-    compactionCircuitOpenUntil: number | null;
-    currentRequestId?: string;
-    currentTurnTrustContext?: TrustContext;
-    trustContext?: TrustContext;
-    turnCount: number;
-  },
-  args: {
-    outcome?: "success" | "failure";
-    onEvent?: (msg: CompactionCircuitEvent) => void;
-  },
-): Promise<CircuitBreakerResult> {
-  const turnContext = buildCircuitTurnContext(ctx);
-  return runPipeline<CircuitBreakerArgs, CircuitBreakerResult>(
-    "circuitBreaker",
-    getMiddlewaresFor("circuitBreaker"),
-    async (terminalArgs) => {
-      // No plugin in the chain produced a decision. This should be
-      // unreachable in production because the default plugin registers a
-      // `circuitBreaker` middleware that always returns a decision, but we
-      // defensively derive the state here so test setups that intentionally
-      // omit the default plugin still get a sensible response.
-      const openUntil = terminalArgs.state.compactionCircuitOpenUntil;
-      const now = Date.now();
-      if (openUntil !== null && now < openUntil) {
-        return { open: true, cooldownRemainingMs: openUntil - now };
-      }
-      return { open: false };
-    },
-    {
-      key: compactionCircuitKey(ctx.conversationId),
-      // Pass the ctx directly as the mutable state container. The
-      // `CircuitBreakerArgs.state` shape deliberately matches the subset of
-      // fields the conversation owns so plugins mutate the same object the
-      // playground routes read and write.
-      state: ctx,
-      ...(args.outcome !== undefined ? { outcome: args.outcome } : {}),
-      ...(args.onEvent ? { onEvent: args.onEvent } : {}),
-    },
-    turnContext,
-    DEFAULT_TIMEOUTS.circuitBreaker,
-  );
-}
-
-/**
- * Query-only: is the compaction circuit breaker currently open for this
- * conversation? Thin wrapper around {@link runCompactionCircuitPipeline}
- * with no outcome. Async because the pipeline runner is async, but the
- * default plugin resolves synchronously on its microtask.
- */
-export async function isCompactionCircuitOpen(ctx: {
-  readonly conversationId: string;
-  consecutiveCompactionFailures: number;
-  compactionCircuitOpenUntil: number | null;
-  currentRequestId?: string;
-  currentTurnTrustContext?: TrustContext;
-  trustContext?: TrustContext;
-  turnCount: number;
-}): Promise<boolean> {
-  const decision = await runCompactionCircuitPipeline(ctx, {});
-  return decision.open;
-}
-
-/**
- * Update the compaction circuit breaker with the outcome of a `maybeCompact`
- * call and emit any transition event. A `summaryFailed` value of `undefined`
- * means the summary LLM never ran (early return) — callers must guard with
- * `summaryFailed !== undefined` before invoking this helper so early-return
- * paths don't silently reset the 3-strike counter.
- *
- * The default plugin handles threshold-based tripping and cooldown reset;
- * see `plugins/defaults/circuit-breaker/register.ts` for the canonical semantics.
- */
-export async function trackCompactionOutcome(
-  ctx: {
-    readonly conversationId: string;
-    consecutiveCompactionFailures: number;
-    compactionCircuitOpenUntil: number | null;
-    currentRequestId?: string;
-    currentTurnTrustContext?: TrustContext;
-    trustContext?: TrustContext;
-    turnCount: number;
-  },
-  summaryFailed: boolean,
-  onEvent: (msg: CompactionCircuitEvent) => void,
-): Promise<void> {
-  await runCompactionCircuitPipeline(ctx, {
-    outcome: summaryFailed ? "failure" : "success",
-    onEvent,
-  });
 }
 
 // ── Types ────────────────────────────────────────────────────────────
@@ -2055,7 +1891,11 @@ export async function dispatchAgentEvent(
         // A compaction-pipeline timeout is recorded against this
         // conversation's durable compaction circuit breaker, which trips
         // after repeated timeouts to suspend auto-compaction.
-        await trackCompactionOutcome(deps.ctx, true, deps.onEvent);
+        await deps.ctx.agentLoop.compactionCircuit.recordOutcome(
+          true,
+          deps.ctx,
+          deps.onEvent,
+        );
         break;
       case "error":
         handleError(state, deps, event);

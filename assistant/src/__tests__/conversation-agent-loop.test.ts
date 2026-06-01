@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type {
   AgentEvent,
   AgentLoopRunOptions,
@@ -719,6 +720,7 @@ function makeCtx(
       // Tests here don't exercise calibration; returning undefined makes
       // the estimator use the per-provider aggregate key.
       getActiveModel: () => undefined,
+      compactionCircuit: new CompactionCircuit("test-conv"),
     } as unknown as AgentLoopConversationContext["agentLoop"],
     provider: {
       name: "mock-provider",
