@@ -1,3 +1,6 @@
 {
-  "species": "vellum"
+  "species": "vellum",
+  "featureFlags": {
+    "external-plugins": true
+  }
 }
