@@ -6,9 +6,15 @@ set -eu
 chmod 1777 /tmp 2>/dev/null || true
 
 KATA_APT_INIT_PID=""
-if [ "${VELLUM_SANDBOX_RUNTIME:-}" = "kata" ] && [ -x /app/assistant/docker-init-apt-root.sh ]; then
+if [ -r /app/assistant/docker-kata-runtime-family.sh ]; then
+  . /app/assistant/docker-kata-runtime-family.sh
+else
+  vellum_is_kata_family_runtime() { [ "${VELLUM_SANDBOX_RUNTIME:-}" = "kata" ]; }
+fi
+
+if vellum_is_kata_family_runtime && [ -x /app/assistant/docker-init-apt-root.sh ]; then
   export VELLUM_APT_DATA_ROOT="${VELLUM_APT_DATA_ROOT:-/data/system}"
-  # Warm the chroot used by kata apt wrappers without blocking assistant readiness.
+  # Warm the chroot used by Kata-family apt wrappers without blocking assistant readiness.
   /app/assistant/docker-init-apt-root.sh &
   KATA_APT_INIT_PID="$!"
 fi
