@@ -47,8 +47,23 @@ type OverlayView = "document" | "subagent-detail" | "tool-detail";
  * client's `throwOnError: true` then throws that envelope as the catch
  * value. Treat it as an expected condition — the UI falls back to chat
  * — rather than a Sentry-worthy crash.
+ *
+ * **Two assumptions, both verified by `viewer-store.test.ts`:**
+ *
+ * 1. The daemon wraps the body in an `error` key (`assistant/src/runtime/http-errors.ts`).
+ * 2. HeyAPI's `throwOnError: true` throws that body verbatim, not wrapped in
+ *    an `Error` subclass (current behavior of `@hey-api/client-fetch`,
+ *    bundled inline by `@hey-api/openapi-ts`).
+ *
+ * If a future HeyAPI upgrade wraps errors in an `Error` instance with the
+ * body on a `.data` (or similar) property, this check silently stops
+ * matching and NOT_FOUND noise comes back to Sentry — graceful degradation,
+ * not a crash. The accompanying test will still pass (it tests our helper's
+ * contract, not HeyAPI's). The signal to update is the Sentry issue
+ * reopening, at which point this function and its test get adjusted to the
+ * new envelope shape.
  */
-function isAppNotFoundError(err: unknown): boolean {
+export function isAppNotFoundError(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
   const envelope = (err as { error?: unknown }).error;
   if (typeof envelope !== "object" || envelope === null) return false;
