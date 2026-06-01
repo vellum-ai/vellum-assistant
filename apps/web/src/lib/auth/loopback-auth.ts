@@ -15,47 +15,34 @@ const FALLBACK_WEB_URL = "https://www.vellum.ai";
 const LOOPBACK_STATE_KEY = "vellum:loopback:state";
 const LOOPBACK_RETURN_TO_KEY = "vellum:loopback:returnTo";
 
+interface VellumConfig {
+  webUrl?: string;
+  platformUrl?: string;
+}
+
+function getLocalConfig(): { webUrl: string } {
+  const injected = (window as unknown as { __VELLUM_CONFIG__?: VellumConfig }).__VELLUM_CONFIG__;
+  if (injected?.webUrl) return { webUrl: injected.webUrl };
+  return { webUrl: FALLBACK_WEB_URL };
+}
+
 function generateState(): string {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
   return Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function fetchLocalConfig(): Promise<{ webUrl: string }> {
-  try {
-    const res = await fetch("/assistant/__config");
-    if (res.ok) {
-      const config = (await res.json()) as { webUrl?: string };
-      if (config.webUrl) return { webUrl: config.webUrl };
-    }
-  } catch {
-    // Fall through to default
-  }
-  return { webUrl: FALLBACK_WEB_URL };
+export function isPlatformLocal(): boolean {
+  return getLocalConfig().webUrl === window.location.origin;
 }
 
-export async function isPlatformLocal(): Promise<boolean> {
-  const { webUrl } = await fetchLocalConfig();
-  return webUrl === window.location.origin;
-}
-
-export function useIsPlatformLocal(): boolean | null {
-  const [result, setResult] = useState<boolean | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void isPlatformLocal().then((value) => {
-      if (!cancelled) setResult(value);
-    });
-    return () => { cancelled = true; };
-  }, []);
-  return result;
+export function useIsPlatformLocal(): boolean {
+  return isPlatformLocal();
 }
 
 export async function startLoopbackAuth(returnTo?: string): Promise<void> {
-  const [{ webUrl }, state] = await Promise.all([
-    fetchLocalConfig(),
-    Promise.resolve(generateState()),
-  ]);
+  const { webUrl } = getLocalConfig();
+  const state = generateState();
   const port = window.location.port || "3000";
 
   sessionStorage.setItem(LOOPBACK_STATE_KEY, state);

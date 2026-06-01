@@ -568,10 +568,14 @@ async function runWebInterface(): Promise<void> {
     process.exit(1);
   }
 
-  const indexHtml = await Bun.file(path.join(distDir, "index.html")).text();
+  const rawIndexHtml = await Bun.file(path.join(distDir, "index.html")).text();
   const platformUrl = getPlatformUrl();
   const webUrl = getWebUrl();
-  const configJson = JSON.stringify({ platformUrl, webUrl });
+  const configJson = JSON.stringify({ webUrl, platformUrl });
+  const indexHtml = rawIndexHtml.replace(
+    "</head>",
+    `<script>window.__VELLUM_CONFIG__=${configJson}</script></head>`,
+  );
 
   const server = Bun.serve({
     port: 3000,

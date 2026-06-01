@@ -15,7 +15,7 @@ export function WelcomeScreen() {
 
   const handleLogin = async () => {
     if (isLocalMode()) {
-      if (await isPlatformLocal()) {
+      if (isPlatformLocal()) {
         const returnTo = routes.onboarding.hosting;
         void navigate(`${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`);
         return;

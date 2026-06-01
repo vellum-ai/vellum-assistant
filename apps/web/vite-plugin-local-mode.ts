@@ -23,8 +23,16 @@ export function localModePlugin(env: Record<string, string>): Plugin {
   const config = resolveLocalConfigFromEnv(env);
   const baseDir = path.resolve(import.meta.dirname, "..", "..");
 
+  const configJson = JSON.stringify({ webUrl: config.webUrl, platformUrl: config.platformUrl });
+
   return {
     name: "vellum-local-mode",
+    transformIndexHtml(html) {
+      return html.replace(
+        "</head>",
+        `<script>window.__VELLUM_CONFIG__=${configJson}</script></head>`,
+      );
+    },
     configureServer(server) {
       server.middlewares.use(loopbackCallbackMiddleware());
       server.middlewares.use(configMiddleware(config.webUrl, config.platformUrl));
