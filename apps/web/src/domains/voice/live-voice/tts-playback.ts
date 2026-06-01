@@ -149,6 +149,23 @@ export class LiveVoiceAudioPlayer {
 
   private playingState = false;
 
+  /**
+   * Count of container decodes that have started but not yet been scheduled or
+   * discarded. The queue isn't drained while any are outstanding: a container
+   * frame contributes no scheduled source (and so no `playingState`) until its
+   * async `decodeAudioData` resolves, so `waitUntilDrained()` must also wait on
+   * these or it would return before the assistant audio is even queued.
+   */
+  private pendingContainerDecodes = 0;
+
+  /**
+   * Generation token bumped on every {@link stop}. A container decode captures
+   * the current value when it starts; if it doesn't match after the decode
+   * resolves, a flush (barge-in/interrupt) happened meanwhile and the stale
+   * buffer is dropped instead of scheduled.
+   */
+  private generation = 0;
+
   /** Resolvers for in-flight `waitUntilDrained()` promises. */
   private drainResolvers: Array<() => void> = [];
 
@@ -164,9 +181,9 @@ export class LiveVoiceAudioPlayer {
     this.createContext = options?.audioContextFactory ?? defaultAudioContextFactory;
   }
 
-  /** Whether any audio is currently scheduled or playing. */
+  /** Whether any audio is scheduled, playing, or still decoding. */
   get isPlaying(): boolean {
-    return this.playingState;
+    return this.playingState || this.pendingContainerDecodes > 0;
   }
 
   /**
@@ -225,28 +242,53 @@ export class LiveVoiceAudioPlayer {
    * schedule strictly in arrival order: only once a frame is decoded is its
    * buffer duration known, which the next frame needs to chain a gapless start
    * time off the playhead. A decode that completes after a {@link stop} flushes
-   * the queue is dropped (the context has been replaced or `currentTime` has
-   * moved on), and a decode failure skips just that frame.
+   * the queue is dropped (generation token mismatch, or the context has been
+   * replaced), and a decode failure skips just that frame.
+   *
+   * The decode is counted in {@link pendingContainerDecodes} while in flight so
+   * `waitUntilDrained()`/`isPlaying` treat a not-yet-scheduled frame as still
+   * active, and {@link generation} is captured up front so a `stop()` during
+   * the decode invalidates it.
    */
   private enqueueContainer(chunk: TtsAudioChunk, mimeType: string): void {
     const context = this.ensureContext();
     const arrayBuffer = base64ToArrayBuffer(chunk.dataBase64);
+    const generation = this.generation;
+    this.pendingContainerDecodes += 1;
 
     this.containerDecodeChain = this.containerDecodeChain.then(async () => {
-      let buffer: AudioBuffer;
       try {
-        buffer = await context.decodeAudioData(arrayBuffer);
-      } catch (err) {
-        console.warn(
-          `[LiveVoiceAudioPlayer] failed to decode ${mimeType} tts_audio frame; skipping`,
-          err,
-        );
-        return;
-      }
+        let buffer: AudioBuffer;
+        try {
+          buffer = await context.decodeAudioData(arrayBuffer);
+        } catch (err) {
+          console.warn(
+            `[LiveVoiceAudioPlayer] failed to decode ${mimeType} tts_audio frame; skipping`,
+            err,
+          );
+          return;
+        }
 
-      // The context was torn down (close/reuse) while decoding — abandon it.
-      if (this.context !== context || buffer.length === 0) return;
-      this.scheduleBuffer(context, buffer);
+        // A stop()/flush happened while decoding (generation bumped) or the
+        // context was torn down (close/reuse) — drop the stale buffer.
+        if (
+          this.generation !== generation ||
+          this.context !== context ||
+          buffer.length === 0
+        ) {
+          return;
+        }
+        this.scheduleBuffer(context, buffer);
+      } finally {
+        // A stop() between start and resolution already zeroed the counter (and
+        // resolved drain); skip the accounting so we don't go negative.
+        if (this.generation === generation) {
+          this.pendingContainerDecodes -= 1;
+          // A decode that skipped (failure/empty) without scheduling can still
+          // be the last thing in flight, which drains the queue.
+          this.settleIfIdle();
+        }
+      }
     });
   }
 
@@ -275,8 +317,15 @@ export class LiveVoiceAudioPlayer {
    *
    * Stops every scheduled source, drops the playhead, and resolves any pending
    * `waitUntilDrained()` callers — a flushed queue counts as drained.
+   *
+   * Bumping {@link generation} invalidates any in-flight container decode so a
+   * later-resolving `decodeAudioData` is discarded instead of scheduling the
+   * interrupted utterance after the flush. Those decodes are also treated as
+   * drained immediately (counter zeroed) so `waitUntilDrained()` resolves now
+   * rather than waiting on the abandoned decode to settle.
    */
   stop(): void {
+    this.generation += 1;
     for (const source of this.activeSources) {
       // Detach the handler first so stop() doesn't re-enter handleSourceEnded
       // mid-iteration as we mutate the set.
@@ -289,9 +338,8 @@ export class LiveVoiceAudioPlayer {
       source.disconnect();
     }
     this.activeSources.clear();
-    this.playheadTime = 0;
-    this.playingState = false;
-    this.resolveDrain();
+    this.pendingContainerDecodes = 0;
+    this.settleIfIdle();
   }
 
   /**
@@ -299,7 +347,7 @@ export class LiveVoiceAudioPlayer {
    * or after a {@link stop}. Resolves immediately when nothing is playing.
    */
   waitUntilDrained(): Promise<void> {
-    if (!this.playingState) return Promise.resolve();
+    if (!this.isPlaying) return Promise.resolve();
     return new Promise<void>((resolve) => {
       this.drainResolvers.push(resolve);
     });
@@ -331,11 +379,19 @@ export class LiveVoiceAudioPlayer {
   private handleSourceEnded(source: AudioBufferSourceNode): void {
     if (!this.activeSources.delete(source)) return;
     source.disconnect();
-    if (this.activeSources.size === 0) {
-      this.playheadTime = 0;
-      this.playingState = false;
-      this.resolveDrain();
-    }
+    this.settleIfIdle();
+  }
+
+  /**
+   * Mark playback finished and resolve drain waiters once nothing is left to
+   * play — neither a scheduled source nor an in-flight container decode that
+   * could still schedule one. Called whenever either count reaches zero.
+   */
+  private settleIfIdle(): void {
+    if (this.activeSources.size > 0 || this.pendingContainerDecodes > 0) return;
+    this.playheadTime = 0;
+    this.playingState = false;
+    this.resolveDrain();
   }
 
   private resolveDrain(): void {

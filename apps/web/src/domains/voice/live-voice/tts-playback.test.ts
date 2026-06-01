@@ -338,6 +338,66 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(player.isPlaying).toBe(false);
   });
 
+  test("waitUntilDrained() waits for a pending container decode to schedule+finish", async () => {
+    // A container frame whose decode we hold open: tts_done can arrive while
+    // it's still decoding, and drain must not resolve until it has been
+    // scheduled AND the scheduled source has finished.
+    let resolveDecode!: (buffer: AudioBuffer) => void;
+    ctx.decodeAudioDataImpl = () =>
+      new Promise<AudioBuffer>((resolve) => {
+        resolveDecode = resolve;
+      });
+
+    player.enqueue(frame("audio/wav"));
+    expect(ctx.sources.length).toBe(0);
+    // Pending decode counts as active even before any source is scheduled.
+    expect(player.isPlaying).toBe(true);
+
+    let drained = false;
+    const promise = player.waitUntilDrained().then(() => {
+      drained = true;
+    });
+
+    // Still decoding: drain must not resolve.
+    await flushMicrotasks();
+    expect(drained).toBe(false);
+
+    // Decode resolves -> the buffer is scheduled.
+    resolveDecode(ctx.createBuffer(1, 48000, 48000));
+    await flushMicrotasks();
+    expect(ctx.sources.length).toBe(1);
+    // Scheduled but not finished: still not drained.
+    expect(drained).toBe(false);
+
+    // Source finishes -> now drained.
+    ctx.sources[0]!.finish();
+    await promise;
+    expect(drained).toBe(true);
+  });
+
+  test("stop() invalidates a pending container decode: it never schedules, and drain resolves", async () => {
+    let resolveDecode!: (buffer: AudioBuffer) => void;
+    ctx.decodeAudioDataImpl = () =>
+      new Promise<AudioBuffer>((resolve) => {
+        resolveDecode = resolve;
+      });
+
+    player.enqueue(frame("audio/wav"));
+    const promise = player.waitUntilDrained();
+
+    // Barge-in / manual stop while the decode is still in flight.
+    player.stop();
+    await expect(promise).resolves.toBeUndefined();
+    expect(player.isPlaying).toBe(false);
+
+    // The decode resolves only after stop(): the stale buffer must be dropped,
+    // not scheduled over the now-open mic.
+    resolveDecode(ctx.createBuffer(1, 48000, 48000));
+    await flushMicrotasks();
+    expect(ctx.sources.length).toBe(0);
+    expect(player.isPlaying).toBe(false);
+  });
+
   test("a failed container decode skips the frame without throwing", async () => {
     ctx.decodeAudioDataImpl = () => Promise.reject(new Error("bad container"));
 
