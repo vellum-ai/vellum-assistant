@@ -208,7 +208,6 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
       async (
         conversationId: string,
         _content: string,
-        _attachmentIds?: string[],
         options?: Record<string, unknown>,
       ) => {
         processCalls.push({ options });
@@ -252,7 +251,6 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
       async (
         conversationId: string,
         _content: string,
-        _attachmentIds?: string[],
         options?: Record<string, unknown>,
       ) => {
         processCalls.push({ options });
@@ -302,7 +300,6 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
       async (
         conversationId: string,
         _content: string,
-        _attachmentIds?: string[],
         options?: Record<string, unknown>,
       ) => {
         processCalls.push({ options });
