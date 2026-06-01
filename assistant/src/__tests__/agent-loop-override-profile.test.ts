@@ -110,13 +110,11 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
       _input: Record<string, unknown>,
     ) => ({ content: "ok", isError: false });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      { maxTokens: 1024 },
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      config: { maxTokens: 1024 },
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
 
     await loop.run([userMessage], () => {}, {
       callSite: "mainAgent",
@@ -132,7 +130,9 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
 
   test("omits overrideProfile from providerConfig when unset (default behavior unchanged)", async () => {
     const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
-    const loop = new AgentLoop(provider, "system", { maxTokens: 1024 });
+    const loop = new AgentLoop(provider, "system", {
+      config: { maxTokens: 1024 },
+    });
 
     await loop.run([userMessage], () => {});
 
@@ -148,7 +148,9 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
     // receives so a non-existent profile silently falls back at the
     // provider layer (covered by provider-send-message-override-profile.test.ts).
     const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
-    const loop = new AgentLoop(provider, "system", { maxTokens: 1024 });
+    const loop = new AgentLoop(provider, "system", {
+      config: { maxTokens: 1024 },
+    });
 
     await loop.run([userMessage], () => {}, {
       callSite: "mainAgent",

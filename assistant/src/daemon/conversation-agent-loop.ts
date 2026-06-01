@@ -2274,7 +2274,7 @@ export async function runAgentLoopImpl(
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
     };
-    const eventHandler = (event: AgentEvent) =>
+    const eventHandler = (event: AgentEvent): Promise<void> =>
       dispatchAgentEvent(state, deps, event);
     emitTerminalExit = async (reason: AgentLoopExitReason): Promise<void> => {
       await eventHandler({ type: "agent_loop_exit", reason });
@@ -2323,9 +2323,6 @@ export async function runAgentLoopImpl(
             overrideProfile: resolveCurrentOverrideProfile() ?? null,
           },
         };
-      },
-      onTimeout: async () => {
-        await trackCompactionOutcome(ctx, true, onEvent);
       },
       persist: async (result, rawHistory) => {
         const compactResult = result as Awaited<

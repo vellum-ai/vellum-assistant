@@ -38,7 +38,9 @@ Centralizing through a bus also gives us:
 | Module | Role |
 |---|---|
 | `apps/web/src/stores/event-bus-store.ts` | The bus itself. Zustand store with `subscribe(event, handler)` / `publish(event, payload)` actions and a module-private handler registry. |
-| `apps/web/src/hooks/use-event-bus-init.ts` | Wires the bus to its sources: opens the single assistant-scoped `/v1/events` SSE, registers `document.visibilitychange` + `window.online`/`offline` + Capacitor `App.appStateChange`. Mounted exactly once by `RootLayout` so the bus is alive on every authenticated route (chat, settings, logs, onboarding). |
+| `apps/web/src/hooks/use-event-bus-init.ts` | Thin React adapter. Wires the signal sources at mount and calls `sseService.attach` whenever the active assistant changes. Mounted exactly once by `RootLayout` so the bus is alive on every authenticated route. |
+| `apps/web/src/runtime/event-sources/*` | One file per host-environment signal (DOM visibility, network online/offline, Capacitor app state, Electron `powerMonitor`, Electron deep links). Each accepts an `EventBusPublisher` and returns an unsubscribe. |
+| `apps/web/src/assistant/sse-service.ts` | Non-React owner of the assistant-scoped SSE connection. Opens the stream, republishes envelopes as `sse.event`, drives the bounce policy from `app.*` / `power.*` / `reachability.*` signals. |
 
 The bus is a Zustand store per the [state-management
 convention](./STATE_MANAGEMENT.md) — all shared client-state primitives
@@ -50,10 +52,11 @@ commit cycle.
 
 ## Event protocol
 
-Every event name in `BusEventMap` has a typed payload. The producer is
-`useEventBusInit` for everything except `reachability.retry-requested`,
-which is produced by the burst-limited reachability retry in
-`use-event-stream.ts`.
+Every event name in `BusEventMap` has a typed payload. Producers:
+
+- `runtime/event-sources/*` for host-environment signals (`app.*`, `power.*`, `deeplink.*`).
+- `assistant/sse-service.ts` for SSE-derived signals (`sse.*`).
+- `use-event-stream.ts`'s burst-limited reachability retry for `reachability.retry-requested`.
 
 | Event | Payload | Produced when |
 |---|---|---|
@@ -124,12 +127,60 @@ useEventBusStore.getState().publish("reachability.retry-requested", {});
 1. Add the name + payload type to `BusEventMap` in
    `event-bus-store.ts`. Keep the JSDoc on the field — it's how
    consumers learn when the event fires.
-2. Add the producer. SSE-derived events go in `use-event-bus-init.ts`'s
-   SSE effect. DOM-derived events go in its lifecycle effect.
+2. Add the producer. SSE-derived events go in `assistant/sse-service.ts`
+   (the non-React owner of the bus's SSE connection). Host-environment
+   signals (DOM, Capacitor, Electron) go in a new file under
+   `runtime/event-sources/` — see "Adding a new signal source" below.
 3. Add subscribers where needed via `useBusSubscription` (React) or
    `subscribeBus` (stores / non-React).
 4. Test the producer (publish round-trip in `use-event-bus-init.test.tsx`
    or `event-bus-store.test.ts`) and at least one consumer.
+
+## Adding a new signal source
+
+A *signal source* is the bridge between a host-environment event
+(DOM visibility, `window.online`, Capacitor `appStateChange`, Electron
+`powerMonitor`, deep links) and the bus. Each one lives in its own
+file under `runtime/event-sources/`. The shape is intentionally
+narrow:
+
+```ts
+export function publishMySignalSource(bus: EventBusPublisher): () => void {
+  // ...attach listener, publish via `bus.publish(...)`...
+  return () => {
+    // ...detach listener...
+  };
+}
+```
+
+Rules:
+
+1. **One source per file.** New host-environment signal → new file
+   in `runtime/event-sources/`. Don't add another `if` branch to
+   `useEventBusInit`'s lifecycle effect.
+2. **Accept `EventBusPublisher`, never the full store.** Sources
+   only publish — never subscribe. The `Pick<EventBusActions, "publish">`
+   type keeps the surface narrow and makes the helper trivial to
+   stub with `{ publish: mock() }`.
+3. **No-op off-platform.** If the source is platform-conditioned
+   (Capacitor-only, Electron-only), early-return a no-op
+   unsubscribe. `useEventBusInit` calls every source unconditionally.
+4. **Synchronous return.** Even lazy plugin imports (Capacitor) must
+   return the unsubscribe synchronously — use an internal
+   `cancelled` flag if the listener registration is async.
+   See `capacitor-app-state.ts` for the pattern.
+5. **Colocated unit test.** Test in isolation with a
+   `{ publish: mock() }` stub — don't reach for the integration
+   test in `use-event-bus-init.test.tsx`. The integration test is
+   for SSE-policy behavior, not source wiring.
+6. **Wire it in.** Add a single line to `useEventBusInit`'s Effect 1:
+   ```ts
+   const unsubscribers = [
+     publishVisibilitySource(bus),
+     // ...
+     publishMySignalSource(bus),
+   ];
+   ```
 
 ## Conventions
 
@@ -210,8 +261,8 @@ export function setupMyStore(): () => void {
 
 ## Don't do this
 
-- **Don't call `subscribeChatEvents` directly outside `use-event-bus-init.ts`.** Every other consumer subscribes to `bus.sse.event`. A second SSE handle from the same `clientId` will evict the first on the daemon.
-- **Don't register `document.addEventListener("visibilitychange", ...)`** in a component or store for data-refresh purposes. Subscribe to `bus.app.resume` instead. The only legitimate `visibilitychange` registration in the app is the one inside `use-event-bus-init.ts`.
+- **Don't call `subscribeChatEvents` directly outside `assistant/sse-service.ts`.** Every other consumer subscribes to `bus.sse.event`. A second SSE handle from the same `clientId` will evict the first on the daemon.
+- **Don't register `document.addEventListener("visibilitychange", ...)`** in a component or store for data-refresh purposes. Subscribe to `bus.app.resume` instead. The only legitimate `visibilitychange` registration in the app is `runtime/event-sources/dom-visibility.ts`.
 - **Don't register `window.online` / `window.offline` listeners** in a component or store. Subscribe to `bus.app.online` / `bus.app.offline`.
 - **Don't add polling intervals to discover state the daemon could push.** If the daemon already knows when something resolves, emit a typed event over `/v1/events` and subscribe to it via the bus.
 - **Don't read `useEventBusStore.use.*` in a component render body.** The store's reactive surface is empty by design — there's no state worth subscribing to. Always use `.getState().subscribe(...)` inside an effect or bootstrap closure.
@@ -220,9 +271,14 @@ export function setupMyStore(): () => void {
 
 `event-bus-store.test.ts` covers the pub/sub surface (subscribe,
 unsubscribe, publish, isolation between event names, throwing-handler
-robustness). `use-event-bus-init.test.tsx` covers the source-wiring:
-SSE open gating, event re-broadcast, `sse.opened` cause tagging,
-teardown on `app.hidden`, reopen on `app.resume`, and the dedup window.
+robustness). `assistant/sse-service.test.ts` covers SSE behavior:
+open gating, event re-broadcast, `sse.opened` cause tagging, teardown
+on `app.hidden`, reopen on `app.resume`, the dedup window, and the
+power-driven bounce paths. `use-event-bus-init.test.tsx` asserts the
+thin React-adapter contract (attach on active, detach on unmount /
+input change). Each `runtime/event-sources/*` file has a colocated
+unit test exercising its publish contract with a
+`{ publish: mock() }` stub.
 
 `__resetEventBusForTesting()` is exported from
 `event-bus-store.ts` for use in `beforeEach`/`afterEach`. Don't import

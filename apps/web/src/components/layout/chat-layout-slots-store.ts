@@ -22,17 +22,42 @@ import { create } from "zustand";
 import type { ReactNode } from "react";
 
 import { createSelectors } from "@/utils/create-selectors";
+import type { Conversation } from "@/types/conversation-types";
+
+// ---------------------------------------------------------------------------
+// Header supplements — data-only values that ChatPage contributes to the
+// header so ChatLayout can render the ConversationActionsMenu directly.
+// ---------------------------------------------------------------------------
+
+export interface ChatHeaderSupplements {
+  hasPersistedMessage: boolean;
+  slackHeaderLabel: string | null;
+  /** Secondary action callbacks — ChatPage-specific because they need
+   *  access to the message list, active stream, or ChatPage-local state. */
+  onAnalyze: ((conversation: Conversation) => void) | null;
+  onForkConversation: (() => void) | null;
+  onOpenInNewWindow: ((conversation: Conversation) => void) | null;
+  onInspect: ((conversation: Conversation) => void) | null;
+  onCopyConversation: (() => void) | null;
+  onRefresh: (() => void) | null;
+}
+
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
 
 interface ChatLayoutSlotsState {
   topBarCenter: ReactNode;
   topBarRightSlot: ReactNode;
   onSearchClick: (() => void) | null;
+  headerSupplements: ChatHeaderSupplements | null;
 }
 
 interface ChatLayoutSlotsActions {
   setTopBarCenter: (node: ReactNode) => void;
   setTopBarRightSlot: (node: ReactNode) => void;
   setOnSearchClick: (cb: (() => void) | null) => void;
+  setHeaderSupplements: (supplements: ChatHeaderSupplements | null) => void;
 }
 
 type ChatLayoutSlotsStore = ChatLayoutSlotsState & ChatLayoutSlotsActions;
@@ -41,9 +66,11 @@ const useChatLayoutSlotsStoreBase = create<ChatLayoutSlotsStore>((set) => ({
   topBarCenter: null,
   topBarRightSlot: null,
   onSearchClick: null,
+  headerSupplements: null,
   setTopBarCenter: (topBarCenter) => set({ topBarCenter }),
   setTopBarRightSlot: (topBarRightSlot) => set({ topBarRightSlot }),
   setOnSearchClick: (onSearchClick) => set({ onSearchClick }),
+  setHeaderSupplements: (headerSupplements) => set({ headerSupplements }),
 }));
 
 export const useChatLayoutSlotsStore = createSelectors(

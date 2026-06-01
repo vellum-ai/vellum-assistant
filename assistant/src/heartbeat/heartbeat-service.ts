@@ -25,6 +25,7 @@ import { stripCommentLines } from "../util/strip-comment-lines.js";
 import {
   completeHeartbeatRun,
   countCompletedHeartbeatRuns,
+  countRecentConsecutiveRuns,
   insertPendingHeartbeatRun,
   markStaleRunningAsError,
   markStaleRunsAsMissed,
@@ -174,6 +175,16 @@ export class HeartbeatService {
   /** Epoch-ms timestamp of the next scheduled heartbeat run. */
   get nextRunAt(): number | null {
     return this._nextRunAt;
+  }
+
+  /** Whether the consecutive-run cap has been reached. */
+  get isConsecutiveRunCapReached(): boolean {
+    const config = getConfig().heartbeat;
+    if (config.maxConsecutiveRuns == null) return false;
+    return (
+      countRecentConsecutiveRuns(config.maxConsecutiveRuns) >=
+      config.maxConsecutiveRuns
+    );
   }
 
   async runManagedWakeIfDue(
@@ -381,6 +392,11 @@ export class HeartbeatService {
     // a stopped window still clears the count.
     this._consecutiveRuns = 0;
     this._resetGeneration++;
+    if (this._pendingRunId) {
+      supersedePendingRun(this._pendingRunId);
+      this._pendingRunId = null;
+    }
+    refreshBackgroundWakeIntentSoon("heartbeat-counter-reset");
     if (!this.timer) return;
     if (this.cronMode) {
       clearTimeout(this.timer as ReturnType<typeof setTimeout>);

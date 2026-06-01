@@ -177,6 +177,15 @@ export interface EventBusActions {
 
 export type EventBusStore = EventBusState & EventBusActions;
 
+/**
+ * Narrowed bus surface for signal-source helpers (`runtime/event-sources/`).
+ * Sources only ever publish — they should not subscribe to the bus to
+ * derive their own signals. Pass `EventBusPublisher` instead of the
+ * full store/actions to keep the principle of least authority and to
+ * keep the helpers easy to test with a `{ publish: mock() }` stub.
+ */
+export type EventBusPublisher = Pick<EventBusActions, "publish">;
+
 const useEventBusStoreBase = create<EventBusStore>()(() => ({
   _version: 1,
 

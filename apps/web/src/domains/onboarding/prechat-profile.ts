@@ -1,5 +1,8 @@
-import { client } from "@/generated/api/client.gen";
-import { assertHasResponse } from "@/utils/api-errors";
+import {
+  workspaceFileGet,
+  workspaceWritePost,
+} from "@/generated/daemon/sdk.gen";
+import { assertHasResponse, SDK_BASE_OPTIONS } from "@/utils/api-errors";
 import {
   type PreChatOnboardingContext,
   type PreChatOnboardingProfileFields,
@@ -12,11 +15,6 @@ export const PRECHAT_PROFILE_PATHS = [
 ] as const;
 
 export const ONBOARDING_HEADING = "## Onboarding Context";
-
-interface WorkspaceFileResponse {
-  content?: string | null;
-  isBinary?: boolean;
-}
 
 export function buildOnboardingSection(
   fields: PreChatOnboardingProfileFields,
@@ -66,11 +64,8 @@ async function fetchWorkspaceTextFile(
   assistantId: string,
   path: string,
 ): Promise<string | null> {
-  const { data, error, response } = await client.get<
-    WorkspaceFileResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/workspace/file/",
+  const { data, error, response } = await workspaceFileGet({
+    ...SDK_BASE_OPTIONS,
     path: { assistant_id: assistantId },
     query: { path },
     throwOnError: false,
@@ -81,7 +76,9 @@ async function fetchWorkspaceTextFile(
     return null;
   }
   if (!response.ok) {
-    throw new Error(`Failed to fetch onboarding profile file (${response.status})`);
+    throw new Error(
+      `Failed to fetch onboarding profile file (${response.status})`,
+    );
   }
   if (data?.isBinary) {
     throw new Error("Onboarding profile file is binary");
@@ -94,16 +91,17 @@ async function writeWorkspaceTextFile(
   path: string,
   content: string,
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/workspace/write/",
+  const { error, response } = await workspaceWritePost({
+    ...SDK_BASE_OPTIONS,
     path: { assistant_id: assistantId },
     body: { path, content },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to write onboarding profile file");
   if (!response.ok) {
-    throw new Error(`Failed to write onboarding profile file (${response.status})`);
+    throw new Error(
+      `Failed to write onboarding profile file (${response.status})`,
+    );
   }
 }
 

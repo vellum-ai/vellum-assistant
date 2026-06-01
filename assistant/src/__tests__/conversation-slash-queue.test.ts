@@ -298,9 +298,9 @@ function makeConversation(): Conversation {
     "conv-1",
     provider,
     "system prompt",
-    4096,
     () => {},
     "/tmp",
+    { maxTokens: 4096 },
   );
   // Bypass real workspace git init: with "/tmp" as the workspace dir, a real
   // ensureInitialized() walks all of /tmp and can exceed the 2s waitForPendingRun

@@ -38,8 +38,10 @@ describe("AgentLoop thinking and effort", () => {
   test("sends adaptive thinking when thinking is enabled", async () => {
     const { provider, lastConfig } = createMockProvider();
     const loop = new AgentLoop(provider, "test", {
-      maxTokens: 64000,
-      thinking: { enabled: true },
+      config: {
+        maxTokens: 64000,
+        thinking: { enabled: true },
+      },
     });
 
     await loop.run(
@@ -55,8 +57,10 @@ describe("AgentLoop thinking and effort", () => {
   test("sends disabled thinking when thinking is disabled", async () => {
     const { provider, lastConfig } = createMockProvider();
     const loop = new AgentLoop(provider, "test", {
-      maxTokens: 64000,
-      thinking: { enabled: false },
+      config: {
+        maxTokens: 64000,
+        thinking: { enabled: false },
+      },
     });
 
     await loop.run(
@@ -71,8 +75,10 @@ describe("AgentLoop thinking and effort", () => {
   test("sends effort in provider config", async () => {
     const { provider, lastConfig } = createMockProvider();
     const loop = new AgentLoop(provider, "test", {
-      maxTokens: 64000,
-      effort: "high",
+      config: {
+        maxTokens: 64000,
+        effort: "high",
+      },
     });
 
     await loop.run(
@@ -87,9 +93,11 @@ describe("AgentLoop thinking and effort", () => {
   test("sends effort with disabled thinking when thinking is disabled", async () => {
     const { provider, lastConfig } = createMockProvider();
     const loop = new AgentLoop(provider, "test", {
-      maxTokens: 64000,
-      effort: "medium",
-      thinking: { enabled: false },
+      config: {
+        maxTokens: 64000,
+        effort: "medium",
+        thinking: { enabled: false },
+      },
     });
 
     await loop.run(
