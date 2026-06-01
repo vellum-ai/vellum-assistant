@@ -32,15 +32,18 @@ export function SettingsLayout() {
   const filteredItems = useMemo(
     () =>
       SETTINGS_SIDEBAR.filter((item) => {
-        // Notifications are an organization-scoped platform concept. Hide the
-        // sidebar item entirely when the active assistant is self-hosted so
-        // users don't land on an empty page. `NotificationsPage` itself also
-        // early-returns null for the same gate, as defense in depth for
-        // direct URL navigation.
+        // Notifications and billing are both organization-scoped platform
+        // concepts. Hide the sidebar items entirely when the active assistant
+        // is self-hosted so users don't land on an empty page. Each page
+        // also redirects to `routes.settings.general` for the same gate, as
+        // defense in depth for direct URL / bookmark navigation.
         if (
           item.id === "notifications" &&
           (!platformNotifications || platformGate === "gated")
         ) {
+          return false;
+        }
+        if (item.id === "billing" && platformGate === "gated") {
           return false;
         }
         if (item.id === "sounds" && !sounds) {

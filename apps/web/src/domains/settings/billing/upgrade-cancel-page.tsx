@@ -1,10 +1,12 @@
 import { useEffect } from "react";
 
-import { useNavigate } from "react-router";
+import { Navigate, useNavigate } from "react-router";
 
 import { Card } from "@vellum/design-library/components/card";
+import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 
 /**
@@ -17,14 +19,38 @@ import { routes } from "@/utils/routes";
  * the cancel route does not pollute browser history.
  */
 export function UpgradeCancelPage() {
+  // Defense in depth: this page is only reachable from a Stripe Checkout
+  // session that started on the billing page (itself gated). But deep-link
+  // or bookmark navigation can still land a self-hosted user here, where
+  // the auto-redirect to `routes.settings.billing` would chain through
+  // *that* page's `<Navigate />` back to general — together with a stray
+  // "upgrade canceled" toast for an upgrade the user never started. Cleaner
+  // to short-circuit at this page too.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
   const navigate = useNavigate();
 
   useEffect(() => {
+    // Only fire the toast + redirect when we're actually rendering the
+    // success path — gated states render Navigate/Notice instead.
+    if (platformGate !== "full") return;
     toast.info("Upgrade canceled. No changes to your plan.", {
       id: "pro-upgrade-cancel",
     });
     navigate(routes.settings.billing, { replace: true });
-  }, [navigate]);
+  }, [navigate, platformGate]);
+
+  if (platformGate === "gated") {
+    return <Navigate replace to={routes.settings.general} />;
+  }
+  if (platformGate === "disabled") {
+    return (
+      <div className="max-w-4xl space-y-6">
+        <Notice tone="info">
+          Log in to the Vellum platform to manage billing and usage.
+        </Notice>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl space-y-6">

@@ -1,7 +1,7 @@
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { useNavigate } from "react-router";
+import { Navigate, useNavigate } from "react-router";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -13,6 +13,7 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 
 /**
@@ -30,6 +31,11 @@ export const POLL_TIMEOUT_MS = 10_000;
 export const SUCCESS_REDIRECT_DELAY_MS = 2500;
 
 export function UpgradeSuccessPage() {
+  // Same predicate as the billing page itself. Without the gate, a self-hosted
+  // user deep-linking here would fire `POLL_TIMEOUT_MS / POLL_INTERVAL_MS`
+  // = 10 org-scoped subscription-retrieve requests against an org with no
+  // platform-hosted target. Gate before the `useQuery` even starts.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [pollExpired, setPollExpired] = useState(false);
@@ -44,6 +50,11 @@ export function UpgradeSuccessPage() {
 
   const { data, isError } = useQuery({
     ...organizationsBillingSubscriptionRetrieveOptions(),
+    // Don't poll when the page is gated — keeps both the initial fetch AND
+    // the `refetchInterval` from firing org-scoped requests against a
+    // self-hosted assistant or a logged-out session before the
+    // `<Navigate />` below takes effect.
+    enabled: platformGate === "full",
     // Stop polling once we observe Pro OR the timeout fires.
     refetchInterval: (query) => {
       const planId = query.state.data?.plan_id;
@@ -71,6 +82,22 @@ export function UpgradeSuccessPage() {
   }, [reachedPro, navigate]);
 
   const goToBilling = () => navigate(routes.settings.billing, { replace: true });
+
+  // Whole-page gates: same Navigate/chrome pattern as `billing-page.tsx`. The
+  // hooks above all ran (with `enabled: false` for the query) so React's
+  // hooks-order invariant holds.
+  if (platformGate === "gated") {
+    return <Navigate replace to={routes.settings.general} />;
+  }
+  if (platformGate === "disabled") {
+    return (
+      <div className="max-w-4xl space-y-6">
+        <Notice tone="info">
+          Log in to the Vellum platform to manage billing and usage.
+        </Notice>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl space-y-6">

@@ -1,10 +1,12 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 
-import { useSearchParams, useNavigate } from "react-router";
+import { Navigate, useSearchParams, useNavigate } from "react-router";
 
 import { useQueryClient } from "@tanstack/react-query";
 
+import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
 import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal";
 import { BillingPanel } from "@/domains/settings/components/billing-panel";
@@ -52,6 +54,15 @@ function BillingStatusHandler() {
 }
 
 export function BillingPage() {
+  // Billing is fully platform-routed — plan management, payment methods,
+  // credit balance, referrals, and usage all live behind organization-scoped
+  // APIs that have no meaningful target on a self-hosted assistant. Use
+  // `platformHostedOnly` so the gate flips to `"gated"` in any self-hosted
+  // state (lifecycle `kind: "self_hosted"` or `kind: "active"` + `isLocal:
+  // true`) regardless of platform session, and to `"disabled"` when there's
+  // no platform session at all.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
+
   const [searchParams, setSearchParams] = useSearchParams();
   const [planModalOpen, setPlanModalOpen] = useState(false);
   const openPlanModal = useCallback(() => setPlanModalOpen(true), []);
@@ -78,6 +89,26 @@ export function BillingPage() {
       return next;
     }, { replace: true });
   }, [setSearchParams]);
+
+  // Whole-page gate: bookmarks/shared-links to /settings/billing on a
+  // self-hosted assistant should land somewhere sensible rather than render
+  // nothing. Sidebar entry is also filtered out in `settings-layout.tsx` as
+  // defense in depth for in-app navigation.
+  if (platformGate === "gated") {
+    return <Navigate replace to={routes.settings.general} />;
+  }
+
+  // Logged-out (no platform session, not self-hosted) renders the page
+  // chrome with a login notice — better UX than redirecting to general.
+  if (platformGate === "disabled") {
+    return (
+      <div className="max-w-5xl space-y-4">
+        <Notice tone="info">
+          Log in to the Vellum platform to manage billing and usage.
+        </Notice>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-5xl space-y-4">
