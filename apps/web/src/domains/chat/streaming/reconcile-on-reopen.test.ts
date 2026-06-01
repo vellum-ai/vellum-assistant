@@ -16,10 +16,11 @@ mock.module("@/lib/diagnostics", () => ({
 
 const addBreadcrumbMock = mock(() => {});
 const captureMessageMock = mock(() => {});
+const captureExceptionMock = mock(() => {});
 mock.module("@sentry/react", () => ({
   addBreadcrumb: addBreadcrumbMock,
   captureMessage: captureMessageMock,
-  captureException: () => {},
+  captureException: captureExceptionMock,
 }));
 
 const { createReconcileOnReopen } = await import(
@@ -67,6 +68,7 @@ beforeEach(() => {
   recordDiagnosticMock.mockClear();
   addBreadcrumbMock.mockClear();
   captureMessageMock.mockClear();
+  captureExceptionMock.mockClear();
 });
 
 describe("reconcile-on-reopen — gating", () => {
@@ -201,5 +203,52 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
 
     expect(addBreadcrumbMock).not.toHaveBeenCalled();
     expect(captureMessageMock).not.toHaveBeenCalled();
+  });
+
+  test("standalone reconcile rejection: logs to Sentry, does not run the loop, does not propagate", async () => {
+    // No sync router, so the code falls back to `reconcileActive()`.
+    // That fallback rejects; the handler must log + bail without
+    // touching `startReconciliationLoop` or surfacing an unhandled
+    // promise rejection.
+    const reconcileActive = mock(async () => {
+      throw new Error("daemon unreachable");
+    });
+    const { deps, startReconciliationLoop } = makeDeps({ reconcileActive });
+    const handler = createReconcileOnReopen(deps);
+
+    handler.handleSseOpened({ assistantId: "asst-1", cause: "watchdog" });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(reconcileActive).toHaveBeenCalledTimes(1);
+    expect(startReconciliationLoop).not.toHaveBeenCalled();
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+    expect(captureMessageMock).not.toHaveBeenCalled();
+  });
+
+  test("sync-router dispatchReconnect rejection: logs to Sentry, does not fall back to reconcileActive, does not run the loop", async () => {
+    const dispatchReconnect = mock(async () => {
+      throw new Error("sync router transport failed");
+    });
+    const reconcileActive = mock(async () => makeReconcileResult());
+    const { deps, startReconciliationLoop } = makeDeps({
+      reconcileActive,
+      syncRouterRef: {
+        current: { dispatchReconnect } as unknown as WebSyncRouter,
+      },
+    });
+    const handler = createReconcileOnReopen(deps);
+
+    handler.handleSseOpened({ assistantId: "asst-1", cause: "error" });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(dispatchReconnect).toHaveBeenCalledTimes(1);
+    // The standalone fallback is in the SAME try block as the sync-
+    // router call; both await targets sit on the same try, so a sync-
+    // router rejection short-circuits before `reconcileActive` is
+    // reached. Important: the failure mode is "transport recovery
+    // failed", not "let's try the other path."
+    expect(reconcileActive).not.toHaveBeenCalled();
+    expect(startReconciliationLoop).not.toHaveBeenCalled();
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
   });
 });

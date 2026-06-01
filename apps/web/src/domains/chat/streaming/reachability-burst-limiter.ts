@@ -1,5 +1,5 @@
 /**
- * Conversation-scoped reachability retry burst-limiter.
+ * Reachability retry burst-limiter.
  *
  * When the reachability probe flips to `"ready"` or `"retrying"`, we
  * want the bus to bounce its SSE connection so the conversation-scoped
@@ -10,6 +10,13 @@
  * Stateful (burst count + window start). Plain module, no React. The
  * caller drives it via `handleReachabilityPhase(phase)` from a
  * `useEffect` keyed on the probe phase.
+ *
+ * Scope: the budget is hook-instance-scoped (the caller creates one
+ * limiter per `useEventStream` mount via `useRef` lazy-init). It is
+ * NOT per-conversation — a conversation switch within the same hook
+ * instance keeps the existing budget. In practice this matches the
+ * 10s burst window: a budget burned on conversation A doesn't
+ * "follow" the user to conversation B beyond the rolling window.
  *
  * Side effects:
  *   - on success (within budget, `"ready"` phase): clears turn state

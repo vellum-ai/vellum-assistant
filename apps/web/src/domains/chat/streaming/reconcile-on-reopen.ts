@@ -100,10 +100,41 @@ async function runTransportRecoveryReconcile(
     cause,
   });
   const startedAt = Date.now();
-  const syncReconnectResult = await syncRouterRef.current?.dispatchReconnect();
-  const reconcileResult =
-    syncReconnectResult?.activeConversationMessages ??
-    (await deps.reconcileActive());
+  let reconcileResult: ActiveConversationMessagesRefreshResult;
+  // Both paths to the reconcile result can reject: the sync router's
+  // `dispatchReconnect()` and the standalone `reconcileActive()`
+  // fallback. Failure here is a transport-recovery failure — log it and
+  // bail. Without the catch, the rejection would surface as an
+  // unhandled promise rejection because the bus subscriber that calls
+  // us is `void`-firing this fn. The stale-epoch guard below would
+  // never run, and the bus's next reopen would have no idea anything
+  // went wrong.
+  try {
+    const syncReconnectResult =
+      await syncRouterRef.current?.dispatchReconnect();
+    reconcileResult =
+      syncReconnectResult?.activeConversationMessages ??
+      (await deps.reconcileActive());
+  } catch (err) {
+    recordDiagnostic("sse_post_reconnect_reconcile_failed", {
+      assistantId,
+      conversationId,
+      epoch,
+      cause,
+      message: err instanceof Error ? err.message : String(err),
+    });
+    Sentry.captureException(err, {
+      level: "warning",
+      tags: {
+        context: "sse_transport_recovery",
+        cause,
+        platform: resolvePlatformTag(),
+      },
+      extra: { assistantId, conversationId, epoch },
+    });
+    return;
+  }
+
   // Stale-epoch guard: two close-together reopens can race — if a
   // newer sse.opened has bumped the epoch while we were awaiting,
   // this completion is for a superseded epoch and must not touch the
@@ -123,7 +154,13 @@ async function runTransportRecoveryReconcile(
   }
   deps.startReconciliationLoop(epoch);
   if (cause !== "watchdog") return;
-  recordWatchdogRescue(assistantId, conversationId, epoch, startedAt, reconcileResult);
+  recordWatchdogRescue(
+    assistantId,
+    conversationId,
+    epoch,
+    startedAt,
+    reconcileResult,
+  );
 }
 
 function recordWatchdogRescue(
