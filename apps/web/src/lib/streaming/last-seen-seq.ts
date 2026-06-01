@@ -121,19 +121,19 @@ export function hydrateLastSeenSeqFromStorage(): void {
       entries.push({ conversationId, seq: parsed });
     }
 
-    // Keep only the most-recent entries (highest seq values) when
-    // localStorage has accumulated more than the cap.
+    // Sort ascending so lowest-seq (oldest) entries are inserted first.
+    // Map preserves insertion order, and writeThrough evicts from the
+    // front, so the highest-seq (most recent) entries must be last.
+    entries.sort((a, b) => a.seq - b.seq);
+
+    // When localStorage has accumulated more than the cap, prune the
+    // lowest-seq entries from localStorage and keep only the tail.
     if (entries.length > MAX_TRACKED_CONVERSATIONS) {
-      entries.sort((a, b) => b.seq - a.seq);
-      const keep = new Set(
-        entries.slice(0, MAX_TRACKED_CONVERSATIONS).map((e) => e.conversationId),
-      );
-      for (const entry of entries) {
-        if (!keep.has(entry.conversationId)) {
-          localStorage.removeItem(storageKey(entry.conversationId));
-        }
+      const pruneCount = entries.length - MAX_TRACKED_CONVERSATIONS;
+      for (let i = 0; i < pruneCount; i++) {
+        localStorage.removeItem(storageKey(entries[i].conversationId));
       }
-      entries.length = MAX_TRACKED_CONVERSATIONS;
+      entries.splice(0, pruneCount);
     }
 
     for (const { conversationId, seq } of entries) {

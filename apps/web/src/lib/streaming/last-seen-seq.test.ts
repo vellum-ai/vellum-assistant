@@ -414,4 +414,32 @@ describe("hydrateLastSeenSeqFromStorage GC", () => {
       expect(getLastSeenSeq(`conv-${i}`)).toBe(i + 1);
     }
   });
+
+  test("preserves LRU order so post-hydration eviction drops lowest-seq entry", () => {
+    /**
+     * After hydration with pruning, the Map insertion order must be
+     * ascending by seq so that writeThrough evicts the lowest-seq
+     * (least recent) entry, not the highest.
+     */
+
+    // GIVEN localStorage has more entries than the cap
+    const total = MAX_TRACKED_CONVERSATIONS + 5;
+    for (let i = 0; i < total; i++) {
+      localStorage.setItem(`vellum.lastSeenSeq.conv-${i}`, String(i + 1));
+    }
+
+    // WHEN we hydrate (prunes conv-0..conv-4) and then add a new entry
+    hydrateLastSeenSeqFromStorage();
+    setLastSeenSeq("conv-new", 9999);
+
+    // THEN the entry with the lowest retained seq (conv-5, seq=6) should
+    // be evicted — not the highest (conv-{total-1})
+    expect(getLastSeenSeq("conv-5")).toBeNull();
+
+    // AND the highest-seq retained entry should still be present
+    expect(getLastSeenSeq(`conv-${total - 1}`)).toBe(total);
+
+    // AND the new entry should be present
+    expect(getLastSeenSeq("conv-new")).toBe(9999);
+  });
 });
