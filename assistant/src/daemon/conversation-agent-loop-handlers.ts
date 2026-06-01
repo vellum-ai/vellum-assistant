@@ -337,6 +337,7 @@ function buildPersistedAssistantContent(
       actions: surface.actions,
       display: surface.display,
       ...(surface.persistent ? { persistent: true } : {}),
+      ...(surface.toolCallId ? { toolCallId: surface.toolCallId } : {}),
     } as unknown as ContentBlock);
   }
   return withSurfaces.map((block) => {
@@ -1128,6 +1129,7 @@ function annotatePersistedAssistantMessage(
         actions: surface.actions,
         display: surface.display,
         ...(surface.persistent ? { persistent: true } : {}),
+        ...(surface.toolCallId ? { toolCallId: surface.toolCallId } : {}),
       } as unknown as ContentBlock);
     }
     modified = true;

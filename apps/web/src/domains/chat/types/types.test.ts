@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
-import { isSurfaceInteractive, type Surface } from "@/domains/chat/types/types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import {
+  isSurfaceInteractive,
+  isSurfaceToolCallComplete,
+  type Surface,
+} from "@/domains/chat/types/types";
 
 function makeSurface(
   overrides: Partial<Surface> = {},
@@ -9,6 +14,18 @@ function makeSurface(
     surfaceId: "test-surface",
     surfaceType: "card",
     data: {},
+    ...overrides,
+  };
+}
+
+function makeToolCall(
+  overrides: Partial<ChatMessageToolCall> = {},
+): ChatMessageToolCall {
+  return {
+    id: "tc-1",
+    toolName: "ui_show",
+    input: {},
+    status: "completed",
     ...overrides,
   };
 }
@@ -90,5 +107,55 @@ describe("isSurfaceInteractive", () => {
     expect(
       isSurfaceInteractive(makeSurface({ surfaceType: "card", actions: [] })),
     ).toBe(false);
+  });
+});
+
+describe("isSurfaceToolCallComplete", () => {
+  test("surface without a linked tool call is complete", () => {
+    expect(
+      isSurfaceToolCallComplete(makeSurface(), [makeToolCall()]),
+    ).toBe(true);
+  });
+
+  test("complete when the linked tool call has completed", () => {
+    expect(
+      isSurfaceToolCallComplete(
+        makeSurface({ toolCallId: "tc-1" }),
+        [makeToolCall({ id: "tc-1", status: "completed" })],
+      ),
+    ).toBe(true);
+  });
+
+  test("incomplete while the linked tool call is still running", () => {
+    expect(
+      isSurfaceToolCallComplete(
+        makeSurface({ toolCallId: "tc-1" }),
+        [makeToolCall({ id: "tc-1", status: "running" })],
+      ),
+    ).toBe(false);
+  });
+
+  test("incomplete when the linked tool call errored", () => {
+    expect(
+      isSurfaceToolCallComplete(
+        makeSurface({ toolCallId: "tc-1" }),
+        [makeToolCall({ id: "tc-1", status: "error" })],
+      ),
+    ).toBe(false);
+  });
+
+  test("complete when the linked tool call is not present in the message", () => {
+    expect(
+      isSurfaceToolCallComplete(
+        makeSurface({ toolCallId: "tc-missing" }),
+        [makeToolCall({ id: "tc-1", status: "running" })],
+      ),
+    ).toBe(true);
+  });
+
+  test("complete when the message has no tool calls", () => {
+    expect(
+      isSurfaceToolCallComplete(makeSurface({ toolCallId: "tc-1" }), undefined),
+    ).toBe(true);
   });
 });

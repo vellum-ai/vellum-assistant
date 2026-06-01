@@ -21,7 +21,11 @@ import {
 } from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
-import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types";
+import {
+  getSlackLinkUrl,
+  isSurfaceToolCallComplete,
+  type Surface,
+} from "@/domains/chat/types/types";
 import { isPointerCoarse } from "@/utils/pointer";
 import {
   EMPTY_SUBAGENT_ENTRIES,
@@ -377,7 +381,6 @@ export function TranscriptMessageBody({
   const inspectHandler = inspectMessageId && onInspectMessage
     ? () => onInspectMessage(inspectMessageId)
     : undefined;
-  const isToolCallComplete = !isStreaming;
 
   // Touch-only tap-to-reveal for the hover actions row. Desktop uses
   // group-hover (unchanged); on coarse pointers a tap on the bubble toggles
@@ -455,7 +458,7 @@ export function TranscriptMessageBody({
                     onOpenApp={onOpenApp}
                     onOpenDocument={onOpenDocument}
                     assistantId={assistantId}
-                    isToolCallComplete={true}
+                    isToolCallComplete={isSurfaceToolCallComplete(seg.surface, message.toolCalls)}
                   />
                 </div>
               );
@@ -656,7 +659,7 @@ export function TranscriptMessageBody({
                     onOpenApp={onOpenApp}
                     onOpenDocument={onOpenDocument}
                     assistantId={assistantId}
-                    isToolCallComplete={isToolCallComplete}
+                    isToolCallComplete={isSurfaceToolCallComplete(surface, message.toolCalls)}
                   />
                 </div>
               );
@@ -723,7 +726,7 @@ export function TranscriptMessageBody({
                 onOpenApp={onOpenApp}
                 onOpenDocument={onOpenDocument}
                 assistantId={assistantId}
-                isToolCallComplete={isToolCallComplete}
+                isToolCallComplete={isSurfaceToolCallComplete(surface, message.toolCalls)}
               />
             </div>,
           );
@@ -819,7 +822,7 @@ export function TranscriptMessageBody({
                 onOpenApp={onOpenApp}
                 onOpenDocument={onOpenDocument}
                 assistantId={assistantId}
-                isToolCallComplete={isToolCallComplete}
+                isToolCallComplete={isSurfaceToolCallComplete(surface, message.toolCalls)}
               />
             </div>
           ));

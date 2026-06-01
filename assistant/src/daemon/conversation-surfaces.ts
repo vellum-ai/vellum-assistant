@@ -504,6 +504,7 @@ export interface SurfaceConversationContext {
     }>;
     display?: string;
     persistent?: boolean;
+    toolCallId?: string;
   }>;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: HostCuProxy;
@@ -1966,6 +1967,7 @@ export async function surfaceProxyResolver(
   toolName: string,
   input: Record<string, unknown>,
   signal?: AbortSignal,
+  toolUseId?: string,
 ): Promise<ToolExecutionResult> {
   // Route CU proxy tools (all computer_use_* action tools)
   if (toolName.startsWith("computer_use_")) {
@@ -2311,6 +2313,7 @@ export async function surfaceProxyResolver(
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     } as unknown as UiSurfaceShow);
 
     // Track surface for persistence with the message
@@ -2322,6 +2325,7 @@ export async function surfaceProxyResolver(
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     });
 
     if (awaitAction) {
