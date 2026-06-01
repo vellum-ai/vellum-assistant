@@ -18,6 +18,7 @@ import {
   mkdtempSync,
   realpathSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -83,6 +84,17 @@ const pageStore = new Map<string, ConceptPage>();
 mock.module("../memory/v2/page-store.js", () => ({
   getConceptsDir: (workspaceDir: string): string =>
     join(workspaceDir, "memory", "concepts"),
+  getPageMtimeMs: async (
+    workspaceDir: string,
+    slug: string,
+  ): Promise<number> => {
+    try {
+      return statSync(join(workspaceDir, "memory", "concepts", `${slug}.md`))
+        .mtimeMs;
+    } catch {
+      return 0;
+    }
+  },
   listPages: async (): Promise<string[]> => [...pageStore.keys()],
   readPage: async (
     _workspaceDir: string,
@@ -197,6 +209,67 @@ describe("searchMemoryV2Source", () => {
     expect(activationHit?.metadata?.path).toBe("memory/concepts/alice.md");
     expect(activationHit?.metadata?.slug).toBe("alice");
     expect(qdrantCalls.length).toBeGreaterThan(0);
+  });
+
+  test("stamps activation evidence with the concept page's last-modified time", async () => {
+    /**
+     * Activation-sourced recall evidence carries the concept page's file
+     * mtime so the provenance trailer can report recency for v2 recalls.
+     */
+    // GIVEN a concept page on disk that activation will surface
+    const root = makeTempDir();
+    writeConceptPage(root, "alice", "Alice prefers concise notes.\n");
+    const expectedMtimeMs = Math.floor(
+      statSync(join(root, "memory/concepts/alice.md")).mtimeMs,
+    );
+
+    // AND Qdrant returns it as an activation hit
+    qdrantHits = [{ slug: "alice", denseScore: 0.9 }];
+    pageStore.set("alice", {
+      slug: "alice",
+      frontmatter: { edges: [], ref_files: [], ref_urls: [] },
+      body: "Alice prefers concise notes.",
+    });
+
+    // WHEN recalling against the v2 source
+    const result = await searchMemoryV2Source("alice", makeContext(root), 5);
+
+    // THEN the activation evidence is stamped with the page's mtime
+    const activationHit = result.evidence.find(
+      (e) => e.metadata?.retrieval === "activation",
+    );
+    expect(activationHit?.timestampMs).toBe(expectedMtimeMs);
+  });
+
+  test("stamps lexical evidence with the concept page's last-modified time", async () => {
+    /**
+     * Lexical-fallback recall evidence carries the concept page's file mtime
+     * so recency fires even when activation finds nothing.
+     */
+    // GIVEN a concept page on disk and no activation hits
+    const root = makeTempDir();
+    writeConceptPage(
+      root,
+      "bob",
+      "# Bob\n\nBob's birthday party plans for next month.\n",
+    );
+    const expectedMtimeMs = Math.floor(
+      statSync(join(root, "memory/concepts/bob.md")).mtimeMs,
+    );
+    qdrantHits = [];
+
+    // WHEN recalling a term only the lexical walk can match
+    const result = await searchMemoryV2Source(
+      "birthday party",
+      makeContext(root),
+      5,
+    );
+
+    // THEN the lexical evidence is stamped with the page's mtime
+    const lexicalHit = result.evidence.find(
+      (e) => e.metadata?.retrieval === "lexical",
+    );
+    expect(lexicalHit?.timestampMs).toBe(expectedMtimeMs);
   });
 
   test("falls back to lexical evidence when activation finds nothing", async () => {

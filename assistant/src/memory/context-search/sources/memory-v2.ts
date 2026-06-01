@@ -32,6 +32,7 @@ import { spreadActivation } from "../../v2/activation.js";
 import { getEdgeIndex } from "../../v2/edge-index.js";
 import {
   getConceptsDir,
+  getPageMtimeMs,
   readPage,
   slugFromConceptPath,
 } from "../../v2/page-store.js";
@@ -248,7 +249,8 @@ async function activationEvidence(
       try {
         const page = await readPage(context.workingDir, slug);
         if (!page) return null;
-        return { slug, score, body: page.body.trim() };
+        const mtimeMs = await getPageMtimeMs(context.workingDir, slug);
+        return { slug, score, body: page.body.trim(), mtimeMs };
       } catch (err) {
         log.warn({ err, slug }, "Failed to read concept page during recall");
         return null;
@@ -267,6 +269,7 @@ async function activationEvidence(
       locator,
       excerpt: truncateExcerpt(entry.body, MEMORY_V2_PAGE_EXCERPT_MAX_CHARS),
       score: entry.score,
+      ...(entry.mtimeMs > 0 ? { timestampMs: Math.floor(entry.mtimeMs) } : {}),
       metadata: {
         path: locator,
         slug: entry.slug,
@@ -287,6 +290,7 @@ interface MemoryV2LexicalMatch {
   lineNumber: number;
   score: number;
   matchedTerms: string[];
+  mtimeMs: number;
 }
 
 async function lexicalEvidenceSafe(
@@ -411,6 +415,7 @@ async function walkConceptsDirectory(
       entryRealPath,
       conceptsRoot,
       queryTerms,
+      entryStats.mtimeMs,
     );
     if (match) matches.push(match);
   }
@@ -420,6 +425,7 @@ async function searchConceptFile(
   filePath: string,
   conceptsRoot: string,
   queryTerms: ReadonlySet<string>,
+  mtimeMs: number,
 ): Promise<MemoryV2LexicalMatch | null> {
   let contents;
   try {
@@ -443,6 +449,7 @@ async function searchConceptFile(
     lineNumber: bestLine.lineIndex + 1,
     score,
     matchedTerms: [...bestLine.matchedTerms].sort(),
+    mtimeMs,
   };
 }
 
@@ -505,6 +512,7 @@ function toLexicalEvidence(match: MemoryV2LexicalMatch): RecallEvidence {
     locator,
     excerpt: match.excerpt,
     score: match.score,
+    ...(match.mtimeMs > 0 ? { timestampMs: Math.floor(match.mtimeMs) } : {}),
     metadata: {
       path: `memory/concepts/${match.slug}.md`,
       slug: match.slug,
