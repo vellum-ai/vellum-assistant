@@ -1,11 +1,10 @@
 
-import { useCallback, useState } from "react";
 import type { FC } from "react";
 
 import type { DisplayAttachment } from "@/domains/chat/utils/reconcile";
 
-import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal";
 import { MessageAttachmentSquare } from "@/domains/chat/components/chat-attachments/message-attachment-square";
+import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 import { classifyAttachment } from "@/domains/chat/components/chat-attachments/utils";
 
 interface BubbleAttachmentsProps {
@@ -29,9 +28,7 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
   attachments,
   assistantId,
 }) => {
-  const [previewAttachment, setPreviewAttachment] = useState<DisplayAttachment | null>(null);
-
-  const handleClose = useCallback(() => setPreviewAttachment(null), []);
+  const { openPreview, previewModal } = useAttachmentPreview(assistantId);
 
   if (attachments.length === 0) {
     return null;
@@ -55,14 +52,14 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
                 aria-label={att.filename}
                 title={att.filename}
                 tabIndex={0}
-                onClick={() => setPreviewAttachment(att)}
+                onClick={() => openPreview(att)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    setPreviewAttachment(att);
+                    openPreview(att);
                   }
                 }}
-                className="max-h-[320px] max-w-full cursor-pointer rounded-lg object-cover"
+                className="max-h-[320px] max-w-full cursor-pointer rounded-lg object-contain"
               />
             );
           }
@@ -74,19 +71,12 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
               mimeType={att.mimeType}
               sizeBytes={att.sizeBytes}
               previewUrl={att.previewUrl}
-              onPreview={() => setPreviewAttachment(att)}
+              onPreview={() => openPreview(att)}
             />
           );
         })}
       </div>
-      {previewAttachment && (
-        <AttachmentPreviewModal
-          open
-          onClose={handleClose}
-          attachment={previewAttachment}
-          assistantId={assistantId}
-        />
-      )}
+      {previewModal}
     </>
   );
 };

@@ -470,6 +470,40 @@ describe("TranscriptMessageBody", () => {
     ).toBeNull();
   });
 
+  test("renders a user-message surface outside the surface-lift bubble", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "u3",
+          role: "user",
+          content: "",
+          contentOrder: [
+            { type: "text", id: "0" },
+            { type: "surface", id: "s-1" },
+          ],
+          textSegments: [{ type: "text", content: "do this" }],
+          surfaces: [{ surfaceId: "s-1" } as never],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    const bubble = container.querySelector(
+      "[class*='bg-[var(--surface-lift)]']",
+    );
+    expect(bubble).not.toBeNull();
+    // Text lives inside the bubble.
+    expect(bubble!.querySelector("[data-testid='markdown']")?.textContent).toBe(
+      "do this",
+    );
+    // The surface renders, but OUTSIDE the bubble (not a descendant).
+    const surface = container.querySelector("[data-testid='surface']");
+    expect(surface).not.toBeNull();
+    expect(bubble!.contains(surface)).toBe(false);
+  });
+
   test("auto-expands legacy tool-only streaming messages until content appears", () => {
     const { getByTestId, rerender } = render(
       <TranscriptMessageBody
