@@ -36,6 +36,7 @@ import { endTurn } from "@/domains/chat/turn-coordinator";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { subscribe } from "@/lib/event-bus";
 import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncRouter,
@@ -177,8 +178,8 @@ export function useEventStream({
     // whether SSE will deliver the response. We write a sentinel whose
     // `cancel()` is a no-op — the real teardown is the bus unsubscribe
     // in the cleanup function below.
-    ss.setStream({ cancel: () => {} });
-    const capturedEpoch = ss.streamEpoch;
+    const presence: ChatEventStream = { cancel: () => {} };
+    ss.setStream(presence);
 
     const consumer = createSseEventConsumer({
       activeConversationIdRef: activeConversationIdLatestRef,
@@ -195,20 +196,21 @@ export function useEventStream({
 
     return () => {
       unsubEvent();
-      const current = useStreamStore.getState();
-      current.bumpEpoch();
-      // Only clear stream/context if they still belong to this
+      useStreamStore.getState().bumpEpoch();
+      // Clear stream/context only if they still belong to this
       // subscription — a newer subscription may have already replaced
-      // them.
-      if (current.streamEpoch === capturedEpoch + 1) {
-        const ctx = current.streamContext;
-        if (
-          ctx?.assistantId === capturedAssistantId &&
-          ctx.conversationId === capturedConversationId
-        ) {
-          current.setStream(null);
-          current.setStreamContext(null);
-        }
+      // them. Uses identity check (stream) and value check (context),
+      // matching the original ref-based ownership checks.
+      const s = useStreamStore.getState();
+      if (s.stream === presence) {
+        s.setStream(null);
+      }
+      const ctx = s.streamContext;
+      if (
+        ctx?.assistantId === capturedAssistantId &&
+        ctx.conversationId === capturedConversationId
+      ) {
+        s.setStreamContext(null);
       }
     };
   }, [
