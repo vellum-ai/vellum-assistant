@@ -877,13 +877,15 @@ export class Conversation {
   handleConfirmationResponse(
     requestId: string,
     decision: UserDecision,
-    selectedPattern?: string,
-    selectedScope?: string,
-    decisionContext?: string,
-    emissionContext?: {
-      source?: ConfirmationStateChanged["source"];
-      causedByRequestId?: string;
-      decisionText?: string;
+    options?: {
+      selectedPattern?: string;
+      selectedScope?: string;
+      decisionContext?: string;
+      emissionContext?: {
+        source?: ConfirmationStateChanged["source"];
+        causedByRequestId?: string;
+        decisionText?: string;
+      };
     },
   ): void {
     // Guard: only proceed if the confirmation is still pending. Stale or
@@ -897,13 +899,11 @@ export class Conversation {
     // Capture toolUseId before resolving (resolution deletes the pending entry)
     const toolUseId = this.prompter.getToolUseId(requestId);
 
-    this.prompter.resolveConfirmation(
-      requestId,
-      effectiveDecision,
-      selectedPattern,
-      selectedScope,
-      decisionContext,
-    );
+    this.prompter.resolveConfirmation(requestId, effectiveDecision, {
+      selectedPattern: options?.selectedPattern,
+      selectedScope: options?.selectedScope,
+      decisionContext: options?.decisionContext,
+    });
 
     // Emit authoritative confirmation state and activity transition centrally
     // so ALL callers (HTTP handlers, /v1/confirm, channel bridges) get
@@ -916,13 +916,13 @@ export class Conversation {
       conversationId: this.conversationId,
       requestId,
       state: resolvedState,
-      source: emissionContext?.source ?? "button",
+      source: options?.emissionContext?.source ?? "button",
       toolUseId,
-      ...(emissionContext?.causedByRequestId
-        ? { causedByRequestId: emissionContext.causedByRequestId }
+      ...(options?.emissionContext?.causedByRequestId
+        ? { causedByRequestId: options.emissionContext.causedByRequestId }
         : {}),
-      ...(emissionContext?.decisionText
-        ? { decisionText: emissionContext.decisionText }
+      ...(options?.emissionContext?.decisionText
+        ? { decisionText: options.emissionContext.decisionText }
         : {}),
     });
     // Notify the agent loop of the confirmation outcome for persistence
