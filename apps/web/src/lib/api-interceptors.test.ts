@@ -18,11 +18,13 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 
 import {
   daemonRequestInterceptor,
+  platformFeaturesGate,
   requestInterceptor,
 } from "@/lib/api-interceptors";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import { useOrganizationStore } from "@/stores/organization-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 const TEST_ORG_ID = "org-test-1234";
 
@@ -361,5 +363,59 @@ describe("api-interceptors / daemon client self-hosted rewriting", () => {
     const output = await daemonRequestInterceptor(input);
     expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
     expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Platform features gate (LUM-2113)
+// ---------------------------------------------------------------------------
+//
+// In local mode with platform features disabled, the abort interceptor
+// must NOT kill requests already rewritten to the self-hosted gateway.
+//
+// The test preload sets VITE_PLATFORM_MODE=true (platform mode).
+// These tests temporarily clear it so isLocalMode() returns true.
+
+describe("api-interceptors / platform features gate", () => {
+  let savedPlatformMode: string | undefined;
+
+  beforeAll(() => {
+    savedPlatformMode = process.env.VITE_PLATFORM_MODE;
+    delete process.env.VITE_PLATFORM_MODE;
+  });
+
+  afterAll(() => {
+    if (savedPlatformMode !== undefined) {
+      process.env.VITE_PLATFORM_MODE = savedPlatformMode;
+    }
+  });
+
+  afterEach(() => {
+    setSelfHostedConnection(null);
+    useAssistantFeatureFlagStore.setState({ platformFeaturesInLocalMode: true });
+  });
+
+  test("aborts platform-bound requests when features are disabled", () => {
+    useAssistantFeatureFlagStore.setState({ platformFeaturesInLocalMode: false });
+    const input = new Request("https://platform.test/v1/organizations/");
+    const output = platformFeaturesGate(input);
+    expect(output.signal.aborted).toBe(true);
+  });
+
+  test("passes through gateway-rewritten requests when features are disabled", () => {
+    useAssistantFeatureFlagStore.setState({ platformFeaturesInLocalMode: false });
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    // Simulate a request already rewritten to the gateway by requestInterceptor
+    const input = new Request(`${INGRESS}${DAEMON_SKILLS_PATH}`);
+    const output = platformFeaturesGate(input);
+    expect(output.signal.aborted).toBe(false);
+    expect(output.url).toBe(input.url);
+  });
+
+  test("passes through all requests when features are enabled", () => {
+    useAssistantFeatureFlagStore.setState({ platformFeaturesInLocalMode: true });
+    const input = new Request("https://platform.test/v1/organizations/");
+    const output = platformFeaturesGate(input);
+    expect(output.signal.aborted).toBe(false);
   });
 });

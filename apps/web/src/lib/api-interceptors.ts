@@ -226,9 +226,26 @@ function arePlatformFeaturesEnabled(): boolean {
   );
 }
 
-platformClient.interceptors.request.use((request: Request) => {
+/**
+ * In local mode with platform features disabled, abort platform client
+ * requests that still target the platform — but let through requests
+ * already rewritten to the self-hosted gateway by the preceding
+ * {@link requestInterceptor}. Without this check, daemon endpoints
+ * (skills, memories, etc.) that route through the platform client would
+ * be silently killed even though they target the local daemon. (LUM-2113)
+ *
+ * Exported for direct unit testing.
+ */
+export function platformFeaturesGate(request: Request): Request {
   if (!isLocalMode()) return request;
   if (arePlatformFeaturesEnabled()) return request;
+
+  const ingressUrl = getSelfHostedIngressUrl();
+  if (ingressUrl) {
+    const requestOrigin = new URL(request.url).origin;
+    const gatewayOrigin = new URL(ingressUrl).origin;
+    if (requestOrigin === gatewayOrigin) return request;
+  }
 
   console.debug(
     "platform-features-in-local-mode is disabled — no-op platform request:",
@@ -239,4 +256,6 @@ platformClient.interceptors.request.use((request: Request) => {
     new DOMException("Platform features disabled in local mode", "AbortError"),
   );
   return new Request(request.url, { signal: aborted.signal });
-});
+}
+
+platformClient.interceptors.request.use(platformFeaturesGate);
