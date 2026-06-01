@@ -132,14 +132,19 @@ class AssistantLifecycleService {
     if (!this.ready) return;
     if (!this.inputs.isLoggedIn || this.inputs.isLoading) {
       // Logout / pre-auth boot. Drop selection + lifecycle state
-      // so a returning login doesn't observe the previous user's id.
-      // Guarded resets avoid spurious subscriber wake-ups when the
-      // stores are already at defaults.
+      // and the auto-greet signal so a returning login doesn't
+      // observe the previous user's id or accidentally fire an
+      // auto-greet for the new session. Guarded resets avoid
+      // spurious subscriber wake-ups when the stores are already
+      // at defaults.
       if (useAssistantSelectionStore.getState().activeAssistantId !== null) {
         useAssistantSelectionStore.getState().setActiveAssistantId(null);
       }
       if (this.state.kind !== "loading") {
         this.transition({ kind: "loading" });
+      }
+      if (useAssistantLifecycleStore.getState().autoGreetPending) {
+        useAssistantLifecycleStore.setState({ autoGreetPending: false });
       }
       return;
     }
@@ -229,6 +234,11 @@ class AssistantLifecycleService {
   hatchVersion(version?: string): void {
     if (!this.ready) return;
     this.hatchRetryCount = 0;
+    // Version selection in nonprod is a user-initiated fresh start —
+    // signal the chat surface to auto-greet once the next conversation
+    // is ready. The chat consumer clears the flag after firing the
+    // greet, so this is a one-shot.
+    useAssistantLifecycleStore.setState({ autoGreetPending: true });
     void this.hatchAndCheck(version);
   }
 
@@ -374,6 +384,11 @@ class AssistantLifecycleService {
         this.transition({ kind: "awaiting_version_selection" });
         return;
       }
+      // Vanilla auto-hatch path: a new signup with no assistant lands
+      // here. Signal the chat surface to auto-greet once the next
+      // conversation is ready. The chat consumer clears the flag
+      // after firing the greet, so this is a one-shot.
+      useAssistantLifecycleStore.setState({ autoGreetPending: true });
       await this.hatchAndCheck();
       return;
     }
@@ -634,7 +649,10 @@ class AssistantLifecycleService {
       resolveOnboardingRedirect: NOOP_RESOLVE,
       queryClient: null as unknown as QueryClient,
     };
-    useAssistantLifecycleStore.setState({ assistantState: this.state });
+    useAssistantLifecycleStore.setState({
+      assistantState: this.state,
+      autoGreetPending: false,
+    });
     useAssistantSelectionStore.setState({ activeAssistantId: null });
   }
 }

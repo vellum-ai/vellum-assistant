@@ -608,6 +608,25 @@ export function ChatPage() {
     void navigate(routes.conversation(onboardingDraftConversationId), { replace: true });
   }, [searchParams, navigate]);
 
+  // Auto-greet signal from the lifecycle service.
+  //
+  // `lifecycle-service.ts` sets `autoGreetPending: true` in two
+  // cases the onboarding-screen `?onboarding=1` flow can't cover —
+  // a vanilla auto-hatch for a new signup who never visited
+  // `/onboarding/hatching`, and the nonprod version-selection
+  // hatch. Mirrors the onboarding effect above (flip both the
+  // ref and the local pending state so the existing greet path
+  // fires once history loads). The store flag is cleared after
+  // consuming so this is one-shot.
+  const lifecycleAutoGreetPending =
+    useAssistantLifecycleStore.use.autoGreetPending();
+  useEffect(() => {
+    if (!lifecycleAutoGreetPending) return;
+    autoGreetRef.current = true;
+    setAutoGreetPending(true);
+    useAssistantLifecycleStore.setState({ autoGreetPending: false });
+  }, [lifecycleAutoGreetPending]);
+
   // -------------------------------------------------------------------------
   // Message reconciliation
   // -------------------------------------------------------------------------

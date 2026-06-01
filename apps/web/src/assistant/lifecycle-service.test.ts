@@ -312,6 +312,71 @@ describe("lifecycleService — auto-hatch cascade", () => {
       "retired",
     );
   });
+
+  test("vanilla auto_hatch sets autoGreetPending — the signal chat-page consumes", async () => {
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 404,
+    }));
+    hatchAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 201,
+      data: { id: "asst-fresh", status: "initializing" },
+    }));
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().autoGreetPending).toBe(true);
+  });
+
+  test("auto_hatch + nonprod does NOT set autoGreetPending — user has to pick a version first", async () => {
+    // The user clicking the version button is what fires the
+    // auto-greet, via `hatchVersion`. Auto-hatch alone in nonprod
+    // doesn't hatch, so it shouldn't set the signal.
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 404,
+    }));
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      isNonProduction: true,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().autoGreetPending).toBe(false);
+  });
+
+  test("auto_hatch + isRetired does NOT set autoGreetPending", async () => {
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 404,
+    }));
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      isRetired: true,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().autoGreetPending).toBe(false);
+  });
+
+  test("hatchVersion sets autoGreetPending — the nonprod version-selection greet", () => {
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    lifecycleService.hatchVersion("v1");
+
+    expect(useAssistantLifecycleStore.getState().autoGreetPending).toBe(true);
+  });
 });
 
 describe("lifecycleService — pre-init guards", () => {
