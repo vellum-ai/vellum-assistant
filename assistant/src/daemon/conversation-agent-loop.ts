@@ -2305,15 +2305,6 @@ export async function runAgentLoopImpl(
     // the loop is intentionally blind to. Re-injection and persistence stay
     // orchestrator-supplied for now.
     const midLoopCompaction: MidLoopCompaction = {
-      onCompacting: () => {
-        ctx.emitActivityState(
-          "thinking",
-          "context_compacting",
-          "assistant_turn",
-          reqId,
-          "Compacting context",
-        );
-      },
       prepare: (history) => {
         // Strip injected context so the compactor summarizes the raw
         // persistent messages, and commit the stripped set to durable state.

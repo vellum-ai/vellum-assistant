@@ -283,6 +283,15 @@ export type AgentEvent =
     }
   | {
       /**
+       * Emitted when the loop begins compacting the running history because
+       * the mid-loop budget gate tripped. The daemon's event dispatcher
+       * translates it into a "compacting context" activity state so clients
+       * surface that the turn paused to summarize context.
+       */
+      type: "context_compacting";
+    }
+  | {
+      /**
        * Emitted when an agent turn reaches a terminal state. Checkpoint
        * yields used for orchestration (handoff or budget compaction) are not
        * emitted by {@link AgentLoop.run}; the outer orchestrator emits a
@@ -423,22 +432,14 @@ export interface ResolvedSystemPrompt {
  * in a future change.
  */
 export interface MidLoopCompaction {
-  /** Emit the "compacting context" activity state, when the caller surfaces one. */
-  onCompacting?: () => void;
-  /**
-   * Strip runtime injections from `history`, commit the stripped messages to
-   * durable state, and resolve the pipeline options for this attempt.
-   */
+  /** Strip runtime injections, commit stripped messages, and resolve pipeline options. */
   prepare: (history: Message[]) => {
     rawHistory: Message[];
     options: CompactionArgs["options"];
   };
   /** Record a compaction-pipeline timeout for the circuit breaker. */
   onTimeout: () => Promise<void>;
-  /**
-   * Persist a compaction result (summary, watermark, circuit-breaker outcome)
-   * and report whether the compactor exhausted its retry budget.
-   */
+  /** Persist a compaction result and report whether the retry budget was exhausted. */
   persist: (
     result: CompactionResult,
     rawHistory: Message[],
@@ -645,8 +646,9 @@ export class AgentLoop {
     turnContext: TurnContext,
     compaction: MidLoopCompaction,
     signal: AbortSignal | undefined,
+    onEvent: (event: AgentEvent) => void | Promise<void>,
   ): Promise<Message[] | null> {
-    compaction.onCompacting?.();
+    await onEvent({ type: "context_compacting" });
     const { rawHistory, options } = compaction.prepare(history);
     let result: CompactionResult;
     try {
@@ -1578,6 +1580,7 @@ export class AgentLoop {
                 turnCtx,
                 compaction,
                 signal,
+                onEvent,
               );
               if (compacted) {
                 history = compacted;
