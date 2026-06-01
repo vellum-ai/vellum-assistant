@@ -874,6 +874,56 @@ API. The three actions map to concrete UI patterns:
   without the gated content, render only the non-platform portion
   without the toggle.
 
+### Platform-hosted-only features
+
+Some UI surfaces only make sense on platform-hosted assistants — plan
+management, machine sizing, release channels, sleep policy, system
+events. They have no meaningful behavior on a self-hosted assistant
+and should be hidden whenever the active assistant is self-hosted,
+regardless of platform login or the `platformFeaturesInLocalMode` flag.
+
+Pass `{ platformHostedOnly: true }` to `usePlatformGate` for these:
+
+```ts
+const gate = usePlatformGate({ platformHostedOnly: true });
+if (gate === "gated") return null;
+if (gate === "disabled") return <PlatformLoginNotice />;
+// gate === "full" — render normally
+```
+
+The decision is "is the **active assistant** self-hosted?" — not "is the
+app running in local mode?" Two cases this matters for:
+
+1. A **local-mode app** can be acting on a platform-hosted assistant
+   (lockfile entry with `cloud === "vellum"`). The platform billing /
+   plan UI for that assistant IS meaningful.
+2. A **platform-mode app** can be acting on a self-hosted assistant —
+   when the platform API returns `is_local: true`,
+   `resolveAssistantLifecycleState` projects `kind: "self_hosted"` and
+   the user is effectively connected to a daemon. The platform billing /
+   plan UI for that assistant is NOT meaningful.
+
+The reactive source is `useAssistantLifecycleStore.assistantState`. The
+gate fires `"gated"` when the lifecycle state is either:
+- `{ kind: "self_hosted" }` (API resolved with `is_local: true`), or
+- `{ kind: "active", isLocal: true }` (gateway-auth short-circuit fired
+  in local mode).
+
+Truth table when `platformHostedOnly` is `true`:
+
+| Active assistant            | Platform session | Result       |
+|-----------------------------|------------------|--------------|
+| platform-hosted             | yes              | `"full"`     |
+| platform-hosted             | no               | `"disabled"` |
+| self-hosted                 | any              | `"gated"`    |
+| none resolved (loading etc) | yes              | `"full"`     |
+| none resolved               | no               | `"disabled"` |
+
+The `platformFeaturesInLocalMode` flag and its hydration state do NOT
+apply to this branch — that flag gates the daemon-side API interceptor
+in local mode, which is orthogonal to "is this UI's target assistant
+platform-hosted?"
+
 ### Daemon-owned endpoints routed through the platform proxy
 
 Many features use the platform API client but actually hit
