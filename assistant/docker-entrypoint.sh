@@ -30,10 +30,10 @@ fi
 # and have the executable bit set. Scripts are sourced so env mutations
 # propagate to the daemon. Errors are logged but non-fatal.
 if [ -d /workspace/.entrypoint.d ]; then
+  wait_for_kata_apt_root
   for hook in /workspace/.entrypoint.d/*.sh; do
     [ ! -L "$hook" ] || continue
     [ -x "$hook" ] || continue
-    wait_for_kata_apt_root
     . "$hook" || echo "Warning: workspace hook $hook exited $?" >&2
   done
 fi
