@@ -179,6 +179,15 @@ mock.module("../notifications/emit-signal.js", () => ({
   },
 }));
 
+// app sync invalidation mock
+let publishAppsChangedCalls: Array<string | undefined> = [];
+
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  publishAppsChanged: (originClientId?: string) => {
+    publishAppsChangedCalls.push(originClientId);
+  },
+}));
+
 // findConversation mock
 type MockConversation = {
   processing: boolean;
@@ -301,6 +310,7 @@ function resetState() {
   releaseClaimCalls = 0;
   addMessageCalls = [];
   emitSignalCalls = [];
+  publishAppsChangedCalls = [];
   broadcastCalls = [];
   mockConversations = new Map();
   logWarnCalls = [];
@@ -460,6 +470,7 @@ describe("runProactiveArtifactJob", () => {
         type: "app_files_changed",
         appId: "app-123",
       });
+      expect(publishAppsChangedCalls).toEqual([undefined]);
 
       // Message injection: addMessage called with skipIndexing
       expect(addMessageCalls).toHaveLength(1);

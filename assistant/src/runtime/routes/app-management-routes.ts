@@ -50,6 +50,7 @@ import { createSharedAppLink } from "../../memory/shared-app-links-store.js";
 import { computeContentId } from "../../util/content-id.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { publishAppsChanged } from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   NotFoundError,
@@ -62,6 +63,12 @@ const log = getLogger("app-management-routes");
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function getOriginClientId(
+  headers: RouteHandlerArgs["headers"],
+): string | undefined {
+  return headers?.["x-vellum-client-id"]?.trim() || undefined;
+}
 
 function getSharedAppsDir(): string {
   return join(
@@ -566,14 +573,16 @@ async function handleImportBundle({ rawBody, headers }: RouteHandlerArgs) {
       "Request body is required — upload a .vbundle file",
     );
   }
-  return importBundle(rawBody, headers ?? {});
+  const result = await importBundle(rawBody, headers ?? {});
+  publishAppsChanged(getOriginClientId(headers));
+  return result;
 }
 
 function handleListSharedApps() {
   return { apps: listSharedApps() };
 }
 
-function handleForkSharedApp({ body }: RouteHandlerArgs) {
+function handleForkSharedApp({ body, headers }: RouteHandlerArgs) {
   if (!body?.uuid) {
     throw new BadRequestError("uuid is required");
   }
@@ -581,10 +590,11 @@ function handleForkSharedApp({ body }: RouteHandlerArgs) {
   if (!result.success) {
     throw new BadRequestError(result.error);
   }
+  publishAppsChanged(getOriginClientId(headers));
   return result;
 }
 
-async function handleInstallGalleryApp({ body }: RouteHandlerArgs) {
+async function handleInstallGalleryApp({ body, headers }: RouteHandlerArgs) {
   if (!body?.galleryAppId) {
     throw new BadRequestError("galleryAppId is required");
   }
@@ -592,6 +602,7 @@ async function handleInstallGalleryApp({ body }: RouteHandlerArgs) {
   if (!result.success) {
     throw new BadRequestError(result.error);
   }
+  publishAppsChanged(getOriginClientId(headers));
   return result;
 }
 
@@ -695,8 +706,9 @@ async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
   return { appId: app.id, dirName, name: app.name, html };
 }
 
-function handleDeleteApp({ pathParams }: RouteHandlerArgs) {
+function handleDeleteApp({ pathParams, headers }: RouteHandlerArgs) {
   deleteApp(pathParams?.id as string);
+  publishAppsChanged(getOriginClientId(headers));
   return { success: true };
 }
 

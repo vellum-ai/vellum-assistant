@@ -18,6 +18,11 @@ import type {
 // Helpers
 // ---------------------------------------------------------------------------
 
+const APP_BUILDER_ARTIFACT_RE =
+  /\b(app|apps|application|applications|website|websites|site|sites|dashboard|dashboards|game|games|calculator|calculators|tracker|trackers|visualization|visualizations|visualisation|visualisations|tool|tools|utility|utilities|counter|counters)\b/i;
+const APP_BUILDER_BUILD_RE =
+  /\b(build|building|built|create|creating|created|make|making|made|generate|generating|generated)\b/i;
+
 /**
  * Forward execution to the connected macOS client via the request-bound
  * `proxyToolResolver`. Returns a structured error when no resolver is
@@ -29,6 +34,14 @@ function proxyExecute(toolName: string) {
     input: Record<string, unknown>,
     context: ToolContext,
   ): Promise<ToolExecutionResult> => {
+    if (toolName === "ui_show" && isDynamicPageAppSubstitute(input)) {
+      return {
+        content:
+          'Error: ui_show dynamic_page is for transient UI surfaces only. This request is building an app-like experience, so load the app-builder skill first with `skill_load` using `skill: "app-builder"`, then create a persistent Library app with the app-builder workflow.',
+        isError: true,
+      };
+    }
+
     if (!context.proxyToolResolver) {
       return {
         content: `No proxy resolver configured for proxy tool "${toolName}". This tool requires an external resolver (e.g. a connected macOS client).`,
@@ -39,6 +52,49 @@ function proxyExecute(toolName: string) {
   };
 }
 
+function isDynamicPageAppSubstitute(input: Record<string, unknown>): boolean {
+  if (input.surface_type !== "dynamic_page") {
+    return false;
+  }
+
+  const text = collectRoutingText(input).join(" ");
+  if (!APP_BUILDER_ARTIFACT_RE.test(text)) {
+    return false;
+  }
+
+  return APP_BUILDER_BUILD_RE.test(text) || /\b(app|application)\b/i.test(text);
+}
+
+function collectRoutingText(input: Record<string, unknown>): string[] {
+  const values: string[] = [];
+  addString(values, input.title);
+  addString(values, input.activity);
+
+  const data = asRecord(input.data);
+  if (data) {
+    const preview = asRecord(data.preview);
+    if (preview) {
+      addString(values, preview.title);
+      addString(values, preview.subtitle);
+      addString(values, preview.description);
+    }
+  }
+
+  return values;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function addString(values: string[], value: unknown): void {
+  if (typeof value === "string") {
+    values.push(value);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // ui_show
 // ---------------------------------------------------------------------------
@@ -46,7 +102,7 @@ function proxyExecute(toolName: string) {
 export const uiShowTool = {
   name: "ui_show",
   description:
-    "Surface structured data or UI in the conversation. For long-form writing use the document skill; for interactive apps use the app-builder skill.\n\n" +
+    'Surface structured data or UI in the conversation. For long-form writing use the document skill. For interactive apps, dashboards, games, calculators, or durable tools, call `skill_load` with `skill: "app-builder"` and use the app-builder workflow; do not use `dynamic_page` as a substitute for a persistent app. App-like `dynamic_page` calls are rejected.\n\n' +
     "Surface types (data shapes):\n" +
     '- card: { title, subtitle?, body, metadata?: [{ label, value }], template?, templateData? }. Templates: "weather_forecast" (native weather widget), "task_progress" (live step tracker - update via ui_update on data.templateData; shape: { title, status: "in_progress"|"completed"|"failed", steps: [{ label, status: "pending"|"in_progress"|"completed"|"failed", detail? }] })\n' +
     '- table: { columns: [{ id, label }], rows: [{ id, cells: Record<id, string | { text, icon?, iconColor?: "success"|"warning"|"error"|"muted" }>, selectable?, selected? }], selectionMode?: "none"|"single"|"multiple", caption? }\n' +
