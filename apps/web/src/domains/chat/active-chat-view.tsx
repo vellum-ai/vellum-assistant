@@ -406,6 +406,7 @@ export function ActiveChatView() {
   const autoGreetPending = useAutoGreetGate(
     activeConversationId,
     peekPendingPreChatContext()?.initialMessage != null,
+    onboardingConversationId,
   );
 
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
@@ -512,7 +513,9 @@ export function ActiveChatView() {
   if (autoGreetPending) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-[var(--text-secondary)]">Connecting…</p>
+        <p className="text-[var(--text-secondary)]">
+          Starting your first conversation…
+        </p>
       </div>
     );
   }
