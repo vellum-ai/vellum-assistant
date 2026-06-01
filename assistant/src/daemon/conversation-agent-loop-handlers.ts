@@ -47,6 +47,7 @@ import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CircuitBreakerArgs,
   CircuitBreakerResult,
+  CompactionCircuitEvent,
   PersistArgs,
   PersistReserveResult,
   PersistResult,
@@ -206,7 +207,7 @@ async function runCompactionCircuitPipeline(
   },
   args: {
     outcome?: "success" | "failure";
-    onEvent?: (msg: ServerMessage) => void;
+    onEvent?: (msg: CompactionCircuitEvent) => void;
   },
 ): Promise<CircuitBreakerResult> {
   const turnContext = buildCircuitTurnContext(ctx);
@@ -281,7 +282,7 @@ export async function trackCompactionOutcome(
     turnCount: number;
   },
   summaryFailed: boolean,
-  onEvent: (msg: ServerMessage) => void,
+  onEvent: (msg: CompactionCircuitEvent) => void,
 ): Promise<void> {
   await runCompactionCircuitPipeline(ctx, {
     outcome: summaryFailed ? "failure" : "success",

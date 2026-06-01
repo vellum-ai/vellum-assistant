@@ -361,6 +361,32 @@ no-ops if `phase !== "thinking"`. The action stays a plain function;
 the rules stay testable in isolation; we don't need a dispatcher
 ceremony to enforce them.
 
+## Service-owned state vs store-owned state
+
+Module-level singleton services (e.g. `lifecycle-service.ts`) own
+*behavior* — async work, retry budgets, watchdogs, transitions. Any
+**state that React reads** lives in the service's Zustand store, not as
+a private service field, even if there's only one consumer today.
+
+The trap to avoid: a private singleton field + `peek()` method seems
+fine when the only consumer reads it once at mount. It breaks the
+moment a producer fires from *inside* the consumer's React tree
+(rather than from a sibling that navigates to it) — the singleton flip
+happens after the consumer's `useState` lazy initializer already
+peeked, no re-render is triggered, the UI goes stale. Patching by
+flipping a local mirror at the call site is a band-aid every future
+in-tree producer would need to repeat.
+
+Store-resident state avoids this entirely: `setState` on the store
+automatically re-renders every subscriber, regardless of where the
+producer fired from.
+
+Services expose `mark<Field>()` / `clear<Field>()` (or `set<Field>(v)`)
+that internally call `useTheStore.setState(...)`. React consumers read
+via the atomic selector `useTheStore.use.field()`; non-React callers
+read via `useTheStore.getState().field`. No mirror, no `peek`, no
+two-state invariant.
+
 **Known exceptions** (slated for migration):
 
 - `apps/web/src/domains/terminal/use-terminal-state.ts` and

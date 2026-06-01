@@ -132,6 +132,12 @@ export type BusHandler<K extends BusEventName> = (
 ) => void;
 
 type AnyHandler = (payload: never) => void;
+// `let` (not `const`) because `__resetForTesting` reassigns to a
+// fresh Map rather than clearing in place. After reset the module-
+// level `handlers` points to an empty Map, so any old unsubscribe
+// closure (which reads `handlers` through the binding, not by value)
+// sees `handlers.get(event) === undefined` and early-returns — that's
+// the property the "unsubscribe-after-reset is a no-op" test relies on.
 let handlers: Map<BusEventName, Set<AnyHandler>> = new Map();
 
 /**
@@ -172,8 +178,10 @@ export function publish<K extends BusEventName>(
       (handler as (p: typeof payload) => void)(payload);
     } catch (err) {
       // One bad subscriber must not block downstream subscribers.
-      // Surface via console so the failure is debuggable without
-      // pulling Sentry into a primitive.
+      // Console-log rather than re-throw or call Sentry directly so
+      // the bus stays free of a hard dependency on the reporting
+      // layer (subscribers already log their own captures via Sentry
+      // when they care about it).
       console.error("[event-bus] handler threw", event, err);
     }
   }

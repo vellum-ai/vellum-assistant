@@ -67,7 +67,6 @@ process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
 const fakeConfig = {} as unknown as AssistantConfig;
 const fakeCtx: DaemonContext = {
   config: fakeConfig,
-  assistantVersion: "9.9.9-test",
 };
 
 /** Build a plugin that contributes one or more skills. */

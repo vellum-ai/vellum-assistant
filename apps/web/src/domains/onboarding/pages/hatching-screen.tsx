@@ -204,6 +204,11 @@ export function HatchingScreen() {
               });
             }
             clearPrivacyConsent();
+            // Native flow skips the pre-chat screen, so there's no
+            // typed message to drive the auto-greet gate. Mark the
+            // lifecycle one-shot so the destination chat mount shows
+            // the loading gate until the server greeting arrives.
+            lifecycleService.markExpectingFirstMessage();
             void navigate(`${routes.assistant}?onboarding=1`, {
               replace: true,
             });

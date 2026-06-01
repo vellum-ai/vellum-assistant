@@ -16,6 +16,8 @@
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
 
+import type { CompactionCircuitClosedEvent } from "../api/events/compaction-circuit-closed.js";
+import type { CompactionCircuitOpenEvent } from "../api/events/compaction-circuit-open.js";
 import type { ContextWindowConfig } from "../config/schemas/inference.js";
 import type {
   ContextWindowManager,
@@ -29,7 +31,6 @@ import type {
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { RepairResult } from "../daemon/history-repair.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { MessageRole } from "../memory/conversation-crud.js";
@@ -734,8 +735,11 @@ export type ToolErrorResult = ToolErrorDecision;
  *
  * `onEvent` is optional — when provided, the default plugin emits
  * `compaction_circuit_open` / `compaction_circuit_closed` transition events
- * through it. Callers that just want to query without emitting (or without
- * a `ServerMessage` sink handy) can omit it.
+ * through it. Its parameter is narrowed to {@link CompactionCircuitEvent} (the
+ * only two messages this pipeline ever emits) rather than the full
+ * `ServerMessage` union, so a caller whose outbound channel can carry just
+ * these two events can satisfy it. Callers that only want to query without
+ * emitting can omit it.
  */
 export type CircuitBreakerArgs = {
   readonly key: string;
@@ -745,8 +749,19 @@ export type CircuitBreakerArgs = {
     consecutiveCompactionFailures: number;
     compactionCircuitOpenUntil: number | null;
   };
-  readonly onEvent?: (msg: ServerMessage) => void;
+  readonly onEvent?: (msg: CompactionCircuitEvent) => void;
 };
+
+/**
+ * The complete set of transition events the `circuitBreaker` pipeline emits:
+ * `compaction_circuit_open` when the breaker trips and `compaction_circuit_closed`
+ * on the open→closed transition. Both are a subset of `ServerMessage`, so any
+ * existing `ServerMessage` sink remains assignable to a
+ * `(msg: CompactionCircuitEvent) => void` parameter.
+ */
+export type CompactionCircuitEvent =
+  | CompactionCircuitOpenEvent
+  | CompactionCircuitClosedEvent;
 
 /**
  * Result of a `circuitBreaker` pipeline invocation.

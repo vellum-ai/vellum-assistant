@@ -220,9 +220,10 @@ describe("event-bus", () => {
     expect(() => unsub()).not.toThrow();
   });
 
-  test("publishing an unknown event name after reset is a no-op", () => {
-    expect(() =>
-      publish("app.offline", {}),
-    ).not.toThrow();
+  test("publishing after reset with no subscribers is a no-op", () => {
+    // Reset clears the handler registry; publishing into the empty
+    // Map resolves to a no-op (the `set` lookup returns undefined
+    // and the early-return fires).
+    expect(() => publish("app.offline", {})).not.toThrow();
   });
 });

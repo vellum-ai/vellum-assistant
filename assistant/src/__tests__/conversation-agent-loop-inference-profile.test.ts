@@ -236,7 +236,7 @@ mock.module("../daemon/date-context.js", () => ({
   formatTurnTimestamp: () => "2026-01-01 (Thursday) 00:00:00 +00:00 (UTC)",
 }));
 
-mock.module("../daemon/history-repair.js", () => ({
+mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {
@@ -246,6 +246,18 @@ mock.module("../daemon/history-repair.js", () => ({
       consecutiveSameRoleMerged: 0,
     },
   }),
+  defaultHistoryRepairTerminal: (args: { history: Message[] }) => ({
+    messages: args.history,
+    stats: {
+      assistantToolResultsMigrated: 0,
+      missingToolResultsInserted: 0,
+      orphanToolResultsDowngraded: 0,
+      consecutiveSameRoleMerged: 0,
+    },
+  }),
+}));
+
+mock.module("../daemon/history-repair.js", () => ({
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
 }));
 
