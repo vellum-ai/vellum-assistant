@@ -1,17 +1,24 @@
 /**
- * Hand-written fetch wrappers for assistant memory-item endpoints.
+ * Fetch wrappers for assistant memory-item endpoints.
  *
- * These endpoints are served by the assistant daemon via
- * RuntimeProxyWildcardView under /v1/assistants/{id}/memory-items/* and are
- * not part of the Django OpenAPI schema.
+ * Uses the daemon SDK for routing — all calls go through daemonClient,
+ * which forwards unconditionally to the self-hosted gateway.
+ *
+ * Hand-written types (`./types`) are kept because the generated response
+ * types use `Array<unknown>` / `{ [key: string]: unknown }` for items.
  */
 
 import {
+  memoryitemsByIdDelete,
+  memoryitemsByIdGet,
+  memoryitemsByIdPatch,
+  memoryitemsGet,
+} from "@/generated/daemon/sdk.gen";
+import {
   ApiError,
   assertHasResponse,
-  client,
   extractErrorMessage,
-} from "@/domains/intelligence/client";
+} from "@/utils/api-errors";
 
 import type { MemoryItem, MemoryItemsListResponse } from "./types";
 
@@ -27,29 +34,13 @@ export interface FetchMemoriesParams {
   offset?: number;
 }
 
-function buildQuery(params: FetchMemoriesParams): Record<string, string> {
-  const query: Record<string, string> = {};
-  if (params.kind) query.kind = params.kind;
-  if (params.status) query.status = params.status;
-  if (params.search) query.search = params.search;
-  if (params.sort) query.sort = params.sort;
-  if (params.order) query.order = params.order;
-  if (params.limit !== undefined) query.limit = String(params.limit);
-  if (params.offset !== undefined) query.offset = String(params.offset);
-  return query;
-}
-
 export async function fetchMemories(
   assistantId: string,
   params: FetchMemoriesParams = {},
 ): Promise<MemoryItemsListResponse> {
-  const { data, error, response } = await client.get<
-    MemoryItemsListResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/memory-items",
+  const { data, error, response } = await memoryitemsGet({
     path: { assistant_id: assistantId },
-    query: buildQuery(params),
+    query: params,
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to load memories.");
@@ -59,23 +50,15 @@ export async function fetchMemories(
       extractErrorMessage(error, response, "Failed to load memories."),
     );
   }
-  return data ?? { items: [], total: 0 };
-}
-
-interface MemoryItemWrapper {
-  item: MemoryItem;
+  return (data as MemoryItemsListResponse) ?? { items: [], total: 0 };
 }
 
 export async function fetchMemoryDetail(
   assistantId: string,
   memoryId: string,
 ): Promise<MemoryItem | null> {
-  const { data, error, response } = await client.get<
-    MemoryItemWrapper | MemoryItem,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/memory-items/{memory_id}",
-    path: { assistant_id: assistantId, memory_id: memoryId },
+  const { data, error, response } = await memoryitemsByIdGet({
+    path: { assistant_id: assistantId, id: memoryId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to load memory.");
@@ -86,8 +69,7 @@ export async function fetchMemoryDetail(
     );
   }
   if (!data) return null;
-  if ("item" in data) return data.item;
-  return data as MemoryItem;
+  return data.item as unknown as MemoryItem;
 }
 
 export interface UpdateMemoryBody {
@@ -96,7 +78,6 @@ export interface UpdateMemoryBody {
   kind?: string;
   status?: string;
   importance?: number;
-  verificationState?: string;
 }
 
 export async function updateMemory(
@@ -104,14 +85,9 @@ export async function updateMemory(
   memoryId: string,
   body: UpdateMemoryBody,
 ): Promise<MemoryItem> {
-  const { data, error, response } = await client.patch<
-    MemoryItemWrapper | MemoryItem,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/memory-items/{memory_id}",
-    path: { assistant_id: assistantId, memory_id: memoryId },
+  const { data, error, response } = await memoryitemsByIdPatch({
+    path: { assistant_id: assistantId, id: memoryId },
     body,
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to update memory.");
@@ -124,17 +100,15 @@ export async function updateMemory(
   if (!data) {
     throw new ApiError(response.status, "Failed to update memory.");
   }
-  if ("item" in data) return data.item;
-  return data as MemoryItem;
+  return data.item as unknown as MemoryItem;
 }
 
 export async function deleteMemory(
   assistantId: string,
   memoryId: string,
 ): Promise<void> {
-  const { error, response } = await client.delete<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/memory-items/{memory_id}",
-    path: { assistant_id: assistantId, memory_id: memoryId },
+  const { error, response } = await memoryitemsByIdDelete({
+    path: { assistant_id: assistantId, id: memoryId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to delete memory.");

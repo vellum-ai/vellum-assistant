@@ -1,16 +1,22 @@
 /**
- * Hand-written fetch wrappers for memory v2 concept-page endpoints.
+ * Fetch wrappers for memory v2 concept-page endpoints.
  *
- * These endpoints are served by the assistant daemon via
- * RuntimeProxyWildcardView and are not in the Django OpenAPI schema.
+ * Uses the daemon SDK for routing — all calls go through daemonClient,
+ * which forwards unconditionally to the self-hosted gateway.
+ *
+ * Hand-written types (`./types`) are kept because the generated response
+ * types are `200: unknown` for both endpoints.
  */
 
 import {
+  memoryV2ConceptpagePost,
+  memoryV2ListconceptpagesPost,
+} from "@/generated/daemon/sdk.gen";
+import {
   ApiError,
   assertHasResponse,
-  client,
   extractErrorMessage,
-} from "@/domains/intelligence/client";
+} from "@/utils/api-errors";
 
 import type { ConceptPageSummary, ListConceptPagesResult } from "./types";
 
@@ -38,11 +44,9 @@ interface ConceptPageResponseBody {
 export async function listConceptPages(
   assistantId: string,
 ): Promise<ListConceptPagesResult> {
-  const { data, error, response } = await client.post<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/memory/v2/list-concept-pages",
+  const { data, error, response } = await memoryV2ListconceptpagesPost({
     path: { assistant_id: assistantId },
     body: {},
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
 
@@ -75,11 +79,9 @@ export async function readConceptPage(
   assistantId: string,
   slug: string,
 ): Promise<string | null> {
-  const { data, error, response } = await client.post<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/memory/v2/concept-page",
+  const { data, error, response } = await memoryV2ConceptpagePost({
     path: { assistant_id: assistantId },
     body: { slug },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
 

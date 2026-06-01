@@ -1,17 +1,28 @@
 /**
- * Hand-written fetch wrappers for assistant skill endpoints.
+ * Fetch wrappers for assistant skill endpoints.
  *
- * These endpoints are served by the assistant daemon via
- * RuntimeProxyWildcardView under /v1/assistants/{id}/skills/* and are not
- * part of the Django OpenAPI schema, so no generated HeyAPI hooks exist.
+ * Uses the daemon SDK for routing — all calls go through daemonClient,
+ * which forwards unconditionally to the self-hosted gateway.
+ *
+ * Hand-written types (`./types`) are kept as the domain interface because
+ * the generated `SkillsGetResponse` uses a discriminated union by origin
+ * that would require updating every consumer. Follow-up: adopt generated
+ * types in the component layer.
  */
 
+import { client as daemonClient } from "@/generated/daemon/client.gen";
+import {
+  skillsByIdDelete,
+  skillsByIdFilesContentGet,
+  skillsByIdFilesGet,
+  skillsByIdGet,
+  skillsGet,
+} from "@/generated/daemon/sdk.gen";
 import {
   ApiError,
   assertHasResponse,
-  client,
   extractErrorMessage,
-} from "@/domains/intelligence/client";
+} from "@/utils/api-errors";
 
 import type {
   SkillFileContentResponse,
@@ -30,27 +41,20 @@ export interface FetchSkillsParams {
   includeCatalog?: boolean;
 }
 
-function buildQuery(params: FetchSkillsParams): Record<string, string> {
-  const query: Record<string, string> = {};
-  if (params.includeCatalog) query.include = "catalog";
-  if (params.origin) query.origin = params.origin;
-  if (params.kind) query.kind = params.kind;
-  if (params.query) query.q = params.query;
-  if (params.category) query.category = params.category;
-  return query;
-}
-
 export async function fetchSkills(
   assistantId: string,
   params: FetchSkillsParams = {},
 ): Promise<SkillsListResponse> {
-  const { data, error, response } = await client.get<
-    SkillsListResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/skills/",
+  const merged = { includeCatalog: true, ...params };
+  const { data, error, response } = await skillsGet({
     path: { assistant_id: assistantId },
-    query: buildQuery({ includeCatalog: true, ...params }),
+    query: {
+      include: merged.includeCatalog ? "catalog" : undefined,
+      origin: merged.origin,
+      kind: merged.kind,
+      q: merged.query,
+      category: merged.category,
+    },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to load skills.");
@@ -60,7 +64,7 @@ export async function fetchSkills(
       extractErrorMessage(error, response, "Failed to load skills."),
     );
   }
-  return data ?? { skills: [] };
+  return (data as SkillsListResponse) ?? { skills: [] };
 }
 
 export interface InstallSkillResponse {
@@ -68,12 +72,19 @@ export interface InstallSkillResponse {
   skillId?: string;
 }
 
+/**
+ * Install a skill by slug.
+ *
+ * Uses the daemon client directly because the generated
+ * `skillsInstallPost` requires body fields (`url`, `spec`) that the
+ * daemon resolves server-side from the slug.
+ */
 export async function installSkill(
   assistantId: string,
   slug: string,
   version?: string,
 ): Promise<InstallSkillResponse> {
-  const { data, error, response } = await client.post<
+  const { data, error, response } = await daemonClient.post<
     InstallSkillResponse,
     unknown
   >({
@@ -97,9 +108,8 @@ export async function uninstallSkill(
   assistantId: string,
   skillId: string,
 ): Promise<void> {
-  const { error, response } = await client.delete<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/skills/{skill_id}",
-    path: { assistant_id: assistantId, skill_id: skillId },
+  const { error, response } = await skillsByIdDelete({
+    path: { assistant_id: assistantId, id: skillId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to uninstall skill.");
@@ -115,12 +125,8 @@ export async function fetchSkillDetail(
   assistantId: string,
   skillId: string,
 ): Promise<SkillInfo | null> {
-  const { data, error, response } = await client.get<
-    { skill: SkillInfo } | SkillInfo,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/skills/{skill_id}",
-    path: { assistant_id: assistantId, skill_id: skillId },
+  const { data, error, response } = await skillsByIdGet({
+    path: { assistant_id: assistantId, id: skillId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to load skill detail.");
@@ -131,20 +137,15 @@ export async function fetchSkillDetail(
     );
   }
   if (!data) return null;
-  if ("skill" in data) return (data as { skill: SkillInfo }).skill;
-  return data as SkillInfo;
+  return data.skill as SkillInfo;
 }
 
 export async function fetchSkillFiles(
   assistantId: string,
   skillId: string,
 ): Promise<SkillFilesResponse | null> {
-  const { data, error, response } = await client.get<
-    SkillFilesResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/skills/{skill_id}/files",
-    path: { assistant_id: assistantId, skill_id: skillId },
+  const { data, error, response } = await skillsByIdFilesGet({
+    path: { assistant_id: assistantId, id: skillId },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to load skill files.");
@@ -154,7 +155,7 @@ export async function fetchSkillFiles(
       extractErrorMessage(error, response, "Failed to load skill files."),
     );
   }
-  return data ?? null;
+  return (data as SkillFilesResponse) ?? null;
 }
 
 export async function fetchSkillFileContent(
@@ -162,12 +163,8 @@ export async function fetchSkillFileContent(
   skillId: string,
   path: string,
 ): Promise<SkillFileContentResponse | null> {
-  const { data, error, response } = await client.get<
-    SkillFileContentResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/skills/{skill_id}/files/content",
-    path: { assistant_id: assistantId, skill_id: skillId },
+  const { data, error, response } = await skillsByIdFilesContentGet({
+    path: { assistant_id: assistantId, id: skillId },
     query: { path },
     throwOnError: false,
   });
@@ -178,5 +175,5 @@ export async function fetchSkillFileContent(
       extractErrorMessage(error, response, "Failed to load file content."),
     );
   }
-  return data ?? null;
+  return (data as SkillFileContentResponse) ?? null;
 }
