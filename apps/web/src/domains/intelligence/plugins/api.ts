@@ -18,7 +18,7 @@ import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/domains/intelligence/client";
+} from "@/utils/api-errors";
 import { pluginsGet, pluginsSearchGet } from "@/generated/daemon/sdk.gen";
 import type {
   PluginsGetResponse,
