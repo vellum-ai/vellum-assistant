@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 
 import { Button } from "@vellum/design-library/components/button";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { setPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { useAuthStore } from "@/stores/auth-store";
@@ -65,9 +66,12 @@ export function HostingScreen() {
     if (selected === "vellum-cloud") {
       clearGatewayToken();
       setSelfHostedConnection(null);
+      // Cloud is managed — drop any provider key staged from a prior
+      // Local/Docker visit so it can't leak into a later local hatch.
+      setPendingProviderKey(null);
       void navigate(routes.onboarding.privacy);
     } else {
-      void navigate(`${routes.onboarding.hatching}?hosting=${selected}`);
+      void navigate(`${routes.onboarding.apiKey}?hosting=${selected}`);
     }
   };
 

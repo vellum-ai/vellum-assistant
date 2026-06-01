@@ -111,16 +111,20 @@ export function PrivacyScreen() {
         variant,
       });
     }
-    void navigate(
-      isReplay
-        ? `${routes.onboarding.hatching}?replay=1`
-        : routes.onboarding.hatching,
-    );
+    // Preserve the hosting param (Local/Docker need it so hatching runs the
+    // local hatch instead of a platform hatch).
+    const hostingParam = searchParams.get("hosting");
+    const params = new URLSearchParams();
+    if (hostingParam) params.set("hosting", hostingParam);
+    if (isReplay) params.set("replay", "1");
+    const qs = params.toString();
+    void navigate(`${routes.onboarding.hatching}${qs ? `?${qs}` : ""}`);
   }, [
     isNative,
     isReplay,
     navigate,
     preferredFunnelVariant,
+    searchParams,
     setShareAnalytics,
     setShareDiagnostics,
     shareAnalytics,
