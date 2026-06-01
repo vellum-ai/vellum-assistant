@@ -108,6 +108,15 @@ describe("vellum:localMode:hatch handler", () => {
     expect(await pending).toEqual({ ok: false, error: "daemon already running" });
   });
 
+  test("a non-zero exit with no output carries a descriptive fallback error", async () => {
+    const pending = hatch("vellum");
+    lastChild.emit("close", 1);
+
+    const result = (await pending) as { ok: boolean; error: string };
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain("exited with code 1");
+  });
+
   test("a spawn failure resolves to a failure rather than rejecting", async () => {
     const pending = hatch("vellum");
     lastChild.emit("error", new Error("ENOENT"));
