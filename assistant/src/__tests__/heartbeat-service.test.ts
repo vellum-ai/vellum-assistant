@@ -361,7 +361,7 @@ describe("HeartbeatService", () => {
       processMessageCalls.push({
         conversationId: args[0] as string,
         content: args[1] as string,
-        options: (args[3] as { callSite?: string } | undefined) ?? undefined,
+        options: (args[2] as { callSite?: string } | undefined) ?? undefined,
       });
       return { messageId: "msg-1" };
     });

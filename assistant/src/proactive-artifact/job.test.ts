@@ -90,7 +90,6 @@ mock.module("../daemon/process-message.js", () => ({
   processMessage: async (
     conversationId: string,
     prompt: string,
-    _attachmentIds: unknown,
     options: unknown,
   ) => {
     processMessageCalls.push({ conversationId, prompt, options });
