@@ -186,12 +186,6 @@ export function PreChatFlow() {
 
   const navigateToChatAfterLifecycleRefresh = useCallback(async () => {
     await lifecycleService.checkAssistant();
-    // Hold the auto-greet loading gate up across the route change —
-    // covers the pre-chat-skipped path (no typed message) and is a
-    // harmless no-op when an initial message is staged (the chat
-    // surface clears both signals together once the first message
-    // arrives).
-    lifecycleService.markExpectingFirstMessage();
     void navigate(`${routes.assistant}?onboarding=1`, { replace: true });
   }, [navigate]);
 
@@ -306,6 +300,10 @@ export function PreChatFlow() {
       });
     }
     clearPrivacyConsent();
+    // Skip-recipe finishes onboarding; the post-hatch greeting is
+    // forthcoming. Mark before navigating so the destination chat
+    // mount shows the loading gate until the greeting arrives.
+    lifecycleService.markExpectingFirstMessage();
     void navigateToChatAfterLifecycleRefresh();
   }, [
     recipe,
@@ -395,6 +393,10 @@ export function PreChatFlow() {
       });
     }
     clearPrivacyConsent();
+    // User finished pre-chat; the post-hatch greeting is forthcoming.
+    // Mark before navigating so the destination chat mount shows the
+    // loading gate until the greeting arrives.
+    lifecycleService.markExpectingFirstMessage();
     await navigateToChatAfterLifecycleRefresh();
   }
 
