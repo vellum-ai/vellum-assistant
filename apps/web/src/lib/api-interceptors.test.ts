@@ -16,7 +16,10 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 
-import { requestInterceptor } from "@/lib/api-interceptors";
+import {
+  daemonRequestInterceptor,
+  requestInterceptor,
+} from "@/lib/api-interceptors";
 import { setSelfHostedConnection } from "@/lib/self-hosted/connection";
 import { getClientId } from "@/lib/telemetry/client-identity";
 import { useOrganizationStore } from "@/stores/organization-store";
@@ -94,16 +97,19 @@ describe("api-interceptors / requestInterceptor", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Self-hosted rewriting
+// Self-hosted rewriting — platform client (requestInterceptor)
 // ---------------------------------------------------------------------------
 //
 // When the assistant resolves to `{ kind: "self_hosted" }`, the lifecycle
 // hook calls `setSelfHostedConnection({ url, token })`. From that point
 // on, allowlisted runtime-proxied `/v1/assistants/{id}/<segment>/...`
 // calls leave the platform's base URL behind and go directly to the
-// user's gateway. The allowlist is intentionally narrow — see
-// `RUNTIME_PROXIED_FIRST_SEGMENTS` in `api-interceptors.ts` for why we
-// don't mirror Django's full proxy routing table.
+// user's gateway.
+//
+// The platform client uses the segment allowlist — only explicitly
+// listed segments (currently `conversations`) are rewritten. Platform-
+// owned routes like `maintenance-mode/`, `system-events/`, `terminal/`,
+// `doctor/` fall through to Django.
 //
 // These tests pin the invariants that make that handoff safe:
 //   - URL origin gets swapped to the registered ingress.
@@ -232,12 +238,9 @@ describe("api-interceptors / self-hosted rewriting", () => {
   });
 
   test("does NOT rewrite first segments outside the allowlist", async () => {
-    // Codex flagged that a deny-list approach was structurally fragile
-    // (missed `maintenance-mode`, `system-events`, etc.). The narrow
-    // allowlist makes the failure mode the opposite: anything not
-    // explicitly enumerated falls through to the platform. Pin the
-    // non-rewriting contract for the routes that are most likely to
-    // get mistakenly captured.
+    // The platform client's narrow allowlist ensures platform-owned
+    // routes fall through to Django. Pin the non-rewriting contract
+    // for the routes most likely to get mistakenly captured.
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
     for (const segment of [
       "activate",
@@ -279,5 +282,84 @@ describe("api-interceptors / self-hosted rewriting", () => {
     const output = await requestInterceptor(input);
     expect(new URL(output.url).origin).toBe("https://platform.test");
     expect(output.headers.get("Authorization")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Self-hosted rewriting — daemon client (daemonRequestInterceptor)
+// ---------------------------------------------------------------------------
+//
+// The daemon client bypasses the segment allowlist entirely. Every
+// daemon SDK request is a daemon route by definition, so all assistant
+// sub-resource paths are forwarded to the self-hosted gateway.
+//
+// This means daemon SDK calls for skills, plugins, memories, etc. are
+// correctly routed even though they're not in RUNTIME_PROXIED_FIRST_SEGMENTS.
+
+const DAEMON_SKILLS_PATH = `/v1/assistants/${SELF_HOSTED_ID}/skills/`;
+const DAEMON_PLUGINS_PATH = `/v1/assistants/${SELF_HOSTED_ID}/plugins/`;
+const DAEMON_MEMORY_PATH = `/v1/assistants/${SELF_HOSTED_ID}/memory-items/`;
+
+describe("api-interceptors / daemon client self-hosted rewriting", () => {
+  beforeAll(() => {
+    useOrganizationStore.setState({ currentOrganizationId: TEST_ORG_ID });
+    setCsrfCookie("test-csrf-token");
+  });
+
+  afterAll(() => {
+    clearCsrfCookie();
+  });
+
+  afterEach(() => {
+    setSelfHostedConnection(null);
+  });
+
+  test("rewrites daemon paths that are NOT in the platform allowlist", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    for (const path of [DAEMON_SKILLS_PATH, DAEMON_PLUGINS_PATH, DAEMON_MEMORY_PATH]) {
+      const input = new Request(`https://platform.test${path}`);
+      const output = await daemonRequestInterceptor(input);
+      const outUrl = new URL(output.url);
+      expect(outUrl.origin).toBe(INGRESS);
+      expect(outUrl.pathname).toBe(path);
+      expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
+      expect(output.headers.get("Vellum-Organization-Id")).toBeNull();
+      expect(output.headers.get("X-CSRFToken")).toBeNull();
+    }
+  });
+
+  test("rewrites allowlisted paths too (conversations)", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const input = new Request(`https://platform.test${RUNTIME_PROXIED_PATH}`);
+    const output = await daemonRequestInterceptor(input);
+    expect(new URL(output.url).origin).toBe(INGRESS);
+  });
+
+  test("falls through to platform dressing when no connection is set", async () => {
+    const input = new Request(`https://platform.test${DAEMON_SKILLS_PATH}`, {
+      method: "POST",
+    });
+    const output = await daemonRequestInterceptor(input);
+    expect(new URL(output.url).origin).toBe("https://platform.test");
+    expect(output.headers.get("Vellum-Organization-Id")).toBe(TEST_ORG_ID);
+    expect(output.headers.get("X-CSRFToken")).toBe("test-csrf-token");
+  });
+
+  test("does NOT rewrite the bare retrieve route", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const input = new Request(
+      `https://platform.test/v1/assistants/${SELF_HOSTED_ID}/`,
+    );
+    const output = await daemonRequestInterceptor(input);
+    // Bare retrieve has no sub-resource segment — regex doesn't match.
+    expect(new URL(output.url).origin).toBe("https://platform.test");
+  });
+
+  test("preserves client + interface identity headers", async () => {
+    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
+    const input = new Request(`https://platform.test${DAEMON_SKILLS_PATH}`);
+    const output = await daemonRequestInterceptor(input);
+    expect(output.headers.get("X-Vellum-Client-Id")).toBe(getClientId());
+    expect(output.headers.get("X-Vellum-Interface-Id")).toBe("vellum");
   });
 });
