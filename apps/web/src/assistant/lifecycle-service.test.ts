@@ -83,6 +83,9 @@ mock.module("@/assistant/lifecycle", () => ({
 const { lifecycleService } = await import("./lifecycle-service");
 const { useAssistantLifecycleStore } = await import("./lifecycle-store");
 const { useAssistantSelectionStore } = await import("./selection-store");
+const { __resetEventBusForTesting, useEventBusStore } = await import(
+  "@/stores/event-bus-store"
+);
 
 // --- fake query client --- //
 
@@ -124,10 +127,12 @@ beforeEach(() => {
   }));
   getAssistantMock.mockImplementation(async () => ({ ok: false, status: 404 }));
   lifecycleService.__resetForTesting();
+  __resetEventBusForTesting();
 });
 
 afterEach(() => {
   lifecycleService.__resetForTesting();
+  __resetEventBusForTesting();
 });
 
 describe("lifecycleService — server state projection", () => {
@@ -192,7 +197,7 @@ describe("lifecycleService — server state projection", () => {
 });
 
 describe("lifecycleService — bootstrap branches", () => {
-  test("logout clears both stores", async () => {
+  test("respondToInputs with isLoggedIn=false clears both stores (safety-net for token-expiry-style auth flips that don't call logout())", async () => {
     // Drive the service into an `active` state through the
     // legitimate path so its internal state mirrors the store.
     getAssistantMock.mockImplementationOnce(async () => ({
@@ -221,6 +226,38 @@ describe("lifecycleService — bootstrap branches", () => {
       queryClient: makeQueryClient(),
     });
     await lifecycleService.respondToInputs();
+
+    expect(
+      useAssistantSelectionStore.getState().activeAssistantId,
+    ).toBeNull();
+    expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
+      kind: "loading",
+    });
+  });
+
+  test("resetForLogout clears both stores synchronously without needing setInputs", async () => {
+    // Drive into active first via the normal flow.
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-prev",
+        status: "active",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+    expect(
+      useAssistantSelectionStore.getState().activeAssistantId,
+    ).toBe("asst-prev");
+
+    // Synchronous reset — no `await`, no input flip needed.
+    lifecycleService.resetForLogout();
 
     expect(
       useAssistantSelectionStore.getState().activeAssistantId,
@@ -313,7 +350,12 @@ describe("lifecycleService — auto-hatch cascade", () => {
     );
   });
 
-  test("vanilla auto_hatch sets autoGreetPending — the signal chat-page consumes", async () => {
+  test("vanilla auto_hatch publishes lifecycle.autoGreetRequested — the signal chat-page subscribes to", async () => {
+    const greetHandler = mock(() => {});
+    useEventBusStore
+      .getState()
+      .subscribe("lifecycle.autoGreetRequested", greetHandler);
+
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
       status: 404,
@@ -330,13 +372,18 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(useAssistantLifecycleStore.getState().autoGreetPending).toBe(true);
+    expect(greetHandler).toHaveBeenCalledTimes(1);
   });
 
-  test("auto_hatch + nonprod does NOT set autoGreetPending — user has to pick a version first", async () => {
+  test("auto_hatch + nonprod does NOT publish auto-greet — user has to pick a version first", async () => {
     // The user clicking the version button is what fires the
     // auto-greet, via `hatchVersion`. Auto-hatch alone in nonprod
-    // doesn't hatch, so it shouldn't set the signal.
+    // doesn't hatch, so it shouldn't fire the signal.
+    const greetHandler = mock(() => {});
+    useEventBusStore
+      .getState()
+      .subscribe("lifecycle.autoGreetRequested", greetHandler);
+
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
       status: 404,
@@ -349,10 +396,15 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(useAssistantLifecycleStore.getState().autoGreetPending).toBe(false);
+    expect(greetHandler).not.toHaveBeenCalled();
   });
 
-  test("auto_hatch + isRetired does NOT set autoGreetPending", async () => {
+  test("auto_hatch + isRetired does NOT publish auto-greet", async () => {
+    const greetHandler = mock(() => {});
+    useEventBusStore
+      .getState()
+      .subscribe("lifecycle.autoGreetRequested", greetHandler);
+
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
       status: 404,
@@ -365,17 +417,22 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(useAssistantLifecycleStore.getState().autoGreetPending).toBe(false);
+    expect(greetHandler).not.toHaveBeenCalled();
   });
 
-  test("hatchVersion sets autoGreetPending — the nonprod version-selection greet", () => {
+  test("hatchVersion publishes auto-greet — the nonprod version-selection greet", () => {
+    const greetHandler = mock(() => {});
+    useEventBusStore
+      .getState()
+      .subscribe("lifecycle.autoGreetRequested", greetHandler);
+
     lifecycleService.setInputs({
       ...baseInputs,
       queryClient: makeQueryClient(),
     });
     lifecycleService.hatchVersion("v1");
 
-    expect(useAssistantLifecycleStore.getState().autoGreetPending).toBe(true);
+    expect(greetHandler).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -32,11 +32,11 @@ const TEST_REGISTRY = {
       defaultEnabled: true,
     },
     {
-      id: "email-channel",
+      id: "a2a-channel",
       scope: "assistant",
-      key: "email-channel",
-      label: "Email Channel",
-      description: "Email channel integration",
+      key: "a2a-channel",
+      label: "A2A Channel",
+      description: "A2A channel integration",
       defaultEnabled: false,
     },
     {
@@ -248,19 +248,19 @@ describe("GET /v1/feature-flags handler", () => {
   });
 
   test("remote values fill in when no local override exists", async () => {
-    // Write a remote store with email-channel enabled (overriding registry default of false)
+    // Write a remote store with a2a-channel enabled (overriding registry default of false)
     writeFileSync(
       remoteFeatureFlagStorePath,
       JSON.stringify({
         version: 1,
         values: {
-          "email-channel": true,
+          "a2a-channel": true,
         },
       }),
     );
     clearRemoteFeatureFlagStoreCache();
 
-    // No local override for email-channel
+    // No local override for a2a-channel
     if (existsSync(featureFlagStorePath)) {
       rmSync(featureFlagStorePath);
     }
@@ -274,12 +274,12 @@ describe("GET /v1/feature-flags handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    const emailFlag = body.flags.find(
-      (f: { key: string }) => f.key === "email-channel",
+    const a2aFlag = body.flags.find(
+      (f: { key: string }) => f.key === "a2a-channel",
     );
-    expect(emailFlag).toBeDefined();
+    expect(a2aFlag).toBeDefined();
     // Remote value (true) overrides registry default (false)
-    expect(emailFlag.enabled).toBe(true);
+    expect(a2aFlag.enabled).toBe(true);
   });
 
   test("local overrides take precedence over remote values", async () => {
@@ -289,7 +289,7 @@ describe("GET /v1/feature-flags handler", () => {
       JSON.stringify({
         version: 1,
         values: {
-          "email-channel": true,
+          "a2a-channel": true,
         },
       }),
     );
@@ -301,7 +301,7 @@ describe("GET /v1/feature-flags handler", () => {
       JSON.stringify({
         version: 1,
         values: {
-          "email-channel": false,
+          "a2a-channel": false,
         },
       }),
     );
@@ -315,38 +315,38 @@ describe("GET /v1/feature-flags handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    const emailFlag = body.flags.find(
-      (f: { key: string }) => f.key === "email-channel",
+    const a2aFlag = body.flags.find(
+      (f: { key: string }) => f.key === "a2a-channel",
     );
-    expect(emailFlag).toBeDefined();
+    expect(a2aFlag).toBeDefined();
     // Local override (false) takes precedence over remote (true)
-    expect(emailFlag.enabled).toBe(false);
+    expect(a2aFlag.enabled).toBe(false);
   });
 
   test("reflects updated flags after remote sync writes new values (stale cache regression)", async () => {
     // Scenario: the remote poller (RemoteFeatureFlagSync) writes
-    // email-channel: false, the gateway caches it, then a subsequent
-    // poll writes email-channel: true. The GET handler should return
+    // a2a-channel: false, the gateway caches it, then a subsequent
+    // poll writes a2a-channel: true. The GET handler should return
     // the updated value because writeRemoteFeatureFlags() updates
     // both disk and the in-memory cache.
 
-    // Step 1: First poll writes email-channel: false (simulated via
+    // Step 1: First poll writes a2a-channel: false (simulated via
     // writeRemoteFeatureFlags, which is what the poller calls internally).
-    writeRemoteFeatureFlags({ "email-channel": false });
+    writeRemoteFeatureFlags({ "a2a-channel": false });
 
     const handler = createFeatureFlagsGetHandler();
     const res1 = await handler(
       new Request("http://gateway.test/v1/feature-flags"),
     );
     const body1 = await res1.json();
-    const emailFlag1 = body1.flags.find(
-      (f: { key: string }) => f.key === "email-channel",
+    const a2aFlag1 = body1.flags.find(
+      (f: { key: string }) => f.key === "a2a-channel",
     );
-    expect(emailFlag1.enabled).toBe(false);
+    expect(a2aFlag1.enabled).toBe(false);
 
-    // Step 2: Second poll writes email-channel: true — the poller
+    // Step 2: Second poll writes a2a-channel: true — the poller
     // calls writeRemoteFeatureFlags which updates file + cache.
-    writeRemoteFeatureFlags({ "email-channel": true });
+    writeRemoteFeatureFlags({ "a2a-channel": true });
 
     // Step 3: The GET handler should immediately reflect the update
     // without needing a file-watcher round-trip.
@@ -354,10 +354,10 @@ describe("GET /v1/feature-flags handler", () => {
       new Request("http://gateway.test/v1/feature-flags"),
     );
     const body2 = await res2.json();
-    const emailFlag2 = body2.flags.find(
-      (f: { key: string }) => f.key === "email-channel",
+    const a2aFlag2 = body2.flags.find(
+      (f: { key: string }) => f.key === "a2a-channel",
     );
-    expect(emailFlag2.enabled).toBe(true);
+    expect(a2aFlag2.enabled).toBe(true);
   });
 
   test("registry default used when neither local nor remote is set", async () => {
@@ -381,13 +381,13 @@ describe("GET /v1/feature-flags handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    // email-channel has defaultEnabled: false in registry
-    const emailFlag = body.flags.find(
-      (f: { key: string }) => f.key === "email-channel",
+    // a2a-channel has defaultEnabled: false in registry
+    const a2aFlag = body.flags.find(
+      (f: { key: string }) => f.key === "a2a-channel",
     );
-    expect(emailFlag).toBeDefined();
-    expect(emailFlag.enabled).toBe(false);
-    expect(emailFlag.defaultEnabled).toBe(false);
+    expect(a2aFlag).toBeDefined();
+    expect(a2aFlag.enabled).toBe(false);
+    expect(a2aFlag.defaultEnabled).toBe(false);
 
     // browser has defaultEnabled: true in registry
     const browserFlag = body.flags.find(
@@ -411,7 +411,7 @@ describe("GET /v1/feature-flags handler", () => {
       remoteFeatureFlagStorePath,
       JSON.stringify({
         version: 1,
-        values: { "email-channel": true },
+        values: { "a2a-channel": true },
       }),
     );
     clearRemoteFeatureFlagStoreCache();
@@ -424,10 +424,10 @@ describe("GET /v1/feature-flags handler", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
 
-    const emailFlag = body.flags.find(
-      (f: { key: string }) => f.key === "email-channel",
+    const a2aFlag = body.flags.find(
+      (f: { key: string }) => f.key === "a2a-channel",
     );
-    expect(emailFlag.enabled).toBe(true);
+    expect(a2aFlag.enabled).toBe(true);
 
     const browserFlag = body.flags.find(
       (f: { key: string }) => f.key === "browser",
@@ -498,7 +498,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
       JSON.stringify({
         version: 1,
         values: {
-          "email-channel": true,
+          "a2a-channel": true,
         },
       }),
     );
@@ -517,7 +517,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     // Both old and new values should be persisted
     clearFeatureFlagStoreCache();
     const persisted = readPersistedFeatureFlags();
-    expect(persisted["email-channel"]).toBe(true);
+    expect(persisted["a2a-channel"]).toBe(true);
     expect(persisted["browser"]).toBe(true);
   });
 
@@ -527,12 +527,12 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     const handler = createFeatureFlagsPatchHandler();
     const res = await handler(
-      new Request("http://gateway.test/v1/feature-flags/email-channel", {
+      new Request("http://gateway.test/v1/feature-flags/a2a-channel", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ enabled: true }),
       }),
-      "email-channel",
+      "a2a-channel",
     );
 
     expect(res.status).toBe(200);
@@ -540,7 +540,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
 
     clearFeatureFlagStoreCache();
     const persisted = readPersistedFeatureFlags();
-    expect(persisted["email-channel"]).toBe(true);
+    expect(persisted["a2a-channel"]).toBe(true);
   });
 
   // Validation tests
@@ -633,7 +633,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
   test("accepts valid declared kebab-case key formats", async () => {
     const handler = createFeatureFlagsPatchHandler();
 
-    const validKeys = ["browser", "email-channel"];
+    const validKeys = ["browser", "a2a-channel"];
 
     for (const key of validKeys) {
       clearFeatureFlagStoreCache();
@@ -704,7 +704,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
       featureFlagStorePath,
       JSON.stringify({
         version: 1,
-        values: { "email-channel": true },
+        values: { "a2a-channel": true },
       }),
     );
     clearFeatureFlagStoreCache();
@@ -723,7 +723,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const raw = readFileSync(featureFlagStorePath, "utf-8");
     const data = JSON.parse(raw);
     expect(data.version).toBe(1);
-    expect(data.values["email-channel"]).toBe(true);
+    expect(data.values["a2a-channel"]).toBe(true);
     expect(data.values["browser"]).toBe(false);
 
     // Verify no temp files left behind
@@ -737,7 +737,7 @@ describe("PATCH /v1/feature-flags/:flagKey handler", () => {
     const handler = createFeatureFlagsPatchHandler();
 
     // Fire multiple concurrent PATCH requests at the same time
-    const flagKeys = ["browser", "email-channel"];
+    const flagKeys = ["browser", "a2a-channel"];
 
     const results = await Promise.all(
       flagKeys.map((key) =>

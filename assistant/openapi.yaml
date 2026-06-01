@@ -6242,8 +6242,8 @@ paths:
       operationId: conversations_cli_clear_post
       summary: Clear all conversations (CLI)
       description:
-        Tear down all active conversations and clear the database. The confirmation prompt is handled client-side
-        by the CLI.
+        "Tear down all active conversations and clear the database. Requires X-Confirm-Destructive:
+        clear-all-conversations."
       tags:
         - conversations
       responses:

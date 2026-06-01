@@ -123,6 +123,20 @@ export interface BusEventMap {
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
   "deeplink.unknown": { url: string };
+  /**
+   * Published by `lifecycle-service` when a fresh assistant hatch
+   * happens outside the explicit onboarding flow — a vanilla
+   * auto-hatch for a new signup, or a `hatchVersion` from the
+   * nonprod version-selection screen. Signals the chat surface
+   * that the next available conversation should auto-greet.
+   *
+   * One-shot fire-and-forget: if no listener is mounted, the event
+   * is dropped (the only listener is `ChatPage`, which is always
+   * mounted on the chat surface). The onboarding-screen flow has
+   * its own signal path (`?onboarding=1` URL flag) and is
+   * unaffected.
+   */
+  "lifecycle.autoGreetRequested": Record<string, never>;
 }
 
 export type BusEventName = keyof BusEventMap;

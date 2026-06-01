@@ -3,7 +3,9 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@vellum/design-library";
+import { Notice } from "@vellum/design-library/components/notice";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 
 interface MaintenanceModeBannerProps {
   assistantId: string;
@@ -16,6 +18,11 @@ export function MaintenanceModeBanner({
 }: MaintenanceModeBannerProps) {
   const [isExiting, setIsExiting] = useState(false);
   const [exitError, setExitError] = useState<string | null>(null);
+  const platformGate = usePlatformGate();
+
+  // Self-hosted assistants don't run platform-managed Recovery Mode, so the
+  // banner has nothing to act on. Hide entirely.
+  if (platformGate === "gated") return null;
 
   const handleResumeAssistant = async () => {
     if (isExiting) return;
@@ -61,16 +68,22 @@ export function MaintenanceModeBanner({
           </p>
         ) : null}
       </div>
-      <Button
-        variant="primary"
-        size="compact"
-        leftIcon={isExiting ? <Loader2 className="animate-spin" /> : undefined}
-        onClick={() => void handleResumeAssistant()}
-        disabled={isExiting}
-        data-testid="resume-assistant-button"
-      >
-        Resume Assistant
-      </Button>
+      {platformGate === "disabled" ? (
+        <Notice tone="info">
+          Log in to the Vellum platform to exit Recovery Mode.
+        </Notice>
+      ) : (
+        <Button
+          variant="primary"
+          size="compact"
+          leftIcon={isExiting ? <Loader2 className="animate-spin" /> : undefined}
+          onClick={() => void handleResumeAssistant()}
+          disabled={isExiting}
+          data-testid="resume-assistant-button"
+        >
+          Resume Assistant
+        </Button>
+      )}
     </div>
   );
 }

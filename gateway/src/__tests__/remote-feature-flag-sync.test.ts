@@ -55,11 +55,11 @@ const TEST_REGISTRY = {
       defaultEnabled: true,
     },
     {
-      id: "email-channel",
+      id: "a2a-channel",
       scope: "assistant",
-      key: "email-channel",
-      label: "Email Channel",
-      description: "Email channel integration",
+      key: "a2a-channel",
+      label: "A2A Channel",
+      description: "A2A channel integration",
       defaultEnabled: false,
     },
     {
@@ -573,7 +573,7 @@ describe("RemoteFeatureFlagSync", () => {
     // GA flags (defaultEnabled: true in the registry) should not be disabled
     // by remote overrides — only local persisted overrides can do that.
     // Uses the test-local registry which defines test-ga-flag as GA
-    // (defaultEnabled: true) and email-channel as gated (defaultEnabled: false).
+    // (defaultEnabled: true) and a2a-channel as gated (defaultEnabled: false).
     fetchMock = mock(async () =>
       Response.json({
         flags: {
@@ -581,7 +581,7 @@ describe("RemoteFeatureFlagSync", () => {
           // to true so the missing-key fallback does not disable it.
           "test-ga-flag": false,
           // Gated flag (defaultEnabled: false) — remote false is kept
-          "email-channel": false,
+          "a2a-channel": false,
           // GA flag set to true — should be kept (redundant but harmless)
           "test-ga-flag-true": true,
           // Unknown flag — remote false is kept (not in registry)
@@ -600,8 +600,8 @@ describe("RemoteFeatureFlagSync", () => {
     const cached = readRemoteFeatureFlags();
     // test-ga-flag (GA, remote false) should be normalized to true
     expect(cached["test-ga-flag"]).toBe(true);
-    // email-channel (gated, remote false) should be present
-    expect(cached["email-channel"]).toBe(false);
+    // a2a-channel (gated, remote false) should be present
+    expect(cached["a2a-channel"]).toBe(false);
     // test-ga-flag-true (unknown but true) should be present
     expect(cached["test-ga-flag-true"]).toBe(true);
     // unknown-flag (not in registry, remote false) should be present

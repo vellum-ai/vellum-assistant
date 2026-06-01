@@ -41,6 +41,7 @@ import {
 import { ASSISTANT_QUERY_KEY, POLL_INTERVAL_MS } from "@/assistant/queries";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import type { AssistantState } from "@/assistant/types";
+import { useEventBusStore } from "@/stores/event-bus-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import {
@@ -124,6 +125,28 @@ class AssistantLifecycleService {
   }
 
   /**
+   * Synchronously drop the selection + lifecycle state. Called from
+   * `auth-store.logout()` before `isLoggedIn` flips, so subscribers
+   * to either store don't observe a stale id in their first
+   * re-render after logout. The `respondToInputs` `!isLoggedIn`
+   * branch is the safety net for cases where auth flips without
+   * going through the explicit logout call (e.g. token expiry
+   * detected by an interceptor and surfaced as a state change
+   * rather than an action).
+   *
+   * Guarded resets avoid spurious subscriber wake-ups when the
+   * stores are already at defaults.
+   */
+  resetForLogout(): void {
+    if (useAssistantSelectionStore.getState().activeAssistantId !== null) {
+      useAssistantSelectionStore.getState().setActiveAssistantId(null);
+    }
+    if (this.state.kind !== "loading") {
+      this.transition({ kind: "loading" });
+    }
+  }
+
+  /**
    * Reconcile against the current inputs — drives initial bootstrap
    * (post-login `checkAssistant`), logout reset, and the local-mode
    * branches. Safe to call on every input change.
@@ -131,21 +154,10 @@ class AssistantLifecycleService {
   async respondToInputs(): Promise<void> {
     if (!this.ready) return;
     if (!this.inputs.isLoggedIn || this.inputs.isLoading) {
-      // Logout / pre-auth boot. Drop selection + lifecycle state
-      // and the auto-greet signal so a returning login doesn't
-      // observe the previous user's id or accidentally fire an
-      // auto-greet for the new session. Guarded resets avoid
-      // spurious subscriber wake-ups when the stores are already
-      // at defaults.
-      if (useAssistantSelectionStore.getState().activeAssistantId !== null) {
-        useAssistantSelectionStore.getState().setActiveAssistantId(null);
-      }
-      if (this.state.kind !== "loading") {
-        this.transition({ kind: "loading" });
-      }
-      if (useAssistantLifecycleStore.getState().autoGreetPending) {
-        useAssistantLifecycleStore.setState({ autoGreetPending: false });
-      }
+      // Logout / pre-auth boot — same reset as `resetForLogout` but
+      // reachable from the input-driven path for token-expiry style
+      // flips that don't call `logout()` explicitly.
+      this.resetForLogout();
       return;
     }
 
@@ -236,9 +248,8 @@ class AssistantLifecycleService {
     this.hatchRetryCount = 0;
     // Version selection in nonprod is a user-initiated fresh start —
     // signal the chat surface to auto-greet once the next conversation
-    // is ready. The chat consumer clears the flag after firing the
-    // greet, so this is a one-shot.
-    useAssistantLifecycleStore.setState({ autoGreetPending: true });
+    // is ready. Fire-and-forget on the bus; chat-page subscribes.
+    useEventBusStore.getState().publish("lifecycle.autoGreetRequested", {});
     void this.hatchAndCheck(version);
   }
 
@@ -386,9 +397,9 @@ class AssistantLifecycleService {
       }
       // Vanilla auto-hatch path: a new signup with no assistant lands
       // here. Signal the chat surface to auto-greet once the next
-      // conversation is ready. The chat consumer clears the flag
-      // after firing the greet, so this is a one-shot.
-      useAssistantLifecycleStore.setState({ autoGreetPending: true });
+      // conversation is ready. Fire-and-forget on the bus; chat-page
+      // subscribes.
+      useEventBusStore.getState().publish("lifecycle.autoGreetRequested", {});
       await this.hatchAndCheck();
       return;
     }
@@ -649,10 +660,7 @@ class AssistantLifecycleService {
       resolveOnboardingRedirect: NOOP_RESOLVE,
       queryClient: null as unknown as QueryClient,
     };
-    useAssistantLifecycleStore.setState({
-      assistantState: this.state,
-      autoGreetPending: false,
-    });
+    useAssistantLifecycleStore.setState({ assistantState: this.state });
     useAssistantSelectionStore.setState({ activeAssistantId: null });
   }
 }

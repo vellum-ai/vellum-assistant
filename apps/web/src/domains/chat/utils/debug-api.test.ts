@@ -568,6 +568,18 @@ describe("createChatDebugApi.thinkingIndicator progressBadge", () => {
       "visible: useProgressBadge flag is on and the conversation is processing",
     );
   });
+
+  test("gradient variant + processing → visible, treated as enabled", () => {
+    localStorage.setItem(PROGRESS_BADGE_KEY, "gradient");
+    const api = createChatDebugApi(
+      makeRefs({ uiContext: { activeConversationIsProcessing: true } }),
+    );
+    const { progressBadge } = api.thinkingIndicator();
+    expect(progressBadge.visible).toBe(true);
+    expect(progressBadge.flagEnabled).toBe(true);
+    expect(progressBadge.isProcessing).toBe(true);
+    expect(progressBadge.failingConditions).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -765,7 +777,9 @@ type DebugWindow = Window & {
     events?: { getClients: unknown; getEvents: unknown };
     flags?: {
       impersonateVersion?: (v?: string | null) => string | null;
-      toggleProgressBadge?: (v?: boolean | null) => boolean;
+      toggleProgressBadge?: (
+        v?: boolean | "dots" | "gradient" | null,
+      ) => "dots" | "gradient" | null;
       toggleSeqGapDetection?: (v?: boolean | null) => boolean;
     };
     other?: unknown;
@@ -774,7 +788,9 @@ type DebugWindow = Window & {
 
 const makeFlagsApi = () => ({
   impersonateVersion: (_value?: string | null): string | null => null,
-  toggleProgressBadge: (_value?: boolean | null): boolean => false,
+  toggleProgressBadge: (
+    _value?: boolean | "dots" | "gradient" | null,
+  ): "dots" | "gradient" | null => null,
   toggleSeqGapDetection: (_value?: boolean | null): boolean => false,
 });
 

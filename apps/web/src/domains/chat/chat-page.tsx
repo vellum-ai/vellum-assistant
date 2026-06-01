@@ -20,6 +20,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ChevronDown } from "lucide-react";
 import * as Sentry from "@sentry/react";
 
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAuthStore } from "@/stores/auth-store";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
@@ -608,24 +609,18 @@ export function ChatPage() {
     void navigate(routes.conversation(onboardingDraftConversationId), { replace: true });
   }, [searchParams, navigate]);
 
-  // Auto-greet signal from the lifecycle service.
-  //
-  // `lifecycle-service.ts` sets `autoGreetPending: true` in two
-  // cases the onboarding-screen `?onboarding=1` flow can't cover —
-  // a vanilla auto-hatch for a new signup who never visited
+  // Auto-greet signal from the lifecycle service. Fired on two
+  // paths the onboarding-screen `?onboarding=1` URL flow can't
+  // cover: a vanilla auto-hatch for a new signup who never visited
   // `/onboarding/hatching`, and the nonprod version-selection
-  // hatch. Mirrors the onboarding effect above (flip both the
-  // ref and the local pending state so the existing greet path
-  // fires once history loads). The store flag is cleared after
-  // consuming so this is one-shot.
-  const lifecycleAutoGreetPending =
-    useAssistantLifecycleStore.use.autoGreetPending();
-  useEffect(() => {
-    if (!lifecycleAutoGreetPending) return;
+  // hatch. Lives on the bus rather than the lifecycle store
+  // because the semantics are event-shaped (one-time signal,
+  // dropped if no listener) — and ChatPage is always mounted on
+  // the chat surface, so the only legitimate listener is here.
+  useBusSubscription("lifecycle.autoGreetRequested", () => {
     autoGreetRef.current = true;
     setAutoGreetPending(true);
-    useAssistantLifecycleStore.setState({ autoGreetPending: false });
-  }, [lifecycleAutoGreetPending]);
+  });
 
   // -------------------------------------------------------------------------
   // Message reconciliation

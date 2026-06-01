@@ -58,10 +58,6 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: async (key: string) => mockSecureKeys[key] ?? null,
 }));
 
-mock.module("../email/feature-gate.js", () => ({
-  isEmailEnabled: () => true,
-}));
-
 // ---------------------------------------------------------------------------
 // Import under test
 // ---------------------------------------------------------------------------

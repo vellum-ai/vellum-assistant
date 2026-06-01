@@ -30,11 +30,11 @@ const TEST_REGISTRY = {
       defaultEnabled: true,
     },
     {
-      id: "email-channel",
+      id: "a2a-channel",
       scope: "assistant",
-      key: "email-channel",
-      label: "Email Channel",
-      description: "Email channel integration",
+      key: "a2a-channel",
+      label: "A2A Channel",
+      description: "A2A channel integration",
       defaultEnabled: false,
     },
     {
@@ -167,9 +167,9 @@ describe("IPC feature flag routes", () => {
     expect(res.result).toBeDefined();
 
     const flags = res.result as Record<string, boolean>;
-    // browser defaults to true, email-channel defaults to false
+    // browser defaults to true, a2a-channel defaults to false
     expect(flags["browser"]).toBe(true);
-    expect(flags["email-channel"]).toBe(false);
+    expect(flags["a2a-channel"]).toBe(false);
   });
 
   test("get_feature_flags merges persisted values over defaults", async () => {
@@ -188,7 +188,7 @@ describe("IPC feature flag routes", () => {
     expect(res.error).toBeUndefined();
     const flags = res.result as Record<string, boolean>;
     expect(flags["browser"]).toBe(false); // overridden from default true
-    expect(flags["email-channel"]).toBe(false); // still default
+    expect(flags["a2a-channel"]).toBe(false); // still default
   });
 
   test("get_feature_flags merges remote values when no local override", async () => {
@@ -196,7 +196,7 @@ describe("IPC feature flag routes", () => {
       remoteFeatureFlagStorePath,
       JSON.stringify({
         version: 1,
-        values: { "email-channel": true },
+        values: { "a2a-channel": true },
       }),
     );
     clearRemoteFeatureFlagStoreCache();
@@ -212,7 +212,7 @@ describe("IPC feature flag routes", () => {
 
     expect(res.error).toBeUndefined();
     const flags = res.result as Record<string, boolean>;
-    expect(flags["email-channel"]).toBe(true); // remote overrides default
+    expect(flags["a2a-channel"]).toBe(true); // remote overrides default
   });
 
   test("get_feature_flags falls back to registry defaults for flags missing from a remote snapshot", async () => {
@@ -220,7 +220,7 @@ describe("IPC feature flag routes", () => {
       remoteFeatureFlagStorePath,
       JSON.stringify({
         version: 1,
-        values: { "email-channel": true },
+        values: { "a2a-channel": true },
       }),
     );
     clearRemoteFeatureFlagStoreCache();
@@ -235,7 +235,7 @@ describe("IPC feature flag routes", () => {
 
     expect(res.error).toBeUndefined();
     const flags = res.result as Record<string, boolean>;
-    expect(flags["email-channel"]).toBe(true);
+    expect(flags["a2a-channel"]).toBe(true);
     expect(flags["browser"]).toBe(true);
   });
 
