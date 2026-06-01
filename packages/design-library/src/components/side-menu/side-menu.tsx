@@ -443,9 +443,16 @@ export interface SideMenuItemProps {
   icon?: SideMenuItemIcon;
   label: string;
   /**
-   * When set, the collapsed rail shows this as a styled tooltip on hover
-   * (replacing the native `title`). Ignored when expanded, since the label
-   * is already visible. Mirrors the `tooltip` prop on `Button`.
+   * Show a styled tooltip on hover in the collapsed rail, defaulting its
+   * content to `label` (the common case where the tooltip just surfaces the
+   * hidden label). Ignored when expanded, since the label is already visible.
+   * Use `tooltip` instead when the text should differ from `label`.
+   */
+  showCollapsedTooltip?: boolean;
+  /**
+   * Custom collapsed-rail tooltip text, for when it should differ from
+   * `label`. Implies `showCollapsedTooltip` and replaces the native `title`.
+   * Ignored when expanded. Mirrors the `tooltip` prop on `Button`.
    */
   tooltip?: string;
   badge?: ReactNode;
@@ -536,6 +543,7 @@ type SharedButtonProps = Omit<
 function SideMenuItem({
   icon,
   label,
+  showCollapsedTooltip = false,
   tooltip,
   badge,
   trailingIcon: TrailingIcon,
@@ -598,15 +606,17 @@ function SideMenuItem({
     />
   );
 
-  // When a styled tooltip is shown (collapsed + `tooltip` set), drop the native
-  // `title` so the two don't stack into a double tooltip on hover.
-  const showStyledTooltip = collapsed && tooltip != null;
+  // Collapsed rail shows a styled tooltip when asked (defaulting to `label`)
+  // or when custom `tooltip` text is given. Drop the native `title` then so the
+  // two don't stack into a double tooltip on hover.
+  const tooltipContent = tooltip ?? (showCollapsedTooltip ? label : undefined);
+  const showStyledTooltip = collapsed && tooltipContent != null;
   const titleAttr = collapsed && !showStyledTooltip ? label : undefined;
   const ariaCurrent = active ? ("page" as const) : undefined;
 
   const withTooltip = (element: ReactNode) =>
     showStyledTooltip ? (
-      <Tooltip content={tooltip} side="right">
+      <Tooltip content={tooltipContent} side="right">
         {element}
       </Tooltip>
     ) : (

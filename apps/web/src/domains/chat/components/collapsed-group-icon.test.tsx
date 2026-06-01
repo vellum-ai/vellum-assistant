@@ -1,7 +1,10 @@
 /**
  * Tests for `CollapsedGroupIcon` and `getGroupIndicatorState`.
  *
- * Uses `renderToStaticMarkup` since the workspace lacks jsdom.
+ * Uses `renderToStaticMarkup` for deterministic assertions on the rendered
+ * output. (happy-dom is wired up via `bunfig.toml`, but Radix's popover/tooltip
+ * overlays mount lazily on hover and never appear in static markup, so the
+ * design-library primitives are mocked to surface their props inline instead.)
  */
 
 import { describe, expect, mock, test } from "bun:test";
