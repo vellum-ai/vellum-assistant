@@ -38,6 +38,22 @@ type OverlayView = "document" | "subagent-detail" | "tool-detail";
  * it. If already inside an overlay, the existing saved view is kept rather
  * than capturing the current overlay as the "back" destination.
  */
+/**
+ * The daemon returns app-load failures as a structured error body
+ * (`{ code: "NOT_FOUND", message }`) when the app reference has been
+ * deleted server-side. The HeyAPI client's `throwOnError: true` then
+ * throws that body as the catch value. Treat it as an expected
+ * condition — the UI falls back to chat — rather than a Sentry-worthy
+ * crash.
+ */
+function isAppNotFoundError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { code?: unknown }).code === "NOT_FOUND"
+  );
+}
+
 function resolveViewBefore(
   state: ViewerState,
   field: "viewBeforeDocument" | "viewBeforeSubagentDetail" | "viewBeforeToolDetail",
@@ -219,7 +235,14 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       primeAppHtmlCache(assistantId, result.appId, result.html);
     } catch (err) {
       if (get().activeAppId !== appId) return;
-      Sentry.captureException(err, { tags: { context: "openApp" } });
+      // 404s here are an expected condition (app was deleted on the
+      // server but the client still has a reference). Skip the Sentry
+      // capture for those — the daemon already returns a structured
+      // `{ code: "NOT_FOUND", message }` body — and let the UI fall
+      // back to chat as below. Unexpected failures still report.
+      if (!isAppNotFoundError(err)) {
+        Sentry.captureException(err, { tags: { context: "openApp" } });
+      }
       set({ mainView: "chat", activeAppId: null, openedAppState: null });
     }
   },
