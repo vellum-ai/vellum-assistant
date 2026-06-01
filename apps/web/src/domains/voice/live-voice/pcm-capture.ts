@@ -18,44 +18,32 @@
  * pre-prompt on Capacitor iOS).
  */
 
-/** Output audio contract — must match the runtime `start` frame. */
-export const LIVE_VOICE_AUDIO_FORMAT = {
-  mimeType: "audio/pcm",
-  sampleRate: 16000,
-  channels: 1,
-} as const;
+// Import the worklet as a Vite-bundled, *transpiled* classic script asset and
+// get its URL. The `?worker&url` suffix is the robust form: it makes Vite
+// compile the worklet entry (TS -> JS, IIFE, dependencies inlined) and emit it
+// as a standalone asset, then hand us the hashed URL to pass to `addModule()`.
+//
+// A bare `new URL("./pcm-downsample-worklet.ts", import.meta.url)` does NOT
+// work for this: Vite treats it as a static asset and copies the file verbatim,
+// so production ships a raw `.ts` file that an `AudioWorklet` cannot parse (TS
+// syntax, wrong MIME type) — i.e. the feature would be dead in prod. The dev
+// server tolerates on-the-fly TS, which is why this only bites a real build.
+// https://vite.dev/guide/worker#import-with-query-suffixes
+import WORKLET_MODULE_URL from "./pcm-downsample-worklet.ts?worker&url";
+
+import { createAudioContext, getAudioContextCtor } from "@/domains/voice/audio-context";
+import { LIVE_VOICE_AUDIO_FORMAT } from "@/domains/voice/live-voice/protocol";
+
+// Re-exported for capture consumers (e.g. use-live-voice.ts) so they don't need
+// to reach into the protocol module. Canonical definition lives in protocol.ts.
+export { LIVE_VOICE_AUDIO_FORMAT };
 
 // Matches `use-audio-amplitude.ts` (and the macOS AudioEngineController):
-// 0.5/0.5 EMA, scaled by 14 and clamped to 1.0.
+// EMA with alpha 0.5, scaled by 14 and clamped to 1.0.
 const AMPLITUDE_SMOOTHING = 0.5;
 const AMPLITUDE_SCALE = 14.0;
 
 const WORKLET_PROCESSOR_NAME = "pcm-downsample";
-
-/**
- * Converts a Float32 mono buffer (sampled at `inputRate`) to 16 kHz signed
- * 16-bit PCM via linear decimation. Shared by the AudioWorklet processor and
- * its tests so the conversion math has a single, directly-testable home.
- */
-export function downsampleToInt16(input: Float32Array, inputRate: number): Int16Array {
-  const ratio = inputRate / LIVE_VOICE_AUDIO_FORMAT.sampleRate;
-  const outLength = Math.max(0, Math.floor(input.length / ratio));
-  const pcm = new Int16Array(outLength);
-  let pos = 0;
-  for (let i = 0; i < outLength; i++) {
-    const sample = input[Math.floor(pos)] ?? 0;
-    // Clamp to [-1, 1] then scale to the signed 16-bit range. The asymmetric
-    // 0x8000 / 0x7fff factors map -1.0 -> -32768 and +1.0 -> +32767.
-    const clamped = sample < -1 ? -1 : sample > 1 ? 1 : sample;
-    pcm[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
-    pos += ratio;
-  }
-  return pcm;
-}
-// Vite rewrites this into a bundled worklet asset URL at build time, mirroring
-// the `new URL(..., import.meta.url)` worker pattern.
-// https://vite.dev/guide/assets#new-url-url-import-meta-url
-const WORKLET_MODULE_URL = new URL("./pcm-downsample-worklet.ts", import.meta.url);
 
 /** Reason a capture failed to start, mapped from `getUserMedia` DOMExceptions. */
 export type LiveVoiceCaptureError =
@@ -85,12 +73,15 @@ export interface LiveVoiceAudioCaptureOptions {
  * platform branch here. Returns false only when an API is genuinely absent.
  */
 export function isSupported(): boolean {
+  // Safari exposes only the prefixed `webkitAudioContext`; resolve via the same
+  // fallback as `createAudioContext` so we don't gate out a supported browser.
+  const Ctor = getAudioContextCtor();
   return (
     typeof navigator !== "undefined" &&
     !!navigator.mediaDevices?.getUserMedia &&
-    typeof AudioContext !== "undefined" &&
+    !!Ctor &&
     // AudioWorklet is present on a constructed context's `audioWorklet`.
-    "audioWorklet" in AudioContext.prototype
+    "audioWorklet" in Ctor.prototype
   );
 }
 
@@ -170,9 +161,9 @@ export class LiveVoiceAudioCapture {
     this.stream = stream;
 
     try {
-      const context = new AudioContext();
+      const context = createAudioContext();
       this.context = context;
-      await context.audioWorklet.addModule(WORKLET_MODULE_URL.href);
+      await context.audioWorklet.addModule(WORKLET_MODULE_URL);
 
       if (cancelled()) {
         await this.teardown();
@@ -229,7 +220,8 @@ export class LiveVoiceAudioCapture {
     }
     const rawRMS = Math.sqrt(sumSquares / samples.length);
     this.smoothedAmplitude =
-      AMPLITUDE_SMOOTHING * rawRMS + AMPLITUDE_SMOOTHING * this.smoothedAmplitude;
+      AMPLITUDE_SMOOTHING * rawRMS +
+      (1 - AMPLITUDE_SMOOTHING) * this.smoothedAmplitude;
     this.onAmplitude(Math.min(this.smoothedAmplitude * AMPLITUDE_SCALE, 1.0));
   }
 

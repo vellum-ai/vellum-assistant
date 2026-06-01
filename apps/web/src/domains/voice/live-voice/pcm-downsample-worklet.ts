@@ -6,16 +6,18 @@
  * each chunk to the main thread.
  *
  * The output contract — `audio/pcm`, 16000 Hz, mono, signed 16-bit LE — matches
- * what the live-voice runtime `start` frame declares. Keep it in sync with the
- * `TARGET_SAMPLE_RATE` consumed by `pcm-capture.ts`.
+ * what the live-voice runtime `start` frame declares.
  *
- * This file is loaded as a classic AudioWorklet module (not bundled with the
- * app graph). It runs on the audio render thread, so it only references the
+ * This file runs on the audio render thread, so it only references the
  * `AudioWorkletProcessor` globals available there — no DOM, no app imports.
+ * That isolation is why `TARGET_SAMPLE_RATE` is hardcoded here rather than
+ * imported: it MUST stay in sync with the canonical `LIVE_VOICE_AUDIO_FORMAT`
+ * in `protocol.ts` (`sampleRate: 16000`).
  *
  * Reference: https://developer.mozilla.org/en-US/docs/Web/API/AudioWorkletProcessor
  */
 
+// Mirror of LIVE_VOICE_AUDIO_FORMAT.sampleRate in protocol.ts (see docblock).
 const TARGET_SAMPLE_RATE = 16000;
 
 // AudioWorkletGlobalScope globals. They are not in the default DOM lib, so
@@ -43,12 +45,10 @@ declare const AudioWorkletProcessor: {
  * the nearest source sample. Good enough for speech; the runtime STT is robust
  * to mild aliasing and this avoids an FIR filter on the audio thread.
  *
- * The per-sample Float32 -> Int16 conversion math is mirrored by the pure,
- * unit-tested `downsampleToInt16` helper in `pcm-capture.ts`. This processor
- * keeps its own copy because it must also carry the fractional read position
- * (`readPos`) across render quanta — which a stateless helper cannot — and
- * because it cannot import DOM-coupled main-thread code onto the audio thread.
- * Keep the two in sync.
+ * The decimation loop + Float32 -> Int16 conversion lives only here (it carries
+ * the fractional read position across render quanta, which a stateless helper
+ * cannot, and the audio thread can't import app code). Its output is exercised
+ * directly by the cross-quantum tests in `pcm-capture.test.ts`.
  */
 class PcmDownsampleProcessor extends AudioWorkletProcessor {
   private readonly ratio = sampleRate / TARGET_SAMPLE_RATE;

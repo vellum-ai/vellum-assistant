@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
-  downsampleToInt16,
   isSupported,
   LIVE_VOICE_AUDIO_FORMAT,
   LiveVoiceAudioCapture,
@@ -122,28 +121,6 @@ describe("LIVE_VOICE_AUDIO_FORMAT", () => {
       sampleRate: 16000,
       channels: 1,
     });
-  });
-});
-
-describe("downsampleToInt16", () => {
-  test("converts a known Float32 input to signed 16-bit at 16kHz (no resample)", () => {
-    // inputRate === target: 1:1, exercises just the Float32 -> Int16 scaling.
-    const input = new Float32Array([0, 1, -1, 0.5, -0.5]);
-    const pcm = downsampleToInt16(input, 16000);
-    expect(Array.from(pcm)).toEqual([0, 32767, -32768, 16383, -16384]);
-  });
-
-  test("clamps out-of-range samples to the Int16 bounds", () => {
-    const pcm = downsampleToInt16(new Float32Array([2.0, -2.0]), 16000);
-    expect(Array.from(pcm)).toEqual([32767, -32768]);
-  });
-
-  test("decimates a 32kHz buffer to half the samples", () => {
-    const input = new Float32Array([1, 0, 1, 0, 1, 0, 1, 0]);
-    const pcm = downsampleToInt16(input, 32000);
-    // ratio 2 -> 4 output samples, taking every other input (the 1s).
-    expect(pcm.length).toBe(4);
-    expect(Array.from(pcm)).toEqual([32767, 32767, 32767, 32767]);
   });
 });
 
