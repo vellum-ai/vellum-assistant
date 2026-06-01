@@ -25,15 +25,15 @@ const { createSseEventConsumer } = await import(
 );
 
 const makeEnvelope = (
-  override: Partial<AssistantEventEnvelope> & {
-    message: AssistantEvent;
+  override: Partial<Omit<AssistantEventEnvelope, "message">> & {
+    message: unknown;
   },
 ): AssistantEventEnvelope =>
   ({
     id: "evt-1",
     emittedAt: new Date().toISOString(),
     ...override,
-  }) as AssistantEventEnvelope;
+  }) as unknown as AssistantEventEnvelope;
 
 const makeDeps = (override: {
   activeConversationId?: string | null;
@@ -74,7 +74,7 @@ describe("sse-event-consumer — cross-conversation filter", () => {
     consumer.handleSseEvent(
       makeEnvelope({
         // sync_changed is not conversation-scoped per the chat utils
-        message: { type: "sync_changed", tags: ["x"] } as AssistantEvent,
+        message: { type: "sync_changed", tags: ["x"] },
       }),
     );
 
@@ -91,7 +91,7 @@ describe("sse-event-consumer — cross-conversation filter", () => {
         message: {
           type: "assistant_text_delta",
           delta: "hi",
-        } as AssistantEvent,
+        },
       }),
     );
 
@@ -108,7 +108,7 @@ describe("sse-event-consumer — cross-conversation filter", () => {
         message: {
           type: "assistant_text_delta",
           delta: "hi",
-        } as AssistantEvent,
+        },
       }),
     );
 
@@ -128,7 +128,7 @@ describe("sse-event-consumer — cross-conversation filter", () => {
         message: {
           type: "assistant_text_delta",
           delta: "hi",
-        } as AssistantEvent,
+        },
       }),
     );
 
@@ -150,7 +150,7 @@ describe("sse-event-consumer — cross-conversation filter", () => {
         message: {
           type: "assistant_text_delta",
           delta: "hi",
-        } as AssistantEvent,
+        },
       }),
     );
 
@@ -170,7 +170,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: {
           type: "assistant_text_delta",
           delta: "x",
-        } as AssistantEvent,
+        },
       }),
     );
 
@@ -189,7 +189,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: {
           type: "assistant_text_delta",
           delta: "a",
-        } as AssistantEvent,
+        },
       }),
     );
     consumer.handleSseEvent(
@@ -199,7 +199,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: {
           type: "assistant_text_delta",
           delta: "b",
-        } as AssistantEvent,
+        },
       }),
     );
 
@@ -220,7 +220,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: {
           type: "assistant_text_delta",
           delta: "a",
-        } as AssistantEvent,
+        },
       }),
     );
     // Gap: jumps from 5 to 10.
@@ -231,7 +231,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: {
           type: "assistant_text_delta",
           delta: "b",
-        } as AssistantEvent,
+        },
       }),
     );
 
@@ -252,7 +252,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: {
           type: "assistant_text_delta",
           delta: "a",
-        } as AssistantEvent,
+        },
       }),
     );
     // Daemon restart → server resets seq back to 3.
@@ -263,7 +263,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: {
           type: "assistant_text_delta",
           delta: "b",
-        } as AssistantEvent,
+        },
       }),
     );
 
@@ -283,7 +283,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: {
           type: "assistant_text_delta",
           delta: "a",
-        } as AssistantEvent,
+        },
       }),
     );
     consumer.handleSseEvent(
@@ -293,7 +293,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: {
           type: "assistant_text_delta",
           delta: "b",
-        } as AssistantEvent,
+        },
       }),
     );
 
@@ -312,7 +312,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: {
           type: "assistant_text_delta",
           delta: "first",
-        } as AssistantEvent,
+        },
       }),
     );
     expect(handleStreamEvent).toHaveBeenCalledTimes(1);
@@ -328,7 +328,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         message: {
           type: "assistant_text_delta",
           delta: "stale",
-        } as AssistantEvent,
+        },
       }),
     );
 
