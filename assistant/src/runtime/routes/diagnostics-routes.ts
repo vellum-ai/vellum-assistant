@@ -458,7 +458,14 @@ export const ROUTES: RouteDefinition[] = [
     requestBody: z.object({
       transcription: z.string().describe("Raw speech transcription"),
       context: z
-        .object({})
+        .object({
+          cursorInTextField: z
+            .boolean()
+            .optional()
+            .describe(
+              "Whether the cursor is in an editable text field when dictation started",
+            ),
+        })
         .passthrough()
         .describe(
           "Dictation context (app name, window title, bundle ID, cursor state, selected text)",
@@ -471,7 +478,10 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       text: z.string().describe("Processed text output"),
       mode: z.string().describe("Detected mode: dictation, command, or action"),
-      actionPlan: z.string().describe("Action plan (only when mode is action)"),
+      actionPlan: z
+        .string()
+        .optional()
+        .describe("Action plan (only when mode is action)"),
       resolvedProfileId: z.string().describe("Resolved dictation profile ID"),
       profileSource: z.string().describe("How the profile was resolved"),
     }),

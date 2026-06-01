@@ -7974,8 +7974,8 @@ paths:
                     type: string
                     description: "Detected mode: dictation, command, or action"
                   actionPlan:
-                    type: string
                     description: Action plan (only when mode is action)
+                    type: string
                   resolvedProfileId:
                     type: string
                     description: Resolved dictation profile ID
@@ -7985,7 +7985,6 @@ paths:
                 required:
                   - text
                   - mode
-                  - actionPlan
                   - resolvedProfileId
                   - profileSource
                 additionalProperties: false
@@ -8001,7 +8000,10 @@ paths:
                   description: Raw speech transcription
                 context:
                   type: object
-                  properties: {}
+                  properties:
+                    cursorInTextField:
+                      description: Whether the cursor is in an editable text field when dictation started
+                      type: boolean
                   additionalProperties: {}
                   description: Dictation context (app name, window title, bundle ID, cursor state, selected text)
                 profileId:

@@ -1,5 +1,5 @@
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import type { AssistantIdentity } from "@/assistant/identity";
+import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import type { Conversation } from "@/types/conversation-types";
 import type { AssistantEvent } from "@/types/event-types";
 import type {
@@ -142,8 +142,8 @@ export function shouldReturnToBackground(c: Conversation): boolean {
 // refetch returns an unchanged value (common on SSE bursts triggered by
 // tool-driven IDENTITY.md edits).
 export function identitiesEqual(
-  a: AssistantIdentity | null,
-  b: AssistantIdentity | null,
+  a: IdentityGetResponse | null,
+  b: IdentityGetResponse | null,
 ): boolean {
   if (a === b) return true;
   if (a === null || b === null) return false;

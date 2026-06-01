@@ -1,20 +1,11 @@
-import { client } from "@/generated/api/client.gen";
+import { dictationPost } from "@/generated/daemon/sdk.gen";
+import type {
+  DictationPostData,
+  DictationPostResponse,
+} from "@/generated/daemon/types.gen";
+import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 
-// `/v1/dictation` is not yet in the OpenAPI schema, so we fall through to
-// the low-level HeyAPI client until it's generated.
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
-
-export interface DictationContext {
-  cursorInTextField?: boolean;
-}
-
-export interface DictationResult {
-  text: string;
-  mode: "dictation" | "action";
-}
+export type DictationContext = DictationPostData["body"]["context"];
 
 /**
  * POST /v1/dictation
@@ -31,18 +22,19 @@ export async function postDictation(
   assistantId: string,
   context: DictationContext = {},
   signal?: AbortSignal,
-): Promise<DictationResult | null> {
+): Promise<DictationPostResponse | null> {
   try {
-    const { data, response } = await client.post<DictationResult, unknown>({
+    const { data, response } = await dictationPost({
       ...SDK_BASE_OPTIONS,
-      url: `/v1/assistants/${assistantId}/dictation`,
+      path: { assistant_id: assistantId },
       body: { transcription, context },
-      headers: { "Content-Type": "application/json" },
       throwOnError: false,
       signal,
     });
-    if (!response || !response.ok) return null;
-    return data as DictationResult;
+    if (!response || !response.ok || !data) {
+      return null;
+    }
+    return data;
   } catch {
     return null;
   }

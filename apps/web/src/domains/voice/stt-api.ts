@@ -1,12 +1,5 @@
-import { client } from "@/generated/api/client.gen";
-
-// `/v1/stt/transcribe` is not yet in the OpenAPI schema, so we fall through
-// to the low-level HeyAPI client until it's generated — matching the pattern
-// used by dictation-api.ts for `/v1/dictation`.
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
+import { sttTranscribePost } from "@/generated/daemon/sdk.gen";
+import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 
 export interface SttTranscribeOk {
   status: "ok";
@@ -141,18 +134,17 @@ export async function postSttTranscribe(
   // `{ error, request, response: undefined }`. We must inspect `result.error`
   // and `result.response` directly to categorise these; the surrounding
   // try/catch only fires on developer errors thrown synchronously inside the
-  // request setup. See `web/src/clients/internal/client/client.gen.ts`.
-  let result: Awaited<ReturnType<typeof client.post<unknown, unknown>>>;
+  // request setup. See `@/generated/daemon/client.gen`.
+  let result: Awaited<ReturnType<typeof sttTranscribePost>>;
   try {
-    result = await client.post<unknown, unknown>({
+    result = await sttTranscribePost({
       ...SDK_BASE_OPTIONS,
-      url: `/v1/assistants/${assistantId}/stt/transcribe`,
+      path: { assistant_id: assistantId },
       body: {
         audioBase64,
         mimeType: audioBlob.type,
         source: "dictation",
       },
-      headers: { "Content-Type": "application/json" },
       throwOnError: false,
       signal,
     });
@@ -185,9 +177,7 @@ export async function postSttTranscribe(
   }
 
   if (response.ok) {
-    const ok = result.data as
-      | { text?: string; providerId?: string; boundaryId?: string }
-      | undefined;
+    const ok = result.data;
     return {
       status: "ok",
       text: ok?.text ?? "",

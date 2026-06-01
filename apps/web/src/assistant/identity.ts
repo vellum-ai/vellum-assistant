@@ -11,11 +11,9 @@ import { identityGet } from "@/generated/daemon/sdk.gen";
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 import { assertHasResponse, SDK_BASE_OPTIONS } from "@/utils/api-errors";
 
-export type AssistantIdentity = IdentityGetResponse;
-
 export async function fetchAssistantIdentity(
   assistantId: string,
-): Promise<AssistantIdentity | null> {
+): Promise<IdentityGetResponse | null> {
   try {
     const { data, error, response } = await identityGet({
       ...SDK_BASE_OPTIONS,
