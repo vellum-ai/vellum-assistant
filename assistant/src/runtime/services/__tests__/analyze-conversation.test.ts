@@ -167,7 +167,7 @@ describe("analyzeConversation", () => {
       "analysis-new",
       "user",
       expect.any(String),
-      { provenanceTrustClass: "unknown" },
+      { metadata: { provenanceTrustClass: "unknown" } },
     );
 
     // Sets trust context to unknown.
@@ -192,7 +192,6 @@ describe("analyzeConversation", () => {
     expect(currentConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
       "msg-1",
-      undefined,
       expect.objectContaining({
         isInteractive: false,
         isUserMessage: true,
@@ -287,7 +286,7 @@ describe("analyzeConversation", () => {
       "analysis-existing",
       "user",
       expect.any(String),
-      { provenanceTrustClass: "guardian" },
+      { metadata: { provenanceTrustClass: "guardian" } },
     );
   });
 
@@ -366,7 +365,6 @@ describe("analyzeConversation", () => {
     expect(currentConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
       "msg-1",
-      undefined,
       expect.objectContaining({ callSite: "analyzeConversation" }),
     );
   });

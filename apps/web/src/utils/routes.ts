@@ -17,6 +17,18 @@ const LOCAL_ADMIN_ORIGIN = "http://localhost:3000";
 
 export const routes = {
   assistant: r("/assistant"),
+  /**
+   * Standalone About page. Lives under `/assistant/*` so it falls inside
+   * `apps/web/vite.config.ts`'s `base: "/assistant/"` and Vite's SPA
+   * fallback serves it in dev. Declared as a sibling of `/assistant`
+   * in `routes.tsx` rather than a child, so it bypasses the app's auth
+   * middleware and `RootLayout` — it's metadata, not the app.
+   *
+   * Mounted from the Electron host (`apps/macos/src/main/about.ts`)
+   * into a frameless BrowserWindow; the route is also reachable from
+   * the web build, where the runtime wrapper degrades to a "—" fallback.
+   */
+  about: r("/assistant/about"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),
   /**
    * LLM-context inspector for a single conversation. The conversation id
@@ -48,6 +60,7 @@ export const routes = {
   onboarding: {
     welcome: r("/assistant/onboarding/welcome"),
     hosting: r("/assistant/onboarding/hosting"),
+    apiKey: r("/assistant/onboarding/api-key"),
     privacy: r("/assistant/onboarding/privacy"),
     prechat: r("/assistant/onboarding/prechat"),
     hatching: r("/assistant/onboarding/hatching"),
@@ -99,6 +112,7 @@ export const routes = {
   },
 
   docs: {
+    hostingOptions: r("/docs/hosting-options"),
     legal: {
       privacyPolicy: r("/docs/privacy-policy"),
       termsOfUse: r("/docs/vellum-terms-of-use"),
@@ -115,6 +129,11 @@ const WWW_DOMAIN = "vellum.ai";
 export function legalUrl(
   path: (typeof routes.docs.legal)[keyof typeof routes.docs.legal],
 ): string {
+  return docsUrl(path);
+}
+
+/** Full external URL for a docs page hosted on the marketing site. */
+export function docsUrl(path: string): string {
   return `https://${WWW_DOMAIN}${path}`;
 }
 

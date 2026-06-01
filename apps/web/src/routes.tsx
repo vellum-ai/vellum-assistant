@@ -69,6 +69,7 @@ export const router = createBrowserRouter(
             { path: "oauth/popup-complete", lazy: { Component: () => import("@/domains/account/pages/oauth-popup-complete-page").then((m) => m.OAuthPopupCompletePage) } },
             { path: "oauth/complete", lazy: { Component: () => import("@/domains/account/pages/oauth-complete-page").then((m) => m.OAuthCompletePage) } },
             { path: "oauth/desktop-complete", Component: OAuthDesktopCompleteRedirect },
+            { path: "platform-callback", lazy: { Component: () => import("@/domains/account/pages/platform-loopback-page").then((m) => m.PlatformLoopbackPage) } },
             { path: "password/reset", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
             { path: "password/reset/key/:key", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
           ],
@@ -78,6 +79,14 @@ export const router = createBrowserRouter(
 
     // Logout — standalone page, no app chrome
     { path: "/logout", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/account/pages/logout-page").then((m) => m.LogoutPage) } },
+
+    // About — standalone metadata page rendered inside the Electron
+    // About BrowserWindow. Declared as a sibling of `/assistant` (not
+    // a child) so React Router's most-specific matcher picks it for
+    // `/assistant/about` BEFORE falling into the auth-protected app
+    // tree below. URL sits under `/assistant/*` so it's served by
+    // Vite's SPA fallback in dev (which is scoped to the `base`).
+    { path: "/assistant/about", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/about-page").then((m) => m.AboutPage) } },
 
     // Assistant routes — auth-protected app with layout
     {
@@ -119,6 +128,10 @@ export const router = createBrowserRouter(
                 {
                   path: "onboarding/hosting",
                   lazy: { Component: () => import("@/domains/onboarding/pages/hosting-screen").then((m) => m.HostingScreen) },
+                },
+                {
+                  path: "onboarding/api-key",
+                  lazy: { Component: () => import("@/domains/onboarding/pages/api-key-screen").then((m) => m.ApiKeyScreen) },
                 },
               ],
             },
@@ -207,7 +220,7 @@ export const router = createBrowserRouter(
             // Everything below requires a resolved assistantId AND an
             // active daemon. The gate defers child rendering until the
             // lifecycle resolves so route components can rely on a
-            // non-null assistantId via useActiveAssistantContext().
+            // non-null assistantId via useActiveAssistantId().
             {
               Component: ActiveAssistantGate,
               children: [

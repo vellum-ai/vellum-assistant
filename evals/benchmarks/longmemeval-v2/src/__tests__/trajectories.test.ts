@@ -1,16 +1,12 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import { describe, expect, test } from "bun:test";
 
 import type { BenchmarkItem } from "../loader";
 import {
   WORKSPACE_MANIFEST_PATH,
   WORKSPACE_TRAJECTORY_DIR,
-  loadTrajectories,
   materializeWorkspaceFiles,
 } from "../trajectories";
+import { createInMemoryTrajectoryReader } from "../trajectory-reader";
 
 function makeItem(overrides: Partial<BenchmarkItem> = {}): BenchmarkItem {
   return {
@@ -24,114 +20,18 @@ function makeItem(overrides: Partial<BenchmarkItem> = {}): BenchmarkItem {
   };
 }
 
-describe("loadTrajectories", () => {
-  test("returns a Map keyed by trajectory id with passthrough payload", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "lme-traj-"));
-    await writeFile(
-      join(dir, "trajectories.jsonl"),
-      [
-        JSON.stringify({
-          id: "t1",
-          domain: "web",
-          states: [{ action: "click", observation: "ok" }],
-        }),
-        JSON.stringify({
-          id: "t2",
-          domain: "enterprise",
-          states: [{ action: "search", observation: "miss" }],
-        }),
-      ].join("\n"),
-      "utf8",
-    );
-
-    const trajectories = await loadTrajectories(dir);
-    expect(trajectories.size).toBe(2);
-    expect(trajectories.get("t1")?.domain).toBe("web");
-    // `.passthrough()` preserves unknown structured fields verbatim
-    const t2 = trajectories.get("t2") as Record<string, unknown>;
-    expect(t2["states"]).toEqual([{ action: "search", observation: "miss" }]);
-  });
-
-  test("reports a helpful error when trajectories.jsonl is missing", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "lme-traj-"));
-    await expect(loadTrajectories(dir)).rejects.toThrow(
-      /trajectories\.jsonl not found.*data\/download\.sh/,
-    );
-  });
-
-  test("rejects malformed JSONL with line numbers", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "lme-traj-"));
-    await writeFile(
-      join(dir, "trajectories.jsonl"),
-      [JSON.stringify({ id: "t1", domain: "web" }), "{not-valid-json"].join(
-        "\n",
-      ),
-      "utf8",
-    );
-
-    await expect(loadTrajectories(dir)).rejects.toThrow(
-      /Failed to parse trajectories\.jsonl at line 2/,
-    );
-  });
-
-  test("rejects rows missing the required `id` field with schema details", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "lme-traj-"));
-    await writeFile(
-      join(dir, "trajectories.jsonl"),
-      [
-        JSON.stringify({ id: "t1", domain: "web" }),
-        JSON.stringify({ domain: "enterprise" }), // no id
-      ].join("\n"),
-      "utf8",
-    );
-
-    await expect(loadTrajectories(dir)).rejects.toThrow(
-      /trajectories\.jsonl line 2 failed schema validation/,
-    );
-  });
-
-  test("rejects duplicate trajectory ids", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "lme-traj-"));
-    await writeFile(
-      join(dir, "trajectories.jsonl"),
-      [
-        JSON.stringify({ id: "t1", domain: "web" }),
-        JSON.stringify({ id: "t1", domain: "enterprise" }),
-      ].join("\n"),
-      "utf8",
-    );
-
-    await expect(loadTrajectories(dir)).rejects.toThrow(
-      /Duplicate trajectory id "t1" at line 2/,
-    );
-  });
-
-  test("skips blank lines", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "lme-traj-"));
-    await writeFile(
-      join(dir, "trajectories.jsonl"),
-      ["", JSON.stringify({ id: "t1", domain: "web" }), "", ""].join("\n"),
-      "utf8",
-    );
-
-    const trajectories = await loadTrajectories(dir);
-    expect(trajectories.size).toBe(1);
-    expect(trajectories.get("t1")?.id).toBe("t1");
-  });
-});
-
 describe("materializeWorkspaceFiles", () => {
-  test("returns one write per trajectory id in haystack order plus a manifest", () => {
-    const trajectories = new Map([
-      ["t1", { id: "t1", domain: "web", states: [{ a: 1 }] }],
-      ["t2", { id: "t2", domain: "web", states: [{ a: 2 }] }],
-      ["t3", { id: "t3", domain: "web", states: [{ a: 3 }] }],
+  test("returns one write per trajectory id in haystack order plus a manifest", async () => {
+    const reader = createInMemoryTrajectoryReader([
+      { id: "t1", domain: "web", states: [{ a: 1 }] },
+      { id: "t2", domain: "web", states: [{ a: 2 }] },
+      { id: "t3", domain: "web", states: [{ a: 3 }] },
     ]);
     // Item asks for them OUT of insertion order — the writer must
-    // preserve the haystack's declared order, not the map's.
+    // preserve the haystack's declared order, not the reader's.
     const item = makeItem({ trajectoryIds: ["t3", "t1", "t2"] });
 
-    const writes = materializeWorkspaceFiles(item, trajectories);
+    const writes = await materializeWorkspaceFiles(item, reader);
     expect(writes).toHaveLength(4);
     expect(writes.map((w) => w.path)).toEqual([
       `${WORKSPACE_TRAJECTORY_DIR}/t3.json`,
@@ -159,27 +59,42 @@ describe("materializeWorkspaceFiles", () => {
     });
   });
 
-  test("throws with all missing trajectory ids listed", () => {
-    const trajectories = new Map([["t1", { id: "t1", domain: "web" }]]);
+  test("throws with all missing trajectory ids listed before issuing any reads", async () => {
+    let getCount = 0;
+    const inner = createInMemoryTrajectoryReader([{ id: "t1", domain: "web" }]);
+    const reader = {
+      has: (id: string): boolean => inner.has(id),
+      get: async (id: string) => {
+        getCount += 1;
+        return inner.get(id);
+      },
+      close: async (): Promise<void> => inner.close(),
+    };
     const item = makeItem({ trajectoryIds: ["t1", "t99", "t100"] });
 
-    expect(() => materializeWorkspaceFiles(item, trajectories)).toThrow(
+    await expect(materializeWorkspaceFiles(item, reader)).rejects.toThrow(
       /missing from trajectories\.jsonl: t99, t100/,
     );
+    // Missing ids are surfaced via `has()` checks; we don't waste an
+    // I/O round-trip on the present ids when the slice is broken.
+    expect(getCount).toBe(0);
   });
 
-  test("rejects an item with an empty haystack defensively", () => {
+  test("rejects an item with an empty haystack defensively", async () => {
+    const reader = createInMemoryTrajectoryReader([]);
     const item = makeItem({ trajectoryIds: [] });
-    expect(() => materializeWorkspaceFiles(item, new Map())).toThrow(
+    await expect(materializeWorkspaceFiles(item, reader)).rejects.toThrow(
       /q1 has no trajectory ids/,
     );
   });
 
-  test("respects custom trajectoryDir and manifestPath overrides", () => {
-    const trajectories = new Map([["t1", { id: "t1", domain: "web" }]]);
+  test("respects custom trajectoryDir and manifestPath overrides", async () => {
+    const reader = createInMemoryTrajectoryReader([
+      { id: "t1", domain: "web" },
+    ]);
     const item = makeItem({ trajectoryIds: ["t1"] });
 
-    const writes = materializeWorkspaceFiles(item, trajectories, {
+    const writes = await materializeWorkspaceFiles(item, reader, {
       trajectoryDir: "custom/path",
       manifestPath: "custom/index.json",
     });

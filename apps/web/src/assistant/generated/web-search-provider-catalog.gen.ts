@@ -32,9 +32,9 @@ export const WEB_SEARCH_PROVIDER_KEY_PLACEHOLDERS: Readonly<
 export const WEB_SEARCH_PROVIDER_KEY_STORAGE: Readonly<
   Record<string, string>
 > = {
-  perplexity: "vellum_perplexity_key",
-  brave: "vellum_brave_key",
-  tavily: "vellum_tavily_key",
+  perplexity: "vellum:ai:perplexityKey",
+  brave: "vellum:ai:braveKey",
+  tavily: "vellum:ai:tavilyKey",
 };
 
 /** Provider ids that require a user-supplied API key. */

@@ -35,6 +35,26 @@ See [`apps/web/src/runtime/dock.ts`](../src/runtime/dock.ts) and [`apps/web/src/
 
 ---
 
+## When a capability has a real web/dev implementation, the wrapper branches instead of no-opping
+
+Most bridges are desktop-only niceties (Dock badge, biometrics) and so the off-Electron branch is a no-op. Some capabilities, though, are first-class on the web/dev host too and have a genuine non-Electron implementation — the wrapper is then a true **transport seam**: it selects the implementation once, and both branches are real.
+
+[`local-mode-host.ts`](../src/runtime/local-mode-host.ts) is the reference. Local-mode provisioning drives the Vellum CLI, which must run in a trusted host process — the Electron main process in the desktop shell, or the Vite dev-server middleware on web/dev. The wrapper is the one place that branch lives:
+
+```ts
+// apps/web/src/runtime/local-mode-host.ts
+export async function hatchLocalAssistant(species = "vellum") {
+  if (isElectron()) return window.vellum!.localMode.hatch(species);
+  // web/dev: the Vite middleware spawns the CLI binary
+  const res = await fetch("/assistant/__local/hatch", { method: "POST", /* … */ });
+  return res.json();
+}
+```
+
+The rules are otherwise identical to the no-op wrappers: feature code imports the named function and never sees the branch, and the wrapper is the only renderer file that touches `window.vellum.localMode`. The only difference is that the non-Electron path returns a real result rather than `undefined`/no-op, so both hosts honor the same contract.
+
+---
+
 ## Hooks that bridge feature state to the Electron host live in the domain, not in `runtime/`
 
 The `runtime/` wrappers expose **imperative functions** (`setDockBadge(count)`, `useVellumCommands(handlers)`). When a feature needs to publish state changes to the host on every tick (e.g. unread count → Dock badge), the React hook that does that **lives in the domain that owns the source data**, not in the runtime layer.
@@ -59,6 +79,31 @@ When extending `window.vellum.*`, three files change together because the three 
 3. **`apps/web/src/runtime/<capability>.ts`** — per-capability wrapper module exposing the no-op-off-Electron functions feature code calls.
 
 The main-process handler itself lives in `apps/macos/src/main/`; that's a main-process concern, not a renderer one. For main-process conventions see [`apps/macos/README.md`](../../../apps/macos/README.md).
+
+---
+
+## Cross-domain push signals route through the event bus, not directly via the bridge
+
+The runtime wrapper is the surface for **imperative** access (`setDockBadge(count)`, `getAppVersionInfo()`). For **push signals** — main-process events that multiple renderer domains care about — the wrapper publishes into the [event bus](./EVENT_BUS.md), and consumers subscribe via the bus.
+
+Example (`runtime/power-events.ts` + `BusEventMap`): the system's `powerMonitor` fires `suspend` / `resume` / `lock` / `unlock` / `active`. Multiple renderer subsystems care (SSE reconnect, future auth-refresh on wake, future reachability probe). The right shape is:
+
+1. `apps/macos/src/main/power-events.ts` — subscribes to `powerMonitor`, broadcasts to all renderers via `webContents.send`.
+2. `apps/macos/src/preload/index.ts` — `window.vellum.power.onEvent(callback) → unsubscribe`.
+3. `apps/web/src/runtime/power-events.ts` — `subscribeToPowerEvents(callback)` (the no-op-off-Electron wrapper).
+4. `apps/web/src/hooks/use-event-bus-init.ts` — calls the wrapper once at mount, fans events in as `power.suspend` / `power.resume` / etc. on the bus.
+5. Domain consumers subscribe to `bus.subscribe("power.resume", ...)` — never to the wrapper directly.
+
+The bus integration means the same subscriber code works whether the signal came from `powerMonitor` (Electron), `visibilitychange` (web), or Capacitor `appStateChange` (iOS). Wrappers that publish into the bus stay tiny — they're just signal sources.
+
+### When signals can arrive before the renderer exists
+
+A subset of push signals — inbound deep links being the canonical case — can arrive at the main process BEFORE the renderer has loaded (the OS launches the app via a `vellum://` click → `open-url` fires before `whenReady`). The renderer wrapper grows a second surface for these:
+
+- **`subscribe<X>(callback)`** — live subscription for post-mount signals.
+- **`drainPending<X>()`** — returns and clears the main-side buffer of signals that arrived during startup.
+
+`use-event-bus-init` calls `subscribe` BEFORE `drainPending` so a signal arriving in flight between the two calls isn't lost. Example: `apps/web/src/runtime/deep-links.ts` paired with the main-side buffer in `apps/macos/src/main/deep-links.ts`.
 
 ---
 

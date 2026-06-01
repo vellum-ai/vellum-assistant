@@ -16,6 +16,7 @@ import {
   listWatchers,
   updateWatcher,
 } from "../../watcher/watcher-store.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -192,6 +193,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "watcher_create",
     endpoint: "watchers/create",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleWatcherCreate,
     summary: "Create a watcher",
     description: "Create a new watcher with a provider and action prompt.",
@@ -203,6 +208,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "watcher_list",
     endpoint: "watchers/list",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleWatcherList,
     summary: "List watchers",
     description:
@@ -215,6 +224,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "watcher_update",
     endpoint: "watchers/update",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleWatcherUpdate,
     summary: "Update a watcher",
     description: "Update an existing watcher's configuration.",
@@ -226,6 +239,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "watcher_delete",
     endpoint: "watchers/delete",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleWatcherDelete,
     summary: "Delete a watcher",
     description: "Delete a watcher by ID.",
@@ -237,6 +254,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "watcher_digest",
     endpoint: "watchers/digest",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleWatcherDigest,
     summary: "Get watcher event digest",
     description:

@@ -1,4 +1,5 @@
 import { prepareServerMessage } from "@/domains/chat/utils/map-runtime-message";
+import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, messagesEqual } from "@/domains/chat/utils/message-merge";
 import { sortByTimestamp, sortedByTimestamp, timestampToMs } from "@/domains/chat/utils/message-sorting";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -12,6 +13,71 @@ export type { DisplayAttachment, DisplayMessage } from "@/domains/chat/types/typ
 
 const STREAMING_ASSISTANT_FALLBACK_MAX_TIMESTAMP_DELTA_MS = 10 * 60 * 1000;
 const STRONG_STREAMING_ASSISTANT_PREFIX_CHARS = 16;
+
+type MessageIdentity = {
+  id?: string;
+  mergedMessageIds?: string[];
+};
+
+function messageIdentityKeys(message: MessageIdentity): string[] {
+  return [
+    ...new Set(
+      [message.id, ...(message.mergedMessageIds ?? [])].filter(
+        (id): id is string => typeof id === "string" && id.length > 0,
+      ),
+    ),
+  ];
+}
+
+function indexDisplayMessageIdentity(
+  indexById: Map<string, number>,
+  message: DisplayMessage,
+  index: number,
+): void {
+  for (const id of messageIdentityKeys(message)) {
+    indexById.set(id, index);
+  }
+}
+
+function findDisplayMessageIndexByIdentity(
+  indexById: Map<string, number>,
+  message: MessageIdentity,
+): number | undefined {
+  for (const id of messageIdentityKeys(message)) {
+    const index = indexById.get(id);
+    if (index != null) return index;
+  }
+  return undefined;
+}
+
+function indexDisplayMessageByIdentity(
+  indexById: Map<string, DisplayMessage>,
+  message: DisplayMessage,
+): void {
+  for (const id of messageIdentityKeys(message)) {
+    if (!indexById.has(id)) {
+      indexById.set(id, message);
+    }
+  }
+}
+
+function findDisplayMessageByRuntimeIdentity(
+  indexById: Map<string, DisplayMessage>,
+  message: RuntimeMessage,
+): DisplayMessage | undefined {
+  for (const id of messageIdentityKeys(message)) {
+    const existing = indexById.get(id);
+    if (existing) return existing;
+  }
+  return undefined;
+}
+
+function hasServerIdentity(
+  serverIds: Set<string>,
+  message: DisplayMessage,
+): boolean {
+  return messageIdentityKeys(message).some((id) => serverIds.has(id));
+}
 
 function timestampsLikelySameTurn(
   currentTimestamp: number | undefined,
@@ -83,6 +149,7 @@ function findLatestHistoryFallbackIndex(
   messages: DisplayMessage[],
   incoming: DisplayMessage,
   claimedIndexes: Set<number>,
+  liveRowId: string | null,
 ): number | undefined {
   const exactIdx = messages.findIndex(
     (message, index) =>
@@ -107,7 +174,7 @@ function findLatestHistoryFallbackIndex(
       claimedIndexes.has(index) ||
       !hasPlaceholderIdentity(message) ||
       message.role !== "assistant" ||
-      !message.isStreaming ||
+      message.id !== liveRowId ||
       !timestampsLikelySameTurn(message.timestamp, incomingTimestamp)
     ) {
       continue;
@@ -134,29 +201,32 @@ function findLatestHistoryFallbackIndex(
 export function reconcileDisplayMessagesWithLatestHistory(
   current: DisplayMessage[],
   latestHistory: DisplayMessage[],
+  isProcessing: boolean,
 ): DisplayMessage[] {
   if (latestHistory.length === 0) return dedupeDisplayMessages(current);
 
+  const liveRowId = liveAssistantRowId(current, isProcessing);
   const merged = [...current];
   const indexById = new Map<string, number>();
   const claimedIndexes = new Set<number>();
   for (let i = 0; i < merged.length; i++) {
-    const id = merged[i]?.id;
-    if (id) indexById.set(id, i);
+    const message = merged[i];
+    if (message) indexDisplayMessageIdentity(indexById, message, i);
   }
 
   for (const incoming of latestHistory) {
-    let existingIdx = incoming.id ? indexById.get(incoming.id) : undefined;
+    let existingIdx = findDisplayMessageIndexByIdentity(indexById, incoming);
     if (existingIdx == null) {
       existingIdx = findLatestHistoryFallbackIndex(
         merged,
         incoming,
         claimedIndexes,
+        liveRowId,
       );
     }
 
     if (existingIdx == null) {
-      if (incoming.id) indexById.set(incoming.id, merged.length);
+      indexDisplayMessageIdentity(indexById, incoming, merged.length);
       merged.push(incoming);
       continue;
     }
@@ -166,7 +236,7 @@ export function reconcileDisplayMessagesWithLatestHistory(
       merged[existingIdx]!,
       incoming,
     );
-    if (incoming.id) indexById.set(incoming.id, existingIdx);
+    indexDisplayMessageIdentity(indexById, merged[existingIdx]!, existingIdx);
   }
 
   const sorted = sortedByTimestamp(dedupeDisplayMessages(merged));
@@ -190,7 +260,7 @@ export function reconcileMessages(
 ): DisplayMessage[] {
   if (server.length === 0) return dedupeDisplayMessages(local);
 
-  const serverIds = new Set(server.map((m) => m.id));
+  const serverIds = new Set(server.flatMap((m) => messageIdentityKeys(m)));
 
   // Window boundary: use the explicit initial-page timestamp when provided
   // (stable, not widened by loadOlder). Fall back to computing from local
@@ -209,7 +279,7 @@ export function reconcileMessages(
   const localById = new Map<string, DisplayMessage>();
   for (const m of local) {
     if (!m.isOptimistic) {
-      localById.set(m.id, m);
+      indexDisplayMessageByIdentity(localById, m);
     }
   }
 
@@ -222,7 +292,7 @@ export function reconcileMessages(
       // where one code path forgets a transformation step.
       const prepared = prepareServerMessage(m);
 
-      const localMsg = localById.get(m.id);
+      const localMsg = findDisplayMessageByRuntimeIdentity(localById, m);
 
       // Skip server messages that have no local match AND are older
       // than the local window. This prevents old paginated-out messages
@@ -235,12 +305,7 @@ export function reconcileMessages(
       }
 
       const msg: DisplayMessage = { id: m.id, role: m.role, content: prepared.cleanedContent };
-      // `isStreaming` is a client-owned, live-only flag — server snapshots
-      // never carry it. Preserve the local row's value so a sync-driven
-      // reconcile that lands mid-turn doesn't flip the active bubble to
-      // "completed" and cause downstream bubble-split / footer-injection
-      // glitches.
-      if (localMsg?.isStreaming) msg.isStreaming = true;
+      if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
       if (m.metadata) msg.metadata = m.metadata;
       if (m.subagentNotification) msg.isSubagentNotification = true;
       if (prepared.slackMessage ?? localMsg?.slackMessage) {
@@ -367,9 +432,9 @@ export function reconcileMessages(
   //
   //  2. Non-optimistic local rows whose id isn't in `serverIds` — likely
   //     brief replication lag or pagination. Preserve to prevent
-  //     vanishing, including `isStreaming` flag if the turn is still live.
+  //     vanishing.
   for (const m of local) {
-    if (!m.isOptimistic && serverIds.has(m.id)) continue;
+    if (!m.isOptimistic && hasServerIdentity(serverIds, m)) continue;
 
     if (m.isOptimistic && m.role === "user") {
       // Tail content-match swap: the queued send path keeps the user row

@@ -65,15 +65,13 @@ const log = getLogger("process-message");
 type ProcessMessageOptions = ConversationCreateOptions & {
   /** Per-turn observer for live agent-loop events. Does not replace SSE broadcast. */
   onEvent?: (msg: ServerMessage) => void;
+  /** IDs of user-uploaded attachments to resolve and include in the turn. */
+  attachmentIds?: string[];
+  /** Originating channel (e.g. "slack", "telegram"). Defaults to "vellum". */
+  sourceChannel?: string;
+  /** Originating interface (e.g. "cli", "web"). Defaults to "web". */
+  sourceInterface?: string;
 };
-
-function stripPerTurnObservers(
-  options?: ProcessMessageOptions,
-): ConversationCreateOptions | undefined {
-  if (!options) return undefined;
-  const { onEvent: _onEvent, ...conversationOptions } = options;
-  return conversationOptions;
-}
 
 function buildEventEmitter(
   observer?: (msg: ServerMessage) => void,
@@ -132,10 +130,7 @@ export function resolveTurnInterface(sourceInterface?: string): InterfaceId {
 async function prepareConversationForMessage(
   conversationId: string,
   content: string,
-  attachmentIds: string[] | undefined,
-  options: ConversationCreateOptions | undefined,
-  sourceChannel: string | undefined,
-  sourceInterface: string | undefined,
+  options?: ProcessMessageOptions,
 ): Promise<{
   conversation: Conversation;
   attachments: {
@@ -146,9 +141,18 @@ async function prepareConversationForMessage(
     filePath?: string;
   }[];
 }> {
+  const {
+    attachmentIds,
+    sourceChannel,
+    sourceInterface,
+    onEvent: _onEvent,
+    ...conversationOptions
+  } = options ?? {};
   const conversation = await getOrCreateActiveConversation(
     conversationId,
-    options,
+    Object.keys(conversationOptions).length > 0
+      ? conversationOptions
+      : undefined,
   );
 
   if (conversation.isProcessing()) {
@@ -157,7 +161,7 @@ async function prepareConversationForMessage(
 
   const resolvedChannel = resolveTurnChannel(
     sourceChannel,
-    options?.transport?.channelId,
+    conversationOptions.transport?.channelId,
   );
   const resolvedInterface = resolveTurnInterface(sourceInterface);
   conversation.setAssistantId(
@@ -253,19 +257,12 @@ async function prepareConversationForMessage(
 export async function processMessage(
   conversationId: string,
   content: string,
-  attachmentIds?: string[],
   options?: ProcessMessageOptions,
-  sourceChannel?: string,
-  sourceInterface?: string,
 ): Promise<{ messageId: string; assistantMessageId?: string }> {
-  const conversationOptions = stripPerTurnObservers(options);
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
     content,
-    attachmentIds,
-    conversationOptions,
-    sourceChannel,
-    sourceInterface,
+    options,
   );
   const emitEvent = buildEventEmitter(options?.onEvent);
 
@@ -327,7 +324,7 @@ export async function processMessage(
         attachments,
         options?.displayContent,
       ),
-      userMetaWithSlack,
+      { metadata: userMetaWithSlack },
     );
     conversation.getMessages().push(llmMsg);
 
@@ -377,7 +374,7 @@ export async function processMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
-      serverChannelMeta,
+      { metadata: serverChannelMeta },
     );
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
@@ -420,15 +417,11 @@ export async function processMessage(
         attachments,
         options?.displayContent,
       ),
-      compactUserMeta,
+      { metadata: compactUserMeta },
     );
     conversation.getMessages().push(cleanMsg);
 
-    conversation.emitActivityState(
-      "thinking",
-      "context_compacting",
-      "assistant_turn",
-    );
+    conversation.emitActivityState("thinking", "context_compacting");
     const result = await conversation.forceCompact({
       targetInputTokensOverride: slashResult.targetInputTokensOverride,
     });
@@ -438,7 +431,7 @@ export async function processMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
-      compactChannelMeta,
+      { metadata: compactChannelMeta },
     );
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
@@ -481,7 +474,7 @@ export async function processMessage(
         attachments,
         options?.displayContent,
       ),
-      cleanUserMeta,
+      { metadata: cleanUserMeta },
     );
     conversation.getMessages().push(cleanMsg);
 
@@ -492,7 +485,7 @@ export async function processMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
-      cleanChannelMeta,
+      { metadata: cleanChannelMeta },
     );
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
@@ -523,7 +516,8 @@ export async function processMessage(
   }
 
   try {
-    await conversation.runAgentLoop(resolvedContent, messageId, emitEvent, {
+    await conversation.runAgentLoop(resolvedContent, messageId, {
+      onEvent: emitEvent,
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
@@ -551,19 +545,12 @@ export async function processMessage(
 export async function processMessageInBackground(
   conversationId: string,
   content: string,
-  attachmentIds?: string[],
   options?: ProcessMessageOptions,
-  sourceChannel?: string,
-  sourceInterface?: string,
 ): Promise<{ messageId: string }> {
-  const conversationOptions = stripPerTurnObservers(options);
   const { conversation, attachments } = await prepareConversationForMessage(
     conversationId,
     content,
-    attachmentIds,
-    conversationOptions,
-    sourceChannel,
-    sourceInterface,
+    options,
   );
   const emitEvent = buildEventEmitter(options?.onEvent);
 
@@ -586,7 +573,8 @@ export async function processMessageInBackground(
   }
 
   conversation
-    .runAgentLoop(content, messageId, emitEvent, {
+    .runAgentLoop(content, messageId, {
+      onEvent: emitEvent,
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),

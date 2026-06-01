@@ -27,7 +27,7 @@ import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
 } from "../tools/schema-transforms.js";
-import { resolveToolNameAlias } from "../tools/tool-name-aliases.js";
+import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
 import {
   isDiskPressureCleanupToolName,
   type ProxyApprovalCallback,
@@ -111,10 +111,11 @@ export function createToolExecutor(
     toolUseId?: string,
     turnContext?: import("../plugins/types.js").TurnContext,
   ) => {
-    const executionName = resolveToolNameAlias(name, ctx.allowedToolNames);
+    const { name: executionName, input: executionInput } =
+      resolveToolInvocationAlias(name, input, ctx.allowedToolNames);
 
-    if (isDoordashCommand(executionName, input)) {
-      markDoordashStepInProgress(ctx, input);
+    if (isDoordashCommand(executionName, executionInput)) {
+      markDoordashStepInProgress(ctx, executionInput);
     }
 
     // Build the context object shared by both the skill_execute interception
@@ -158,6 +159,7 @@ export function createToolExecutor(
         ctx.sendToClient(msg as ServerMessage);
         if (msg.type === "ui_surface_show") {
           const s = msg as unknown as UiSurfaceShow;
+          const surfaceToolCallId = s.toolCallId ?? toolUseId;
           ctx.currentTurnSurfaces.push({
             surfaceId: s.surfaceId,
             surfaceType: s.surfaceType,
@@ -166,6 +168,7 @@ export function createToolExecutor(
             actions: s.actions,
             display: s.display,
             ...(s.persistent ? { persistent: true } : {}),
+            ...(surfaceToolCallId ? { toolCallId: surfaceToolCallId } : {}),
           });
         }
       },
@@ -179,6 +182,7 @@ export function createToolExecutor(
           toolName,
           proxyInput,
           ctx.abortController?.signal,
+          toolUseId,
         ),
       proxyApprovalCallback: createProxyApprovalCallback(prompter, ctx),
       requestSecret: async (params) => {
@@ -200,7 +204,10 @@ export function createToolExecutor(
     // model self-select a different inference profile mid-turn. No permission
     // checks — this is a control-flow signal, not a user-visible tool.
     if (executionName === SWITCH_INFERENCE_PROFILE_TOOL_NAME) {
-      const profile = typeof input.profile === "string" ? input.profile : "";
+      const profile =
+        typeof executionInput.profile === "string"
+          ? executionInput.profile
+          : "";
       const config = getConfig();
       const profileEntry = config.llm.profiles?.[profile];
       if (!profileEntry) {
@@ -228,15 +235,19 @@ export function createToolExecutor(
     // risk level, permission checks, hooks, and lifecycle events all fire
     // with the real tool name.
     if (executionName === "skill_execute") {
-      const rawToolName = typeof input.tool === "string" ? input.tool : "";
-      const toolName = resolveToolNameAlias(rawToolName, ctx.allowedToolNames);
+      const rawToolName =
+        typeof executionInput.tool === "string" ? executionInput.tool : "";
       const rawToolInput =
-        input.input != null && typeof input.input === "object"
-          ? (input.input as Record<string, unknown>)
+        executionInput.input != null && typeof executionInput.input === "object"
+          ? (executionInput.input as Record<string, unknown>)
           : {};
 
       // Clone to avoid mutating shared input objects
-      const toolInput = { ...rawToolInput };
+      const { name: toolName, input: toolInput } = resolveToolInvocationAlias(
+        rawToolName,
+        { ...rawToolInput },
+        ctx.allowedToolNames,
+      );
 
       if (!toolName) {
         return {
@@ -263,7 +274,7 @@ export function createToolExecutor(
 
     const result = await executor.execute(
       executionName,
-      input,
+      executionInput,
       toolContext,
       turnContext,
     );
@@ -271,7 +282,7 @@ export function createToolExecutor(
       ctx.approvedViaPromptThisTurn = true;
     }
 
-    runPostExecutionSideEffects(executionName, input, result, { ctx });
+    runPostExecutionSideEffects(executionName, executionInput, result, { ctx });
 
     return result;
   };

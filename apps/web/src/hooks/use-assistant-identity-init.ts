@@ -32,7 +32,7 @@ import { fetchAssistantIdentity } from "@/assistant/identity";
 import { consumePendingAssistantName } from "@/domains/onboarding/prechat";
 import { assistantIdentityQueryKey } from "@/lib/sync/query-tags";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
+import type { AssistantState } from "@/assistant/types";
 
 export { assistantIdentityQueryKey } from "@/lib/sync/query-tags";
 

@@ -14,11 +14,8 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import {
-  client,
-  assertHasResponse,
-  SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client";
+import { identityIntroGet } from "@/generated/daemon/sdk.gen";
+import { assertHasResponse } from "@/utils/api-errors";
 import { DEFAULT_EMPTY_STATE_GREETING } from "@/domains/chat/utils/empty-state-constants";
 import type { IdentityIntroGetResponse } from "@/generated/daemon/types.gen";
 import { assistantIdentityIntroQueryKey } from "@/lib/sync/query-tags";
@@ -30,20 +27,11 @@ type IdentityIntroResponse = Partial<IdentityIntroGetResponse> & {
   text?: unknown;
 };
 
-type IdentityIntroResponses = {
-  200: IdentityIntroResponse;
-};
-
 async function fetchIdentityIntro(
-  assistantId: string,
+  assistantId: string
 ): Promise<readonly string[] | null> {
   try {
-    const { data, error, response } = await client.get<
-      IdentityIntroResponses,
-      unknown
-    >({
-      ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/identity/intro",
+    const { data, error, response } = await identityIntroGet({
       path: { assistant_id: assistantId },
       throwOnError: false,
     });
@@ -60,7 +48,7 @@ async function fetchIdentityIntro(
 }
 
 function normalizeIdentityIntroCandidates(
-  data: IdentityIntroResponse,
+  data: IdentityIntroResponse
 ): readonly string[] | null {
   if (Array.isArray(data.greetings)) {
     const greetings = data.greetings
@@ -77,18 +65,18 @@ function normalizeIdentityIntroCandidates(
 }
 
 function pickGreetingCandidate(
-  candidates: readonly string[] | null | undefined,
+  candidates: readonly string[] | null | undefined
 ): string | null {
   if (!candidates || candidates.length === 0) return null;
   const index = Math.min(
     candidates.length - 1,
-    Math.floor(Math.random() * candidates.length),
+    Math.floor(Math.random() * candidates.length)
   );
   return candidates[index] ?? null;
 }
 
 export function useEmptyStateGreeting(
-  assistantId: string | null | undefined,
+  assistantId: string | null | undefined
 ): string {
   const enabled = Boolean(assistantId);
 
@@ -99,10 +87,9 @@ export function useEmptyStateGreeting(
     staleTime: STALE_TIME_MS,
   });
 
-  const greeting = useMemo(
-    () => pickGreetingCandidate(query.data),
-    [query.data],
-  );
+  const greeting = useMemo(() => pickGreetingCandidate(query.data), [
+    query.data,
+  ]);
 
   return greeting ?? DEFAULT_EMPTY_STATE_GREETING;
 }

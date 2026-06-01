@@ -15,6 +15,17 @@ public enum HostToolExecutor {
         ".webp",
     ]
     private static let maxImageSourceBytes = 10 * 1024 * 1024
+    private static let audioExtensions: Set<String> = [
+        ".mp3",
+        ".wav",
+        ".ogg",
+        ".flac",
+        ".aac",
+        ".m4a",
+        ".opus",
+    ]
+    // Matches the daemon's 12 MB Gemini inline-audio limit.
+    private static let maxAudioSourceBytes = 12 * 1024 * 1024
 
     // MARK: - Cancelled Request Tracking
 
@@ -335,6 +346,10 @@ public enum HostToolExecutor {
             return try readImageFile(requestId: requestId, path: path)
         }
 
+        if isAudioPath(path) {
+            return try readAudioFile(requestId: requestId, path: path)
+        }
+
         let content = try readTextFile(path: path, offset: offset, limit: limit)
         return HostFileResultPayload(
             requestId: requestId,
@@ -394,6 +409,33 @@ public enum HostToolExecutor {
         )
     }
 
+    private static func readAudioFile(requestId: String, path: String) throws -> HostFileResultPayload {
+        let fileURL = URL(fileURLWithPath: path)
+        let values = try fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+        if values.isRegularFile != true {
+            throw FileOperationError.notAFile(path)
+        }
+
+        let sourceBytes = values.fileSize ?? 0
+        if sourceBytes > maxAudioSourceBytes {
+            let sizeMB = Double(sourceBytes) / (1024 * 1024)
+            throw FileOperationError.audioTooLarge(sizeMB)
+        }
+
+        guard let mediaType = audioMediaType(path) else {
+            throw FileOperationError.invalidAudioFormat(path)
+        }
+
+        let data = try Data(contentsOf: fileURL)
+        return HostFileResultPayload(
+            requestId: requestId,
+            content: "Audio loaded on host: \(path) (\(data.count) bytes, \(mediaType))",
+            isError: false,
+            audioData: data.base64EncodedString(),
+            audioMimeType: mediaType
+        )
+    }
+
     private static func writeFile(path: String, content: String) throws -> String {
         let fileURL = URL(fileURLWithPath: path)
         let parentDir = fileURL.deletingLastPathComponent().path
@@ -441,6 +483,27 @@ public enum HostToolExecutor {
         let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
         guard !ext.isEmpty else { return false }
         return imageExtensions.contains(".\(ext)")
+    }
+
+    private static func isAudioPath(_ path: String) -> Bool {
+        let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
+        guard !ext.isEmpty else { return false }
+        return audioExtensions.contains(".\(ext)")
+    }
+
+    /// Extension → MIME for host audio reads. Mirrors the daemon's audio-read
+    /// map and migration 191 so a `.mp3` produces `audio/mpeg`.
+    private static func audioMediaType(_ path: String) -> String? {
+        switch URL(fileURLWithPath: path).pathExtension.lowercased() {
+        case "mp3": return "audio/mpeg"
+        case "wav": return "audio/wav"
+        case "ogg": return "audio/ogg"
+        case "flac": return "audio/flac"
+        case "aac": return "audio/aac"
+        case "m4a": return "audio/x-m4a"
+        case "opus": return "audio/opus"
+        default: return nil
+        }
     }
 
     private static func detectImageMediaType(_ data: Data) -> String? {
@@ -777,6 +840,8 @@ public enum HostToolExecutor {
         case notAFile(String)
         case imageTooLarge(Double)
         case invalidImageFormat(String)
+        case audioTooLarge(Double)
+        case invalidAudioFormat(String)
 
         var errorDescription: String? {
             switch self {
@@ -792,6 +857,10 @@ public enum HostToolExecutor {
                 return String(format: "image too large (%.1f MB). Maximum source file size is 10 MB.", sizeMB)
             case .invalidImageFormat(let path):
                 return "could not detect image format for \(path). The file may be corrupt."
+            case .audioTooLarge(let sizeMB):
+                return String(format: "audio too large (%.1f MB). Maximum source file size is 12 MB.", sizeMB)
+            case .invalidAudioFormat(let path):
+                return "unsupported audio format for \(path)."
             }
         }
     }

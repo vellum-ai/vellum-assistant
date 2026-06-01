@@ -71,7 +71,7 @@ export class SlackStore {
     const raw = (this.db as unknown as { $client: Database }).$client;
     const changes = raw
       .prepare(
-        "DELETE FROM slack_active_threads WHERE thread_ts = ? AND channel_id = ?",
+        "DELETE FROM slack_active_threads WHERE thread_ts = ? AND (channel_id = ? OR channel_id IS NULL)",
       )
       .run(threadTs, channelId).changes;
     return changes > 0;

@@ -15,6 +15,7 @@ import { getConfig } from "../../config/loader.js";
 import { resolveQdrantUrl } from "../../memory/qdrant-client.js";
 import { getLogger } from "../../util/logger.js";
 import { getEmbedWorkerPidPath } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("ps-routes");
@@ -110,6 +111,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "ps",
     endpoint: "ps",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: getProcessStatus,
     summary: "Process status",
     description:

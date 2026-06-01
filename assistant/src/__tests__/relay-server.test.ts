@@ -434,10 +434,12 @@ describe("relay-server", () => {
               "user",
               JSON.stringify([{ type: "text", text: options.content }]),
               {
-                userMessageChannel: "phone",
-                assistantMessageChannel: "phone",
-                userMessageInterface: "phone",
-                assistantMessageInterface: "phone",
+                metadata: {
+                  userMessageChannel: "phone",
+                  assistantMessageChannel: "phone",
+                  userMessageInterface: "phone",
+                  assistantMessageInterface: "phone",
+                },
               },
             );
             return { id: message.id, deduplicated: false };
@@ -455,12 +457,15 @@ describe("relay-server", () => {
           runAgentLoop: async (
             _content: string,
             _messageId: string,
-            onEvent: (event: {
-              type: string;
-              conversationId?: string;
-              text?: string;
-            }) => void,
+            options?: {
+              onEvent?: (event: {
+                type: string;
+                conversationId?: string;
+                text?: string;
+              }) => void;
+            },
           ) => {
+            const onEvent = options?.onEvent ?? (() => {});
             const tokens: string[] = [];
             await mockSendMessage([], [], "", {
               onEvent: (event: { type: string; text?: string }) => {
@@ -485,10 +490,12 @@ describe("relay-server", () => {
                 "assistant",
                 JSON.stringify([{ type: "text", text: fullText }]),
                 {
-                  userMessageChannel: "phone",
-                  assistantMessageChannel: "phone",
-                  userMessageInterface: "phone",
-                  assistantMessageInterface: "phone",
+                  metadata: {
+                    userMessageChannel: "phone",
+                    assistantMessageChannel: "phone",
+                    userMessageInterface: "phone",
+                    assistantMessageInterface: "phone",
+                  },
                 },
               );
             }

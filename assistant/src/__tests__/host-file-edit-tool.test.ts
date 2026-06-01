@@ -12,7 +12,8 @@ let mockFileProxyRequestFn: (
   input: HostFileInput,
   conversationId: string,
   signal?: AbortSignal,
-) => Promise<ToolExecutionResult> = () => Promise.resolve({ content: "", isError: false });
+) => Promise<ToolExecutionResult> = () =>
+  Promise.resolve({ content: "", isError: false });
 
 mock.module("../daemon/host-file-proxy.js", () => ({
   HostFileProxy: {
@@ -43,7 +44,8 @@ afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
   }
   mockFileProxyAvailable = false;
-  mockFileProxyRequestFn = () => Promise.resolve({ content: "", isError: false });
+  mockFileProxyRequestFn = () =>
+    Promise.resolve({ content: "", isError: false });
 });
 
 describe("host_file_edit tool", () => {

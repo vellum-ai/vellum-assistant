@@ -47,6 +47,8 @@ export interface ScheduleJob {
   retryCount: number;
   maxRetries: number;
   retryBackoffMs: number;
+  /** Script-mode execution timeout override (ms); null = use the default. */
+  timeoutMs: number | null;
   createdBy: string;
   mode: ScheduleMode;
   routingIntent: RoutingIntent;
@@ -99,6 +101,7 @@ export function createSchedule(params: {
   reuseConversation?: boolean;
   maxRetries?: number;
   retryBackoffMs?: number;
+  timeoutMs?: number | null;
 }): ScheduleJob {
   const expression = params.expression ?? params.cronExpression ?? null;
   const isOneShot = expression == null;
@@ -134,6 +137,7 @@ export function createSchedule(params: {
   const reuseConversation = params.reuseConversation ?? !isOneShot;
   const maxRetries = params.maxRetries ?? 3;
   const retryBackoffMs = params.retryBackoffMs ?? 60000;
+  const timeoutMs = params.timeoutMs ?? null;
 
   let nextRunAt: number;
   if (isOneShot) {
@@ -160,6 +164,7 @@ export function createSchedule(params: {
     retryCount: 0,
     maxRetries,
     retryBackoffMs,
+    timeoutMs,
     createdBy: params.createdBy ?? "agent",
     mode,
     routingIntent,
@@ -258,6 +263,7 @@ export function updateSchedule(
     wakeConversationId?: string | null;
     maxRetries?: number;
     retryBackoffMs?: number;
+    timeoutMs?: number | null;
   },
 ): ScheduleJob | null {
   const db = getDb();
@@ -322,6 +328,7 @@ export function updateSchedule(
   if (updates.maxRetries !== undefined) set.maxRetries = updates.maxRetries;
   if (updates.retryBackoffMs !== undefined)
     set.retryBackoffMs = updates.retryBackoffMs;
+  if (updates.timeoutMs !== undefined) set.timeoutMs = updates.timeoutMs;
 
   // Recompute nextRunAt if schedule timing may have changed (only for recurring)
   if (
@@ -969,6 +976,7 @@ function parseJobRow(row: typeof scheduleJobs.$inferSelect): ScheduleJob {
     retryCount: row.retryCount,
     maxRetries: row.maxRetries ?? 3,
     retryBackoffMs: row.retryBackoffMs ?? 60000,
+    timeoutMs: row.timeoutMs ?? null,
     createdBy: row.createdBy,
     mode: (row.mode ?? "execute") as ScheduleMode,
     routingIntent: (row.routingIntent ?? "all_channels") as RoutingIntent,

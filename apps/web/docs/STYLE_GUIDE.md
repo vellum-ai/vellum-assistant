@@ -43,7 +43,7 @@ whose names start with `use`.
 
 **Zustand store files are not hook files.** A store module's primary
 export is a store — a module-level singleton with both React
-(`useChatStore(selector)`) and non-React (`.getState()`,
+(`useTurnStore(selector)`) and non-React (`.getState()`,
 `.setState()`, `.subscribe()`) APIs. Store files use
 `{domain}-store.ts`. See
 [STATE_MANAGEMENT.md — Zustand store conventions](./STATE_MANAGEMENT.md#zustand-store-conventions).
@@ -66,16 +66,17 @@ src/
   routes.tsx                 # route tree (createBrowserRouter)
   stores/                    # app-level Zustand stores (cross-domain)
   domains/                   # business domain modules
+    chat/                    # chat feature (turn, subagent, interaction, session stores)
     messages/                # message lifecycle
-    conversations/           # conversation CRUD, grouping, selection
-    streaming/               # SSE transport, event parsing
-    interactions/            # user-facing prompts
-    voice/                   # STT, TTS, PTT
+    contacts/                # contact management
+    home/                    # home feed
     ...
   hooks/                     # cross-domain shared hooks
   utils/                     # cross-domain shared utilities (pure functions)
   types/                     # cross-domain shared types
   lib/                       # configured third-party wrappers (API client, Sentry, CSRF)
+    streaming/               #   SSE transport, event parsing, debug tracking
+    diagnostics.ts            #   session diagnostics ring buffer
   runtime/                   # framework adapters, platform bridges
   components/                # cross-domain shared UI
   generated/                 # auto-generated code (HeyAPI, catalogs)
@@ -304,7 +305,7 @@ export function ChatBody({ messages, onSubmit }: ChatBodyProps) { /* ... */ }
 ### Custom hooks start with `use`
 
 All custom hooks follow the React naming convention: `useSendMessage`,
-`useConversationLoader`, `useInteractionActions`.
+`useConversationHistory`, `useInteractionActions`.
 
 Reference: [React — Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)
 

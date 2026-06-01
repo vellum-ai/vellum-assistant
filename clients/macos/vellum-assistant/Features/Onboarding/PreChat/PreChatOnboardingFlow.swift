@@ -78,7 +78,11 @@ struct PreChatOnboardingFlow: View {
             tasks: Array(state.selectedTasks).sorted(),
             tone: state.selectedGroupID ?? PersonalityGroup.defaultGroupID,
             userName: state.userName.isEmpty ? nil : state.userName,
-            assistantName: state.assistantName.isEmpty ? nil : state.assistantName
+            assistantName: state.assistantName.isEmpty ? nil : state.assistantName,
+            initialMessage: PreChatOnboardingContext.buildInitialMessage(
+                userName: state.userName,
+                assistantName: state.assistantName
+            )
         )
         PreChatOnboardingState.clearPersistedState()
         onComplete(context)

@@ -53,8 +53,14 @@ function makeFakeConversation(
     getMessages: () => messages,
     contextCompactedMessageCount: overrides.contextCompactedMessageCount ?? 0,
     contextCompactedAt: overrides.contextCompactedAt ?? null,
-    consecutiveCompactionFailures: overrides.consecutiveCompactionFailures ?? 0,
-    compactionCircuitOpenUntil: overrides.compactionCircuitOpenUntil ?? null,
+    agentLoop: {
+      compactionCircuit: {
+        consecutiveCompactionFailures:
+          overrides.consecutiveCompactionFailures ?? 0,
+        compactionCircuitOpenUntil:
+          overrides.compactionCircuitOpenUntil ?? null,
+      },
+    },
   } as unknown as Conversation;
 }
 
@@ -74,7 +80,8 @@ async function invokeRoute(id = "conv-abc") {
 describe("GET conversations/:id/playground/compaction-state", () => {
   test("registers the expected route definition", () => {
     const route = findRoute();
-    expect(route.policyKey).toBe("conversations/playground/state");
+    // Intentionally unprotected — handler gates on assertPlaygroundEnabled()
+    expect(route.policy).toBeNull();
     expect(route.tags).toEqual(["playground"]);
   });
 

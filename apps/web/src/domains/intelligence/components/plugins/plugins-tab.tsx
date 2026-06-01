@@ -17,9 +17,12 @@ import {
   fetchPlugins,
 } from "@/domains/intelligence/plugins/api";
 import type {
-  PluginCatalogMatch,
-  PluginInfo,
-} from "@/domains/intelligence/plugins/types";
+  PluginsGetResponse,
+  PluginsSearchGetResponse,
+} from "@/generated/daemon/types.gen";
+
+type PluginInfo = PluginsGetResponse["plugins"][number];
+type PluginCatalogMatch = PluginsSearchGetResponse["matches"][number];
 
 interface PluginsTabProps {
   assistantId: string;
@@ -197,7 +200,9 @@ function LoadingState() {
 }
 
 function InstalledEmptyState({ hasQuery }: { hasQuery: boolean }) {
-  const title = hasQuery ? "No installed plugins match" : "No Plugins Installed";
+  const title = hasQuery
+    ? "No installed plugins match"
+    : "No Plugins Installed";
   const subtitle = hasQuery
     ? "Try a different search term, or browse the catalog below."
     : "Install a plugin with the CLI, or browse the catalog below.";

@@ -32,14 +32,16 @@ import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-p
 import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
 import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card";
 import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
+import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
-import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils";
+import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
-import type { AssistantState } from "@/domains/chat/hooks/use-assistant-lifecycle";
+import type { AssistantState } from "@/assistant/types";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
@@ -50,11 +52,13 @@ import { IOSAppBanner } from "@/components/nudges/ios-app-banner";
 import { MacOSAppBanner } from "@/components/nudges/macos-app-banner";
 import { Loader2 } from "lucide-react";
 import { Button, Notice, ResizablePanel } from "@vellum/design-library";
+import { getLocalBool, setLocalBool, removeLocalSetting } from "@/utils/local-settings";
 import { ProviderBillingBanner } from "@/domains/chat/components/provider-billing-banner";
 import { QueuedMessagesDrawer } from "@/domains/chat/components/queued-messages-drawer";
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { DocumentViewerContainer } from "@/domains/chat/components/document-viewer-container";
 import { ChatAvatar } from "@/components/avatar/chat-avatar";
+import { isProgressBadgeEnabled } from "@/lib/feature-flags/progress-badge-flag";
 import { ComposerSettingsMenu } from "@/domains/chat/components/composer-settings-menu";
 import { ContextWindowIndicator, type ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 // SubagentDetailPanel is only rendered when the user opens a subagent's
@@ -74,6 +78,8 @@ const ToolDetailPanel = lazy(() =>
 );
 import { OnboardingChoiceCard } from "@/domains/chat/components/onboarding-choice-card";
 import { useOnboardingChoice } from "@/domains/chat/hooks/use-onboarding-choice";
+import { useEditMessage } from "@/domains/chat/hooks/use-edit-message";
+import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 
 import { Link, useNavigate } from "react-router";
@@ -83,10 +89,10 @@ import { pickRandomPlaceholder } from "@/domains/chat/utils/empty-state-constant
 import { useEmptyStateGreeting } from "@/domains/chat/hooks/use-empty-state-greeting";
 import { getChatBillingBannerDecision, shouldShowGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useDeployStore } from "@/stores/deploy-store";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
-import type { SubagentState } from "@/domains/subagents/subagent-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import type { SubagentState } from "@/domains/chat/subagent-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
@@ -99,8 +105,9 @@ import {
   isSendDisabled,
   shouldShowThinkingIndicator,
   type UIContext,
-} from "@/stores/turn-selectors";
+} from "@/domains/chat/turn-selectors";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
+import { getSlackConversationDisplay } from "@/domains/chat/utils/slack-conversation-display";
 
 import { useViewerStore, type MainView, type OpenedAppState, type OpenedDocumentState } from "@/stores/viewer-store";
 import { useActiveProfileModel } from "@/domains/chat/hooks/use-active-profile-model";
@@ -110,23 +117,16 @@ import { haptic } from "@/utils/haptics";
 import { isChannelConversation as _isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import type { DiskPressureStatusEventPayload } from "@/assistant/use-disk-pressure-monitor";
-import { type TurnState, useTurnStore } from "@/stores/turn-store";
-import type { QuestionResponseEntry, AllowlistOption, ScopeOption, DirectoryScopeOption, ConfirmationDecision } from "@/domains/chat/api/event-types";
+import { type TurnState, useTurnStore } from "@/domains/chat/turn-store";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/components/disk-pressure-banner";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import type { Conversation } from "@/types/conversation-types";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface StreamContext {
-  assistantId: string;
-  conversationId: string;
-}
+import { useStreamStore } from "@/domains/chat/stream-store";
 
 /** Nudge state produced by useAppNudges. */
 export interface NudgeHandlers {
@@ -231,21 +231,10 @@ export interface AvatarData {
 
 export interface ChatRouteRefs {
   inputRef: RefObject<HTMLTextAreaElement | null>;
-  messagesRef: MutableRefObject<DisplayMessage[]>;
   sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
   transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   assistantIdRef: MutableRefObject<string | null>;
-  streamContextRef: MutableRefObject<StreamContext | null>;
-  expandedToolCallIdsRef: MutableRefObject<Set<string>>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
-  contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
-  streamRef: MutableRefObject<ChatEventStream | null>;
-  streamEpochRef: MutableRefObject<number>;
-  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
-  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
-  pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
-  confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
+
   /**
    * Imperative handle to the mounted `<Transcript />`. Owned by ChatPage
    * so `useChatDebugApi` (installed there) can read scroll geometry
@@ -510,22 +499,9 @@ export function ChatRouteContent({
   } = interactionActions;
   const {
     inputRef,
-    messagesRef,
     sanitizedMessagesRef,
     transcriptItemsRef,
     assistantIdRef: _assistantIdRef,
-    streamContextRef,
-    expandedToolCallIdsRef,
-    dismissedSurfaceIdsRef: _dismissedSurfaceIdsRef,
-    contextWindowUsageByConversationRef: _contextWindowUsageByConversationRef,
-    streamRef: _streamRef,
-    streamEpochRef: _streamEpochRef,
-    pendingQueuedMessageIdsRef: _pendingQueuedMessageIdsRef,
-    requestIdToMessageIdRef: _requestIdToMessageIdRef,
-    pendingLocalDeletionsRef: _pendingLocalDeletionsRef,
-    confirmationToolCallMapRef: _confirmationToolCallMapRef,
-
-    reconcileAfterNextStreamOpenRef: _reconcileAfterNextStreamOpenRef,
   } = refs;
 
   // -------------------------------------------------------------------------
@@ -599,6 +575,12 @@ export function ChatRouteContent({
   });
 
   // -------------------------------------------------------------------------
+  // Edit-message recall (up-arrow)
+  // -------------------------------------------------------------------------
+
+  const { editingMessageId, isEditing, startEditing, cancelEditing } = useEditMessage(messages);
+
+  // -------------------------------------------------------------------------
   // Derived values
   // -------------------------------------------------------------------------
 
@@ -613,15 +595,32 @@ export function ChatRouteContent({
     return false;
   }, [messages]);
 
+  // Derive "is this conversation processing?" as an OR of the local
+  // optimistic set (driven by `useSendMessage` and the SSE start
+  // handlers) and the server's cached snapshot (`isProcessing` on the
+  // conversation row, mirroring the daemon's `Conversation.isProcessing()`).
+  //
+  // Either signal is sufficient to light the avatar progress badge.
+  // They converge via terminal SSE handlers (which clear the local set
+  // AND patch the cached snapshot via `patchConversation`) and the
+  // next list/detail GET refreshing the server snapshot. The OR also
+  // makes us robust to pre-0.8.7 daemons that omit `isProcessing` on
+  // the wire — the fallback to the local set still drives the badge.
   const activeConversationIsProcessing =
-    activeConversationId != null && processingConversationIds.has(activeConversationId);
+    (activeConversationId != null &&
+      processingConversationIds.has(activeConversationId)) ||
+    !!activeConversation?.isProcessing;
 
   const activeConversationHasPendingAssistantResponse = useMemo(
     () => hasPendingAssistantResponse(messages),
     [messages],
   );
 
-  const hasStreamingAssistantMessage = messages.some((m) => m.isStreaming);
+  const liveAssistantMessageId = useMemo(
+    () => liveAssistantRowId(messages, activeConversationIsProcessing),
+    [messages, activeConversationIsProcessing],
+  );
+  const hasStreamingAssistantMessage = liveAssistantMessageId != null;
 
   const uiContext: UIContext = {
     hasStreamingAssistantMessage,
@@ -634,7 +633,13 @@ export function ChatRouteContent({
     hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
   };
 
-  const showThinking = shouldShowThinkingIndicator(turnState, uiContext);
+  // When the `useProgressBadge` debug flag is on, suppress the
+  // transcript-trailer thinking dots — the avatar badge takes over the
+  // "the assistant is working" affordance. Default (flag off) keeps the
+  // long-standing dots in charge.
+  const showThinking =
+    !isProgressBadgeEnabled() &&
+    shouldShowThinkingIndicator(turnState, uiContext);
   const isAssistantStreaming =
     showThinking || hasStreamingAssistantMessage;
   const canStopGenerating = canStopGeneration(turnState, uiContext);
@@ -773,7 +778,6 @@ export function ChatRouteContent({
     handleRetryRefreshFromPill,
   } = usePullRefresh({
     activeConversationId,
-    messagesRef,
     invalidateHistory: historyPagination.invalidate,
     onRefreshEpoch,
   });
@@ -936,8 +940,18 @@ export function ChatRouteContent({
     // initial response render (which expands LatestTurnRow via
     // useViewportMinHeight) stays anchored at the latest message.
     scrollCoordinator.scrollToLatest({ behavior: "auto" });
+    if (isEditing && editingMessageId && assistantId && activeConversationId) {
+      cancelEditing();
+      try {
+        await conversationsByIdUndoPost({
+          path: { assistant_id: assistantId, id: activeConversationId },
+        });
+      } catch {
+        // If undo fails, still send the message as a new one
+      }
+    }
     await sendMessage(trimmed, attachmentsToSend);
-  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationId, chatAttachments, resetChatAttachments, sendMessage, setInput, clearDraft, inputRef, scrollCoordinator]);
+  }, [input, sendDisabled, attachmentUploadedIds.length, attachmentsUploadingCount, activeConversationId, chatAttachments, resetChatAttachments, sendMessage, setInput, clearDraft, inputRef, scrollCoordinator, isEditing, editingMessageId, assistantId, cancelEditing]);
 
   const handleSelectStarter = (starter: { prompt: string }) => {
     setInput(starter.prompt);
@@ -955,7 +969,7 @@ export function ChatRouteContent({
     const snapshot = useInteractionStore.getState().pendingQuestion;
     useInteractionStore.getState().dismissQuestion();
     if (!snapshot) return;
-    const ctx = streamContextRef.current;
+    const ctx = useStreamStore.getState().streamContext;
     if (!ctx) return;
     submitQuestionResponse(ctx.assistantId, snapshot.requestId, {
       kind: "close",
@@ -976,7 +990,7 @@ export function ChatRouteContent({
           tags: { context: "submit_question_response_close" },
         });
       });
-  }, [streamContextRef]);
+  }, []);
 
   // -------------------------------------------------------------------------
   // Empty state placeholder (stable per mount)
@@ -990,33 +1004,58 @@ export function ChatRouteContent({
   // Disk pressure banner
   // -------------------------------------------------------------------------
 
+  // `dismissed` clears when disk pressure exits the warning state; `suppressed`
+  // is the "Don't show again" choice and persists across state transitions.
+  const dismissedKey = assistantId
+    ? `vellum:diskPressureDismissed:${assistantId}`
+    : null;
+  const suppressedKey = assistantId
+    ? `vellum:diskPressureSuppressed:${assistantId}`
+    : null;
+
   const [warningDismissed, setWarningDismissed] = useState(() => {
-    if (!assistantId) return false;
-    return localStorage.getItem(`disk-pressure-warning-dismissed-${assistantId}`) === "true";
+    if (!dismissedKey) return false;
+    return getLocalBool(dismissedKey, false);
+  });
+  const [warningSuppressed, setWarningSuppressed] = useState(() => {
+    if (!suppressedKey) return false;
+    return getLocalBool(suppressedKey, false);
   });
 
-  const dismissWarning = useCallback(() => {
-    if (!assistantId) return;
-    localStorage.setItem(`disk-pressure-warning-dismissed-${assistantId}`, "true");
-    setWarningDismissed(true);
-  }, [assistantId]);
+  const dismissWarning = useCallback(
+    (permanent: boolean) => {
+      if (permanent) {
+        if (suppressedKey) {
+          setLocalBool(suppressedKey, true);
+        }
+        setWarningSuppressed(true);
+        return;
+      }
+      if (dismissedKey) {
+        setLocalBool(dismissedKey, true);
+      }
+      setWarningDismissed(true);
+    },
+    [dismissedKey, suppressedKey],
+  );
 
-  // Reset dismiss when state escalates to critical or drops below warning
+  // Clear the per-episode dismiss on state change; the suppressed flag is
+  // intentionally not cleared here so "Don't show again" actually sticks.
   useEffect(() => {
     const st = diskPressure.status?.state;
     if (st && st !== "warning" && warningDismissed) {
-      if (assistantId) {
-        localStorage.removeItem(`disk-pressure-warning-dismissed-${assistantId}`);
+      if (dismissedKey) {
+        removeLocalSetting(dismissedKey);
       }
       setWarningDismissed(false);
     }
-  }, [diskPressure.status?.state, warningDismissed, assistantId]);
+  }, [diskPressure.status?.state, warningDismissed, dismissedKey]);
 
   const renderDiskPressureBanner = useCallback((): ReactNode => {
     if (!diskPressure.status) return null;
     const mode = diskPressure.mode === "inactive" ? null : (diskPressure.mode as DiskPressureBannerMode | null);
     if (!mode) return null;
-    if (mode === "warning" && warningDismissed) return null;
+    if (mode === "warning" && (warningDismissed || warningSuppressed)) return null;
     return (
       <DiskPressureBanner
         status={diskPressure.status}
@@ -1031,30 +1070,27 @@ export function ChatRouteContent({
         onUpgradeStorage={assistantState.kind === "active" ? () => void navigate(`${routes.settings.billing}?adjust_plan=1`) : null}
       />
     );
-  }, [diskPressure, navigate, assistantState.kind, warningDismissed, dismissWarning]);
+  }, [diskPressure, navigate, assistantState.kind, warningDismissed, warningSuppressed, dismissWarning]);
 
   // -------------------------------------------------------------------------
   // Billing composer banner
   // -------------------------------------------------------------------------
 
+  const billingBannerDecision = getChatBillingBannerDecision(error);
+
   const renderBillingComposerBanner = (): ReactNode => {
-    const decision = getChatBillingBannerDecision(error);
-    if (decision === "managed_credits") {
+    if (billingBannerDecision === "managed_credits") {
       return (
-        <div className="mb-2">
-          <CreditsExhaustedBanner
-            onAddFunds={() => setShowAddCreditsModal(true)}
-          />
-        </div>
+        <CreditsExhaustedBanner
+          onAddFunds={() => setShowAddCreditsModal(true)}
+        />
       );
     }
-    if (decision === "provider_billing") {
+    if (billingBannerDecision === "provider_billing") {
       return (
-        <div className="mb-2">
-          <ProviderBillingBanner
-            onOpenSettings={pushToAiSettings}
-          />
-        </div>
+        <ProviderBillingBanner
+          onOpenSettings={pushToAiSettings}
+        />
       );
     }
     return null;
@@ -1106,6 +1142,7 @@ export function ChatRouteContent({
           customImageUrl={avatarImageUrl}
           size={40}
           interactive
+          isProcessing={activeConversationIsProcessing}
         />
       ) : null,
     greeting: editingApp ? buildEditAppGreeting(editingApp) : emptyStateGreeting,
@@ -1135,7 +1172,7 @@ export function ChatRouteContent({
     items: transcriptItems,
     conversationId: activeConversationId,
     assistantDisplayName: assistantName?.trim() || undefined,
-    expandedToolCallIds: expandedToolCallIdsRef.current,
+    expandedToolCallIds: useChatSessionStore.getState().expandedToolCallIds,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
     onOpenApp: handleOpenApp,
     onOpenDocument: handleOpenDocument,
@@ -1214,6 +1251,7 @@ export function ChatRouteContent({
               size={56}
               interactive
               isStreaming={isAssistantStreaming}
+              isProcessing={activeConversationIsProcessing}
             />
           )
         : undefined,
@@ -1274,6 +1312,16 @@ export function ChatRouteContent({
     onStopGenerating: handleStopGenerating,
     assistantId,
     modelSupportsVision: activeModelSupportsVision,
+    onRecallLastMessage: phase === "idle" ? () => {
+      const content = startEditing();
+      if (content !== null) {
+        setInput(content);
+      }
+    } : undefined,
+    onCancelEdit: isEditing ? () => {
+      cancelEditing();
+      setInput("");
+    } : undefined,
     textareaMaxHeightPx: isEmptyConversation ? 320 : undefined,
     thresholdPickerSlot: assistantId ? (
       <ComposerSettingsMenu
@@ -1282,7 +1330,15 @@ export function ChatRouteContent({
       />
     ) : undefined,
     contextWindowIndicatorSlot: (
-      <ContextWindowIndicator usage={contextWindowUsage} />
+      <ContextWindowIndicator
+        usage={contextWindowUsage}
+        assistantName={assistantName}
+        onClearContext={
+          activeConversation?.conversationId && !sendDisabled
+            ? () => void sendMessage("/clean")
+            : undefined
+        }
+      />
     ),
     noticesAboveFormSlot: (
       <ComposerNotices
@@ -1296,6 +1352,7 @@ export function ChatRouteContent({
       />
     ),
     suggestion,
+    hasBillingBanner: billingBannerDecision !== null,
   };
 
   const chatBodyScrollAreaPropsBase = {
@@ -1361,13 +1418,20 @@ export function ChatRouteContent({
     </div>
   ) : null;
 
-  const channelFooterSlot = (
+  const slackReadonlyBannerDisplay =
+    activeConversation?.originChannel === "slack"
+      ? getSlackConversationDisplay({
+          conversation: activeConversation,
+          messages: sanitizedMessages,
+        })
+      : null;
+  const slackReadonlyBannerSlot = slackReadonlyBannerDisplay ? (
     <SlackChannelFooter
       assistantId={assistantId ?? undefined}
       conversation={activeConversation}
       messages={sanitizedMessages}
     />
-  );
+  ) : null;
 
   // -------------------------------------------------------------------------
   // Render
@@ -1402,7 +1466,7 @@ export function ChatRouteContent({
             isChannelReadonly={isChannelReadonly}
             canStopGenerating={canStopGenerating}
             questionPromptSlot={questionPromptSlot}
-            channelFooterSlot={channelFooterSlot}
+            readonlyBannerSlot={slackReadonlyBannerSlot}
             startersSlot={startersSlot}
           />
         }
@@ -1476,7 +1540,7 @@ export function ChatRouteContent({
       bannerSlot={mainBannerSlot}
       queuedDrawerSlot={mainQueuedDrawerSlot}
       questionPromptSlot={questionPromptSlot}
-      channelFooterSlot={channelFooterSlot}
+      readonlyBannerSlot={slackReadonlyBannerSlot}
       startersSlot={startersSlot}
     />
   );

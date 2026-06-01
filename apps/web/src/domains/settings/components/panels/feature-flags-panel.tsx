@@ -6,8 +6,8 @@ import { Tag, type TagTone } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { DetailCard } from "@/components/detail-card";
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   ALL_FLAGS,
   flagKeyToStoreKey,
@@ -16,7 +16,7 @@ import {
   type SingleScope,
 } from "@/lib/feature-flags/feature-flag-catalog";
 import { useFlagQueryFreshness } from "@/lib/backwards-compat/flag-query-freshness";
-import { fetchAssistantFlagValues } from "@/lib/feature-flags/use-assistant-feature-flag-sync";
+import { fetchAssistantFlagValues } from "@/hooks/use-assistant-feature-flag-sync";
 import { assistantFlagValuesQueryKey } from "@/lib/sync/query-tags";
 
 const SCOPE_TONE: Record<SingleScope, TagTone> = {
@@ -110,7 +110,7 @@ export function FeatureFlagsPanel() {
             placeholder="Search flags..."
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            className="w-full rounded-lg border border-[var(--border-default)] bg-[var(--surface-default)] py-2 pl-9 pr-3 text-body-medium-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:border-[var(--border-focus)] focus:outline-none"
+            className="w-full rounded-lg border border-[var(--border-base)] bg-[var(--surface-default)] py-2 pl-9 pr-3 text-body-medium-default text-[var(--content-default)] placeholder:text-[var(--content-tertiary)] focus:border-[var(--border-focus)] focus:outline-none"
           />
         </div>
 

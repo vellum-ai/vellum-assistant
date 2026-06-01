@@ -1,8 +1,17 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 
-import { STORAGE_KEY } from "@/domains/onboarding/prechat";
+import {
+  DEFAULT_PRECHAT_INITIAL_MESSAGE,
+  STORAGE_KEY,
+} from "@/domains/onboarding/prechat";
 import { routes } from "@/utils/routes";
 
 let searchParams = new URLSearchParams();
@@ -51,6 +60,12 @@ type TestOnboardingRecipe = {
 };
 
 let onboardingCompleted = false;
+let prechatOnboardingCondensedFlow = true;
+let selfIntroGreeting = true;
+let isIOSWeb = false;
+let isMacOSWeb = false;
+let iosAppDownloaded = true;
+let macOsAppDownloaded = true;
 let fetchOnboardingRecipeImpl: () => Promise<TestOnboardingRecipe | null> =
   async () => null;
 const fetchOnboardingRecipeMock = mock(() => fetchOnboardingRecipeImpl());
@@ -60,12 +75,11 @@ mock.module("react-router", () => ({
   useSearchParams: () => [searchParams],
 }));
 
-mock.module("@/root-layout", () => ({
-  useRootOutletContext: () => ({
-    lifecycle: {
-      checkAssistant: checkAssistantMock,
-    },
-  }),
+mock.module("@/assistant/lifecycle-service", () => ({
+  lifecycleService: {
+    checkAssistant: checkAssistantMock,
+    markExpectingFirstMessage: () => {},
+  },
 }));
 
 mock.module("@/assistant/api", () => ({
@@ -129,6 +143,7 @@ mock.module("@/domains/onboarding/prefs", () => ({
   readAiDataConsent: () => true,
   readOnboardingCompleted: () => onboardingCompleted,
   readSelectedVersion: () => null,
+  readShareAnalytics: () => true,
   readTosAccepted: () => true,
   clearOnboardingCompleted: mock(() => {}),
   useOnboardingCompleted: () =>
@@ -154,11 +169,33 @@ mock.module("@/runtime/native-auth", () => ({
 mock.module("@/lib/local-mode", () => ({
   isLocalMode: () => false,
   hasAssistants: () => false,
-  hatchLocalAssistant: async () => ({ ok: true, assistantId: "local-1" }),
+  getPlatformAssistants: () => [],
+  getSelectedAssistant: () => undefined,
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setSelectedAssistantId: () => {},
   saveLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
+  getLocalGatewayUrl: () => undefined,
+}));
+
+mock.module("@/runtime/local-mode-host", () => ({
+  hatchLocalAssistant: async () => ({ ok: true, assistantId: "local-1" }),
+}));
+
+mock.module("@/stores/client-feature-flag-store", () => ({
+  useClientFeatureFlagStore: {
+    use: {
+      prechatOnboardingCondensedFlow: () => prechatOnboardingCondensedFlow,
+    },
+  },
+}));
+
+mock.module("@/stores/assistant-feature-flag-store", () => ({
+  useAssistantFeatureFlagStore: {
+    use: {
+      selfIntroGreeting: () => selfIntroGreeting,
+    },
+  },
 }));
 
 mock.module("@/stores/auth-store", () => ({
@@ -182,10 +219,14 @@ mock.module("@tanstack/react-query", () => ({
       id: "asst-1",
     },
   }),
+  useMutation: () => ({ mutate: mock(() => {}), isPending: false }),
+  useQueryClient: () => ({ fetchQuery: mock(async () => []) }),
 }));
 
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
   assistantsActiveRetrieveOptions: () => ({}),
+  assistantsOauthConnectionsListOptions: () => ({}),
+  assistantsOauthStartCreateMutation: () => ({}),
 }));
 
 mock.module("@/hooks/use-prefilled-input", () => ({
@@ -196,16 +237,16 @@ mock.module("@/hooks/use-prefilled-input", () => ({
 }));
 
 mock.module("@/runtime/platform-detection", () => ({
-  useIsIOSWeb: () => false,
-  useIsMacOSWeb: () => false,
+  useIsIOSWeb: () => isIOSWeb,
+  useIsMacOSWeb: () => isMacOSWeb,
 }));
 
 mock.module("@/hooks/use-ios-app-nudge", () => ({
-  readIOSAppDownloaded: () => true,
+  readIOSAppDownloaded: () => iosAppDownloaded,
 }));
 
 mock.module("@/hooks/use-macos-app-nudge", () => ({
-  readMacOsAppDownloaded: () => true,
+  readMacOsAppDownloaded: () => macOsAppDownloaded,
 }));
 
 mock.module("@/domains/onboarding/screens/name-exchange-screen", () => ({
@@ -226,7 +267,7 @@ mock.module("@/domains/onboarding/screens/task-tone-selection-screen", () => ({
 
 mock.module("@/domains/onboarding/screens/tool-selection-screen", () => ({
   ToolSelectionScreen: ({ onContinue }: { onContinue: () => void }) => (
-    <button type="button" data-testid="tool-continue" onClick={onContinue}>
+    <button type="button" data-testid="tools-continue" onClick={onContinue}>
       tools
     </button>
   ),
@@ -239,21 +280,17 @@ mock.module("@/domains/onboarding/screens/prior-assistant-selection-screen", () 
     onContinue: () => void;
   }) => (
     <button type="button" data-testid="prior-continue" onClick={onContinue}>
-      prior
+      prior assistants
     </button>
   ),
 }));
 
-mock.module("@/domains/onboarding/screens/google-connect-screen", () => ({
-  GoogleConnectScreen: () => <div />,
-}));
-
 mock.module("@/domains/onboarding/screens/get-ios-app-screen", () => ({
-  GetIOSAppScreen: () => <div />,
-}));
-
-mock.module("@/domains/onboarding/screens/get-macos-app-screen", () => ({
-  GetMacOSAppScreen: () => <div />,
+  GetIOSAppScreen: ({ onComplete }: { onComplete: () => void }) => (
+    <button type="button" data-testid="ios-app-continue" onClick={onComplete}>
+      iOS app
+    </button>
+  ),
 }));
 
 const { HatchingScreen } = await import(
@@ -267,6 +304,12 @@ beforeEach(() => {
   searchParams = new URLSearchParams();
   checkAssistantImpl = async () => {};
   onboardingCompleted = false;
+  prechatOnboardingCondensedFlow = true;
+  selfIntroGreeting = true;
+  isIOSWeb = false;
+  isMacOSWeb = false;
+  iosAppDownloaded = true;
+  macOsAppDownloaded = true;
   fetchOnboardingRecipeImpl = async () => null;
   sessionStorage.clear();
   localStorage.clear();
@@ -313,6 +356,23 @@ describe("onboarding lifecycle sync", () => {
     );
   });
 
+  test("hatching replay preserves the replay flag when onboarding is already completed", async () => {
+    searchParams = new URLSearchParams("replay=1");
+    onboardingCompleted = true;
+
+    render(<HatchingScreen />);
+
+    await waitFor(() => expect(getAssistantMock).toHaveBeenCalled());
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith(
+        `${routes.onboarding.prechat}?replay=1`,
+        { replace: true },
+      ),
+    );
+  });
+
   test("pre-chat completion refreshes the root assistant lifecycle before entering chat", async () => {
     let resolveLifecycle!: () => void;
     checkAssistantImpl = () =>
@@ -323,15 +383,77 @@ describe("onboarding lifecycle sync", () => {
     render(<PreChatFlow />);
 
     fireEvent.click(await screen.findByTestId("name-continue"));
-    fireEvent.click(await screen.findByTestId("task-continue"));
-    fireEvent.click(await screen.findByTestId("tool-continue"));
-    fireEvent.click(await screen.findByTestId("prior-continue"));
+    expect(await screen.findByText("Gmail")).toBeTruthy();
+    expect(screen.getByText("Google Calendar")).toBeTruthy();
+    expect(screen.getByText("Google Drive")).toBeTruthy();
+    fireEvent.click(screen.getByText("Skip for now"));
+
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
+      tools: [],
+      tasks: [],
+      tone: "grounded",
+      userName: "Alice",
+      googleConnected: false,
+      initialMessage: "Hi, I'm Alice. Nice to meet you.",
+    });
 
     await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
     expect(navigateMock).not.toHaveBeenCalled();
 
     resolveLifecycle();
 
+    await waitFor(() =>
+      expect(navigateMock).toHaveBeenCalledWith(
+        `${routes.assistant}?onboarding=1`,
+        { replace: true },
+      ),
+    );
+  });
+
+  test("pre-chat uses the canned opener when self-intro greeting is off", async () => {
+    selfIntroGreeting = false;
+
+    render(<PreChatFlow />);
+
+    fireEvent.click(await screen.findByTestId("name-continue"));
+    fireEvent.click(await screen.findByText("Skip for now"));
+
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
+      tools: [],
+      tasks: [],
+      tone: "grounded",
+      userName: "Alice",
+      googleConnected: false,
+      initialMessage: DEFAULT_PRECHAT_INITIAL_MESSAGE,
+    });
+  });
+
+  test("pre-chat keeps the existing full funnel when the v3 flag is off", async () => {
+    prechatOnboardingCondensedFlow = false;
+
+    render(<PreChatFlow />);
+
+    fireEvent.click(await screen.findByTestId("name-continue"));
+
+    expect(await screen.findByTestId("task-continue")).toBeTruthy();
+    expect(screen.queryByText("Connect Google")).toBeNull();
+  });
+
+  test("pre-chat control flow skips the macOS app step on macOS web", async () => {
+    prechatOnboardingCondensedFlow = false;
+    isMacOSWeb = true;
+    macOsAppDownloaded = false;
+
+    render(<PreChatFlow />);
+
+    fireEvent.click(await screen.findByTestId("name-continue"));
+    fireEvent.click(await screen.findByTestId("task-continue"));
+    fireEvent.click(await screen.findByTestId("tools-continue"));
+    fireEvent.click(await screen.findByTestId("prior-continue"));
+
+    expect(screen.queryByTestId("macos-app-continue")).toBeNull();
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
     await waitFor(() =>
       expect(navigateMock).toHaveBeenCalledWith(
         `${routes.assistant}?onboarding=1`,
@@ -357,7 +479,7 @@ describe("onboarding lifecycle sync", () => {
     expect(await screen.findByTestId("name-continue")).toBeTruthy();
   });
 
-  test("recipe skip stores the pre-chat handoff and enters chat without showing pre-chat screens", async () => {
+  test("recipe skip does not bypass the pared-down pre-chat screens", async () => {
     const recipe: TestOnboardingRecipe = {
       cohort: "content-automation",
       tasks: ["writing", "research"],
@@ -368,10 +490,19 @@ describe("onboarding lifecycle sync", () => {
       skipPrechat: true,
     };
     fetchOnboardingRecipeImpl = async () => recipe;
+    selfIntroGreeting = false;
 
     render(<PreChatFlow />);
 
-    expect(screen.queryByTestId("name-continue")).toBeNull();
+    expect(await screen.findByTestId("name-continue")).toBeTruthy();
+    expect(checkAssistantMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("name-continue"));
+    expect(await screen.findByText("Gmail")).toBeTruthy();
+    expect(screen.getByText("Google Calendar")).toBeTruthy();
+    expect(screen.getByText("Google Drive")).toBeTruthy();
+    fireEvent.click(screen.getByText("Skip for now"));
+
     await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
     await waitFor(() =>
       expect(navigateMock).toHaveBeenCalledWith(
@@ -386,11 +517,32 @@ describe("onboarding lifecycle sync", () => {
       tools: [],
       tasks: recipe.tasks,
       tone: recipe.tone,
+      userName: "Alice",
       googleConnected: false,
       cohort: recipe.cohort,
       initialMessage: recipe.initialMessage,
       bootstrapTemplate: recipe.bootstrapTemplate,
       skills: recipe.skills,
     });
+  });
+
+  test("pre-chat replay ignores recipe skip so the standard screens are visible", async () => {
+    searchParams = new URLSearchParams("replay=1");
+    onboardingCompleted = true;
+    fetchOnboardingRecipeImpl = async () => ({
+      cohort: "content-automation",
+      tasks: ["writing", "research"],
+      tone: "grounded",
+      bootstrapTemplate: "BOOTSTRAP-CONTENT-AUTOMATION.md",
+      initialMessage: "I want to write articles that rank better in GEO",
+      skills: ["content-automation"],
+      skipPrechat: true,
+    });
+
+    render(<PreChatFlow />);
+
+    await waitFor(() => expect(fetchOnboardingRecipeMock).toHaveBeenCalled());
+    expect(await screen.findByTestId("name-continue")).toBeTruthy();
+    expect(checkAssistantMock).not.toHaveBeenCalled();
   });
 });

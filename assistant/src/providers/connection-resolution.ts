@@ -30,7 +30,10 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getDb } from "../memory/db-connection.js";
 import { getLogger } from "../util/logger.js";
-import { isConnectionCompatibleWithModel } from "./connection-model-compat.js";
+import {
+  describeSubscriptionModelIncompatibility,
+  isConnectionCompatibleWithModel,
+} from "./connection-model-compat.js";
 import { getConnection, listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
@@ -52,7 +55,8 @@ export class ConnectionResolutionError extends Error {
       | "lookup_failed"
       | "not_found"
       | "provider_mismatch"
-      | "missing_connection",
+      | "missing_connection"
+      | "model_incompatible",
     message: string,
     public readonly cause?: unknown,
   ) {
@@ -116,10 +120,11 @@ export async function tryResolveProviderForConnectionName(
     // "anthropic-managed" leaked through). Try to find an active connection
     // for the expected provider before giving up.
     let resolved = false;
+    let mismatchCandidates: import("./inference/auth.js").ProviderConnection[] | undefined;
     try {
       const db = getDb();
-      const candidates = listConnections(db, { provider: expectedProvider });
-      const active = candidates.find((c) =>
+      mismatchCandidates = listConnections(db, { provider: expectedProvider });
+      const active = mismatchCandidates.find((c) =>
         isConnectionCompatibleWithModel(c, model),
       );
       if (active) {
@@ -138,6 +143,16 @@ export async function tryResolveProviderForConnectionName(
       // DB not available — fall through to the original error.
     }
     if (!resolved) {
+      const incompatMsg = mismatchCandidates
+        ? describeSubscriptionModelIncompatibility(mismatchCandidates, model)
+        : null;
+      if (incompatMsg) {
+        throw new ConnectionResolutionError(
+          connectionName,
+          "model_incompatible",
+          incompatMsg,
+        );
+      }
       throw new ConnectionResolutionError(
         connectionName,
         "provider_mismatch",
@@ -188,12 +203,13 @@ export async function resolveDefaultProvider(
     // provider without a connection ("Any active" selection), and the merge
     // cleared or failed to inherit one. Try to find an active connection
     // for the provider before giving up.
+    let autoResolveCandidates: import("./inference/auth.js").ProviderConnection[] | undefined;
     if (resolved.provider) {
       try {
-        const candidates = listConnections(getDb(), {
+        autoResolveCandidates = listConnections(getDb(), {
           provider: resolved.provider,
         });
-        const active = candidates.find((c) =>
+        const active = autoResolveCandidates.find((c) =>
           isConnectionCompatibleWithModel(c, resolved.model),
         );
         if (active) {
@@ -208,6 +224,19 @@ export async function resolveDefaultProvider(
       }
     }
     if (!connectionName) {
+      const incompatMsg = autoResolveCandidates
+        ? describeSubscriptionModelIncompatibility(
+            autoResolveCandidates,
+            resolved.model,
+          )
+        : null;
+      if (incompatMsg) {
+        throw new ConnectionResolutionError(
+          "<llm.default>",
+          "model_incompatible",
+          incompatMsg,
+        );
+      }
       throw new ConnectionResolutionError(
         "<llm.default>",
         "missing_connection",

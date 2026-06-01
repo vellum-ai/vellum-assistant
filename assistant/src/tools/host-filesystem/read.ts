@@ -4,45 +4,53 @@ import { supportsHostProxy } from "../../channels/types.js";
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
+import {
+  AUDIO_EXTENSIONS,
+  readAudioFile,
+} from "../shared/filesystem/audio-read.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import {
   IMAGE_EXTENSIONS,
   readImageFile,
 } from "../shared/filesystem/image-read.js";
 import { hostPolicy } from "../shared/filesystem/path-policy.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
-class HostFileReadTool implements Tool {
-  name = "host_file_read";
-  description =
-    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP). For files on your own machine, use file_read instead.";
-  category = "host-filesystem";
-  executionTarget = "host" as const;
-  defaultRiskLevel = RiskLevel.Medium;
+export const hostFileReadTool = {
+  name: "host_file_read",
+  description:
+    "Read the contents of a file on your guardian's device, including images (JPEG, PNG, GIF, WebP) and audio (MP3, WAV, OGG, FLAC, AAC, M4A). For files on your own machine, use file_read instead.",
+  category: "host-filesystem",
+  executionTarget: "host",
+  defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-            description: "Absolute path to the host file to read",
-          },
-          offset: {
-            type: "number",
-            description: "Line number to start reading from (1-indexed)",
-          },
-          limit: {
-            type: "number",
-            description: "Maximum number of lines to read",
-          },
-          target_client_id: {
-            type: "string",
-            description:
-              "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
-          },
-        },
-        required: ["path"],
-      };
+  input_schema: {
+    type: "object",
+    properties: {
+      path: {
+        type: "string",
+        description: "Absolute path to the host file to read",
+      },
+      offset: {
+        type: "number",
+        description: "Line number to start reading from (1-indexed)",
+      },
+      limit: {
+        type: "number",
+        description: "Maximum number of lines to read",
+      },
+      target_client_id: {
+        type: "string",
+        description:
+          "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
+      },
+    },
+    required: ["path"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -142,6 +150,14 @@ class HostFileReadTool implements Tool {
       return readImageFile(pathCheck.resolved);
     }
 
+    if (AUDIO_EXTENSIONS.has(ext)) {
+      const pathCheck = hostPolicy(rawPath);
+      if (!pathCheck.ok) {
+        return { content: `Error: ${pathCheck.error}`, isError: true };
+      }
+      return readAudioFile(pathCheck.resolved);
+    }
+
     const ops = new FileSystemOps(hostPolicy);
 
     const result = ops.readFileSafe({
@@ -183,7 +199,5 @@ class HostFileReadTool implements Tool {
     }
 
     return { content: result.value.content, isError: false };
-  }
-}
-
-export const hostFileReadTool: Tool = new HostFileReadTool();
+  },
+} satisfies ToolDefinition;

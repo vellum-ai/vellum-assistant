@@ -74,10 +74,12 @@ export async function sendGuardianExpiryNotices(
           "assistant",
           JSON.stringify([{ type: "text", text: expiryText }]),
           {
-            userMessageChannel: "phone",
-            assistantMessageChannel: "vellum",
-            userMessageInterface: "phone",
-            assistantMessageInterface: "web",
+            metadata: {
+              userMessageChannel: "phone",
+              assistantMessageChannel: "vellum",
+              userMessageInterface: "phone",
+              assistantMessageInterface: "web",
+            },
           },
         );
       } else if (delivery.destinationChatId) {

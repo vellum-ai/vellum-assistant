@@ -1,4 +1,5 @@
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+import { isScheduledConversation } from "@/utils/conversation-predicates";
 /**
  * Pure helper for splitting the sidebar's conversation list into system
  * category buckets (`pinned`, `slack`, `scheduled`, `background`, `recents`) and
@@ -53,12 +54,6 @@ export function isConversationPinned(c: Conversation): boolean {
   return c.isPinned === true || c.groupId === "system:pinned";
 }
 
-function isScheduled(c: Conversation): boolean {
-  return (
-    c.conversationType === "scheduled" || c.groupId === "system:scheduled"
-  );
-}
-
 function isBackground(c: Conversation): boolean {
   return (
     c.conversationType === "background" || c.groupId === "system:background"
@@ -92,7 +87,7 @@ export function getEffectiveGroupId(c: Conversation): string {
   if (isConversationPinned(c)) return "system:pinned";
   if (c.groupId && !c.groupId.startsWith("system:")) return c.groupId;
   if (shouldBucketInSlackSection(c)) return "system:slack";
-  if (isScheduled(c)) return "system:scheduled";
+  if (isScheduledConversation(c)) return "system:scheduled";
   if (isBackground(c)) return "system:background";
   return "system:all";
 }
@@ -226,7 +221,7 @@ export function groupConversations(
       continue;
     }
 
-    if (isScheduled(c)) {
+    if (isScheduledConversation(c)) {
       scheduled.push(c);
       continue;
     }

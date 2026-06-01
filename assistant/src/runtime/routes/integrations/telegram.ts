@@ -15,6 +15,7 @@ import {
   setTelegramConfig,
   setupTelegram,
 } from "../../../daemon/handlers/config-telegram.js";
+import { ACTOR_PRINCIPALS } from "../../auth/route-policy.js";
 import { BadRequestError } from "../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
@@ -79,50 +80,65 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "integrations_telegram_config_get",
     endpoint: "integrations/telegram/config",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get Telegram config",
     description: "Check current Telegram bot configuration status.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: () => handleGetTelegramConfig(),
   },
   {
     operationId: "integrations_telegram_config_post",
     endpoint: "integrations/telegram/config",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Set Telegram config",
     description: "Set bot token and configure webhook.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: handleSetTelegramConfig,
   },
   {
     operationId: "integrations_telegram_config_delete",
     endpoint: "integrations/telegram/config",
     method: "DELETE",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Clear Telegram config",
     description: "Clear credentials and deregister webhook.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: () => handleClearTelegramConfig(),
   },
   {
     operationId: "integrations_telegram_commands_post",
     endpoint: "integrations/telegram/commands",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Register Telegram commands",
     description: "Register bot commands with the Telegram API.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: handleSetTelegramCommands,
   },
   {
     operationId: "integrations_telegram_setup_post",
     endpoint: "integrations/telegram/setup",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Setup Telegram",
     description: "Composite: set config + register commands.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: handleSetupTelegram,
   },
 ];

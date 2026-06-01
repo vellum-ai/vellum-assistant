@@ -20,8 +20,8 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 import { organizationsList } from "@/generated/api/sdk.gen";
 import type { OrganizationRead } from "@/generated/api/types.gen";
+import { subscribe } from "@/lib/event-bus";
 import { useAuthStore } from "@/stores/auth-store";
-import { useEventBusStore } from "@/stores/event-bus-store";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "vellum_active_organization_id";
 
@@ -192,18 +192,21 @@ export function setupOrganizationStore(): () => void {
     }
   });
 
-  // 1. Auth transitions — login or user switch triggers org fetch.
+  // 1. Auth transitions — platform session triggers org fetch. Orgs are a
+  //    platform concept; skip the fetch when there's no platform session
+  //    (e.g. self-hosted/local mode with gateway-only auth).
   const unsubAuth = useAuthStore.subscribe((state, prevState) => {
     if (
-      state.isLoggedIn &&
-      (!prevState.isLoggedIn || state.user?.id !== prevState.user?.id)
+      state.hasPlatformSession &&
+      (!prevState.hasPlatformSession || state.user?.id !== prevState.user?.id)
     ) {
       useOrganizationStore.getState().fetchOrganizations();
     }
   });
 
-  // 2. App resume — refetch if stale.
+  // 2. App resume — refetch if stale and platform session is active.
   const refetchIfStale = () => {
+    if (!useAuthStore.getState().hasPlatformSession) return;
     const { status } = useOrganizationStore.getState();
     if (
       (status === "ready" || status === "error") &&
@@ -213,11 +216,9 @@ export function setupOrganizationStore(): () => void {
     }
   };
 
-  const unsubResume = useEventBusStore
-    .getState()
-    .subscribe("app.resume", () => {
-      refetchIfStale();
-    });
+  const unsubResume = subscribe("app.resume", () => {
+    refetchIfStale();
+  });
 
   return () => {
     unsubStale();

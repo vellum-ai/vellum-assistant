@@ -1,25 +1,12 @@
 /**
  * Shared types for the chat/surface system.
- * Lives here (rather than in a Next.js route file) so both the main app
- * and the CDN build can import them.
  */
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import type { DisplayAttachment } from "@/types/attachment-types";
 import type { SlackMessageLink } from "@/utils/slack-message-link";
 
-/** Display metadata for a file attachment (user-uploaded or assistant-generated),
- *  used to render the chip inside a message bubble. For live sessions, populated
- *  from SSE event data via `toDisplayAttachments`. For history reload, populated
- *  from the daemon's structured attachment metadata (real UUIDs that resolve
- *  against the content endpoint) or, as a fallback, reverse-parsed from
- *  `[File attachment] …` summary lines in the message text. */
-export interface DisplayAttachment {
-  id: string;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-  previewUrl: string | null;
-}
+export type { DisplayAttachment } from "@/types/attachment-types";
 
 export type { SlackMessageLink } from "@/utils/slack-message-link";
 export { parseSlackMessageLink, getSlackLinkUrl } from "@/utils/slack-message-link";
@@ -66,9 +53,13 @@ export interface DisplayMessage {
    * a subsequent SSE event or history fetch resolves them.
    */
   isOptimistic?: boolean;
+  /**
+   * Server message ids folded into this canonical display row. Reconcile treats
+   * these as aliases so a live SSE row can merge into its collapsed history row.
+   */
+  mergedMessageIds?: string[];
   role: "user" | "assistant";
   content: string;
-  isStreaming?: boolean;
   surfaces?: Surface[];
   textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
   contentOrder?: Array<{ type: string; id: string }>;
@@ -110,6 +101,12 @@ export interface Surface {
    *  renders as a non-interactive chip instead of the active widget. */
   completed?: boolean;
   completionSummary?: string;
+  /** Id of the tool call that produced this surface (e.g. the `ui_show` or
+   *  `app_open` proxy tool). App previews gate on whether this tool call's
+   *  result has arrived (`isSurfaceToolCallComplete`) rather than on
+   *  whole-turn streaming state. When absent, completeness falls back to the
+   *  latest surface-producing tool call in the message. */
+  toolCallId?: string;
 }
 
 /**
@@ -141,6 +138,62 @@ export function isSurfaceInteractive(surface: Surface): boolean {
   const hasActions =
     Array.isArray(surface.actions) && surface.actions.length > 0;
   return hasActions || INHERENTLY_INTERACTIVE_SURFACE_TYPES.includes(surface.surfaceType);
+}
+
+/**
+ * Tool names that produce or re-render a surface. Used to locate a surface's
+ * likely originating tool call when the surface itself doesn't carry an
+ * explicit `toolCallId`.
+ */
+const SURFACE_PRODUCING_TOOL_NAMES = new Set([
+  "ui_show",
+  "ui_update",
+  "app_open",
+  "app_create",
+  "app_update",
+  "app_refresh",
+]);
+
+/**
+ * Whether the tool call that produced a surface has finished.
+ *
+ * Display-only app previews (`dynamic_page`) gate on whether their
+ * originating tool call has returned its result — once the result arrives the
+ * app HTML is finalized and the preview can load. This is per-surface and
+ * independent of whole-turn streaming state, so an app whose tool finishes
+ * early unlocks without waiting for the rest of the reply.
+ *
+ * When the surface carries its originating tool call's id (`toolCallId`),
+ * completeness is read directly from that tool call's status. Otherwise it
+ * falls back to the latest surface-producing tool call in the same message —
+ * covering surfaces that arrive without an explicit link (e.g. from a daemon
+ * that predates the field).
+ *
+ * Surfaces with no resolvable tool call (loaded from history, or pushed
+ * outside any surface-producing tool call) are treated as complete — matching
+ * how finalized messages have always rendered.
+ */
+export function isSurfaceToolCallComplete(
+  surface: Surface,
+  toolCalls: ChatMessageToolCall[] | undefined,
+): boolean {
+  if (surface.toolCallId) {
+    const linked = toolCalls?.find((tc) => tc.id === surface.toolCallId);
+    if (linked) {
+      return linked.status === "completed";
+    }
+    return true;
+  }
+  let latestSurfaceToolCall: ChatMessageToolCall | undefined;
+  for (const toolCall of toolCalls ?? []) {
+    if (SURFACE_PRODUCING_TOOL_NAMES.has(toolCall.toolName)) {
+      latestSurfaceToolCall = toolCall;
+    }
+  }
+  if (!latestSurfaceToolCall) {
+    return true;
+  }
+  return latestSurfaceToolCall.status === "completed";
 }
 
 /**

@@ -49,6 +49,8 @@ import {
 import { createSharedAppLink } from "../../memory/shared-app-links-store.js";
 import { computeContentId } from "../../util/content-id.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { publishAppsChanged } from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   NotFoundError,
@@ -61,6 +63,12 @@ const log = getLogger("app-management-routes");
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function getOriginClientId(
+  headers: RouteHandlerArgs["headers"],
+): string | undefined {
+  return headers?.["x-vellum-client-id"]?.trim() || undefined;
+}
 
 function getSharedAppsDir(): string {
   return join(
@@ -565,14 +573,16 @@ async function handleImportBundle({ rawBody, headers }: RouteHandlerArgs) {
       "Request body is required — upload a .vbundle file",
     );
   }
-  return importBundle(rawBody, headers ?? {});
+  const result = await importBundle(rawBody, headers ?? {});
+  publishAppsChanged(getOriginClientId(headers));
+  return result;
 }
 
 function handleListSharedApps() {
   return { apps: listSharedApps() };
 }
 
-function handleForkSharedApp({ body }: RouteHandlerArgs) {
+function handleForkSharedApp({ body, headers }: RouteHandlerArgs) {
   if (!body?.uuid) {
     throw new BadRequestError("uuid is required");
   }
@@ -580,10 +590,11 @@ function handleForkSharedApp({ body }: RouteHandlerArgs) {
   if (!result.success) {
     throw new BadRequestError(result.error);
   }
+  publishAppsChanged(getOriginClientId(headers));
   return result;
 }
 
-async function handleInstallGalleryApp({ body }: RouteHandlerArgs) {
+async function handleInstallGalleryApp({ body, headers }: RouteHandlerArgs) {
   if (!body?.galleryAppId) {
     throw new BadRequestError("galleryAppId is required");
   }
@@ -591,6 +602,7 @@ async function handleInstallGalleryApp({ body }: RouteHandlerArgs) {
   if (!result.success) {
     throw new BadRequestError(result.error);
   }
+  publishAppsChanged(getOriginClientId(headers));
   return result;
 }
 
@@ -694,8 +706,9 @@ async function handleOpenApp({ pathParams }: RouteHandlerArgs) {
   return { appId: app.id, dirName, name: app.name, html };
 }
 
-function handleDeleteApp({ pathParams }: RouteHandlerArgs) {
+function handleDeleteApp({ pathParams, headers }: RouteHandlerArgs) {
   deleteApp(pathParams?.id as string);
+  publishAppsChanged(getOriginClientId(headers));
   return { success: true };
 }
 
@@ -773,7 +786,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_list",
     endpoint: "apps",
     method: "GET",
-    policyKey: "apps",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleListApps,
     summary: "List apps",
     description: "Return all locally installed apps.",
@@ -803,7 +819,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_open_bundle",
     endpoint: "apps/open-bundle",
     method: "POST",
-    policyKey: "apps/open-bundle",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleOpenBundle,
     summary: "Open a .vbundle file",
     description:
@@ -832,7 +851,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_shared_list",
     endpoint: "apps/shared",
     method: "GET",
-    policyKey: "apps/shared-list",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleListSharedApps,
     summary: "List shared apps",
     description: "Return all apps available via cloud share links.",
@@ -861,7 +883,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_fork",
     endpoint: "apps/fork",
     method: "POST",
-    policyKey: "apps/fork",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleForkSharedApp,
     summary: "Fork a shared app",
     description: "Create a local copy of a shared app by its UUID.",
@@ -879,7 +904,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_gallery_install",
     endpoint: "apps/gallery/install",
     method: "POST",
-    policyKey: "apps/gallery/install",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleInstallGalleryApp,
     summary: "Install a gallery app",
     description: "Install an app from the built-in gallery by its ID.",
@@ -895,7 +923,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_gallery_list",
     endpoint: "apps/gallery",
     method: "GET",
-    policyKey: "apps/gallery",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleListGallery,
     summary: "List gallery apps",
     description: "Return the built-in app gallery catalog.",
@@ -929,7 +960,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_import_bundle",
     endpoint: "apps/import-bundle",
     method: "POST",
-    policyKey: "apps/import-bundle",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleImportBundle,
     summary: "Import a .vbundle file",
     description:
@@ -957,7 +991,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_sign_bundle",
     endpoint: "apps/sign-bundle",
     method: "POST",
-    policyKey: "apps/sign-bundle",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleSignBundle,
     summary: "Sign an app bundle",
     description:
@@ -980,7 +1017,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_signing_identity",
     endpoint: "apps/signing-identity",
     method: "GET",
-    policyKey: "apps/signing-identity",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleSigningIdentity,
     summary: "Get signing identity",
     description:
@@ -995,7 +1035,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_data_query",
     endpoint: "apps/:id/data",
     method: "GET",
-    policyKey: "apps/data",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleQueryAppData,
     summary: "Query app data",
     description: "Read records from an app's local data store.",
@@ -1015,7 +1058,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_data_mutate",
     endpoint: "apps/:id/data",
     method: "POST",
-    policyKey: "apps/data",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleMutateAppData,
     summary: "Mutate app data",
     description:
@@ -1035,7 +1081,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_open",
     endpoint: "apps/:id/open",
     method: "POST",
-    policyKey: "apps/open",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleOpenApp,
     summary: "Open an app",
     description: "Compile (if needed) and return the app's HTML for rendering.",
@@ -1051,7 +1100,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_delete",
     endpoint: "apps/:id/delete",
     method: "POST",
-    policyKey: "apps/delete",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleDeleteApp,
     summary: "Delete an app",
     description: "Permanently remove an app and its data.",
@@ -1062,7 +1114,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_preview_get",
     endpoint: "apps/:id/preview",
     method: "GET",
-    policyKey: "apps/preview",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleGetPreview,
     summary: "Get app preview",
     description: "Return the preview image or HTML for an app.",
@@ -1076,7 +1131,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_preview_update",
     endpoint: "apps/:id/preview",
     method: "PUT",
-    policyKey: "apps/preview",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleUpdatePreview,
     summary: "Update app preview",
     description: "Set a new preview image or HTML for an app.",
@@ -1093,7 +1151,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_history",
     endpoint: "apps/:id/history",
     method: "GET",
-    policyKey: "apps/history",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleGetHistory,
     summary: "Get app version history",
     description: "Return the git commit history of an app.",
@@ -1114,7 +1175,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_diff",
     endpoint: "apps/:id/diff",
     method: "GET",
-    policyKey: "apps/diff",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleGetDiff,
     summary: "Get app diff",
     description: "Return a git diff between two commits for an app.",
@@ -1132,7 +1196,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_restore",
     endpoint: "apps/:id/restore",
     method: "POST",
-    policyKey: "apps/restore",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleRestore,
     summary: "Restore app version",
     description: "Restore an app to a previous git commit.",
@@ -1144,7 +1211,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_bundle",
     endpoint: "apps/:id/bundle",
     method: "POST",
-    policyKey: "apps/bundle",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleBundle,
     summary: "Bundle an app",
     description: "Package an app into a distributable .vbundle archive.",
@@ -1160,7 +1230,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_share_cloud",
     endpoint: "apps/:id/share-cloud",
     method: "POST",
-    policyKey: "apps/share-cloud",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleShareCloud,
     summary: "Share app to cloud",
     description: "Package and upload an app to the cloud share service.",

@@ -4,20 +4,25 @@ import { useNavigate } from "react-router";
 import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { toast } from "@vellum/design-library/components/toast";
-import { retireAssistantById } from "@/assistant/api";
-import { clearOnboardingFlags } from "@/lib/onboarding-cleanup";
+import { listAssistants, retireAssistantById } from "@/assistant/api";
+import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import {
   isLocalMode,
   getSelectedAssistant,
   isLocalAssistant,
   retireLocalAssistant,
+  syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { isNativePlatform } from "@/runtime/native-auth";
+import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
 function getPostRetireRoute(): string {
   if (isNativePlatform()) return routes.onboarding.prechat;
-  if (isLocalMode()) return routes.onboarding.welcome;
+  if (isLocalMode()) {
+    const { hasPlatformSession } = useAuthStore.getState();
+    return hasPlatformSession ? routes.onboarding.hosting : routes.onboarding.welcome;
+  }
   return routes.onboarding.privacy;
 }
 
@@ -28,9 +33,10 @@ interface RetireAssistantProps {
 export function RetireAssistant({ assistantId }: RetireAssistantProps) {
   const navigate = useNavigate();
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [isPending, setIsPending] = useState(false);
 
   const handleRetire = async () => {
-    setConfirmOpen(false);
+    setIsPending(true);
     try {
       const selected = getSelectedAssistant();
       const useLocal =
@@ -40,17 +46,31 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
         const result = await retireLocalAssistant(assistantId);
         if (result.ok) {
           clearOnboardingFlags();
+          setConfirmOpen(false);
           toast.success("Assistant retired.");
-          navigate(getPostRetireRoute());
+          navigate(getPostRetireRoute(), { replace: true });
+          return;
         } else {
           toast.error(result.error || "Failed to retire assistant.");
         }
       } else {
         const result = await retireAssistantById(assistantId);
         if (result.ok || result.status === 404) {
+          if (isLocalMode()) {
+            try {
+              const remaining = await listAssistants();
+              if (remaining.ok) {
+                await syncPlatformAssistantsToLockfile(remaining.data);
+              }
+            } catch {
+              // Best-effort sync
+            }
+          }
           clearOnboardingFlags();
+          setConfirmOpen(false);
           toast.success("Assistant retired.");
-          navigate(getPostRetireRoute());
+          navigate(getPostRetireRoute(), { replace: true });
+          return;
         } else {
           const detail =
             typeof result.error?.detail === "string"
@@ -62,6 +82,8 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
     } catch {
       toast.error("Failed to retire assistant.");
     }
+    setIsPending(false);
+    setConfirmOpen(false);
   };
 
   return (
@@ -79,6 +101,7 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
         message="This will permanently retire this assistant and all of its data. You will need to go through the onboarding flow again to create a new one. This action cannot be undone."
         confirmLabel="Retire"
         destructive
+        isPending={isPending}
         onConfirm={handleRetire}
         onCancel={() => setConfirmOpen(false)}
       />

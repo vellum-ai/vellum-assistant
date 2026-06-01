@@ -12,31 +12,28 @@
  */
 
 import * as Sentry from "@sentry/react";
-import { type Dispatch, type MutableRefObject, type SetStateAction, useCallback, useState } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useState } from "react";
 
-import { addTrustRule } from "@/domains/trust-rules/api";
+import { addTrustRule } from "@/lib/trust-rules-api";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useTurnStore } from "@/stores/turn-store";
-import { endTurn } from "@/stores/turn-coordinator";
+import { useTurnStore } from "@/domains/chat/turn-store";
+import { endTurn } from "@/domains/chat/turn-coordinator";
 
 import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils";
-import { deriveCommandText } from "@/domains/chat/utils/chat-utils";
-import type { ChatError } from "@/domains/chat/types";
-import type { AllowlistOption, ConfirmationDecision, DirectoryScopeOption, QuestionResponseEntry, ScopeOption } from "@/domains/chat/api/event-types";
+import { deriveCommandText } from "@/domains/chat/utils/chat";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { submitConfirmation, submitContactPrompt, submitQuestionResponse, submitSecretResponse } from "@/domains/chat/api/interactions";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-/** Minimal stream context — just the assistantId needed for API calls. */
-export interface StreamContext {
-  assistantId: string;
-  conversationId: string;
-}
 
 /** Context for the trust-rule editor modal. */
 export interface RuleEditorContext {
@@ -59,18 +56,6 @@ export interface ToolCallRuleContext {
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
   directoryScopeOptions: DirectoryScopeOption[];
-}
-
-// ---------------------------------------------------------------------------
-// Hook params
-// ---------------------------------------------------------------------------
-
-export interface UseInteractionActionsParams {
-  setMessages: Dispatch<DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[])>;
-  setError: Dispatch<ChatError | null>;
-  messagesRef: MutableRefObject<DisplayMessage[]>;
-  streamContextRef: MutableRefObject<StreamContext | null>;
-  confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -101,13 +86,9 @@ export interface UseInteractionActionsReturn {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useInteractionActions({
-  setMessages,
-  setError,
-  messagesRef,
-  streamContextRef,
-  confirmationToolCallMapRef,
-}: UseInteractionActionsParams): UseInteractionActionsReturn {
+export function useInteractionActions(): UseInteractionActionsReturn {
+  const setMessages = useChatSessionStore.use.setMessages();
+  const setError = useChatSessionStore.use.setError();
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const isSubmittingSecret = useInteractionStore.use.isSubmittingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
@@ -132,7 +113,7 @@ export function useInteractionActions({
       useInteractionStore.getState().submitSecretStart();
       setError(null);
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitSecretEnd();
@@ -174,7 +155,7 @@ export function useInteractionActions({
   );
 
   const handleSecretCancel = useCallback(() => {
-    const ctx = streamContextRef.current;
+    const ctx = useStreamStore.getState().streamContext;
     const requestId = useInteractionStore.getState().pendingSecret?.requestId;
     if (ctx && requestId) {
       submitSecretResponse(ctx.assistantId, requestId, "", "none").catch(() => {});
@@ -197,7 +178,7 @@ export function useInteractionActions({
       useInteractionStore.getState().submitContactRequestStart();
       setError(null);
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitContactRequestEnd();
@@ -232,7 +213,7 @@ export function useInteractionActions({
         useInteractionStore.getState().submitContactRequestEnd();
       }
     },
-    [pendingContactRequest, isSubmittingContactRequest, streamContextRef],
+    [pendingContactRequest, isSubmittingContactRequest],
   );
 
   const handleContactPromptCancel = useCallback(() => {
@@ -289,7 +270,7 @@ export function useInteractionActions({
       const nudgeTcId = (() => {
         if (snapshot.riskLevel?.toLowerCase() !== "unknown") return null;
         if (mappedToolCallId) return mappedToolCallId;
-        const currentMessages = messagesRef.current;
+        const currentMessages = useChatSessionStore.getState().messages;
         const msgIdx = currentMessages.findLastIndex(
           (m) => m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0,
         );
@@ -361,7 +342,7 @@ export function useInteractionActions({
         setUnknownNudgeToolCallIds((ids) => new Set([...ids, nudgeTcId]));
       }
 
-      confirmationToolCallMapRef.current.delete(snapshot.requestId);
+      useChatSessionStore.getState().confirmationToolCallMap.delete(snapshot.requestId);
       useInteractionStore.getState().submitConfirmationEnd();
     },
     [],
@@ -374,14 +355,14 @@ export function useInteractionActions({
       useInteractionStore.getState().submitConfirmationStart();
       setError(null);
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitConfirmationEnd();
         return;
       }
 
-      const mappedToolCallId = snapshot ? confirmationToolCallMapRef.current.get(snapshot.requestId) : undefined;
+      const mappedToolCallId = snapshot ? useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId) : undefined;
 
       try {
         if (
@@ -443,7 +424,7 @@ export function useInteractionActions({
       useInteractionStore.getState().submitQuestionStart();
       setError(null);
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitQuestionEnd();
@@ -484,7 +465,7 @@ export function useInteractionActions({
 
   const handleAllowAndCreateRule = useCallback(async () => {
     if (!pendingConfirmation || isSubmittingConfirmation) return;
-    const ctx = streamContextRef.current;
+    const ctx = useStreamStore.getState().streamContext;
     if (!ctx) {
       setError({ message: "No active session. Please try again." });
       return;
@@ -493,7 +474,7 @@ export function useInteractionActions({
     const snapshot = pendingConfirmation;
     useInteractionStore.getState().submitConfirmationStart();
 
-    const mappedToolCallId = confirmationToolCallMapRef.current.get(snapshot.requestId);
+    const mappedToolCallId = useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
 
     const editorContext: RuleEditorContext = {
       requestId: snapshot.requestId,
@@ -557,7 +538,7 @@ export function useInteractionActions({
 
   const handleSaveRule = useCallback(
     async (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => {
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       const context = ruleEditorContext;
       if (!ctx || !context) return;
       if (isSavingRule) return;
@@ -612,7 +593,7 @@ export function useInteractionActions({
 
       useInteractionStore.getState().dismissConfirmationIfMatches(context.requestId);
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      confirmationToolCallMapRef.current.delete(context.requestId);
+      useChatSessionStore.getState().confirmationToolCallMap.delete(context.requestId);
       setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, context.requestId));
       setShowRuleEditor(false);
       setRuleEditorContext(null);
@@ -626,7 +607,7 @@ export function useInteractionActions({
 
   const handleSurfaceAction = useCallback(
     async (surfaceId: string, actionId: string, data?: Record<string, unknown>) => {
-      const exists = messagesRef.current.some((m) =>
+      const exists = useChatSessionStore.getState().messages.some((m) =>
         m.surfaces?.some((s) => s.surfaceId === surfaceId),
       );
       if (!exists) {
@@ -634,7 +615,7 @@ export function useInteractionActions({
         return;
       }
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         throw new Error("No active session");

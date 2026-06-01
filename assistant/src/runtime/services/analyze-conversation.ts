@@ -35,10 +35,7 @@ import {
 } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import { getLogger } from "../../util/logger.js";
-import {
-  assistantEventHub,
-  broadcastMessage,
-} from "../assistant-event-hub.js";
+import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import {
   buildAutoAnalysisPrompt,
   neutralizeTranscriptSentinel,
@@ -218,7 +215,7 @@ export async function analyzeConversation(
     analysisConversationId,
     "user",
     JSON.stringify([{ type: "text", text: prompt }]),
-    { provenanceTrustClass: trustClass },
+    { metadata: { provenanceTrustClass: trustClass } },
   );
   const messageId = message.id;
 
@@ -258,7 +255,7 @@ export async function analyzeConversation(
   // routes the per-call provider config through `resolveCallSiteConfig`
   // against `llm.callSites.analyzeConversation`.
   analysisConversation
-    .runAgentLoop(prompt, messageId, undefined, {
+    .runAgentLoop(prompt, messageId, {
       isInteractive: false,
       isUserMessage: true,
       callSite: "analyzeConversation",

@@ -30,6 +30,7 @@ import {
   deleteCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../../tools/credentials/metadata-store.js";
+import { ACTOR_PRINCIPALS } from "../../auth/route-policy.js";
 import { BadRequestError, InternalError } from "../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
@@ -352,70 +353,91 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "integrations_twilio_config_get",
     endpoint: "integrations/twilio/config",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get Twilio config",
     description: "Return current Twilio configuration status.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: () => handleGetTwilioConfig(),
   },
   {
     operationId: "integrations_twilio_credentials_post",
     endpoint: "integrations/twilio/credentials",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Set Twilio credentials",
     description: "Validate and store Twilio account SID and auth token.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: handleSetTwilioCredentials,
   },
   {
     operationId: "integrations_twilio_credentials_delete",
     endpoint: "integrations/twilio/credentials",
     method: "DELETE",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Clear Twilio credentials",
     description: "Remove stored Twilio credentials.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: () => handleClearTwilioCredentials(),
   },
   {
     operationId: "integrations_twilio_numbers_get",
     endpoint: "integrations/twilio/numbers",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List Twilio numbers",
     description: "List phone numbers on the Twilio account.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: () => handleListTwilioNumbers(),
   },
   {
     operationId: "integrations_twilio_numbers_provision_post",
     endpoint: "integrations/twilio/numbers/provision",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Provision Twilio number",
     description: "Search for and provision a new phone number.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: handleProvisionTwilioNumber,
   },
   {
     operationId: "integrations_twilio_numbers_assign_post",
     endpoint: "integrations/twilio/numbers/assign",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Assign Twilio number",
     description: "Assign an existing phone number to this assistant.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: handleAssignTwilioNumber,
   },
   {
     operationId: "integrations_twilio_numbers_release_post",
     endpoint: "integrations/twilio/numbers/release",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Release Twilio number",
     description: "Release a phone number back to Twilio.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: handleReleaseTwilioNumber,
   },
 ];

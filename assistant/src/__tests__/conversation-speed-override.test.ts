@@ -7,12 +7,8 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
-import type {
-  AgentEvent,
-  AgentLoopConfig,
-  CheckpointDecision,
-  CheckpointInfo,
-} from "../agent/loop.js";
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
+import type { AgentEvent, AgentLoopConfig } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
@@ -201,12 +197,13 @@ let lastAgentLoopConfig: Partial<AgentLoopConfig> | undefined;
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor(
       _provider: unknown,
       _systemPrompt: string,
-      config?: Partial<AgentLoopConfig>,
+      options?: { config?: Partial<AgentLoopConfig> },
     ) {
-      lastAgentLoopConfig = config;
+      lastAgentLoopConfig = options?.config;
     }
     getToolTokenBudget() {
       return 0;
@@ -220,11 +217,6 @@ mock.module("../agent/loop.js", () => ({
     async run(
       _messages: Message[],
       _onEvent: (event: AgentEvent) => void,
-      _signal?: AbortSignal,
-      _requestId?: string,
-      _onCheckpoint?: (
-        checkpoint: CheckpointInfo,
-      ) => CheckpointDecision | Promise<CheckpointDecision>,
     ): Promise<Message[]> {
       return [];
     }
@@ -292,11 +284,9 @@ describe("per-conversation speed override", () => {
       "conv-speed-override-1",
       makeProvider(),
       "system prompt",
-      4096,
       makeSendToClient(),
       "/tmp",
-      undefined, // sharedCesClient
-      "standard", // speedOverride
+      { maxTokens: 4096, speedOverride: "standard" },
     );
 
     expect(lastAgentLoopConfig).toBeDefined();
@@ -312,11 +302,9 @@ describe("per-conversation speed override", () => {
       "conv-speed-global-1",
       makeProvider(),
       "system prompt",
-      4096,
       makeSendToClient(),
       "/tmp",
-      undefined, // sharedCesClient
-      // no speedOverride — should fall back to global config "fast"
+      { maxTokens: 4096 },
     );
 
     expect(lastAgentLoopConfig).toBeDefined();
@@ -331,11 +319,9 @@ describe("per-conversation speed override", () => {
       "conv-speed-override-fast-1",
       makeProvider(),
       "system prompt",
-      4096,
       makeSendToClient(),
       "/tmp",
-      undefined, // sharedCesClient
-      "fast", // speedOverride
+      { maxTokens: 4096, speedOverride: "fast" },
     );
 
     expect(lastAgentLoopConfig).toBeDefined();

@@ -45,6 +45,7 @@ function createHarness(opts: HarnessOptions = {}) {
     invalidateAssistantConfig: 0,
     invalidateAssistantSounds: 0,
     invalidateAssistantSchedules: 0,
+    invalidateApps: 0,
     scheduleConversationListRefetch: 0,
     refreshActiveConversationMessages: 0,
   };
@@ -66,6 +67,9 @@ function createHarness(opts: HarnessOptions = {}) {
     },
     invalidateAssistantSchedules: () => {
       calls.invalidateAssistantSchedules += 1;
+    },
+    invalidateApps: () => {
+      calls.invalidateApps += 1;
     },
     scheduleConversationListRefetch: () => {
       calls.scheduleConversationListRefetch += 1;
@@ -160,6 +164,36 @@ describe("createWebSyncRouter — self-echo drop", () => {
 
     expect(result.handledTags).toEqual([SYNC_TAGS.conversationsList]);
     expect(calls.scheduleConversationListRefetch).toBe(1);
+  });
+
+  test("dispatches app list sync tags", async () => {
+    const { router, calls } = createHarness();
+    const event: SyncChangedEvent = {
+      type: "sync_changed",
+      tags: [SYNC_TAGS.appsList],
+    };
+
+    const result = await router.dispatchSyncChanged(event);
+
+    expect(result.handledTags).toEqual([SYNC_TAGS.appsList]);
+    expect(result.unknownTags).toEqual([]);
+    expect(calls.invalidateApps).toBe(1);
+  });
+
+  test("metadata-only conversation tags do not refetch the full conversation list", async () => {
+    const { router, calls } = createHarness();
+    const tag = conversationMetadataSyncTag("conv-123");
+    const event: SyncChangedEvent = {
+      type: "sync_changed",
+      tags: [tag],
+    };
+
+    const result = await router.dispatchSyncChanged(event);
+
+    expect(result.handledTags).toEqual([tag]);
+    expect(result.unknownTags).toEqual([]);
+    expect(calls.scheduleConversationListRefetch).toBe(0);
+    expect(calls.refreshActiveConversationMessages).toBe(0);
   });
 
   test("does not drop when originClientId is empty string", async () => {

@@ -18,6 +18,7 @@ import {
   reorderGroups,
   updateGroup,
 } from "../../memory/group-crud.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishConversationListChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -171,7 +172,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "groups_list",
     endpoint: "groups",
     method: "GET",
-    policyKey: "groups",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleListGroups,
     summary: "List groups",
     description: "Return all conversation groups.",
@@ -182,7 +186,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "groups_create",
     endpoint: "groups",
     method: "POST",
-    policyKey: "groups",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleCreateGroup,
     responseStatus: "201",
     summary: "Create group",
@@ -204,7 +211,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "groups_update",
     endpoint: "groups/:groupId",
     method: "PATCH",
-    policyKey: "groups",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleUpdateGroup,
     summary: "Update group",
     description: "Update a conversation group's name or sort position.",
@@ -227,7 +237,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "groups_delete",
     endpoint: "groups/:groupId",
     method: "DELETE",
-    policyKey: "groups",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleDeleteGroup,
     responseStatus: "204",
     summary: "Delete group",
@@ -246,7 +259,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "groups_reorder",
     endpoint: "groups/reorder",
     method: "POST",
-    policyKey: "groups/reorder",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleReorderGroups,
     summary: "Reorder groups",
     description: "Batch-update sort positions for conversation groups.",

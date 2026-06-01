@@ -74,8 +74,10 @@ function makeTarget(): WakeTarget {
   return {
     conversationId: "conv-wake-callsite",
     agentLoop: {
-      run: (async (messages: Message[]) =>
-        messages) as WakeTarget["agentLoop"]["run"],
+      run: (async (messages: Message[]) => ({
+        history: messages,
+        exitReason: null,
+      })) as WakeTarget["agentLoop"]["run"],
     },
     getMessages: () => history,
     pushMessage: (msg) => {

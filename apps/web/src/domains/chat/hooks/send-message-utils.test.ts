@@ -9,7 +9,6 @@ import {
   parsePendingConfirmationData,
   parsePendingSecretState,
   resolvePostError,
-  stopStreamingAndClearConfirmations,
 } from "@/domains/chat/hooks/send-message-utils";
 
 // ---------------------------------------------------------------------------
@@ -22,7 +21,6 @@ function msg(overrides: Partial<DisplayMessage> = {}): DisplayMessage {
     role: "assistant",
     content: "hello",
     toolCalls: [],
-    isStreaming: false,
     ...overrides,
   } as DisplayMessage;
 }
@@ -112,42 +110,6 @@ describe("resolvePostError", () => {
   it("returns the fallback when code is empty and detail is undefined", () => {
     const result = resolvePostError("", undefined, "fallback");
     expect(result).toBe("fallback");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// stopStreamingAndClearConfirmations
-// ---------------------------------------------------------------------------
-
-describe("stopStreamingAndClearConfirmations", () => {
-  it("clears isStreaming on the last assistant message", () => {
-    const messages = [
-      msg({ id: "msg-1", role: "user", content: "hi" }),
-      msg({ id: "msg-2", role: "assistant", isStreaming: true }),
-    ];
-    const result = stopStreamingAndClearConfirmations(messages);
-    expect(result[1]!.isStreaming).toBe(false);
-  });
-
-  it("does not touch non-assistant or non-streaming last messages", () => {
-    const messages = [msg({ role: "user", content: "hi", isStreaming: false })];
-    const result = stopStreamingAndClearConfirmations(messages);
-    expect(result[0]!.isStreaming).toBe(false);
-  });
-
-  it("clears pending confirmations in the same pass", () => {
-    const messages = [
-      msg({
-        role: "assistant",
-        isStreaming: true,
-        toolCalls: [
-          { toolCallId: "tc-1", toolName: "run", pendingConfirmation: { title: "ok?" } } as never,
-        ],
-      }),
-    ];
-    const result = stopStreamingAndClearConfirmations(messages);
-    expect(result[0]!.isStreaming).toBe(false);
-    expect(result[0]!.toolCalls![0]!.pendingConfirmation).toBeNull();
   });
 });
 

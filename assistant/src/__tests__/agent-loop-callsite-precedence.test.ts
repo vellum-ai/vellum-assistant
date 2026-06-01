@@ -42,7 +42,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "../providers/types.js";
 
 const userMessage: Message = {
@@ -72,8 +71,6 @@ function makePipeline(providerName: string): {
     name: providerName,
     async sendMessage(
       _messages: Message[],
-      _tools?: ToolDefinition[],
-      _systemPrompt?: string,
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
       captured = options?.config as Record<string, unknown> | undefined;
@@ -103,16 +100,11 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", { maxTokens: 64000 });
+    const loop = new AgentLoop(provider, "system", {
+      config: { maxTokens: 64000 },
+    });
 
-    await loop.run(
-      [userMessage],
-      () => {},
-      undefined,
-      undefined,
-      undefined,
-      "mainAgent",
-    );
+    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
 
     expect(lastConfig()!.max_tokens).toBe(4096);
   });
@@ -129,18 +121,13 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
-      maxTokens: 64000,
-      effort: "high",
+      config: {
+        maxTokens: 64000,
+        effort: "high",
+      },
     });
 
-    await loop.run(
-      [userMessage],
-      () => {},
-      undefined,
-      undefined,
-      undefined,
-      "mainAgent",
-    );
+    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
 
     expect(lastConfig()!.effort).toBe("low");
   });
@@ -157,21 +144,16 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
-      maxTokens: 64000,
-      effort: "high",
-      // Conversation default is "fast" (which would normally be applied) —
-      // ensure the call-site value is the one that ends up on the wire.
-      speed: "fast",
+      config: {
+        maxTokens: 64000,
+        effort: "high",
+        // Conversation default is "fast" (which would normally be applied) —
+        // ensure the call-site value is the one that ends up on the wire.
+        speed: "fast",
+      },
     });
 
-    await loop.run(
-      [userMessage],
-      () => {},
-      undefined,
-      undefined,
-      undefined,
-      "mainAgent",
-    );
+    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
 
     expect(lastConfig()!.speed).toBe("fast");
   });
@@ -193,21 +175,16 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
-      maxTokens: 64000,
-      // Conversation default also has thinking on — without the fix, this
-      // would pre-set `thinking: { type: "adaptive" }` and mask the
-      // call-site override.
-      thinking: { enabled: true },
+      config: {
+        maxTokens: 64000,
+        // Conversation default also has thinking on — without the fix, this
+        // would pre-set `thinking: { type: "adaptive" }` and mask the
+        // call-site override.
+        thinking: { enabled: true },
+      },
     });
 
-    await loop.run(
-      [userMessage],
-      () => {},
-      undefined,
-      undefined,
-      undefined,
-      "mainAgent",
-    );
+    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
 
     // Call-site override resolves `thinking.enabled: false`, so the
     // RetryProvider normalizer must send Anthropic's explicit disabled shape.
@@ -225,16 +202,11 @@ describe("AgentLoop — call-site precedence", () => {
     });
 
     const { provider, lastConfig } = makePipeline("anthropic");
-    const loop = new AgentLoop(provider, "system", { maxTokens: 64000 });
+    const loop = new AgentLoop(provider, "system", {
+      config: { maxTokens: 64000 },
+    });
 
-    await loop.run(
-      [userMessage],
-      () => {},
-      undefined,
-      undefined,
-      undefined,
-      "mainAgent",
-    );
+    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
 
     // Must be wire-format `{ type: "adaptive" }` so the Anthropic SDK's
     // `ThinkingConfigParam` accepts it. The schema-shape `{ enabled,
@@ -256,13 +228,15 @@ describe("AgentLoop — call-site precedence", () => {
 
     const { provider, lastConfig } = makePipeline("anthropic");
     const loop = new AgentLoop(provider, "system", {
-      maxTokens: 64000,
-      effort: "high",
-      speed: "fast",
-      thinking: { enabled: true },
+      config: {
+        maxTokens: 64000,
+        effort: "high",
+        speed: "fast",
+        thinking: { enabled: true },
+      },
     });
 
-    await loop.run([userMessage], () => {}, undefined, undefined, undefined);
+    await loop.run([userMessage], () => {});
 
     const config = lastConfig()!;
     expect(config.max_tokens).toBe(64000);
@@ -288,24 +262,12 @@ describe("AgentLoop — call-site precedence", () => {
       maxTokens: 8192,
     });
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      { maxTokens: 64000 },
-      [],
-      undefined,
-      undefined,
-      resolveSystemPrompt,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      config: { maxTokens: 64000 },
+      resolveSystemPrompt: resolveSystemPrompt,
+    });
 
-    await loop.run(
-      [userMessage],
-      () => {},
-      undefined,
-      undefined,
-      undefined,
-      "mainAgent",
-    );
+    await loop.run([userMessage], () => {}, { callSite: "mainAgent" });
 
     // Per-turn explicit value beats both the call-site (4096) and the
     // default (64000).

@@ -21,11 +21,11 @@
  * Every route declares `policyKey: "plugins"` + `requirePolicyEnforcement:
  * true`. The HTTP router enforces via `enforcePolicy()` against the
  * `plugins:GET` / `plugins/search:GET` / `plugins:DELETE` registry
- * entries in `runtime/auth/route-policy.ts`. The IPC adapter exposes
- * the same policies to the gateway IPC proxy, whose own policy table
- * (`gateway/src/auth/ipc-route-policy.ts`) holds the matching entries
- * for `plugins_list` / `plugins_search` / `plugins_uninstall`. Reads
- * require `settings.read`; uninstall requires `settings.write`.
+ * entries in `runtime/auth/route-policy.ts`. The same registry is the
+ * source of truth for the IPC path too: the IPC route adapter resolves
+ * each route's policy and ships it in `get_route_schema`, which the
+ * gateway's IPC proxy reads from its in-memory cache. Reads require
+ * `settings.read`; uninstall requires `settings.write`.
  */
 
 import { z } from "zod";
@@ -44,11 +44,8 @@ import {
   PluginNotInstalledError,
   uninstallPlugin,
 } from "../../cli/lib/uninstall-plugin.js";
-import {
-  BadRequestError,
-  InternalError,
-  NotFoundError,
-} from "./errors.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -166,9 +163,9 @@ function matchesQuery(plugin: PluginView, needle: string): boolean {
 // Handler — list installed
 // ---------------------------------------------------------------------------
 
-function handleListPlugins({
-  queryParams = {},
-}: RouteHandlerArgs): { plugins: PluginView[] } {
+function handleListPlugins({ queryParams = {} }: RouteHandlerArgs): {
+  plugins: PluginView[];
+} {
   const q = queryParams.q?.trim();
   const installed = listInstalledPlugins();
   const projected = installed.map(projectPlugin);
@@ -260,8 +257,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "plugins_list",
     endpoint: "plugins",
     method: "GET",
-    policyKey: "plugins",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List installed plugins",
     description:
       "Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name, and description.",
@@ -281,8 +280,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "plugins_search",
     endpoint: "plugins/search",
     method: "GET",
-    policyKey: "plugins",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Search the plugin catalog",
     description:
       "List installable plugins from the canonical `vellum-ai/vellum-assistant` catalog at `experimental/plugins/`. The query is an ECMAScript regex matched case-insensitively against the directory name (e.g. `memory`, `^simple`). Empty query returns every entry. Mirrors the CLI's `assistant plugins search`.",
@@ -308,8 +309,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "plugins_uninstall",
     endpoint: "plugins/:name",
     method: "DELETE",
-    policyKey: "plugins",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Uninstall a plugin",
     description:
       "Remove the directory at `<workspaceDir>/plugins/<name>/`. Mirrors the CLI's `assistant plugins uninstall <name>` (without the interactive confirmation — the API caller is responsible for any prompt). The plugin name is sanitized by the same regex the CLI uses; `../escape`-style values, hidden names, and absolute paths return 400. Missing plugins return 404. The assistant must be restarted to drop the plugin from the running runtime.",

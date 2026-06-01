@@ -2,11 +2,16 @@ import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router";
 
 import { Typography } from "@vellum/design-library";
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
-import { useAssistantContext } from "@/components/layout/assistant-context";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
-import { useConversationListQuery } from "@/domains/conversations/conversation-queries";
+import {
+  useBackgroundConversationListQuery,
+  useConversationListQuery,
+  useScheduledConversationListQuery,
+} from "@/hooks/conversation-queries";
+import { mergeConversationLists } from "@/utils/conversation-cache";
 import { useConversationStore } from "@/stores/conversation-store";
 import { HomePage } from "@/domains/home/home-page";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -15,13 +20,28 @@ import { routes } from "@/utils/routes";
 
 export function HomePageRoute() {
   const navigate = useNavigate();
-  const { assistantId } = useActiveAssistantContext();
-  const { setTopBarCenter } = useAssistantContext();
+  const assistantId = useActiveAssistantId();
+  const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
   const isMobile = useIsMobile();
-  const { conversations } = useConversationListQuery(assistantId);
+  const { conversations: foregroundConversations } =
+    useConversationListQuery(assistantId);
+  // Recap/feed items can reference background and scheduled jobs, so the home
+  // feed eagerly loads both lists to validate their "go to thread" links.
+  // These queries are non-blocking — the page renders before they resolve.
+  const { conversations: backgroundConversations } =
+    useBackgroundConversationListQuery(assistantId, true);
+  const { conversations: scheduledConversations } =
+    useScheduledConversationListQuery(assistantId, true);
   const validConversationIds = useMemo(
-    () => new Set(conversations.map((c) => c.conversationId)),
-    [conversations],
+    () =>
+      new Set(
+        mergeConversationLists(
+          foregroundConversations,
+          backgroundConversations,
+          scheduledConversations,
+        ).map((c) => c.conversationId),
+      ),
+    [foregroundConversations, backgroundConversations, scheduledConversations],
   );
 
   useEffect(() => {

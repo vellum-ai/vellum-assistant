@@ -31,7 +31,6 @@ import {
   test,
 } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import type { MutableRefObject } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
@@ -101,6 +100,8 @@ import {
   type RefreshLatestOutcome,
   useRefreshLatestMessages,
 } from "@/domains/chat/hooks/use-refresh-latest-messages";
+import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------
@@ -119,14 +120,7 @@ function makeMsg(
 
 interface HostState {
   messages: DisplayMessage[];
-  messagesRef: MutableRefObject<DisplayMessage[]>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   setMessagesCalls: Array<DisplayMessage[]>;
-  setMessages: (
-    update:
-      | DisplayMessage[]
-      | ((prev: DisplayMessage[]) => DisplayMessage[]),
-  ) => void;
 }
 
 function makeHost(
@@ -134,24 +128,29 @@ function makeHost(
   conversationId: string | null,
   dismissed: Set<string> = new Set(),
 ): HostState {
-  useConversationStore.setState({ activeConversationId: conversationId });
+  useConversationStore.setState({
+    activeConversationId: conversationId,
+    processingConversationIds: new Set(),
+  });
   const host: HostState = {
     messages: initial,
-    messagesRef: { current: initial },
-    dismissedSurfaceIdsRef: { current: dismissed },
     setMessagesCalls: [],
-    setMessages: (update) => {
+  };
+  // Seed the chat session store with the initial state
+  useChatSessionStore.setState({
+    messages: initial,
+    dismissedSurfaceIds: dismissed,
+    setMessages: ((update: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[])) => {
+      const prev = useChatSessionStore.getState().messages;
       const next =
         typeof update === "function"
-          ? (update as (prev: DisplayMessage[]) => DisplayMessage[])(
-              host.messages,
-            )
+          ? (update as (prev: DisplayMessage[]) => DisplayMessage[])(prev)
           : update;
       host.setMessagesCalls.push(next);
       host.messages = next;
-      host.messagesRef.current = next;
-    },
-  };
+      useChatSessionStore.setState({ messages: next });
+    }) as never,
+  });
   return host;
 }
 
@@ -186,9 +185,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -207,9 +203,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: null,
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -260,9 +253,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -289,14 +279,13 @@ describe("useRefreshLatestMessages", () => {
       content: "Tell me a story",
       timestamp: 1000,
     });
-    // Streaming assistant — no server id yet, isStreaming flag set. The
-    // latest history page below intentionally omits this row to simulate
-    // a refresh that fires while the stream hasn't completed server-side.
+    // Streaming assistant — no server id yet. The latest history page below
+    // intentionally omits this row to simulate a refresh that fires while
+    // the stream hasn't completed server-side.
     const streamingAssistant = makeMsg({
       id: "a-streaming",
       role: "assistant",
       content: "Once upon a time, there was a",
-      isStreaming: true,
       timestamp: 1010,
     });
 
@@ -304,6 +293,10 @@ describe("useRefreshLatestMessages", () => {
       [completedUser, streamingAssistant],
       "conv-1",
     );
+    // The row's liveness is derived from the conversation processing state,
+    // not a stored flag — mark the conversation processing so the merge
+    // treats the trailing assistant as the live row.
+    useConversationStore.getState().markConversationProcessing("conv-1");
     fetchLatestImpl = async () => ({
       messages: [completedUser],
       hasMore: false,
@@ -314,9 +307,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -329,7 +319,7 @@ describe("useRefreshLatestMessages", () => {
     const ids = host.messages.map((m) => m.id);
     expect(ids).toContain("a-streaming");
     const survivor = host.messages.find((m) => m.id === "a-streaming");
-    expect(survivor?.isStreaming).toBe(true);
+    expect(liveAssistantRowId(host.messages, true)).toBe("a-streaming");
     expect(survivor?.content).toBe("Once upon a time, there was a");
   });
 
@@ -359,9 +349,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -401,8 +388,8 @@ describe("useRefreshLatestMessages", () => {
     // check the hook performs.
     fetchLatestImpl = async () => {
       useConversationStore.setState({ activeConversationId: "conv-2" });
-      host.messagesRef.current = [conv2Msg];
       host.messages = [conv2Msg];
+      useChatSessionStore.setState({ messages: [conv2Msg] });
       // Return a "latest" page for the original conversation. If the
       // staleness check fails, these messages would land in conv-2's
       // transcript — that's the bug class the guard prevents.
@@ -425,9 +412,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -459,9 +443,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -499,9 +480,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -514,7 +492,6 @@ describe("useRefreshLatestMessages", () => {
     // setMessages was invoked, but the updater returned the same array
     // reference so React skips the re-render. The contract callers care
     // about is that the rendered messages haven't changed.
-    expect(host.messages).toBe(host.messagesRef.current);
     expect(host.messages.map((m) => m.id)).toEqual(["u1", "a1"]);
   });
 
@@ -557,9 +534,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -624,9 +598,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -715,7 +686,6 @@ describe("classifyRefreshLatestOutcome", () => {
         id: "a1",
         role: "assistant",
         content: "Streaming...",
-        isStreaming: true,
         timestamp: 1000,
       }),
     ];

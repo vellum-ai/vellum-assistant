@@ -49,7 +49,7 @@ Also identify recurring contacts (people appearing in 3+ messages) and note how 
 
 You MUST respond using the \`store_style_analysis\` tool. Do not respond with text.`;
 
-const storeStyleAnalysisTool: ToolDefinition = {
+const storeStyleAnalysisTool = {
   name: "store_style_analysis",
   description:
     "Store extracted writing style patterns and relationship observations",
@@ -94,7 +94,7 @@ const storeStyleAnalysisTool: ToolDefinition = {
     },
     required: ["style_patterns"],
   },
-};
+} satisfies ToolDefinition;
 
 /**
  * Build a text corpus from provider messages for LLM analysis.
@@ -143,15 +143,12 @@ export async function extractStylePatterns(
     },
   ];
 
-  const response = await provider.sendMessage(
-    promptMessages,
-    [storeStyleAnalysisTool],
-    STYLE_EXTRACTION_SYSTEM_PROMPT,
-    {
-      signal: AbortSignal.timeout(30_000),
-      config: { callSite: "styleAnalyzer" },
-    },
-  );
+  const response = await provider.sendMessage(promptMessages, {
+    tools: [storeStyleAnalysisTool],
+    systemPrompt: STYLE_EXTRACTION_SYSTEM_PROMPT,
+    signal: AbortSignal.timeout(30_000),
+    config: { callSite: "styleAnalyzer" },
+  });
 
   const toolBlock = response.content.find((b) => b.type === "tool_use");
   if (!toolBlock || toolBlock.type !== "tool_use") {

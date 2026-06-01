@@ -1,4 +1,4 @@
-import type { DiskPressureStatus } from "@/assistant/api";
+import type { DiskPressureStatus } from "@vellumai/assistant-api";
 
 export type DiskPressureMonitorMode =
   | "inactive"
@@ -67,18 +67,6 @@ export function getDiskPressureMonitorMode(
   }
 
   return "inactive";
-}
-
-export function shouldEnableDiskPressureMonitor({
-  safeStorageLimits,
-  assistantStateKind,
-  assistantId,
-}: {
-  safeStorageLimits: boolean;
-  assistantStateKind: string;
-  assistantId: string | null;
-}): boolean {
-  return safeStorageLimits && assistantStateKind === "active" && !!assistantId;
 }
 
 export function isChatInputDisabledByDiskPressure({

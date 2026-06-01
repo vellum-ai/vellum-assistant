@@ -87,7 +87,7 @@ import {
   seedV2SkillEntries,
 } from "../memory/v2/skill-store.js";
 import { executeDeleteManagedSkill } from "../tools/skills/delete-managed.js";
-import { SkillLoadTool } from "../tools/skills/load.js";
+import { skillLoadTool } from "../tools/skills/load.js";
 import { executeScaffoldManagedSkill } from "../tools/skills/scaffold-managed.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -136,9 +136,6 @@ Run the custom lifecycle verification procedure.
     expect(catalogSkill!.source).toBe("managed");
     expect(catalogSkill!.displayName).toBe("E2E Custom Skill");
 
-    const skillLoadTool = new (SkillLoadTool as any)() as InstanceType<
-      typeof SkillLoadTool
-    >;
     const loadResult = await skillLoadTool.execute(
       { skill: skillId },
       makeContext(),
@@ -279,10 +276,6 @@ Run the custom lifecycle verification procedure.
 
   test("scaffold → skill_load chain: literal tool execution", async () => {
     const ctx = makeContext();
-
-    const skillLoadTool = new (SkillLoadTool as any)() as InstanceType<
-      typeof SkillLoadTool
-    >;
 
     // Step 1: Scaffold a skill directly
     const scaffoldResult = await executeScaffoldManagedSkill(

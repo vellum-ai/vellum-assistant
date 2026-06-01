@@ -183,6 +183,15 @@ export interface SendMessageConfig {
    */
   overrideProfile?: string;
   /**
+   * Per-conversation seed for deterministic `mix`-profile expansion. The agent
+   * loop sets this to the conversation id so every resolver call this send
+   * triggers — provider/transport selection, wire-param normalization, usage
+   * attribution — picks the same mix constituent, stable across the
+   * conversation's turns and retries. A resolution/routing-time concern only;
+   * stripped before any provider wire request.
+   */
+  selectionSeed?: string;
+  /**
    * Internal per-request HTTP headers for managed-proxy usage attribution.
    * Provider clients may pass these through SDK request options only when the
    * transport is Vellum-managed, and must never include this object in provider
@@ -198,10 +207,21 @@ export interface SendMessageConfig {
   effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   speed?: "standard" | "fast";
   verbosity?: "low" | "medium" | "high";
+  /**
+   * When true, the most recent user message's content varies across
+   * otherwise-identical turns (e.g. a per-turn memory block was injected into
+   * it). The provider places the primary long-TTL cache breakpoint on the most
+   * recent *stable* user message instead of the volatile latest one, so the
+   * cached prefix stays reusable across turns. Default false — existing
+   * behavior.
+   */
+  mutableLatestUserMessage?: boolean;
   [key: string]: unknown;
 }
 
 export interface SendMessageOptions {
+  tools?: ToolDefinition[];
+  systemPrompt?: string;
   config?: SendMessageConfig;
   onEvent?: (event: ProviderEvent) => void;
   signal?: AbortSignal;
@@ -220,8 +240,6 @@ export interface Provider {
   tokenEstimationProvider?: string;
   sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse>;
 }

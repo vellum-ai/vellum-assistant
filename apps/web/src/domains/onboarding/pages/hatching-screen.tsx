@@ -17,10 +17,12 @@ import { randomCharacterTraits } from "@/utils/avatar-random";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
 import type { CharacterTraits } from "@/types/avatar";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import { extractErrorMessage } from "@/lib/api-errors";
-import { isLocalMode, hatchLocalAssistant, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection } from "@/lib/local-mode";
+import { extractErrorMessage } from "@/utils/api-errors";
+import { isLocalMode, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection, getLocalGatewayUrl } from "@/lib/local-mode";
+import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
-import { useRootOutletContext } from "@/root-layout";
+import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
+import { lifecycleService } from "@/assistant/lifecycle-service";
 import {
   readAiDataConsent,
   readOnboardingCompleted,
@@ -42,9 +44,10 @@ const POLL_INTERVAL_MS = 3000;
 const COMPLETION_NAVIGATE_DELAY_MS = 800;
 const MAX_HATCH_WAIT_MS = 300_000;
 
-// Module-level promise so HMR remounts and StrictMode double-mounts
+// Module-level promises so HMR remounts and StrictMode double-mounts
 // can await the same in-flight hatch instead of spawning duplicates.
-let localHatchPromise: Promise<import("@/lib/local-mode").LocalHatchResult> | null = null;
+let localHatchPromise: Promise<import("@/runtime/local-mode-host").LocalHatchResult> | null = null;
+let platformHatchPromise: Promise<import("@/assistant/api").HatchResult> | null = null;
 
 type HatchPhase = "initializing" | "provisioning" | "connecting" | "ready";
 
@@ -83,7 +86,7 @@ export type HatchGateDecision =
 export function decideHatchGate(input: {
   isAuthLoading: boolean;
   isLoggedIn: boolean;
-  isLocalMode: boolean;
+  isReplay: boolean;
   onboardingCompleted: boolean;
   tosAccepted: boolean;
   aiDataConsentAccepted: boolean;
@@ -91,8 +94,12 @@ export function decideHatchGate(input: {
 }): HatchGateDecision {
   if (input.isAuthLoading) return { kind: "wait" };
   if (!input.isLoggedIn) return { kind: "redirect", to: routes.account.login };
-  if (input.onboardingCompleted) return { kind: "redirect", to: routes.assistant };
-  if (input.isLocalMode) return { kind: "proceed" };
+  if (input.onboardingCompleted && !input.isReplay) {
+    return { kind: "redirect", to: routes.assistant };
+  }
+  // Consent (incl. local mode): the privacy screen is now shown for every
+  // hosting option, so require it for local hatches too. The privacy screen
+  // persists tosAccepted/aiDataConsent and marks the in-memory consent signal.
   const persistedConsent = input.tosAccepted && input.aiDataConsentAccepted;
   if (!input.cameFromPrivacyScreen && !persistedConsent) {
     return { kind: "redirect", to: getOnboardingEntrypoint() };
@@ -109,9 +116,6 @@ export function HatchingScreen() {
   const userId = useAuthStore.use.user()?.id ?? null;
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isAuthLoading = useAuthStore.use.isLoading();
-  const {
-    lifecycle: { checkAssistant },
-  } = useRootOutletContext();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [hatchTraits] = useState<CharacterTraits>(() =>
     randomCharacterTraits(BUNDLED_COMPONENTS),
@@ -152,7 +156,7 @@ export function HatchingScreen() {
     const decision = decideHatchGate({
       isAuthLoading,
       isLoggedIn,
-      isLocalMode: isLocalMode(),
+      isReplay,
       onboardingCompleted: readOnboardingCompleted(),
       tosAccepted: readTosAccepted(),
       aiDataConsentAccepted: readAiDataConsent(),
@@ -169,6 +173,7 @@ export function HatchingScreen() {
     let cancelled = false;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let navigateTimer: ReturnType<typeof setTimeout> | null = null;
+    let readyPollTimer: ReturnType<typeof setTimeout> | null = null;
     const pollStartMs = Date.now();
 
     const pinnedVersion = readSelectedVersion();
@@ -190,9 +195,7 @@ export function HatchingScreen() {
       navigateTimer = setTimeout(() => {
         if (cancelled) return;
         void (async () => {
-          if (!useLocalHatch) {
-            await checkAssistant();
-          }
+          await lifecycleService.checkAssistant();
           if (cancelled) return;
           if (isNativePlatform()) {
             try {
@@ -203,12 +206,22 @@ export function HatchingScreen() {
               });
             }
             clearPrivacyConsent();
+            // Native flow skips the pre-chat screen, so there's no
+            // typed message to drive the auto-greet gate. Mark the
+            // lifecycle one-shot so the destination chat mount shows
+            // the loading gate until the server greeting arrives.
+            lifecycleService.markExpectingFirstMessage();
             void navigate(`${routes.assistant}?onboarding=1`, {
               replace: true,
             });
             return;
           }
-          void navigate(routes.onboarding.prechat, { replace: true });
+          void navigate(
+            isReplay
+              ? `${routes.onboarding.prechat}?replay=1`
+              : routes.onboarding.prechat,
+            { replace: true },
+          );
         })();
       }, COMPLETION_NAVIGATE_DELAY_MS);
     };
@@ -221,13 +234,11 @@ export function HatchingScreen() {
       }
 
       // Local/Docker hatch lifecycle:
-      // 1. POST /assistant/__local/hatch → CLI spawns daemon + gateway
-      // 2. Reload lockfile to discover new assistant
+      // 1. hatchLocalAssistant() runs the CLI (Vite middleware on web/dev,
+      //    main process over IPC in Electron) to spawn the daemon + gateway
+      // 2. Reload lockfile to discover the new assistant
       // 3. Acquire gateway token + set self-hosted connection
       // 4. Navigate to pre-chat flow
-      //
-      // Transport: fetch to Vite dev middleware.
-      // In Electron: window.electronAPI.hatchAssistant() → direct IPC to main process. (LUM-1997)
       if (useLocalHatch) {
         try {
           if (!localHatchPromise) {
@@ -244,7 +255,56 @@ export function HatchingScreen() {
           if (result.assistantId) {
             setSelectedAssistantId(result.assistantId);
           }
-          await primeLocalGatewayConnection();
+
+          // Wait for the gateway + daemon to be fully ready before proceeding.
+          // The CLI's hatch command spawns them as background processes and exits
+          // before they finish starting up. We poll /readyz (gateway + upstream
+          // daemon) and then attempt to acquire the gateway auth token. Both must
+          // succeed before we navigate away — the guardian token file may not
+          // exist on disk until after /readyz passes.
+          transitionPhase("connecting");
+          let gatewayReady = false;
+          while (!cancelled && !gatewayReady) {
+            const gatewayUrl = getLocalGatewayUrl();
+            if (gatewayUrl) {
+              try {
+                const res = await fetch(`${gatewayUrl}/readyz`);
+                if (res.ok) {
+                  const body = await res.json() as { status: string };
+                  if (body.status === "ok") {
+                    await primeLocalGatewayConnection();
+                    gatewayReady = true;
+                    break;
+                  }
+                }
+              } catch {
+                // Gateway not ready yet
+              }
+            }
+            if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
+              setError("Your assistant is taking longer than expected. Please try again.");
+              return;
+            }
+            await new Promise<void>(resolve => {
+              readyPollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+            });
+            readyPollTimer = null;
+          }
+          if (cancelled) return;
+
+          // Apply the model-provider key collected on the API-key step to the
+          // freshly hatched assistant. Non-blocking on failure — onboarding
+          // proceeds and the user can fix it in Settings.
+          if (result.assistantId) {
+            try {
+              await applyPendingProviderKey(result.assistantId);
+            } catch (err) {
+              Sentry.captureException(err, {
+                tags: { context: "onboarding_apply_provider_key" },
+              });
+            }
+          }
+
           handleHatchReady();
         } catch {
           localHatchPromise = null;
@@ -255,9 +315,13 @@ export function HatchingScreen() {
       }
 
       try {
-        const result = await hatchAssistant(
-          pinnedVersion ? { version: pinnedVersion } : undefined,
-        );
+        if (!platformHatchPromise) {
+          platformHatchPromise = hatchAssistant(
+            pinnedVersion ? { version: pinnedVersion } : undefined,
+          );
+        }
+        const result = await platformHatchPromise;
+        platformHatchPromise = null;
         if (cancelled) return;
         if (!result.ok) {
           Sentry.captureMessage("Onboarding hatch request failed", {
@@ -283,6 +347,7 @@ export function HatchingScreen() {
           }
         }
       } catch (err) {
+        platformHatchPromise = null;
         Sentry.captureException(err, {
           tags: { context: "onboarding_hatch_assistant" },
         });
@@ -360,6 +425,7 @@ export function HatchingScreen() {
       cancelled = true;
       if (pollTimer) clearTimeout(pollTimer);
       if (navigateTimer) clearTimeout(navigateTimer);
+      if (readyPollTimer) clearTimeout(readyPollTimer);
     };
   }, [
     attempt,
@@ -367,7 +433,6 @@ export function HatchingScreen() {
     isAuthLoading,
     isLoggedIn,
     isReplay,
-    checkAssistant,
     navigate,
     setOnboardingCompleted,
     transitionPhase,

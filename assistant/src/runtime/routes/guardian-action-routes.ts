@@ -19,6 +19,7 @@ import {
   type CanonicalGuardianRequest,
   listPendingRequestsByConversationScope,
 } from "../../memory/canonical-guardian-store.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
 import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
 import { buildOneTimeDecisionActions } from "../guardian-decision-types.js";
@@ -226,6 +227,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "guardian_actions_pending",
     endpoint: "guardian-actions/pending",
     method: "GET",
+    policy: {
+      requiredScopes: ["approval.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List pending guardian actions",
     description: "Return pending guardian decision prompts for a conversation.",
     tags: ["guardian"],
@@ -248,6 +253,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "guardian_actions_decision",
     endpoint: "guardian-actions/decision",
     method: "POST",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     requireGuardian: true,
     summary: "Submit guardian decision",
     description: "Submit a guardian action decision (approve/reject).",

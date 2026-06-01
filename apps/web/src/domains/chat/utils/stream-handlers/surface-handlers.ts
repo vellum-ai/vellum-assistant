@@ -11,7 +11,12 @@ import {
   updateSurfaceData,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { UISurfaceCompleteEvent, UISurfaceDismissEvent, UISurfaceShowEvent, UISurfaceUpdateEvent } from "@/domains/chat/api/event-types";
+import type {
+  UISurfaceCompleteEvent,
+  UISurfaceDismissEvent,
+  UISurfaceShowEvent,
+  UISurfaceUpdateEvent,
+} from "@vellumai/assistant-api";
 
 export function handleUISurfaceShow(
   event: UISurfaceShowEvent,
@@ -53,13 +58,13 @@ export function handleUISurfaceDismiss(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.dismissSurface();
-  ctx.dismissedSurfaceIdsRef.current.add(event.surfaceId);
-  const streamCtx = ctx.streamContextRef.current;
+  ctx.dismissedSurfaceIds.add(event.surfaceId);
+  const streamCtx = ctx.streamContext;
   if (streamCtx) {
     saveDismissedSurfaceIds(
       streamCtx.assistantId,
       streamCtx.conversationId,
-      ctx.dismissedSurfaceIdsRef.current,
+      ctx.dismissedSurfaceIds,
     );
   }
   ctx.setMessages((prev) => dismissSurface(prev, event.surfaceId));
@@ -70,7 +75,7 @@ export function handleUISurfaceComplete(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.completeSurface();
-  const completedSurface = ctx.messagesRef.current
+  const completedSurface = ctx.messages
     .flatMap((m) => m.surfaces ?? [])
     .find((s) => s.surfaceId === event.surfaceId);
   if (

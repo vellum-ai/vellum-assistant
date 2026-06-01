@@ -163,6 +163,37 @@ describe("HostFileProxy", () => {
       });
     });
 
+    test("rebuilds audio tool results from proxied audio payloads", async () => {
+      setup();
+
+      const resultPromise = proxy.request(
+        { operation: "read", path: "/Users/test/Desktop/voice.mp3" },
+        "session-1",
+      );
+
+      const sent = sentMessages[0] as Record<string, unknown>;
+      const requestId = sent.requestId as string;
+
+      proxy.resolve(requestId, {
+        content: "Audio loaded on host",
+        isError: false,
+        audioData: Buffer.from("fake-audio-bytes").toString("base64"),
+        audioMimeType: "audio/mpeg",
+      });
+
+      const result = await resultPromise;
+      expect(result.isError).toBe(false);
+      expect(result.content).toContain("Audio loaded");
+      expect(result.contentBlocks).toHaveLength(1);
+      expect(result.contentBlocks?.[0]).toMatchObject({
+        type: "file",
+        source: {
+          media_type: "audio/mpeg",
+          filename: "voice.mp3",
+        },
+      });
+    });
+
     test("handles write operations", async () => {
       setup();
 

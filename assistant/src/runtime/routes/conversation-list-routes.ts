@@ -9,6 +9,7 @@
 
 import { z } from "zod";
 
+import { findConversation } from "../../daemon/conversation-store.js";
 import {
   type Confidence,
   getAttentionStateByConversationIds,
@@ -26,10 +27,12 @@ import {
   listConversations,
   listPinnedConversations,
 } from "../../memory/conversation-queries.js";
+import type { ConversationType } from "../../memory/conversation-types.js";
 import { getBindingsForConversations } from "../../memory/external-conversation-store.js";
 import { listGroups } from "../../memory/group-crud.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   buildConversationDetailResponse,
   serializeConversationSummary,
@@ -131,6 +134,12 @@ export const conversationSummarySchema = z.object({
   forkParent: forkParentSchema.optional(),
   archivedAt: z.number().optional(),
   inferenceProfile: z.string().optional(),
+  /**
+   * True when the agent loop is currently mid-turn for this conversation.
+   * Mirrors the in-memory `Conversation.isProcessing()` flag on the daemon
+   * — `false` for rows that are cold (not currently resident in memory).
+   */
+  isProcessing: z.boolean(),
 });
 
 const groupSummarySchema = z.object({
@@ -168,15 +177,48 @@ function resolveOrThrow(rawId: string): string {
 function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   const limit = Number(queryParams.limit ?? 50);
   const offset = Number(queryParams.offset ?? 0);
-  const backgroundOnly = queryParams.conversationType === "background";
+  // "background" is the back-compat umbrella (background + scheduled); newer
+  // clients can pass "scheduled" to load only the Scheduled section. Absent
+  // defaults to the standard foreground list. Any other value is rejected so
+  // an unrecognized type surfaces as a 400 rather than being silently coerced
+  // to the foreground list (which would mask client/daemon version skew).
+  const rawConversationType = queryParams.conversationType;
+  let conversationType: ConversationType = "standard";
+  if (rawConversationType !== undefined && rawConversationType !== "") {
+    if (
+      rawConversationType === "background" ||
+      rawConversationType === "scheduled"
+    ) {
+      conversationType = rawConversationType;
+    } else {
+      throw new BadRequestError(
+        `Unknown conversationType "${rawConversationType}"; expected "background" or "scheduled".`,
+      );
+    }
+  }
+  // Defaults to `active` so sidebar restores no longer pull archived rows.
+  // The Archive page opts into `archived` to render only archived rows
+  // without dragging the entire live history through pagination first.
+  const archiveStatus =
+    queryParams.archiveStatus === "archived"
+      ? "archived"
+      : queryParams.archiveStatus === "all"
+        ? "all"
+        : "active";
 
-  let rows = listConversations(limit, backgroundOnly, offset);
-  const totalCount = countConversations(backgroundOnly);
+  let rows = listConversations(limit, conversationType, offset, archiveStatus);
+  const totalCount = countConversations(conversationType, archiveStatus);
 
   // On the first page, ensure all pinned conversations are included
-  // even if they fall outside the paginated window.
-  if (offset === 0 && !backgroundOnly) {
-    const pinned = listPinnedConversations();
+  // even if they fall outside the paginated window. Pinned injection is
+  // skipped in archived/all views since the Archive page renders archived
+  // rows in archive-time order, not pin order.
+  if (
+    offset === 0 &&
+    conversationType === "standard" &&
+    archiveStatus === "active"
+  ) {
+    const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));
     const missing = pinned.filter((c) => !seen.has(c.id));
     if (missing.length > 0) {
@@ -199,6 +241,12 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
         attentionState: attentionStates.get(conversation.id),
         displayMeta: displayMeta.get(conversation.id),
         parentCache,
+        // Cold (evicted / never-loaded) rows aren't in the in-memory
+        // store, so `findConversation` returns `undefined` and they
+        // report `isProcessing: false` — by definition they aren't
+        // mid-turn since the agent loop only runs on resident convs.
+        isProcessing:
+          findConversation(conversation.id)?.isProcessing() ?? false,
       }),
     ),
     nextOffset,
@@ -307,7 +355,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "listConversations",
     endpoint: "conversations",
     method: "GET",
-    policyKey: "conversations",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List conversations",
     description:
       "Paginated list of conversations with attention state and display metadata.",
@@ -330,8 +381,16 @@ export const ROUTES: RouteDefinition[] = [
         type: "string",
         required: false,
         description:
-          'Filter by conversation type. Pass "background" to list only background/scheduled conversations.',
-        schema: { type: "string", enum: ["background"] },
+          'Filter by conversation type. Pass "background" to list background and scheduled conversations together (the back-compat umbrella), or "scheduled" to list only scheduled conversations.',
+        schema: { type: "string", enum: ["background", "scheduled"] },
+      },
+      {
+        name: "archiveStatus",
+        type: "string",
+        required: false,
+        description:
+          'Filter by archive state. Defaults to "active" (non-archived rows only). Pass "archived" to list only archived rows (for the Archive page) or "all" to include both.',
+        schema: { type: "string", enum: ["active", "archived", "all"] },
       },
     ],
     responseBody: listConversationsResponseSchema,
@@ -341,7 +400,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "recordConversationSeen",
     endpoint: "conversations/seen",
     method: "POST",
-    policyKey: "conversations/seen",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Record a seen signal",
     description: "Mark a conversation as seen, advancing the attention cursor.",
     tags: ["conversations"],
@@ -362,7 +424,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "markConversationUnread",
     endpoint: "conversations/unread",
     method: "POST",
-    policyKey: "conversations/unread",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Mark conversation unread",
     description: "Reset the seen cursor so the conversation appears unread.",
     tags: ["conversations"],
@@ -376,6 +441,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getConversation",
     endpoint: "conversations/:id",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     pathParams: [{ name: "id", type: "uuid" }],
     summary: "Get conversation detail",
     description: "Retrieve a single conversation with full metadata.",

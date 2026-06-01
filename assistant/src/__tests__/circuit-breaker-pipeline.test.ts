@@ -1,7 +1,7 @@
 /**
  * Tests for the `circuitBreaker` plugin pipeline.
  *
- * The default plugin (`plugins/defaults/circuit-breaker.ts`) replaces the
+ * The default plugin (`plugins/defaults/circuit-breaker/register.ts`) replaces the
  * inline compaction circuit-breaker logic that previously lived in
  * `daemon/conversation-agent-loop.ts`. These tests exercise the default
  * plugin through the pipeline runner and assert the threshold (3 consecutive
@@ -30,8 +30,8 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import {
   COMPACTION_CIRCUIT_COOLDOWN_MS,
   COMPACTION_CIRCUIT_FAILURE_THRESHOLD,
-  defaultCircuitBreakerPlugin,
-} from "../plugins/defaults/circuit-breaker.js";
+} from "../plugins/defaults/circuit-breaker/middlewares/circuitBreaker.js";
+import { defaultCircuitBreakerPlugin } from "../plugins/defaults/circuit-breaker/register.js";
 import { runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

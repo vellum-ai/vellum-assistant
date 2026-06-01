@@ -10,15 +10,17 @@
  * - `reconcileFromServer`: delegates to `reconcileMessages`,
  *   reports changed vs unchanged.
  * - `reconcileActiveConversation`: orchestrates fetch, reconciliation,
- *   turn-state dispatch (`POLL_RECONCILED`), and stale-`isStreaming` cleanup.
+ *   turn-state dispatch (`POLL_RECONCILED`), and stale tool-call cleanup.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createElement, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { createElement, type RefObject } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/stores/turn-store";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
+import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------
@@ -126,9 +128,6 @@ type HookReturn = ReturnType<typeof useMessageReconciliation>;
 // ---------------------------------------------------------------------------
 
 interface HarnessProps {
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
-  streamEpochRef: RefObject<number>;
   initialPageOldestTsRef?: RefObject<number | null>;
   collect: (result: HookReturn) => void;
 }
@@ -139,9 +138,6 @@ let hookModule: typeof import("./use-message-reconciliation") | null = null;
 function HookHarness(props: HarnessProps): null {
   if (!hookModule) throw new Error("hookModule not loaded");
   const result = hookModule.useMessageReconciliation({
-    setMessages: props.setMessages,
-    streamContextRef: props.streamContextRef,
-    streamEpochRef: props.streamEpochRef,
     initialPageOldestTsRef: props.initialPageOldestTsRef ?? makeRef(null),
   });
   props.collect(result);
@@ -152,7 +148,13 @@ function HookHarness(props: HarnessProps): null {
 // Shared state + helpers
 // ---------------------------------------------------------------------------
 
+/** Read/write proxy for the store's `messages` field. Tests assign to
+ *  `messages` before creating the harness (seeding), then read it after
+ *  reconciliation to check the result. Under the hood everything flows
+ *  through the store's real `setMessages` action — no custom override.
+ *  A store subscription keeps this variable in sync automatically. */
 let messages: DisplayMessage[] = [];
+let unsubscribeMessages: (() => void) | null = null;
 let onPollReconciledSpy: ReturnType<typeof mock>;
 
 function makeRef<T>(value: T): RefObject<T> {
@@ -169,14 +171,9 @@ function makeMessage(
 function createHarness(overrides?: {
   streamContext?: { assistantId: string; conversationId: string } | null;
   streamEpoch?: number;
-  streamEpochRef?: RefObject<number>;
   activeConversationId?: string | null;
   turnState?: TurnState;
 }): HookReturn {
-  const setMessages: Dispatch<SetStateAction<DisplayMessage[]>> = (updater) => {
-    messages = typeof updater === "function" ? updater(messages) : updater;
-  };
-
   // Set turn state on the Zustand store before rendering
   const turnState = overrides?.turnState ?? INITIAL_TURN_STATE;
   useTurnStore.setState(turnState);
@@ -191,11 +188,26 @@ function createHarness(overrides?: {
   });
 
   let captured: HookReturn | null = null;
+  // Seed the store's messages field with the current test messages so the
+  // hook's `setMessages` updater reads the correct `prev` value.
+  useChatSessionStore.setState({ messages });
+
+  // Subscribe to keep the local `messages` variable in sync with the store.
+  // This allows existing test assertions (`expect(messages).toHaveLength(...)`)
+  // to work without changes — the store's `setMessages` action updates
+  // `state.messages`, and the subscription propagates it here.
+  if (unsubscribeMessages) unsubscribeMessages();
+  unsubscribeMessages = useChatSessionStore.subscribe((state) => {
+    messages = state.messages;
+  });
+
+  useStreamStore.setState({
+    streamContext: overrides?.streamContext ?? null,
+    streamEpoch: overrides?.streamEpoch ?? 0,
+  });
+
   renderToStaticMarkup(
     createElement(HookHarness, {
-      setMessages,
-      streamContextRef: makeRef(overrides?.streamContext ?? null),
-      streamEpochRef: overrides?.streamEpochRef ?? makeRef(overrides?.streamEpoch ?? 0),
       collect: (result) => { captured = result; },
     }),
   );
@@ -212,6 +224,11 @@ beforeEach(async () => {
   if (!hookModule) {
     hookModule = await import("./use-message-reconciliation");
   }
+  // Clean up any previous store subscription.
+  if (unsubscribeMessages) {
+    unsubscribeMessages();
+    unsubscribeMessages = null;
+  }
   messages = [];
   mockFetchResult = [];
   mockFetchError = null;
@@ -225,6 +242,18 @@ beforeEach(async () => {
     attentionConversationIds: new Set(),
     activeConversationId: null,
     editingConversationId: null,
+  });
+  // Reset the chat session store to initial state.
+  useChatSessionStore.setState({
+    messages: [],
+    error: null,
+    isLoadingHistory: true,
+    streamingMessageIds: new Set(),
+    pendingQueuedMessageIds: [],
+    requestIdToMessageId: new Map(),
+    pendingLocalDeletions: new Set(),
+    confirmationToolCallMap: new Map(),
+    expandedToolCallIds: new Set(),
   });
 });
 
@@ -431,7 +460,6 @@ describe("reconcileActiveConversation", () => {
       id: "m2",
       role: "assistant",
       content: "Working on it...",
-      isStreaming: true,
     });
     messages = [msg, assistantMsg];
     mockFetchResult = [
@@ -547,17 +575,16 @@ describe("reconcileActiveConversation", () => {
     // → changed = true → assistantProgress = true → rescue fires.
     //
     // Note: this test deliberately uses a CONTENT MISMATCH between local
-    // and server, not just a stale `isStreaming: true` flag. With the
-    // fix that preserves client-owned `isStreaming` across reconcile,
-    // matching-content + isStreaming alone is no longer a stuckness
-    // signal (it's indistinguishable from a healthy mid-stream sync
-    // reconcile). The rescue requires positive structural evidence.
+    // and server. A live row that merely trails the latest user message is
+    // not a stuckness signal on its own (it's indistinguishable from a
+    // healthy mid-stream sync reconcile). The rescue requires positive
+    // structural evidence — the server holding longer assistant content
+    // than the client ever rendered.
     const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
     const assistantMsg = makeMessage({
       id: "m2",
       role: "assistant",
       content: "Response in",
-      isStreaming: true,
     });
     messages = [msg, assistantMsg];
     mockFetchResult = [
@@ -587,17 +614,15 @@ describe("reconcileActiveConversation", () => {
   test("does NOT call onPollReconciled during a healthy mid-stream sync reconcile", async () => {
     // Regression guard for the bubble-split fix (PR #31866 / codex P1):
     // when a sync-tag reconcile lands during a healthy live stream, the
-    // local row is `isStreaming: true` and the server snapshot matches
-    // what local already has (server has caught up to the latest delta,
-    // no newer content yet). This must NOT fire the silent-stall rescue
-    // — doing so would force-idle the turn, clear isStreaming, and
+    // live row's content matches what local already has (server has caught
+    // up to the latest delta, no newer content yet). This must NOT fire
+    // the silent-stall rescue — doing so would force-idle the turn and
     // force-complete every running tool call, mid-stream.
     const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
     const assistantMsg = makeMessage({
       id: "m2",
       role: "assistant",
       content: "Working on it...",
-      isStreaming: true,
     });
     messages = [msg, assistantMsg];
     mockFetchResult = [
@@ -726,13 +751,12 @@ describe("reconcileActiveConversation", () => {
   test("bails out when epoch changes during fetch", async () => {
     // Simulate the page going hidden while the fetch is in-flight:
     // the hidden handler bumps the epoch, so this reconciliation is stale.
-    const epochRef = makeRef(1);
     messages = [makeMessage({ id: "m1", role: "user", content: "Hello" })];
     mockFetchResult = [
       { id: "m1", role: "user", content: "Hello" },
       { id: "m2", role: "assistant", content: "Response" },
     ];
-    mockFetchSideEffect = () => { epochRef.current = 2; };
+    mockFetchSideEffect = () => { useStreamStore.setState({ streamEpoch: 2 }); };
     const stuckTurnState: TurnState = {
       phase: "streaming",
       pendingQueuedCount: 0,
@@ -745,7 +769,7 @@ describe("reconcileActiveConversation", () => {
     };
     const { reconcileActiveConversation } = createHarness({
       streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      streamEpochRef: epochRef,
+      streamEpoch: 1,
       activeConversationId: "conv-1",
       turnState: stuckTurnState,
     });
@@ -794,46 +818,14 @@ describe("reconcileActiveConversation", () => {
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 
-  test("clears stale isStreaming flags when turn is idle and fetch returns empty", async () => {
-    // When the server returns no messages, reconcileFromServer bails early
-    // (returns false) and does NOT update the messages array. The local
-    // messages — including their isStreaming flags — survive unchanged.
-    // The stale-cleanup branch then detects and clears those flags.
+  test("does NOT fire the silent-stall rescue when the turn is sending and the server returns empty", async () => {
+    // Empty server response + active turn → no POLL_RECONCILED, because we
+    // treat empty responses as "server hasn't caught up yet."
+    // reconcileFromServer bails early (returns false), so there is no
+    // assistant progress to rescue on.
     messages = [
       makeMessage({ id: "m1", role: "user", content: "Hello" }),
-      makeMessage({ id: "m2", role: "assistant", content: "Response", isStreaming: true }),
-    ];
-    mockFetchResult = [];
-    const idleTurnState: TurnState = {
-      phase: "idle",
-      pendingQueuedCount: 0,
-      activeToolCallCount: 0,
-      activeTurnId: null,
-      lastTerminalReason: null,
-      statusText: null,
-      liveWebActivity: {},
-      autoRoutedProfileLabel: null,
-    };
-    const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationId: "conv-1",
-      turnState: idleTurnState,
-    });
-    const result = await reconcileActiveConversation();
-    expect(result.changed).toBe(false);
-    // The cleanup branch should have cleared the stale isStreaming flag
-    const streamingMessages = messages.filter((m) => m.isStreaming);
-    expect(streamingMessages).toHaveLength(0);
-    expect(messages[1]!.isStreaming).toBe(false);
-  });
-
-  test("does NOT clear isStreaming when turn is sending and server returns empty", async () => {
-    // Empty server response + active turn → neither POLL_RECONCILED nor
-    // isStreaming cleanup fires, because we treat empty responses as
-    // "server hasn't caught up yet."
-    messages = [
-      makeMessage({ id: "m1", role: "user", content: "Hello" }),
-      makeMessage({ id: "m2", role: "assistant", content: "Response", isStreaming: true }),
+      makeMessage({ id: "m2", role: "assistant", content: "Response" }),
     ];
     mockFetchResult = [];
     const streamingTurnState: TurnState = {
@@ -852,7 +844,6 @@ describe("reconcileActiveConversation", () => {
       turnState: streamingTurnState,
     });
     await reconcileActiveConversation();
-    expect(messages[1]!.isStreaming).toBe(true);
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 
@@ -1080,7 +1071,6 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
         id: "m2",
         role: "assistant",
         content: "",
-        isStreaming: true,
         toolCalls: [
           { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
         ],
@@ -1104,20 +1094,18 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     });
     await reconcileActiveConversation();
 
-    // Both isStreaming and running tool calls should be cleared
-    expect(messages[1]!.isStreaming).toBe(false);
+    // The running tool call should be force-completed once the turn is idle.
     expect(messages[1]!.toolCalls![0]!.status).toBe("completed");
     expect(messages[1]!.toolCalls![0]!.completedAt).toBeDefined();
   });
 
-  test("force-completes stale tool calls even when isStreaming is already false", async () => {
+  test("force-completes stale tool calls on a non-live assistant row", async () => {
     messages = [
       makeMessage({ id: "m1", role: "user", content: "Hello" }),
       makeMessage({
         id: "m2",
         role: "assistant",
         content: "partial",
-        isStreaming: false,
         toolCalls: [
           { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
           { id: "tc-2", toolName: "bash", input: {}, status: "completed" as const },
@@ -1156,7 +1144,6 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
         id: "m2",
         role: "assistant",
         content: "",
-        isStreaming: true,
         toolCalls: [
           { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
         ],
@@ -1181,7 +1168,6 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     await reconcileActiveConversation();
 
     // Tool call should remain running since the turn is still active
-    expect(messages[1]!.isStreaming).toBe(true);
     expect(messages[1]!.toolCalls![0]!.status).toBe("running");
   });
 });

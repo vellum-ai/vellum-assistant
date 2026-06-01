@@ -4,14 +4,15 @@
  * user-initiated turns default to `'mainAgent'` when no caller-supplied
  * `callSite` is set.
  *
- * The test mocks `AgentLoop.run()` so it can capture the `callSite` parameter
- * the conversation passes after `processMessage` runs the slash-resolver and
- * runtime-injection pipeline. Adapter callers (heartbeat, filing, scheduler)
- * pass an explicit `callSite` so `RetryProvider` resolves their per-call
- * config from `llm.callSites.<id>`.
+ * The test mocks `AgentLoop.run()` so it can capture the `callSite` option
+ * the conversation passes via `AgentLoopRunOptions` after `processMessage`
+ * runs the slash-resolver and runtime-injection pipeline. Adapter callers
+ * (heartbeat, filing, scheduler) pass an explicit `callSite` so
+ * `RetryProvider` resolves their per-call config from `llm.callSites.<id>`.
  */
 import { describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // Use an object wrapper so TypeScript doesn't narrow the captured type to
@@ -202,21 +203,21 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-// Mock AgentLoop to capture the callSite argument that runAgentLoopImpl passes.
-// The 6th positional parameter is `callSite` (see assistant/src/agent/loop.ts).
+// Mock AgentLoop to capture the callSite argument that runAgentLoopImpl passes
+// via the options object (see assistant/src/agent/loop.ts → AgentLoopConstructorOptions).
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor(
       _provider: unknown,
       _systemPrompt: string,
-      config?: Record<string, unknown>,
-      _tools?: unknown,
-      _toolExecutor?: unknown,
-      _resolveTools?: unknown,
-      resolveSystemPrompt?: (history: Message[]) => Record<string, unknown>,
+      options?: {
+        config?: Record<string, unknown>;
+        resolveSystemPrompt?: (history: Message[]) => Record<string, unknown>;
+      },
     ) {
-      captured.constructorMaxTokens = config?.maxTokens;
-      const resolved = resolveSystemPrompt?.([]);
+      captured.constructorMaxTokens = options?.config?.maxTokens;
+      const resolved = options?.resolveSystemPrompt?.([]);
       captured.resolvedMaxTokens = resolved?.maxTokens;
       captured.resolvedHasMaxTokens =
         resolved !== undefined &&
@@ -231,12 +232,9 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: Record<string, unknown>) => void,
-      _signal?: AbortSignal,
-      _requestId?: string,
-      _onCheckpoint?: unknown,
-      callSite?: string,
+      options?: { callSite?: string },
     ): Promise<Message[]> {
-      captured.callSite = callSite;
+      captured.callSite = options?.callSite;
       onEvent({
         type: "usage",
         inputTokens: 0,
@@ -311,9 +309,9 @@ function makeConversation(): Conversation {
     "conv-1",
     provider,
     "system prompt",
-    4096,
     () => {},
     "/tmp",
+    { maxTokens: 4096 },
   );
 }
 
@@ -333,15 +331,11 @@ describe("processMessage callSite threading", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage(
-      "Heartbeat tick",
-      [],
-      () => {},
-      undefined, // requestId
-      undefined, // activeSurfaceId
-      undefined, // currentPage
-      { callSite: "heartbeatAgent" },
-    );
+    await conversation.processMessage({
+      content: "Heartbeat tick",
+      attachments: [],
+      callSite: "heartbeatAgent",
+    });
 
     expect(captured.callSite).toBe("heartbeatAgent");
   });
@@ -361,7 +355,10 @@ describe("processMessage callSite threading", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Plain user message", [], () => {});
+    await conversation.processMessage({
+      content: "Plain user message",
+      attachments: [],
+    });
 
     expect(captured.callSite).toBe("mainAgent");
   });

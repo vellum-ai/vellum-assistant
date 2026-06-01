@@ -9,6 +9,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/r
 import {
   Check,
   Copy,
+  Download,
   FileIcon,
   FileText,
   FolderOpen,
@@ -21,6 +22,11 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { Button } from "@vellum/design-library/components/button";
 import { client } from "@/generated/api/client.gen";
+import {
+  workspaceFileGet,
+  workspaceWritePost,
+} from "@/generated/daemon/sdk.gen";
+import type { WorkspaceFileGetResponse } from "@/generated/daemon/types.gen";
 import { FileMarkdown, isMarkdown } from "@/components/file-markdown";
 import { isJson, prettifyJson } from "@/domains/workspace/utils/file-json";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
@@ -31,27 +37,18 @@ import type { WorkspaceViewMode } from "@/domains/workspace/components/workspace
 // API helpers
 // ---------------------------------------------------------------------------
 
-interface WorkspaceFileResponse {
-  name?: string;
-  path?: string;
-  size?: number;
-  mimeType?: string;
-  modifiedAt?: string;
-  content?: string;
-}
-
 function workspaceFileRetrieveOptions(opts: {
   path: { assistant_id: string };
   query: { path: string; showHidden?: boolean };
 }) {
-  return queryOptions<WorkspaceFileResponse>({
+  return queryOptions<WorkspaceFileGetResponse>({
     queryFn: async () => {
-      const query: Record<string, string> = { path: opts.query.path };
-      if (opts.query.showHidden) query.showHidden = "true";
-      const { data, error } = await client.get<WorkspaceFileResponse, unknown>({
-        url: "/v1/assistants/{assistant_id}/workspace/file/",
+      const { data, error } = await workspaceFileGet({
         path: opts.path,
-        query,
+        query: {
+          path: opts.query.path,
+          ...(opts.query.showHidden ? { showHidden: "true" } : {}),
+        },
       });
       if (error) throw error;
       return data!;
@@ -300,11 +297,17 @@ function EditFooter({
 
 function ContentActionBar({
   content,
+  downloadContent,
+  fileName,
+  mimeType,
   showEdit,
   isEditing,
   onToggleEdit,
 }: {
   content: string;
+  downloadContent?: string;
+  fileName: string;
+  mimeType: string;
   showEdit: boolean;
   isEditing: boolean;
   onToggleEdit: () => void;
@@ -321,6 +324,17 @@ function ContentActionBar({
       timerRef.current = setTimeout(() => setCopied(false), 1500);
     });
   }, [content]);
+
+  const rawContent = downloadContent ?? content;
+  const handleDownload = useCallback(() => {
+    const blob = new Blob([rawContent], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [rawContent, fileName, mimeType]);
 
   useEffect(() => {
     return () => {
@@ -352,6 +366,14 @@ function ContentActionBar({
         iconOnly={copied ? <Check aria-hidden /> : <Copy aria-hidden />}
         onClick={handleCopy}
         aria-label={copied ? "Copied" : "Copy file contents"}
+        className="hover:bg-[var(--surface-base)]"
+      />
+      <Button
+        variant="ghost"
+        size="regular"
+        iconOnly={<Download aria-hidden />}
+        onClick={handleDownload}
+        aria-label="Download file"
         className="hover:bg-[var(--surface-base)]"
       />
     </div>
@@ -461,11 +483,9 @@ export function WorkspaceFileViewer({
 
   const saveMutation = useMutation({
     mutationFn: async ({ path, content }: { path: string; content: string }) => {
-      const { error, response } = await client.post<unknown, unknown>({
-        url: "/v1/assistants/{assistant_id}/workspace/write/",
+      const { error, response } = await workspaceWritePost({
         path: { assistant_id: assistantId },
         body: { path, content, encoding: "utf8" },
-        headers: { "Content-Type": "application/json" },
         throwOnError: false,
       });
       if (!response?.ok || error) {
@@ -585,6 +605,8 @@ export function WorkspaceFileViewer({
         <div className="relative flex-1 overflow-hidden">
           <ContentActionBar
             content={sourceContent}
+            fileName={name}
+            mimeType={mimeType}
             showEdit={!readOnly && viewMode === "source"}
             isEditing={isEditing}
             onToggleEdit={() =>
@@ -639,6 +661,9 @@ export function WorkspaceFileViewer({
         <div className="relative flex-1 overflow-hidden">
           <ContentActionBar
             content={viewMode === "preview" ? previewContent : sourceContent}
+            downloadContent={sourceContent}
+            fileName={name}
+            mimeType={mimeType}
             showEdit={!readOnly && viewMode === "source"}
             isEditing={isEditing}
             onToggleEdit={() =>
@@ -674,6 +699,8 @@ export function WorkspaceFileViewer({
         <div className="relative flex-1 overflow-hidden">
           <ContentActionBar
             content={isEditing ? editableContent : (data.content ?? "")}
+            fileName={name}
+            mimeType={mimeType}
             showEdit={!readOnly}
             isEditing={isEditing}
             onToggleEdit={() =>

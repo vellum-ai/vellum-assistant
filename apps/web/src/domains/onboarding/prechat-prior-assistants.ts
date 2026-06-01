@@ -13,7 +13,7 @@
  * exported from `prechat-tools.ts`.
  */
 
-import { publicAsset } from "@/lib/public-asset";
+import { publicAsset } from "@/utils/public-asset";
 
 export interface PreChatPriorAssistantItem {
   id: string;

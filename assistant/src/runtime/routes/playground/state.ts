@@ -36,7 +36,8 @@ export function buildCompactionStateResponse(conversation: Conversation) {
   const maxInputTokens = cfg.maxInputTokens;
   const compactThresholdRatio = cfg.compactThreshold;
   const thresholdTokens = Math.floor(maxInputTokens * compactThresholdRatio);
-  const compactionCircuitOpenUntil = conversation.compactionCircuitOpenUntil;
+  const circuit = conversation.agentLoop.compactionCircuit;
+  const compactionCircuitOpenUntil = circuit.compactionCircuitOpenUntil;
   return {
     estimatedInputTokens,
     maxInputTokens,
@@ -45,7 +46,7 @@ export function buildCompactionStateResponse(conversation: Conversation) {
     messageCount: messages.length,
     contextCompactedMessageCount: conversation.contextCompactedMessageCount,
     contextCompactedAt: conversation.contextCompactedAt,
-    consecutiveCompactionFailures: conversation.consecutiveCompactionFailures,
+    consecutiveCompactionFailures: circuit.consecutiveCompactionFailures,
     compactionCircuitOpenUntil,
     isCircuitOpen:
       compactionCircuitOpenUntil !== null &&
@@ -59,7 +60,7 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "playgroundGetCompactionState",
     endpoint: "conversations/:id/playground/compaction-state",
     method: "GET",
-    policyKey: "conversations/playground/state",
+    policy: null,
     summary: "Read current compaction state for a conversation",
     tags: ["playground"],
     pathParams: [{ name: "id", type: "uuid" }],

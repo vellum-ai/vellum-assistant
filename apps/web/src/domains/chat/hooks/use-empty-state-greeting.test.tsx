@@ -34,21 +34,17 @@ interface ClientResponse {
   response: { ok: boolean };
 }
 
-const clientCalls: unknown[] = [];
+const identityIntroCalls: unknown[] = [];
 let clientResponse: ClientResponse = {
   data: null,
   error: null,
   response: { ok: true },
 };
 
-mock.module("@/domains/chat/api/client", () => ({
-  SDK_BASE_OPTIONS: {},
-  assertHasResponse: () => {},
-  client: {
-    get: (options: unknown) => {
-      clientCalls.push(options);
-      return Promise.resolve(clientResponse);
-    },
+mock.module("@/generated/daemon/sdk.gen", () => ({
+  identityIntroGet: (options: unknown) => {
+    identityIntroCalls.push(options);
+    return Promise.resolve(clientResponse);
   },
 }));
 
@@ -73,7 +69,7 @@ function runHook(assistantId: string | null | undefined): string {
       collect={(result) => {
         captured = result;
       }}
-    />,
+    />
   );
   if (captured === null) {
     throw new Error("HookHarness did not invoke the hook");
@@ -85,7 +81,7 @@ const originalRandom = Math.random;
 
 beforeEach(() => {
   lastCapturedOptions = null;
-  clientCalls.length = 0;
+  identityIntroCalls.length = 0;
   clientResponse = { data: null, error: null, response: { ok: true } };
   useQueryStub = { data: undefined };
   Math.random = originalRandom;
@@ -100,7 +96,7 @@ describe("useEmptyStateGreeting", () => {
     runHook("asst-1");
 
     expect(lastCapturedOptions?.queryKey).toEqual(
-      assistantIdentityIntroQueryKey("asst-1"),
+      assistantIdentityIntroQueryKey("asst-1")
     );
     expect(lastCapturedOptions?.enabled).toBe(true);
   });
@@ -130,10 +126,10 @@ describe("useEmptyStateGreeting", () => {
     const result = await lastCapturedOptions!.queryFn();
 
     expect(result).toEqual(["First greeting", "Second greeting"]);
-    expect(clientCalls).toHaveLength(1);
-    expect((clientCalls[0] as { url: string }).url).toBe(
-      "/v1/assistants/{assistant_id}/identity/intro",
-    );
+    expect(identityIntroCalls).toHaveLength(1);
+    expect(
+      (identityIntroCalls[0] as { path: { assistant_id: string } }).path
+    ).toEqual({ assistant_id: "asst-1" });
   });
 
   test("queryFn falls back to legacy text when greetings are absent", async () => {

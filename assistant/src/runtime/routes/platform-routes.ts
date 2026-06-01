@@ -27,6 +27,7 @@ import {
 } from "../../security/secure-keys.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   InternalError,
@@ -287,6 +288,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "platform_status",
     endpoint: "platform/status",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Get platform deployment context and connection status",
     description:
       "Aggregates platform context, credentials, assistant ID, webhook secret, and Velay tunnel status.",
@@ -297,6 +302,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "platform_connect",
     endpoint: "platform/connect",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Connect to the Vellum Platform",
     description:
       "Checks existing credentials and emits the show_platform_login signal for connected clients to show a login UI.",
@@ -307,6 +316,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "platform_disconnect",
     endpoint: "platform/disconnect",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Disconnect from the Vellum Platform",
     description:
       "Deletes stored platform credentials and emits platform_disconnected signal to connected clients.",
@@ -317,6 +330,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "platform_callback_routes_register",
     endpoint: "platform/callback-routes/register",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Register a platform callback route",
     description:
       "Registers a callback route with the platform gateway for inbound provider webhooks.",
@@ -327,6 +344,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "platform_callback_routes_list",
     endpoint: "platform/callback-routes",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "List registered platform callback routes",
     description:
       "Lists all callback routes registered with the platform for this assistant.",

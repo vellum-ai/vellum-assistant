@@ -1,10 +1,10 @@
 import type { KeyboardEvent } from "react";
 
 import { Card } from "@vellum/design-library";
-import type { PluginInfo } from "@/domains/intelligence/plugins/types";
+import type { PluginsGetResponse } from "@/generated/daemon/types.gen";
 
 interface PluginRowProps {
-  plugin: PluginInfo;
+  plugin: PluginsGetResponse["plugins"][number];
   /**
    * Optional row-level click handler. The Plugins tab doesn't yet have
    * a detail view; passing `onSelect` keeps the affordance ready for
@@ -67,7 +67,9 @@ export function PluginRow({ plugin, onSelect }: PluginRowProps) {
           {plugin.issues && plugin.issues.length > 0 ? (
             <p
               className="mt-1 truncate text-body-small-default"
-              style={{ color: "var(--content-warning, var(--content-tertiary))" }}
+              style={{
+                color: "var(--content-warning, var(--content-tertiary))",
+              }}
               title={plugin.issues.join("; ")}
             >
               {plugin.issues[0]}

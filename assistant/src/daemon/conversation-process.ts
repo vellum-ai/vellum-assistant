@@ -164,8 +164,8 @@ export interface ProcessConversationContext {
   runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent?: (msg: ServerMessage) => void,
     options?: {
+      onEvent?: (msg: ServerMessage) => void;
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
@@ -196,9 +196,11 @@ export interface ProcessConversationContext {
       | "error_terminal"
       | "preview_start"
       | "context_compacting",
-    anchor?: "assistant_turn" | "user_turn" | "global",
-    requestId?: string,
-    statusText?: string,
+    options?: {
+      anchor?: "assistant_turn" | "user_turn" | "global";
+      requestId?: string;
+      statusText?: string;
+    },
   ): void;
   /** Force context compaction regardless of threshold/cooldown. */
   forceCompact(options?: {
@@ -512,12 +514,9 @@ async function drainSingleMessage(
     conversationId: conversation.conversationId,
     requestId: next.requestId,
   });
-  conversation.emitActivityState(
-    "thinking",
-    "message_dequeued",
-    "assistant_turn",
-    next.requestId,
-  );
+  conversation.emitActivityState("thinking", "message_dequeued", {
+    requestId: next.requestId,
+  });
 
   const queuedTurnCtx = resolveQueuedTurnContext(
     next,
@@ -625,12 +624,9 @@ async function drainSingleMessage(
         next.attachments,
         next.displayContent,
       );
-      await addMessage(
-        conversation.conversationId,
-        "user",
-        contentToPersist,
-        drainChannelMeta,
-      );
+      await addMessage(conversation.conversationId, "user", contentToPersist, {
+        metadata: drainChannelMeta,
+      });
       conversation.messages.push(llmUserMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
@@ -638,7 +634,7 @@ async function drainSingleMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        { ...drainChannelMeta, sentAt: Date.now() },
+        { metadata: { ...drainChannelMeta, sentAt: Date.now() } },
       );
       conversation.messages.push(assistantMsg);
 
@@ -741,17 +737,14 @@ async function drainSingleMessage(
           next.attachments,
           next.displayContent,
         ),
-        drainChannelMeta,
+        { metadata: drainChannelMeta },
       );
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
 
-      conversation.emitActivityState(
-        "thinking",
-        "context_compacting",
-        "assistant_turn",
-        next.requestId,
-      );
+      conversation.emitActivityState("thinking", "context_compacting", {
+        requestId: next.requestId,
+      });
       const result = await conversation.forceCompact({
         targetInputTokensOverride: slashResult.targetInputTokensOverride,
       });
@@ -762,7 +755,7 @@ async function drainSingleMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        { ...drainChannelMeta, sentAt: Date.now() },
+        { metadata: { ...drainChannelMeta, sentAt: Date.now() } },
       );
       conversation.messages.push(assistantMsg);
 
@@ -837,7 +830,7 @@ async function drainSingleMessage(
           next.attachments,
           next.displayContent,
         ),
-        drainChannelMeta,
+        { metadata: drainChannelMeta },
       );
       persistedCleanMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -850,7 +843,7 @@ async function drainSingleMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        { ...drainChannelMeta, sentAt: Date.now() },
+        { metadata: { ...drainChannelMeta, sentAt: Date.now() } },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1031,12 +1024,10 @@ async function drainSingleMessage(
     drainLoopOptions.titleText = resolvedContent;
 
   conversation
-    .runAgentLoop(
-      agentLoopContent,
-      userMessageId,
-      next.onEvent,
-      drainLoopOptions,
-    )
+    .runAgentLoop(agentLoopContent, userMessageId, {
+      ...drainLoopOptions,
+      onEvent: next.onEvent,
+    })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -1128,12 +1119,9 @@ async function drainBatch(
   // connected SSE client (via activityVersion increments), whipsawing the
   // client-side thinking indicator. The single-message path emits exactly
   // one such event per turn; match it here.
-  conversation.emitActivityState(
-    "thinking",
-    "message_dequeued",
-    "assistant_turn",
-    head.requestId,
-  );
+  conversation.emitActivityState("thinking", "message_dequeued", {
+    requestId: head.requestId,
+  });
 
   // Per-message dequeue events and persistence loop. Track the last
   // SUCCESSFUL persist separately from the batch tail — a failed tail
@@ -1406,12 +1394,19 @@ async function drainBatch(
   conversation.currentActiveSurfaceId = lastSuccessfulActiveSurfaceId;
   conversation.currentPage = lastSuccessfulCurrentPage;
 
-  // Broadcast agent-loop events only to members whose persist succeeded.
-  // Members whose persist failed already received an error event in the
-  // catch block above; sending them the assistant's streaming response
-  // would surface a reply for a user message that isn't in their DB.
+  // Broadcast agent-loop events only to unique sinks whose persist succeeded.
+  // Multiple web-queued messages share the same broadcastMessage callback; if
+  // we call it once per queued message, every text delta is published N times
+  // to the same SSE stream and the client renders duplicated text.
+  //
+  // Members whose persist failed already received an error event in the catch
+  // block above; sending them the assistant's streaming response would surface
+  // a reply for a user message that isn't in their DB.
+  const successfulEventSinks = Array.from(
+    new Set(successfulBatch.map((qm) => qm.onEvent)),
+  );
   const fanOutOnEvent = (msg: ServerMessage) => {
-    for (const qm of successfulBatch) qm.onEvent(msg);
+    for (const onEvent of successfulEventSinks) onEvent(msg);
   };
 
   const drainLoopOptions: {
@@ -1431,12 +1426,10 @@ async function drainBatch(
   // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue
   // when this run completes. Mirrors drainSingleMessage.
   conversation
-    .runAgentLoop(
-      lastSuccessfulContent,
-      lastUserMessageId,
-      fanOutOnEvent,
-      drainLoopOptions,
-    )
+    .runAgentLoop(lastSuccessfulContent, lastUserMessageId, {
+      ...drainLoopOptions,
+      onEvent: fanOutOnEvent,
+    })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -1456,6 +1449,22 @@ async function drainBatch(
     });
 }
 
+// ── ProcessMessageOptions ────────────────────────────────────────────
+
+/** Options for `processMessage`. Only `content` and `attachments` are
+ *  required; everything else has a sensible default or is genuinely optional. */
+export interface ProcessMessageOptions {
+  content: string;
+  attachments: UserMessageAttachment[];
+  onEvent?: (msg: ServerMessage) => void;
+  requestId?: string;
+  activeSurfaceId?: string;
+  currentPage?: string;
+  isInteractive?: boolean;
+  callSite?: LLMCallSite;
+  displayContent?: string;
+}
+
 // ── processMessage ───────────────────────────────────────────────────
 
 /**
@@ -1464,15 +1473,19 @@ async function drainBatch(
  */
 export async function processMessage(
   conversation: ProcessConversationContext,
-  content: string,
-  attachments: UserMessageAttachment[],
-  onEvent: (msg: ServerMessage) => void,
-  requestId?: string,
-  activeSurfaceId?: string,
-  currentPage?: string,
-  options?: { isInteractive?: boolean; callSite?: LLMCallSite },
-  displayContent?: string,
+  options: ProcessMessageOptions,
 ): Promise<string> {
+  const {
+    content,
+    attachments,
+    onEvent = () => {},
+    requestId,
+    activeSurfaceId,
+    currentPage,
+    isInteractive,
+    callSite,
+    displayContent,
+  } = options;
   await conversation.ensureActorScopedHistory();
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
@@ -1551,7 +1564,7 @@ export async function processMessage(
           attachments,
           displayContent,
         ),
-        routerChannelMeta,
+        { metadata: routerChannelMeta },
       );
       conversation.messages.push(llmUserMsg);
 
@@ -1565,7 +1578,7 @@ export async function processMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        routerChannelMeta,
+        { metadata: routerChannelMeta },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1644,7 +1657,7 @@ export async function processMessage(
       conversation.conversationId,
       "user",
       contentToPersist,
-      pmChannelMeta,
+      { metadata: pmChannelMeta },
     );
     conversation.messages.push(llmUserMsg);
 
@@ -1653,7 +1666,7 @@ export async function processMessage(
       conversation.conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
-      pmChannelMeta,
+      { metadata: pmChannelMeta },
     );
     conversation.messages.push(assistantMsg);
 
@@ -1731,17 +1744,14 @@ export async function processMessage(
           attachments,
           displayContent,
         ),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
 
-      conversation.emitActivityState(
-        "thinking",
-        "context_compacting",
-        "assistant_turn",
+      conversation.emitActivityState("thinking", "context_compacting", {
         requestId,
-      );
+      });
       const result = await conversation.forceCompact({
         targetInputTokensOverride: slashResult.targetInputTokensOverride,
       });
@@ -1752,7 +1762,7 @@ export async function processMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1818,7 +1828,7 @@ export async function processMessage(
           attachments,
           displayContent,
         ),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       persistedCleanMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -1831,7 +1841,7 @@ export async function processMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1946,17 +1956,14 @@ export async function processMessage(
     titleText?: string;
     callSite?: LLMCallSite;
   } = { isUserMessage: true };
-  if (options?.isInteractive !== undefined)
-    loopOptions.isInteractive = options.isInteractive;
+  if (isInteractive !== undefined) loopOptions.isInteractive = isInteractive;
   if (agentLoopContent !== resolvedContent)
     loopOptions.titleText = resolvedContent;
-  if (options?.callSite !== undefined) loopOptions.callSite = options.callSite;
+  if (callSite !== undefined) loopOptions.callSite = callSite;
 
-  await conversation.runAgentLoop(
-    agentLoopContent,
-    userMessageId,
+  await conversation.runAgentLoop(agentLoopContent, userMessageId, {
+    ...loopOptions,
     onEvent,
-    loopOptions,
-  );
+  });
   return userMessageId;
 }

@@ -28,9 +28,8 @@ struct InferenceProfileEditor: View {
     var isReadOnly: Bool = false
     var isCreating: Bool = false
     /// Provider connections available for the Connection sub-dropdown. The
-    /// editor reads this list, filters by the currently-selected provider
-    /// and `.status == .active`, and lets the user route the profile to a
-    /// specific row. Defaults to nil so test constructions and callers
+    /// editor reads this list, filters by the currently-selected provider,
+    /// and lets the user route the profile to a specific connection row. Defaults to nil so test constructions and callers
     /// that don't care about connection routing still compile — daemons
     /// older than the `provider_connection`-aware profile schema continue
     /// to behave as "pick the first active connection for the provider."
@@ -65,7 +64,12 @@ struct InferenceProfileEditor: View {
     /// model picker is filtered to this set so the user doesn't select a
     /// model the subscription can't dispatch. Mirrors the web app's
     /// `CODEX_SUBSCRIPTION_MODEL_IDS` in `profile-editor-modal.tsx`.
-    static let codexSubscriptionModelIds: Set<String> = ["gpt-5.4", "gpt-5.3-codex"]
+    static let codexSubscriptionModelIds: Set<String> = [
+        "gpt-5.5",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.3-codex"
+    ]
 
     /// Temperature seeded when the user toggles the Set switch on. Also used
     /// as the slider's display fallback when the binding's value is nil so
@@ -265,6 +269,9 @@ struct InferenceProfileEditor: View {
                         }
                         if visibility.thinking {
                             thinkingSection
+                        }
+                        if visibility.thinkingLevel {
+                            thinkingLevelField
                         }
                     }
                     .disabled(isReadOnly)
@@ -474,7 +481,7 @@ struct InferenceProfileEditor: View {
         guard let connections else { return store.dynamicProviderIds }
 
         var activeProviderSet = Set<String>()
-        for connection in connections where connection.status == .active {
+        for connection in connections {
             activeProviderSet.insert(connection.provider)
         }
         if let bound = profile.provider, !bound.isEmpty {
@@ -509,8 +516,8 @@ struct InferenceProfileEditor: View {
                         // Reset connection binding too: a stale name almost
                         // certainly points at a different provider's row, and
                         // the daemon would reject it at resolve time. Falling
-                        // back to "Any active <provider> connection" matches
-                        // the dispatcher's legacy behavior.
+                        // back to "Any <provider> connection" matches the
+                        // dispatcher's legacy behavior.
                         profile.providerConnection = nil
                         Self.clampMaxOutputTokensForSelectedModel(&profile)
                         Self.clampContextWindowForSelectedModel(&profile)
@@ -521,20 +528,20 @@ struct InferenceProfileEditor: View {
                 }
             )
             if availableProviderIds.isEmpty && !isReadOnly {
-                Text("No active provider connections. Open Providers to add or enable one.")
+                Text("No provider connections. Open Providers to add one.")
                     .font(VFont.bodySmallDefault)
                     .foregroundStyle(VColor.contentTertiary)
             }
         }
     }
 
-    /// Active connections that match the currently-selected provider. Used
-    /// by `connectionField` to populate its dropdown. During pre-load
+    /// Connections that match the currently-selected provider. Used by
+    /// `connectionField` to populate its dropdown. During pre-load
     /// (`connections == nil`) there's nothing to pick — the connection
     /// sub-dropdown stays hidden until the fetch completes.
     var availableConnectionsForProvider: [ProviderConnection] {
         guard let provider = profile.provider, !provider.isEmpty else { return [] }
-        return (connections ?? []).filter { $0.provider == provider && $0.status == .active }
+        return (connections ?? []).filter { $0.provider == provider }
     }
 
     /// The currently-saved binding when it does NOT resolve to any active
@@ -880,6 +887,23 @@ struct InferenceProfileEditor: View {
             // the daemon would ignore the leaf either way but the disabled
             // affordance keeps the UI honest.
             .disabled(!(profile.thinkingEnabled ?? false))
+        }
+    }
+
+    // Gemini's reasoning-depth knob. The model's supported levels come from
+    // the catalog family rule; "default" omits `thinking.level` so the daemon
+    // applies the model default (and clamps anything below a Pro model's floor).
+    private var thinkingLevelField: some View {
+        let levels = ["default"]
+            + InferenceProfileParameterVisibility.geminiThinkingLevels(profile.model ?? "")
+        return labeled("Thinking level") {
+            VSegmentControl(
+                items: levels.map { (label: $0, tag: $0) },
+                selection: Binding(
+                    get: { profile.thinkingLevel ?? "default" },
+                    set: { profile.thinkingLevel = $0 == "default" ? nil : $0 }
+                )
+            )
         }
     }
 

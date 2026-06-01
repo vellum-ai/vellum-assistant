@@ -77,8 +77,37 @@ function activeThreadRows(): Array<{ threadTs: string; channelId: string }> {
   return new SlackStore(getGatewayDb()).listActiveThreadsWithChannel();
 }
 
+function rawActiveThreadRows(): Array<{
+  threadTs: string;
+  channelId: string | null;
+}> {
+  const rawDb = (getGatewayDb() as unknown as { $client: unknown }).$client as {
+    prepare: (sql: string) => {
+      all: () => Array<{ thread_ts: string; channel_id: string | null }>;
+    };
+  };
+  return rawDb
+    .prepare("SELECT thread_ts, channel_id FROM slack_active_threads")
+    .all()
+    .map((row) => ({
+      threadTs: row.thread_ts,
+      channelId: row.channel_id,
+    }));
+}
+
 function trackThread(): void {
   new SlackStore(getGatewayDb()).trackThread(THREAD_TS, CHANNEL_ID, 60_000);
+}
+
+function trackLegacyThreadWithoutChannel(): void {
+  const rawDb = (getGatewayDb() as unknown as { $client: unknown }).$client as {
+    prepare: (sql: string) => { run: (...params: unknown[]) => void };
+  };
+  rawDb
+    .prepare(
+      "INSERT INTO slack_active_threads (thread_ts, channel_id, tracked_at, expires_at) VALUES (?, NULL, ?, ?)",
+    )
+    .run(THREAD_TS, Date.now(), Date.now() + 60_000);
 }
 
 describe("IPC Slack thread routes", () => {
@@ -133,6 +162,24 @@ describe("IPC Slack thread routes", () => {
     expect(activeThreadRows()).toEqual([
       { threadTs: THREAD_TS, channelId: CHANNEL_ID },
     ]);
+  });
+
+  test("detach_slack_active_thread removes a legacy active thread without channel", async () => {
+    trackLegacyThreadWithoutChannel();
+
+    await startServerAndConnect();
+    const res = await sendRequest(client, "detach_slack_active_thread", {
+      channelId: CHANNEL_ID,
+      threadTs: THREAD_TS,
+    });
+
+    expect(res.error).toBeUndefined();
+    expect(res.result).toEqual({
+      detached: true,
+      channelId: CHANNEL_ID,
+      threadTs: THREAD_TS,
+    });
+    expect(rawActiveThreadRows()).toEqual([]);
   });
 
   test("detach_slack_active_thread does not remove channel mismatches", async () => {

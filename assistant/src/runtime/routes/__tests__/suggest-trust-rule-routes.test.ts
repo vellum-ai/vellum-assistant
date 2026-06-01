@@ -169,8 +169,11 @@ describe("suggestTrustRuleRoute", () => {
 
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
       const callArgs = mockSendMessage.mock.calls[0] as unknown[];
-      const options = callArgs[3] as {
-        config: { callSite: string; tool_choice: { type: string; name: string } };
+      const options = callArgs[1] as {
+        config: {
+          callSite: string;
+          tool_choice: { type: string; name: string };
+        };
       };
       expect(options.config.callSite).toBe("trustRuleSuggestion");
       expect(options.config.tool_choice).toEqual({

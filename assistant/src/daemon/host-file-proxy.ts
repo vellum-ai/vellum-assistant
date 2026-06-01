@@ -10,6 +10,7 @@ import {
   pickSameUserAutoResolve,
 } from "../runtime/auth/same-actor.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
+import { readAudioBase64 } from "../tools/shared/filesystem/audio-read.js";
 import { readImageBase64 } from "../tools/shared/filesystem/image-read.js";
 import type { ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
@@ -225,7 +226,13 @@ export class HostFileProxy {
    */
   resolve(
     requestId: string,
-    response: { content: string; isError: boolean; imageData?: string },
+    response: {
+      content: string;
+      isError: boolean;
+      imageData?: string;
+      audioData?: string;
+      audioMimeType?: string;
+    },
   ): void {
     const interaction = pendingInteractions.resolve(requestId, "answered");
     if (!interaction?.rpcResolve) {
@@ -241,6 +248,23 @@ export class HostFileProxy {
     ) {
       interaction.rpcResolve(
         readImageBase64(response.imageData, meta.path as string),
+      );
+      return;
+    }
+    if (
+      meta.operation === "read" &&
+      !response.isError &&
+      typeof response.audioData === "string" &&
+      response.audioData.length > 0 &&
+      typeof response.audioMimeType === "string" &&
+      response.audioMimeType.length > 0
+    ) {
+      interaction.rpcResolve(
+        readAudioBase64(
+          response.audioData,
+          meta.path as string,
+          response.audioMimeType,
+        ),
       );
       return;
     }

@@ -7,47 +7,45 @@
  *
  * Consumers:
  *
- * - `daemon/external-plugins-bootstrap.ts` — production/registry boot path;
- *   calls {@link registerDefaultPlugins} inside `bootstrapPlugins()`.
+ * - `daemon/external-plugins-bootstrap.ts` — the daemon's `initializePlugins()`
+ *   calls {@link registerDefaultPlugins} explicitly at startup, before
+ *   `loadUserPlugins()` closes the registration window, so the defaults compose
+ *   innermost (ahead of any user plugins). `bootstrapPlugins()` replays it;
+ *   idempotent, so already-registered defaults are skipped.
  * - integration tests that reset the registry and then need a
  *   production-parity state (e.g. `conversation-agent-loop.test.ts`); those
  *   call {@link resetPluginRegistryAndRegisterDefaults}.
  *
- * Each `defaults/<name>.ts` module self-registers at module load via a local
- * side effect. Importing this aggregator (or any individual default file)
- * populates the registry — the self-registration is idempotent, and so are
- * {@link registerDefaultPlugins} and {@link resetPluginRegistryAndRegisterDefaults}.
- * Per-file self-registration is what keeps registration attached to each
- * file's own already-initialized plugin identifier, so importing
- * `defaults/index.ts` mid-cycle (e.g. through the
- * `memory-retrieval.ts` → … → `pipeline.ts` → `defaults/index.ts`
- * chain) does not trip a TDZ.
+ * Each `defaults/<name>/register.ts` module only builds and exports its
+ * `Plugin` object; registration is centralized here. The plugin identifiers
+ * are dereferenced inside {@link registerDefaultPlugins} at call time, once
+ * every module has finished initializing, so importing this aggregator does no
+ * registration work.
  */
 
-import { memoryV3ShadowPlugin } from "../../memory/v3/shadow-middleware.js";
+import { memoryV3ShadowPlugin } from "../../memory/v3/shadow-plugin.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
-import { defaultCircuitBreakerPlugin } from "./circuit-breaker.js";
-import { defaultCompactionPlugin } from "./compaction.js";
-import { defaultEmptyResponsePlugin } from "./empty-response.js";
-import { defaultHistoryRepairPlugin } from "./history-repair.js";
-import { defaultInjectorsPlugin } from "./injectors.js";
-import { defaultLlmCallPlugin } from "./llm-call.js";
-import { defaultMemoryRetrievalPlugin } from "./memory-retrieval.js";
-import { defaultOverflowReducePlugin } from "./overflow-reduce.js";
-import { defaultPersistencePlugin } from "./persistence.js";
-import { defaultTitleGeneratePlugin } from "./title-generate.js";
-import { defaultTokenEstimatePlugin } from "./token-estimate.js";
-import { defaultToolErrorPlugin } from "./tool-error.js";
-import { defaultToolExecutePlugin } from "./tool-execute.js";
-import { defaultToolResultTruncatePlugin } from "./tool-result-truncate.js";
+import { defaultCircuitBreakerPlugin } from "./circuit-breaker/register.js";
+import { defaultCompactionPlugin } from "./compaction/register.js";
+import { defaultEmptyResponsePlugin } from "./empty-response/register.js";
+import { defaultHistoryRepairPlugin } from "./history-repair/register.js";
+import { defaultInjectorsPlugin } from "./injectors/register.js";
+import { defaultLlmCallPlugin } from "./llm-call/register.js";
+import { defaultMemoryRetrievalPlugin } from "./memory-retrieval/register.js";
+import { defaultOverflowReducePlugin } from "./overflow-reduce/register.js";
+import { defaultPersistencePlugin } from "./persistence/register.js";
+import { defaultTitleGeneratePlugin } from "./title-generate/register.js";
+import { defaultTokenEstimatePlugin } from "./token-estimate/register.js";
+import { defaultToolErrorPlugin } from "./tool-error/register.js";
+import { defaultToolExecutePlugin } from "./tool-execute/register.js";
+import { defaultToolResultTruncatePlugin } from "./tool-result-truncate/register.js";
 
 /**
  * Full set of first-party default plugins. Used by
- * {@link registerDefaultPlugins} to drive the idempotent re-registration
- * loop; actual registration-order in the registry is determined by the
- * module-load side effects in each per-file default (whichever loader
- * evaluates a file first wins, later attempts are swallowed as duplicates).
+ * {@link registerDefaultPlugins} to drive the registration loop; the array
+ * order is the registration order, which determines onion order for middleware
+ * composition (defaults innermost, user plugins outermost).
  *
  * Returned by a function rather than a top-level `const` so the array
  * contents are read at call time, after every imported plugin identifier is
@@ -61,11 +59,6 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultEmptyResponsePlugin,
     defaultToolErrorPlugin,
     defaultMemoryRetrievalPlugin,
-    // Live-shadow v3 retrieval. Always registered; inert unless both
-    // `memory.v3.enabled` and `memory.v3.shadow` are on (gated inside the
-    // middleware). Ordered after the default so the default terminal still
-    // produces the injected (v2) `MemoryResult`.
-    memoryV3ShadowPlugin,
     defaultInjectorsPlugin,
     defaultTokenEstimatePlugin,
     defaultOverflowReducePlugin,
@@ -74,6 +67,7 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultCircuitBreakerPlugin,
     defaultPersistencePlugin,
     defaultTitleGeneratePlugin,
+    memoryV3ShadowPlugin,
   ];
 }
 
@@ -83,11 +77,6 @@ function getAllDefaultPlugins(): readonly Plugin[] {
  * an "already registered" message) are swallowed so repeat bootstrap or test
  * setup calls do not throw. Every other error (shape failure, version
  * mismatch) re-throws.
- *
- * In practice every call after the first is a no-op: each default's
- * module-load side effect registers itself the first time its file is
- * imported, which for production happens via `pipeline.ts`'s side-effect
- * import of this aggregator.
  */
 export function registerDefaultPlugins(): void {
   for (const plugin of getAllDefaultPlugins()) {

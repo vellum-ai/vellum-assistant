@@ -1,6 +1,7 @@
-import { type MutableRefObject, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useIsIOSWeb, useIsMacOSWeb } from "@/runtime/platform-detection";
 import {
   readIOSAssistantTurnsSeen,
@@ -71,11 +72,14 @@ export interface AppNudgesState {
  *
  * @param messages - Current transcript messages (used to count completed assistant turns).
  * @param conversationCount - Total conversation count (gates the Discord nudge).
+ * @param liveAssistantMessageId - Id of the currently-live assistant row, or
+ *   `null` when nothing is streaming. Derived from message position and the
+ *   conversation's processing state.
  */
 export function useAppNudges(
   messages: readonly DisplayMessage[],
   conversationCount: number,
-  streamingMessageIdsRef: MutableRefObject<Set<string>>,
+  liveAssistantMessageId: string | null,
 ): AppNudgesState {
   // -------------------------------------------------------------------------
   // Platform detection
@@ -103,11 +107,14 @@ export function useAppNudges(
     let newlyCompleted = 0;
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i]!;
-      if (m.role !== "assistant") continue;
-      if (m.isStreaming) {
-        streamingMessageIdsRef.current.add(m.id);
-      } else if (streamingMessageIdsRef.current.has(m.id)) {
-        streamingMessageIdsRef.current.delete(m.id);
+      if (m.role !== "assistant") {
+        continue;
+      }
+      const streamingIds = useChatSessionStore.getState().streamingMessageIds;
+      if (m.id === liveAssistantMessageId) {
+        streamingIds.add(m.id);
+      } else if (streamingIds.has(m.id)) {
+        streamingIds.delete(m.id);
         newlyCompleted++;
       } else {
         break;
@@ -122,7 +129,14 @@ export function useAppNudges(
       }
       setAssistantTurnsSeen((current) => current + newlyCompleted);
     }
-  }, [messages, isOnNudgePlatform, isOnIOS, assistantTurnsSeen, nudgeMinTurns]);
+  }, [
+    messages,
+    liveAssistantMessageId,
+    isOnNudgePlatform,
+    isOnIOS,
+    assistantTurnsSeen,
+    nudgeMinTurns,
+  ]);
 
   const bannerEligible = assistantTurnsSeen >= nudgeMinTurns;
 

@@ -33,22 +33,53 @@ class MockIpcTransportError extends Error {
 
 // Single mock for `ipcCallAssistant` — used by both `refreshRouteSchema`
 // (to prime the cache) and `tryIpcProxy` (per-request IPC calls).
+//
+// Every entry carries an explicit `policy: { ... } | null` field — that's
+// the wire shape the daemon's IPC route adapter ships and the schema
+// cache validates against (Zod-enforced; missing `policy` would fail to
+// load, denying IPC proxying for that schema).
 const ROUTE_SCHEMA = [
-  { operationId: "health", endpoint: "health", method: "GET" },
-  { operationId: "acp_steer", endpoint: "acp/:id/steer", method: "POST" },
+  // Routes the daemon explicitly registers as unprotected (health/debug)
+  // come through with `policy: null`.
+  { operationId: "health", endpoint: "health", method: "GET", policy: null },
+  {
+    operationId: "acp_steer",
+    endpoint: "acp/:id/steer",
+    method: "POST",
+    policy: null,
+  },
   {
     operationId: "acp_list_sessions",
     endpoint: "acp/sessions",
     method: "GET",
+    policy: null,
   },
   {
     operationId: "apps_dist_file",
     endpoint: "apps/:appId/dist/:filename",
     method: "GET",
+    policy: null,
   },
-  // Policy-enforced routes (policies resolved gateway-side)
-  { operationId: "settings_get", endpoint: "settings", method: "GET" },
-  { operationId: "calls_start", endpoint: "calls/start", method: "POST" },
+  // Policy-enforced routes: the daemon resolved scopes + principals and
+  // ships them in the schema, eliminating the parallel gateway table.
+  {
+    operationId: "settings_get",
+    endpoint: "settings",
+    method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ["actor", "svc_gateway"],
+    },
+  },
+  {
+    operationId: "calls_start",
+    endpoint: "calls/start",
+    method: "POST",
+    policy: {
+      requiredScopes: ["calls.write"],
+      allowedPrincipalTypes: ["actor"],
+    },
+  },
 ];
 
 const defaultIpcImpl = (
@@ -78,25 +109,6 @@ const validateEdgeTokenMock = mock(
     claims: { sub: "test", scope_profile: "test" },
   }),
 );
-
-// Mock gateway-side policy registry
-const testPolicies: Record<
-  string,
-  { requiredScopes: string[]; allowedPrincipalTypes: string[] }
-> = {
-  settings_get: {
-    requiredScopes: ["settings.read"],
-    allowedPrincipalTypes: ["actor", "svc_gateway"],
-  },
-  calls_start: {
-    requiredScopes: ["calls.write"],
-    allowedPrincipalTypes: ["actor"],
-  },
-};
-
-mock.module("../../auth/ipc-route-policy.js", () => ({
-  getIpcRoutePolicy: (operationId: string) => testPolicies[operationId],
-}));
 
 mock.module("../../auth/token-exchange.js", () => ({
   validateEdgeToken: validateEdgeTokenMock,

@@ -23,7 +23,7 @@ export type VellumCommandKind = VellumCommand["kind"];
  *
  * Populated lazily at menu-build time by merging with `settings.hotkeys`
  * (rather than via the electron-store schema `default` block, which would
- * clobber user overrides on schema migration — see LUM-1962).
+ * clobber user overrides on schema migration).
  */
 export const DEFAULT_ACCELERATORS: Record<VellumCommandKind, string> = {
   newConversation: "CmdOrCtrl+N",
@@ -53,7 +53,7 @@ export const resolveAccelerator = (kind: VellumCommandKind): string => {
  * back to the first window if none is focused (which happens when a menu
  * item is clicked from the menu bar while the app is in the background but
  * its window isn't the OS focus owner). Capturing a window reference at
- * menu-construction time would break thread pop-outs (LUM-1870) where the
+ * menu-construction time would break future thread pop-outs, where the
  * user expects Cmd+N to operate on the popped-out window they're in.
  */
 export const dispatchToFocused = (command: VellumCommand): void => {

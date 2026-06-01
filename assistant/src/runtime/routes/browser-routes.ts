@@ -18,6 +18,7 @@ import {
 } from "../../browser/types.js";
 import { findConversation } from "../../daemon/conversation-store.js";
 import type { ContentBlock } from "../../providers/types.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Param validation ─────────────────────────────────────────────────
@@ -105,6 +106,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "browser_execute",
     endpoint: "browser/execute",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleBrowserExecute,
     summary: "Execute a browser operation",
     description:

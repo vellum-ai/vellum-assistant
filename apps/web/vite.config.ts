@@ -1,3 +1,4 @@
+import type http from "node:http";
 import path from "node:path";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
@@ -5,10 +6,41 @@ import tailwindcss from "@tailwindcss/vite";
 import { sentryVitePlugin } from "@sentry/vite-plugin";
 import { localModePlugin } from "./vite-plugin-local-mode";
 
+const DESIGN_LIBRARY_SRC = path.resolve(
+  import.meta.dirname,
+  "../../packages/design-library/src",
+);
+// With preserveSymlinks, the module graph keys by the node_modules symlink
+// path, not the real source path. We need both to translate watcher events.
+const DESIGN_LIBRARY_SYMLINK = path.resolve(
+  import.meta.dirname,
+  "node_modules/@vellum/design-library/src",
+);
+
 // Keep in sync with PLATFORM_MODE_TRUTHY in src/lib/local-mode.ts
 const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
 function isPlatformMode(raw: string | undefined): boolean {
   return !!raw && PLATFORM_MODE_TRUTHY.has(raw.toLowerCase());
+}
+
+/**
+ * Proxy configure hook that rewrites the localhost `sessionid` cookie
+ * into both `sessionid` and `__Secure-sessionid` so the platform's
+ * Django session middleware recognises it regardless of which cookie
+ * name is configured (dev vs production).
+ *
+ * Only used in local mode — platform mode proxies without rewriting.
+ */
+function forwardSessionCookie(proxy: { on: (event: string, cb: (...args: unknown[]) => void) => void }): void {
+  proxy.on("proxyReq", (...args: unknown[]) => {
+    const proxyReq = args[0] as http.ClientRequest;
+    const req = args[1] as http.IncomingMessage;
+    const cookie = req.headers.cookie ?? "";
+    const match = /sessionid=([^;]+)/.exec(cookie);
+    if (match?.[1]) {
+      proxyReq.setHeader("Cookie", `sessionid=${match[1]}; __Secure-sessionid=${match[1]}`);
+    }
+  });
 }
 
 // Reference: https://vite.dev/config/#using-environment-variables-in-config
@@ -52,6 +84,23 @@ export default defineConfig(({ mode }) => {
         },
       }),
       isPlatformMode(env.VITE_PLATFORM_MODE) ? null : localModePlugin(env),
+      {
+        // Chokidar won't follow the file: symlink when preserveSymlinks
+        // is true, so manually add the design-library source tree.
+        // handleHotUpdate translates the real path to the symlink path
+        // so the module graph lookup finds the right modules.
+        name: "watch-design-library",
+        configureServer(server) {
+          server.watcher.add(DESIGN_LIBRARY_SRC);
+        },
+        handleHotUpdate({ file, server }) {
+          if (!file.startsWith(DESIGN_LIBRARY_SRC)) return;
+          const rel = path.relative(DESIGN_LIBRARY_SRC, file);
+          const symlinkPath = path.resolve(DESIGN_LIBRARY_SYMLINK, rel);
+          const mods = server.moduleGraph.getModulesByFile(symlinkPath);
+          if (mods?.size) return [...mods];
+        },
+      },
     ].filter(Boolean),
     resolve: {
       alias: [
@@ -67,8 +116,13 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       host: true,
       proxy: {
-        "/v1": { target: apiProxyTarget, changeOrigin: true },
-        "/_allauth": { target: apiProxyTarget, changeOrigin: true },
+        ...(isPlatformMode(env.VITE_PLATFORM_MODE) ? {
+          "/v1": { target: apiProxyTarget, changeOrigin: true },
+          "/_allauth": { target: apiProxyTarget, changeOrigin: true },
+        } : {
+          "/v1": { target: apiProxyTarget, changeOrigin: true, configure: forwardSessionCookie },
+          "/_allauth": { target: apiProxyTarget, changeOrigin: true, configure: forwardSessionCookie },
+        }),
         "/accounts": { target: apiProxyTarget, changeOrigin: true },
         "/auth": { target: gatewayProxyTarget, changeOrigin: true },
       },

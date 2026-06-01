@@ -10,6 +10,7 @@
 import { z } from "zod";
 
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import { resolveSurfaceConversation } from "./surface-conversation-resolver.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -39,7 +40,10 @@ async function handleGetSurfaceContent({
   // owning Conversation has been evicted or the daemon was restarted. The
   // DB scan uses the surfaceId itself as the existence check so a stale
   // or made-up conversationId can't materialize a phantom conversation.
-  const conversation = await resolveSurfaceConversation(conversationId, surfaceId);
+  const conversation = await resolveSurfaceConversation(
+    conversationId,
+    surfaceId,
+  );
   if (!conversation) {
     throw new NotFoundError(
       "No active conversation found for this conversationId",
@@ -91,6 +95,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "surfaces_get_content",
     endpoint: "surfaces/:surfaceId",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get surface content",
     description:
       "Return the full surface payload from the conversation's in-memory surface state.",
@@ -106,7 +114,7 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       surfaceId: z.string(),
       surfaceType: z.string(),
-      title: z.string(),
+      title: z.string().nullable(),
       data: z.object({}).passthrough().describe("Surface data payload"),
     }),
     handler: handleGetSurfaceContent,

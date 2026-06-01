@@ -64,11 +64,18 @@ import {
 import { routes } from "@/utils/routes";
 import { assistantDaemonConfigQueryKey } from "@/lib/sync/query-tags";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
-import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/lib/local-settings";
+import { getLocalSetting, removeLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { CallSiteOverridesModal, type CallSiteOverrideDraft } from "@/domains/settings/ai/call-site-overrides-modal";
 import { ManageProfilesModal } from "@/domains/settings/ai/manage-profiles-modal";
 import { ManageProvidersModal } from "@/domains/settings/ai/manage-providers-modal";
-import { profilePickerLabel, visibleProfilesForPicker } from "@/domains/settings/ai/profile-pickers";
+import {
+  AUTO_PROFILE_NAME,
+  gateAutoProfile,
+  profilePickerLabel,
+  visibleProfilesForPicker,
+} from "@/domains/settings/ai/profile-pickers";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { readSecret } from "@/domains/settings/ai/provider-connections-client";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 
@@ -254,7 +261,7 @@ export interface ProfileEntry {
   speed?: string;
   verbosity?: string;
   temperature?: number | null;
-  thinking?: { enabled?: boolean; streamThinking?: boolean };
+  thinking?: { enabled?: boolean; streamThinking?: boolean; level?: string };
   contextWindow?: { maxInputTokens?: number };
 }
 
@@ -319,22 +326,22 @@ export function reconcileFromDaemonConfig(config: DaemonConfig): DaemonConfigRec
 // Local-storage keys
 // ---------------------------------------------------------------------------
 
-const LS_IMAGE_GEN_MODE = "vellum_image_gen_mode";
-const LS_IMAGE_GEN_MODEL = "vellum_image_gen_model";
-const LS_WEB_SEARCH_MODE = "vellum_web_search_mode";
-const LS_WEB_SEARCH_PROVIDER = "vellum_web_search_provider";
-const LS_EMAIL_MODE = "vellum_email_mode";
-const LS_EMAIL_BYO_PROVIDER = "vellum_email_byo_provider";
+const LS_IMAGE_GEN_MODE = "vellum:ai:imageGenMode";
+const LS_IMAGE_GEN_MODEL = "vellum:ai:imageGenModel";
+const LS_WEB_SEARCH_MODE = "vellum:ai:webSearchMode";
+const LS_WEB_SEARCH_PROVIDER = "vellum:ai:webSearchProvider";
+const LS_EMAIL_MODE = "vellum:ai:emailMode";
+const LS_EMAIL_BYO_PROVIDER = "vellum:ai:emailByoProvider";
 
 // TTS / STT localStorage keys (shared with the Voice settings tab)
-const LS_TTS_PROVIDER = "voice:ttsProvider";
-const LS_TTS_API_KEY_PREFIX = "voice:ttsApiKey:";
-const LS_TTS_VOICE_ID_PREFIX = "voice:ttsVoiceId:";
-const LS_STT_PROVIDER = "voice:sttProvider";
-const LS_STT_API_KEY_PREFIX = "voice:sttApiKey:";
+const LS_TTS_PROVIDER = "vellum:voice:ttsProvider";
+const LS_TTS_API_KEY_PREFIX = "vellum:voice:ttsApiKey:";
+const LS_TTS_VOICE_ID_PREFIX = "vellum:voice:ttsVoiceId:";
+const LS_STT_PROVIDER = "vellum:voice:sttProvider";
+const LS_STT_API_KEY_PREFIX = "vellum:voice:sttApiKey:";
 
 // localStorage key for the image generation credential (matching service-keys page)
-const LS_IMAGE_GEN_CREDENTIAL = "vellum_gemini_key";
+const LS_IMAGE_GEN_CREDENTIAL = "vellum:ai:geminiKey";
 
 // Per-web-search-provider localStorage keys live in the generated catalog
 // (`WEB_SEARCH_PROVIDER_KEY_STORAGE`). Returns "" for managed providers
@@ -934,8 +941,9 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();
+  const platformGate = usePlatformGate();
   const [mode, setMode] = useState<ServiceMode>(
-    () => getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
+    () => platformGate === "gated" ? "your-own" : getLocalSetting(LS_EMAIL_MODE, "managed") as ServiceMode,
   );
   const [byoProviderId, setByoProviderId] = useState<EmailByoProvider["id"]>(
     () =>
@@ -973,7 +981,7 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
   // anyway.
   const subscriptionQuery = useQuery({
     ...organizationsBillingSubscriptionRetrieveOptions(),
-    enabled: mode === "managed",
+    enabled: mode === "managed" && platformGate === "full",
   });
   const subscriptionData = subscriptionQuery.data;
   const entitlements = subscriptionData?.entitlements;
@@ -993,13 +1001,13 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     ...assistantsDomainsListOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
-    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled,
+    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled && platformGate === "full",
   });
   const addressesQuery = useQuery({
     ...assistantsEmailAddressesListOptions({
       path: { assistant_id: assistantId ?? "" },
     }),
-    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled,
+    enabled: !!assistantId && mode === "managed" && !isExplicitlyNotEntitled && platformGate === "full",
   });
 
   const domain = domainsQuery.data?.results?.[0];
@@ -1010,7 +1018,7 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     ...assistantsEmailAddressesStatusRetrieveOptions({
       path: { assistant_id: assistantId ?? "", id: address?.id ?? "" },
     }),
-    enabled: !!assistantId && !!address?.id && mode === "managed",
+    enabled: !!assistantId && !!address?.id && mode === "managed" && platformGate === "full",
     refetchOnWindowFocus: false,
   });
 
@@ -1018,7 +1026,7 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     ...assistantsDomainsVerificationStatusRetrieveOptions({
       path: { assistant_id: assistantId ?? "", id: domain?.id ?? "" },
     }),
-    enabled: !!assistantId && !!domain?.id && mode === "managed",
+    enabled: !!assistantId && !!domain?.id && mode === "managed" && platformGate === "full",
     refetchInterval: (query) => {
       const st = query.state.data?.status;
       if (st === "verified" || st === "failed") return false;
@@ -1188,6 +1196,70 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     [byoProviderId],
   );
 
+  const yourOwnContent = (
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <label className="block text-body-small-default text-[var(--content-tertiary)]">
+          Provider
+        </label>
+        <Dropdown
+          value={byoProviderId}
+          onChange={(val) =>
+            setByoProviderId(val as EmailByoProvider["id"])
+          }
+          options={EMAIL_BYO_PROVIDERS.map((p) => ({
+            value: p.id,
+            label: p.displayName,
+          }))}
+        />
+      </div>
+
+      <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
+        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
+        <div className="flex flex-col gap-1">
+          <span>
+            Configure {selectedByoProvider.displayName} via the assistant
+            CLI: ask the assistant to run the{" "}
+            <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]">
+              {selectedByoProvider.setupSkill}
+            </code>{" "}
+            skill. It walks you through storing the API key, detecting the
+            domain, and (optionally) wiring up an inbound webhook.
+          </span>
+          <a
+            href={selectedByoProvider.docsUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
+          >
+            Open {selectedByoProvider.displayName}
+            <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <SaveButton onClick={handleSaveMode} disabled={savingMode} />
+        {savingMode && (
+          <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
+        )}
+      </div>
+    </div>
+  );
+
+  if (platformGate === "gated") {
+    return (
+      <DetailCard
+        id="email"
+        title="Email"
+        subtitle="Configure how your assistant sends and receives email"
+      >
+        <div className="h-px bg-[var(--surface-active)]" />
+        <div className="mt-4">{yourOwnContent}</div>
+      </DetailCard>
+    );
+  }
+
   return (
     <ServiceCard
       id="email"
@@ -1198,6 +1270,12 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
     >
       {mode === "managed" ? (
         <div className="space-y-4">
+          {platformGate === "disabled" ? (
+            <Notice tone="info">
+              Log in to the Vellum platform to manage email settings.
+            </Notice>
+          ) : (
+          <>
           {subscriptionUnknown && (
             <Notice
               tone="warning"
@@ -1395,57 +1473,10 @@ export function EmailServiceCard({ assistantId, assistantHandle }: EmailServiceC
               )}
             </div>
           )}
+          </>
+          )}
         </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <label className="block text-body-small-default text-[var(--content-tertiary)]">
-              Provider
-            </label>
-            <Dropdown
-              value={byoProviderId}
-              onChange={(val) =>
-                setByoProviderId(val as EmailByoProvider["id"])
-              }
-              options={EMAIL_BYO_PROVIDERS.map((p) => ({
-                value: p.id,
-                label: p.displayName,
-              }))}
-            />
-          </div>
-
-          <div className="flex items-start gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] p-3 text-body-small-default text-[var(--content-tertiary)]">
-            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--system-positive-strong)]" />
-            <div className="flex flex-col gap-1">
-              <span>
-                Configure {selectedByoProvider.displayName} via the assistant
-                CLI: ask the assistant to run the{" "}
-                <code className="rounded bg-[var(--surface-active)] px-1 py-0.5 text-[12px]">
-                  {selectedByoProvider.setupSkill}
-                </code>{" "}
-                skill. It walks you through storing the API key, detecting the
-                domain, and (optionally) wiring up an inbound webhook.
-              </span>
-              <a
-                href={selectedByoProvider.docsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-[var(--system-positive-strong)] underline hover:opacity-80"
-              >
-                Open {selectedByoProvider.displayName}
-                <ExternalLink className="h-3 w-3" />
-              </a>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <SaveButton onClick={handleSaveMode} disabled={savingMode} />
-            {savingMode && (
-              <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
-            )}
-          </div>
-        </div>
-      )}
+      ) : yourOwnContent}
     </ServiceCard>
   );
 }
@@ -1691,9 +1722,16 @@ export function AiPage() {
   // path). ManageProfilesModal and CallSiteOverridesModal both still consume
   // the full `orderedProfiles` — the latter applies the same "preserve
   // current selection" rule per-row internally.
+  const queryComplexityRoutingEnabled =
+    useAssistantFeatureFlagStore.use.queryComplexityRouting();
+
   const defaultProfilePickerEntries = useMemo(
-    () => visibleProfilesForPicker(orderedProfiles, [activeProfile]),
-    [orderedProfiles, activeProfile],
+    () =>
+      gateAutoProfile(
+        visibleProfilesForPicker(orderedProfiles, [activeProfile]),
+        queryComplexityRoutingEnabled,
+      ),
+    [orderedProfiles, activeProfile, queryComplexityRoutingEnabled],
   );
 
   // Guard so background refetches (window focus, reconnect) don't clobber
@@ -2006,12 +2044,12 @@ export function AiPage() {
               options={defaultProfilePickerEntries.map((p) => ({
                 value: p.name,
                 label:
-                  p.name === "auto"
+                  p.name === AUTO_PROFILE_NAME
                     ? "Automatically switch between profiles"
                     : profilePickerLabel(p),
               }))}
             />
-            {activeProfile === "auto" && (
+            {queryComplexityRoutingEnabled && activeProfile === AUTO_PROFILE_NAME && (
               <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-warning-subtle)] px-3 py-2">
                 <span className="text-body-small-default text-[var(--content-warning)]">
                   Auto may use more powerful models when needed, which can increase costs.

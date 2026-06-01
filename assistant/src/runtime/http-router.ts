@@ -12,7 +12,8 @@
 
 import type { z } from "zod";
 
-import { enforcePolicy, getPolicy } from "./auth/route-policy.js";
+import type { RoutePolicy } from "./auth/route-policy.js";
+import { enforcePolicy } from "./auth/route-policy.js";
 import type { AuthContext } from "./auth/types.js";
 import { httpError } from "./http-errors.js";
 import { withErrorHandling } from "./middleware/error-handler.js";
@@ -82,14 +83,15 @@ export interface RouteRequestBodyVariant {
  *   catch-all params that match across slashes (e.g. `interfaces/:path*`).
  * - `method`: HTTP method (GET, POST, DELETE, PATCH, PUT).
  * - `handler`: Async function that produces the Response.
- * - `policyKey`: Override the policy lookup key. When omitted the router
- *   derives it from the endpoint pattern (stripping param segments).
+ * - `policy`: Scope + principal-type policy for this route, or `null`
+ *   when the route is intentionally unprotected. See
+ *   `runtime/auth/route-policy.ts` for the type.
  */
 export interface HTTPRouteDefinition {
   endpoint: string;
   method: string;
   handler: (ctx: RouteContext) => Promise<Response> | Response;
-  policyKey?: string;
+  policy: RoutePolicy | null;
 
   /** Stable identifier used as the IPC method name when served over both transports. */
   operationId?: string;
@@ -143,8 +145,6 @@ interface CompiledRoute {
   def: HTTPRouteDefinition;
   regex: RegExp;
   paramNames: string[];
-  /** Policy key used for enforcePolicy() lookups. */
-  resolvedPolicyKey: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -228,13 +228,14 @@ export class HttpRouter {
         }
       }
 
-      // Enforce route-level scope/principal policy.
-      // Try method-specific key first (e.g. "messages:POST"), then plain key.
-      const methodKey = `${compiled.resolvedPolicyKey}:${req.method}`;
-      const policyKey = getPolicy(methodKey)
-        ? methodKey
-        : compiled.resolvedPolicyKey;
-      const policyDenied = enforcePolicy(policyKey, authContext);
+      // Enforce route-level scope/principal policy. The policy
+      // travels with the RouteDefinition itself — no side-registry
+      // lookup, no derivation, no key mismatch.
+      const policyDenied = enforcePolicy(
+        compiled.def.endpoint,
+        compiled.def.policy,
+        authContext,
+      );
       if (policyDenied) return policyDenied;
 
       return withErrorHandling(endpoint, () =>
@@ -265,21 +266,22 @@ const PARAM_TYPE_PATTERNS: Record<string, string> = {
 };
 
 /**
- * Compile a route definition into a regex + param list + policy key.
+ * Compile a route definition into a regex + param list.
  *
  * Endpoint patterns like `calls/:id/cancel` become:
  *   regex: /^calls\/([^/]+)\/cancel$/
  *   paramNames: ["id"]
- *   resolvedPolicyKey: "calls/cancel" (params stripped)
  *
  * When the route declares `pathParams` with a `type` constraint (e.g.
  * `{ name: "id", type: "uuid" }`), the capture group is narrowed to
  * only match values of that type. This prevents parameterized routes
  * from shadowing literal sibling routes regardless of declaration order.
+ *
+ * Policies are declared inline on the RouteDefinition itself —
+ * no derivation, no lookup key.
  */
 function compileRoute(def: HTTPRouteDefinition): CompiledRoute {
   const paramNames: string[] = [];
-  const policySegments: string[] = [];
 
   // Build a lookup for typed path params.
   const paramTypeMap = new Map<string, string>();
@@ -306,18 +308,13 @@ function compileRoute(def: HTTPRouteDefinition): CompiledRoute {
         const typePattern = PARAM_TYPE_PATTERNS[paramTypeMap.get(name) ?? ""];
         return typePattern ? `(${typePattern})` : "([^/]+)";
       }
-      policySegments.push(segment);
       return escapeRegex(segment);
     })
     .join("\\/");
 
   const regex = new RegExp(`^${regexSource}$`);
 
-  // If the definition specifies a policyKey, use it. Otherwise derive from
-  // the non-param segments (e.g. `calls/:id/cancel` -> `calls/cancel`).
-  const resolvedPolicyKey = def.policyKey ?? policySegments.join("/");
-
-  return { def, regex, paramNames, resolvedPolicyKey };
+  return { def, regex, paramNames };
 }
 
 function escapeRegex(str: string): string {

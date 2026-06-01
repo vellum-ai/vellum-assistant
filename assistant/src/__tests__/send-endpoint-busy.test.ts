@@ -166,8 +166,9 @@ function makeCompletingConversation(): Conversation {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      onEvent: (msg: ServerMessage) => void,
+      options?: { onEvent?: (msg: ServerMessage) => void },
     ) => {
+      const onEvent = options?.onEvent ?? (() => {});
       onEvent({ type: "assistant_text_delta", text: "Hello!" });
       onEvent({ type: "message_complete", conversationId: "test-session" });
       processing = false;

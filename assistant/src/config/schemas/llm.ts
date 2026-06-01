@@ -49,9 +49,8 @@ export const LLMCallSiteEnum = z.enum([
   "memoryV2Migration",
   "memoryV2Sweep",
   "memoryRouter",
-  "memoryV3Filter",
-  "memoryV3Descent",
-  "memoryV3Gate",
+  "memoryV3RouteL1",
+  "memoryV3SelectL2",
   "memoryV2Consolidation",
   "memoryRetrospective",
   "recall",
@@ -344,6 +343,27 @@ type LLMConfigFragment = z.infer<typeof LLMConfigFragment>;
 export const ProfileStatusSchema = z.enum(["active", "disabled"]);
 export type ProfileStatus = z.infer<typeof ProfileStatusSchema>;
 
+// ---------------------------------------------------------------------------
+// Mix profiles
+//
+// A "mix" profile carries no model config of its own. Instead it references a
+// weighted list of other (standard) profiles; at resolve time exactly one
+// constituent is chosen by weight. The pick is a deterministic function of a
+// per-conversation seed (the conversation id — see `resolveCallSiteConfig`'s
+// `selectionSeed`), so a conversation always lands on the same arm across all
+// its turns, retries, and even daemon restarts, while different conversations
+// split according to the weights — and the chosen arm is recordable for A/B
+// evaluation. Weights are relative (normalized by their sum at pick time), so
+// `[{weight:80},{weight:20}]` and `[{weight:4},{weight:1}]` are equivalent.
+// ---------------------------------------------------------------------------
+const MixArmSchema = z.object({
+  profile: z.string().min(1),
+  weight: z.number().finite().positive(),
+});
+export type MixArm = z.infer<typeof MixArmSchema>;
+
+const MixSchema = z.array(MixArmSchema).min(2);
+
 /**
  * A named profile entry: an `LLMConfigFragment` augmented with
  * presentation/ownership metadata. These fields are intentionally kept off
@@ -379,6 +399,17 @@ export const ProfileEntry = LLMConfigFragment.extend({
    * #30362 even though the schema didn't accept it until now.
    */
   status: ProfileStatusSchema.nullable().optional(),
+  /**
+   * When present, this profile is a "mix": it carries no model config and
+   * instead references a weighted list of standard profiles. The resolver
+   * expands a mix by a seeded weighted pick (see `resolveCallSiteConfig`).
+   * `LLMSchema.superRefine` enforces that (a) every referenced profile exists,
+   * (b) no referenced profile is itself a mix (no nesting), (c) no arm
+   * references the mix itself, and (d) a mix carries no `LLMConfigFragment`
+   * config field — only metadata (`label`, `description`, `status`, `source`)
+   * may accompany `mix`.
+   */
+  mix: MixSchema.optional(),
 });
 export type ProfileEntry = z.infer<typeof ProfileEntry>;
 
@@ -443,6 +474,63 @@ export const LLMSchema = z
         path: ["activeProfile"],
         message: `Profile "${config.activeProfile}" referenced by llm.activeProfile is not defined in llm.profiles`,
       });
+    }
+
+    // --- Mix profile validation --------------------------------------------
+    // Config keys a mix profile must NOT also set (a mix only references other
+    // profiles + metadata). Derived from the fragment shape plus the
+    // ProfileEntry-only `provider_connection` so it can't drift if a new config
+    // field is added to `LLMConfigFragment`.
+    const MIX_DISALLOWED_CONFIG_KEYS = [
+      ...Object.keys(LLMConfigFragment.shape),
+      "provider_connection",
+    ];
+    const mixProfileNames = new Set(
+      Object.entries(config.profiles ?? {})
+        .filter(([, profile]) => profile?.mix != null)
+        .map(([name]) => name),
+    );
+    for (const [name, profile] of Object.entries(config.profiles ?? {})) {
+      if (profile?.mix == null) continue;
+      // (d) A mix must not also carry model config — the resolved config comes
+      // entirely from the chosen constituent.
+      for (const key of MIX_DISALLOWED_CONFIG_KEYS) {
+        if ((profile as Record<string, unknown>)[key] !== undefined) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["profiles", name, key],
+            message: `Mix profile "${name}" cannot also set "${key}" — a mix only references other profiles plus metadata (label, description, status).`,
+          });
+        }
+      }
+      for (const [index, arm] of profile.mix.entries()) {
+        // (c) No self-reference.
+        if (arm.profile === name) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["profiles", name, "mix", index, "profile"],
+            message: `Mix profile "${name}" cannot reference itself.`,
+          });
+          continue;
+        }
+        // (a) Referenced profile must exist.
+        if (!profileNames.has(arm.profile)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["profiles", name, "mix", index, "profile"],
+            message: `Mix profile "${name}" references profile "${arm.profile}" which is not defined in llm.profiles.`,
+          });
+          continue;
+        }
+        // (b) No nesting — a mix arm must be a standard (non-mix) profile.
+        if (mixProfileNames.has(arm.profile)) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["profiles", name, "mix", index, "profile"],
+            message: `Mix profile "${name}" references another mix profile "${arm.profile}" — mixes cannot be nested; constituents must be standard profiles.`,
+          });
+        }
+      }
     }
   });
 

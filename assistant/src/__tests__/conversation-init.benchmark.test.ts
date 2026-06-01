@@ -345,9 +345,9 @@ describe("End-to-end session creation benchmark", () => {
       "bench-warmup-0",
       mockProvider,
       systemPrompt,
-      64000,
       noop,
       testDir,
+      { maxTokens: 64000 },
     );
     await warmup.loadFromDb();
     warmup.dispose();
@@ -360,9 +360,9 @@ describe("End-to-end session creation benchmark", () => {
         id,
         mockProvider,
         systemPrompt,
-        64000,
         noop,
         testDir,
+        { maxTokens: 64000 },
       );
       await session.loadFromDb();
       timings.push(performance.now() - start);
@@ -388,9 +388,9 @@ describe("End-to-end session creation benchmark", () => {
       "bench-warmup-s",
       mockProvider,
       systemPrompt,
-      64000,
       noop,
       testDir,
+      { maxTokens: 64000 },
     );
     warmup.preactivatedSkillIds = testSkillIds;
     await warmup.loadFromDb();
@@ -410,9 +410,9 @@ describe("End-to-end session creation benchmark", () => {
         id,
         mockProvider,
         systemPrompt,
-        64000,
         noop,
         testDir,
+        { maxTokens: 64000 },
       );
       session.preactivatedSkillIds = testSkillIds;
       await session.loadFromDb();
@@ -446,9 +446,9 @@ describe("End-to-end session creation benchmark", () => {
       "bench-events-w",
       mockProvider,
       systemPrompt,
-      64000,
       noop,
       testDir,
+      { maxTokens: 64000 },
     );
     warmup.dispose();
 
@@ -459,9 +459,9 @@ describe("End-to-end session creation benchmark", () => {
         `bench-events-${i}`,
         mockProvider,
         systemPrompt,
-        64000,
         noop,
         testDir,
+        { maxTokens: 64000 },
       );
       timings.push(performance.now() - start);
 

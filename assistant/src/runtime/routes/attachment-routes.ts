@@ -27,6 +27,7 @@ import {
   validateAttachmentUpload,
 } from "../../memory/attachments-store.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   ConflictError,
@@ -653,7 +654,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "attachment_content",
     endpoint: "attachments/:id/content",
     method: "GET",
-    policyKey: "attachments/content",
+    policy: {
+      requiredScopes: ["attachments.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get attachment content",
     description:
       "Serve raw file bytes for an attachment. Supports Range headers.",
@@ -668,6 +672,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "attachment_delete",
     endpoint: "attachments",
     method: "DELETE",
+    policy: {
+      requiredScopes: ["attachments.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete attachment",
     description: "Delete an attachment by ID.",
     tags: ["attachments"],
@@ -681,6 +689,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "attachment_get",
     endpoint: "attachments/:id",
     method: "GET",
+    policy: {
+      requiredScopes: ["attachments.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get attachment metadata",
     description: "Return metadata and optional base64 data for an attachment.",
     tags: ["attachments"],
@@ -699,6 +711,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "attachment_upload",
     endpoint: "attachments",
     method: "POST",
+    policy: {
+      requiredScopes: ["attachments.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Upload attachment",
     description:
       "Upload an attachment. Supports application/json (base64 data or file path reference), multipart/form-data (file + filename + mimeType fields), and application/octet-stream (raw bytes with filename and mimeType query params).",
@@ -731,6 +747,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "attachment_register",
     endpoint: "attachments/register",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Register a file-backed attachment",
     description:
       "Register an on-disk file as a file-backed attachment. The file must be within the workspace directory and must remain on disk for the lifetime of the attachment.",
@@ -758,6 +778,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "attachment_lookup",
     endpoint: "attachments/lookup",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Look up attachment by source path",
     description:
       "Search for a previously registered attachment by its original source path, scoped to a conversation.",

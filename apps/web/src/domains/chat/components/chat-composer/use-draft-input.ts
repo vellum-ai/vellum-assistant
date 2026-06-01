@@ -12,13 +12,15 @@
 
 import {
   type Dispatch,
-  type MutableRefObject,
   type SetStateAction,
   useCallback,
   useEffect,
   useRef,
   useState,
 } from "react";
+
+import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -35,10 +37,9 @@ function storageKey(assistantId: string): string {
 // ---------------------------------------------------------------------------
 
 function loadDrafts(assistantId: string): Map<string, string> {
-  if (typeof window === "undefined") return new Map();
+  const raw = getLocalSetting(storageKey(assistantId), "");
+  if (!raw) return new Map();
   try {
-    const raw = window.localStorage.getItem(storageKey(assistantId));
-    if (!raw) return new Map();
     const parsed: unknown = JSON.parse(raw);
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
       return new Map();
@@ -57,15 +58,10 @@ function persistDrafts(
   assistantId: string,
   drafts: Map<string, string>,
 ): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(
-      storageKey(assistantId),
-      JSON.stringify(Object.fromEntries(drafts)),
-    );
-  } catch {
-    // Storage can fail in private browsing / quota-exceeded.
-  }
+  setLocalSetting(
+    storageKey(assistantId),
+    JSON.stringify(Object.fromEntries(drafts)),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -75,13 +71,7 @@ function persistDrafts(
 export interface UseDraftInputParams {
   assistantId: string | null;
   activeConversationId: string | null;
-  /**
-   * When true, the next key change is a draft-to-server key resolution (not a
-   * real switch). The hook skips save/restore and only updates its internal
-   * `previousKeyRef`. Owned by ChatPage, written by `useSendMessage` when a
-   * draft conversation receives its server-assigned ID.
-   */
-  draftConversationIdResolutionRef: MutableRefObject<boolean>;
+
   /**
    * Fires after a non-empty saved draft is restored into the composer on a
    * genuine conversation switch. Used to render a transient "Draft restored"
@@ -112,7 +102,6 @@ export interface UseDraftInputReturn {
 export function useDraftInput({
   assistantId,
   activeConversationId,
-  draftConversationIdResolutionRef,
   onDraftRestored,
 }: UseDraftInputParams): UseDraftInputReturn {
   const [input, setInputState] = useState("");
@@ -179,7 +168,7 @@ export function useDraftInput({
     // Draft-key resolution (draft-xxx → conv-yyy) is not a real conversation
     // switch — the user stays on the same conversation. Skip save/restore to
     // avoid clearing the composer.
-    if (draftConversationIdResolutionRef.current) {
+    if (useChatSessionStore.getState().draftConversationIdResolution) {
       previousKeyRef.current = activeConversationId;
       return;
     }

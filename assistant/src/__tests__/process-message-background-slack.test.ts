@@ -254,12 +254,11 @@ describe("processMessageInBackground Slack option propagation", () => {
     const result = await processMessageInBackground(
       "conv-background-slack",
       "Reply from Slack",
-      undefined,
       {
         slackInbound,
+        sourceChannel: "slack",
+        sourceInterface: "slack",
       },
-      "slack",
-      "slack",
     );
 
     expect(result).toEqual({ messageId: "persisted-user-message-id" });
@@ -280,21 +279,21 @@ describe("processMessageInBackground Slack option propagation", () => {
     const processing = processMessage(
       "conv-background-slack",
       "Reply from Slack",
-      undefined,
       {
         onEvent: (msg) => {
           observedMessages.push(msg);
         },
+        sourceChannel: "slack",
+        sourceInterface: "slack",
       },
-      "slack",
-      "slack",
     );
 
     await waitForRunAgentLoopCall();
 
-    const loopOnEvent = activeConversation.runAgentLoop.mock.calls[0][2] as
-      | ((msg: unknown) => void)
+    const loopOptions = activeConversation.runAgentLoop.mock.calls[0][2] as
+      | { onEvent?: (msg: unknown) => void }
       | undefined;
+    const loopOnEvent = loopOptions?.onEvent;
     const delta = {
       type: "assistant_text_delta",
       text: "Working on it.",
@@ -321,20 +320,22 @@ describe("processMessageInBackground Slack option propagation", () => {
     await processMessageInBackground(
       "conv-background-slack",
       "Regular background wake",
-      undefined,
-      undefined,
-      "vellum",
-      "web",
+      {
+        sourceChannel: "vellum",
+        sourceInterface: "web",
+      },
     );
 
     expect(activeConversation.persistUserMessage).toHaveBeenCalledTimes(1);
     expect(
       activeConversation.persistUserMessage.mock.calls[0][0].metadata,
     ).toBeUndefined();
-    expect(activeConversation.runAgentLoop.mock.calls[0][3]).toEqual({
-      isInteractive: false,
-      isUserMessage: true,
-    });
+    expect(activeConversation.runAgentLoop.mock.calls[0][2]).toEqual(
+      expect.objectContaining({
+        isInteractive: false,
+        isUserMessage: true,
+      }),
+    );
 
     activeConversation.__loopDeferred.resolve();
   });

@@ -12,53 +12,17 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
-import { z } from "zod";
-
+import { RelationshipStateSchema } from "../../api/responses/home.js";
 import {
   computeRelationshipState,
   getRelationshipStatePath,
 } from "../../home/relationship-state-writer.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { InternalError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("home-state-routes");
-
-// ---------------------------------------------------------------------------
-// Response schema (shared with the OpenAPI generator and runtime validation)
-// ---------------------------------------------------------------------------
-
-const factSchema = z.object({
-  id: z.string(),
-  category: z.enum(["voice", "world", "priorities"]),
-  text: z.string(),
-  confidence: z.enum(["strong", "uncertain"]),
-  source: z.enum(["onboarding", "inferred"]),
-});
-
-const capabilitySchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  description: z.string(),
-  tier: z.enum(["unlocked", "next-up", "earned"]),
-  gate: z.string(),
-  unlockHint: z.string().optional(),
-  ctaLabel: z.string().optional(),
-});
-
-const relationshipStateSchema = z.object({
-  version: z.literal(1),
-  assistantId: z.string(),
-  tier: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
-  progressPercent: z.number(),
-  facts: z.array(factSchema),
-  capabilities: z.array(capabilitySchema),
-  conversationCount: z.number(),
-  hatchedDate: z.string(),
-  assistantName: z.string(),
-  userName: z.string().optional(),
-  updatedAt: z.string(),
-});
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -98,7 +62,7 @@ async function handleGetHomeState(): Promise<unknown> {
     try {
       const raw = readFileSync(path, "utf-8");
       const parsed: unknown = JSON.parse(raw);
-      const validated = relationshipStateSchema.safeParse(parsed);
+      const validated = RelationshipStateSchema.safeParse(parsed);
       if (validated.success) {
         return validated.data;
       }
@@ -126,12 +90,16 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "home_state_get",
     endpoint: "home/state",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleGetHomeState,
     summary: "Get relationship state",
     description:
       "Return the current `RelationshipState` snapshot. Reads the persisted `relationship-state.json` when present; falls back to an on-demand compute so fresh installs never see a 404.",
     tags: ["home"],
-    responseBody: relationshipStateSchema,
+    responseBody: RelationshipStateSchema,
     additionalResponses: {
       "500": {
         description: "Failed to compute relationship state",

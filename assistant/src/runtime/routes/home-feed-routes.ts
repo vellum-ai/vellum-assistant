@@ -24,10 +24,10 @@ import { z } from "zod";
 
 import {
   type FeedItem,
-  feedItemSchema,
+  FeedItemSchema,
   type FeedItemStatus,
-  suggestedPromptSchema,
-} from "../../home/feed-types.js";
+  HomeFeedResponseSchema,
+} from "../../api/responses/home.js";
 import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
 import { getPersonalizedGreeting } from "../../home/home-greeting.js";
 import { getSuggestedPrompts } from "../../home/suggested-prompts.js";
@@ -36,6 +36,7 @@ import {
   createConversation,
 } from "../../memory/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -44,19 +45,6 @@ const log = getLogger("home-feed-routes");
 // ---------------------------------------------------------------------------
 // Response / request schemas
 // ---------------------------------------------------------------------------
-
-const contextBannerSchema = z.object({
-  greeting: z.string(),
-  timeAwayLabel: z.string(),
-  newCount: z.number().int().min(0),
-});
-
-const getHomeFeedResponseSchema = z.object({
-  items: z.array(feedItemSchema),
-  updatedAt: z.string(),
-  contextBanner: contextBannerSchema,
-  suggestedPrompts: z.array(suggestedPromptSchema),
-});
 
 const patchFeedItemRequestSchema = z.object({
   status: z.enum(["new", "seen", "acted_on", "dismissed"]),
@@ -81,7 +69,7 @@ const listHomeFeedRequestSchema = z.object({
 });
 
 const listHomeFeedResponseSchema = z.object({
-  items: z.array(feedItemSchema),
+  items: z.array(FeedItemSchema),
   total: z.number().int().nonnegative(),
   returned: z.number().int().nonnegative(),
   hasMore: z.boolean(),
@@ -346,6 +334,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "get_home_feed",
     endpoint: "home/feed",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleGetHomeFeed,
     summary: "Get home activity feed",
     description:
@@ -360,19 +352,23 @@ export const ROUTES: RouteDefinition[] = [
           "Seconds since the user was last active in the client. Used to compute the context-banner relative-time label.",
       },
     ],
-    responseBody: getHomeFeedResponseSchema,
+    responseBody: HomeFeedResponseSchema,
   },
   {
     operationId: "patch_home_feed_item",
     endpoint: "home/feed/:id",
     method: "PATCH",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handlePatchFeedItem,
     summary: "Patch home feed item status",
     description:
       "Update the `status` field of a single feed item (e.g. mark it seen or acted_on). Returns the updated item on success, 404 if the item does not exist, 500 if the underlying write fails.",
     tags: ["home"],
     requestBody: patchFeedItemRequestSchema,
-    responseBody: feedItemSchema,
+    responseBody: FeedItemSchema,
     additionalResponses: {
       "404": { description: "Feed item not found" },
       "500": { description: "Failed to persist feed item status" },
@@ -382,6 +378,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "list_home_feed",
     endpoint: "home/feed/query",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleListHomeFeed,
     summary: "List home feed items with filters",
     description:
@@ -394,6 +394,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "trigger_home_feed_action",
     endpoint: "home/feed/:id/actions/:actionId",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handlePostFeedAction,
     summary: "Trigger home feed action",
     description:

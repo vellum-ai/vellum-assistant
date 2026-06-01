@@ -21,6 +21,7 @@ import {
   getProvider,
 } from "../../oauth/oauth-store.js";
 import { getLogger } from "../../util/logger.js";
+import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -185,6 +186,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "internal_oauth_connect_start",
     endpoint: "internal/oauth/connect/start",
     method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Start daemon-owned OAuth connect flow",
     description:
       "Starts an OAuth connect flow in the daemon and returns the authorization URL for the CLI to open in the browser.",
@@ -202,6 +207,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "internal_oauth_connect_status",
     endpoint: "internal/oauth/connect/status/:state",
     method: "GET",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Poll daemon OAuth connect flow status",
     description:
       "Returns the current status of an in-flight daemon-owned OAuth connect flow (pending/complete/error).",

@@ -31,7 +31,19 @@ mock.module("../memory/conversation-key-store.js", () => ({
   resolveConversationId: (id: string) => id,
 }));
 
-import { getPolicy } from "../runtime/auth/route-policy.js";
+import { ROUTES } from "../runtime/routes/index.js";
+
+/**
+ * Look up the policy on a route by endpoint+method. Returns null when
+ * the route isn't found or has no policy declared — both surface as
+ * test failures via the explicit assertion below.
+ */
+function routePolicy(endpoint: string, method?: string) {
+  const route = ROUTES.find(
+    (r) => r.endpoint === endpoint && (!method || r.method === method),
+  );
+  return route?.policy ?? null;
+}
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { UserError } from "../util/errors.js";
 
@@ -62,7 +74,7 @@ describe("POST /v1/conversations/unread", () => {
   }
 
   test("registers the unread route with chat.write policy", () => {
-    expect(getPolicy("conversations/unread")).toEqual({
+    expect(routePolicy("conversations/unread")).toEqual({
       requiredScopes: ["chat.write"],
       allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
     });

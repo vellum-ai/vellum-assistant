@@ -22,10 +22,11 @@
 /* ---------------------------------------------------------------------------
  * Tailwind v4 dark variant — wired to the data-theme attribute.
  * Enables `dark:` utility prefixes (e.g. `dark:bg-white`) that activate
- * when data-theme="dark" is set on an ancestor element.
+ * when any dark-family theme is set on an ancestor element.
+ * Velvet is a dark theme variant, so `dark:` utilities apply to it too.
  * https://tailwindcss.com/docs/dark-mode#using-a-data-attribute
  * --------------------------------------------------------------------------- */
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *, [data-theme=velvet], [data-theme=velvet] *));
 
 /* ---------------------------------------------------------------------------
  * @theme bridge — registers CSS variables as Tailwind theme variables so

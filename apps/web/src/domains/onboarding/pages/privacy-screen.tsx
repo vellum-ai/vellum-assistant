@@ -10,6 +10,13 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicator-dots";
 import {
+  emitOnboardingFunnelStepCompleted,
+  getOnboardingFunnelSessionId,
+  onboardingFunnelVariantFromCondensedFlag,
+  ONBOARDING_FUNNEL_STEPS,
+  resolveOnboardingFunnelVariant,
+} from "@/domains/onboarding/funnel-events";
+import {
   readOnboardingCompleted,
   useAiDataConsent,
   useShareAnalytics,
@@ -17,6 +24,7 @@ import {
   useTosAccepted,
 } from "@/domains/onboarding/prefs";
 import { markPrivacyConsent } from "@/domains/onboarding/signals";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
 import { legalUrl, routes } from "@/utils/routes";
@@ -52,22 +60,40 @@ function SettingRow({
   );
 }
 
+// Consent checkboxes mirror the primary button: the checked fill uses
+// --primary-base and the check uses --content-inset (the on-primary
+// foreground). This stays correct in every theme — dark fill + white check in
+// light mode, white fill + dark check in dark mode — whereas the design
+// library's hardcoded white check vanishes on the near-white dark-mode fill.
+const CONSENT_CHECKBOX_CLASS =
+  "[&_button[data-state=checked]]:bg-[var(--primary-base)] [&_svg]:text-[var(--content-inset)]";
+
 export function PrivacyScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isReplay = searchParams.get("replay") === "1";
   const userId = useAuthStore.use.user()?.id ?? null;
   const isNative = useIsNativePlatform();
+  const condensedPrechatFlag =
+    useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
+  const preferredFunnelVariant =
+    onboardingFunnelVariantFromCondensedFlag(condensedPrechatFlag);
   const [shareAnalytics, setShareAnalytics] = useShareAnalytics();
   const [shareDiagnostics, setShareDiagnostics] = useShareDiagnostics();
   const [tosAccepted, setTosAccepted] = useTosAccepted();
   const [aiDataConsent, setAiDataConsent] = useAiDataConsent();
 
   useEffect(() => {
-    if (readOnboardingCompleted()) {
+    if (!isNative && !isReplay) {
+      getOnboardingFunnelSessionId();
+    }
+  }, [isNative, isReplay]);
+
+  useEffect(() => {
+    if (readOnboardingCompleted() && !isReplay) {
       void navigate(routes.assistant, { replace: true });
     }
-  }, [navigate]);
+  }, [isReplay, navigate]);
 
   const onStart = useCallback(() => {
     try {
@@ -79,12 +105,33 @@ export function PrivacyScreen() {
       });
     }
     markPrivacyConsent(userId);
-    void navigate(
-      isReplay
-        ? `${routes.onboarding.hatching}?replay=1`
-        : routes.onboarding.hatching,
-    );
-  }, [isReplay, navigate, setShareAnalytics, setShareDiagnostics, shareAnalytics, shareDiagnostics, userId]);
+    if (!isNative && !isReplay) {
+      const variant = resolveOnboardingFunnelVariant(preferredFunnelVariant);
+      emitOnboardingFunnelStepCompleted(ONBOARDING_FUNNEL_STEPS.privacyTos, {
+        userId,
+        variant,
+      });
+    }
+    // Preserve the hosting param (Local/Docker need it so hatching runs the
+    // local hatch instead of a platform hatch).
+    const hostingParam = searchParams.get("hosting");
+    const params = new URLSearchParams();
+    if (hostingParam) params.set("hosting", hostingParam);
+    if (isReplay) params.set("replay", "1");
+    const qs = params.toString();
+    void navigate(`${routes.onboarding.hatching}${qs ? `?${qs}` : ""}`);
+  }, [
+    isNative,
+    isReplay,
+    navigate,
+    preferredFunnelVariant,
+    searchParams,
+    setShareAnalytics,
+    setShareDiagnostics,
+    shareAnalytics,
+    shareDiagnostics,
+    userId,
+  ]);
 
   const tosLabel: ReactNode = (
     <span className="text-body-medium-lighter text-[var(--content-default)]">
@@ -172,6 +219,7 @@ export function PrivacyScreen() {
             onCheckedChange={(next) => setAiDataConsent(next === true)}
             label={aiConsentLabel}
             aria-label="I agree to the AI Data Sharing Policy"
+            className={CONSENT_CHECKBOX_CLASS}
           />
         </div>
 
@@ -181,6 +229,7 @@ export function PrivacyScreen() {
             onCheckedChange={(next) => setTosAccepted(next === true)}
             label={tosLabel}
             aria-label="I agree to the Terms of Service and Privacy Policy"
+            className={CONSENT_CHECKBOX_CLASS}
           />
         </div>
 

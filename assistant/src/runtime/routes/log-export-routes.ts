@@ -37,6 +37,7 @@ import {
 } from "../../util/platform.js";
 import { APP_VERSION, COMMIT_SHA } from "../../version.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { createTarGz } from "./archive-utils.js";
 import { InternalError } from "./errors.js";
 import { collectWorkspaceData } from "./log-export/workspace-allowlist.js";
@@ -221,7 +222,9 @@ async function handleExport({
       }
     }
 
-    // --- Daemon log grep for conversationId ---
+    // --- Conversation-scoped daemon log slice ---
+    // Write a `conversation-filtered.jsonl` slice of the lines that mention the
+    // conversationId as a quick index into the full daily logs.
     if (conversationId && collectedLogFiles.length > 0) {
       const matchingLines: string[] = [];
       for (const logFile of collectedLogFiles) {
@@ -244,13 +247,22 @@ async function handleExport({
         );
       }
 
-      for (const logFile of collectedLogFiles) {
-        try {
-          rmSync(logFile, { force: true });
-        } catch {
-          // Best-effort removal
-        }
-      }
+      // We intentionally retain the full daily `assistant-*.log` and
+      // `daemon-stderr.log` files rather than removing them here. Agent-loop
+      // failures — stream aborts, stack traces, provider errors — are routinely
+      // logged without the conversationId, so the grep above drops exactly the
+      // lines needed to debug a failed turn. We cannot currently guarantee that
+      // every log line emitted while handling a conversation carries its
+      // conversationId; until we can, the full daily log must stay in the
+      // bundle. Re-enable the removal below only once that guarantee holds.
+      //
+      // for (const logFile of collectedLogFiles) {
+      //   try {
+      //     rmSync(logFile, { force: true });
+      //   } catch {
+      //     // Best-effort removal
+      //   }
+      // }
     }
 
     // --- Workspace allowlist ---
@@ -486,7 +498,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "export_logs",
     endpoint: "export",
     method: "POST",
-    policyKey: "export",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleExport,
     summary: "Export logs and audit data",
     description:
@@ -507,7 +522,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "export_logs_alias",
     endpoint: "logs/export",
     method: "POST",
-    policyKey: "export",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleExport,
     summary: "Export logs and audit data (alias)",
     description:

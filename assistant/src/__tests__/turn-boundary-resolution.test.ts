@@ -57,10 +57,10 @@ describe("getAssistantMessageIdsInTurn", () => {
 
   test("single-step turn: returns only the one assistant message", async () => {
     const conv = createConversation("single-step");
-    await addMessage(conv.id, "user", "Hello", undefined, {
+    await addMessage(conv.id, "user", "Hello", {
       skipIndexing: true,
     });
-    const a1 = await addMessage(conv.id, "assistant", "Hi there!", undefined, {
+    const a1 = await addMessage(conv.id, "assistant", "Hi there!", {
       skipIndexing: true,
     });
 
@@ -70,24 +70,16 @@ describe("getAssistantMessageIdsInTurn", () => {
 
   test("multi-step turn: user → A1 → tool_result → A2 → query A2 → returns [A1, A2]", async () => {
     const conv = createConversation("multi-step");
-    await addMessage(conv.id, "user", "Do the thing", undefined, {
+    await addMessage(conv.id, "user", "Do the thing", {
       skipIndexing: true,
     });
-    const a1 = await addMessage(
-      conv.id,
-      "assistant",
-      "Using tool...",
-      undefined,
-      { skipIndexing: true },
-    );
-    await addMessage(
-      conv.id,
-      "user",
-      toolResultContent(["tool-1"]),
-      undefined,
-      { skipIndexing: true },
-    );
-    const a2 = await addMessage(conv.id, "assistant", "Done!", undefined, {
+    const a1 = await addMessage(conv.id, "assistant", "Using tool...", {
+      skipIndexing: true,
+    });
+    await addMessage(conv.id, "user", toolResultContent(["tool-1"]), {
+      skipIndexing: true,
+    });
+    const a2 = await addMessage(conv.id, "assistant", "Done!", {
       skipIndexing: true,
     });
 
@@ -97,30 +89,22 @@ describe("getAssistantMessageIdsInTurn", () => {
 
   test("3-step turn: user → A1 → tool_result → A2 → tool_result → A3 → query A3 → returns [A1, A2, A3]", async () => {
     const conv = createConversation("three-step");
-    await addMessage(conv.id, "user", "Complex task", undefined, {
+    await addMessage(conv.id, "user", "Complex task", {
       skipIndexing: true,
     });
-    const a1 = await addMessage(conv.id, "assistant", "Step 1...", undefined, {
+    const a1 = await addMessage(conv.id, "assistant", "Step 1...", {
       skipIndexing: true,
     });
-    await addMessage(
-      conv.id,
-      "user",
-      toolResultContent(["tool-1"]),
-      undefined,
-      { skipIndexing: true },
-    );
-    const a2 = await addMessage(conv.id, "assistant", "Step 2...", undefined, {
+    await addMessage(conv.id, "user", toolResultContent(["tool-1"]), {
       skipIndexing: true,
     });
-    await addMessage(
-      conv.id,
-      "user",
-      toolResultContent(["tool-2"]),
-      undefined,
-      { skipIndexing: true },
-    );
-    const a3 = await addMessage(conv.id, "assistant", "All done!", undefined, {
+    const a2 = await addMessage(conv.id, "assistant", "Step 2...", {
+      skipIndexing: true,
+    });
+    await addMessage(conv.id, "user", toolResultContent(["tool-2"]), {
+      skipIndexing: true,
+    });
+    const a3 = await addMessage(conv.id, "assistant", "All done!", {
       skipIndexing: true,
     });
 
@@ -130,24 +114,16 @@ describe("getAssistantMessageIdsInTurn", () => {
 
   test("query intermediate message: query A1 in a 2-step turn → returns [A1, A2]", async () => {
     const conv = createConversation("intermediate");
-    await addMessage(conv.id, "user", "Start task", undefined, {
+    await addMessage(conv.id, "user", "Start task", {
       skipIndexing: true,
     });
-    const a1 = await addMessage(
-      conv.id,
-      "assistant",
-      "Using tool...",
-      undefined,
-      { skipIndexing: true },
-    );
-    await addMessage(
-      conv.id,
-      "user",
-      toolResultContent(["tool-1"]),
-      undefined,
-      { skipIndexing: true },
-    );
-    const a2 = await addMessage(conv.id, "assistant", "Done!", undefined, {
+    const a1 = await addMessage(conv.id, "assistant", "Using tool...", {
+      skipIndexing: true,
+    });
+    await addMessage(conv.id, "user", toolResultContent(["tool-1"]), {
+      skipIndexing: true,
+    });
+    const a2 = await addMessage(conv.id, "assistant", "Done!", {
       skipIndexing: true,
     });
 
@@ -164,42 +140,26 @@ describe("getAssistantMessageIdsInTurn", () => {
     const conv = createConversation("consecutive");
 
     // First turn
-    await addMessage(conv.id, "user", "First question", undefined, {
+    await addMessage(conv.id, "user", "First question", {
       skipIndexing: true,
     });
-    const a1 = await addMessage(
-      conv.id,
-      "assistant",
-      "First answer",
-      undefined,
-      { skipIndexing: true },
-    );
+    const a1 = await addMessage(conv.id, "assistant", "First answer", {
+      skipIndexing: true,
+    });
 
     // Second turn
-    await addMessage(conv.id, "user", "Second question", undefined, {
+    await addMessage(conv.id, "user", "Second question", {
       skipIndexing: true,
     });
-    const a2 = await addMessage(
-      conv.id,
-      "assistant",
-      "Using tool...",
-      undefined,
-      { skipIndexing: true },
-    );
-    await addMessage(
-      conv.id,
-      "user",
-      toolResultContent(["tool-1"]),
-      undefined,
-      { skipIndexing: true },
-    );
-    const a3 = await addMessage(
-      conv.id,
-      "assistant",
-      "Done with second",
-      undefined,
-      { skipIndexing: true },
-    );
+    const a2 = await addMessage(conv.id, "assistant", "Using tool...", {
+      skipIndexing: true,
+    });
+    await addMessage(conv.id, "user", toolResultContent(["tool-1"]), {
+      skipIndexing: true,
+    });
+    const a3 = await addMessage(conv.id, "assistant", "Done with second", {
+      skipIndexing: true,
+    });
 
     // Query second turn → should NOT include a1
     const result = getAssistantMessageIdsInTurn(a3.id);

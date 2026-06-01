@@ -203,12 +203,16 @@ export type MessageRole = "user" | "assistant" | "system";
  * The return type is left as `unknown` because the daemon has additional
  * fields (message id, metadata echo) that skills should not depend on.
  */
+export interface InsertMessageOptions {
+  metadata?: Record<string, unknown>;
+  skipIndexing?: boolean;
+}
+
 export type InsertMessageFn = (
   conversationId: string,
   role: MessageRole,
   content: string,
-  metadata?: Record<string, unknown>,
-  opts?: { skipIndexing?: boolean },
+  options?: InsertMessageOptions,
 ) => Promise<unknown>;
 
 /** Opaque payload passed to `memory.wakeAgentForOpportunity`. */

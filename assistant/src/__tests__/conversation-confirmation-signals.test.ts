@@ -11,11 +11,8 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
-import type {
-  AgentEvent,
-  CheckpointDecision,
-  CheckpointInfo,
-} from "../agent/loop.js";
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
+import type { AgentEvent } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
@@ -191,6 +188,7 @@ mock.module("../memory/llm-usage-store.js", () => ({
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;
@@ -204,11 +202,6 @@ mock.module("../agent/loop.js", () => ({
     async run(
       _messages: Message[],
       _onEvent: (event: AgentEvent) => void,
-      _signal?: AbortSignal,
-      _requestId?: string,
-      _onCheckpoint?: (
-        checkpoint: CheckpointInfo,
-      ) => CheckpointDecision | Promise<CheckpointDecision>,
     ): Promise<Message[]> {
       return [];
     }
@@ -266,9 +259,9 @@ function makeConversation(
     "conv-signals-test",
     makeProvider(),
     "system prompt",
-    4096,
     sendToClient ?? (() => {}),
     process.env.VELLUM_WORKSPACE_DIR!,
+    { maxTokens: 4096 },
   );
 }
 
@@ -375,17 +368,12 @@ describe("centralized confirmation emissions", () => {
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     seedPendingConfirmation(conversation, "req-ctx-1");
-    conversation.handleConfirmationResponse(
-      "req-ctx-1",
-      "allow",
-      undefined,
-      undefined,
-      undefined,
-      {
+    conversation.handleConfirmationResponse("req-ctx-1", "allow", {
+      emissionContext: {
         source: "inline_nl",
         decisionText: "yes please",
       },
-    );
+    });
 
     const confirmMsg = emitted.find(
       (m) =>
@@ -406,22 +394,12 @@ describe("activity version ordering", () => {
     const emitted: ServerMessage[] = [];
     const conversation = makeConversation((msg) => emitted.push(msg));
 
-    conversation.emitActivityState(
-      "thinking",
-      "message_dequeued",
-      "assistant_turn",
-    );
-    conversation.emitActivityState(
-      "streaming",
-      "first_text_delta",
-      "assistant_turn",
-    );
-    conversation.emitActivityState(
-      "tool_running",
-      "tool_use_start",
-      "assistant_turn",
-    );
-    conversation.emitActivityState("idle", "message_complete", "global");
+    conversation.emitActivityState("thinking", "message_dequeued");
+    conversation.emitActivityState("streaming", "first_text_delta");
+    conversation.emitActivityState("tool_running", "tool_use_start");
+    conversation.emitActivityState("idle", "message_complete", {
+      anchor: "global",
+    });
 
     const activityMsgs = emitted.filter(
       (m) => m.type === "assistant_activity_state",
@@ -445,11 +423,7 @@ describe("activity version ordering", () => {
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     // Emit a baseline activity state
-    conversation.emitActivityState(
-      "thinking",
-      "message_dequeued",
-      "assistant_turn",
-    );
+    conversation.emitActivityState("thinking", "message_dequeued");
 
     const baselineMsg = emitted.find(
       (m) => m.type === "assistant_activity_state",
@@ -478,11 +452,7 @@ describe("sendToClient receives state signals", () => {
     const clientMsgs: ServerMessage[] = [];
     const conversation = makeConversation((msg) => clientMsgs.push(msg));
 
-    conversation.emitActivityState(
-      "thinking",
-      "message_dequeued",
-      "assistant_turn",
-    );
+    conversation.emitActivityState("thinking", "message_dequeued");
 
     expect(
       clientMsgs.filter((m) => m.type === "assistant_activity_state"),

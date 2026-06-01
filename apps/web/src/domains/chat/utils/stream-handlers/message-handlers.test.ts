@@ -3,12 +3,24 @@ import { describe, expect, it } from "bun:test";
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
 import {
   handleAssistantTextDelta,
+  handleAssistantTurnStart,
   handleAssistantActivityState,
   handleMessageComplete,
   handleGenerationHandoff,
   handleGenerationCancelled,
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+
+describe("handleAssistantTurnStart", () => {
+  it("seeds currentAssistantMessageIdRef from the event's messageId", () => {
+    const ctx = makeCtx();
+    handleAssistantTurnStart(
+      { type: "assistant_turn_start", messageId: "msg-A" },
+      ctx,
+    );
+    expect(ctx.currentAssistantMessageIdRef.current).toBe("msg-A");
+  });
+});
 
 describe("handleAssistantTextDelta", () => {
   it("cancels reconciliation and dispatches ASSISTANT_TEXT_DELTA", () => {
@@ -22,23 +34,18 @@ describe("handleAssistantTextDelta", () => {
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 
-  it("creates a new bubble when the tail is not a streaming assistant", () => {
-    // Empty messages → tail derivation says "create new bubble".
+  it("creates a new bubble when there is no assistant tail to fold into", () => {
+    // Empty messages → no assistant tail, so the delta opens a new bubble.
     const ctx = makeCtx();
-    handleAssistantTextDelta(
-      { type: "assistant_text_delta", text: "Hi" },
-      ctx,
-    );
+    handleAssistantTextDelta({ type: "assistant_text_delta", text: "Hi" }, ctx);
     expect(ctx.setMessages).toHaveBeenCalled();
     // Apply the updater to an empty array to confirm a new bubble emerges.
-    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>).mock.calls[0][0] as (
-      prev: never[],
-    ) => unknown[];
+    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
+      .mock.calls[0][0] as (prev: never[]) => unknown[];
     const next = updater([]);
     expect(next).toHaveLength(1);
     expect(next[0]).toMatchObject({
       role: "assistant",
-      isStreaming: true,
       content: "Hi",
     });
   });
@@ -118,7 +125,9 @@ describe("handleAssistantActivityState", () => {
       },
       ctx,
     );
-    expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith("Processing bash results");
+    expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith(
+      "Processing bash results",
+    );
   });
 
   it("returns early for non-idle, non-thinking phase", () => {
@@ -130,12 +139,15 @@ describe("handleAssistantActivityState", () => {
         phase: "streaming",
         anchor: "assistant_turn",
         reason: "first_text_delta",
+        conversationId: "conv-1",
       },
       ctx,
     );
-    expect(ctx.lastActivityVersionRef.current.get(
-      ctx.streamContextRef.current!.conversationId,
-    )).toBe(1);
+    expect(
+      ctx.lastActivityVersionRef.current.get(
+        ctx.streamContext!.conversationId,
+      ),
+    ).toBe(1);
     expect(ctx.turnActions.onActivityThinking).not.toHaveBeenCalled();
     expect(ctx.endTurn).not.toHaveBeenCalled();
   });
@@ -156,14 +168,14 @@ describe("handleMessageComplete", () => {
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
-  it("prefers event.conversationId over streamContextRef when both differ", () => {
-    // streamContextRef is a mirror that may be cleared by a stream
+  it("prefers event.conversationId over streamContext when both differ", () => {
+    // streamContext is a mirror that may be cleared by a stream
     // teardown that races the terminal event. When the event itself
     // carries the canonical conversationId, the handler must use it
     // — otherwise the processing key for the conversation that
     // actually completed would never clear.
     const ctx = makeCtx({
-      streamContextRef: { current: null },
+      streamContext: null,
     });
     handleMessageComplete(
       {
@@ -258,7 +270,7 @@ describe("handleMessageComplete", () => {
 });
 
 describe("handleGenerationHandoff", () => {
-  it("cancels reconciliation and finalizes streaming tail", () => {
+  it("cancels reconciliation and hands off generation", () => {
     const ctx = makeCtx();
     handleGenerationHandoff(
       { type: "generation_handoff", messageId: "msg-1", queuedCount: 0 },
@@ -266,24 +278,22 @@ describe("handleGenerationHandoff", () => {
     );
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
     expect(ctx.turnActions.handoffGeneration).toHaveBeenCalled();
-    expect(ctx.setMessages).toHaveBeenCalled();
   });
 });
 
 describe("handleGenerationCancelled", () => {
-  it("ends the turn with reason=cancelled and stops streaming rows", () => {
+  it("ends the turn with reason=cancelled", () => {
     const ctx = makeCtx();
     handleGenerationCancelled({ type: "generation_cancelled" }, ctx);
     expect(ctx.endTurn).toHaveBeenCalledWith({
       conversationId: "conv-1",
       reason: "cancelled",
     });
-    expect(ctx.setMessages).toHaveBeenCalled();
   });
 
-  it("prefers event.conversationId over streamContextRef when both differ", () => {
+  it("prefers event.conversationId over streamContext when both differ", () => {
     const ctx = makeCtx({
-      streamContextRef: { current: null },
+      streamContext: null,
     });
     handleGenerationCancelled(
       { type: "generation_cancelled", conversationId: "conv-from-event" },

@@ -8,9 +8,9 @@
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
-import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat-utils";
+import { attachConfirmationToToolCall, ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { PendingConfirmationState, PendingSecretState } from "@/domains/chat/types";
-import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 
 // ---------------------------------------------------------------------------
 // Pure updater functions — no React state, fully testable
@@ -117,22 +117,6 @@ export function resolvePostError(
   fallback: string,
 ): string {
   return (code && ERROR_MESSAGES[code]) || detail || fallback;
-}
-
-/**
- * Compose clearing the streaming flag on the last assistant message with
- * clearing pending confirmations — a single pure transform for
- * `handleStopGenerating` (avoids two separate `setMessages` calls).
- */
-export function stopStreamingAndClearConfirmations(
-  prev: DisplayMessage[],
-): DisplayMessage[] {
-  const last = prev[prev.length - 1];
-  let updated = prev;
-  if (last?.role === "assistant" && last.isStreaming) {
-    updated = [...prev.slice(0, -1), { ...last, isStreaming: false }];
-  }
-  return clearPendingConfirmationsFromMessages(updated);
 }
 
 // ---------------------------------------------------------------------------

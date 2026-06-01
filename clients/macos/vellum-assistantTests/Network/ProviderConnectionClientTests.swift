@@ -37,18 +37,16 @@ final class MockProviderConnectionClient: ProviderConnectionClientProtocol {
     var createProviderArg: String?
     var createAuthArg: ProviderConnectionAuth?
     var createLabelArg: String?
-    var createStatusArg: ConnectionStatus?
     var createBaseUrlArg: String?
     var createModelsArg: [ConnectionModel]?
     var createResponse: ProviderConnectionCreateResult = .error
 
-    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth, label: String?, status: ConnectionStatus?, baseUrl: String?, models: [ConnectionModel]?) async -> ProviderConnectionCreateResult {
+    func createProviderConnection(name: String, provider: String, auth: ProviderConnectionAuth, label: String?, baseUrl: String?, models: [ConnectionModel]?) async -> ProviderConnectionCreateResult {
         createCallCount += 1
         createNameArg = name
         createProviderArg = provider
         createAuthArg = auth
         createLabelArg = label
-        createStatusArg = status
         createBaseUrlArg = baseUrl
         createModelsArg = models
         return createResponse
@@ -58,17 +56,15 @@ final class MockProviderConnectionClient: ProviderConnectionClientProtocol {
     var updateCallCount = 0
     var updateNameArg: String?
     var updateAuthArg: ProviderConnectionAuth?
-    var updateStatusArg: ConnectionStatus?
     var updateLabelArg: String??
     var updateBaseUrlArg: String??
     var updateModelsArg: [ConnectionModel]??
     var updateResponse: ProviderConnection? = nil
 
-    func updateProviderConnection(name: String, auth: ProviderConnectionAuth, status: ConnectionStatus?, label: String??, baseUrl: String??, models: [ConnectionModel]??) async -> ProviderConnection? {
+    func updateProviderConnection(name: String, auth: ProviderConnectionAuth, label: String??, baseUrl: String??, models: [ConnectionModel]??) async -> ProviderConnection? {
         updateCallCount += 1
         updateNameArg = name
         updateAuthArg = auth
-        updateStatusArg = status
         updateLabelArg = label
         updateBaseUrlArg = baseUrl
         updateModelsArg = models
@@ -115,14 +111,12 @@ private func makeConnection(
     provider: String = "anthropic",
     authType: String = "api_key",
     credential: String? = "sk-test",
-    status: ConnectionStatus = .active,
     label: String? = nil
 ) -> ProviderConnection {
     ProviderConnection(
         name: name,
         provider: provider,
         auth: ProviderConnectionAuth(type: authType, credential: credential),
-        status: status,
         label: label,
         createdAt: 0,
         updatedAt: 0
@@ -132,55 +126,14 @@ private func makeConnection(
 // MARK: - Tests
 
 /// Verifies the generated `ProviderConnection` Codable conformance keeps the
-/// macOS app working against daemons that predate the `status` field. Mixed-
-/// version setups must default missing `status` to `.active` rather than
-/// throwing `keyNotFound` and stranding the Providers UI.
+/// macOS app working against daemons that predate the `isManaged` field.
+/// Mixed-version setups must default missing `isManaged` to `false` rather
+/// than throwing `keyNotFound` and stranding the Providers UI.
 final class ProviderConnectionDecodingTests: XCTestCase {
 
     private func decode(_ jsonString: String) throws -> ProviderConnection {
         let data = jsonString.data(using: .utf8)!
         return try JSONDecoder().decode(ProviderConnection.self, from: data)
-    }
-
-    func testDecodesStatusWhenPresent() throws {
-        let conn = try decode("""
-        {
-          "name": "my-conn",
-          "provider": "anthropic",
-          "auth": { "type": "api_key", "credential": "credential/anthropic/api_key" },
-          "status": "disabled",
-          "createdAt": 1,
-          "updatedAt": 2
-        }
-        """)
-        XCTAssertEqual(conn.status, .disabled)
-    }
-
-    func testDefaultsToActiveWhenStatusKeyMissing() throws {
-        let conn = try decode("""
-        {
-          "name": "my-conn",
-          "provider": "anthropic",
-          "auth": { "type": "api_key", "credential": "credential/anthropic/api_key" },
-          "createdAt": 1,
-          "updatedAt": 2
-        }
-        """)
-        XCTAssertEqual(conn.status, .active)
-    }
-
-    func testDefaultsToActiveWhenStatusIsExplicitNull() throws {
-        let conn = try decode("""
-        {
-          "name": "my-conn",
-          "provider": "anthropic",
-          "auth": { "type": "api_key", "credential": "credential/anthropic/api_key" },
-          "status": null,
-          "createdAt": 1,
-          "updatedAt": 2
-        }
-        """)
-        XCTAssertEqual(conn.status, .active)
     }
 
     func testDecodesIsManagedWhenPresent() throws {
@@ -278,7 +231,7 @@ final class ProviderConnectionClientTests: XCTestCase {
         let conn = makeConnection(name: "new-conn")
         mock.createResponse = .created(conn)
         let auth = ProviderConnectionAuth(type: "api_key", credential: "sk-test")
-        let result = await mock.createProviderConnection(name: "new-conn", provider: "anthropic", auth: auth, label: nil, status: nil, baseUrl: nil, models: nil)
+        let result = await mock.createProviderConnection(name: "new-conn", provider: "anthropic", auth: auth, label: nil, baseUrl: nil, models: nil)
         guard case .created(let created) = result else {
             XCTFail("Expected .created result, got \(result)")
             return
@@ -296,7 +249,7 @@ final class ProviderConnectionClientTests: XCTestCase {
         // instead of a generic "please try again."
         mock.createResponse = .duplicate
         let auth = ProviderConnectionAuth(type: "api_key", credential: "sk-test")
-        let result = await mock.createProviderConnection(name: "existing", provider: "anthropic", auth: auth, label: nil, status: nil, baseUrl: nil, models: nil)
+        let result = await mock.createProviderConnection(name: "existing", provider: "anthropic", auth: auth, label: nil, baseUrl: nil, models: nil)
         guard case .duplicate = result else {
             XCTFail("Expected .duplicate result, got \(result)")
             return
@@ -308,7 +261,7 @@ final class ProviderConnectionClientTests: XCTestCase {
         // sheet can echo it verbatim (e.g. `Invalid provider "x". Valid: ...`).
         mock.createResponse = .invalid(message: "Invalid auth configuration.")
         let auth = ProviderConnectionAuth(type: "api_key", credential: "")
-        let result = await mock.createProviderConnection(name: "conn", provider: "anthropic", auth: auth, label: nil, status: nil, baseUrl: nil, models: nil)
+        let result = await mock.createProviderConnection(name: "conn", provider: "anthropic", auth: auth, label: nil, baseUrl: nil, models: nil)
         guard case .invalid(let message) = result else {
             XCTFail("Expected .invalid result, got \(result)")
             return
@@ -320,7 +273,7 @@ final class ProviderConnectionClientTests: XCTestCase {
         // Catch-all for network errors, 5xx, decode failures, etc.
         mock.createResponse = .error
         let auth = ProviderConnectionAuth(type: "api_key", credential: "sk-test")
-        let result = await mock.createProviderConnection(name: "conn", provider: "anthropic", auth: auth, label: nil, status: nil, baseUrl: nil, models: nil)
+        let result = await mock.createProviderConnection(name: "conn", provider: "anthropic", auth: auth, label: nil, baseUrl: nil, models: nil)
         guard case .error = result else {
             XCTFail("Expected .error result, got \(result)")
             return
@@ -333,7 +286,7 @@ final class ProviderConnectionClientTests: XCTestCase {
         let conn = makeConnection(name: "conn")
         mock.updateResponse = conn
         let auth = ProviderConnectionAuth(type: "api_key", credential: "sk-new")
-        let result = await mock.updateProviderConnection(name: "conn", auth: auth, status: nil, label: nil, baseUrl: nil, models: nil)
+        let result = await mock.updateProviderConnection(name: "conn", auth: auth, label: nil, baseUrl: nil, models: nil)
         XCTAssertEqual(result?.name, "conn")
         XCTAssertEqual(mock.updateNameArg, "conn")
         XCTAssertEqual(mock.updateAuthArg?.credential, "sk-new")
@@ -342,7 +295,7 @@ final class ProviderConnectionClientTests: XCTestCase {
     func testUpdateReturnsNilOn404() async {
         mock.updateResponse = nil
         let auth = ProviderConnectionAuth(type: "api_key", credential: "sk-x")
-        let result = await mock.updateProviderConnection(name: "missing", auth: auth, status: nil, label: nil, baseUrl: nil, models: nil)
+        let result = await mock.updateProviderConnection(name: "missing", auth: auth, label: nil, baseUrl: nil, models: nil)
         XCTAssertNil(result)
     }
 

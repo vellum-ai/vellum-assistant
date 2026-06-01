@@ -1,5 +1,5 @@
 
-import { Check, Copy, FileCode, GitBranch } from "lucide-react";
+import { Check, Copy, ExternalLink, FileCode, GitBranch } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type MessageHoverActionsProps = {
@@ -10,8 +10,8 @@ type MessageHoverActionsProps = {
   timestamp?: number;
   /** The role of the message sender. */
   role: "user" | "assistant";
-  /** Whether the message is currently streaming. */
-  isStreaming?: boolean;
+  /** Slack permalink for the message, shown as a hover action when present. */
+  openInSlackUrl?: string;
   /** Callback when "Fork from here" is clicked. */
   onFork?: () => void;
   /** Callback when "Inspect" is clicked. */
@@ -54,7 +54,7 @@ export function MessageHoverActions({
   content,
   timestamp,
   role,
-  isStreaming,
+  openInSlackUrl,
   onFork,
   onInspect,
 }: MessageHoverActionsProps) {
@@ -90,10 +90,6 @@ export function MessageHoverActions({
     });
   }, [content]);
 
-  if (isStreaming) {
-    return null;
-  }
-
   return (
     <div
       className={`flex items-center gap-0.5 ${
@@ -120,6 +116,19 @@ export function MessageHoverActions({
             <Copy className="h-3.5 w-3.5" />
           )}
         </button>
+      )}
+
+      {openInSlackUrl && (
+        <a
+          href={openInSlackUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          aria-label="Open in Slack"
+          title="Open in Slack"
+          className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+        </a>
       )}
 
       {onFork && (

@@ -71,6 +71,7 @@ import { type LogRow } from "../../memory/llm-request-log-store.js";
 import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
 import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
+import { getMemoryV3SelectionForInspector } from "../../memory/v3/selection-log-store.js";
 import {
   createConnection,
   listConnections,
@@ -107,6 +108,7 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
 };
 
 import { MANAGED_PROFILE_NAMES } from "../../config/seed-inference-profiles.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 
 const RESERVED_PROFILE_NAMES = new Set([
   "__proto__",
@@ -258,7 +260,10 @@ function normalizeLlmContextLog(log: LogRow): LlmContextRouteResult & {
     responsePayload,
     createdAt: log.createdAt,
   });
-  const result = applyStoredProviderToLlmContextResult(normalized, log.provider);
+  const result = applyStoredProviderToLlmContextResult(
+    normalized,
+    log.provider,
+  );
   return {
     id: log.id,
     requestPayload: null,
@@ -707,6 +712,49 @@ async function handleReplaceInferenceProfile({
       );
     }
   }
+  // Mix profiles reference other profiles by name. `ProfileEntry.safeParse`
+  // above validates the fragment in isolation, so the cross-profile integrity
+  // rules `LLMSchema.superRefine` enforces on full-config load (every arm
+  // exists, no nesting, no self-reference, no config fields) must be checked
+  // here against the live profile set — otherwise an invalid mix would persist
+  // and break the next full config reparse.
+  if (parsed.data.mix != null) {
+    const MIX_ALLOWED_KEYS = new Set([
+      "mix",
+      "label",
+      "description",
+      "status",
+      "source",
+    ]);
+    const extraneous = Object.keys(parsed.data).filter(
+      (k) => !MIX_ALLOWED_KEYS.has(k),
+    );
+    if (extraneous.length > 0) {
+      throw new BadRequestError(
+        `Mix profile "${name}" cannot also set [${extraneous.join(", ")}] — a mix only references other profiles plus metadata (label, description, status).`,
+      );
+    }
+    const existingProfiles = getConfig().llm.profiles ?? {};
+    parsed.data.mix.forEach((arm, index) => {
+      if (arm.profile === name) {
+        throw new BadRequestError(
+          `Mix profile "${name}" cannot reference itself (arm ${index}).`,
+        );
+      }
+      const target = existingProfiles[arm.profile];
+      if (target == null) {
+        throw new BadRequestError(
+          `Mix profile "${name}" references profile "${arm.profile}" which is not defined.`,
+        );
+      }
+      if (target.mix != null) {
+        throw new BadRequestError(
+          `Mix profile "${name}" references another mix profile "${arm.profile}" — mixes cannot be nested; constituents must be standard profiles.`,
+        );
+      }
+    });
+  }
+
   // When the UI sends provider but no provider_connection, derive the connection
   // now so the config deep-merge doesn't inherit a stale connection from the
   // default layer.
@@ -875,6 +923,12 @@ async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
   // turn finishes — see `assistant/src/memory/conversation-crud.ts`.
   const conversationTotalEstimatedCostUsd =
     conversation?.totalEstimatedCost ?? null;
+  const memoryV3Selection = message
+    ? await getMemoryV3SelectionForInspector(
+        message.conversationId,
+        memoryV2Activation?.turn ?? null,
+      )
+    : null;
   return {
     messageId,
     conversationKind,
@@ -882,6 +936,7 @@ async function handleGetLlmContext({ pathParams = {} }: RouteHandlerArgs) {
     logs: logs.map(normalizeLlmContextLog),
     memoryRecall: memoryRecallLog ?? null,
     memoryV2Activation: memoryV2Activation ?? null,
+    memoryV3Selection,
   };
 }
 
@@ -907,6 +962,7 @@ async function handleGetConversationLlmContext({
         logs: [],
         memoryRecall: null,
         memoryV2Activation: null,
+        memoryV3Selection: null,
       };
     }
     throw new BadRequestError(
@@ -925,6 +981,7 @@ async function handleGetConversationLlmContext({
         logs: [],
         memoryRecall: null,
         memoryV2Activation: null,
+        memoryV3Selection: null,
       };
     }
     throw new NotFoundError(`Conversation ${conversationId} not found`);
@@ -947,6 +1004,7 @@ async function handleGetConversationLlmContext({
     logs: logs.map(normalizeLlmContextLog),
     memoryRecall: null,
     memoryV2Activation: null,
+    memoryV3Selection: null,
   };
 }
 
@@ -1008,9 +1066,7 @@ function handleSteerToMessage({
       ? (body as Record<string, unknown>).conversationId
       : undefined);
   if (!conversationId || typeof conversationId !== "string") {
-    throw new BadRequestError(
-      "Missing required parameter: conversationId",
-    );
+    throw new BadRequestError("Missing required parameter: conversationId");
   }
   const result = steerToMessage(conversationId, pathParams.id ?? "");
   if (result.steered) {
@@ -1036,7 +1092,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "model_get",
     endpoint: "model",
     method: "GET",
-    policyKey: "model",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get current model config",
     description:
       "Return the active LLM model ID, provider, and available models.",
@@ -1047,7 +1106,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "model_image_gen_set",
     endpoint: "model/image-gen",
     method: "PUT",
-    policyKey: "model/image-gen",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Set image generation model",
     description: "Change the active image generation model.",
     tags: ["config"],
@@ -1058,7 +1120,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "config_embeddings_get",
     endpoint: "config/embeddings",
     method: "GET",
-    policyKey: "config/embeddings",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get embedding config",
     description:
       "Return the active embedding provider, model, and available options.",
@@ -1069,7 +1134,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "config_embeddings_set",
     endpoint: "config/embeddings",
     method: "PUT",
-    policyKey: "config/embeddings",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Set embedding config",
     description: "Change the embedding provider and optionally model.",
     tags: ["config"],
@@ -1083,7 +1151,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "config_get",
     endpoint: "config",
     method: "GET",
-    policyKey: "config",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get full config",
     description: "Return the raw settings.json configuration object.",
     tags: ["config"],
@@ -1093,7 +1164,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "config_patch",
     endpoint: "config",
     method: "PATCH",
-    policyKey: "config",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Patch config",
     description:
       "Deep-merge a partial JSON object into the settings.json configuration.",
@@ -1104,7 +1178,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "config_set",
     endpoint: "config/set",
     method: "POST",
-    policyKey: "config/set",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Set a single config path",
     description:
       "Assign a value at a dotted config path with direct-replacement semantics " +
@@ -1117,7 +1194,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "config_allowlist_validate",
     endpoint: "config/allowlist/validate",
     method: "GET",
-    policyKey: "config/allowlist/validate",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Validate secret-allowlist.json regex patterns",
     description:
       "Compile each regex pattern in secret-allowlist.json and return any " +
@@ -1129,7 +1209,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "config_schema_get",
     endpoint: "config/schema",
     method: "GET",
-    policyKey: "config/schema",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get config JSON Schema",
     description:
       "Return the JSON Schema for the assistant config, optionally scoped to a dotted-path sub-schema (e.g. ?path=calls).",
@@ -1147,7 +1230,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "config_llm_profiles_replace",
     endpoint: "config/llm/profiles/:name",
     method: "PUT",
-    policyKey: "config",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Replace an inference profile",
     description:
       "Replace the settings-UI-managed leaves of a single llm.profiles entry while preserving non-UI leaves.",
@@ -1158,7 +1244,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversations_search",
     endpoint: "conversations/search",
     method: "GET",
-    policyKey: "conversations/search",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Search conversations",
     description:
       "Full-text search across conversation titles and message content.",
@@ -1191,7 +1280,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "messages_content_get",
     endpoint: "messages/:id/content",
     method: "GET",
-    policyKey: "messages/content",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get message content",
     description: "Return the full content of a single message by ID.",
     tags: ["messages"],
@@ -1208,7 +1300,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversations_llm_context_get",
     endpoint: "conversations/llm-context",
     method: "GET",
-    policyKey: "conversations/llm-context",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get LLM context for a conversation",
     description:
       "Returns normalized LLM request/response logs for an entire conversation.",
@@ -1235,6 +1330,7 @@ export const ROUTES: RouteDefinition[] = [
       logs: z.array(z.unknown()),
       memoryRecall: z.object({}).passthrough().nullable(),
       memoryV2Activation: z.object({}).passthrough().nullable(),
+      memoryV3Selection: z.object({}).passthrough().nullable().optional(),
     }),
     handler: handleGetConversationLlmContext,
   },
@@ -1242,7 +1338,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "messages_llm_context_get",
     endpoint: "messages/:id/llm-context",
     method: "GET",
-    policyKey: "messages/llm-context",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get LLM context for a message",
     description:
       "Return request/response logs and memory recall data for a specific message.",
@@ -1254,6 +1353,7 @@ export const ROUTES: RouteDefinition[] = [
       logs: z.array(z.unknown()),
       memoryRecall: z.object({}).passthrough().nullable(),
       memoryV2Activation: z.object({}).passthrough().nullable(),
+      memoryV3Selection: z.object({}).passthrough().nullable().optional(),
     }),
     handler: handleGetLlmContext,
   },
@@ -1261,7 +1361,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "llm_request_logs_payload_get",
     endpoint: "llm-request-logs/:id/payload",
     method: "GET",
-    policyKey: "llm-request-logs/payload",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get raw payload for a single LLM request log",
     description:
       "Return the full request and response payloads for a specific log entry.",
@@ -1277,7 +1380,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "messages_queued_delete",
     endpoint: "messages/queued/:id",
     method: "DELETE",
-    policyKey: "messages/queued",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete a queued message",
     description:
       "Remove a pending message from the conversation queue before it is processed.",
@@ -1296,7 +1402,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "messages_queued_steer",
     endpoint: "messages/queued/:id/steer",
     method: "POST",
-    policyKey: "messages/queued",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Steer to a queued message",
     description:
       "Promote a queued message to the head of the queue and abort the current generation so it is processed next.",

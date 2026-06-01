@@ -19,8 +19,10 @@ import {
 import {
   countMemoryPrefixBlocks,
   extractMemoryPrefixBlocks,
+  stripAllMemoryInjections,
 } from "../memory/graph/conversation-graph-memory.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
+import { MEMORY_V3_BLOCK_ID } from "../memory/v3/types.js";
 import {
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
@@ -53,7 +55,7 @@ import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
-import { filterMessagesForUntrustedActor } from "./conversation-lifecycle.js";
+import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import { type PkbContextConversation } from "./pkb-context-tracker.js";
 import type { TrustContext } from "./trust-context.js";
 
@@ -299,7 +301,7 @@ function injectActiveSurfaceContext(
     lines.push(
       `The user is viewing app "${ctx.appName ?? "Untitled"}" (app_id: "${ctx.appId}", slug: "${slug}") in workspace mode.`,
       "",
-      'PREREQUISITE: If `app_refresh` is not yet available, call `skill_load` with `id: "app-builder"` first to load it.',
+      'PREREQUISITE: If `app_refresh` is not yet available, call `skill_load` with `skill: "app-builder"` first to load it.',
       "",
       "RULES FOR WORKSPACE MODIFICATION:",
       `1. Use \`file_edit\` to make surgical changes to app files. The file path is \`${getAppDirPath(ctx.appId)}/<path>\`.`,
@@ -488,7 +490,7 @@ export function buildSubagentStatusBlock(
 }
 
 // The `<active_subagents>` block is emitted by the `subagent-status` default
-// injector (`plugins/defaults/injectors.ts`) as an `append-user-tail`
+// injector (`plugins/defaults/injectors/register.ts`) as an `append-user-tail`
 // placement. Use {@link applyRuntimeInjections} with
 // `options.subagentStatusBlock` set, or drive the injector chain directly
 // via `collectInjectorBlocks`.
@@ -531,7 +533,7 @@ export function readNowScratchpad(): string | null {
 
 /**
  * The `<NOW.md>` block is emitted by the `now-md` default injector
- * (`plugins/defaults/injectors.ts`) as an `after-memory-prefix` placement.
+ * (`plugins/defaults/injectors/register.ts`) as an `after-memory-prefix` placement.
  * Use {@link applyRuntimeInjections} with `options.nowScratchpad` set.
  */
 
@@ -1647,10 +1649,9 @@ function buildActiveThreadBlockFromRenderable(
 
   if (members.length === 0) return null;
 
-  // The active-thread block is flattened to plain text below, which discards
-  // `Message.role`. Assistant rows that render content-only are relabeled in
-  // the post-render step. Timezone-aware assistant rows are already
-  // bracket-tagged by the renderer and must not receive another prefix.
+  // The active-thread block is flattened to plain text below. User rows keep
+  // explicit Slack attribution through the renderer; assistant rows pass
+  // through unchanged so the model does not learn a synthetic reply prefix.
   // Unnamed user rows (no real Slack displayName) get a `@user` senderLabel
   // here so their tag line carries attribution through the renderer. Labeled
   // user rows and assistant rows pass through unchanged.
@@ -1662,18 +1663,8 @@ function buildActiveThreadBlockFromRenderable(
 
   const rendered = renderSlackTranscriptWithProvenance(labeledMembers);
   if (rendered.renderedMessages.length === 0) return null;
-  // Reaction / overflow-trailer lines are renderer-owned Slack event lines,
-  // and timezone-aware assistant rows already carry metadata-backed compact
-  // attribution. Regular assistant content and the `[deleted]` sentinel get
-  // the prefix so attribution survives flattening.
   const lines = rendered.renderedMessages
-    .map((entry) => {
-      const text = extractTagLineTexts([entry.message])[0] ?? "";
-      return entry.message.role === "assistant" &&
-        entry.tagLineProvenance === "none"
-        ? `@assistant: ${text}`
-        : text;
-    })
+    .map((entry) => extractTagLineTexts([entry.message])[0] ?? "")
     .join("\n");
   return `<active_thread>\n${lines}\n</active_thread>`;
 }
@@ -2111,6 +2102,20 @@ export interface RuntimeInjectionOptions {
   activeDocuments?: TurnInjectionInputs["activeDocuments"];
   mode?: InjectionMode;
   /**
+   * memory-v3-live: when true AND the v3 injector produced a `<memory>` block
+   * this turn (placement `after-memory-prefix`, id `memory-v3`), the v2
+   * `<memory>` injection that `graphMemory.prepareMemory` prepended to the
+   * tail is stripped from EVERY user message before the v3 block is spliced —
+   * so v3 becomes the sole `<memory>` source and history stays byte-stable for
+   * prompt caching.
+   *
+   * The strip is keyed off whether v3 ACTUALLY produced a block, not off the
+   * flag alone: when v3 errors or selects nothing (its injector returns
+   * `null`), v2's block is left in place so the turn still ships memory rather
+   * than dropping it (fallback-to-v2). Default false — v2 untouched.
+   */
+  suppressV2MemoryForV3?: boolean;
+  /**
    * Per-turn {@link TurnContext} forwarded to plugin-registered
    * {@link Injector}s via {@link collectInjectorBlocks}. When omitted,
    * `applyRuntimeInjections` synthesizes an ephemeral context (with a
@@ -2319,7 +2324,26 @@ export async function applyRuntimeInjections(
       ? injectorChainPieces.join("\n\n")
       : undefined;
 
-  let result = runMessages;
+  // ── Step 0: memory-v3-live v2 suppression ──
+  // When v3 live mode is on AND the v3 injector actually produced a block this
+  // turn, v3 is the sole `<memory>` source. v2's `prepareMemory` already
+  // prepended its own `<memory>` block to the tail user message (and historical
+  // turns may carry v2 blocks from earlier turns). Strip every user message's
+  // memory prefix here so:
+  //   1. The v3 `after-memory-prefix` block (Step 2) lands at the top of the
+  //      tail with no v2 prefix ahead of it — exactly one `<memory>` block.
+  //   2. History is byte-stable across turns for prompt caching.
+  // Keyed off the v3 block being present (not the flag alone) so a v3 failure
+  // (`produce()` → null) leaves v2's block intact — fallback rather than a
+  // memory-less turn. Idempotent: re-injection sites that already stripped
+  // see no change.
+  const v3ProducedBlock = afterMemory.some((b) => b.id === MEMORY_V3_BLOCK_ID);
+  let runMessagesForAssembly = runMessages;
+  if (options.suppressV2MemoryForV3 && v3ProducedBlock) {
+    runMessagesForAssembly = stripAllMemoryInjections(runMessages);
+  }
+
+  let result = runMessagesForAssembly;
 
   // ── Step 1: Slack chronological replacement (chain "replace" block) ──
   if (replaceBlock && replaceBlock.messagesOverride) {
@@ -2328,7 +2352,9 @@ export async function applyRuntimeInjections(
     // runtime assembly runs. The Slack transcript is freshly rendered
     // from persisted rows and has no such prefix, so swap it in and then
     // re-prepend the captured prefix onto the new tail user message.
-    const carriedMemoryBlocks = extractMemoryPrefixBlocks(runMessages);
+    const carriedMemoryBlocks = extractMemoryPrefixBlocks(
+      runMessagesForAssembly,
+    );
     result = replaceBlock.messagesOverride;
     if (carriedMemoryBlocks.length > 0) {
       const slackTail = result[result.length - 1];

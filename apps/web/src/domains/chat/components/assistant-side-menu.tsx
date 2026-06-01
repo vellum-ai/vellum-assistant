@@ -4,11 +4,11 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
-  Globe,
   Hash,
   Layers,
   LayoutGrid,
   Pin,
+  Rocket,
   Search,
   SquarePen,
   X,
@@ -22,7 +22,7 @@ import {
 } from "@/domains/chat/components/conversation-actions-menu";
 import { CollapsedGroupIcon, getGroupIndicatorState } from "@/domains/chat/components/collapsed-group-icon";
 import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
-import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu";
+import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
 import { BackgroundSubGroups, ScheduledSubGroups } from "@/domains/chat/components/sub-group-accordion";
 import {
   formatBackgroundSubGroupLabel,
@@ -73,6 +73,8 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onRemoveFromGroup?: (conversation: Conversation) => void;
   onRenameGroup?: (groupId: string) => void;
   onDeleteGroup?: (groupId: string) => void;
+  onMarkAllReadInGroup?: (conversations: Conversation[]) => void;
+  onArchiveAllInGroup?: (groupName: string, conversations: Conversation[]) => void;
   processingConversationIds?: Set<string>;
   activeConversationProcessing?: boolean;
   onAnalyze?: (conversation: Conversation) => void;
@@ -131,6 +133,8 @@ export function AssistantSideMenu({
   onRemoveFromGroup,
   onRenameGroup,
   onDeleteGroup,
+  onMarkAllReadInGroup,
+  onArchiveAllInGroup,
   onClose,
   onSearchClick,
   processingConversationIds,
@@ -250,6 +254,32 @@ export function AssistantSideMenu({
     );
   };
 
+  const buildGroupContextMenu = (
+    groupName: string,
+    conversations: Conversation[],
+    options?: { onRename?: () => void; onDelete?: () => void },
+  ) => {
+    const hasAnyAction =
+      onMarkAllReadInGroup || onArchiveAllInGroup || options?.onRename || options?.onDelete;
+    if (!hasAnyAction) return undefined;
+
+    return renderGroupMenuItems({
+      Primitive: ContextMenu,
+      onMarkAllRead: onMarkAllReadInGroup
+        ? () => onMarkAllReadInGroup(conversations)
+        : undefined,
+      hasUnreadConversations: conversations.some(
+        (c) => c.hasUnseenLatestAssistantMessage,
+      ),
+      onArchiveAll: onArchiveAllInGroup
+        ? () => onArchiveAllInGroup(groupName, conversations)
+        : undefined,
+      hasConversations: conversations.length > 0,
+      onRename: options?.onRename,
+      onDelete: options?.onDelete,
+    });
+  };
+
   // --- Shared sub-component props ---
 
   const subGroupProps = {
@@ -277,6 +307,8 @@ export function AssistantSideMenu({
       size="compact"
       iconOnly={<SquarePen />}
       aria-label="New conversation"
+      tooltip="New conversation"
+      tooltipSide="right"
       onClick={() => { onStartNewConversation(); onClose?.(); }}
     />
   ) : null;
@@ -289,9 +321,8 @@ export function AssistantSideMenu({
     onShowMore?: () => void,
     showLess = false,
     onShowLess?: () => void,
-    className?: string,
   ): ReactNode => (
-    <SideMenu.SubList className={className}>
+    <SideMenu.SubList>
       {items.map((c) =>
         renderThreadRow(
           c,
@@ -328,12 +359,13 @@ export function AssistantSideMenu({
 
   // --- Collapsed-rail popover content renderer ---
 
-  const renderCollapsedGroupContent = (title: string, conversations: Conversation[], closePopover?: () => void): ReactNode => (
+  const renderCollapsedGroupContent = (title: string, conversations: Conversation[], closePopover?: () => void, emptyState?: ReactNode): ReactNode => (
     <div className="pb-1">
       <div className="flex items-center justify-between px-4 py-1">
         <span className="text-body-small-default text-[var(--content-tertiary)]">{title}</span>
       </div>
       <div className="px-2">
+        {conversations.length === 0 ? emptyState : null}
         {conversations.map((c) => (
           <PanelItem
             key={c.conversationId}
@@ -388,6 +420,7 @@ export function AssistantSideMenu({
         <SideMenu.Item
           icon={Brain}
           label={assistantName || "Your Assistant"}
+          showCollapsedTooltip
           active={isIntelligenceActive}
           onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
         />
@@ -395,6 +428,7 @@ export function AssistantSideMenu({
           <SideMenu.Item
             icon={LayoutGrid}
             label="Library"
+            showCollapsedTooltip
             active={isLibraryActive}
             onSelect={onOpenLibrary ? () => { onOpenLibrary(); onClose?.(); } : undefined}
           />
@@ -402,8 +436,12 @@ export function AssistantSideMenu({
         {pinnedApps.map((app) => (
           <SideMenu.Item
             key={app.appId}
-            icon={Globe}
+            // Apps source their icon as an emoji string on the manifest
+            // (`app.icon`). Fall back to the Rocket lucide glyph so unmojified
+            // apps still get a leading icon in the rail.
+            icon={app.icon ?? Rocket}
             label={app.name}
+            showCollapsedTooltip
             active={activeAppId === app.appId}
             onSelect={onOpenApp ? () => { onOpenApp(app.appId); onClose?.(); } : undefined}
           />
@@ -433,32 +471,6 @@ export function AssistantSideMenu({
               {(close) => renderCollapsedGroupContent("Recents", sidebar.recents.all, close)}
             </CollapsedGroupIcon>
             <CollapsedGroupIcon
-              icon={Calendar}
-              label="Scheduled"
-              disabled={sidebar.scheduled.length === 0}
-              indicatorState={getGroupIndicatorState(sidebar.scheduled, processingConversationIds, attentionConversationIds)}
-            >
-              {(close) => renderCollapsedGroupContent("Scheduled", sidebar.scheduled, close)}
-            </CollapsedGroupIcon>
-            {sidebar.background.length > 0 ? (
-              <CollapsedBackgroundGroup
-                conversations={sidebar.background}
-                activeConversationId={activeConversationId}
-                onSelectConversation={selectAndClose}
-                renderActions={renderThreadActions}
-                renderPinToggle={renderThreadPinToggle}
-                processingConversationIds={processingConversationIds}
-                attentionConversationIds={attentionConversationIds}
-              />
-            ) : (
-              <CollapsedGroupIcon
-                icon={Layers}
-                label="Background"
-                disabled
-                indicatorState={null}
-              />
-            )}
-            <CollapsedGroupIcon
               icon={Hash}
               label="Slack"
               disabled={sidebar.slack.totalCount === 0}
@@ -466,6 +478,36 @@ export function AssistantSideMenu({
             >
               {(close) => renderCollapsedGroupContent("Slack", sidebar.slack.all, close)}
             </CollapsedGroupIcon>
+            <CollapsedGroupIcon
+              icon={Calendar}
+              label="Scheduled"
+              onOpenChange={(open) => {
+                if (open) {
+                  sidebar.activateScheduled();
+                }
+              }}
+              indicatorState={getGroupIndicatorState(sidebar.scheduled, processingConversationIds, attentionConversationIds)}
+            >
+              {(close) =>
+                renderCollapsedGroupContent(
+                  "Scheduled",
+                  sidebar.scheduled,
+                  close,
+                  <CollapsedGroupEmptyState loading={sidebar.scheduledLoading} />,
+                )
+              }
+            </CollapsedGroupIcon>
+            <CollapsedBackgroundGroup
+              conversations={sidebar.background}
+              loading={sidebar.backgroundLoading}
+              onReveal={sidebar.activateBackground}
+              activeConversationId={activeConversationId}
+              onSelectConversation={selectAndClose}
+              renderActions={renderThreadActions}
+              renderPinToggle={renderThreadPinToggle}
+              processingConversationIds={processingConversationIds}
+              attentionConversationIds={attentionConversationIds}
+            />
           </div>
         ) : (
           <>
@@ -474,10 +516,6 @@ export function AssistantSideMenu({
                 {renderFlatList(
                   sidebar.pinned,
                   false,
-                  undefined,
-                  false,
-                  undefined,
-                  "-ml-[10px] w-[calc(100%+10px)]",
                 )}
               </SideMenu.Section>
             ) : null}
@@ -492,7 +530,6 @@ export function AssistantSideMenu({
                 sidebar.recents.onShowMore,
                 sidebar.recents.showLess,
                 sidebar.recents.onShowLess,
-                "-ml-[10px] w-[calc(100%+10px)]",
               )}
 
               <CollapsibleNavSection.Root
@@ -500,33 +537,12 @@ export function AssistantSideMenu({
                 value={sidebar.effectiveOpenCategories}
                 onValueChange={sidebar.onOpenCategoriesChange}
               >
-                <CollapsibleNavSection.Section
-                  value="scheduled"
-                  icon={Calendar}
-                  label="Scheduled"
-                >
-                  <ScheduledSubGroups
-                    subGroups={sidebar.scheduledSubGroups}
-                    {...subGroupProps}
-                  />
-                </CollapsibleNavSection.Section>
-
-                <CollapsibleNavSection.Section
-                  value="background"
-                  icon={Layers}
-                  label="Background"
-                >
-                  <BackgroundSubGroups
-                    subGroups={sidebar.backgroundSubGroups}
-                    {...subGroupProps}
-                  />
-                </CollapsibleNavSection.Section>
-
                 {sidebar.slack.totalCount > 0 ? (
                   <CollapsibleNavSection.Section
                     value="slack"
                     icon={Hash}
                     label="Slack"
+                    contextMenuContent={buildGroupContextMenu("Slack", sidebar.slack.all)}
                   >
                     {renderFlatList(
                       sidebar.slack.items,
@@ -537,6 +553,32 @@ export function AssistantSideMenu({
                     )}
                   </CollapsibleNavSection.Section>
                 ) : null}
+
+                <CollapsibleNavSection.Section
+                  value="scheduled"
+                  icon={Calendar}
+                  label="Scheduled"
+                  contextMenuContent={buildGroupContextMenu("Scheduled", sidebar.scheduled)}
+                >
+                  <ScheduledSubGroups
+                    subGroups={sidebar.scheduledSubGroups}
+                    loading={sidebar.scheduledLoading}
+                    {...subGroupProps}
+                  />
+                </CollapsibleNavSection.Section>
+
+                <CollapsibleNavSection.Section
+                  value="background"
+                  icon={Layers}
+                  label="Background"
+                  contextMenuContent={buildGroupContextMenu("Background", sidebar.background)}
+                >
+                  <BackgroundSubGroups
+                    subGroups={sidebar.backgroundSubGroups}
+                    loading={sidebar.backgroundLoading}
+                    {...subGroupProps}
+                  />
+                </CollapsibleNavSection.Section>
               </CollapsibleNavSection.Root>
 
               {sidebar.conversationGroupsEnabled && sidebar.customGroups.length > 0 ? (
@@ -562,6 +604,18 @@ export function AssistantSideMenu({
                               />
                             ) : null
                           }
+                          contextMenuContent={buildGroupContextMenu(
+                            group.name,
+                            group.conversations,
+                            {
+                              onRename: onRenameGroup
+                                ? () => onRenameGroup(group.id)
+                                : undefined,
+                              onDelete: onDeleteGroup
+                                ? () => onDeleteGroup(group.id)
+                                : undefined,
+                            },
+                          )}
                         >
                           <SideMenu.SubList>
                             {group.conversations.map((c) =>
@@ -600,11 +654,31 @@ export function AssistantSideMenu({
 }
 
 // ---------------------------------------------------------------------------
+// Collapsed-rail lazy-section placeholder
+// ---------------------------------------------------------------------------
+
+/**
+ * Placeholder shown inside a collapsed-rail flyout for the Background and
+ * Scheduled sections, which are openable before their lazy fetch resolves.
+ */
+function CollapsedGroupEmptyState({ loading }: { loading: boolean }) {
+  return (
+    <div className="px-4 py-2 text-body-small-default text-[var(--content-tertiary)]">
+      {loading ? "Loading…" : "No conversations"}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Collapsed background group — extracted so it can own sub-group expand state
 // ---------------------------------------------------------------------------
 
 interface CollapsedBackgroundGroupProps {
   conversations: Conversation[];
+  /** True while the lazy background fetch is in flight after a reveal. */
+  loading?: boolean;
+  /** Called when the flyout opens, to enable the lazy background fetch. */
+  onReveal?: () => void;
   activeConversationId?: string;
   onSelectConversation: (conversationId: string) => void;
   renderActions: (conversation: Conversation) => ReactNode;
@@ -615,6 +689,8 @@ interface CollapsedBackgroundGroupProps {
 
 function CollapsedBackgroundGroup({
   conversations,
+  loading = false,
+  onReveal,
   activeConversationId,
   onSelectConversation,
   renderActions,
@@ -660,6 +736,11 @@ function CollapsedBackgroundGroup({
     <CollapsedGroupIcon
       icon={Layers}
       label="Background"
+      onOpenChange={(open) => {
+        if (open) {
+          onReveal?.();
+        }
+      }}
       indicatorState={getGroupIndicatorState(conversations, processingConversationIds, attentionConversationIds)}
     >
       {(closePopover) => (
@@ -668,6 +749,9 @@ function CollapsedBackgroundGroup({
             <span className="text-body-small-default text-[var(--content-tertiary)]">Background</span>
           </div>
           <div className="px-2">
+            {conversations.length === 0 ? (
+              <CollapsedGroupEmptyState loading={loading} />
+            ) : null}
             {subGroups.map((group) => {
               const isSingle = group.key.startsWith("__single__:");
               if (isSingle) {

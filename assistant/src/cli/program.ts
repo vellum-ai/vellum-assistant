@@ -4,7 +4,6 @@ import { Command } from "commander";
 
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { getConfigReadOnly } from "../config/loader.js";
-import { isEmailEnabled } from "../email/feature-gate.js";
 import { isExternalPluginsEnabled } from "../plugins/feature-gate.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
@@ -26,6 +25,7 @@ import { registerContactsCommand } from "./commands/contacts.js";
 import { registerConversationsCommand } from "./commands/conversations.js";
 import { registerCredentialExecutionCommand } from "./commands/credential-execution.js";
 import { registerCredentialsCommand } from "./commands/credentials.js";
+import { registerDbCommand } from "./commands/db/index.js";
 import { registerDefaultAction } from "./commands/default-action.js";
 import { registerDomainCommand } from "./commands/domain.js";
 import { registerEmailCommand } from "./commands/email.js";
@@ -122,10 +122,9 @@ Examples:
   registerConversationsCommand(program);
   registerCredentialExecutionCommand(program);
   registerCredentialsCommand(program);
-  if (isEmailEnabled(getConfigReadOnly())) {
-    registerDomainCommand(program);
-    registerEmailCommand(program);
-  }
+  registerDbCommand(program);
+  registerDomainCommand(program);
+  registerEmailCommand(program);
   registerGatewayCommand(program);
   registerImageGenerationCommand(program);
   registerInferenceCommand(program);

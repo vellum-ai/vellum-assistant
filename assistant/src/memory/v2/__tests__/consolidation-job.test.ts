@@ -105,6 +105,43 @@ mock.module("../../jobs-store.js", () => ({
   isMemoryEnabled: () => true,
 }));
 
+// ── v3 health-injection mocks ───────────────────────────────────────
+//
+// The consolidation handler optionally prepends a v3 health block to the
+// prompt when a v3 flag is on AND the rendered report is non-empty. These
+// mocks let each test (a) toggle the flag, (b) decide what health block the
+// renderer produces, and (c) force the health computation to throw — without
+// materializing a real v3 data dir. The tree/core/page-index loaders are
+// stubbed to inert values; `computeV3Health` is a pass-through whose result is
+// fed to the toggleable `renderV3Health`.
+let v3FlagOn = false;
+mock.module("../../../config/assistant-feature-flags.js", () => ({
+  isAssistantFeatureFlagEnabled: () => v3FlagOn,
+}));
+
+let renderedHealth = "";
+let computeThrows = false;
+mock.module("../../v3/health.js", () => ({
+  computeV3Health: () => {
+    if (computeThrows) throw new Error("simulated health compute failure");
+    return {};
+  },
+  renderV3Health: () => renderedHealth,
+}));
+
+mock.module("../../v3/tree.js", () => ({
+  loadLeafTree: async () => ({ leaves: new Map(), byPage: new Map() }),
+  resolveDataDir: () => "/tmp/v3-data-stub",
+}));
+
+mock.module("../../v3/core.js", () => ({
+  loadCore: async () => new Set<string>(),
+}));
+
+mock.module("../../v2/page-index.js", () => ({
+  getPageIndex: async () => ({ entries: [] }),
+}));
+
 // ── Workspace pin ───────────────────────────────────────────────────
 let tmpWorkspace: string;
 let previousWorkspaceEnv: string | undefined;
@@ -173,6 +210,11 @@ beforeEach(() => {
   emitCalls.length = 0;
   enqueuedJobs.length = 0;
   nextJobIdCounter = 0;
+
+  // v3 health injection defaults: flag off, no rendered block, no throw.
+  v3FlagOn = false;
+  renderedHealth = "";
+  computeThrows = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -305,6 +347,25 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     expect(existsSync(lockPath())).toBe(false);
   });
 
+  test("enqueues memory_v3_maintain as a follow-up when a v3 flag is on", async () => {
+    v3FlagOn = true;
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(enqueuedJobs.map((j) => j.type)).toEqual([
+      "memory_v2_reembed",
+      "memory_v3_maintain",
+    ]);
+  });
+
+  test("does not enqueue memory_v3_maintain when v3 flags are off", async () => {
+    v3FlagOn = false;
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    expect(enqueuedJobs.map((j) => j.type)).toEqual(["memory_v2_reembed"]);
+  });
+
   test("returns run_failed and skips follow-ups when the runner reports failure", async () => {
     runnerImpl = async () => ({
       conversationId: "conv-1",
@@ -345,6 +406,69 @@ describe("memoryV2ConsolidateJob — non-empty buffer", () => {
     await memoryV2ConsolidateJob(makeJob(), CONFIG);
 
     expect(emitCalls).toHaveLength(0);
+  });
+});
+
+describe("memoryV2ConsolidateJob — v3 health injection", () => {
+  beforeEach(() => {
+    writeFileSync(
+      bufferPath(),
+      "- [Apr 27, 9:00 AM] Alice prefers VS Code over Vim.\n",
+    );
+  });
+
+  test("prepends the health block when a v3 flag is on and the report is actionable", async () => {
+    v3FlagOn = true;
+    renderedHealth = "memory-v3 health:\n- 2 unassigned slug(s): a, b";
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    const prompt = runnerLastArgs?.prompt as string;
+    // The health block is PREPENDED, separated by a blank line, with the
+    // base consolidation prompt still present underneath it.
+    expect(prompt.startsWith(`${renderedHealth}\n\n`)).toBe(true);
+    expect(prompt).toContain("memory consolidation");
+    expect(prompt).not.toContain(CUTOFF_PLACEHOLDER);
+  });
+
+  test("leaves the prompt unchanged when the report is all-green (empty render)", async () => {
+    v3FlagOn = true;
+    renderedHealth = "";
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    const prompt = runnerLastArgs?.prompt as string;
+    expect(prompt).not.toContain("memory-v3 health:");
+    // Prompt is exactly the resolved consolidation body.
+    expect(prompt).toContain("memory consolidation");
+  });
+
+  test("leaves the prompt unchanged when v3 flags are off even if a block would render", async () => {
+    v3FlagOn = false;
+    renderedHealth = "memory-v3 health:\n- 1 unassigned slug(s): a";
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    expect(result.kind).toBe("invoked");
+    const prompt = runnerLastArgs?.prompt as string;
+    expect(prompt).not.toContain("memory-v3 health:");
+    expect(prompt).toContain("memory consolidation");
+  });
+
+  test("falls back to the base prompt when health computation throws", async () => {
+    v3FlagOn = true;
+    computeThrows = true;
+    renderedHealth = "memory-v3 health:\n- should not appear";
+
+    const result = await memoryV2ConsolidateJob(makeJob(), CONFIG);
+
+    // A health-compute failure must NEVER break consolidation.
+    expect(result.kind).toBe("invoked");
+    const prompt = runnerLastArgs?.prompt as string;
+    expect(prompt).not.toContain("memory-v3 health:");
+    expect(prompt).toContain("memory consolidation");
   });
 });
 

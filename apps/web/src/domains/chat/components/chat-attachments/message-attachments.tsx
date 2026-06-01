@@ -1,11 +1,10 @@
 
-import { useCallback, useState } from "react";
 import type { FC } from "react";
 
 import type { DisplayAttachment } from "@/domains/chat/utils/reconcile";
 
-import { AttachmentPreviewModal } from "@/domains/chat/components/chat-attachments/attachment-preview-modal";
 import { MessageAttachmentSquare } from "@/domains/chat/components/chat-attachments/message-attachment-square";
+import { useAttachmentPreview } from "@/domains/chat/components/chat-attachments/use-attachment-preview";
 
 interface MessageAttachmentsProps {
   attachments: DisplayAttachment[];
@@ -15,18 +14,18 @@ interface MessageAttachmentsProps {
 }
 
 /**
- * Read-only strip of attachment thumbnails rendered inside a sent user message
- * bubble. Every attachment is clickable and opens a full-screen preview modal
- * — the modal handles type-specific rendering (image/video/fallback) and
- * lazily fetches missing content when needed.
+ * Read-only strip of attachment thumbnails rendered as a separate strip for
+ * assistant messages (the user path now renders attachments inside the message
+ * bubble via {@link BubbleAttachments}). Every attachment is clickable and
+ * opens a full-screen preview modal — the modal handles type-specific
+ * rendering (image/video/fallback) and lazily fetches missing content when
+ * needed.
  */
 export const MessageAttachments: FC<MessageAttachmentsProps> = ({
   attachments,
   assistantId,
 }) => {
-  const [previewAttachment, setPreviewAttachment] = useState<DisplayAttachment | null>(null);
-
-  const handleClose = useCallback(() => setPreviewAttachment(null), []);
+  const { openPreview, previewModal } = useAttachmentPreview(assistantId);
 
   if (attachments.length === 0) {
     return null;
@@ -42,18 +41,11 @@ export const MessageAttachments: FC<MessageAttachmentsProps> = ({
             mimeType={att.mimeType}
             sizeBytes={att.sizeBytes}
             previewUrl={att.previewUrl}
-            onPreview={() => setPreviewAttachment(att)}
+            onPreview={() => openPreview(att)}
           />
         ))}
       </div>
-      {previewAttachment && (
-        <AttachmentPreviewModal
-          open
-          onClose={handleClose}
-          attachment={previewAttachment}
-          assistantId={assistantId}
-        />
-      )}
+      {previewModal}
     </>
   );
 };

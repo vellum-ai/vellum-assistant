@@ -1059,12 +1059,12 @@ describe("assistant subcommand classification", () => {
     expect(result.riskLevel).toBe("medium");
   });
 
-  test("assistant schedules execute → medium", async () => {
+  test("assistant schedules execute → high (script-mode schedules shell out via sh -c)", async () => {
     const result = await classifier.classify({
       command: "assistant schedules execute schedule-1",
       toolName: "bash",
     });
-    expect(result.riskLevel).toBe("medium");
+    expect(result.riskLevel).toBe("high");
   });
 
   test("assistant bash ls → high", async () => {

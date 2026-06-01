@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
-import { client } from "@/domains/chat/api/client";
+import { client } from "@/generated/daemon/client.gen";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
 
 describe("SlackChannelFooter lazy channel name resolution", () => {
@@ -64,9 +64,42 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
         assistant_id: "assistant-1",
         conversationId: "conv-lazy-resolve",
       },
-      body: {},
       throwOnError: false,
     });
+  });
+
+  test("renders the Slack read-only notice with an open-in-Slack action", async () => {
+    render(
+      <SlackChannelFooter
+        assistantId="assistant-1"
+        conversation={{
+          conversationId: "conv-slack-readonly",
+          originChannel: "slack",
+          channelBinding: {
+            sourceChannel: "slack",
+            externalChatId: "C0123ABCDEF",
+            externalChatName: "product",
+            slackThread: {
+              channelId: "C0123ABCDEF",
+              threadTs: "1710000000.000100",
+              link: {
+                webUrl:
+                  "https://example.slack.com/archives/C0123ABCDEF/p1710000000000100",
+              },
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(
+      screen.queryByText(
+        "This Slack conversation is read-only. You can reply in Slack.",
+      ),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("link", { name: "Open in Slack" }).getAttribute("href"),
+    ).toBe("https://example.slack.com/archives/C0123ABCDEF/p1710000000000100");
   });
 
   test("does not resolve when the binding already has a friendly name", async () => {
@@ -257,9 +290,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
   });
 
   test("deduplicates in-flight resolution for repeated renders", async () => {
-    let resolvePost:
-      | ((value: typeof nextResolveResponse) => void)
-      | undefined;
+    let resolvePost: ((value: typeof nextResolveResponse) => void) | undefined;
     client.post = mock(async (options: Parameters<typeof client.post>[0]) => {
       postCalls.push(options);
       return await new Promise<typeof nextResolveResponse>((resolve) => {

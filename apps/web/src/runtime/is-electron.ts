@@ -29,6 +29,16 @@ declare global {
   interface Window {
     vellum?: {
       platform: "electron";
+      app: {
+        versionInfo(): Promise<{
+          appName: string;
+          version: string;
+          commitSha: string;
+          copyright: string;
+          website: string;
+        }>;
+        openWebsite(): Promise<void>;
+      };
       settings: {
         get<T = unknown>(key: string): Promise<T | null>;
         set<T = unknown>(key: string, value: T): Promise<void>;
@@ -39,6 +49,40 @@ declare global {
       dock: {
         setBadge(count: number): Promise<void>;
         setSignedIn(signedIn: boolean): Promise<void>;
+      };
+      localMode: {
+        hatch(species: string): Promise<{
+          ok: boolean;
+          assistantId?: string;
+          error?: string;
+        }>;
+      };
+      mainWindow: {
+        ensureVisible(): Promise<void>;
+      };
+      power: {
+        onEvent(
+          callback: (event: {
+            kind: "suspend" | "resume" | "lock" | "unlock" | "active";
+          }) => void,
+        ): () => void;
+      };
+      deepLinks: {
+        drain(): Promise<
+          Array<
+            | { kind: "send"; message: string }
+            | { kind: "openThread"; threadId: string }
+            | { kind: "unknown"; url: string }
+          >
+        >;
+        onLink(
+          callback: (
+            link:
+              | { kind: "send"; message: string }
+              | { kind: "openThread"; threadId: string }
+              | { kind: "unknown"; url: string },
+          ) => void,
+        ): () => void;
       };
     };
   }

@@ -1,5 +1,5 @@
+import type { ConversationListInvalidatedReason } from "../../api/events/conversation-list-invalidated.js";
 import type { IdentityFields } from "../../daemon/handlers/identity.js";
-import type { ConversationListInvalidatedReason } from "../../daemon/message-types/conversations.js";
 import {
   conversationMessagesSyncTag,
   conversationMetadataSyncTag,
@@ -54,6 +54,10 @@ export function publishSoundsConfigUpdated(originClientId?: string): void {
 
 export function publishSchedulesChanged(originClientId?: string): void {
   void publishSyncInvalidation([SYNC_TAGS.assistantSchedules], originClientId);
+}
+
+export function publishAppsChanged(originClientId?: string): void {
+  void publishSyncInvalidation([SYNC_TAGS.appsList], originClientId);
 }
 
 /**

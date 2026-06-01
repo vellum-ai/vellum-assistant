@@ -9,6 +9,7 @@ import {
 } from "react";
 
 import { cn } from "../utils/cn";
+import { Tooltip } from "./tooltip";
 
 /**
  * Standardized button for the web platform. Visual parity with the macOS
@@ -22,6 +23,9 @@ import { cn } from "../utils/cn";
  *   and the icon is centered at the correct size for the chosen `size`).
  * - Use `asChild` to render as a child element (e.g. a `Link`) while keeping
  *   button styling and accessibility semantics. Uses Radix's `Slot`.
+ * - Pass `expandOnMobile={false}` to opt an icon-only button out of the larger
+ *   circular mobile tap target (keeps the desktop sizing/chrome on mobile) —
+ *   useful for compact inline affordances like a chip's remove "×".
  * - Callers may always override styles via `className` / `style`.
  */
 const buttonVariants = cva(
@@ -110,17 +114,33 @@ const buttonVariants = cva(
         true: "",
         false: "",
       },
+      expandOnMobile: {
+        true: "",
+        false: "",
+      },
     },
     compoundVariants: [
       {
         iconOnly: true,
         size: "regular",
-        class: "h-8 w-8 max-md:h-10 max-md:w-10",
+        class: "h-8 w-8",
       },
       {
         iconOnly: true,
         size: "compact",
-        class: "h-6 w-6 max-md:h-10 max-md:w-10",
+        class: "h-6 w-6",
+      },
+      {
+        iconOnly: true,
+        size: "regular",
+        expandOnMobile: true,
+        class: "max-md:h-10 max-md:w-10",
+      },
+      {
+        iconOnly: true,
+        size: "compact",
+        expandOnMobile: true,
+        class: "max-md:h-10 max-md:w-10",
       },
       {
         variant: "ghost",
@@ -167,6 +187,7 @@ const buttonVariants = cva(
       {
         variant: "ghost",
         iconOnly: true,
+        expandOnMobile: true,
         class: [
           "max-md:bg-[var(--surface-lift)]",
           "max-md:rounded-full",
@@ -182,6 +203,7 @@ const buttonVariants = cva(
       iconOnly: false,
       fullWidth: false,
       active: false,
+      expandOnMobile: true,
     },
   },
 );
@@ -201,8 +223,17 @@ export interface ButtonProps
   iconOnly?: ReactNode;
   fullWidth?: boolean;
   active?: boolean;
+  /**
+   * When `true` (default), icon-only buttons grow to a larger circular tap
+   * target on mobile (`max-md`). Set to `false` to keep the desktop sizing and
+   * chrome on mobile — useful for compact inline affordances (e.g. a chip's
+   * remove "×") where the enlarged circle is undesirable.
+   */
+  expandOnMobile?: boolean;
   tintColor?: string;
   tooltip?: string;
+  /** Side the tooltip is placed on. Defaults to Radix's "top". */
+  tooltipSide?: "top" | "right" | "bottom" | "left";
   asChild?: boolean;
   children?: ReactNode;
 }
@@ -222,8 +253,10 @@ export function Button({
   iconOnly,
   fullWidth = false,
   active = false,
+  expandOnMobile = true,
   tintColor,
   tooltip,
+  tooltipSide,
   asChild = false,
   className,
   style,
@@ -246,8 +279,10 @@ export function Button({
     alignItems: "center",
     justifyContent: "center",
   };
-  const iconOnlyClass =
-    "inline-flex items-center justify-center shrink-0 size-3.5 max-md:size-4 [&_svg]:size-full";
+  const iconOnlyClass = cn(
+    "inline-flex items-center justify-center shrink-0 size-3.5 [&_svg]:size-full",
+    expandOnMobile && "max-md:size-4",
+  );
 
   const Comp = asChild ? Slot : "button";
   const composedStyle: CSSProperties = {
@@ -262,7 +297,7 @@ export function Button({
     event.stopPropagation();
   };
 
-  return (
+  const buttonElement = (
     <Comp
       {...rest}
       ref={ref}
@@ -273,9 +308,9 @@ export function Button({
       data-slot="button"
       tabIndex={isSlotDisabled ? -1 : rest.tabIndex}
       onClick={isSlotDisabled ? handleBlockedClick : onClick}
-      title={title ?? tooltip}
+      title={title}
       className={cn(
-        buttonVariants({ variant, size, iconOnly: isIconOnly, fullWidth, active }),
+        buttonVariants({ variant, size, iconOnly: isIconOnly, fullWidth, active, expandOnMobile }),
         className,
       )}
       style={composedStyle}
@@ -311,4 +346,14 @@ export function Button({
       )}
     </Comp>
   );
+
+  if (tooltip) {
+    return (
+      <Tooltip content={tooltip} side={tooltipSide}>
+        {buttonElement}
+      </Tooltip>
+    );
+  }
+
+  return buttonElement;
 }

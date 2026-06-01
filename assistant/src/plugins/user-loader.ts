@@ -37,8 +37,8 @@
  *
  * Call order relative to the rest of the plugin system:
  *
- *     first-party registrations (static side-effect imports)
- *       → loadUserPlugins()          ← this module
+ *     first-party default registrations (explicit, at daemon startup)
+ *       → loadUserPlugins()          ← this module (closes registration)
  *         → bootstrapPlugins()       (init for everyone registered so far)
  *
  * Design doc: `.private/plans/agent-plugin-system.md` (PR 29).
@@ -92,7 +92,8 @@ const USER_PLUGIN_IMPORT_TIMEOUT_MS = 10_000;
 export async function loadUserPlugins(
   options: { importTimeoutMs?: number } = {},
 ): Promise<void> {
-  const importTimeoutMs = options.importTimeoutMs ?? USER_PLUGIN_IMPORT_TIMEOUT_MS;
+  const importTimeoutMs =
+    options.importTimeoutMs ?? USER_PLUGIN_IMPORT_TIMEOUT_MS;
 
   // Materialize the workspace-level `@vellumai/plugin-api` shim *before*
   // we dynamic-import any user plugins. The shim file must exist on disk

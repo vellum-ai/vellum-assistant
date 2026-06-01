@@ -157,8 +157,14 @@ export async function memoryV2ActivationRecomputeJob(
   const workspaceDir = getWorkspaceDir();
   const database = getDb();
 
+  // Activation maps still need to refresh for archived conversations — a
+  // consolidated page can leave stale slugs above epsilon in their persisted
+  // state — so this job opts back into seeing archived rows.
   const conversations = listConversations(
     ACTIVATION_RECOMPUTE_CONVERSATION_LIMIT,
+    "standard",
+    0,
+    "all",
   );
   const edgeIndex = await getEdgeIndex(workspaceDir);
   const nowText = await loadNowText(workspaceDir);

@@ -76,8 +76,9 @@ function makeStreamingSession(events: ServerMessage[]): Conversation {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      onEvent: (msg: ServerMessage) => void,
+      options?: { onEvent?: (msg: ServerMessage) => void },
     ) => {
+      const onEvent = options?.onEvent ?? (() => {});
       for (const event of events) {
         onEvent(event);
       }
@@ -131,8 +132,9 @@ function makePersistingStreamingSession(
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      onEvent: (msg: ServerMessage) => void,
+      options?: { onEvent?: (msg: ServerMessage) => void },
     ) => {
+      const onEvent = options?.onEvent ?? (() => {});
       for (const event of events) {
         onEvent(event);
       }
@@ -318,10 +320,12 @@ describe("voice-session-bridge", () => {
       runAgentLoop: async (
         _content: string,
         _messageId: string,
-        onEvent: (msg: ServerMessage) => void,
         options?: Record<string, unknown>,
       ) => {
         capturedOptions = options;
+        const onEvent =
+          (options as { onEvent?: (msg: ServerMessage) => void })?.onEvent ??
+          (() => {});
         for (const event of events) {
           onEvent(event);
         }
@@ -765,11 +769,13 @@ describe("voice-session-bridge", () => {
       handleConfirmationResponse: (
         requestId: string,
         decision: string,
-        _selectedPattern?: string,
-        _selectedScope?: string,
-        decisionContext?: string,
+        options?: { decisionContext?: string },
       ) => {
-        handleConfirmationCalls.push({ requestId, decision, decisionContext });
+        handleConfirmationCalls.push({
+          requestId,
+          decision,
+          decisionContext: options?.decisionContext,
+        });
       },
       abort: () => {},
     } as unknown as Conversation;

@@ -117,8 +117,8 @@ mock.module("react-router", () => ({
   ),
 }));
 
-mock.module("@/components/layout/active-assistant-gate", () => ({
-  useActiveAssistantContext: () => assistantStub,
+mock.module("@/assistant/use-active-assistant-id", () => ({
+  useActiveAssistantId: () => assistantStub.assistantId,
 }));
 
 mock.module("@/stores/auth-store", () => ({

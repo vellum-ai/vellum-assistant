@@ -8,14 +8,13 @@ import {
   DEFAULT_INJECTOR_ORDER,
   defaultInjectorsPlugin,
   DISK_PRESSURE_WARNING_PROMPT,
-} from "../plugins/defaults/injectors.js";
+} from "../plugins/defaults/injectors/register.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import type { Message } from "../providers/types.js";
-import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 function findInjector(name: string): Injector {
   const injector = defaultInjectorsPlugin.injectors?.find(
@@ -54,10 +53,9 @@ describe("disk-pressure-warning injector", () => {
   beforeEach(() => {
     resetPluginRegistryForTests();
     registerPlugin(defaultInjectorsPlugin);
-    setOverridesForTesting({ "safe-storage-limits": true });
   });
 
-  test("emits the exact cleanup prompt while safe storage limits are enabled", async () => {
+  test("emits the exact cleanup prompt during disk pressure cleanup mode", async () => {
     const block = await diskPressureInjector.produce(
       makeContext({
         injectionInputs: { diskPressureContext: cleanupContext },
@@ -73,13 +71,13 @@ describe("disk-pressure-warning injector", () => {
       DEFAULT_INJECTOR_ORDER.diskPressureWarning,
     );
     expect(DISK_PRESSURE_WARNING_PROMPT).toBe(`<disk_pressure_warning>
-Disk usage is critically low: this assistant is in storage cleanup mode because the workspace volume is at least 95% full.
+Disk usage is critically low: this assistant is in storage cleanup mode because the workspace volume is critically full.
 
 In your first paragraph, warn the user that storage is critically low and that normal work is suspended until space is freed.
 
 Then help the user clean up storage. Prefer safe inspection steps first, such as checking available space and finding large directories. Ask before deleting files or caches unless the user has already clearly approved the specific cleanup action.
 
-Do not work on unrelated tasks until disk usage drops below the critical threshold or the user explicitly overrides the lock. Background processes and messages from trusted contacts are blocked while this cleanup mode is active.
+Do not work on unrelated tasks until enough space is freed to clear the lock or the user explicitly overrides it. Background processes and messages from trusted contacts are blocked while this cleanup mode is active.
 </disk_pressure_warning>`);
   });
 
@@ -96,18 +94,6 @@ Do not work on unrelated tasks until disk usage drops below the critical thresho
           injectionInputs: {
             diskPressureContext: { cleanupModeActive: false },
           },
-        }),
-      ),
-    ).resolves.toBeNull();
-  });
-
-  test("omits the prompt when safe storage limits are disabled", async () => {
-    setOverridesForTesting({ "safe-storage-limits": false });
-
-    await expect(
-      diskPressureInjector.produce(
-        makeContext({
-          injectionInputs: { diskPressureContext: cleanupContext },
         }),
       ),
     ).resolves.toBeNull();

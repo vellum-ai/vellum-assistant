@@ -1,15 +1,13 @@
 import {
-  applyToolProgress,
   applyToolResult,
   upsertToolCall,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
-  ChatMessageToolCall,
-  ToolProgressEvent,
   ToolResultEvent,
-} from "@/domains/chat/api/event-types";
-import type { ToolUseStartEvent } from "@vellumai/assistant-api";
+  ToolUseStartEvent,
+} from "@vellumai/assistant-api";
 
 export function handleToolUseStart(
   event: ToolUseStartEvent,
@@ -27,28 +25,15 @@ export function handleToolUseStart(
     startedAt: Date.now(),
   };
   ctx.setMessages((prev) => {
-    const next = upsertToolCall(prev, newToolCall);
+    const next = upsertToolCall(prev, newToolCall, event.messageId);
     const tail = next[next.length - 1];
-    // Stamp the current-assistant ref to the streaming tail. See parallel
+    // Stamp the current-assistant ref to the assistant tail. See parallel
     // logic in handleAssistantTextDelta.
-    if (tail?.role === "assistant" && tail.isStreaming) {
+    if (tail?.role === "assistant") {
       ctx.currentAssistantMessageIdRef.current = tail.id;
     }
     return next;
   });
-}
-
-export function handleToolProgress(
-  event: ToolProgressEvent,
-  ctx: StreamHandlerContext,
-): void {
-  ctx.setMessages((prev) =>
-    applyToolProgress(prev, {
-      toolUseId: event.toolUseId,
-      elapsedSec: event.elapsedSec,
-      timeoutSec: event.timeoutSec,
-    }),
-  );
 }
 
 export function handleToolResult(
@@ -78,9 +63,8 @@ export function handleToolResult(
       approvalMode: event.approvalMode,
       approvalReason: event.approvalReason,
       riskThreshold: event.riskThreshold,
-      allowlistOptions: event.allowlistOptions,
-      scopeOptions: event.scopeOptions,
-      directoryScopeOptions: event.directoryScopeOptions,
+      allowlistOptions: event.riskAllowlistOptions,
+      directoryScopeOptions: event.riskDirectoryScopeOptions,
       activityMetadata: event.activityMetadata,
     }),
   );

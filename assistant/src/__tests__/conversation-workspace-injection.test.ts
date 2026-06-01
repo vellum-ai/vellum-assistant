@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent } from "../agent/loop.js";
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
+import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------
@@ -146,6 +147,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOverrideProfileFromRow: () => undefined,
   updateMessageMetadata: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  updateMessageContent: mock(() => {}),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -231,6 +233,7 @@ mock.module("../workspace/turn-commit.js", () => ({
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;
@@ -244,7 +247,10 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
-    ): Promise<Message[]> {
+    ): Promise<AgentLoopRunResult> {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       runCalls.push(messages);
       agentLoopScript(onEvent);
       onEvent({
@@ -259,7 +265,7 @@ mock.module("../agent/loop.js", () => ({
         content: [{ type: "text", text: "ok" }],
       };
       onEvent({ type: "message_complete", message: assistantMessage });
-      return [...messages, assistantMessage];
+      return { history: [...messages, assistantMessage], exitReason: null };
     }
   },
 }));
@@ -284,6 +290,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 }));
 
 import { Conversation } from "../daemon/conversation.js";
+import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 
 function makeConversation(): Conversation {
   const provider = {
@@ -301,9 +308,9 @@ function makeConversation(): Conversation {
     "conv-1",
     provider,
     "system prompt",
-    4096,
     () => {},
     "/tmp",
+    { maxTokens: 4096 },
   );
 }
 
@@ -323,13 +330,14 @@ describe("Conversation workspace injection", () => {
     runCalls = [];
     agentLoopScript = () => {};
     scanCallCount = 0;
+    resetPluginRegistryAndRegisterDefaults();
   });
 
   test("runtime messages include workspace top-level context", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage({ content: "Hello", attachments: [] });
 
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
@@ -343,7 +351,7 @@ describe("Conversation workspace injection", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage({ content: "Hello", attachments: [] });
 
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
@@ -357,7 +365,7 @@ describe("Conversation workspace injection", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage({ content: "Hello", attachments: [] });
 
     expect(runCalls).toHaveLength(1);
     const runtimeUser = runCalls[0][runCalls[0].length - 1];
@@ -371,7 +379,7 @@ describe("Conversation workspace injection", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage({ content: "Hello", attachments: [] });
 
     // Workspace blocks use <workspace> tag which is intentionally NOT stripped.
     const persistedMessages = conversation.getMessages();
@@ -386,14 +394,17 @@ describe("Conversation workspace injection", () => {
     await conversation.loadFromDb();
 
     // First message — workspace is injected
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage({ content: "Hello", attachments: [] });
     expect(runCalls).toHaveLength(1);
     const firstCallUser = runCalls[0][runCalls[0].length - 1];
     const firstText = messageText(firstCallUser);
     expect(firstText).toContain("<workspace>");
 
     // Second message — workspace is NOT injected (not first message, no compaction)
-    await conversation.processMessage("Follow up", [], () => {});
+    await conversation.processMessage({
+      content: "Follow up",
+      attachments: [],
+    });
     expect(runCalls).toHaveLength(2);
     const secondCallUser = runCalls[1][runCalls[1].length - 1];
     const secondText = messageText(secondCallUser);
@@ -406,13 +417,14 @@ describe("Conversation workspace dirty-refresh E2E", () => {
     runCalls = [];
     agentLoopScript = () => {};
     scanCallCount = 0;
+    resetPluginRegistryAndRegisterDefaults();
   });
 
   test("first turn computes snapshot", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage({ content: "Hello", attachments: [] });
 
     expect(scanCallCount).toBe(1);
     const text = messageText(runCalls[0][runCalls[0].length - 1]);
@@ -423,10 +435,10 @@ describe("Conversation workspace dirty-refresh E2E", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage({ content: "Hello", attachments: [] });
     const afterFirst = scanCallCount;
 
-    await conversation.processMessage("Again", [], () => {});
+    await conversation.processMessage({ content: "Again", attachments: [] });
 
     // Scanner should NOT have been called again
     expect(scanCallCount).toBe(afterFirst);
@@ -436,7 +448,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage({ content: "Hello", attachments: [] });
     const afterFirst = scanCallCount;
 
     // Simulate a turn where the agent uses file_edit
@@ -449,7 +461,10 @@ describe("Conversation workspace dirty-refresh E2E", () => {
         isError: false,
       });
     };
-    await conversation.processMessage("Edit a file", [], () => {});
+    await conversation.processMessage({
+      content: "Edit a file",
+      attachments: [],
+    });
 
     // No rescan should happen during the mutation turn itself
     const afterMutation = scanCallCount;
@@ -457,7 +472,10 @@ describe("Conversation workspace dirty-refresh E2E", () => {
 
     // Next turn should trigger exactly one fresh scan
     agentLoopScript = () => {};
-    await conversation.processMessage("What happened?", [], () => {});
+    await conversation.processMessage({
+      content: "What happened?",
+      attachments: [],
+    });
 
     expect(scanCallCount).toBe(afterMutation + 1);
   });
@@ -466,7 +484,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage({ content: "Hello", attachments: [] });
     const afterFirst = scanCallCount;
 
     agentLoopScript = (onEvent) => {
@@ -478,7 +496,10 @@ describe("Conversation workspace dirty-refresh E2E", () => {
         isError: false,
       });
     };
-    await conversation.processMessage("Run a command", [], () => {});
+    await conversation.processMessage({
+      content: "Run a command",
+      attachments: [],
+    });
 
     // No rescan should happen during the mutation turn itself
     const afterMutation = scanCallCount;
@@ -486,7 +507,10 @@ describe("Conversation workspace dirty-refresh E2E", () => {
 
     // Next turn should trigger exactly one fresh scan
     agentLoopScript = () => {};
-    await conversation.processMessage("What now?", [], () => {});
+    await conversation.processMessage({
+      content: "What now?",
+      attachments: [],
+    });
 
     expect(scanCallCount).toBe(afterMutation + 1);
   });
@@ -495,7 +519,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
 
-    await conversation.processMessage("Hello", [], () => {});
+    await conversation.processMessage({ content: "Hello", attachments: [] });
     const afterFirst = scanCallCount;
 
     agentLoopScript = (onEvent) => {
@@ -507,10 +531,16 @@ describe("Conversation workspace dirty-refresh E2E", () => {
         isError: true,
       });
     };
-    await conversation.processMessage("Try editing", [], () => {});
+    await conversation.processMessage({
+      content: "Try editing",
+      attachments: [],
+    });
 
     agentLoopScript = () => {};
-    await conversation.processMessage("What happened?", [], () => {});
+    await conversation.processMessage({
+      content: "What happened?",
+      attachments: [],
+    });
 
     // Scanner should NOT have been re-called since the tool failed
     expect(scanCallCount).toBe(afterFirst);

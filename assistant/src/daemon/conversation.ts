@@ -17,6 +17,7 @@
 
 import type { AgentLoopConfig, ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
+import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type {
   InterfaceId,
   TurnChannelContext,
@@ -74,10 +75,10 @@ import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
+import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   applyCompactionResult,
   runAgentLoopImpl,
-  trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
 import { undo as undoImpl } from "./conversation-history.js";
@@ -98,7 +99,10 @@ import {
 } from "./conversation-messaging.js";
 // Extracted modules
 import { registerConversationNotifiers } from "./conversation-notifiers.js";
-import type { ProcessConversationContext } from "./conversation-process.js";
+import type {
+  ProcessConversationContext,
+  ProcessMessageOptions,
+} from "./conversation-process.js";
 import {
   drainQueue as drainQueueImpl,
   processMessage as processMessageImpl,
@@ -135,14 +139,10 @@ import type {
   SurfaceData,
   SurfaceType,
   UsageStats,
-  UserMessageAttachment,
 } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
-import type {
-  AssistantActivityState,
-  ConfirmationStateChanged,
-} from "./message-types/messages.js";
+import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
@@ -160,6 +160,14 @@ export type {
   QueuePolicy,
 } from "./conversation-queue-manager.js";
 import type { TrustContext } from "./trust-context.js";
+
+export interface ConversationConstructorOptions {
+  maxTokens?: number;
+  sharedCesClient?: CesClient;
+  speedOverride?: Speed;
+  cacheTtl?: "5m" | "1h";
+  modelOverride?: string;
+}
 
 export class Conversation {
   public readonly conversationId: string;
@@ -204,19 +212,6 @@ export class Conversation {
    * stripped and never re-emits them.
    */
   /** @internal */ pendingPostCompactReinject = false;
-  /**
-   * Tracks consecutive compaction failures (summary LLM call threw). In-memory
-   * only — resets to 0 on process restart, which is the intended "one free
-   * retry after restart" behavior. Reset to 0 on any successful compaction.
-   */
-  /** @internal */ consecutiveCompactionFailures = 0;
-  /**
-   * When the circuit breaker is open, this timestamp (ms since epoch) marks
-   * when auto-compaction is allowed to resume. Set to `Date.now() + 1h` after
-   * 3 consecutive failures; cleared on a successful compaction. User-initiated
-   * compaction (`force: true`) bypasses the breaker regardless.
-   */
-  /** @internal */ compactionCircuitOpenUntil: number | null = null;
   /** @internal */ currentRequestId?: string;
   /** @internal */ hasNoClient = false;
   /** @internal */ isSubagent = false;
@@ -325,20 +320,7 @@ export class Conversation {
     ReturnType<typeof setTimeout>
   >();
   /** @internal */ withSurface = createSurfaceMutex();
-  /** @internal */ currentTurnSurfaces: Array<{
-    surfaceId: string;
-    surfaceType: SurfaceType;
-    title?: string;
-    data: SurfaceData;
-    actions?: Array<{
-      id: string;
-      label: string;
-      style?: string;
-      data?: Record<string, unknown>;
-    }>;
-    display?: string;
-    persistent?: boolean;
-  }> = [];
+  /** @internal */ currentTurnSurfaces: AssistantSurface[] = [];
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
   /**
@@ -384,7 +366,6 @@ export class Conversation {
   onConfirmationOutcome?: (
     requestId: string,
     state: string,
-    toolName?: string,
     toolUseId?: string,
   ) => void;
   private cacheWarmAbort?: AbortController;
@@ -393,14 +374,17 @@ export class Conversation {
     conversationId: string,
     provider: Provider,
     systemPrompt: string,
-    maxTokens: number | undefined,
     sendToClient: (msg: ServerMessage) => void,
     workingDir: string,
-    sharedCesClient?: CesClient,
-    speedOverride?: Speed,
-    cacheTtl?: "5m" | "1h",
-    modelOverride?: string,
+    options?: ConversationConstructorOptions,
   ) {
+    const {
+      maxTokens,
+      sharedCesClient,
+      speedOverride,
+      cacheTtl,
+      modelOverride,
+    } = options ?? {};
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
@@ -421,22 +405,17 @@ export class Conversation {
       });
       // Notify the agent loop so it can track requestId → toolUseId mappings
       // and record confirmation outcomes for persistence.
-      this.onConfirmationOutcome?.(requestId, state, undefined, toolUseId);
+      this.onConfirmationOutcome?.(requestId, state, toolUseId);
       // Emit activity state transitions for confirmation lifecycle
       if (state === "pending") {
         this.emitActivityState(
           "awaiting_confirmation",
           "confirmation_requested",
-          "assistant_turn",
         );
       } else if (state === "timed_out") {
-        this.emitActivityState(
-          "thinking",
-          "confirmation_resolved",
-          "assistant_turn",
-          undefined,
-          "Resuming after timeout",
-        );
+        this.emitActivityState("thinking", "confirmation_resolved", {
+          statusText: "Resuming after timeout",
+        });
       }
     });
     this.secretPrompter = new SecretPrompter();
@@ -539,15 +518,14 @@ export class Conversation {
       agentLoopConfig.maxTokens = configuredMaxTokens;
     }
 
-    this.agentLoop = new AgentLoop(
-      provider,
-      systemPrompt,
-      agentLoopConfig,
-      toolDefs.length > 0 ? toolDefs : undefined,
-      toolDefs.length > 0 ? toolExecutor : undefined,
+    this.agentLoop = new AgentLoop(provider, systemPrompt, {
+      conversationId: this.conversationId,
+      config: agentLoopConfig,
+      tools: toolDefs.length > 0 ? toolDefs : undefined,
+      toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
-      resolveSystemPromptCallback,
-    );
+      resolveSystemPrompt: resolveSystemPromptCallback,
+    });
     this.contextWindowManager = new ContextWindowManager({
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
@@ -599,7 +577,9 @@ export class Conversation {
     };
 
     provider
-      .sendMessage([warmMessage], tools, systemPrompt, {
+      .sendMessage([warmMessage], {
+        tools,
+        systemPrompt,
         config: {
           max_tokens: 1,
           callSite: "mainAgent",
@@ -878,13 +858,15 @@ export class Conversation {
   handleConfirmationResponse(
     requestId: string,
     decision: UserDecision,
-    selectedPattern?: string,
-    selectedScope?: string,
-    decisionContext?: string,
-    emissionContext?: {
-      source?: ConfirmationStateChanged["source"];
-      causedByRequestId?: string;
-      decisionText?: string;
+    options?: {
+      selectedPattern?: string;
+      selectedScope?: string;
+      decisionContext?: string;
+      emissionContext?: {
+        source?: ConfirmationStateChanged["source"];
+        causedByRequestId?: string;
+        decisionText?: string;
+      };
     },
   ): void {
     // Guard: only proceed if the confirmation is still pending. Stale or
@@ -893,53 +875,38 @@ export class Conversation {
       return;
     }
 
-    const effectiveDecision = decision;
-
     // Capture toolUseId before resolving (resolution deletes the pending entry)
     const toolUseId = this.prompter.getToolUseId(requestId);
 
-    this.prompter.resolveConfirmation(
-      requestId,
-      effectiveDecision,
-      selectedPattern,
-      selectedScope,
-      decisionContext,
-    );
+    this.prompter.resolveConfirmation(requestId, decision, {
+      selectedPattern: options?.selectedPattern,
+      selectedScope: options?.selectedScope,
+      decisionContext: options?.decisionContext,
+    });
 
     // Emit authoritative confirmation state and activity transition centrally
     // so ALL callers (HTTP handlers, /v1/confirm, channel bridges) get
     // consistent events without duplicating emission logic.
     const resolvedState =
-      effectiveDecision === "deny"
-        ? ("denied" as const)
-        : ("approved" as const);
+      decision === "deny" ? ("denied" as const) : ("approved" as const);
     this.emitConfirmationStateChanged({
       conversationId: this.conversationId,
       requestId,
       state: resolvedState,
-      source: emissionContext?.source ?? "button",
+      source: options?.emissionContext?.source ?? "button",
       toolUseId,
-      ...(emissionContext?.causedByRequestId
-        ? { causedByRequestId: emissionContext.causedByRequestId }
+      ...(options?.emissionContext?.causedByRequestId
+        ? { causedByRequestId: options.emissionContext.causedByRequestId }
         : {}),
-      ...(emissionContext?.decisionText
-        ? { decisionText: emissionContext.decisionText }
+      ...(options?.emissionContext?.decisionText
+        ? { decisionText: options.emissionContext.decisionText }
         : {}),
     });
     // Notify the agent loop of the confirmation outcome for persistence
-    this.onConfirmationOutcome?.(
-      requestId,
-      resolvedState,
-      undefined,
-      toolUseId,
-    );
-    this.emitActivityState(
-      "thinking",
-      "confirmation_resolved",
-      "assistant_turn",
-      undefined,
-      "Resuming after approval",
-    );
+    this.onConfirmationOutcome?.(requestId, resolvedState, toolUseId);
+    this.emitActivityState("thinking", "confirmation_resolved", {
+      statusText: "Resuming after approval",
+    });
 
     // Sync the canonical guardian request status so stale "pending" DB
     // records don't get matched by later guardian reply routing. Best-effort:
@@ -1013,12 +980,15 @@ export class Conversation {
   }
 
   emitActivityState(
-    phase: AssistantActivityState["phase"],
-    reason: AssistantActivityState["reason"],
-    anchor: AssistantActivityState["anchor"] = "assistant_turn",
-    requestId?: string,
-    statusText?: string,
+    phase: AssistantActivityStateEvent["phase"],
+    reason: AssistantActivityStateEvent["reason"],
+    options?: {
+      anchor?: AssistantActivityStateEvent["anchor"];
+      requestId?: string;
+      statusText?: string;
+    },
   ): void {
+    const { anchor = "assistant_turn", requestId, statusText } = options ?? {};
     this.activityVersion++;
     const msg: ServerMessage = {
       type: "assistant_activity_state",
@@ -1092,6 +1062,7 @@ export class Conversation {
           getConversationOriginChannel(this.conversationId) ?? undefined,
         overrideProfile,
         targetInputTokensOverride: options?.targetInputTokensOverride,
+        actorTrustClass: this.trustContext?.trustClass,
       },
     );
     // Track circuit-breaker state for user-initiated `/compact` and other
@@ -1100,7 +1071,7 @@ export class Conversation {
     // is `undefined` on early-return paths (no eligible messages, disabled,
     // etc.) — skip those so they don't silently reset the counter.
     if (result.summaryFailed !== undefined) {
-      await trackCompactionOutcome(
+      await this.agentLoop.compactionCircuit.recordOutcome(
         this,
         result.summaryFailed,
         this.sendToClient,
@@ -1282,8 +1253,8 @@ export class Conversation {
   async runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent?: (msg: ServerMessage) => void,
     options?: {
+      onEvent?: (msg: ServerMessage) => void;
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
@@ -1299,12 +1270,13 @@ export class Conversation {
       overrideProfile?: string;
     },
   ): Promise<void> {
+    const { onEvent, ...rest } = options ?? {};
     return runAgentLoopImpl(
       this,
       content,
       userMessageId,
       onEvent ?? this.sendToClient,
-      options,
+      rest,
     );
   }
 
@@ -1312,29 +1284,13 @@ export class Conversation {
     return drainQueueImpl(this as ProcessConversationContext, reason);
   }
 
-  async processMessage(
-    content: string,
-    attachments: UserMessageAttachment[],
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
-    activeSurfaceId?: string,
-    currentPage?: string,
-    options?: { isInteractive?: boolean; callSite?: LLMCallSite },
-    displayContent?: string,
-  ): Promise<string> {
+  async processMessage(options: ProcessMessageOptions): Promise<string> {
     this.cacheWarmAbort?.abort();
     this.cacheWarmAbort = undefined;
-    return processMessageImpl(
-      this as ProcessConversationContext,
-      content,
-      attachments,
-      onEvent ?? this.sendToClient,
-      requestId,
-      activeSurfaceId,
-      currentPage,
-      options,
-      displayContent,
-    );
+    return processMessageImpl(this as ProcessConversationContext, {
+      ...options,
+      onEvent: options.onEvent ?? this.sendToClient,
+    });
   }
 
   // ── History ──────────────────────────────────────────────────────

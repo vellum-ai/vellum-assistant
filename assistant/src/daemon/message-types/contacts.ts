@@ -1,5 +1,7 @@
 // Contact management: list, get, update channel status, and delete.
 
+import type { ContactRequestEvent } from "../../api/events/contact-request.js";
+
 // === Client → Server ===
 
 export interface ContactsRequest {
@@ -34,25 +36,6 @@ export interface ContactsResponse {
 /** Server push — lightweight invalidation signal: the contacts table has been mutated, refetch your list. */
 export interface ContactsChanged {
   type: "contacts_changed";
-}
-
-/**
- * Server → Client prompt requesting the user to enter a contact channel address.
- * Emitted by the `contacts/prompt` IPC route.
- */
-export interface ContactRequest {
-  type: "contact_request";
-  requestId: string;
-  /** Suggested channel type (e.g. "phone", "email") — used as a hint, not enforced. */
-  channel?: string;
-  /** Placeholder text for the address input field. */
-  placeholder?: string;
-  /** Display label shown above the input field. */
-  label?: string;
-  /** Longer description shown below the label. */
-  description?: string;
-  /** Suggested role for the new contact (guardian / trusted-contact / unknown). */
-  role?: string;
 }
 
 export interface ContactPayload {
@@ -90,4 +73,4 @@ export type _ContactsClientMessages = ContactsRequest;
 export type _ContactsServerMessages =
   | ContactsResponse
   | ContactsChanged
-  | ContactRequest;
+  | ContactRequestEvent;

@@ -30,6 +30,13 @@ export interface AssistantEvent<TMessage = unknown> {
   id: string;
   /** Resolved conversation id when available. */
   conversationId?: string;
+  /**
+   * Monotonic per-conversation sequence number. Assigned by the daemon at
+   * publish time for conversation-scoped events; absent for unscoped
+   * broadcasts. Clients track the highest observed `seq` per conversation
+   * and pass it back on reconnect to request replay of missed events.
+   */
+  seq?: number;
   /** ISO-8601 timestamp of when the event was emitted. */
   emittedAt: string;
   /** Outbound message payload. */
@@ -70,6 +77,10 @@ export function buildAssistantEvent<TMessage>(
  * data: <JSON>\n
  * \n
  * ```
+ *
+ * The SSE `id:` line is the per-event UUID and is intentionally decoupled
+ * from any replay cursor. Replay-aware consumers read `seq` from the JSON
+ * payload of the envelope itself.
  */
 export function formatSseFrame(event: AssistantEvent): string {
   const sanitizedId = event.id.replace(/[\n\r]/g, "");

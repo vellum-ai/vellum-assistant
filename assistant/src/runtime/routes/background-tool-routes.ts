@@ -12,6 +12,7 @@ import {
   cancelBackgroundTool,
   listBackgroundTools,
 } from "../../tools/background-tool-registry.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -59,6 +60,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "background_tool_list",
     endpoint: "background-tools",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleBackgroundToolList,
     summary: "List active background tools",
     description:
@@ -80,6 +85,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "background_tool_cancel",
     endpoint: "background-tools/cancel",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleBackgroundToolCancel,
     summary: "Cancel a background tool",
     description: "Cancel an active background tool execution by ID.",

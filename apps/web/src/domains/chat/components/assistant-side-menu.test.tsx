@@ -16,6 +16,19 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
+// The sidebar owns its Background/Scheduled lazy queries; stub both so static
+// SSR rendering resolves without a QueryClient. These tests pass the full
+// conversation list through `conversations` and assert the rendered buckets.
+mock.module("@/hooks/conversation-queries", () => ({
+  useBackgroundConversationListQuery: () => ({
+    conversations: [],
+    isPending: false,
+  }),
+  useScheduledConversationListQuery: () => ({
+    conversations: [],
+    isPending: false,
+  }),
+}));
 
 import type { Conversation } from "@/types/conversation-types";
 import {
@@ -96,7 +109,7 @@ describe("AssistantSideMenu · Conversations category rows", () => {
     );
   });
 
-  test("renders Slack as a conditional peer section after Background", () => {
+  test("renders Slack as a conditional peer section between Recents and Scheduled", () => {
     const conversations = [
       makeConversation({ conversationId: "regular", title: "Regular thread" }),
       makeConversation({
@@ -116,9 +129,9 @@ describe("AssistantSideMenu · Conversations category rows", () => {
     const backgroundIndex = html.indexOf(">Background<");
     const slackIndex = html.indexOf(">Slack<");
     expect(recentThreadIndex).toBeGreaterThanOrEqual(0);
-    expect(scheduledIndex).toBeGreaterThan(recentThreadIndex);
+    expect(slackIndex).toBeGreaterThan(recentThreadIndex);
+    expect(scheduledIndex).toBeGreaterThan(slackIndex);
     expect(backgroundIndex).toBeGreaterThan(scheduledIndex);
-    expect(slackIndex).toBeGreaterThan(backgroundIndex);
   });
 
   test("renders Pinned as a top-level section when non-empty", () => {
@@ -285,3 +298,5 @@ describe("AssistantSideMenu · overlay close affordance", () => {
     expect(railHtml).not.toContain('aria-label="Close navigation"');
   });
 });
+
+

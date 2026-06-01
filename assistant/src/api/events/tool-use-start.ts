@@ -18,15 +18,13 @@
 
 import { z } from "zod";
 
-export const ToolUseStartEventSchema = z
-  .object({
-    type: z.literal("tool_use_start"),
-    toolName: z.string(),
-    input: z.record(z.string(), z.unknown()),
-    toolUseId: z.string().optional(),
-    messageId: z.string().optional(),
-    conversationId: z.string().optional(),
-  })
-  .strict();
+export const ToolUseStartEventSchema = z.object({
+  type: z.literal("tool_use_start"),
+  toolName: z.string(),
+  input: z.record(z.string(), z.unknown()),
+  toolUseId: z.string().optional(),
+  messageId: z.string().optional(),
+  conversationId: z.string().optional(),
+});
 
 export type ToolUseStartEvent = z.infer<typeof ToolUseStartEventSchema>;

@@ -12,6 +12,7 @@ import { editNotification } from "../../notifications/edit-notification.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
 import { listEvents } from "../../notifications/events-store.js";
 import type { AttentionHints } from "../../notifications/signal.js";
+import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -196,6 +197,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "emit_notification_signal",
     endpoint: "notifications/emit",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleEmitSignal,
     summary: "Emit a notification signal",
     description:
@@ -213,6 +218,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "edit_notification",
     endpoint: "notifications/edit",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleEditNotification,
     summary: "Edit an already-sent notification",
     description:
@@ -241,6 +250,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "list_notification_events",
     endpoint: "notifications/events",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleListEvents,
     summary: "List notification events",
     description:
@@ -263,11 +276,14 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "notificationintentresult_post",
     endpoint: "notification-intent-result",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Report notification delivery result",
     description:
       "Client acknowledgment for local notification delivery outcome.",
     tags: ["notifications"],
-    requirePolicyEnforcement: true,
     handler: handleNotificationIntentResult,
     requestBody: z.object({
       deliveryId: z.string().describe("Notification delivery ID"),

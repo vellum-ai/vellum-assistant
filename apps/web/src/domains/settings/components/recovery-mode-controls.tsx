@@ -8,6 +8,10 @@ import {
   assistantsMaintenanceModeExitCreate,
 } from "@/generated/api/sdk.gen";
 import type { MaintenanceMode } from "@/generated/api/types.gen";
+import {
+  useActiveAssistantLifecycleIsLoading,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { reportError } from "@/utils/error-report";
 
 interface RecoveryModeControlsProps {
@@ -23,8 +27,18 @@ export function RecoveryModeControls({
 }: RecoveryModeControlsProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const isActive = maintenanceMode?.enabled === true;
+  // Recovery Mode is platform-managed — self-hosted assistants have no
+  // equivalent, so `platformHostedOnly: true` flips "gated" when the active
+  // assistant is self-hosted regardless of platform-session state.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // Settings routes are NOT mounted under `<ActiveAssistantGate>`, so this
+  // panel can render while lifecycle is `{ kind: "loading" }`. Pair the
+  // permissive gate value with the lifecycle-loading signal so the
+  // enter/exit-mutation buttons stay disabled during the deep-link
+  // resolution race — but NOT in already-resolved non-hosted states
+  // (`retired`, `error`, `awaiting_version_selection`) where the parent
+  // wouldn't render this panel anyway (`maintenanceMode` would be null).
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
 
   const handleEnter = useCallback(async () => {
     setLoading(true);
@@ -88,6 +102,20 @@ export function RecoveryModeControls({
     }
   }, [assistantId, onMaintenanceModeChange]);
 
+  // Self-hosted assistants don't run platform-managed Recovery Mode.
+  // Early return must follow every hook above so that gate transitions
+  // (e.g. lifecycle flipping to `self_hosted` after the API resolves)
+  // never skip a hook and trigger a hook-order violation.
+  if (platformGate === "gated") return null;
+
+  const isActive = maintenanceMode?.enabled === true;
+  // Treat the lifecycle-loading window as effective loading: the existing
+  // spinner branch already replaces the action button while a mutation is
+  // in flight, so reusing it here keeps UX consistent and prevents the
+  // race-window click on a fresh deep-link.
+  const isResolving = platformGate === "full" && isLifecycleLoading;
+  const effectiveLoading = loading || isResolving;
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between rounded-lg border border-[var(--border-base)] px-4 py-3">
@@ -113,7 +141,7 @@ export function RecoveryModeControls({
         </div>
 
         <div className="ml-4 flex shrink-0 items-center gap-2">
-          {loading ? (
+          {platformGate === "disabled" ? null : effectiveLoading ? (
             <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
           ) : isActive ? (
             <Button variant="outlined" onClick={handleExit}>
@@ -127,6 +155,11 @@ export function RecoveryModeControls({
         </div>
       </div>
 
+      {platformGate === "disabled" && (
+        <Notice tone="info">
+          Log in to the Vellum platform to {isActive ? "exit" : "enter"} Recovery Mode.
+        </Notice>
+      )}
       {error && <Notice tone="error">{error}</Notice>}
     </div>
   );

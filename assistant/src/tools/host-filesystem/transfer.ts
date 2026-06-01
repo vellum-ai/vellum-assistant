@@ -7,53 +7,61 @@ import { HostTransferProxy } from "../../daemon/host-transfer-proxy.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
-class HostFileTransferTool implements Tool {
-  name = "host_file_transfer";
-  description =
-    "Copy a file between the assistant's workspace and the host machine. Set direction to 'to_host' to send a workspace file to the host, or 'to_sandbox' to pull a host file into the workspace. When multiple clients support host_file, specify which one to use with target_client_id.";
-  category = "host-filesystem";
-  executionTarget = "host" as const;
-  defaultRiskLevel = RiskLevel.Medium;
+export const hostFileTransferTool = {
+  name: "host_file_transfer",
 
-  input_schema = {
-        type: "object",
-        properties: {
-          source_path: {
-            type: "string",
-            description:
-              "Source file path. For to_host, a workspace path — relative paths resolve against the sandbox working directory; /workspace/... paths are also accepted. For to_sandbox, must be an absolute host path.",
-          },
-          dest_path: {
-            type: "string",
-            description:
-              "Destination path. For to_host, must be an absolute host path. For to_sandbox, a workspace path — relative paths resolve against the sandbox working directory; /workspace/... paths are also accepted.",
-          },
-          direction: {
-            type: "string",
-            enum: ["to_host", "to_sandbox"],
-            description:
-              "Transfer direction: 'to_host' sends a workspace file to the host, 'to_sandbox' pulls a host file into the workspace.",
-          },
-          overwrite: {
-            type: "boolean",
-            description:
-              "Whether to overwrite the destination file if it already exists (default: false)",
-          },
-          activity: {
-            type: "string",
-            description:
-              "Brief description of why the file is being transferred (for audit logging)",
-          },
-          target_client_id: {
-            type: "string",
-            description:
-              "ID of the specific client to transfer files to/from. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
-          },
-        },
-        required: ["source_path", "dest_path", "direction"],
-      };
+  description:
+    "Copy a file between the assistant's workspace and the host machine. Set direction to 'to_host' to send a workspace file to the host, or 'to_sandbox' to pull a host file into the workspace. When multiple clients support host_file, specify which one to use with target_client_id.",
+
+  category: "host-filesystem",
+
+  executionTarget: "host",
+
+  defaultRiskLevel: RiskLevel.Medium,
+
+  input_schema: {
+    type: "object",
+    properties: {
+      source_path: {
+        type: "string",
+        description:
+          "Source file path. For to_host, a workspace path — relative paths resolve against the sandbox working directory; /workspace/... paths are also accepted. For to_sandbox, must be an absolute host path.",
+      },
+      dest_path: {
+        type: "string",
+        description:
+          "Destination path. For to_host, must be an absolute host path. For to_sandbox, a workspace path — relative paths resolve against the sandbox working directory; /workspace/... paths are also accepted.",
+      },
+      direction: {
+        type: "string",
+        enum: ["to_host", "to_sandbox"],
+        description:
+          "Transfer direction: 'to_host' sends a workspace file to the host, 'to_sandbox' pulls a host file into the workspace.",
+      },
+      overwrite: {
+        type: "boolean",
+        description:
+          "Whether to overwrite the destination file if it already exists (default: false)",
+      },
+      activity: {
+        type: "string",
+        description:
+          "Brief description of why the file is being transferred (for audit logging)",
+      },
+      target_client_id: {
+        type: "string",
+        description:
+          "ID of the specific client to transfer files to/from. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
+      },
+    },
+    required: ["source_path", "dest_path", "direction"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -219,86 +227,91 @@ class HostFileTransferTool implements Tool {
     // target_client_id case is caught by the scoped guard at the top of
     // execute(); on macos a stale target_client_id is silently ignored
     // here, matching the read/write/edit pattern.
-    return this.executeLocal(resolvedSourcePath, resolvedDestPath, overwrite);
-  }
+    return executeLocal(resolvedSourcePath, resolvedDestPath, overwrite);
+  },
+} satisfies ToolDefinition;
 
-  private async executeLocal(
-    sourcePath: string,
-    destPath: string,
-    overwrite: boolean,
-  ): Promise<ToolExecutionResult> {
-    // Resolve symlinks on the source to ensure we read the real file.
-    let resolvedSource: string;
-    try {
-      resolvedSource = await realpath(sourcePath);
-    } catch {
-      return {
-        content: `Error: source file not found: ${sourcePath}`,
-        isError: true,
-      };
-    }
-
-    // Verify the source is a regular file (not a directory).
-    try {
-      const stat = await lstat(resolvedSource);
-      if (stat.isDirectory()) {
-        return {
-          content: `Error: source path is a directory, not a file: ${sourcePath}. To transfer a directory, archive it first (e.g. tar or zip) and transfer the archive.`,
-          isError: true,
-        };
-      }
-      if (!stat.isFile()) {
-        return {
-          content: `Error: source path is not a regular file: ${sourcePath}`,
-          isError: true,
-        };
-      }
-    } catch (err) {
-      return {
-        content: `Error: cannot stat source file: ${err instanceof Error ? err.message : String(err)}`,
-        isError: true,
-      };
-    }
-
-    // Ensure the destination parent directory exists.
-    try {
-      await mkdir(dirname(destPath), { recursive: true });
-    } catch (err) {
-      return {
-        content: `Error: failed to create destination directory: ${err instanceof Error ? err.message : String(err)}`,
-        isError: true,
-      };
-    }
-
-    // COPYFILE_EXCL makes the call fail atomically if dest exists,
-    // avoiding a TOCTOU race vs. a separate lstat check.
-    try {
-      const flags = overwrite ? 0 : constants.COPYFILE_EXCL;
-      await copyFile(resolvedSource, destPath, flags);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!overwrite && msg.includes("EEXIST")) {
-        return {
-          content: `Error: destination file already exists: ${destPath}. Set overwrite to true to replace it.`,
-          isError: true,
-        };
-      }
-      const hint = msg.includes("EACCES")
-        ? " (permission denied)"
-        : msg.includes("ENOSPC")
-          ? " (no space left on device)"
-          : "";
-      return {
-        content: `Error copying file${hint}: ${msg}`,
-        isError: true,
-      };
-    }
-
+/**
+ * Local-mode filesystem copy. Module-level so the `host_file_transfer`
+ * tool can be authored as a plain {@link ToolDefinition} literal without
+ * losing access to this helper — the registry stores finalized literal
+ * references, so `this`-based method dispatch is no longer available
+ * on registered tools.
+ */
+async function executeLocal(
+  sourcePath: string,
+  destPath: string,
+  overwrite: boolean,
+): Promise<ToolExecutionResult> {
+  // Resolve symlinks on the source to ensure we read the real file.
+  let resolvedSource: string;
+  try {
+    resolvedSource = await realpath(sourcePath);
+  } catch {
     return {
-      content: `Successfully copied ${sourcePath} to ${destPath}`,
-      isError: false,
+      content: `Error: source file not found: ${sourcePath}`,
+      isError: true,
     };
   }
-}
 
-export const hostFileTransferTool: Tool = new HostFileTransferTool();
+  // Verify the source is a regular file (not a directory).
+  try {
+    const stat = await lstat(resolvedSource);
+    if (stat.isDirectory()) {
+      return {
+        content: `Error: source path is a directory, not a file: ${sourcePath}. To transfer a directory, archive it first (e.g. tar or zip) and transfer the archive.`,
+        isError: true,
+      };
+    }
+    if (!stat.isFile()) {
+      return {
+        content: `Error: source path is not a regular file: ${sourcePath}`,
+        isError: true,
+      };
+    }
+  } catch (err) {
+    return {
+      content: `Error: cannot stat source file: ${err instanceof Error ? err.message : String(err)}`,
+      isError: true,
+    };
+  }
+
+  // Ensure the destination parent directory exists.
+  try {
+    await mkdir(dirname(destPath), { recursive: true });
+  } catch (err) {
+    return {
+      content: `Error: failed to create destination directory: ${err instanceof Error ? err.message : String(err)}`,
+      isError: true,
+    };
+  }
+
+  // COPYFILE_EXCL makes the call fail atomically if dest exists,
+  // avoiding a TOCTOU race vs. a separate lstat check.
+  try {
+    const flags = overwrite ? 0 : constants.COPYFILE_EXCL;
+    await copyFile(resolvedSource, destPath, flags);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!overwrite && msg.includes("EEXIST")) {
+      return {
+        content: `Error: destination file already exists: ${destPath}. Set overwrite to true to replace it.`,
+        isError: true,
+      };
+    }
+    const hint = msg.includes("EACCES")
+      ? " (permission denied)"
+      : msg.includes("ENOSPC")
+        ? " (no space left on device)"
+        : "";
+    return {
+      content: `Error copying file${hint}: ${msg}`,
+      isError: true,
+    };
+  }
+
+  return {
+    content: `Successfully copied ${sourcePath} to ${destPath}`,
+    isError: false,
+  };
+}

@@ -117,7 +117,11 @@ mock.module("../../memory/llm-request-log-store.js", () => ({
   backfillMessageIdOnLogs: () => {},
 }));
 
-import type { AgentEvent } from "../../agent/loop.js";
+import type {
+  AgentEvent,
+  AgentLoopRunOptions,
+  AgentLoopRunResult,
+} from "../../agent/loop.js";
 import type { Message } from "../../providers/types.js";
 import {
   __resetWakeChainForTests,
@@ -126,6 +130,13 @@ import {
 } from "../agent-wake.js";
 
 // ── Test helpers ─────────────────────────────────────────────────────
+
+// Wake runs never pause at a checkpoint — their onCheckpoint always returns
+// "continue" — so the loop result always carries a null pause-reason.
+const runResult = (history: Message[]): AgentLoopRunResult => ({
+  history,
+  exitReason: null,
+});
 
 interface MockTarget extends WakeTarget {
   emittedEvents: AgentEvent[];
@@ -196,13 +207,13 @@ function makeTarget(options: {
       run: async (
         input: Message[],
         onEvent: (event: AgentEvent) => void | Promise<void>,
-        _signal?: AbortSignal,
-        requestId?: string,
-        _onCheckpoint?: unknown,
-        _callSite?: unknown,
-        turnContext?: unknown,
+        runOptions?: AgentLoopRunOptions,
       ) => {
-        runCalls.push({ input: [...input], requestId, turnContext });
+        runCalls.push({
+          input: [...input],
+          requestId: runOptions?.requestId,
+          turnContext: runOptions?.turnContext,
+        });
         // Emit any scripted events the test wanted us to produce.
         for (const ev of options.scriptedEvents ?? []) {
           await onEvent(ev);
@@ -221,7 +232,7 @@ function makeTarget(options: {
             next.push(tailMsg);
           }
         }
-        return next;
+        return runResult(next);
       },
     },
     getMessages: () => history,
@@ -605,9 +616,13 @@ describe("wakeAgentForOpportunity", () => {
     // hold the processing flag while agentLoop.run executes.
     const observedDuringRun: boolean[] = [];
     const originalRun = target.agentLoop.run;
-    target.agentLoop.run = async (input, onEvent, signal, requestId) => {
+    target.agentLoop.run = async (
+      input: Message[],
+      onEvent: (event: AgentEvent) => void | Promise<void>,
+      runOptions?: AgentLoopRunOptions,
+    ) => {
       observedDuringRun.push(target.isProcessing());
-      return originalRun(input, onEvent, signal, requestId);
+      return originalRun(input, onEvent, runOptions);
     };
 
     await wakeAgentForOpportunity(
@@ -677,7 +692,7 @@ describe("wakeAgentForOpportunity", () => {
       agentLoop: {
         run: async (input) => {
           runCalls.push(callOrder++);
-          return [...input];
+          return runResult([...input]);
         },
       },
       getMessages: () => history,
@@ -720,7 +735,7 @@ describe("wakeAgentForOpportunity", () => {
     const target: WakeTarget = {
       conversationId: "conv-no-trust",
       agentLoop: {
-        run: async (input) => [...input],
+        run: async (input) => runResult([...input]),
       },
       getMessages: () => history,
       pushMessage: () => {},
@@ -772,7 +787,7 @@ describe("wakeAgentForOpportunity", () => {
             await gate2.promise;
           }
           runCompleteOrder.push(myIndex);
-          return input; // no assistant message → silent no-op
+          return runResult(input); // no assistant message → silent no-op
         },
       },
       getMessages: () => history,
@@ -820,7 +835,7 @@ describe("wakeAgentForOpportunity", () => {
     const target: WakeTarget & { setProcessing: (v: boolean) => void } = {
       conversationId: "conv-user-turn",
       agentLoop: {
-        run: async (input) => input,
+        run: async (input) => runResult(input),
       },
       getMessages: () => history,
       pushMessage: (msg) => {
@@ -886,7 +901,7 @@ describe("wakeAgentForOpportunity", () => {
     const history: Message[] = [];
     const target: WakeTarget = {
       conversationId: "conv-busy",
-      agentLoop: { run: async () => history },
+      agentLoop: { run: async () => runResult(history) },
       getMessages: () => history,
       pushMessage: () => {},
       emitAgentEvent: () => {},
@@ -1296,7 +1311,7 @@ describe("wakeAgentForOpportunity", () => {
       const target: WakeTarget = {
         conversationId: "conv-stream",
         agentLoop: {
-          run: async (_input, onEvent, _signal, _requestId, onCheckpoint) => {
+          run: async (_input, onEvent, runOptions) => {
             // Preamble + assistant hint + postamble (mirrors what the
             // wake injects). The agent-wake helper expects these three
             // hint messages in the input it hands to run().
@@ -1311,7 +1326,7 @@ describe("wakeAgentForOpportunity", () => {
               message: turn1Assistant,
             });
             runHistory.push(turn1ToolResult);
-            const dec1 = await onCheckpoint!({
+            const dec1 = await runOptions!.onCheckpoint!({
               turnIndex: 0,
               toolCount: 1,
               hasToolUse: true,
@@ -1328,7 +1343,7 @@ describe("wakeAgentForOpportunity", () => {
               message: turn2Assistant,
             });
             runHistory.push(turn2ToolResult);
-            const dec2 = await onCheckpoint!({
+            const dec2 = await runOptions!.onCheckpoint!({
               turnIndex: 1,
               toolCount: 1,
               hasToolUse: true,
@@ -1345,7 +1360,7 @@ describe("wakeAgentForOpportunity", () => {
               type: "message_complete",
               message: finalAssistant,
             });
-            return runHistory;
+            return runResult(runHistory);
           },
         },
         getMessages: () => history,
@@ -1432,17 +1447,17 @@ describe("wakeAgentForOpportunity", () => {
       const target: WakeTarget = {
         conversationId: "conv-card",
         agentLoop: {
-          run: async (_input, _onEvent, _signal, _requestId, onCheckpoint) => {
+          run: async (_input, _onEvent, runOptions) => {
             const runHistory: Message[] = [..._input];
             runHistory.push(firstAssistant);
             runHistory.push(toolResult);
-            await onCheckpoint!({
+            await runOptions!.onCheckpoint!({
               turnIndex: 0,
               toolCount: 1,
               hasToolUse: true,
               history: runHistory,
             });
-            return runHistory;
+            return runResult(runHistory);
           },
         },
         getMessages: () => history,
@@ -1627,7 +1642,7 @@ describe("wakeAgentForOpportunity", () => {
     let processing = false;
     return {
       conversationId,
-      agentLoop: { run: async (input) => input },
+      agentLoop: { run: async (input) => runResult(input) },
       getMessages: () => history,
       pushMessage: () => {},
       emitAgentEvent: () => {},
@@ -1704,17 +1719,17 @@ describe("wakeAgentForOpportunity", () => {
       const target: WakeTarget = {
         conversationId: "conv-suppress-surface",
         agentLoop: {
-          run: async (_input, _onEvent, _signal, _requestId, onCheckpoint) => {
+          run: async (_input, _onEvent, runOptions) => {
             const runHistory: Message[] = [..._input];
             runHistory.push(firstAssistant);
             runHistory.push(toolResult);
-            await onCheckpoint!({
+            await runOptions!.onCheckpoint!({
               turnIndex: 0,
               toolCount: 1,
               hasToolUse: true,
               history: runHistory,
             });
-            return runHistory;
+            return runResult(runHistory);
           },
         },
         getMessages: () => history,

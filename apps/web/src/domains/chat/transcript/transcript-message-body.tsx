@@ -8,8 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { ExternalLink } from "lucide-react";
 
+import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bubble-attachments";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
@@ -22,14 +22,19 @@ import {
 } from "@/domains/chat/components/tool-progress-card/get-leading-thinking-text";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
-import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types";
+import {
+  getSlackLinkUrl,
+  type Surface,
+} from "@/domains/chat/types/types";
 import { isPointerCoarse } from "@/utils/pointer";
 import {
   EMPTY_SUBAGENT_ENTRIES,
   useSubagentStore,
   type SubagentEntry,
-} from "@/domains/subagents/subagent-store";
-import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
+} from "@/domains/chat/subagent-store";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 export interface OpenRuleEditorContext {
   toolName: string;
@@ -215,8 +220,17 @@ function resolveSpawnedSubagentIds(
   return ids;
 }
 
-function isSurfaceToolCallComplete(message: DisplayMessage): boolean {
-  return message.isStreaming !== true;
+function shouldAutoExpandToolCallGroup({
+  isCurrentGroup,
+  toolCalls,
+}: {
+  isCurrentGroup: boolean;
+  toolCalls: ChatMessageToolCall[];
+}): boolean {
+  if (!isCurrentGroup) {
+    return false;
+  }
+  return toolCalls.some((toolCall) => toolCall.status === "running");
 }
 
 function latestMessageActivityTimestamp(
@@ -294,34 +308,15 @@ function SlackMessageAttribution({
   const label = getSlackSenderLabel(message, assistantDisplayName);
   if (!label) return null;
 
-  const url = getSlackLinkUrl(message.slackMessage?.messageLink);
   const className =
     "inline-flex items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]";
-  const content = (
-    <>
-      <span>{label}</span>
-      {url && <ExternalLink aria-hidden className="h-3 w-3 shrink-0" />}
-    </>
-  );
-
-  if (!url) {
-    return (
-      <div data-testid="slack-message-attribution" className={className}>
-        {content}
-      </div>
-    );
-  }
-
   return (
-    <a
+    <div
       data-testid="slack-message-attribution"
-      href={url}
-      target="_blank"
-      rel="noreferrer noopener"
-      className={`${className} hover:text-[var(--content-default)]`}
+      className={className}
     >
-      {content}
-    </a>
+      <span>{label}</span>
+    </div>
   );
 }
 
@@ -350,11 +345,29 @@ export function TranscriptMessageBody({
   const hasInterleavedToolCalls = message.contentOrder?.some(
     (e) => e.type === "toolCall" || e.type === "tool",
   );
+  const isSlackMessage = Boolean(message.slackMessage);
+  const isUser = message.role === "user";
+  const hasAttachments = Boolean(message.attachments?.length);
 
-  const textBubbleClass =
-    message.role === "user"
-      ? "max-w-[80%] rounded-lg px-4 py-3 bg-[var(--surface-lift)] text-[var(--content-default)]"
-      : "w-full text-[var(--content-default)]";
+  // `textBubbleClass` applies only to the assistant text path: it carries the
+  // text bubble per segment inside `segmentClass`'s assistant branch. User
+  // messages get their bubble once at the wrapper via `userBubbleClass`, so the
+  // user `segmentClass` carries no bubble background.
+  const textBubbleClass = isSlackMessage
+    ? "max-w-[80%] text-[var(--content-default)] sm:max-w-[640px]"
+    : "w-full text-[var(--content-default)]";
+
+  // User messages render text + attachments inside a single bubble; the bubble
+  // background/padding live here at the wrapper rather than per text segment.
+  const userBubbleClass = `max-w-[80%] rounded-lg bg-[var(--surface-lift)] px-4 py-3 text-[var(--content-default)] flex flex-col gap-2 ${
+    isSlackMessage ? "sm:max-w-[420px]" : ""
+  }`;
+
+  // Class applied to each text segment inside `renderTextWithInlineSurfaces`.
+  // For users the wrapper provides the bubble, so segments carry no bubble bg.
+  const segmentClass = isUser
+    ? "break-words text-[15px]"
+    : `break-words text-[15px] ${textBubbleClass}`;
 
   const handleExpandChange = (toolCallId: string, isExpanded: boolean) => {
     if (isExpanded) {
@@ -372,7 +385,6 @@ export function TranscriptMessageBody({
   const inspectHandler = inspectMessageId && onInspectMessage
     ? () => onInspectMessage(inspectMessageId)
     : undefined;
-  const isToolCallComplete = isSurfaceToolCallComplete(message);
 
   // Touch-only tap-to-reveal for the hover actions row. Desktop uses
   // group-hover (unchanged); on coarse pointers a tap on the bubble toggles
@@ -400,7 +412,7 @@ export function TranscriptMessageBody({
       return;
     }
 
-    if (slackMessageUrl) {
+    if (slackMessageUrl && isPointerCoarse()) {
       if (window.getSelection()?.toString()) return;
       window.open(slackMessageUrl, "_blank", "noopener,noreferrer");
       return;
@@ -435,7 +447,10 @@ export function TranscriptMessageBody({
     (tc.toolName === "ui_show" || tc.toolName === "ui_update" || tc.toolName === "ui_dismiss");
   const messageTimestamp = latestMessageActivityTimestamp(message);
 
-  const renderTextWithInlineSurfaces = (text: string, key: string, hardLineBreaks: boolean) => {
+  // Hard line breaks are enabled for every transcript message regardless of
+  // role: single `\n`s in assistant output (not just user Shift+Enter input)
+  // should render as `<br>` rather than collapse to a space — see JARVIS-1007.
+  const renderTextWithInlineSurfaces = (text: string, key: string) => {
     const inlineSegments = parseInlineSurfaces(text);
     if (inlineSegments) {
       return (
@@ -450,7 +465,7 @@ export function TranscriptMessageBody({
                     onOpenApp={onOpenApp}
                     onOpenDocument={onOpenDocument}
                     assistantId={assistantId}
-                    isToolCallComplete={true}
+                    toolCalls={message.toolCalls}
                   />
                 </div>
               );
@@ -458,9 +473,9 @@ export function TranscriptMessageBody({
             return (
               <div
                 key={`inline-text-${si}`}
-                className={`break-words text-[15px] ${textBubbleClass}`}
+                className={segmentClass}
               >
-                <ChatMarkdownMessage content={seg.content} hardLineBreaks={hardLineBreaks} />
+                <ChatMarkdownMessage content={seg.content} hardLineBreaks />
               </div>
             );
           })}
@@ -468,8 +483,8 @@ export function TranscriptMessageBody({
       );
     }
     return (
-      <div key={key} className={`break-words text-[15px] ${textBubbleClass}`}>
-        <ChatMarkdownMessage content={text} hardLineBreaks={hardLineBreaks} />
+      <div key={key} className={segmentClass}>
+        <ChatMarkdownMessage content={text} hardLineBreaks />
       </div>
     );
   };
@@ -534,6 +549,71 @@ export function TranscriptMessageBody({
     );
   };
 
+  // Render the user-message content from an ordered, tagged list. Walks the
+  // items in canonical `contentOrder` sequence, grouping CONTIGUOUS runs of
+  // text into one `userBubbleClass` bubble while each non-text element (surface
+  // / tool-call group) renders OUTSIDE any bubble in its canonical position —
+  // preserving `contentOrder` and keeping non-text out of the bubble chrome.
+  // Attachments aren't part of `contentOrder`: they append to the last text
+  // bubble (so "text then image" is one bubble) or, when there is no text, get
+  // their own bubble. Empty text runs are skipped so no empty padded box shows.
+  const renderUserContent = (
+    items: Array<{ kind: "text" | "nonText"; node: ReactNode }>,
+  ): ReactNode => {
+    // Plan slots first, then emit JSX once, so trailing attachments can be
+    // pushed into the last text bubble's node array before its element is
+    // created (React captures children at creation time).
+    type Slot =
+      | { kind: "bubble"; nodes: ReactNode[] }
+      | { kind: "raw"; node: ReactNode };
+    const slots: Slot[] = [];
+    let textRun: ReactNode[] = [];
+
+    const flushTextRun = () => {
+      if (textRun.length > 0) {
+        slots.push({ kind: "bubble", nodes: textRun });
+        textRun = [];
+      }
+    };
+
+    for (const item of items) {
+      if (item.kind === "text") {
+        if (item.node) textRun.push(item.node);
+        continue;
+      }
+      flushTextRun();
+      if (item.node) slots.push({ kind: "raw", node: item.node });
+    }
+    flushTextRun();
+
+    if (hasAttachments && message.attachments) {
+      const attachmentsNode = (
+        <BubbleAttachments
+          key="user-attachments"
+          attachments={message.attachments}
+          assistantId={assistantId}
+        />
+      );
+      const lastBubble = slots.findLast((slot) => slot.kind === "bubble");
+      if (lastBubble) {
+        lastBubble.nodes.push(attachmentsNode);
+      } else {
+        slots.push({ kind: "bubble", nodes: [attachmentsNode] });
+      }
+    }
+
+    let bubbleIndex = 0;
+    return slots.map((slot, i) =>
+      slot.kind === "raw" ? (
+        <Fragment key={`user-slot-${i}`}>{slot.node}</Fragment>
+      ) : (
+        <div key={`user-bubble-${bubbleIndex++}`} className={userBubbleClass}>
+          {slot.nodes}
+        </div>
+      ),
+    );
+  };
+
   if (hasInterleavedToolCalls && message.contentOrder) {
     // Group consecutive entries: merge adjacent toolCall/tool entries into a
     // single group (mirrors macOS `groupContentBlocks`).
@@ -570,19 +650,15 @@ export function TranscriptMessageBody({
       return undefined;
     };
 
-    return (
-      <div
-        ref={wrapperRef}
-        onClick={handleBubbleClick}
-        data-revealed={revealed}
-        data-slack-message-link={slackMessageUrl ? "true" : undefined}
-        title={slackMessageUrl ? "Open in Slack" : undefined}
-        className={`group/msg flex ${slackMessageUrl ? "cursor-pointer" : ""} ${message.role === "user" ? "justify-end" : "justify-start"}`}
-      >
-        <div
-          className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
-        >
-          {groups.map((group, gi) => {
+    // Each entry carries its group `type` alongside the rendered node so the
+    // user branch can place text inside the bubble and tool-call/surface
+    // elements outside it (only text/markdown belongs in the user bubble). For
+    // assistants the order is preserved by rendering all nodes in sequence.
+    const interleavedGroupEntries = groups.map((group, gi): {
+      type: ContentGroup["type"];
+      node: ReactNode;
+    } => {
+      const node = ((): ReactNode => {
             if (group.type === "toolCalls") {
               const toolCalls = group.ids
                 .map(resolveToolCall)
@@ -607,6 +683,10 @@ export function TranscriptMessageBody({
                       expandedToolCallIds={expandedToolCallIds}
                       onExpandChange={handleExpandChange}
                       expandedCardIds={expandedCardIds}
+                      autoExpand={shouldAutoExpandToolCallGroup({
+                        isCurrentGroup: gi === groups.length - 1,
+                        toolCalls,
+                      })}
                       onOpenRuleEditor={onOpenRuleEditor}
                       isSubmittingConfirmation={isSubmittingConfirmation}
                       onConfirmationSubmit={onConfirmationSubmit}
@@ -614,7 +694,6 @@ export function TranscriptMessageBody({
                       pendingConfirmationToolCallId={pendingConfirmationToolCallId}
                       unknownNudgeToolCallIds={unknownNudgeToolCallIds}
                       onDismissUnknownNudge={onDismissUnknownNudge}
-                      isStreaming={message.isStreaming ?? false}
                       leadingThinkingText={getLeadingThinkingText(message, gi)}
                     />
                   )}
@@ -634,7 +713,7 @@ export function TranscriptMessageBody({
               if (!text) {
                 return null;
               }
-              return renderTextWithInlineSurfaces(text, `text-${gi}`, message.role === "user");
+              return renderTextWithInlineSurfaces(text, `text-${gi}`);
             }
             if (group.type === "surface") {
               const surface = resolveSurface(group.id);
@@ -649,24 +728,67 @@ export function TranscriptMessageBody({
                     onOpenApp={onOpenApp}
                     onOpenDocument={onOpenDocument}
                     assistantId={assistantId}
-                    isToolCallComplete={isToolCallComplete}
+                    toolCalls={message.toolCalls}
                   />
                 </div>
               );
             }
             return null;
-          })}
-          {/* Fallback: if message.content exists but no text groups rendered
-              (e.g. tool_use_start before any assistant_text_delta), show the
-              content. */}
-          {!groups.some((g) => g.type === "text") && message.content &&
-            renderTextWithInlineSurfaces(message.content, "fallback", message.role === "user")
-          }
-          {message.attachments && message.attachments.length > 0 && (
-            <MessageAttachments
-              attachments={message.attachments}
-              assistantId={assistantId}
-            />
+      })();
+      return { type: group.type, node };
+    });
+
+    // Order-preserving flat list for the assistant branch.
+    const interleavedGroupElements = interleavedGroupEntries.map((e) => e.node);
+
+    // Fallback: if message.content exists but no text groups rendered
+    // (e.g. tool_use_start before any assistant_text_delta), show the content.
+    const interleavedFallback =
+      !groups.some((g) => g.type === "text") && message.content
+        ? renderTextWithInlineSurfaces(message.content, "fallback")
+        : null;
+
+    // For the user branch: walk the entries in canonical order, tagging text
+    // (and the fallback) as bubble content and tool-call/surface groups as
+    // non-text so `renderUserContent` can split the bubble around them while
+    // preserving `contentOrder`.
+    const interleavedUserItems: Array<{
+      kind: "text" | "nonText";
+      node: ReactNode;
+    }> = interleavedGroupEntries.map((e) => ({
+      kind: e.type === "text" ? "text" : "nonText",
+      node: e.node,
+    }));
+    if (interleavedFallback) {
+      interleavedUserItems.push({ kind: "text", node: interleavedFallback });
+    }
+
+    return (
+      <div
+        ref={wrapperRef}
+        onClick={handleBubbleClick}
+        data-revealed={revealed}
+        className={`group/msg flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+      >
+        <div
+          className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
+        >
+          {isUser ? (
+            // Text runs render inside surface-lift bubbles; tool-call/surface
+            // groups render outside any bubble in their canonical position so
+            // `contentOrder` is preserved (see `renderUserContent`).
+            renderUserContent(interleavedUserItems)
+          ) : (
+            <>
+              {interleavedGroupElements}
+              {interleavedFallback}
+              {hasAttachments && (
+                <MessageAttachments
+                  attachments={message.attachments ?? []}
+                  assistantId={assistantId}
+                />
+              )}
+            </>
           )}
           <SlackMessageAttribution
             message={message}
@@ -677,7 +799,7 @@ export function TranscriptMessageBody({
               content={message.content}
               timestamp={messageTimestamp}
               role={message.role}
-              isStreaming={message.isStreaming}
+              openInSlackUrl={slackMessageUrl}
               onFork={forkHandler}
               onInspect={inspectHandler}
             />
@@ -688,8 +810,10 @@ export function TranscriptMessageBody({
   }
 
   // Legacy path: no interleaved tool calls in contentOrder. Render all tool
-  // calls first, then text content.
-  const contentElements: ReactNode[] = [];
+  // calls first, then text content. Each element is tagged "text" or
+  // "surface" so the user branch can keep text in the bubble and render
+  // surfaces outside it.
+  const contentEntries: Array<{ type: "text" | "surface"; node: ReactNode }> = [];
   if (message.contentOrder && message.contentOrder.length > 0) {
     const textSegmentsArr = message.textSegments ?? [];
     for (const entry of message.contentOrder) {
@@ -701,59 +825,82 @@ export function TranscriptMessageBody({
               (s) => (s as Record<string, unknown>).id === entry.id,
             );
         const segText = seg?.content ?? entry.id;
-        contentElements.push(
-          renderTextWithInlineSurfaces(segText, `text-${entry.id}`, message.role === "user"),
-        );
+        contentEntries.push({
+          type: "text",
+          node: renderTextWithInlineSurfaces(segText, `text-${entry.id}`),
+        });
       } else if (entry.type === "surface") {
         const surface = resolveSurface(entry.id);
         if (surface) {
-          contentElements.push(
-            <div key={`surface-${entry.id}`} className="w-full">
-              <SurfaceRouter
-                surface={surface}
-                onAction={onSurfaceAction}
-                onOpenApp={onOpenApp}
-                onOpenDocument={onOpenDocument}
-                assistantId={assistantId}
-                isToolCallComplete={isToolCallComplete}
-              />
-            </div>,
-          );
+          contentEntries.push({
+            type: "surface",
+            node: (
+              <div key={`surface-${entry.id}`} className="w-full">
+                <SurfaceRouter
+                  surface={surface}
+                  onAction={onSurfaceAction}
+                  onOpenApp={onOpenApp}
+                  onOpenDocument={onOpenDocument}
+                  assistantId={assistantId}
+                  toolCalls={message.toolCalls}
+                />
+              </div>
+            ),
+          });
         }
       }
     }
-    if (contentElements.length === 0 && message.content) {
-      contentElements.push(
-        renderTextWithInlineSurfaces(message.content, "fallback", message.role === "user"),
-      );
+    if (contentEntries.length === 0 && message.content) {
+      contentEntries.push({
+        type: "text",
+        node: renderTextWithInlineSurfaces(message.content, "fallback"),
+      });
     }
   } else {
-    contentElements.push(
-      message.content
-        ? renderTextWithInlineSurfaces(message.content, "content", message.role === "user")
+    contentEntries.push({
+      type: "text",
+      node: message.content
+        ? renderTextWithInlineSurfaces(message.content, "content")
         : null,
-    );
+    });
   }
+  // Order-preserving flat list for the assistant branch.
+  const contentElements = contentEntries.map((e) => e.node);
+  // For the user branch: walk the entries in canonical order, tagging text as
+  // bubble content and surfaces as non-text so `renderUserContent` can split
+  // the bubble around them while preserving `contentOrder`.
+  const legacyUserItems: Array<{
+    kind: "text" | "nonText";
+    node: ReactNode;
+  }> = contentEntries.map((e) => ({
+    kind: e.type === "text" ? "text" : "nonText",
+    node: e.node,
+  }));
+  const legacyToolCalls =
+    message.toolCalls?.filter((tc) => !isSuppressedUiTool(tc)) ?? [];
+  const hasVisibleLegacyContent = contentElements.some((el) => !!el);
 
   return (
     <div
       ref={wrapperRef}
       onClick={handleBubbleClick}
       data-revealed={revealed}
-      data-slack-message-link={slackMessageUrl ? "true" : undefined}
-      title={slackMessageUrl ? "Open in Slack" : undefined}
-      className={`group/msg flex ${slackMessageUrl ? "cursor-pointer" : ""} ${message.role === "user" ? "justify-end" : "justify-start"}`}
+      className={`group/msg flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
     >
       <div
         className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
       >
-        {message.toolCalls && message.toolCalls.filter((tc) => !isSuppressedUiTool(tc)).length > 0 && (
+        {legacyToolCalls.length > 0 && (
           <>
             <ToolCallProgressCard
-              toolCalls={message.toolCalls.filter((tc) => !isSuppressedUiTool(tc))}
+              toolCalls={legacyToolCalls}
               expandedToolCallIds={expandedToolCallIds}
               onExpandChange={handleExpandChange}
               expandedCardIds={expandedCardIds}
+              autoExpand={shouldAutoExpandToolCallGroup({
+                isCurrentGroup: !hasVisibleLegacyContent,
+                toolCalls: legacyToolCalls,
+              })}
               onOpenRuleEditor={onOpenRuleEditor}
               isSubmittingConfirmation={isSubmittingConfirmation}
               onConfirmationSubmit={onConfirmationSubmit}
@@ -761,32 +908,38 @@ export function TranscriptMessageBody({
               pendingConfirmationToolCallId={pendingConfirmationToolCallId}
               unknownNudgeToolCallIds={unknownNudgeToolCallIds}
               onDismissUnknownNudge={onDismissUnknownNudge}
-              isStreaming={message.isStreaming ?? false}
               leadingThinkingText={getLegacyLeadingThinkingText(message)}
             />
-            {renderInlineSubagentCards(
-              message.toolCalls.filter((tc) => !isSuppressedUiTool(tc)),
-            )}
+            {renderInlineSubagentCards(legacyToolCalls)}
           </>
         )}
-        {(contentElements.some((el) => !!el) ||
-          (!message.toolCalls?.length &&
-            !(message.attachments && message.attachments.length > 0))) && (
-          // Layout-only column: the bubble styling (textBubbleClass) is applied
-          // per text segment inside renderTextWithInlineSurfaces, mirroring the
-          // interleaved path above. Applying textBubbleClass here too would
-          // double-wrap text in two nested bubbles (doubled padding/background).
-          <div
-            className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
-          >
-            {contentElements}
-          </div>
-        )}
-        {message.attachments && message.attachments.length > 0 && (
-          <MessageAttachments
-            attachments={message.attachments}
-            assistantId={assistantId}
-          />
+        {isUser ? (
+          // User messages render contiguous text runs (plus attachments) inside
+          // surface-lift bubbles; surfaces (rare for user messages) render
+          // outside any bubble in their canonical position so `contentOrder` is
+          // preserved (see `renderUserContent`).
+          renderUserContent(legacyUserItems)
+        ) : (
+          <>
+            {(hasVisibleLegacyContent ||
+              (!message.toolCalls?.length && !hasAttachments)) && (
+              // Layout-only column: the bubble styling (textBubbleClass) is applied
+              // per text segment inside renderTextWithInlineSurfaces, mirroring the
+              // interleaved path above. Applying textBubbleClass here too would
+              // double-wrap text in two nested bubbles (doubled padding/background).
+              <div
+                className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
+              >
+                {contentElements}
+              </div>
+            )}
+            {hasAttachments && message.attachments && (
+              <MessageAttachments
+                attachments={message.attachments}
+                assistantId={assistantId}
+              />
+            )}
+          </>
         )}
         {/* Render surfaces attached to this message that aren't in contentOrder */}
         {(() => {
@@ -808,7 +961,7 @@ export function TranscriptMessageBody({
                 onOpenApp={onOpenApp}
                 onOpenDocument={onOpenDocument}
                 assistantId={assistantId}
-                isToolCallComplete={isToolCallComplete}
+                toolCalls={message.toolCalls}
               />
             </div>
           ));
@@ -822,7 +975,7 @@ export function TranscriptMessageBody({
             content={message.content}
             timestamp={messageTimestamp}
             role={message.role}
-            isStreaming={message.isStreaming}
+            openInSlackUrl={slackMessageUrl}
             onFork={forkHandler}
             onInspect={inspectHandler}
           />

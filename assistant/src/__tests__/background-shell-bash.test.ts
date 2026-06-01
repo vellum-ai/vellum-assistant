@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { WakeOptions } from "../runtime/agent-wake.js";
 import type { BackgroundTool } from "../tools/background-tool-registry.js";
-import type { Tool } from "../tools/types.js";
 
 // ── Mock modules ────────────────────────────────────────────────────────────
 
@@ -88,6 +87,8 @@ mock.module("../tools/background-tool-registry.js", () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
+import { shellTool } from "../tools/terminal/shell.js";
+
 const baseContext = {
   workingDir: process.env.VELLUM_WORKSPACE_DIR ?? "/tmp",
   conversationId: "conv-bg-test",
@@ -117,9 +118,7 @@ function waitForWake(
 }
 
 describe("bash tool background mode", () => {
-  let shellTool: Tool;
-
-  beforeEach(async () => {
+  beforeEach(() => {
     mockWakeAgentForOpportunity.mockClear();
     mockRegisterBackgroundTool.mockClear();
     mockRemoveBackgroundTool.mockClear();
@@ -128,9 +127,6 @@ describe("bash tool background mode", () => {
     mockIsBackgroundToolLimitReached.mockClear();
     mockIsBackgroundToolLimitReached.mockReturnValue(false);
     registeredTools.length = 0;
-
-    const mod = await import("../tools/terminal/shell.js");
-    shellTool = mod.shellTool;
   });
 
   afterEach(() => {

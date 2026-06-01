@@ -50,7 +50,7 @@ import { z } from "zod";
 
 import assistantPkg from "../../package.json" with { type: "json" };
 import { finalizeTool } from "../tools/tool-defaults.js";
-import type { LoadedTool, ToolDefinition } from "../tools/types.js";
+import type { Tool, ToolDefinition } from "../tools/types.js";
 import { getLogger } from "../util/logger.js";
 import { registerPlugin } from "./registry.js";
 import type {
@@ -276,7 +276,7 @@ async function buildPluginFromDir(pluginDir: string): Promise<Plugin> {
   const hooks = await loadHooks(pluginDir, name);
   if (hooks !== undefined) plugin.hooks = hooks;
 
-  const tools: LoadedTool[] = [];
+  const tools: Tool[] = [];
   for (const { name: toolName, path: toolPath } of listSurfaceDir(
     join(pluginDir, "tools"),
   )) {

@@ -11,6 +11,7 @@ import type { ConversationRow } from "./conversation-crud.js";
 import { parseConversation } from "./conversation-crud.js";
 import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
+import type { ConversationType } from "./conversation-types.js";
 import { getDb } from "./db-connection.js";
 import { rawAll } from "./raw-query.js";
 import { conversations, messages } from "./schema.js";
@@ -48,30 +49,78 @@ export function buildFtsMatchQuery(
   return unique.map((token) => `"${token.replace(/"/g, '""')}"`).join(" ");
 }
 
+/**
+ * How {@link listConversations} (and friends) treats archived rows.
+ *
+ * - `"active"` — exclude rows with a non-null `archivedAt`. The default
+ *   for sidebar lists, restore, CLI pickers, and anything user-facing.
+ * - `"archived"` — return ONLY archived rows. Powers the Archive page
+ *   so it does not have to pull the entire conversation history and
+ *   filter client-side.
+ * - `"all"` — include both. Reserved for migrations and back-compat
+ *   call sites that genuinely want everything in one query.
+ */
+export type ArchiveStatusFilter = "active" | "archived" | "all";
+
+function archiveStatusClause(status: ArchiveStatusFilter) {
+  switch (status) {
+    case "active":
+      return sql`${conversations.archivedAt} IS NULL`;
+    case "archived":
+      return sql`${conversations.archivedAt} IS NOT NULL`;
+    case "all":
+      return null;
+  }
+}
+
+/**
+ * SQL predicate selecting which bucket {@link listConversations} and
+ * {@link countConversations} return, keyed by the canonical
+ * {@link ConversationType}:
+ *
+ * - `"standard"` — the primary sidebar list: standard conversations only,
+ *   excluding background, scheduled, and private rows. `"private"` is excluded
+ *   defensively because in-place snapshot restore swaps the SQLite file without
+ *   running migrations in-process, so legacy private rows can briefly exist
+ *   before migration cleanup deletes them.
+ * - `"background"` — the background **umbrella**: background *and* scheduled
+ *   rows together. The back-compat bucket for the single
+ *   `conversationType=background` fetch that older clients (e.g. the macOS app,
+ *   which ships out of lockstep with the daemon) rely on to populate both the
+ *   Background and Scheduled sidebar sections from one request.
+ * - `"scheduled"` — scheduled rows only, so the Scheduled section can load
+ *   independently of the broader background backlog without over-fetching it.
+ *
+ * `group_id` is matched alongside `conversationType` so conversations routed to
+ * `system:background` / `system:scheduled` (heartbeat, reminders, schedule-job
+ * runs) but created with conversationType `"standard"` still land in the
+ * correct bucket. Subagent runs are excluded from the background/scheduled
+ * buckets so the sidebar never surfaces them.
+ */
+function conversationTypeClause(type: ConversationType) {
+  const notSubagent = sql`(${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`;
+  switch (type) {
+    case "standard":
+      return sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
+    case "background":
+      return sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND ${notSubagent}`;
+    case "scheduled":
+      return sql`(${conversations.conversationType} = 'scheduled' OR group_id = 'system:scheduled') AND ${notSubagent}`;
+  }
+}
+
 export function listConversations(
   limit?: number,
-  backgroundOnly = false,
+  conversationType: ConversationType = "standard",
   offset = 0,
-  includeArchived = true,
+  archiveStatus: ArchiveStatusFilter = "active",
 ): ConversationRow[] {
   ensureDisplayOrderMigration();
   ensureGroupMigration();
   const db = getDb();
-  // 'private' is excluded defensively: in-place snapshot restore swaps the
-  // SQLite file without running migrations in-process, so legacy private rows
-  // can briefly exist before migration cleanup. Hide them from foreground
-  // lists until the next migration pass deletes them.
-  //
-  // group_id is checked alongside conversationType so that conversations
-  // routed to system:background (e.g. heartbeat) via conversationMetadata
-  // but created with conversationType "standard" (vellum channel strategy)
-  // appear in the correct bucket.
-  const typeCond = backgroundOnly
-    ? sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
-    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
-  const where = includeArchived
-    ? typeCond
-    : sql`${typeCond} AND ${conversations.archivedAt} IS NULL`;
+  const typeCond = conversationTypeClause(conversationType);
+  const archiveCond = archiveStatusClause(archiveStatus);
+  const where = archiveCond ? sql`${typeCond} AND ${archiveCond}` : typeCond;
   const query = db
     .select()
     .from(conversations)
@@ -172,10 +221,13 @@ export function getMessageRoleStatsByConversation(
   );
 }
 
-export function listPinnedConversations(): ConversationRow[] {
+export function listPinnedConversations(
+  archiveStatus: ArchiveStatusFilter = "active",
+): ConversationRow[] {
   ensureDisplayOrderMigration();
   ensureGroupMigration();
   const db = getDb();
+  const archiveCond = archiveStatusClause(archiveStatus);
   const query = db
     .select()
     .from(conversations)
@@ -183,6 +235,7 @@ export function listPinnedConversations(): ConversationRow[] {
       and(
         sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`,
         sql`is_pinned = 1`,
+        ...(archiveCond ? [archiveCond] : []),
       ),
     )
     .orderBy(
@@ -247,12 +300,15 @@ export function listConversationsByTitlePrefix(
   }));
 }
 
-export function countConversations(backgroundOnly = false): number {
+export function countConversations(
+  conversationType: ConversationType = "standard",
+  archiveStatus: ArchiveStatusFilter = "active",
+): number {
   ensureGroupMigration();
   const db = getDb();
-  const where = backgroundOnly
-    ? sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
-    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
+  const typeCond = conversationTypeClause(conversationType);
+  const archiveCond = archiveStatusClause(archiveStatus);
+  const where = archiveCond ? sql`${typeCond} AND ${archiveCond}` : typeCond;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)

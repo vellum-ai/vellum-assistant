@@ -835,6 +835,299 @@ describe("resolveCallSiteConfig", () => {
   });
 });
 
+describe("mix profiles", () => {
+  // A mix that routes 80% to `a` (model-a) and 20% to `b` (model-b).
+  const mixLlm = LLMSchema.parse({
+    default: fullDefault,
+    profiles: {
+      a: { model: "model-a", effort: "low" },
+      b: { model: "model-b", effort: "high" },
+      ab: {
+        mix: [
+          { profile: "a", weight: 80 },
+          { profile: "b", weight: 20 },
+        ],
+      },
+    },
+    activeProfile: "ab",
+  });
+
+  test("same seed resolves to the same arm (stable across calls)", () => {
+    const first = resolveCallSiteConfig("mainAgent", mixLlm, {
+      selectionSeed: "conv-1",
+    });
+    const second = resolveCallSiteConfig("mainAgent", mixLlm, {
+      selectionSeed: "conv-1",
+    });
+    expect(first.model).toBe(second.model);
+    expect(["model-a", "model-b"]).toContain(first.model);
+    // The chosen arm's other fields flow through; the other arm's don't.
+    if (first.model === "model-a") expect(first.effort).toBe("low");
+    else expect(first.effort).toBe("high");
+  });
+
+  test("all dereference spots in a turn agree for the same seed", () => {
+    // mainAgent (mix layered as activeProfile) and a non-main call site
+    // resolving the same mix as activeProfile must pick the same arm when
+    // given the same conversation seed — guards the invariant that every
+    // resolver call within a conversation lands on one arm.
+    const main = resolveCallSiteConfig("mainAgent", mixLlm, {
+      selectionSeed: "conv-xyz",
+    });
+    const other = resolveCallSiteConfig("memoryExtraction", mixLlm, {
+      selectionSeed: "conv-xyz",
+    });
+    expect(other.model).toBe(main.model);
+  });
+
+  test("different seeds split across both arms by weight", () => {
+    let aCount = 0;
+    let bCount = 0;
+    for (let i = 0; i < 400; i++) {
+      const resolved = resolveCallSiteConfig("mainAgent", mixLlm, {
+        selectionSeed: `conv-${i}`,
+      });
+      if (resolved.model === "model-a") aCount++;
+      else if (resolved.model === "model-b") bCount++;
+    }
+    // Both arms must be reachable, and the 80/20 weighting must skew toward
+    // `a`. Wide band so the assertion locks weighting without coupling to the
+    // exact hash output (deterministic, so never flaky).
+    expect(aCount).toBeGreaterThan(bCount);
+    expect(bCount).toBeGreaterThan(0);
+    expect(aCount).toBeGreaterThan(240); // ~80% of 400 = 320
+    expect(aCount).toBeLessThan(390);
+  });
+
+  test("relative weights are normalized by their sum ([80,20] ≡ [4,1])", () => {
+    const llm2 = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        a: { model: "model-a" },
+        b: { model: "model-b" },
+        ab: {
+          mix: [
+            { profile: "a", weight: 4 },
+            { profile: "b", weight: 1 },
+          ],
+        },
+      },
+      activeProfile: "ab",
+    });
+    for (let i = 0; i < 200; i++) {
+      const seed = `conv-${i}`;
+      expect(
+        resolveCallSiteConfig("mainAgent", llm2, { selectionSeed: seed }).model,
+      ).toBe(
+        resolveCallSiteConfig("mainAgent", mixLlm, { selectionSeed: seed })
+          .model,
+      );
+    }
+  });
+
+  test("mix works as overrideProfile", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        a: { model: "model-a" },
+        b: { model: "model-b" },
+        ab: {
+          mix: [
+            { profile: "a", weight: 50 },
+            { profile: "b", weight: 50 },
+          ],
+        },
+      },
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "ab",
+      selectionSeed: "conv-1",
+    });
+    expect(["model-a", "model-b"]).toContain(resolved.model);
+  });
+
+  test("mix works as a call-site profile (non-mainAgent and mainAgent)", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        a: { model: "model-a" },
+        b: { model: "model-b" },
+        ab: {
+          mix: [
+            { profile: "a", weight: 50 },
+            { profile: "b", weight: 50 },
+          ],
+        },
+      },
+      callSites: {
+        memoryExtraction: { profile: "ab" },
+        mainAgent: { profile: "ab" },
+      },
+    });
+    expect(["model-a", "model-b"]).toContain(
+      resolveCallSiteConfig("memoryExtraction", llm, { selectionSeed: "c1" })
+        .model,
+    );
+    expect(["model-a", "model-b"]).toContain(
+      resolveCallSiteConfig("mainAgent", llm, { selectionSeed: "c1" }).model,
+    );
+  });
+
+  test("onMixSelected reports the mix name and the chosen arm matching the resolved model", () => {
+    const calls: Array<{ mixProfile: string; chosenProfile: string }> = [];
+    const resolved = resolveCallSiteConfig("mainAgent", mixLlm, {
+      selectionSeed: "conv-1",
+      onMixSelected: (info) => calls.push(info),
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].mixProfile).toBe("ab");
+    expect(["a", "b"]).toContain(calls[0].chosenProfile);
+    expect(resolved.model).toBe(
+      calls[0].chosenProfile === "a" ? "model-a" : "model-b",
+    );
+  });
+
+  test("no seed falls back to random selection without throwing (both arms reachable)", () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) {
+      seen.add(resolveCallSiteConfig("mainAgent", mixLlm).model);
+    }
+    expect(seen.has("model-a")).toBe(true);
+    expect(seen.has("model-b")).toBe(true);
+  });
+});
+
+describe("mix validation (LLMSchema.superRefine)", () => {
+  const base = {
+    default: fullDefault,
+    profiles: {
+      a: { model: "model-a" },
+      b: { model: "model-b" },
+    },
+  };
+
+  test("valid mix parses cleanly", () => {
+    expect(() =>
+      LLMSchema.parse({
+        ...base,
+        profiles: {
+          ...base.profiles,
+          ab: {
+            mix: [
+              { profile: "a", weight: 80 },
+              { profile: "b", weight: 20 },
+            ],
+          },
+        },
+      }),
+    ).not.toThrow();
+  });
+
+  test("rejects a mix referencing an undefined profile", () => {
+    expect(() =>
+      LLMSchema.parse({
+        ...base,
+        profiles: {
+          ...base.profiles,
+          ab: {
+            mix: [
+              { profile: "a", weight: 1 },
+              { profile: "ghost", weight: 1 },
+            ],
+          },
+        },
+      }),
+    ).toThrow(/not defined in llm\.profiles/);
+  });
+
+  test("rejects a nested mix (arm references another mix)", () => {
+    expect(() =>
+      LLMSchema.parse({
+        ...base,
+        profiles: {
+          ...base.profiles,
+          ab: {
+            mix: [
+              { profile: "a", weight: 1 },
+              { profile: "b", weight: 1 },
+            ],
+          },
+          outer: {
+            mix: [
+              { profile: "ab", weight: 1 },
+              { profile: "a", weight: 1 },
+            ],
+          },
+        },
+      }),
+    ).toThrow(/cannot be nested/);
+  });
+
+  test("rejects a self-referencing mix", () => {
+    expect(() =>
+      LLMSchema.parse({
+        ...base,
+        profiles: {
+          ...base.profiles,
+          ab: {
+            mix: [
+              { profile: "ab", weight: 1 },
+              { profile: "a", weight: 1 },
+            ],
+          },
+        },
+      }),
+    ).toThrow(/cannot reference itself/);
+  });
+
+  test("rejects a mix that also sets a config field", () => {
+    expect(() =>
+      LLMSchema.parse({
+        ...base,
+        profiles: {
+          ...base.profiles,
+          ab: {
+            model: "model-c",
+            mix: [
+              { profile: "a", weight: 1 },
+              { profile: "b", weight: 1 },
+            ],
+          },
+        },
+      }),
+    ).toThrow(/cannot also set/);
+  });
+
+  test("rejects a mix with fewer than two arms", () => {
+    expect(() =>
+      LLMSchema.parse({
+        ...base,
+        profiles: {
+          ...base.profiles,
+          ab: { mix: [{ profile: "a", weight: 1 }] },
+        },
+      }),
+    ).toThrow();
+  });
+
+  test("rejects a non-positive arm weight", () => {
+    expect(() =>
+      LLMSchema.parse({
+        ...base,
+        profiles: {
+          ...base.profiles,
+          ab: {
+            mix: [
+              { profile: "a", weight: 0 },
+              { profile: "b", weight: 1 },
+            ],
+          },
+        },
+      }),
+    ).toThrow();
+  });
+});
+
 describe("resolveDefaultProfileKey", () => {
   test("mainAgent returns activeProfile when set and enabled", () => {
     const llm = LLMSchema.parse({
@@ -917,51 +1210,42 @@ describe("resolveDefaultProfileKey", () => {
       "custom-cost-optimized",
     );
   });
-});
 
-describe("memory v3 call sites resolve through the standard resolver", () => {
-  const llm = LLMSchema.parse({
-    default: fullDefault,
-    profiles: {
-      balanced: { provider: "anthropic", model: "claude-sonnet-4-7" },
-      "cost-optimized": {
-        provider: "anthropic",
-        model: "claude-haiku-4-5-20251001",
-      },
-    },
-  });
-
-  test("memoryV3Filter and memoryV3Descent resolve to the cost-optimized profile", () => {
-    expect(resolveDefaultProfileKey("memoryV3Filter", llm)).toBe(
-      "cost-optimized",
-    );
-    expect(resolveDefaultProfileKey("memoryV3Descent", llm)).toBe(
-      "cost-optimized",
-    );
-    expect(resolveCallSiteConfig("memoryV3Filter", llm).model).toBe(
-      "claude-haiku-4-5-20251001",
-    );
-    expect(resolveCallSiteConfig("memoryV3Descent", llm).model).toBe(
-      "claude-haiku-4-5-20251001",
-    );
-  });
-
-  test("memoryV3Gate resolves to the balanced (capable) profile", () => {
-    expect(resolveDefaultProfileKey("memoryV3Gate", llm)).toBe("balanced");
-    expect(resolveCallSiteConfig("memoryV3Gate", llm).model).toBe(
-      "claude-sonnet-4-7",
-    );
-  });
-
-  test("v3 call sites are addressable as call-site override keys", () => {
-    const overridden = LLMSchema.parse({
+  test("mainAgent returns the mix key (not an arm) when activeProfile is a mix", () => {
+    const llm = LLMSchema.parse({
       default: fullDefault,
-      callSites: {
-        memoryV3Gate: { model: "claude-opus-4-7" },
+      profiles: {
+        a: { model: "model-a" },
+        b: { model: "model-b" },
+        ab: {
+          mix: [
+            { profile: "a", weight: 1 },
+            { profile: "b", weight: 1 },
+          ],
+        },
       },
+      activeProfile: "ab",
     });
-    expect(resolveCallSiteConfig("memoryV3Gate", overridden).model).toBe(
-      "claude-opus-4-7",
-    );
+    expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("ab");
+  });
+
+  test("mainAgent falls back to catalog default when the mix activeProfile is disabled", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        balanced: { provider: "anthropic", model: "claude-sonnet-4-7" },
+        a: { model: "model-a" },
+        b: { model: "model-b" },
+        ab: {
+          status: "disabled",
+          mix: [
+            { profile: "a", weight: 1 },
+            { profile: "b", weight: 1 },
+          ],
+        },
+      },
+      activeProfile: "ab",
+    });
+    expect(resolveDefaultProfileKey("mainAgent", llm)).toBe("balanced");
   });
 });

@@ -1723,12 +1723,23 @@ public struct HostFileResultPayload: Codable, Sendable {
     public let content: String
     public let isError: Bool
     public let imageData: String?
+    public let audioData: String?
+    public let audioMimeType: String?
 
-    public init(requestId: String, content: String, isError: Bool, imageData: String? = nil) {
+    public init(
+        requestId: String,
+        content: String,
+        isError: Bool,
+        imageData: String? = nil,
+        audioData: String? = nil,
+        audioMimeType: String? = nil
+    ) {
         self.requestId = requestId
         self.content = content
         self.isError = isError
         self.imageData = imageData
+        self.audioData = audioData
+        self.audioMimeType = audioMimeType
     }
 }
 
@@ -3096,6 +3107,12 @@ public enum ServerMessage: Decodable, Sendable {
     /// queued message. Populates requestIdToMessageId from the HTTP response so
     /// the steer button works even before the SSE message_queued event arrives.
     case queuedMessageAcked(conversationId: String, requestId: String)
+    /// Synthetic client-side event: attachments uploaded during send were assigned
+    /// canonical (daemon) IDs. Broadcast so the per-conversation ChatActionHandler
+    /// can rewrite the optimistic row's client-local attachment IDs to the server
+    /// IDs, so lazy-load fetch (and Save) resolve against the daemon instead of
+    /// 404ing on the unknown local ID. Maps clientLocalId → serverId.
+    case attachmentIdsReconciled(conversationId: String, mapping: [String: String])
     case relationshipStateUpdated(updatedAt: String)
     case homeFeedUpdated(updatedAt: String, newItemCount: Int)
     case pong

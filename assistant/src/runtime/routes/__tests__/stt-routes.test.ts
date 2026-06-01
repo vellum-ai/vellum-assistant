@@ -104,15 +104,15 @@ describe("stt-routes", () => {
 
     const providers = getRoute("stt/providers");
     expect(providers.method).toBe("GET");
-    expect(providers.policyKey).toBe("stt/providers");
+    expect(providers.policy?.requiredScopes).toContain("settings.read");
 
     const transcribe = getRoute("stt/transcribe");
     expect(transcribe.method).toBe("POST");
-    expect(transcribe.policyKey).toBe("stt/transcribe");
+    expect(transcribe.policy?.requiredScopes).toContain("chat.write");
 
     const transcribeFile = getRoute("stt/transcribe-file");
     expect(transcribeFile.method).toBe("POST");
-    expect(transcribeFile.policyKey).toBe("stt/transcribe-file");
+    expect(transcribeFile.policy?.requiredScopes).toContain("chat.write");
   });
 
   // -- Success path ---------------------------------------------------------

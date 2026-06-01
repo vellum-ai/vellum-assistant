@@ -19,6 +19,7 @@ import {
   loadCheckpoints,
   rollbackWorkspaceMigrations,
 } from "../../workspace/migrations/runner.js";
+import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -160,11 +161,14 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "admin_rollbackmigrations_post",
     endpoint: "admin/rollback-migrations",
     method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Rollback migrations",
     description:
       "Roll back DB and/or workspace migrations to a specified target version. Restricted to gateway service principals.",
     tags: ["admin"],
-    requirePolicyEnforcement: true,
     handler: handleRollbackMigrations,
     requestBody: z.object({
       targetDbVersion: z

@@ -13,6 +13,7 @@ import { dirname, join } from "node:path";
 import { z } from "zod";
 
 import { getWorkspaceDir } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -70,7 +71,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "content_source_set",
     endpoint: "content-source",
     method: "POST",
-    policyKey: "secrets",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Validate and persist a content source URL",
     requestBody: z.object({ url: z.string() }),
     handler: handleContentSource,

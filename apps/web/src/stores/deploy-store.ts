@@ -17,7 +17,6 @@ import { create } from "zustand";
 import { toast } from "@vellum/design-library";
 import { integrationsVercelConfigGet } from "@/generated/daemon/sdk.gen";
 import type { AppsByIdPublishPostResponse } from "@/generated/daemon/types.gen";
-import { isCredentialError } from "@/types/publish-types";
 import { createSelectors } from "@/utils/create-selectors";
 import { publishApp } from "@/utils/publish-app";
 import { shareApp as shareAppApi } from "@/utils/share-app";
@@ -58,6 +57,15 @@ export type DeployStore = DeployState & DeployActions;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function isCredentialError(result: AppsByIdPublishPostResponse): boolean {
+  return (
+    result.errorCode === "credentials_missing" ||
+    !!result.error?.includes("not allowed to use credential") ||
+    !!result.error?.includes("domain restrictions") ||
+    !!result.error?.includes("Credential use failed")
+  );
+}
 
 function showPublishResultToast(result: AppsByIdPublishPostResponse): void {
   if (result.publicUrl) {

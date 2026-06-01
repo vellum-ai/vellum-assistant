@@ -9,7 +9,6 @@ import { dedupeDisplayMessages, type DisplayMessage } from "@/domains/chat/utils
 import type {
   MessageItem,
   PendingContactRequestItem,
-  QueuedMarkerItem,
   TranscriptItem,
 } from "@/domains/chat/transcript/types";
 
@@ -68,12 +67,6 @@ export function buildTranscriptItems(
 
   const items: TranscriptItem[] = [];
 
-  // Count queued user messages so we can collapse them into a single marker.
-  const queuedCount = messages.filter(
-    (m) => m.role === "user" && m.queueStatus === "queued",
-  ).length;
-  let markerInserted = false;
-
   for (const message of dedupeDisplayMessages(messages)) {
     // Subagent notification messages are injected by the daemon as user-role
     // messages for state reconstruction (history.ts extracts them). They
@@ -85,16 +78,7 @@ export function buildTranscriptItems(
     const isQueuedUser =
       message.role === "user" && message.queueStatus === "queued";
 
-    if (isQueuedUser && queuedCount > 0) {
-      if (!markerInserted) {
-        const marker: QueuedMarkerItem = {
-          kind: "queuedMarker",
-          key: "queued-marker",
-          count: queuedCount,
-        };
-        items.push(marker);
-        markerInserted = true;
-      }
+    if (isQueuedUser) {
       continue;
     }
 

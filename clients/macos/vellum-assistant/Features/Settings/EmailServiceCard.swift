@@ -86,7 +86,7 @@ struct EmailServiceCard: View {
 
     private var notConfiguredContent: some View {
         VNotification(
-            "Not configured — ask your assistant to set up email, or run `assistant email setup` from the CLI.",
+            "Not configured — ask your assistant to set up email, or run `assistant email register <username>` from the CLI.",
             tone: .warning
         )
     }

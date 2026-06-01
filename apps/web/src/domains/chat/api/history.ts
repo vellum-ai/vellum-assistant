@@ -14,11 +14,9 @@ import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors";
-import {
-  recordChatDiagnostic,
-  summarizeDisplayMessages,
-} from "@/domains/chat/utils/diagnostics";
+} from "@/utils/api-errors";
+import { recordDiagnostic } from "@/lib/diagnostics";
+import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { dedupeDisplayMessages } from "@/domains/chat/utils/reconcile";
@@ -27,11 +25,6 @@ import type {
   RuntimeMessage,
   RuntimeSubagentNotification,
 } from "@/domains/chat/api/messages";
-
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
 
 export type { PaginatedHistoryResult };
 
@@ -110,7 +103,6 @@ async function fetchPaginatedHistory(
     PaginatedHistoryResponseBody,
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/messages/",
     path: { assistant_id: assistantId },
     query,
@@ -119,7 +111,7 @@ async function fetchPaginatedHistory(
 
   assertHasResponse(response, error, "Failed to fetch history");
   if (!response.ok) {
-    recordChatDiagnostic("history_page_fetch_error", {
+    recordDiagnostic("history_page_fetch_error", {
       assistantId,
       query,
       status: response.status,
@@ -133,7 +125,7 @@ async function fetchPaginatedHistory(
   }
 
   const result = parsePaginatedResponse(data ?? {});
-  recordChatDiagnostic("history_page_fetch", {
+  recordDiagnostic("history_page_fetch", {
     assistantId,
     query,
     status: response.status,

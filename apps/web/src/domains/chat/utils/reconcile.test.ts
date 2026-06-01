@@ -6,6 +6,7 @@ import {
   reconcileDisplayMessagesWithLatestHistory,
   reconcileMessages,
 } from "@/domains/chat/utils/reconcile";
+import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import {
   classifySurfaceDisplay,
   type SlackRuntimeMessage,
@@ -98,6 +99,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     const result = reconcileDisplayMessagesWithLatestHistory(
       [cachedUser, cachedAssistant],
       [cachedUser, latestAssistant],
+      true,
     );
 
     expect(result).toHaveLength(2);
@@ -118,7 +120,6 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       id: "a1",
       role: "assistant",
       content: "This is the longer text already delivered by SSE.",
-      isStreaming: true,
       timestamp: 1000,
       textSegments: [
         {
@@ -138,14 +139,17 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     const result = reconcileDisplayMessagesWithLatestHistory(
       [liveAssistant],
       [staleHistory],
+      true,
     );
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
       id: "a1",
       content: "This is the longer text already delivered by SSE.",
-      isStreaming: true,
     });
+    // The merged row stays the live row by derivation — the longer local
+    // text is never rolled back to the stale snapshot.
+    expect(liveAssistantRowId(result, true)).toBe("a1");
     expect(result[0]!.textSegments).toEqual([
       {
         type: "text",
@@ -172,6 +176,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     const result = reconcileDisplayMessagesWithLatestHistory(
       [optimisticUser],
       [serverUser],
+      false,
     );
 
     expect(result).toHaveLength(1);
@@ -193,7 +198,6 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       id: "streaming-assistant",
       role: "assistant",
       content: "Stockholm plan: start with Gamla Stan",
-      isStreaming: true,
       isOptimistic: true,
       timestamp: 1010,
       textSegments: [
@@ -223,6 +227,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     const result = reconcileDisplayMessagesWithLatestHistory(
       [user, streamingAssistant],
       [user, completedAssistant],
+      true,
     );
 
     expect(result).toHaveLength(2);
@@ -231,12 +236,10 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
       role: "assistant",
       content:
         "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
-      // `isStreaming` is client-owned; the merge layer must pass it through
-      // unchanged from the live local row. SSE `message_complete` (or the
-      // watchdog idle-rescue on reconnect) is the sole authority that clears
-      // it.
-      isStreaming: true,
     });
+    // The no-id streaming prefix folds onto the matching history row and
+    // stays the live row — the merge layer never declares the turn done.
+    expect(liveAssistantRowId(result, true)).toBe("a1");
     expect(result[1]!.textSegments).toEqual([
       {
         type: "text",
@@ -246,18 +249,16 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     ]);
   });
 
-  test("does not clear streaming state when latest history has the longer assistant row", () => {
+  test("keeps the live row live when latest history has the longer assistant row", () => {
     // Even when the latest-history page has a longer assistant body than the
-    // local streaming row, the merge MUST preserve `isStreaming`. The merge
-    // layer has no authority to declare the turn complete — that is the
-    // responsibility of the SSE `message_complete` handler (live path) and
-    // the watchdog idle-rescue in `reconcileFetchedMessages` (reconnect
-    // path).
+    // local live row, the merge MUST NOT declare the turn complete — row
+    // liveness is derived from position + processing state, and only the SSE
+    // `message_complete` handler (live path) or the watchdog idle-rescue in
+    // `reconcileFetchedMessages` (reconnect path) ends processing.
     const streamingAssistant = makeLocal({
       id: "streaming-assistant",
       role: "assistant",
       content: "Stockholm plan: start with Gamla Stan",
-      isStreaming: true,
       isOptimistic: true,
       timestamp: 1010,
     });
@@ -272,15 +273,127 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     const result = reconcileDisplayMessagesWithLatestHistory(
       [streamingAssistant],
       [latestAssistant],
+      true,
     );
 
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({
       id: "a1",
-      isStreaming: true,
       content:
         "Stockholm plan: start with Gamla Stan, then spend the afternoon on Djurgarden.",
     });
+    expect(liveAssistantRowId(result, true)).toBe("a1");
+  });
+
+  test("merges a collapsed history row into a live assistant row by merged message id", () => {
+    const liveToolCalls: ChatMessageToolCall[] = [
+      {
+        id: "toolu_load_skill",
+        toolName: "bash",
+        input: { command: "find geo-writing skill" },
+        status: "completed",
+        result: "ok",
+      },
+    ];
+    const liveAssistant = makeLocal({
+      id: "assistant-final",
+      role: "assistant",
+      content: "Good, that's exactly what we're here for.",
+      timestamp: 1010,
+      toolCalls: liveToolCalls,
+      textSegments: [
+        { type: "text", content: "Good, that's exactly what we're here for." },
+      ],
+      contentOrder: [
+        { type: "text", id: "0" },
+        { type: "toolCall", id: "toolu_load_skill" },
+      ],
+    });
+    const latestAssistant = makeLocal({
+      id: "assistant-anchor",
+      mergedMessageIds: ["assistant-middle", "assistant-final"],
+      role: "assistant",
+      content:
+        "Good, that's exactly what we're here for. Everything is set up.",
+      timestamp: 1010,
+      toolCalls: [
+        {
+          id: "tool-history-assistant-anchor-0",
+          toolName: "bash",
+          input: { command: "find geo-writing skill" },
+          status: "completed",
+          result: "ok",
+        },
+      ],
+    });
+
+    const result = reconcileDisplayMessagesWithLatestHistory(
+      [liveAssistant],
+      [latestAssistant],
+      true,
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toMatchObject({
+      id: "assistant-anchor",
+      content:
+        "Good, that's exactly what we're here for. Everything is set up.",
+      mergedMessageIds: ["assistant-middle", "assistant-final"],
+    });
+    expect(result[0]!.toolCalls).toEqual(liveToolCalls);
+  });
+
+  test("backfills finalized history state into alias-linked live tool calls", () => {
+    const liveAssistant = makeLocal({
+      id: "assistant-final",
+      role: "assistant",
+      content: "Loading the GEO writing skill",
+      timestamp: 1010,
+      toolCalls: [
+        {
+          id: "toolu_load_skill",
+          toolName: "bash",
+          input: { command: "find geo-writing skill" },
+          status: "running",
+        },
+      ],
+      contentOrder: [{ type: "toolCall", id: "toolu_load_skill" }],
+    });
+    const latestAssistant = makeLocal({
+      id: "assistant-anchor",
+      mergedMessageIds: ["assistant-final"],
+      role: "assistant",
+      content: "Everything is set up.",
+      timestamp: 1010,
+      toolCalls: [
+        {
+          id: "tool-history-assistant-anchor-0",
+          toolName: "bash",
+          input: { command: "find geo-writing skill" },
+          status: "completed",
+          result: "source copied",
+        },
+      ],
+    });
+
+    const result = reconcileDisplayMessagesWithLatestHistory(
+      [liveAssistant],
+      [latestAssistant],
+      true,
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.toolCalls).toHaveLength(1);
+    expect(result[0]!.toolCalls?.[0]).toMatchObject({
+      id: "toolu_load_skill",
+      toolName: "bash",
+      input: { command: "find geo-writing skill" },
+      status: "completed",
+      result: "source copied",
+    });
+    expect(result[0]!.contentOrder).toEqual([
+      { type: "toolCall", id: "toolu_load_skill" },
+    ]);
   });
 
   test("clears queued state when latest history confirms the user row", () => {
@@ -303,6 +416,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     const result = reconcileDisplayMessagesWithLatestHistory(
       [queuedUser],
       [serverUser],
+      false,
     );
 
     expect(result).toHaveLength(1);
@@ -344,6 +458,7 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     const result = reconcileDisplayMessagesWithLatestHistory(
       [user, oldAssistant],
       [user, oldAssistant, newUser, newAssistant],
+      false,
     );
 
     expect(result).toHaveLength(4);
@@ -366,10 +481,11 @@ describe("reconcileDisplayMessagesWithLatestHistory", () => {
     });
     const current = [user, assistant];
 
-    const result = reconcileDisplayMessagesWithLatestHistory(current, [
-      user,
-      assistant,
-    ]);
+    const result = reconcileDisplayMessagesWithLatestHistory(
+      current,
+      [user, assistant],
+      false,
+    );
 
     // Reference equality is the contract callers rely on to decide whether
     // a refresh produced any change vs. landed as a no-op.
@@ -390,7 +506,7 @@ describe("reconcileMessages", () => {
   test("replaces local messages with server messages", () => {
     const local: DisplayMessage[] = [
       makeLocal({ id: "m1", role: "user", content: "Hello" }),
-      makeLocal({ id: "m2", role: "assistant", content: "partial stream...", isStreaming: true }),
+      makeLocal({ id: "m2", role: "assistant", content: "partial stream..." }),
     ];
     const server: RuntimeMessage[] = [
       { id: "m1", role: "user", content: "Hello" },
@@ -404,10 +520,6 @@ describe("reconcileMessages", () => {
       role: "assistant",
       content: "Complete response from server",
     });
-    // `isStreaming` is a client-owned flag — server snapshots never carry it
-    // and reconcileMessages must not clear it. The SSE `message_complete`
-    // handler and the watchdog idle-rescue clear it when appropriate.
-    expect(result[1]!.isStreaming).toBe(true);
   });
 
   test("multi-message turn: server has two assistant messages", () => {
@@ -469,14 +581,13 @@ describe("reconcileMessages", () => {
       role: "assistant",
       content: "Second reply",
     });
-    expect(result[2]!.isStreaming).toBeFalsy();
   });
 
-  test("preserves streaming assistant message without id", () => {
-    // GIVEN a local assistant message still being streamed (no id yet)
+  test("preserves an unclaimed streaming assistant tail without an id", () => {
+    // GIVEN a local assistant message still being streamed (no server id yet)
     const local: DisplayMessage[] = [
       makeLocal({ id: "m1", role: "user", content: "Hello" }),
-      makeLocal({ role: "assistant", content: "partial stream...", isStreaming: true }),
+      makeLocal({ role: "assistant", content: "partial stream..." }),
     ];
 
     // WHEN the server response only has the user message
@@ -485,17 +596,17 @@ describe("reconcileMessages", () => {
     ];
     const result = reconcileMessages(local, server);
 
-    // THEN the streaming assistant message is preserved AS-IS, including its
-    // `isStreaming` flag. A reconcile that lands while the turn is still
-    // streaming must not flip the live bubble to "completed" — that would
-    // make the bubble-creation tail derivation in stream-message-updaters
-    // open a fresh bubble on the next tool_use_start, splitting the turn.
+    // THEN the assistant row is preserved AS-IS in the live tail position. A
+    // reconcile that lands mid-stream must not drop or reorder the live
+    // bubble — its liveness is derived from that tail position, so dropping
+    // it would let the next tool_use_start open a fresh bubble and split the
+    // turn.
     expect(result).toHaveLength(2);
     expect(result[1]).toMatchObject({
       role: "assistant",
       content: "partial stream...",
     });
-    expect(result[1]!.isStreaming).toBe(true);
+    expect(liveAssistantRowId(result, true)).toBe(result[1]!.id);
   });
 
   test("does not duplicate tool calls when unclaimed message is preserved", () => {
@@ -523,6 +634,73 @@ describe("reconcileMessages", () => {
     expect(messagesWithTc1[0]).toMatchObject({ id: "sse-123" });
   });
 
+  test("does not preserve a live assistant row separately when server history aliases its id", () => {
+    const liveToolCalls: ChatMessageToolCall[] = [
+      {
+        id: "toolu_check_workspace",
+        toolName: "bash",
+        input: { command: "test -d geo-writing" },
+        status: "completed",
+        result: "exists",
+      },
+    ];
+    const local: DisplayMessage[] = [
+      makeLocal({
+        id: "user-1",
+        role: "user",
+        content: "I want to write articles that rank better in GEO",
+        timestamp: 1000,
+      }),
+      makeLocal({
+        id: "assistant-final",
+        role: "assistant",
+        content: "Everything is set up.",
+        timestamp: 1010,
+        toolCalls: liveToolCalls,
+        contentOrder: [
+          { type: "toolCall", id: "toolu_check_workspace" },
+          { type: "text", id: "0" },
+        ],
+        textSegments: [{ type: "text", content: "Everything is set up." }],
+      }),
+    ];
+    const server: RuntimeMessage[] = [
+      {
+        id: "user-1",
+        role: "user",
+        content: "I want to write articles that rank better in GEO",
+        timestamp: 1000,
+      },
+      {
+        id: "assistant-anchor",
+        mergedMessageIds: ["assistant-tool", "assistant-final"],
+        role: "assistant",
+        content:
+          "Good, that's exactly what we're here for. Everything is set up.",
+        timestamp: 1010,
+        toolCalls: [
+          {
+            name: "bash",
+            input: { command: "test -d geo-writing" },
+            result: "exists",
+          },
+        ],
+      },
+    ];
+
+    const result = reconcileMessages(local, server);
+
+    expect(result).toHaveLength(2);
+    expect(result.map((m) => m.id)).toEqual(["user-1", "assistant-anchor"]);
+    expect(result[1]).toMatchObject({
+      id: "assistant-anchor",
+      mergedMessageIds: ["assistant-tool", "assistant-final"],
+      content:
+        "Good, that's exactly what we're here for. Everything is set up.",
+    });
+    expect(result[1]!.toolCalls).toEqual(liveToolCalls);
+  });
+
   test("deduplicates optimistic user message when server has matching content", () => {
     const local: DisplayMessage[] = [
       // Optimistic rows are tagged `isOptimistic`. The tail content-match
@@ -540,14 +718,15 @@ describe("reconcileMessages", () => {
     expect(result[1]).toMatchObject({ id: "m2", role: "assistant", content: "Hi" });
   });
 
-  test("preserves client-owned isStreaming flag across id-matched reconcile", () => {
-    // `isStreaming` is a live-only client concept. Server snapshots never
-    // carry it, so reconcileMessages must pass it through unchanged. The
-    // SSE `message_complete` handler and the silent-stall watchdog
-    // (`reconcileFetchedMessages` idle-rescue) are the sole authorities
-    // that clear it.
+  test("keeps an id-matched assistant row live at the tail across reconcile", () => {
+    // Row liveness is derived from tail position + processing state, not a
+    // stored flag. An id-matched reconcile must keep the assistant row at
+    // the tail so the derivation still resolves it as live. The SSE
+    // `message_complete` handler and the silent-stall watchdog
+    // (`reconcileFetchedMessages` idle-rescue) are the sole authorities that
+    // end processing.
     const local: DisplayMessage[] = [
-      makeLocal({ id: "m1", role: "assistant", content: "streaming...", isStreaming: true }),
+      makeLocal({ id: "m1", role: "assistant", content: "streaming..." }),
     ];
     const server: RuntimeMessage[] = [
       { id: "m1", role: "assistant", content: "Complete" },
@@ -555,7 +734,7 @@ describe("reconcileMessages", () => {
     const result = reconcileMessages(local, server);
     expect(result).toHaveLength(1);
     expect(result[0]).toMatchObject({ id: "m1", role: "assistant", content: "Complete" });
-    expect(result[0]!.isStreaming).toBe(true);
+    expect(liveAssistantRowId(result, true)).toBe("m1");
   });
 
   test("handles stream interruption with missing messages", () => {
@@ -730,10 +909,10 @@ describe("reconcileMessages", () => {
 });
 
 describe("reconcileMessages — mid-stream sync-tag bubble-split regression", () => {
-  // Regression for the bubble-split / "Today 2:42 PM" footer-injection bug
-  // (May 23, 2026). Repro path:
+  // Regression for the bubble-split / "Today 2:42 PM" footer-injection bug.
+  // Repro path:
   //   1. SSE stream is live; assistant turn is mid-flight with a running
-  //      tool call and `isStreaming: true` on the local row.
+  //      tool call on the live tail row.
   //   2. The daemon publishes the `conversation:<id>:messages` sync tag
   //      right after persisting the user turn (BEFORE the agent loop
   //      starts), and `web-sync-router.ts` dispatches
@@ -741,22 +920,17 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
   //   3. `reconcileActiveConversation` fetches a server snapshot via
   //      `/v1/conversations/:id/messages` and feeds it into
   //      `reconcileFromServerDetailed` → `reconcileMessages`.
-  //   4. The pre-fix `reconcileMessages` rebuilt `msg` from scratch and
-  //      never copied `localMsg.isStreaming`. The local toolCalls array
-  //      was preserved, but the streaming flag was lost — producing the
-  //      exact bug fingerprint: `isStreaming:false` + tool call
-  //      `status:"running"` on the same row.
-  //   5. The bubble-creation tail derivation in stream-message-updaters
-  //      then saw `lastMsg.isStreaming === false` and (correctly, given
-  //      the corrupted state) opened a fresh `assistant-tool-*` bubble on
-  //      the next `tool_use_start` event — splitting the turn and
+  //   4. A reconcile that rebuilds the row from the server snapshot must
+  //      keep the live row at the tail and carry its running tool calls; if
+  //      it dropped or reordered the row, the next `tool_use_start` would
+  //      open a fresh `assistant-tool-*` bubble — splitting the turn and
   //      injecting the timestamp footer between the two halves.
   //
   // Contract this test pins down: `reconcileMessages` MUST preserve the
-  // client-owned `isStreaming` flag. SSE `message_complete` and the
-  // watchdog idle-rescue (`reconcileFetchedMessages`) are the sole
-  // authorities allowed to clear it.
-  test("preserves isStreaming + running toolCalls when sync-tag reconcile fires mid-stream", () => {
+  // live tail row (id + running tool calls) so liveness derivation keeps it
+  // streaming. Ending the turn is the job of the SSE `message_complete`
+  // handler and the watchdog idle-rescue (`reconcileFetchedMessages`).
+  test("preserves the live tail row + running toolCalls when sync-tag reconcile fires mid-stream", () => {
     const runningToolCalls: ChatMessageToolCall[] = [
       {
         id: "toolu_01ABC",
@@ -769,7 +943,6 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
       id: "msg_streaming",
       role: "assistant",
       content: "Working on it...",
-      isStreaming: true,
       toolCalls: runningToolCalls,
       contentOrder: [
         { type: "text", id: "0" },
@@ -785,8 +958,7 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
 
     // Server snapshot taken between `message_start` and `tool_use_start`:
     // the assistant row exists with the same id, content matches the
-    // first text delta, but the snapshot has no tool calls and (like
-    // every server snapshot) no `isStreaming` field.
+    // first text delta, but the snapshot has no tool calls.
     const server: RuntimeMessage[] = [
       { id: "u1", role: "user", content: "Run the script", timestamp: 1000 },
       {
@@ -801,9 +973,10 @@ describe("reconcileMessages — mid-stream sync-tag bubble-split regression", ()
 
     expect(result).toHaveLength(2);
     const assistant = result[1]!;
-    // The live bubble must remain streaming — clearing this flag is what
-    // caused the next tool_use_start to spawn a fresh bubble.
-    expect(assistant.isStreaming).toBe(true);
+    // The live bubble must remain at the tail so liveness derivation keeps it
+    // streaming — losing it is what caused the next tool_use_start to spawn a
+    // fresh bubble.
+    expect(liveAssistantRowId(result, true)).toBe("msg_streaming");
     // And the running tool call must survive (local toolCalls always
     // preferred when present).
     expect(assistant.toolCalls).toHaveLength(1);
@@ -1512,7 +1685,6 @@ describe("dedupeDisplayMessages", () => {
         id: "m2",
         role: "assistant",
         content: "Partial",
-        isStreaming: true,
       }),
       makeLocal({
         id: "m2",
@@ -1528,7 +1700,6 @@ describe("dedupeDisplayMessages", () => {
       id: "m2",
       role: "assistant",
       content: "Partial, now complete",
-      isStreaming: false,
     });
   });
 
@@ -1543,7 +1714,6 @@ describe("dedupeDisplayMessages", () => {
         id: "m1",
         role: "assistant",
         content: "A complete",
-        isStreaming: true,
       }),
     ];
 
@@ -1553,7 +1723,6 @@ describe("dedupeDisplayMessages", () => {
     expect(result[0]).toMatchObject({
       id: "m1",
       content: "A complete response",
-      isStreaming: false,
     });
   });
 

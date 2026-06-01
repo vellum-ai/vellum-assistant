@@ -21,6 +21,7 @@ import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import { readTextFileSync } from "../../util/fs.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -88,7 +89,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "listHeartbeatRuns",
     endpoint: "heartbeat/runs",
     method: "GET",
-    policyKey: "heartbeat",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List heartbeat runs",
     description: "Return recent heartbeat conversation runs.",
     tags: ["heartbeat"],
@@ -124,7 +128,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getHeartbeatChecklist",
     endpoint: "heartbeat/checklist",
     method: "GET",
-    policyKey: "heartbeat",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get heartbeat checklist",
     description: "Return the HEARTBEAT.md checklist content.",
     tags: ["heartbeat"],
@@ -138,7 +145,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "writeHeartbeatChecklist",
     endpoint: "heartbeat/checklist",
     method: "PUT",
-    policyKey: "heartbeat",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Write heartbeat checklist",
     description: "Overwrite the HEARTBEAT.md checklist content.",
     tags: ["heartbeat"],
@@ -154,8 +164,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getHeartbeatConfig",
     endpoint: "heartbeat/config",
     method: "GET",
-    policyKey: "heartbeat",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get heartbeat config",
     description: "Return the current heartbeat schedule configuration.",
     tags: ["heartbeat"],
@@ -190,8 +202,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "updateHeartbeatConfig",
     endpoint: "heartbeat/config",
     method: "PUT",
-    policyKey: "heartbeat",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Update heartbeat config",
     description: "Update the heartbeat schedule configuration.",
     tags: ["heartbeat"],
@@ -295,8 +309,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "runHeartbeatNow",
     endpoint: "heartbeat/run-now",
     method: "POST",
-    policyKey: "heartbeat",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Run heartbeat now",
     description: "Trigger an immediate heartbeat run.",
     tags: ["heartbeat"],

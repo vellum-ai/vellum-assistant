@@ -1327,7 +1327,8 @@ async function main() {
     {
       path: "/v1/trust-rules",
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => handleTrustRulesList(req),
     },
     {
@@ -1335,32 +1336,37 @@ async function main() {
       // the /:id catch-all regex so the literal path is matched first.
       path: "/v1/trust-rules/suggest",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesSuggest(req),
     },
     {
       path: "/v1/trust-rules",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesCreate(req),
     },
     {
       // Reset must be registered before the /:id catch-all regex
       path: /^\/v1\/trust-rules\/([^/]+)\/reset$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesReset(req, params[0]),
     },
     {
       path: /^\/v1\/trust-rules\/([^/]+)$/,
       method: "PATCH",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesUpdate(req, params[0]),
     },
     {
       path: /^\/v1\/trust-rules\/([^/]+)$/,
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
 
@@ -1378,7 +1384,8 @@ async function main() {
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => handleTrustRulesList(req),
     },
     {
@@ -1386,32 +1393,37 @@ async function main() {
       // so the literal /suggest segment is matched first.
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/suggest\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesSuggest(req),
     },
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesCreate(req),
     },
     {
       // Reset must be registered before the /:id catch-all regex.
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/reset\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesReset(req, params[0]),
     },
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/?$/,
       method: "PATCH",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesUpdate(req, params[0]),
     },
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/?$/,
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
   ];
@@ -2067,6 +2079,14 @@ async function main() {
     log.info("Slack Socket Mode client started");
   }
 
+  // Lazily bound below, once `remoteFeatureFlagSync` is constructed, so the
+  // credential-change callback can trigger an immediate per-assistant flag
+  // re-sync. On a warm-pool claim the `vellum` credentials change to the
+  // newly-assigned identity; without forcing a re-sync, flag values would not
+  // refresh until the next scheduled poll (up to 5 min), so the onboarding
+  // first message evaluates flags against stale values (see JARVIS-1018).
+  let remoteFeatureFlagSyncRef: RemoteFeatureFlagSync | null = null;
+
   const credentialWatcher = new CredentialWatcher((event) => {
     const changed = detectCredentialChanges(event, log);
 
@@ -2148,6 +2168,21 @@ async function main() {
         log.error(
           { err },
           "Failed to register email callback route after credential change",
+        );
+      });
+
+      // Force an immediate per-assistant feature-flag re-sync. A `vellum`
+      // credential change means a warm-pool claim / key rotation / late
+      // provisioning — the assistant identity the platform evaluates flags
+      // for just changed. Without this, flags stay at their previous (often
+      // registry-default) values until the next ~5-min poll, which the
+      // onboarding auto-greet beats, so first-message flags read stale
+      // (JARVIS-1018). The ref is null only during the initial credential
+      // poll at startup, which `start()` already covers.
+      remoteFeatureFlagSyncRef?.syncNow().catch((err) => {
+        log.error(
+          { err },
+          "Failed to sync remote feature flags after vellum credential change",
         );
       });
     }
@@ -2253,6 +2288,10 @@ async function main() {
     credentials: credentialCache,
     onChanged: emitFlagChanged,
   });
+  // Bind the ref so the credential-change callback above can force an
+  // immediate re-sync when the assistant's `vellum` identity changes
+  // (warm-pool claim / key rotation) instead of waiting for the next poll.
+  remoteFeatureFlagSyncRef = remoteFeatureFlagSync;
   // Intentionally fire-and-forget: remote flag fetch is best-effort;
   // the gateway continues with registry defaults if it fails.
   void remoteFeatureFlagSync.start();

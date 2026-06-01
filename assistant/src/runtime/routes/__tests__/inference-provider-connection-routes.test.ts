@@ -33,7 +33,8 @@ import { setOverridesForTesting } from "../../../__tests__/feature-flag-test-hel
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import { providerConnections } from "../../../memory/schema/inference.js";
-import { getPolicy } from "../../auth/route-policy.js";
+// Route policies are read directly off `route.policy` now (ATL-315
+// followup) — no registry lookup.
 import { BadRequestError, ConflictError, NotFoundError } from "../errors.js";
 import { ROUTES } from "../inference-provider-connection-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
@@ -887,44 +888,34 @@ describe("isManaged flag on connection responses", () => {
 
 // ── Auth / route-policy wiring ────────────────────────────────────────────────
 
-describe("Route policy registrations", () => {
+describe("Route policy declarations", () => {
   test("GET list has settings.read policy", () => {
     const route = findRoute("inference_provider_connections_list");
-    const policyKey = `${route.policyKey ?? "inference/provider-connections"}:GET`;
-    const policy = getPolicy(policyKey);
-    expect(policy).toBeDefined();
-    expect(policy?.requiredScopes).toContain("settings.read");
+    expect(route.policy).not.toBeNull();
+    expect(route.policy!.requiredScopes).toContain("settings.read");
   });
 
   test("POST create has settings.write policy", () => {
     const route = findRoute("inference_provider_connections_create");
-    const policyKey = `${route.policyKey ?? "inference/provider-connections"}:POST`;
-    const policy = getPolicy(policyKey);
-    expect(policy).toBeDefined();
-    expect(policy?.requiredScopes).toContain("settings.write");
+    expect(route.policy).not.toBeNull();
+    expect(route.policy!.requiredScopes).toContain("settings.write");
   });
 
   test("GET single has settings.read policy", () => {
     const route = findRoute("inference_provider_connections_get");
-    const policyKey = `${route.policyKey ?? "inference/provider-connections/detail"}:GET`;
-    const policy = getPolicy(policyKey);
-    expect(policy).toBeDefined();
-    expect(policy?.requiredScopes).toContain("settings.read");
+    expect(route.policy).not.toBeNull();
+    expect(route.policy!.requiredScopes).toContain("settings.read");
   });
 
   test("PATCH update has settings.write policy", () => {
     const route = findRoute("inference_provider_connections_update");
-    const policyKey = `${route.policyKey ?? "inference/provider-connections/detail"}:PATCH`;
-    const policy = getPolicy(policyKey);
-    expect(policy).toBeDefined();
-    expect(policy?.requiredScopes).toContain("settings.write");
+    expect(route.policy).not.toBeNull();
+    expect(route.policy!.requiredScopes).toContain("settings.write");
   });
 
   test("DELETE has settings.write policy", () => {
     const route = findRoute("inference_provider_connections_delete");
-    const policyKey = `${route.policyKey ?? "inference/provider-connections/detail"}:DELETE`;
-    const policy = getPolicy(policyKey);
-    expect(policy).toBeDefined();
-    expect(policy?.requiredScopes).toContain("settings.write");
+    expect(route.policy).not.toBeNull();
+    expect(route.policy!.requiredScopes).toContain("settings.write");
   });
 });

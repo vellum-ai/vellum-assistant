@@ -90,7 +90,6 @@ mock.module("../daemon/process-message.js", () => ({
   processMessage: async (
     conversationId: string,
     prompt: string,
-    _attachmentIds: unknown,
     options: unknown,
   ) => {
     processMessageCalls.push({ conversationId, prompt, options });
@@ -148,8 +147,7 @@ let addMessageCalls: Array<{
   conversationId: string;
   role: string;
   content: string;
-  metadata: unknown;
-  opts: unknown;
+  options: unknown;
 }> = [];
 
 mock.module("../memory/conversation-crud.js", () => ({
@@ -157,10 +155,9 @@ mock.module("../memory/conversation-crud.js", () => ({
     conversationId: string,
     role: string,
     content: string,
-    metadata: unknown,
-    opts: unknown,
+    options: unknown,
   ) => {
-    addMessageCalls.push({ conversationId, role, content, metadata, opts });
+    addMessageCalls.push({ conversationId, role, content, options });
     return { id: `msg-${addMessageCalls.length}` };
   },
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
@@ -179,6 +176,15 @@ mock.module("../notifications/emit-signal.js", () => ({
       reason: "ok",
       deliveryResults: [],
     };
+  },
+}));
+
+// app sync invalidation mock
+let publishAppsChangedCalls: Array<string | undefined> = [];
+
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  publishAppsChanged: (originClientId?: string) => {
+    publishAppsChangedCalls.push(originClientId);
   },
 }));
 
@@ -304,6 +310,7 @@ function resetState() {
   releaseClaimCalls = 0;
   addMessageCalls = [];
   emitSignalCalls = [];
+  publishAppsChangedCalls = [];
   broadcastCalls = [];
   mockConversations = new Map();
   logWarnCalls = [];
@@ -463,10 +470,13 @@ describe("runProactiveArtifactJob", () => {
         type: "app_files_changed",
         appId: "app-123",
       });
+      expect(publishAppsChangedCalls).toEqual([undefined]);
 
       // Message injection: addMessage called with skipIndexing
       expect(addMessageCalls).toHaveLength(1);
-      expect(addMessageCalls[0].opts).toEqual({ skipIndexing: true });
+      expect(
+        (addMessageCalls[0].options as Record<string, unknown>).skipIndexing,
+      ).toBe(true);
       expect(addMessageCalls[0].conversationId).toBe("conv-1");
       const injectedAppContent = JSON.parse(addMessageCalls[0].content);
       expect(injectedAppContent[0].text).toContain("Library");
@@ -715,7 +725,9 @@ describe("injectAuxAssistantMessage", () => {
     expect(addMessageCalls).toHaveLength(1);
     expect(addMessageCalls[0].conversationId).toBe("conv-inject-1");
     expect(addMessageCalls[0].role).toBe("assistant");
-    expect(addMessageCalls[0].opts).toEqual({ skipIndexing: true });
+    expect(
+      (addMessageCalls[0].options as Record<string, unknown>).skipIndexing,
+    ).toBe(true);
 
     // Pushed to in-memory messages
     expect(messages).toHaveLength(1);

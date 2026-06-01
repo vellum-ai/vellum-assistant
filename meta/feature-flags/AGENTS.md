@@ -6,7 +6,7 @@ Feature flag keys are **simple kebab-case strings** with no prefix or suffix:
 
 ```
 "browser"
-"email-channel"
+"a2a-channel"
 "ces-tools"
 "conversation-starters"
 ```
@@ -35,6 +35,8 @@ The `id` and `key` fields in `feature-flag-registry.json` **must match** and bot
      "defaultEnabled": false
    }
    ```
+
+   Use `"defaultEnabled": false` for new gated features unless the feature is intentionally GA. Locally declared flags that are missing from a remote platform snapshot fall back to this registry default; undeclared flags fail closed.
 
 2. Run the sync script to copy the registry into bundled locations:
 

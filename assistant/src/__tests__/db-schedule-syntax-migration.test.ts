@@ -47,6 +47,7 @@ describe("schedule_syntax column migration", () => {
         reuse_conversation INTEGER NOT NULL DEFAULT 0,
         script TEXT,
         wake_conversation_id TEXT,
+        timeout_ms INTEGER,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
       )
@@ -128,6 +129,11 @@ describe("schedule_syntax column migration", () => {
     } catch {
       /* already exists */
     }
+    try {
+      raw.exec(`ALTER TABLE cron_jobs ADD COLUMN timeout_ms INTEGER`);
+    } catch {
+      /* already exists */
+    }
 
     const row = db
       .select()
@@ -183,6 +189,11 @@ describe("schedule_syntax column migration", () => {
       raw.exec(
         `ALTER TABLE cron_jobs ADD COLUMN reuse_conversation INTEGER NOT NULL DEFAULT 0`,
       );
+    } catch {
+      /* ok */
+    }
+    try {
+      raw.exec(`ALTER TABLE cron_jobs ADD COLUMN timeout_ms INTEGER`);
     } catch {
       /* ok */
     }

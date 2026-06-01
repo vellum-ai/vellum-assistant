@@ -11,6 +11,7 @@
 
 import { z } from "zod";
 
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { analyzeConversation } from "../services/analyze-conversation.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import { conversationSummarySchema } from "./conversation-list-routes.js";
@@ -58,7 +59,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "analyzeConversation",
     endpoint: "conversations/:id/analyze",
     method: "POST",
-    policyKey: "conversations/analyze",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Analyze a conversation",
     description:
       "Create a new conversation with a structured self-assessment of an existing conversation.",

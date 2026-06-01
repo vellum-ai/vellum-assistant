@@ -13,6 +13,7 @@ import { findConversation } from "../../daemon/conversation-store.js";
 import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import type { UserDecision } from "../../permissions/types.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -96,11 +97,10 @@ function handleConfirm({ body }: RouteHandlerArgs) {
   conversation.handleConfirmationResponse(
     requestId,
     effectiveDecision as UserDecision,
-    selectedPattern,
-    selectedScope,
-    undefined,
     {
-      source: "button",
+      selectedPattern,
+      selectedScope,
+      emissionContext: { source: "button" },
     },
   );
 
@@ -233,6 +233,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "confirm",
     endpoint: "confirm",
     method: "POST",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleConfirm,
     requireGuardian: true,
     summary: "Resolve a pending confirmation",
@@ -258,6 +262,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "secret",
     endpoint: "secret",
     method: "POST",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleSecret,
     requireGuardian: true,
     summary: "Resolve a pending secret request",
@@ -279,6 +287,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "pending_interactions",
     endpoint: "pending-interactions",
     method: "GET",
+    policy: {
+      requiredScopes: ["approval.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleListPendingInteractions,
     summary: "List pending interactions",
     description:

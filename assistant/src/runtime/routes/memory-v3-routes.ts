@@ -1,474 +1,340 @@
 /**
- * Memory v3 route definitions — read-only diagnostics over the hand-authored
- * v3 tree DAG.
+ * Memory v3 route definitions — tree-gardening + core-editing operations for
+ * the leaf-tree memory model.
  *
- * Two operations, both side-effect-free (no LLM, no writes):
+ * The daemon owns the live tree, so the *mutating* gardening verbs
+ * (`reconcile`, `set-core --write`, `rebuild-index`) run here, inside the
+ * daemon process, where the in-memory shadow lanes can be invalidated after a
+ * write. The read-only `health` report and the `set-core` cost preview also
+ * route through the daemon so it stays the single source of truth for the live
+ * workspace tree.
  *
- *   - `memory_v3_validate` — returns the {@link TreeValidationReport} from
- *     `validateTree(workspaceDir)` (orphan pages, cycles, dangling refs,
- *     stale-index, unknown edge targets).
- *   - `memory_v3_tree` — returns a JSON-serializable view of
- *     `getTreeIndex(workspaceDir)`: the root id, every node id, and each
- *     node's ordered child refs. `TreeIndex` is Map-based, so the handler
- *     flattens it into arrays/objects the wire protocol can carry.
- *
- * The v3 tree is authored by the v2 → v3 data-migration; these routes are the
- * on-demand inspection surface operators run while that migration is in flight.
- * They are NOT invoked on any turn.
+ * Each route's behavior lives in a small DI-friendly `handle*` function that
+ * takes an optional `MemoryV3Deps` (filesystem overrides) so tests can drive it
+ * against a temp workspace without mocking module globals. The exported
+ * `RouteDefinition`s are thin `RouteHandlerArgs` adapters over those handlers.
  */
 
-import { z } from "zod";
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
-import { loadConfig } from "../../config/loader.js";
-import type { AssistantConfig } from "../../config/types.js";
-import { getDb } from "../../memory/db-connection.js";
-import { readActivationLogsForShadowDiff } from "../../memory/memory-v2-activation-log-store.js";
-import type {
-  RetrievalCost,
-  RetrievalInput,
-} from "../../memory/v2/harness/retriever.js";
-import type { DescentTrace } from "../../memory/v2/harness/trace.js";
-import { loadNowText } from "../../memory/v2/now-text.js";
+import { getPageIndex } from "../../memory/v2/page-index.js";
+import { loadCore } from "../../memory/v3/core.js";
+import { computeV3Health, renderV3Health } from "../../memory/v3/health.js";
+import { type LeafRef, reconcileTree } from "../../memory/v3/reconcile.js";
+import { invalidateLanes } from "../../memory/v3/shadow-plugin.js";
 import {
-  DEFAULT_SEED_OPTIONS,
-  seedCoretrievalEdges,
-  type SeedCoretrievalResult,
-} from "../../memory/v3/coretrieval-seed.js";
-import type { LlmCallRecord } from "../../memory/v3/llm-capture.js";
-import { runRetrievalLoop } from "../../memory/v3/loop.js";
-import type {
-  ShadowDiffResult,
-  ShadowDiffTurn,
-  SlugFrequency,
-  UnpairedShadowTurn,
-} from "../../memory/v3/shadow-diff.js";
-import { computeShadowDiff } from "../../memory/v3/shadow-diff.js";
-import { getTreeIndex } from "../../memory/v3/tree-index.js";
-import type { TreeValidationReport } from "../../memory/v3/validate.js";
-import { validateTree } from "../../memory/v3/validate.js";
+  coreSlugs,
+  loadLeafTree,
+  resolveDataDir,
+} from "../../memory/v3/tree.js";
+import type { LeafPath, LeafTree, Slug } from "../../memory/v3/types.js";
+import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS, type RoutePolicy } from "../auth/route-policy.js";
+import { RouteError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
-// Re-export the loop trace/cost shapes so the CLI renderer can import them from
-// this route module (type-only) without reaching across the
-// `cli/no-daemon-internals` boundary into `memory/v2/harness/*`.
-export type { RetrievalCost } from "../../memory/v2/harness/retriever.js";
-export type {
-  DescentPass,
-  DescentTrace,
-  EdgeExpansion,
-  GateDecision,
-  ScoutResult,
-  TreeLevel,
-} from "../../memory/v2/harness/trace.js";
-export type { LlmCallRecord };
-export type {
-  ShadowDiffResult,
-  ShadowDiffTurn,
-  SlugFrequency,
-  UnpairedShadowTurn,
-};
-export type { SeedCoretrievalResult };
-
-// ── Validate ────────────────────────────────────────────────────────────
-
-const MemoryV3ValidateParams = z.object({}).strict();
+const log = getLogger("memory-v3-routes");
 
 /**
- * Wire shape for `memory_v3_validate`. Identical to the daemon-internal
- * {@link TreeValidationReport} — every field is already serializable, so the
- * route forwards it verbatim. Re-exported as its own type so the CLI can
- * import it without reaching into the validator module.
+ * Filesystem location overrides. Production callers omit these and the handlers
+ * resolve the live workspace; tests inject a temp workspace + data dir to
+ * exercise the handlers without mocking module globals.
  */
-export type MemoryV3ValidateResult = TreeValidationReport;
-
-async function handleValidate({
-  body = {},
-}: RouteHandlerArgs): Promise<MemoryV3ValidateResult> {
-  // Read-only structural validation of the v3 tree. Like the v2 validate
-  // route, it is intentionally ungated: operators dry-run it while the
-  // v2 → v3 migration is mid-flight, well before any v3 flag flips.
-  MemoryV3ValidateParams.parse(body);
-  return validateTree(getWorkspaceDir());
+export interface MemoryV3Deps {
+  dataDir?: string;
+  workspaceDir?: string;
 }
 
-// ── Tree ────────────────────────────────────────────────────────────────
-
-const MemoryV3TreeParams = z.object({}).strict();
-
-/** One node in the serialized tree view: its id and ordered child refs. */
-export interface MemoryV3TreeNodeView {
-  id: string;
-  children: Array<{ kind: "node" | "page"; ref: string }>;
-}
+// ---------------------------------------------------------------------------
+// Shared loading helpers
+// ---------------------------------------------------------------------------
 
 /**
- * JSON-serializable projection of the {@link TreeIndex}. `TreeIndex` keys its
- * adjacency by `Map`, which doesn't survive JSON, so the handler flattens it:
- * `root` is the entry-point node id and `nodes` is every node with its ordered
- * child refs. The CLI renderer walks `nodes`/`root` to print an indented tree,
- * marking shared-DAG re-entries.
- */
-export interface MemoryV3TreeResult {
-  root: string;
-  nodes: MemoryV3TreeNodeView[];
-}
-
-async function handleTree({
-  body = {},
-}: RouteHandlerArgs): Promise<MemoryV3TreeResult> {
-  MemoryV3TreeParams.parse(body);
-
-  const tree = await getTreeIndex(getWorkspaceDir());
-
-  const nodes: MemoryV3TreeNodeView[] = [...tree.nodes.keys()]
-    .sort()
-    .map((id) => ({
-      id,
-      children: (tree.childrenByNode.get(id) ?? []).map((child) => ({
-        kind: child.kind,
-        ref: child.ref,
-      })),
-    }));
-
-  return { root: tree.root, nodes };
-}
-
-// ── Simulate ──────────────────────────────────────────────────────────────
-
-/** The five v3 retrieval lanes, in fanout order. */
-const V3_LANE_NAMES = ["hot", "sparse", "dense", "tree", "edges"] as const;
-
-export const MemoryV3SimulateParams = z
-  .object({
-    /** The ad-hoc user query to route a single synthetic turn against. */
-    query: z.string().min(1, "memory.v3.simulate query must be non-empty"),
-    /**
-     * Optional `<now>` override. When omitted the live workspace NOW.md is
-     * loaded so the run exercises production-like standing context.
-     */
-    nowText: z.string().optional(),
-    /** Override `memory.v3.passCap` for this run only. */
-    passCap: z
-      .number()
-      .int("memory.v3.simulate passCap must be an integer")
-      .positive("memory.v3.simulate passCap must be positive")
-      .optional(),
-    /**
-     * Restrict the run to this allowlist of lanes (others forced off). Omit to
-     * inherit the live `memory.v3.lanes` toggles.
-     */
-    lanes: z
-      .array(z.enum(V3_LANE_NAMES))
-      .min(1, "memory.v3.simulate lanes must list at least one lane")
-      .optional(),
-  })
-  .strict();
-
-/** The v3 lane toggle block, echoed back so the caller sees what actually ran. */
-export interface MemoryV3SimulateLanes {
-  hot: boolean;
-  sparse: boolean;
-  dense: boolean;
-  tree: boolean;
-  edges: boolean;
-}
-
-/**
- * Wire shape for `memory_v3_simulate`. The loop's `sourceBySlug` Map is
- * flattened to a plain object (lane label per slug); `trace`/`cost` are already
- * JSON-serializable. `effectiveConfig` echoes the passCap + lane toggles the
- * run actually used after overrides were applied.
- */
-export interface MemoryV3SimulateResult {
-  query: string;
-  selectedSlugs: string[];
-  /** Per-slug provenance lane: `hot` | `sparse` | `dense` | `tree` | `edge`. */
-  sourceBySlug: Record<string, string>;
-  trace: DescentTrace;
-  cost: RetrievalCost;
-  /** Non-null when the dense filter failed open on any pass. */
-  failureReason: string | null;
-  /**
-   * Every v3 LLM call made during the run (filter / each descender / gate),
-   * with full input + raw response. Empty unless capture was on (it always is
-   * for simulate). Read-only debug surface — persisted nowhere.
-   */
-  llmCalls: LlmCallRecord[];
-  effectiveConfig: {
-    passCap: number;
-    lanes: MemoryV3SimulateLanes;
-  };
-}
-
-/**
- * Overlay the simulate overrides on the live config. Only the v3 passCap + lane
- * toggles are exposed; everything else (providers, prompts, scout quotas) stays
- * exactly as a live turn would see it. `write.coactivation` is forced off so the
- * simulate stays strictly read-only — the loop's only persistence path is the
- * co-activation insert, which this guarantees never fires.
- */
-function applyV3SimulateOverrides(
-  live: AssistantConfig,
-  overrides: { passCap?: number; lanes?: ReadonlyArray<string> },
-): AssistantConfig {
-  const liveV3 = live.memory.v3;
-  const lanes = overrides.lanes
-    ? {
-        hot: overrides.lanes.includes("hot"),
-        sparse: overrides.lanes.includes("sparse"),
-        dense: overrides.lanes.includes("dense"),
-        tree: overrides.lanes.includes("tree"),
-        edges: overrides.lanes.includes("edges"),
-      }
-    : liveV3.lanes;
-  return {
-    ...live,
-    memory: {
-      ...live.memory,
-      v3: {
-        ...liveV3,
-        ...(overrides.passCap !== undefined
-          ? { passCap: overrides.passCap }
-          : {}),
-        lanes,
-        write: { ...liveV3.write, coactivation: false },
-      },
-    },
-  };
-}
-
-/**
- * Run the v3 retrieval loop read-only against a single ad-hoc query and return
- * its selection, per-lane provenance, and full descent trace. Mirrors the
- * single-turn semantics of `memory_v2_simulate_router` (the query becomes the
- * just-arrived `userMessage` of one synthetic turn) and the input-build of the
- * v3 shadow middleware, but persists nothing.
+ * Load the live leaf tree + its full slug universe.
  *
- * The loop is invoked directly — it is NOT gated by `memory.v3.enabled` /
- * `.shadow` (those gates live in the shadow middleware), so operators can probe
- * v3 retrieval while the flags are still off.
+ * Page `leaves:` frontmatter is the authoritative source of page→leaf
+ * membership: we build a `pageLeaves` map from the page index and union it over
+ * `assignments.json` via `loadLeafTree(dataDir, pageLeaves)`, and derive the
+ * slug universe (`allSlugs`) from the page index itself. This mirrors
+ * `maybePrependV3Health` in `memory/v2/consolidation-job.ts` so the CLI
+ * `health` / `set-core` cost computations agree with the consolidation-injected
+ * health block instead of disagreeing by reading stale assignments.json only.
  */
-async function handleSimulate({
-  body = {},
-}: RouteHandlerArgs): Promise<MemoryV3SimulateResult> {
-  const {
-    query,
-    nowText: rawNowText,
-    passCap,
-    lanes,
-  } = MemoryV3SimulateParams.parse(body);
+async function loadTreeAndSlugs(deps?: MemoryV3Deps): Promise<{
+  dataDir: string;
+  tree: LeafTree;
+  allSlugs: Slug[];
+}> {
+  const workspaceDir = deps?.workspaceDir ?? getWorkspaceDir();
+  const dataDir = deps?.dataDir ?? resolveDataDir();
 
-  const config = applyV3SimulateOverrides(loadConfig(), { passCap, lanes });
-
-  const workspaceDir = getWorkspaceDir();
-  const nowText =
-    rawNowText !== undefined ? rawNowText : await loadNowText(workspaceDir);
-
-  const input: RetrievalInput = {
-    workspaceDir,
-    recentTurnPairs: [{ assistantMessage: "", userMessage: query }],
-    nowText,
-    priorEverInjected: [],
-    config,
-  };
-
-  const llmCalls: LlmCallRecord[] = [];
-  const output = await runRetrievalLoop(input, {
-    db: getDb(),
-    capture: (record) => llmCalls.push(record),
-  });
-
-  const sourceBySlug: Record<string, string> = {};
-  for (const [slug, lane] of output.sourceBySlug.entries()) {
-    sourceBySlug[slug] = lane;
+  // Each page contributes its `leaves:` frontmatter as the authoritative leaf
+  // set for that slug; the slug universe is every page the index knows about.
+  const pageIndex = await getPageIndex(workspaceDir);
+  const pageLeaves = new Map<Slug, LeafPath[]>();
+  const allSlugs: Slug[] = [];
+  for (const entry of pageIndex.entries) {
+    pageLeaves.set(entry.slug, entry.leaves);
+    allSlugs.push(entry.slug);
   }
 
+  const tree = await loadLeafTree(dataDir, pageLeaves);
+  return { dataDir, tree, allSlugs };
+}
+
+// ---------------------------------------------------------------------------
+// health
+// ---------------------------------------------------------------------------
+
+export interface MemoryV3HealthResult {
+  /** Pre-rendered, human-readable report. Empty string when all-green. */
+  rendered: string;
+  /** The structural counts, for `--json` consumers. */
+  counts: {
+    unassigned: number;
+    danglingRefs: number;
+    novelClusters: number;
+    oversizedLeaves: number;
+    tinyLeaves: number;
+  };
+}
+
+export async function handleMemoryV3Health(
+  deps?: MemoryV3Deps,
+): Promise<MemoryV3HealthResult> {
+  const { dataDir, tree, allSlugs } = await loadTreeAndSlugs(deps);
+  const core = await loadCore(dataDir);
+  const report = computeV3Health({ tree, allSlugs, core });
   return {
-    query,
-    selectedSlugs: output.selectedSlugs,
-    sourceBySlug,
-    trace: output.trace ?? { passes: [] },
-    cost: output.cost ?? {},
-    failureReason: output.failureReason ?? null,
-    llmCalls,
-    effectiveConfig: {
-      passCap: config.memory.v3.passCap,
-      lanes: config.memory.v3.lanes,
+    rendered: renderV3Health(report),
+    counts: {
+      unassigned: report.unassigned.length,
+      danglingRefs: report.danglingRefs.length,
+      novelClusters: report.novelClusters.length,
+      oversizedLeaves: report.oversizedLeaves.length,
+      tinyLeaves: report.tinyLeaves.length,
     },
   };
 }
 
-// ── Shadow-diff ─────────────────────────────────────────────────────────
+// ---------------------------------------------------------------------------
+// set-core
+// ---------------------------------------------------------------------------
 
-/** Default pairing tolerance: a shadow row + its router sibling land ~1-2s apart. */
-const DEFAULT_SHADOW_DIFF_TOLERANCE_SEC = 10;
-/** Default cap on per-turn detail rows returned (aggregates are unbounded). */
-const DEFAULT_SHADOW_DIFF_LIMIT = 50;
-/** Milliseconds per day, for the `sinceDays` read-window cutoff. */
-const MS_PER_DAY = 86_400_000;
-
-const MemoryV3ShadowDiffParams = z
-  .object({
-    /** Only consider shadow rows newer than this many days. Omit for all rows. */
-    sinceDays: z
-      .number()
-      .positive("memory.v3.shadow-diff sinceDays must be positive")
-      .optional(),
-    /** Max |Δt| (seconds) to pair a shadow row with a router row. */
-    toleranceSec: z
-      .number()
-      .positive("memory.v3.shadow-diff toleranceSec must be positive")
-      .optional(),
-    /** Cap on per-turn detail rows in the response (newest first). */
-    limit: z
-      .number()
-      .int("memory.v3.shadow-diff limit must be an integer")
-      .positive("memory.v3.shadow-diff limit must be positive")
-      .optional(),
-  })
-  .strict();
-
-/**
- * Compare the v3 shadow selections against the live v2 router selections,
- * turn-for-turn, from the activation log. Read-only: reads `v3_shadow` rows and
- * the `router` rows they pair with (bounded to those conversations + time
- * span), then diffs each pair. Requires v3 shadow mode to have been running
- * (`memory.v3.enabled` + `.shadow`) so the `v3_shadow` rows exist; the route
- * itself runs no LLM and writes nothing.
- */
-async function handleShadowDiff({
-  body = {},
-}: RouteHandlerArgs): Promise<ShadowDiffResult> {
-  const { sinceDays, toleranceSec, limit } =
-    MemoryV3ShadowDiffParams.parse(body);
-
-  const sinceMs =
-    sinceDays !== undefined ? Date.now() - sinceDays * MS_PER_DAY : null;
-  const toleranceMs =
-    (toleranceSec ?? DEFAULT_SHADOW_DIFF_TOLERANCE_SEC) * 1000;
-
-  const { shadow, router } = readActivationLogsForShadowDiff({
-    sinceMs,
-    paddingMs: toleranceMs,
-  });
-
-  return computeShadowDiff(shadow, router, {
-    toleranceMs,
-    detailLimit: limit ?? DEFAULT_SHADOW_DIFF_LIMIT,
-  });
+export interface MemoryV3SetCoreBody {
+  /** Leaves to add to the always-on core set. */
+  add?: LeafPath[];
+  /** Leaves to remove from the always-on core set. */
+  remove?: LeafPath[];
+  /**
+   * When true, persist the new core to `core.json` and invalidate the lanes.
+   * When false (default), compute the preview WITHOUT writing.
+   */
+  write?: boolean;
 }
 
-// ── Seed co-retrieval edges ───────────────────────────────────────────────
-
-const MemoryV3SeedEdgesParams = z
-  .object({
-    /** A pair must co-occur on at least this many router turns to earn an edge. */
-    minCount: z
-      .number()
-      .int("memory.v3.seed-edges minCount must be an integer")
-      .positive("memory.v3.seed-edges minCount must be positive")
-      .optional(),
-    /** Neighbors kept per source node, ranked by NPMI descending. */
-    topK: z
-      .number()
-      .int("memory.v3.seed-edges topK must be an integer")
-      .positive("memory.v3.seed-edges topK must be positive")
-      .optional(),
-    /** Exclude neighbors selected on more than this fraction of all turns. */
-    maxNeighborFreqRatio: z
-      .number()
-      .positive("memory.v3.seed-edges maxNeighborFreqRatio must be positive")
-      .max(1, "memory.v3.seed-edges maxNeighborFreqRatio must be <= 1")
-      .optional(),
-    /** Flat weight each seeded edge is written at. */
-    seedWeight: z
-      .number()
-      .positive("memory.v3.seed-edges seedWeight must be positive")
-      .optional(),
-  })
-  .strict();
-
-/**
- * Build the co-retrieval graph from the v2 router's selection history and
- * persist it into `memory_v3_auto_edges`. This is the one write surface among
- * the v3 routes — it warm-starts the learned edge graph that the edge-expansion
- * lane merges (when `memory.v3.edges.learnedAdjacencyThreshold > 0`). Idempotent:
- * re-running upserts each seeded edge to the flat seed weight without unbounded
- * growth. Runs no LLM.
- */
-async function handleSeedEdges({
-  body = {},
-}: RouteHandlerArgs): Promise<SeedCoretrievalResult> {
-  const { minCount, topK, maxNeighborFreqRatio, seedWeight } =
-    MemoryV3SeedEdgesParams.parse(body);
-  return seedCoretrievalEdges(getDb(), {
-    minCount: minCount ?? DEFAULT_SEED_OPTIONS.minCount,
-    topK: topK ?? DEFAULT_SEED_OPTIONS.topK,
-    maxNeighborFreqRatio:
-      maxNeighborFreqRatio ?? DEFAULT_SEED_OPTIONS.maxNeighborFreqRatio,
-    seedWeight: seedWeight ?? DEFAULT_SEED_OPTIONS.seedWeight,
-  });
+export interface MemoryV3SetCoreResult {
+  /** The core leaf set that would result (or did result, when `write`). */
+  nextCore: LeafPath[];
+  /** Number of unique page slugs the new core set pins always-on. */
+  alwaysOnPageCount: number;
+  /** Whether `core.json` was written. */
+  written: boolean;
 }
 
-// ── Route definitions ───────────────────────────────────────────────────
+/** Wire-format error code for a `set-core` add referencing an unknown leaf. */
+export const MEMORY_V3_UNKNOWN_LEAF_CODE = "MEMORY_V3_UNKNOWN_LEAF";
+
+/** Thrown when a `set-core` add entry does not exist in the live tree. */
+export class UnknownLeafError extends Error {
+  constructor(public readonly unknown: LeafPath[]) {
+    super(
+      `Unknown leaf path(s) — not present in the tree: ${unknown.join(", ")}`,
+    );
+    this.name = "UnknownLeafError";
+  }
+}
+
+/** Persist the always-on core set back to `<dataDir>/core.json`. */
+async function writeCore(dataDir: string, alwaysOn: LeafPath[]): Promise<void> {
+  await writeFile(
+    join(dataDir, "core.json"),
+    `${JSON.stringify({ alwaysOn }, null, 2)}\n`,
+  );
+}
+
+export async function handleMemoryV3SetCore(
+  body: MemoryV3SetCoreBody,
+  deps?: MemoryV3Deps,
+): Promise<MemoryV3SetCoreResult> {
+  const add = body.add ?? [];
+  const remove = body.remove ?? [];
+  const { dataDir, tree } = await loadTreeAndSlugs(deps);
+
+  // Validate every ADD entry exists in the live tree. Removing an entry that is
+  // already absent is a no-op (idempotent), so only adds are validated.
+  const unknown = add.filter((leaf) => !tree.leaves.has(leaf));
+  if (unknown.length > 0) throw new UnknownLeafError(unknown);
+
+  const core = await loadCore(dataDir);
+  for (const leaf of remove) core.delete(leaf);
+  for (const leaf of add) core.add(leaf);
+
+  // Drop any pre-existing core entry that no longer maps to a live leaf, so the
+  // preview reflects what the tree can actually pin. Sorted for stable output.
+  const nextCore = [...core].filter((leaf) => tree.leaves.has(leaf)).sort();
+  const nextCoreSet = new Set<LeafPath>(nextCore);
+
+  // Cost preview: the number of UNIQUE page slugs the new core pins always-on.
+  const alwaysOnPageCount = coreSlugs(tree, nextCoreSet).size;
+
+  if (body.write === true) {
+    await writeCore(dataDir, nextCore);
+    invalidateLanes();
+    log.info(
+      { coreSize: nextCore.length, alwaysOnPageCount },
+      "memory-v3 core updated",
+    );
+  }
+
+  return { nextCore, alwaysOnPageCount, written: body.write === true };
+}
+
+// ---------------------------------------------------------------------------
+// reconcile
+// ---------------------------------------------------------------------------
+
+export interface MemoryV3ReconcileResult {
+  renames: Array<{ id?: string; oldPath: LeafPath; newPath: LeafPath }>;
+  deleted: LeafPath[];
+  prunedCore: LeafPath[];
+}
+
+/**
+ * Reconcile page + core references against the live on-disk tree.
+ *
+ * `prevLeaves` describes the tree as it was BEFORE the maintainer's on-disk
+ * restructuring. We derive it from the current leaf set, which makes reconcile
+ * a safe convergence pass: renames/deletes already applied on disk diff to
+ * nothing, while it still rewrites any page/core ref left dangling and prunes
+ * stale core entries (and fail-closed restores on a residual dangling ref).
+ * `reconcileTree` snapshots, applies, validates, and invalidates the lanes.
+ */
+export async function handleMemoryV3Reconcile(
+  deps?: MemoryV3Deps,
+): Promise<MemoryV3ReconcileResult> {
+  const workspaceDir = deps?.workspaceDir ?? getWorkspaceDir();
+  const dataDir = deps?.dataDir ?? resolveDataDir();
+  // v1: prev == current is intentional. Without a captured prior leaf snapshot
+  // we cannot detect renames/moves/splits, so this runs as a convergence /
+  // dangling-ref prune pass. Full rename detection is a follow-up.
+  const prevLeaves = await loadPrevLeaves(dataDir);
+
+  const result = await reconcileTree({ prevLeaves, dataDir, workspaceDir });
+  return {
+    renames: result.renames,
+    deleted: result.deleted,
+    prunedCore: result.prunedCore,
+  };
+}
+
+/** The current leaf set as `LeafRef`s (path + stable id when present). */
+async function loadPrevLeaves(dataDir: string): Promise<LeafRef[]> {
+  const tree = await loadLeafTree(dataDir);
+  return [...tree.leaves.values()].map((node) => ({
+    path: node.path,
+    ...(node.frontmatter.id ? { id: node.frontmatter.id } : {}),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// rebuild-index
+// ---------------------------------------------------------------------------
+
+export interface MemoryV3RebuildIndexResult {
+  ok: true;
+}
+
+/**
+ * Invalidate the v3 shadow lanes so the next turn rebuilds the tree/needle
+ * from the current on-disk state. Runs in-daemon so it acts on the live
+ * process's cached lanes (an in-CLI call would invalidate nothing).
+ */
+export async function handleMemoryV3RebuildIndex(): Promise<MemoryV3RebuildIndexResult> {
+  invalidateLanes();
+  log.info("memory-v3 lanes invalidated (rebuild-index)");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Route definitions (RouteHandlerArgs adapters over the handlers above)
+// ---------------------------------------------------------------------------
+
+/** Read-only verbs (the `health` report) require only `settings.read`. */
+const READ_POLICY: RoutePolicy = {
+  requiredScopes: ["settings.read"],
+  allowedPrincipalTypes: ACTOR_PRINCIPALS,
+};
+
+/**
+ * Mutating verbs require `settings.write`. `set-core --write`, `reconcile`, and
+ * `rebuild-index` write `core.json`, rewrite page frontmatter, and invalidate
+ * the live lanes, so a `settings.read`-only principal must not reach them.
+ * (`set-core` without `write` is a preview, but it shares this route, so the
+ * route as a whole is gated on write.)
+ */
+const WRITE_POLICY: RoutePolicy = {
+  requiredScopes: ["settings.write"],
+  allowedPrincipalTypes: ACTOR_PRINCIPALS,
+};
 
 export const ROUTES: RouteDefinition[] = [
   {
-    operationId: "memory_v3_validate",
+    operationId: "memory_v3_health",
     method: "POST",
-    endpoint: "memory/v3/validate",
-    handler: handleValidate,
-    summary: "Validate the memory v3 tree structure (read-only)",
-    description:
-      "Read-only structural validation of the hand-authored v3 tree DAG. Reports dangling child refs, orphan pages, cycles, stale compositional indexes, and unknown edge targets. Writes nothing and runs no LLM — operators dry-run it while the v2 → v3 migration is in flight.",
+    policy: READ_POLICY,
+    endpoint: "memory/v3/health",
+    handler: () => handleMemoryV3Health(),
+    summary: "Print the v3 structural health report (read-only)",
     tags: ["memory"],
-    requestBody: MemoryV3ValidateParams,
   },
   {
-    operationId: "memory_v3_tree",
+    operationId: "memory_v3_set_core",
     method: "POST",
-    endpoint: "memory/v3/tree",
-    handler: handleTree,
-    summary: "Return a serializable view of the memory v3 tree DAG (read-only)",
-    description:
-      "Returns the v3 tree root id plus every node and its ordered child refs (page:/node:) as a JSON-serializable projection of the in-memory TreeIndex. Read-only; the CLI uses it to print an indented tree with shared-DAG re-entries marked.",
+    policy: WRITE_POLICY,
+    endpoint: "memory/v3/set-core",
+    handler: async ({ body = {} }: RouteHandlerArgs) => {
+      try {
+        return await handleMemoryV3SetCore(body as MemoryV3SetCoreBody);
+      } catch (err) {
+        if (err instanceof UnknownLeafError) {
+          throw new RouteError(err.message, MEMORY_V3_UNKNOWN_LEAF_CODE, 422);
+        }
+        throw err;
+      }
+    },
+    summary: "Add/remove always-on core leaves (validates + previews cost)",
     tags: ["memory"],
-    requestBody: MemoryV3TreeParams,
   },
   {
-    operationId: "memory_v3_simulate",
+    operationId: "memory_v3_reconcile",
     method: "POST",
-    endpoint: "memory/v3/simulate",
-    handler: handleSimulate,
+    policy: WRITE_POLICY,
+    endpoint: "memory/v3/reconcile",
+    handler: () => handleMemoryV3Reconcile(),
     summary:
-      "Dry-run the v3 retrieval loop against an ad-hoc query (read-only)",
-    description:
-      "Runs the v3 multi-lane bounded-descent retrieval loop read-only against a single synthetic turn built from the supplied query plus the live (or supplied) NOW context. Returns the selected page slugs, per-lane provenance, the full multi-pass descent trace, and accumulated cost. Optional passCap / lane-allowlist overrides apply on top of live config. Invoked directly (not gated by memory.v3.enabled/shadow) so operators can probe v3 retrieval before flipping the flags; writes nothing (co-activation persistence is forced off), though each pass still spends the loop's filter + gate LLM calls.",
+      "v1 convergence/prune pass over page+core refs (no rename detection without a prior snapshot)",
     tags: ["memory"],
-    requestBody: MemoryV3SimulateParams,
   },
   {
-    operationId: "memory_v3_shadow_diff",
+    operationId: "memory_v3_rebuild_index",
     method: "POST",
-    endpoint: "memory/v3/shadow-diff",
-    handler: handleShadowDiff,
-    summary:
-      "Diff v3 shadow selections against live v2 router selections (read-only)",
-    description:
-      "Compares the v3 shadow-mode selections against the live v2 router selections turn-for-turn, from the memory activation log. Pairs each v3_shadow row with the nearest v2 router row in the same conversation (by timestamp, within a tolerance — the turn columns use different counters), then reports per-turn and aggregate overlap, what v3 surfaced that v2 did not, and what v2 had that v3 dropped, broken down by v3 provenance lane. The v2 comparand is the router's fresh per-turn pick (status='injected'), not its accumulated in-context set. Requires that v3 shadow mode has been running so v3_shadow rows exist; the route runs no LLM and writes nothing.",
+    policy: WRITE_POLICY,
+    endpoint: "memory/v3/rebuild-index",
+    handler: () => handleMemoryV3RebuildIndex(),
+    summary: "Invalidate the v3 lanes so the next turn rebuilds",
     tags: ["memory"],
-    requestBody: MemoryV3ShadowDiffParams,
-  },
-  {
-    operationId: "memory_v3_seed_edges",
-    method: "POST",
-    endpoint: "memory/v3/seed-edges",
-    handler: handleSeedEdges,
-    summary: "Seed the learned co-retrieval edge graph from v2 router history",
-    description:
-      "Builds an NPMI-scored co-retrieval graph from the v2 router's per-turn selections (memory_v2_activation_logs, status='injected') and persists it into memory_v3_auto_edges, warm-starting the learned edge graph that the v3 edge-expansion lane merges with curated edges when memory.v3.edges.learnedAdjacencyThreshold > 0. NPMI plus a min co-occurrence floor and an always-on frequency ceiling keep the neighborhoods associative rather than base-rate noise. Idempotent (upserts to a flat seed weight). Runs no LLM; the only write among the v3 routes.",
-    tags: ["memory"],
-    requestBody: MemoryV3SeedEdgesParams,
   },
 ];

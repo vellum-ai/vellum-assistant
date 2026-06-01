@@ -17,7 +17,13 @@ export function buildSwitchInferenceProfileToolDef(
   currentProfile?: string,
 ): ToolDefinition | null {
   const entries = Object.entries(profiles).filter(
-    ([key, entry]) => entry.status !== "disabled" && key !== AUTO_PROFILE_KEY,
+    ([key, entry]) =>
+      entry.status !== "disabled" &&
+      key !== AUTO_PROFILE_KEY &&
+      // Mix profiles are A/B-routing buckets, not concrete targets the model
+      // should self-select into — exclude them so the picker only offers real
+      // profiles.
+      entry.mix == null,
   );
   if (entries.length < 2) return null;
 

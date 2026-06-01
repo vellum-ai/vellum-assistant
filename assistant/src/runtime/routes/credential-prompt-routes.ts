@@ -16,6 +16,7 @@ import {
   assertMetadataWritable,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -108,6 +109,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "credentials_prompt",
     endpoint: "credentials/prompt",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleCredentialPrompt,
     summary: "Prompt user for a credential",
     description:

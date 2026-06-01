@@ -12,6 +12,7 @@ import {
   Search,
   Sparkles,
   Terminal,
+  TriangleAlert,
   User,
   X,
   Zap,
@@ -27,6 +28,7 @@ import {
 } from "react";
 
 import { Button, Card, ConfirmDialog, Input, Popover } from "@vellum/design-library";
+import { getLocalBool, setLocalBool } from "@/utils/local-settings";
 import {
   MobileSidebarDrawer,
   MobileSidebarTrigger,
@@ -35,10 +37,13 @@ import { CategorySidebar } from "@/domains/intelligence/components/skills/catego
 import { SkillDetail } from "@/domains/intelligence/components/skills/skill-detail";
 import { SkillRow } from "@/domains/intelligence/components/skills/skill-row";
 import {
-  fetchSkills,
-  installSkill,
-  uninstallSkill,
-} from "@/domains/intelligence/skills/api";
+  skillsGetOptions,
+  skillsGetQueryKey,
+  skillsByIdDeleteMutation,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { type Options } from "@/generated/daemon/sdk.gen";
+import type { SkillsGetData } from "@/generated/daemon/types.gen";
+import { installSkill } from "@/domains/intelligence/skills/install";
 import { inferCategory } from "@/domains/intelligence/skills/category";
 import {
   isInstalledSkill,
@@ -81,7 +86,7 @@ const ORIGIN_FILTERS: FilterOption[] = [
 const FILTERS: FilterOption[] = [...STATUS_FILTERS, ...ORIGIN_FILTERS];
 
 const SEARCH_DEBOUNCE_MS = 300;
-const TIP_STORAGE_KEY = "vellum:skillsTabTipDismissed";
+const TIP_STORAGE_KEY = "vellum:skills:tipDismissed";
 
 export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   const queryClient = useQueryClient();
@@ -95,10 +100,9 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   const [removingSkillId, setRemovingSkillId] = useState<string | null>(null);
   const [skillPendingRemoval, setSkillPendingRemoval] = useState<SkillInfo | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [tipDismissed, setTipDismissed] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem(TIP_STORAGE_KEY) === "1";
-  });
+  const [tipDismissed, setTipDismissed] = useState(() =>
+    getLocalBool(TIP_STORAGE_KEY, false),
+  );
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -110,39 +114,47 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   const { origin, kind } = useMemo(() => resolveFilterParams(filter), [filter]);
 
   const skillsQuery = useQuery({
-    queryKey: [
-      "assistantSkills",
-      assistantId,
-      { origin, kind, q: debouncedSearch, category },
-    ],
-    queryFn: () =>
-      fetchSkills(assistantId, {
+    ...skillsGetOptions({
+      path: { assistant_id: assistantId },
+      query: {
+        include: "catalog",
         origin,
         kind,
-        query: debouncedSearch || undefined,
+        q: debouncedSearch || undefined,
         category: category ?? undefined,
-      }),
+      },
+    }),
+    select: (data) => ({
+      skills: data.skills as SkillInfo[],
+      categoryCounts: data.categoryCounts,
+      totalCount: data.totalCount,
+    }),
     enabled: Boolean(assistantId),
   });
 
   const countsQuery = useQuery({
-    queryKey: [
-      "assistantSkills",
-      assistantId,
-      { origin, kind, q: debouncedSearch, category: null },
-    ],
-    queryFn: () =>
-      fetchSkills(assistantId, {
+    ...skillsGetOptions({
+      path: { assistant_id: assistantId },
+      query: {
+        include: "catalog",
         origin,
         kind,
-        query: debouncedSearch || undefined,
-      }),
+        q: debouncedSearch || undefined,
+      },
+    }),
+    select: (data) => ({
+      skills: data.skills as SkillInfo[],
+      categoryCounts: data.categoryCounts,
+      totalCount: data.totalCount,
+    }),
     enabled: Boolean(assistantId) && category !== null,
   });
 
   const invalidateSkills = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: ["assistantSkills", assistantId],
+      queryKey: skillsGetQueryKey({
+        path: { assistant_id: assistantId },
+      } as Options<SkillsGetData>),
     });
   }, [assistantId, queryClient]);
 
@@ -156,8 +168,8 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
   });
 
   const uninstallMutation = useMutation({
-    mutationFn: (id: string) => uninstallSkill(assistantId, id),
-    onMutate: (id) => setRemovingSkillId(id),
+    ...skillsByIdDeleteMutation(),
+    onMutate: (variables) => setRemovingSkillId(variables.path.id),
     onSettled: () => {
       setRemovingSkillId(null);
       invalidateSkills();
@@ -179,15 +191,15 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
     if (!skillPendingRemoval) {
       return;
     }
-    uninstallMutation.mutate(skillPendingRemoval.id);
+    uninstallMutation.mutate({
+      path: { assistant_id: assistantId, id: skillPendingRemoval.id },
+    });
     setSkillPendingRemoval(null);
-  }, [skillPendingRemoval, uninstallMutation]);
+  }, [assistantId, skillPendingRemoval, uninstallMutation]);
 
   const handleDismissTip = useCallback(() => {
     setTipDismissed(true);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(TIP_STORAGE_KEY, "1");
-    }
+    setLocalBool(TIP_STORAGE_KEY, true);
   }, []);
 
   const allSkills = useMemo(
@@ -288,6 +300,8 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
         <div className="min-w-0 flex-1 overflow-y-auto">
           {skillsQuery.isLoading ? (
             <LoadingState />
+          ) : skillsQuery.isError ? (
+            <ErrorState />
           ) : displayedSkills.length === 0 ? (
             <EmptyState filter={filter} category={category} />
           ) : (
@@ -568,6 +582,32 @@ function LoadingState() {
         style={{ color: "var(--content-tertiary)" }}
       />
     </div>
+  );
+}
+
+function ErrorState() {
+  return (
+    <Card.Root>
+      <Card.Body className="flex flex-col items-center justify-center py-16 text-center">
+        <TriangleAlert
+          className="mb-3 h-8 w-8"
+          style={{ color: "var(--system-danger)" }}
+          aria-hidden
+        />
+        <h3
+          className="text-title-small"
+          style={{ color: "var(--content-default)" }}
+        >
+          Failed to load skills
+        </h3>
+        <p
+          className="mt-1 max-w-sm text-body-medium-lighter"
+          style={{ color: "var(--content-tertiary)" }}
+        >
+          Something went wrong. Try refreshing the page.
+        </p>
+      </Card.Body>
+    </Card.Root>
   );
 }
 

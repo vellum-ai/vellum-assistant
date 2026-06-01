@@ -47,7 +47,7 @@ mock.module("openai", () => ({
       lastConstructorOptions = opts;
     }
     responses = {
-      stream: (
+      create: async (
         params: Record<string, unknown>,
         options?: Record<string, unknown>,
       ) => {
@@ -291,8 +291,6 @@ describe("OpenAIResponsesProvider", () => {
     const events: ProviderEvent[] = [];
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { onEvent: (e) => events.push(e) },
     );
 
@@ -309,8 +307,7 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      "You are a helpful assistant.",
+      { systemPrompt: "You are a helpful assistant." },
     );
 
     expect(lastStreamParams!.instructions).toBe("You are a helpful assistant.");
@@ -342,7 +339,7 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Read /tmp/test" }] }],
-      tools,
+      { tools: tools },
     );
 
     const sentTools = lastStreamParams!.tools as Array<Record<string, unknown>>;
@@ -547,8 +544,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { max_tokens: 64000 } },
     );
 
@@ -563,8 +558,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { effort: "high" } },
     );
 
@@ -576,8 +569,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { effort: "max" } },
     );
 
@@ -589,8 +580,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { effort: "xhigh" } },
     );
 
@@ -602,8 +591,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: {} },
     );
 
@@ -618,8 +605,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { effort: "none" } },
     );
 
@@ -634,8 +619,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { verbosity: "low" } },
     );
 
@@ -647,8 +630,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { verbosity: "high" } },
     );
 
@@ -660,8 +641,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: {} },
     );
 
@@ -672,10 +651,7 @@ describe("OpenAIResponsesProvider", () => {
     fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
 
     await provider.sendMessage(
-      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
-      // Cast through unknown — the test deliberately exercises the runtime
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }], // Cast through unknown — the test deliberately exercises the runtime
       // guard against malformed values that would bypass the type system
       // (e.g. arriving via the index signature on `SendMessageConfig`).
       { config: { verbosity: "bogus" as unknown as "low" } },
@@ -692,8 +668,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await oSeriesProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { verbosity: "high" } },
     );
 
@@ -706,8 +680,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await oSeriesProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { verbosity: "high", model: "gpt-5.2" } },
     );
 
@@ -723,8 +695,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await ftProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { verbosity: "low" } },
     );
 
@@ -742,8 +712,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { model: "gpt-5.4" } },
     );
 
@@ -986,8 +954,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { signal: controller.signal },
     );
 
@@ -1003,8 +969,6 @@ describe("OpenAIResponsesProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { signal: controller.signal },
     );
 
@@ -1076,8 +1040,6 @@ describe("OpenAIResponsesProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);
@@ -1099,8 +1061,6 @@ describe("OpenAIResponsesProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);
@@ -1118,8 +1078,6 @@ describe("OpenAIResponsesProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);
@@ -1151,11 +1109,10 @@ describe("OpenAIResponsesProvider", () => {
 
     const result = await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      "System prompt",
+      { systemPrompt: "System prompt" },
     );
 
-    // rawRequest should contain the params sent to responses.stream()
+    // rawRequest should contain the params sent to responses.create()
     const rawReq = result.rawRequest as Record<string, unknown>;
     expect(rawReq.model).toBe("gpt-5.2");
     expect(rawReq.instructions).toBe("System prompt");
@@ -1363,7 +1320,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
 
     await nativeProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
-      [webSearchTool],
+      { tools: [webSearchTool] },
     );
 
     const sentTools = lastStreamParams!.tools as Array<Record<string, unknown>>;
@@ -1377,7 +1334,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
 
     await nonNativeProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
-      [webSearchTool],
+      { tools: [webSearchTool] },
     );
 
     const sentTools = lastStreamParams!.tools as Array<Record<string, unknown>>;
@@ -1402,7 +1359,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
 
     await nativeProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Search and read" }] }],
-      [fileReadTool, webSearchTool],
+      { tools: [fileReadTool, webSearchTool] },
     );
 
     const sentTools = lastStreamParams!.tools as Array<Record<string, unknown>>;
@@ -1431,7 +1388,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
 
     await nativeProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Read file" }] }],
-      [fileReadTool],
+      { tools: [fileReadTool] },
     );
 
     const sentTools = lastStreamParams!.tools as Array<Record<string, unknown>>;
@@ -1466,9 +1423,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
     const events: ProviderEvent[] = [];
     await nativeProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
-      [webSearchTool],
-      undefined,
-      { onEvent: (e) => events.push(e) },
+      { tools: [webSearchTool], onEvent: (e) => events.push(e) },
     );
 
     const startEvents = events.filter((e) => e.type === "server_tool_start");
@@ -1494,9 +1449,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
     const events: ProviderEvent[] = [];
     await nativeProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Search for dogs" }] }],
-      [webSearchTool],
-      undefined,
-      { onEvent: (e) => events.push(e) },
+      { tools: [webSearchTool], onEvent: (e) => events.push(e) },
     );
 
     const completeEvents = events.filter(
@@ -1524,9 +1477,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
     const events: ProviderEvent[] = [];
     await nativeProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Search multiple" }] }],
-      [webSearchTool],
-      undefined,
-      { onEvent: (e) => events.push(e) },
+      { tools: [webSearchTool], onEvent: (e) => events.push(e) },
     );
 
     const startEvents = events.filter((e) => e.type === "server_tool_start");
@@ -1574,9 +1525,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
     const events: ProviderEvent[] = [];
     await nativeProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Read file" }] }],
-      [fileReadTool],
-      undefined,
-      { onEvent: (e) => events.push(e) },
+      { tools: [fileReadTool], onEvent: (e) => events.push(e) },
     );
 
     const serverToolEvents = events.filter(
@@ -1602,7 +1551,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
 
     const result = await nativeProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
-      [webSearchTool],
+      { tools: [webSearchTool] },
     );
 
     // server_tool_use + web_search_tool_result pair should appear before text
@@ -1642,7 +1591,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
           content: [{ type: "text", text: "Search two things" }],
         },
       ],
-      [webSearchTool],
+      { tools: [webSearchTool] },
     );
 
     expect(result.content).toHaveLength(5);
@@ -1685,7 +1634,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
 
     const result = await nativeProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hello" }] }],
-      [webSearchTool],
+      { tools: [webSearchTool] },
     );
 
     expect(result.content).toHaveLength(1);
@@ -1706,15 +1655,13 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
 
     await codexProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { max_tokens: 64000 } },
     );
 
     expect(lastStreamParams!.max_output_tokens).toBeUndefined();
   });
 
-  test("codexSubscription: strips reasoning param even when effort is set", async () => {
+  test("codexSubscription: forwards reasoning param when effort is set", async () => {
     const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
       codexSubscription: true,
     });
@@ -1722,15 +1669,13 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
 
     await codexProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { effort: "high" } },
     );
 
-    expect(lastStreamParams!.reasoning).toBeUndefined();
+    expect(lastStreamParams!.reasoning).toEqual({ effort: "high" });
   });
 
-  test("codexSubscription: strips text.verbosity param", async () => {
+  test("codexSubscription: forwards text.verbosity param", async () => {
     const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
       codexSubscription: true,
     });
@@ -1738,12 +1683,10 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
 
     await codexProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { verbosity: "low" } },
     );
 
-    expect(lastStreamParams!.text).toBeUndefined();
+    expect(lastStreamParams!.text).toEqual({ verbosity: "low" });
   });
 
   test("codexSubscription: uses Codex baseURL", async () => {
@@ -1756,7 +1699,7 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
     );
   });
 
-  test("codexSubscription: strips tools param", async () => {
+  test("codexSubscription: forwards tools param", async () => {
     const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
       codexSubscription: true,
     });
@@ -1769,10 +1712,35 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
     };
     await codexProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      [sampleTool],
+      { tools: [sampleTool] },
     );
 
-    expect(lastStreamParams!.tools).toBeUndefined();
+    expect(lastStreamParams!.tools).toEqual([
+      {
+        type: "function",
+        name: "test_tool",
+        description: "A test tool",
+        parameters: { type: "object", properties: {} },
+        strict: null,
+      },
+    ]);
+  });
+
+  test("codexSubscription: maps web_search to the Codex native web_search tool", async () => {
+    const codexProvider = new OpenAIResponsesProvider("sk-test", "gpt-5.4", {
+      codexSubscription: true,
+      useNativeWebSearch: true,
+    });
+    fakeStreamEvents = [textDeltaEvent("OK"), completedEvent(10, 2)];
+
+    await codexProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Search for cats" }] }],
+      { tools: [webSearchTool] },
+    );
+
+    expect(lastStreamParams!.tools).toEqual([
+      { type: "web_search", external_web_access: false },
+    ]);
   });
 
   test("codexSubscription: still sends model, input, and instructions", async () => {
@@ -1783,15 +1751,16 @@ describe("OpenAIResponsesProvider — Native Web Search", () => {
 
     await codexProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      "You are helpful.",
-      { config: { effort: "max", verbosity: "high", max_tokens: 64000 } },
+      {
+        systemPrompt: "You are helpful.",
+        config: { effort: "max", verbosity: "high", max_tokens: 64000 },
+      },
     );
 
     expect(lastStreamParams!.model).toBe("gpt-5.4");
     expect(lastStreamParams!.instructions).toBe("You are helpful.");
     expect(lastStreamParams!.max_output_tokens).toBeUndefined();
-    expect(lastStreamParams!.reasoning).toBeUndefined();
-    expect(lastStreamParams!.text).toBeUndefined();
+    expect(lastStreamParams!.reasoning).toEqual({ effort: "xhigh" });
+    expect(lastStreamParams!.text).toEqual({ verbosity: "high" });
   });
 });

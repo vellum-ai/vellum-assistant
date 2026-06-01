@@ -49,7 +49,7 @@ mock.module("@/runtime/native-biometric", () => ({
 
 const clearUserScopedStorageMock = mock(() => {});
 
-mock.module("@/lib/onboarding-cleanup", () => ({
+mock.module("@/utils/onboarding-cleanup", () => ({
   syncOnboardingUser: syncOnboardingUserMock,
   clearOnboardingFlags: clearOnboardingFlagsMock,
 }));
@@ -62,12 +62,26 @@ mock.module("@/stores/organization-store", () => ({
   clearOrganization: clearOrganizationMock,
 }));
 
-mock.module("@/stores/event-bus-store", () => ({
-  useEventBusStore: {
-    getState: () => ({
-      subscribe: () => () => {},
-    }),
+// Don't mock `@/lib/event-bus` — bun's `mock.module` is process-
+// global, so any stub here shadows the real bus for every later
+// test file in the run. `auth-store` only subscribes to `app.resume`
+// at module load; the real bus's `subscribe` returns an unsubscribe
+// and the registered handler stays inert in tests that don't publish
+// `app.resume`.
+
+const lifecycleResetForLogoutMock = mock(() => {});
+mock.module("@/assistant/lifecycle-service", () => ({
+  lifecycleService: {
+    resetForLogout: lifecycleResetForLogoutMock,
   },
+}));
+
+// `@/assistant/api` transitively pulls in `@vellumai/assistant-api`
+// exports that are currently missing on main. Mock the call sites
+// `auth-store` actually uses; the real module load would crash
+// before any test runs.
+mock.module("@/assistant/api", () => ({
+  listAssistants: async () => [],
 }));
 
 const { useAuthStore } = await import("@/stores/auth-store");
@@ -95,6 +109,7 @@ beforeEach(() => {
   deleteBiometricTokenMock.mockClear();
   installSessionCookiesMock.mockClear();
   retrieveBiometricTokenMock.mockClear();
+  lifecycleResetForLogoutMock.mockClear();
   resetAuthStore();
 });
 
@@ -144,6 +159,25 @@ describe("session cleanup on logout", () => {
     await useAuthStore.getState().logout();
 
     expect(clearUserScopedStorageMock).toHaveBeenCalled();
+  });
+
+  test("logout clears assistant lifecycle synchronously, before flipping isLoggedIn", async () => {
+    // The lifecycle reset must happen before the auth state flips,
+    // otherwise sync hooks like `useAssistantResourceSync` get one
+    // re-render with the previous user's assistant id and fire
+    // requests that 401. The order is verified by recording the
+    // sequence of side effects vs the `isLoggedIn` flip.
+    let isLoggedInAtResetTime = useAuthStore.getState().isLoggedIn;
+    lifecycleResetForLogoutMock.mockImplementationOnce(() => {
+      isLoggedInAtResetTime = useAuthStore.getState().isLoggedIn;
+    });
+    useAuthStore.setState({ isLoggedIn: true });
+
+    await useAuthStore.getState().logout();
+
+    expect(lifecycleResetForLogoutMock).toHaveBeenCalledTimes(1);
+    expect(isLoggedInAtResetTime).toBe(true);
+    expect(useAuthStore.getState().isLoggedIn).toBe(false);
   });
 });
 

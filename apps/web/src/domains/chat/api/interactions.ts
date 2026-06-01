@@ -5,16 +5,10 @@
  * confirmations, contact lookups, user questions, and trust rules.
  */
 
-import type {
-  ConfirmationDecision,
-  QuestionSubmission,
-} from "@/domains/chat/api/event-types";
-import {
-  assertHasResponse,
-  client,
-  extractErrorMessage,
-  SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { QuestionSubmission } from "@/domains/chat/api/event-types";
+import { client } from "@/generated/api/client.gen";
+import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 
 export async function getPendingInteractions(
   assistantId: string,
@@ -30,7 +24,6 @@ export async function getPendingInteractions(
     },
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/pending-interactions/",
     path: { assistant_id: assistantId },
     query: { conversationId },
@@ -62,7 +55,6 @@ export async function listConversationIdsWithPendingInteractions(
   assistantId: string,
 ): Promise<Set<string>> {
   const { data, error, response } = await client.get<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/pending-interactions/",
     path: { assistant_id: assistantId },
     throwOnError: false,
@@ -107,7 +99,6 @@ export async function submitSecretResponse(
 ): Promise<SubmitSecretResponseResult> {
   try {
     const { error, response } = await client.post<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/secret/",
       path: { assistant_id: assistantId },
       body: { requestId, value, delivery },
@@ -136,7 +127,6 @@ export async function submitConfirmation(
 ): Promise<SubmitSecretResponseResult> {
   try {
     const { error, response } = await client.post<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/confirm/",
       path: { assistant_id: assistantId },
       body: { requestId, decision, ...trustRule },
@@ -167,7 +157,6 @@ export async function submitContactPrompt(
 ): Promise<SubmitSecretResponseResult> {
   try {
     const { error, response } = await client.post<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/contacts/prompt/submit/",
       path: { assistant_id: assistantId },
       body: { requestId, address, channelType, role, displayName },
@@ -233,7 +222,6 @@ export async function submitQuestionResponse(
       unknown,
       unknown
     >({
-      ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/question-response/",
       path: { assistant_id: assistantId },
       body,
@@ -265,7 +253,6 @@ export async function submitTrustRule(
 ): Promise<SubmitSecretResponseResult> {
   try {
     const { error, response } = await client.post<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/trust-rules/",
       path: { assistant_id: assistantId },
       body: { requestId, ...rule },

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
@@ -143,6 +144,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getConversationOverrideProfileFromRow: () => undefined,
   updateMessageMetadata: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  updateMessageContent: mock(() => {}),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -215,6 +217,7 @@ mock.module("../workspace/turn-commit.js", () => ({
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;
@@ -229,6 +232,9 @@ mock.module("../agent/loop.js", () => ({
       messages: Message[],
       onEvent: (event: AgentEvent) => void,
     ): Promise<Message[]> {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       agentLoopScript(onEvent);
       onEvent({
         type: "usage",
@@ -284,9 +290,9 @@ function makeConversation(): Conversation {
     "conv-1",
     provider,
     "system prompt",
-    4096,
     () => {},
     "/tmp",
+    { maxTokens: 4096 },
   );
 }
 
@@ -322,7 +328,10 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Write a file", [], () => {});
+    await conversation.processMessage({
+      content: "Write a file",
+      attachments: [],
+    });
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -348,7 +357,10 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Edit a file", [], () => {});
+    await conversation.processMessage({
+      content: "Edit a file",
+      attachments: [],
+    });
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -376,7 +388,10 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Write a file", [], () => {});
+    await conversation.processMessage({
+      content: "Write a file",
+      attachments: [],
+    });
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -402,7 +417,10 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Run a command", [], () => {});
+    await conversation.processMessage({
+      content: "Run a command",
+      attachments: [],
+    });
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -428,7 +446,10 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Run a command", [], () => {});
+    await conversation.processMessage({
+      content: "Run a command",
+      attachments: [],
+    });
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(true);
   });
 
@@ -454,7 +475,10 @@ describe("Conversation workspace dirty on file mutations", () => {
       });
     };
 
-    await conversation.processMessage("Read a file", [], () => {});
+    await conversation.processMessage({
+      content: "Read a file",
+      attachments: [],
+    });
     expect(conversation.isWorkspaceTopLevelDirty()).toBe(false);
   });
 });
