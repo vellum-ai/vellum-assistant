@@ -61,11 +61,7 @@ import {
   registerPluginTools,
   unregisterPluginTools,
 } from "../tools/registry.js";
-import type {
-  Tool,
-  ToolContext,
-  ToolExecutionResult,
-} from "../tools/types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 // Redirect plugin-storage-directory creation into a per-process temp tree so
 // the test doesn't touch the developer's real ~/.vellum. This matches the
@@ -79,13 +75,9 @@ process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
 const fakeConfig = {} as unknown as AssistantConfig;
 const fakeCtx: DaemonContext = {
   config: fakeConfig,
-  assistantVersion: "9.9.9-test",
 };
 
-function makeFakeTool(
-  name: string,
-  extras: Partial<Tool> = {},
-): Tool {
+function makeFakeTool(name: string, extras: Partial<Tool> = {}): Tool {
   return {
     name,
     description: `Fake ${name}`,

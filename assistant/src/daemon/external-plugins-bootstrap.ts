@@ -108,7 +108,6 @@ const log = getLogger("plugins-bootstrap");
  */
 export interface DaemonContext {
   config: AssistantConfig;
-  assistantVersion: string;
 }
 
 /**
@@ -211,10 +210,7 @@ function getDisabledPluginFlag(
  * the daemon comes up with degraded plugin functionality instead.
  */
 export async function initializePlugins(
-  ctx: DaemonContext = {
-    config: getConfig(),
-    assistantVersion: APP_VERSION,
-  },
+  ctx: DaemonContext = { config: getConfig() },
 ): Promise<void> {
   installPluginRuntime();
   registerDefaultPlugins();
@@ -283,7 +279,7 @@ export async function bootstrapPlugins(ctx: DaemonContext): Promise<void> {
   // shutdown hook below. Only `assistantVersion` is exposed today; future
   // additions live on {@link PluginShutdownContext}.
   const shutdownContext: PluginShutdownContext = {
-    assistantVersion: ctx.assistantVersion,
+    assistantVersion: APP_VERSION,
   };
 
   async function rollbackPlugin(active: ActivePlugin): Promise<void> {
@@ -387,7 +383,7 @@ async function initializePlugin(
       credentials,
       logger: log.child({ plugin: name }),
       pluginStorageDir: ensurePluginStorageDir(name),
-      assistantVersion: ctx.assistantVersion,
+      assistantVersion: APP_VERSION,
     };
 
     if (plugin.tools && plugin.tools.length > 0) {
@@ -455,7 +451,7 @@ async function initializePlugin(
   } catch (err) {
     if (initCompleted) {
       await teardownPlugin({ plugin, routeHandles }, "bootstrap-failed", {
-        assistantVersion: ctx.assistantVersion,
+        assistantVersion: APP_VERSION,
       });
     } else {
       for (const handle of routeHandles) {
@@ -557,10 +553,7 @@ export async function reregisterExternalPlugin(
     return;
   }
 
-  const ctx: DaemonContext = {
-    config: getConfig(),
-    assistantVersion: APP_VERSION,
-  };
+  const ctx: DaemonContext = { config: getConfig() };
   const disabledFlag = getDisabledPluginFlag(plugin, ctx.config);
   if (disabledFlag !== undefined) {
     log.info(

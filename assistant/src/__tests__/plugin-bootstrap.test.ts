@@ -54,6 +54,7 @@ import {
   PluginExecutionError,
   type PluginInitContext,
 } from "../plugins/types.js";
+import { APP_VERSION } from "../version.js";
 import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 // Redirect plugin storage directory creation into a per-process temp tree so
@@ -67,7 +68,6 @@ process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
 const fakeConfig = {} as unknown as AssistantConfig;
 const fakeCtx: DaemonContext = {
   config: fakeConfig,
-  assistantVersion: "9.9.9-test",
 };
 
 /**
@@ -158,7 +158,7 @@ describe("plugin bootstrap", () => {
       join(TEST_WORKSPACE_DIR, "plugins-data", "alpha"),
     );
     expect(existsSync(ctx.pluginStorageDir)).toBe(true);
-    expect(ctx.assistantVersion).toBe("9.9.9-test");
+    expect(ctx.assistantVersion).toBe(APP_VERSION);
   });
 
   test("credential resolution: init receives the resolved value under credentials[key]", async () => {

@@ -417,7 +417,7 @@ mock.module("../daemon/date-context.js", () => ({
   resolveTurnTimezoneContext: resolveTurnTimezoneContextMock,
 }));
 
-mock.module("../daemon/history-repair.js", () => ({
+mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
     stats: {
@@ -427,6 +427,18 @@ mock.module("../daemon/history-repair.js", () => ({
       consecutiveSameRoleMerged: 0,
     },
   }),
+  defaultHistoryRepairTerminal: (args: { history: Message[] }) => ({
+    messages: args.history,
+    stats: {
+      assistantToolResultsMigrated: 0,
+      missingToolResultsInserted: 0,
+      orphanToolResultsDowngraded: 0,
+      consecutiveSameRoleMerged: 0,
+    },
+  }),
+}));
+
+mock.module("../daemon/history-repair.js", () => ({
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
 }));
 
