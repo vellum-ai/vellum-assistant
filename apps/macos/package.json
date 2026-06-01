@@ -29,6 +29,7 @@
     "wait-on": "8.0.1"
   },
   "dependencies": {
+    "@vellumai/cli": "file:../../cli",
     "electron-store": "11.0.2"
   }
 }

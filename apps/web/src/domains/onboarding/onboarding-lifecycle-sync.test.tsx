@@ -156,12 +156,15 @@ mock.module("@/lib/local-mode", () => ({
   hasAssistants: () => false,
   getPlatformAssistants: () => [],
   getSelectedAssistant: () => undefined,
-  hatchLocalAssistant: async () => ({ ok: true, assistantId: "local-1" }),
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setSelectedAssistantId: () => {},
   saveLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
   getLocalGatewayUrl: () => undefined,
+}));
+
+mock.module("@/runtime/local-mode-host", () => ({
+  hatchLocalAssistant: async () => ({ ok: true, assistantId: "local-1" }),
 }));
 
 mock.module("@/stores/client-feature-flag-store", () => ({
