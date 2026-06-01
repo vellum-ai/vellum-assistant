@@ -523,7 +523,8 @@ export async function processMessage(
   }
 
   try {
-    await conversation.runAgentLoop(resolvedContent, messageId, emitEvent, {
+    await conversation.runAgentLoop(resolvedContent, messageId, {
+      onEvent: emitEvent,
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),
@@ -586,7 +587,8 @@ export async function processMessageInBackground(
   }
 
   conversation
-    .runAgentLoop(content, messageId, emitEvent, {
+    .runAgentLoop(content, messageId, {
+      onEvent: emitEvent,
       isInteractive: options?.isInteractive ?? false,
       isUserMessage: true,
       ...(options?.callSite ? { callSite: options.callSite } : {}),

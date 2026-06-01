@@ -216,7 +216,6 @@ class FakeConversation {
   runAgentLoop(
     _content: string,
     _userMessageId: string,
-    _onEvent: unknown,
     options?: CapturedRunAgentLoopOptions,
   ) {
     capturedRunAgentLoopOptions.push({ ...(options ?? {}) });

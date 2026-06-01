@@ -255,8 +255,9 @@ function createFakeConversation(conversationId: string): Conversation {
       },
       _content: string,
       _userMessageId: string,
-      onEvent: (msg: Record<string, unknown>) => void,
+      options?: { onEvent?: (msg: Record<string, unknown>) => void },
     ): Promise<void> {
+      const onEvent = options?.onEvent ?? (() => {});
       const assistantText = "Synthetic assistant reply";
       const assistantMessage = createAssistantMessage(assistantText);
       const assistantMetadata = {

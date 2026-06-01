@@ -1281,8 +1281,8 @@ export class Conversation {
   async runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent?: (msg: ServerMessage) => void,
     options?: {
+      onEvent?: (msg: ServerMessage) => void;
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
@@ -1298,12 +1298,13 @@ export class Conversation {
       overrideProfile?: string;
     },
   ): Promise<void> {
+    const { onEvent, ...rest } = options ?? {};
     return runAgentLoopImpl(
       this,
       content,
       userMessageId,
       onEvent ?? this.sendToClient,
-      options,
+      rest,
     );
   }
 

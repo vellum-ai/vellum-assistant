@@ -594,10 +594,8 @@ export async function startVoiceTurn(
       // flag into subsequent non-voice turns on the same conversation.
       conversation.forcePromptSideEffects =
         !isGuardian && !usesLocalInteractiveApprovals;
-      await conversation.runAgentLoop(
-        persistedContent,
-        messageId,
-        (msg: ServerMessage) => {
+      await conversation.runAgentLoop(persistedContent, messageId, {
+        onEvent: (msg: ServerMessage) => {
           if (msg.type === "error") {
             lastError = msg.message;
           } else if (msg.type === "conversation_error") {
@@ -624,8 +622,8 @@ export async function startVoiceTurn(
           // Note: tool_use_preview_start is intentionally not handled here.
           // Voice only reacts to the definitive tool_use_start event.
         },
-        { callSite: "callAgent" },
-      );
+        callSite: "callAgent",
+      });
       if (lastError) {
         log.error(
           { turnId, error: lastError },

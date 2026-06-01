@@ -436,7 +436,7 @@ export class SubagentManager {
       const { id: messageId } = await conversation.persistUserMessage({
         content: message,
       });
-      await conversation.runAgentLoop(message, messageId, undefined, {
+      await conversation.runAgentLoop(message, messageId, {
         callSite: "subagentSpawn",
         ...(managed.state.config.overrideProfile
           ? { overrideProfile: managed.state.config.overrideProfile }
@@ -624,7 +624,7 @@ export class SubagentManager {
         content: trimmed,
       });
       conversation
-        .runAgentLoop(trimmed, messageId, undefined, {
+        .runAgentLoop(trimmed, messageId, {
           callSite: "subagentSpawn",
           ...(managed.state.config.overrideProfile
             ? { overrideProfile: managed.state.config.overrideProfile }

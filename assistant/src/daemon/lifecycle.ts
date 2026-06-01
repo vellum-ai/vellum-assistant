@@ -1135,25 +1135,27 @@ export async function runDaemon(): Promise<void> {
 
             let agentLoopError: string | undefined;
             let generatedText = "";
-            await conversation.runAgentLoop(instruction, messageId, (msg) => {
-              if (
-                "type" in msg &&
-                msg.type === "assistant_text_delta" &&
-                "text" in msg
-              ) {
-                generatedText += (msg as { text: string }).text;
-              }
-              if (
-                "type" in msg &&
-                (msg.type === "error" || msg.type === "conversation_error")
-              ) {
-                agentLoopError =
-                  "message" in msg
-                    ? (msg as { message: string }).message
-                    : "userMessage" in msg
-                      ? (msg as { userMessage: string }).userMessage
-                      : "Agent loop failed";
-              }
+            await conversation.runAgentLoop(instruction, messageId, {
+              onEvent: (msg) => {
+                if (
+                  "type" in msg &&
+                  msg.type === "assistant_text_delta" &&
+                  "text" in msg
+                ) {
+                  generatedText += (msg as { text: string }).text;
+                }
+                if (
+                  "type" in msg &&
+                  (msg.type === "error" || msg.type === "conversation_error")
+                ) {
+                  agentLoopError =
+                    "message" in msg
+                      ? (msg as { message: string }).message
+                      : "userMessage" in msg
+                        ? (msg as { userMessage: string }).userMessage
+                        : "Agent loop failed";
+                }
+              },
             });
 
             // Identify messages created during this run by diffing against

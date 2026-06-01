@@ -2067,7 +2067,8 @@ export async function handleSendMessage(
 
   // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
   conversation
-    .runAgentLoop(resolvedContent, messageId, broadcastMessage, {
+    .runAgentLoop(resolvedContent, messageId, {
+      onEvent: broadcastMessage,
       isInteractive,
       isUserMessage: true,
     })

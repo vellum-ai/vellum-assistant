@@ -164,8 +164,8 @@ export interface ProcessConversationContext {
   runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent?: (msg: ServerMessage) => void,
     options?: {
+      onEvent?: (msg: ServerMessage) => void;
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
@@ -1028,12 +1028,10 @@ async function drainSingleMessage(
     drainLoopOptions.titleText = resolvedContent;
 
   conversation
-    .runAgentLoop(
-      agentLoopContent,
-      userMessageId,
-      next.onEvent,
-      drainLoopOptions,
-    )
+    .runAgentLoop(agentLoopContent, userMessageId, {
+      ...drainLoopOptions,
+      onEvent: next.onEvent,
+    })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -1435,12 +1433,10 @@ async function drainBatch(
   // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue
   // when this run completes. Mirrors drainSingleMessage.
   conversation
-    .runAgentLoop(
-      lastSuccessfulContent,
-      lastUserMessageId,
-      fanOutOnEvent,
-      drainLoopOptions,
-    )
+    .runAgentLoop(lastSuccessfulContent, lastUserMessageId, {
+      ...drainLoopOptions,
+      onEvent: fanOutOnEvent,
+    })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -1975,11 +1971,9 @@ export async function processMessage(
     loopOptions.titleText = resolvedContent;
   if (callSite !== undefined) loopOptions.callSite = callSite;
 
-  await conversation.runAgentLoop(
-    agentLoopContent,
-    userMessageId,
+  await conversation.runAgentLoop(agentLoopContent, userMessageId, {
+    ...loopOptions,
     onEvent,
-    loopOptions,
-  );
+  });
   return userMessageId;
 }
