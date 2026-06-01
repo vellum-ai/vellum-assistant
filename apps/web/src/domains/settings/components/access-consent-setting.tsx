@@ -67,9 +67,21 @@ export function AccessConsentSetting() {
   // so the layout doesn't render two adjacent dividers.
   if (platformGate === "gated") return null;
 
+  // Treat the "lifecycle not yet resolved" window as still-loading. A
+  // `useQuery` with `enabled: false` reports `isLoading: false`, so
+  // without `!isPlatformHosted` the toggle would render interactive
+  // during the resolution race (the gate intentionally says `"full"`
+  // to avoid chrome flicker, but we genuinely don't know yet whether
+  // the assistant is platform-hosted). A click during that window
+  // would fire `assistantsAccessConsentPartialUpdate` against a
+  // potentially self-hosted target — exactly the doomed request the
+  // gate exists to prevent. Include the strict hosting signal in the
+  // disabled predicate so the mutation can only fire post-resolution.
+  const isResolving = platformGate === "full" && !isPlatformHosted;
   const checked = data?.access_consented ?? false;
   const disabled =
     platformGate !== "full" ||
+    !isPlatformHosted ||
     isLoading ||
     isError ||
     updateConsent.isPending;
@@ -100,7 +112,7 @@ export function AccessConsentSetting() {
         <div className="flex items-center gap-2">
           {platformGate === "disabled" ? null : (
             <>
-              {updateConsent.isPending && (
+              {(updateConsent.isPending || isResolving) && (
                 <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
               )}
               <Toggle

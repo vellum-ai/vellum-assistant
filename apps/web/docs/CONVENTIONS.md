@@ -959,7 +959,40 @@ const query = useQuery({
 lifecycle has projected `{ kind: "platform_hosted" }` or
 `{ kind: "active", isLocal: false }` — `false` for `loading` and every
 other state. The rendering decision (gate) and the fetch decision
-(resolved) are intentionally split: render eagerly, fetch strictly.
+(resolved) are intentionally split: render eagerly, fetch + interact
+strictly.
+
+#### Interactive controls follow `useActiveAssistantIsPlatformHosted`, not `isLoading`
+
+**A `useQuery` with `enabled: false` reports `isLoading: false`.** That
+means any `disabled` predicate that derives only from `isLoading` will
+evaluate to "enabled" during the resolution race — and a click on the
+control fires the mutation the gate exists to prevent. Treat the
+unresolved window as still-loading for the purposes of every
+interactive control on a platform-hosted-only surface:
+
+```ts
+const isResolving = platformGate === "full" && !isPlatformHosted;
+
+const disabled =
+  platformGate !== "full" ||
+  !isPlatformHosted ||           // strict-too on interaction
+  isLoading ||
+  isError ||
+  mutation.isPending;
+
+// Or, for whole sub-trees that should disappear during the race:
+{!isResolving && <MutationFiringPopoverTrigger />}
+
+// And surface loading state to the user so they know to wait:
+const showLoading = isResolving || isLoading;
+{showLoading ? <Spinner /> : <Content />}
+```
+
+This applies to every UI surface gated by `platformHostedOnly: true`:
+toggles, popover triggers, "mark all as read" buttons, etc. The rule
+is: **if it can fire a mutation, it must be disabled (or hidden)
+while `!isPlatformHosted`.**
 
 ### Daemon-owned endpoints routed through the platform proxy
 

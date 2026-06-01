@@ -446,6 +446,15 @@ export function NotificationsPage() {
     enabled: platformGate === "full" && isPlatformHosted,
   });
 
+  // `useQuery` with `enabled: false` reports `isLoading: false`, so during
+  // the resolution race we need to compute "still loading" ourselves —
+  // otherwise the render falls through to the empty state ("No open
+  // notifications") AND mutation-firing controls (pause-rules popover)
+  // render interactively. Treat the unresolved window as loading: hide /
+  // disable mutation triggers, show the loading spinner.
+  const isResolving = platformGate === "full" && !isPlatformHosted;
+  const showLoading = isResolving || isLoading;
+
   const notifications = data?.results ?? [];
   const unreadOpen = notifications.filter(
     (n) => !n.is_read && !n.is_resolved,
@@ -567,37 +576,46 @@ export function NotificationsPage() {
             Platform alerts and status notifications
           </p>
         </div>
-        {isMobile ? (
-          <BottomSheet.Root open={pauseOpen} onOpenChange={setPauseOpen}>
-            <BottomSheet.Trigger asChild>{pauseButton}</BottomSheet.Trigger>
-            <BottomSheet.Content>
-              <BottomSheet.Header>
-                <BottomSheet.Title>Pause alerts</BottomSheet.Title>
-              </BottomSheet.Header>
-              <BottomSheet.Body>
-                <PauseAlertsContent
-                  existingRules={pauseRules}
-                  onClose={() => setPauseOpen(false)}
-                  onPauseCreated={(rule) =>
-                    setPauseRules((prev) => [...prev, rule])
-                  }
-                  onPauseDeleted={(ruleId) =>
-                    setPauseRules((prev) =>
-                      prev.filter((r) => r.id !== ruleId),
-                    )
-                  }
-                  hideTitle
-                />
-              </BottomSheet.Body>
-            </BottomSheet.Content>
-          </BottomSheet.Root>
-        ) : (
-          <Popover.Root open={pauseOpen} onOpenChange={setPauseOpen}>
-            <Popover.Trigger asChild>{pauseButton}</Popover.Trigger>
-            <Popover.Content align="end" className="w-72">
-              {pauseContent}
-            </Popover.Content>
-          </Popover.Root>
+        {/*
+          Hide the pause-alerts trigger entirely during the resolution race.
+          The popover content fires `createRule` mutations against the
+          organization, which must not run before lifecycle resolves to
+          platform-hosted. Re-renders when `isPlatformHosted` flips, so the
+          control appears as soon as we know it's safe.
+        */}
+        {!isResolving && (
+          isMobile ? (
+            <BottomSheet.Root open={pauseOpen} onOpenChange={setPauseOpen}>
+              <BottomSheet.Trigger asChild>{pauseButton}</BottomSheet.Trigger>
+              <BottomSheet.Content>
+                <BottomSheet.Header>
+                  <BottomSheet.Title>Pause alerts</BottomSheet.Title>
+                </BottomSheet.Header>
+                <BottomSheet.Body>
+                  <PauseAlertsContent
+                    existingRules={pauseRules}
+                    onClose={() => setPauseOpen(false)}
+                    onPauseCreated={(rule) =>
+                      setPauseRules((prev) => [...prev, rule])
+                    }
+                    onPauseDeleted={(ruleId) =>
+                      setPauseRules((prev) =>
+                        prev.filter((r) => r.id !== ruleId),
+                      )
+                    }
+                    hideTitle
+                  />
+                </BottomSheet.Body>
+              </BottomSheet.Content>
+            </BottomSheet.Root>
+          ) : (
+            <Popover.Root open={pauseOpen} onOpenChange={setPauseOpen}>
+              <Popover.Trigger asChild>{pauseButton}</Popover.Trigger>
+              <Popover.Content align="end" className="w-72">
+                {pauseContent}
+              </Popover.Content>
+            </Popover.Root>
+          )
         )}
       </div>
 
@@ -644,7 +662,7 @@ export function NotificationsPage() {
         )}
       </div>
 
-      {isLoading ? (
+      {showLoading ? (
         <div className="flex items-center gap-2 py-6 text-body-medium-lighter text-[var(--content-secondary)]">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading notifications…
