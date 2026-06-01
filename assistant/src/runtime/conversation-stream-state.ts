@@ -28,11 +28,39 @@ const RING_AGE_LIMIT_MS = 30_000;
 
 // ── Types ────────────────────────────────────────────────────────────
 
+/**
+ * Targeting / exclusion modifiers attached to an event at publish time.
+ * Stored on ring entries so replay can re-apply the same delivery
+ * filter that the live `publish()` path used.
+ *
+ * Fields use plain `string` rather than branded channel types so
+ * this module stays independent of the `channels/` package.
+ */
+export interface EventTargeting {
+  targetCapability?: string;
+  targetClientId?: string;
+  targetInterfaceId?: string;
+  excludeClientId?: string;
+}
+
+/**
+ * Identity of the subscriber requesting a replay window. Replay
+ * filtering mirrors the live `publish()` logic in `AssistantEventHub`:
+ * targeted entries are only delivered when the subscriber matches.
+ */
+export interface ReplaySubscriber {
+  type: "client" | "process";
+  clientId?: string;
+  interfaceId?: string;
+  capabilities?: readonly string[];
+}
+
 interface RingEntry {
   seq: number;
   event: AssistantEvent;
   emittedAt: number;
   sizeBytes: number;
+  targeting?: EventTargeting;
 }
 
 interface ConversationStreamState {
@@ -57,25 +85,21 @@ function getOrCreate(conversationId: string): ConversationStreamState {
 // ── Public API ───────────────────────────────────────────────────────
 
 /**
- * Assign a monotonic `seq` to a conversation-scoped event and (when
- * replayable) push it onto the ring buffer. No-op when
- * `event.conversationId` is absent (unscoped broadcasts are never
- * replayable).
+ * Assign a monotonic `seq` to a conversation-scoped event and push it
+ * onto the ring buffer. No-op when `event.conversationId` is absent
+ * (unscoped broadcasts are never replayable).
  *
- * `options.replayable` should be `false` whenever the event was
- * published with any targeting / exclusion modifier
- * (`targetCapability`, `targetClientId`, `targetInterfaceId`,
- * `excludeClientId`). Such events have a narrower delivery set than the
- * conversation subscriber list, so storing them by `conversationId`
- * alone would leak them to the wrong subscribers on replay. The seq is
- * still stamped so the wire-side ordering stays contiguous; only the
- * ring push is skipped. Defaults to `true`.
+ * When `options.targeting` is provided, the metadata is stored on the
+ * ring entry so that {@link getReplayWindow} can re-apply the same
+ * delivery filter at replay time. This keeps targeted events in the
+ * ring (preventing false-positive seq gaps on reconnect) without
+ * leaking them to subscribers outside their intended delivery set.
  *
  * Mutates `event.seq` in place.
  */
 export function stampAndBuffer(
   event: AssistantEvent,
-  options?: { replayable?: boolean },
+  options?: { targeting?: EventTargeting },
 ): void {
   const cid = event.conversationId;
   if (cid == null) return;
@@ -83,13 +107,20 @@ export function stampAndBuffer(
   const state = getOrCreate(cid);
   event.seq = state.nextSeq++;
 
-  if (options?.replayable === false) return;
-
   // Approximate size by serialized JSON length. This is the same
   // bytes-on-wire we'll send, so it tracks ring memory pressure
   // closely without a separate measurement pass.
   const sizeBytes = JSON.stringify(event).length;
-  state.ring.push({ seq: event.seq, event, emittedAt: Date.now(), sizeBytes });
+  const entry: RingEntry = {
+    seq: event.seq,
+    event,
+    emittedAt: Date.now(),
+    sizeBytes,
+  };
+  if (options?.targeting) {
+    entry.targeting = options.targeting;
+  }
+  state.ring.push(entry);
   state.totalSizeBytes += sizeBytes;
 
   evict(state);
@@ -99,6 +130,13 @@ export function stampAndBuffer(
  * Replay events with `seq > lastSeenSeq` for a given conversation.
  * Returns `null` when the requested cursor is older than the oldest
  * buffered entry -- callers should fall back to a snapshot resync.
+ *
+ * When `subscriber` is provided, entries carrying targeting metadata
+ * are filtered using the same rules as the live `publish()` path in
+ * `AssistantEventHub`. This prevents targeted events from leaking to
+ * subscribers outside their intended delivery set on reconnect.
+ * When `subscriber` is omitted, all entries are returned unfiltered
+ * (backwards-compatible behaviour).
  *
  * Sweeps age-expired entries at read time so an idle conversation
  * cannot serve stale deltas past the 30-second window (eviction
@@ -111,6 +149,7 @@ export function stampAndBuffer(
 export function getReplayWindow(
   conversationId: string,
   lastSeenSeq: number,
+  subscriber?: ReplaySubscriber,
 ): readonly AssistantEvent[] | null {
   const state = streams.get(conversationId);
   if (!state) return [];
@@ -126,7 +165,11 @@ export function getReplayWindow(
   if (lastSeenSeq < oldest - 1) return null;
 
   return state.ring
-    .filter((entry) => entry.seq > lastSeenSeq)
+    .filter(
+      (entry) =>
+        entry.seq > lastSeenSeq &&
+        (subscriber == null || matchesSubscriber(entry, subscriber)),
+    )
     .map((entry) => entry.event);
 }
 
@@ -168,6 +211,70 @@ export function _peekStreamForTesting(conversationId: string): {
 }
 
 // ── Internals ────────────────────────────────────────────────────────
+
+/**
+ * Mirrors the delivery logic in `AssistantEventHub.publish()`. Returns
+ * `true` when `subscriber` would have received the entry during live
+ * fanout.
+ */
+function matchesSubscriber(
+  entry: RingEntry,
+  subscriber: ReplaySubscriber,
+): boolean {
+  const t = entry.targeting;
+  if (!t) return true;
+
+  // Self-echo suppression: the originating client never receives the
+  // event back.
+  if (
+    t.excludeClientId != null &&
+    subscriber.type === "client" &&
+    subscriber.clientId === t.excludeClientId
+  ) {
+    return false;
+  }
+
+  // Interface targeting: only clients of the requested interface.
+  if (t.targetInterfaceId != null) {
+    if (
+      subscriber.type !== "client" ||
+      subscriber.interfaceId !== t.targetInterfaceId
+    ) {
+      return false;
+    }
+  }
+
+  if (t.targetClientId != null) {
+    // Client targeting: bypass conversation filter, deliver only to the
+    // named client.
+    if (
+      subscriber.type !== "client" ||
+      subscriber.clientId !== t.targetClientId
+    ) {
+      return false;
+    }
+    if (
+      t.targetCapability != null &&
+      !subscriber.capabilities?.includes(t.targetCapability)
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  // Capability targeting (without client targeting): only subscribers
+  // that declare the required capability.
+  if (t.targetCapability != null) {
+    if (
+      subscriber.type !== "client" ||
+      !subscriber.capabilities?.includes(t.targetCapability)
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
 
 function evict(state: ConversationStreamState): void {
   const now = Date.now();

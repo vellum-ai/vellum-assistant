@@ -40,6 +40,7 @@ import {
   assistantEventHub,
 } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
+import type { ReplaySubscriber } from "../conversation-stream-state.js";
 import { getReplayWindow } from "../conversation-stream-state.js";
 import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import {
@@ -471,7 +472,22 @@ export function handleSubscribeAssistantEvents(
         // The client detects the gap from the seq jump on its first
         // live event and refetches via the existing messages API.
         if (lastSeenSeq != null && filter.conversationId) {
-          const window = getReplayWindow(filter.conversationId, lastSeenSeq);
+          const replaySubscriber: ReplaySubscriber =
+            clientId && interfaceId
+              ? {
+                  type: "client",
+                  clientId,
+                  interfaceId,
+                  capabilities: ALL_CAPABILITIES.filter((cap) =>
+                    supportsHostProxy(interfaceId, cap),
+                  ),
+                }
+              : { type: "process" };
+          const window = getReplayWindow(
+            filter.conversationId,
+            lastSeenSeq,
+            replaySubscriber,
+          );
           if (window !== null) {
             for (const replayed of window) {
               controller.enqueue(encoder.encode(formatSseFrame(replayed)));
