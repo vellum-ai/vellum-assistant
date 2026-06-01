@@ -1230,7 +1230,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "config_llm_profiles_replace",
     endpoint: "config/llm/profiles/:name",
     method: "PUT",
-    policy: null,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Replace an inference profile",
     description:
       "Replace the settings-UI-managed leaves of a single llm.profiles entry while preserving non-UI leaves.",
