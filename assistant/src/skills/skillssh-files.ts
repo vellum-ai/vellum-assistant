@@ -13,7 +13,6 @@
 import { basename } from "node:path";
 
 import type { SlimSkillResponse } from "../daemon/message-types/skills.js";
-import { inferCategory } from "./category-inference.js";
 import {
   isTextMimeType as isTextMime,
   MAX_INLINE_TEXT_SIZE,
@@ -25,6 +24,7 @@ import {
   sanitizeRelativePath,
   SKIP_DIRS,
 } from "./catalog-files.js";
+import { inferCategory } from "./category-inference.js";
 import type { SkillFileProvider } from "./skill-file-provider.js";
 import type { GitHubContentsEntry } from "./skillssh-registry.js";
 import {

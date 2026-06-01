@@ -15,9 +15,9 @@ import { basename } from "node:path";
 
 import type { SlimSkillResponse } from "../daemon/message-types/skills.js";
 import { isTextMimeType as isTextMime } from "../runtime/routes/workspace-utils.js";
-import { inferCategory } from "./category-inference.js";
 import { getLogger } from "../util/logger.js";
 import type { SkillFileEntry } from "./catalog-files.js";
+import { inferCategory } from "./category-inference.js";
 import {
   clawhubInspect,
   clawhubInspectFile,

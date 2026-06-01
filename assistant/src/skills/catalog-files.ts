@@ -30,7 +30,6 @@ import { basename, join, posix, sep } from "node:path";
 
 import { getPlatformBaseUrl } from "../config/env.js";
 import type { SlimSkillResponse } from "../daemon/message-types/skills.js";
-import { inferCategory } from "./category-inference.js";
 import {
   isTextMimeType as isTextMime,
   MAX_INLINE_TEXT_SIZE,
@@ -38,6 +37,7 @@ import {
 import { getLogger } from "../util/logger.js";
 import { getCachedCatalogSync, getCatalog } from "./catalog-cache.js";
 import { type CatalogSkill, getRepoSkillsDir } from "./catalog-install.js";
+import { inferCategory } from "./category-inference.js";
 import type { SkillFileProvider } from "./skill-file-provider.js";
 
 const log = getLogger("catalog-files");
