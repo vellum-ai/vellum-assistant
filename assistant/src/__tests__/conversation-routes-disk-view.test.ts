@@ -229,26 +229,11 @@ function createFakeConversation(conversationId: string): Conversation {
     },
     persistUserMessage(
       this: Conversation,
-      content: string,
-      attachments: Array<{
-        id: string;
-        filename: string;
-        mimeType: string;
-        data: string;
-        extractedText?: string;
-        filePath?: string;
-      }>,
-      requestId?: string,
-      metadata?: Record<string, unknown>,
-      displayContent?: string,
-    ): Promise<string> {
+      options: Parameters<typeof persistUserMessage>[1],
+    ): Promise<{ id: string; deduplicated: boolean }> {
       return persistUserMessage(
         this as Parameters<typeof persistUserMessage>[0],
-        content,
-        attachments,
-        requestId,
-        metadata,
-        displayContent,
+        options,
       );
     },
     async runAgentLoop(
@@ -297,7 +282,7 @@ function createFakeConversation(conversationId: string): Conversation {
         this.conversationId,
         "assistant",
         JSON.stringify(assistantMessage.content),
-        assistantMetadata,
+        { metadata: assistantMetadata },
       );
       this.messages.push(assistantMessage);
 

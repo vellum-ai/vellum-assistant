@@ -16,12 +16,22 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   AgentEvent,
-  CheckpointDecision,
-  CheckpointInfo,
+  AgentLoopRunOptions,
+  AgentLoopRunResult,
+  MidLoopCompaction,
 } from "../agent/loop.js";
 import type { LLMConfig } from "../config/schemas/llm.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  CompactionArgs,
+  CompactionResult,
+  TurnContext,
+} from "../plugins/types.js";
+import { PluginTimeoutError } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
@@ -435,12 +445,125 @@ import {
 type AgentLoopRun = (
   messages: Message[],
   onEvent: (event: AgentEvent) => void,
-  signal?: AbortSignal,
-  requestId?: string,
-  onCheckpoint?: (
-    checkpoint: CheckpointInfo,
-  ) => CheckpointDecision | Promise<CheckpointDecision>,
+  options?: AgentLoopRunOptions,
 ) => Promise<Message[]>;
+
+/**
+ * Faithful re-implementation of `AgentLoop.compact()` for the mock loop: run
+ * the compaction pipeline against the supplied turn context (which carries the
+ * test's `contextWindowManager`), invoke the orchestrator-supplied hooks, and
+ * return the continuation history — or `null` on timeout/exhaustion so the
+ * caller yields "budget".
+ */
+async function simulateInlineCompaction(
+  compaction: MidLoopCompaction,
+  history: Message[],
+  turnContext: TurnContext | undefined,
+  signal: AbortSignal | undefined,
+): Promise<Message[] | null> {
+  compaction.onCompacting?.();
+  const { rawHistory, options } = compaction.prepare(history);
+  let result: CompactionResult;
+  try {
+    result = await runPipeline<CompactionArgs, CompactionResult>(
+      "compaction",
+      getMiddlewaresFor("compaction"),
+      (args) => defaultCompactionTerminal(args, turnContext as TurnContext),
+      { messages: rawHistory, signal, options },
+      turnContext as TurnContext,
+      DEFAULT_TIMEOUTS.compaction,
+    );
+  } catch (error) {
+    if (error instanceof PluginTimeoutError) {
+      await compaction.onTimeout();
+      return null;
+    }
+    throw error;
+  }
+  const { exhausted } = await compaction.persist(result, rawHistory);
+  if (exhausted) {
+    return null;
+  }
+  return compaction.reinject();
+}
+
+/**
+ * Adapt a `Message[]`-returning mock loop body into `run()`'s real result
+ * shape. Mirrors the production loop: the pause-reason carried back is
+ * whatever the most recent `onCheckpoint` call yielded with (null when it
+ * never yielded), so the orchestrator derives its yield bookkeeping the same
+ * way it does against the real loop.
+ */
+const asAgentLoopRun = (
+  fn: AgentLoopRun,
+): ((
+  messages: Message[],
+  onEvent: (event: AgentEvent) => void | Promise<void>,
+  options?: AgentLoopRunOptions,
+) => Promise<AgentLoopRunResult>) => {
+  return async (messages, onEvent, options) => {
+    let exitReason: AgentLoopRunResult["exitReason"] = null;
+    let wrapped = options;
+    if (options?.onCheckpoint) {
+      const inner = options.onCheckpoint;
+      wrapped = {
+        ...options,
+        onCheckpoint: async (info) => {
+          // Handoff is offered first, mirroring the loop's ordering.
+          const decision = await inner(info);
+          if (decision !== "continue") {
+            exitReason = decision;
+            return decision;
+          }
+          // The mid-loop budget gate and inline compaction both live inside
+          // `AgentLoop.run`. Replicate them here — same formula, stubbed
+          // estimator, and the loop's own `compact()` ceremony — so these
+          // orchestrator tests drive the real escalation path now that the
+          // orchestrator's `onCheckpoint` is handoff-only and compaction
+          // runs inline rather than via an orchestrator re-entry loop.
+          const contextWindow = options.resolveContextWindow?.();
+          if (contextWindow?.overflowRecovery.enabled) {
+            const { maxInputTokens, overflowRecovery } = contextWindow;
+            const safetyMargin =
+              info.history.length > 50
+                ? Math.max(overflowRecovery.safetyMarginRatio, 0.15)
+                : overflowRecovery.safetyMarginRatio;
+            const preflightBudget = Math.floor(
+              maxInputTokens * (1 - safetyMargin),
+            );
+            const estimated =
+              typeof mockEstimateTokens === "function"
+                ? mockEstimateTokens(info.history)
+                : mockEstimateTokens;
+            if (estimated > preflightBudget * 0.85) {
+              // Mirror `AgentLoop.compact()`: when a compaction path is
+              // supplied, run it in place and continue; on timeout or
+              // exhaustion it returns null, so the loop yields "budget".
+              const compacted = options.compaction
+                ? await simulateInlineCompaction(
+                    options.compaction,
+                    info.history,
+                    options.turnContext,
+                    options.signal,
+                  )
+                : null;
+              if (compacted) {
+                exitReason = null;
+                return "continue";
+              }
+              exitReason = "budget";
+              return "budget";
+            }
+          }
+          exitReason = null;
+          return "continue";
+        },
+      };
+    }
+    const history = await fn(messages, onEvent, wrapped);
+    return { history, exitReason };
+  };
+};
 
 function makeCtx(
   overrides?: Partial<AgentLoopConversationContext> & {
@@ -467,7 +590,7 @@ function makeCtx(
     currentRequestId: "test-req",
 
     agentLoop: {
-      run: agentLoopRun,
+      run: asAgentLoopRun(agentLoopRun),
       getToolTokenBudget: () => 0,
       getResolvedTools: () => [],
       // Tests in this file don't exercise calibration, so returning
@@ -736,6 +859,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
       let agentLoopCallCount = 0;
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         agentLoopCallCount++;
         if (agentLoopCallCount === 1) {
           // Simulate: agent makes progress (tool calls + results added)
@@ -915,6 +1041,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     };
 
     const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       callCount++;
       if (callCount === 1) {
         // Provider rejects with "prompt is too long: 242201 tokens > 200000"
@@ -1037,6 +1166,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         callCount++;
         if (callCount === 1) {
           // Provider rejects: actual tokens 242201, way above estimate of 185k
@@ -1162,6 +1294,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       };
 
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         callCount++;
         onEvent({
           type: "message_complete",
@@ -1250,6 +1385,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
       let agentLoopCallCount = 0;
       const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         agentLoopCallCount++;
         if (agentLoopCallCount === 1) {
           // Agent makes progress (tool calls succeed, messages grow)
@@ -1434,13 +1572,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       };
 
       let agentLoopCallCount = 0;
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _requestId,
-        onCheckpoint,
-      ) => {
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         agentLoopCallCount++;
 
         if (agentLoopCallCount === 1) {
@@ -1497,14 +1632,14 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
           // Call onCheckpoint — this should trigger the mid-loop budget check
           // which sees 170_000 > 161_500 and returns "yield"
-          if (onCheckpoint) {
-            const decision = await onCheckpoint({
+          if (options?.onCheckpoint) {
+            const decision = await options.onCheckpoint({
               turnIndex: 0,
               toolCount: 1,
               hasToolUse: true,
               history: withProgress,
             });
-            if (decision === "yield") {
+            if (decision !== "continue") {
               // Agent loop stops when checkpoint yields
               return withProgress;
             }
@@ -1619,13 +1754,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       let agentLoopCallCount = 0;
       let contextTooLargeEmitted = false;
 
-      const agentLoopRun: AgentLoopRun = async (
-        messages,
-        onEvent,
-        _signal,
-        _requestId,
-        onCheckpoint,
-      ) => {
+      const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
+        // Prime the assistant row anchor — production code emits this from
+        // `AgentLoop.run` just before `provider.sendMessage`.
+        await onEvent({ type: "llm_call_started" });
         agentLoopCallCount++;
 
         if (agentLoopCallCount === 1) {
@@ -1671,14 +1803,14 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
               providerDurationMs: 100,
             });
 
-            if (onCheckpoint) {
-              const decision = await onCheckpoint({
+            if (options?.onCheckpoint) {
+              const decision = await options.onCheckpoint({
                 turnIndex: i,
                 toolCount: 1,
                 hasToolUse: true,
                 history: currentHistory,
               });
-              if (decision === "yield") {
+              if (decision !== "continue") {
                 return currentHistory;
               }
             }
@@ -1794,13 +1926,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     };
 
     let agentLoopCallCount = 0;
-    const agentLoopRun: AgentLoopRun = async (
-      messages,
-      onEvent,
-      _signal,
-      _requestId,
-      onCheckpoint,
-    ) => {
+    const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       agentLoopCallCount++;
 
       // Every call: simulate tool progress then yield at checkpoint
@@ -1855,14 +1984,14 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       });
 
       // Always yield at checkpoint — simulates compaction not helping
-      if (onCheckpoint) {
-        const decision = await onCheckpoint({
+      if (options?.onCheckpoint) {
+        const decision = await options.onCheckpoint({
           turnIndex: 0,
           toolCount: 1,
           hasToolUse: true,
           history: withProgress,
         });
-        if (decision === "yield") {
+        if (decision !== "continue") {
           return withProgress;
         }
       }
@@ -1893,9 +2022,15 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
         maybeCompact: async () => {
           compactionCallCount++;
-          // Compaction "succeeds" but doesn't actually shrink enough
+          // Compaction's internal retry budget is exhausted — the
+          // compactor itself ran maxAttempts passes and still couldn't
+          // drop below the auto-threshold. `maybeCompact` surfaces this
+          // via `exhausted: true` so the orchestrator escalates
+          // straight to the convergence loop instead of looping on a
+          // stuck compactor.
           return {
             compacted: true,
+            exhausted: true,
             messages: [
               {
                 role: "user" as const,
@@ -1920,16 +2055,167 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // 1 initial auto-compact + 3 mid-loop compaction attempts = 4 total
-    expect(compactionCallCount).toBe(4);
+    // 1 initial auto-compact + 1 mid-loop compaction = 2 total. The
+    // first mid-loop call surfaces `exhausted: true`, so the
+    // orchestrator escalates immediately without retrying maybeCompact
+    // — the retry budget for the compactor itself lives inside
+    // `ContextWindowManager.maybeCompact`.
+    expect(compactionCallCount).toBe(2);
 
-    // Agent loop: 1 initial + 3 mid-loop re-entries + 1 convergence re-run = 5 calls
-    expect(agentLoopCallCount).toBe(5);
+    // Agent loop: 1 initial + 1 convergence re-run = 2 calls. No
+    // mid-loop re-entries because the orchestrator broke out on
+    // `exhausted` before re-invoking the agent loop.
+    expect(agentLoopCallCount).toBe(2);
 
-    // After exhausting mid-loop attempts, the convergence loop should
-    // have been triggered (contextTooLargeDetected set to true)
+    // After the compactor exhausted itself, the convergence loop
+    // should have been triggered (contextTooLargeDetected set to true)
     expect(convergenceReducerCalled).toBe(true);
     expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
+      "test-conv",
+      "context_too_large",
+    );
+  });
+
+  // ── Test 8b ───────────────────────────────────────────────────────
+  // Counterpart to Test 8: when a mid-loop `maybeCompact` returns
+  // productive (`compacted: true`, no `exhausted` flag), the loop
+  // compacts in place and continues the run itself — it never yields
+  // "budget", so the orchestrator does not escalate to the convergence
+  // loop. Mid-loop iteration is now wholly internal to `AgentLoop.run`;
+  // the orchestrator only reacts to the binary `exhausted`/timeout
+  // signal carried back as a "budget" exit.
+  test("productive mid-loop compaction continues in place without escalating", async () => {
+    const events: ServerMessage[] = [];
+
+    // Budget = 200_000 * 0.95 = 190_000
+    // Mid-loop threshold = 190_000 * 0.85 = 161_500
+    let estimateCallCount = 0;
+    mockEstimateTokens = () => {
+      estimateCallCount++;
+      // Preflight: below budget.
+      if (estimateCallCount === 1) return 100_000;
+      // Every checkpoint estimate: above threshold — always trips the
+      // yield. Simulates a long turn where each tool call's result
+      // inflates the context past 85% even after a successful compaction.
+      return 170_000;
+    };
+
+    // A single tool round reaches one checkpoint; the in-loop budget
+    // gate trips there and compaction runs in place. The loop continues
+    // the run itself rather than handing control back, so the
+    // orchestrator invokes `run()` exactly once.
+    let agentLoopCallCount = 0;
+    const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
+      await onEvent({ type: "llm_call_started" });
+      agentLoopCallCount++;
+
+      const withProgress: Message[] = [
+        ...messages,
+        {
+          role: "assistant" as const,
+          content: [
+            { type: "text", text: `Tool call ${agentLoopCallCount}` },
+            {
+              type: "tool_use",
+              id: `tu-${agentLoopCallCount}`,
+              name: "bash",
+              input: { command: "ls" },
+            },
+          ] as ContentBlock[],
+        },
+        {
+          role: "user" as const,
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: `tu-${agentLoopCallCount}`,
+              content: "output",
+              is_error: false,
+            },
+          ] as ContentBlock[],
+        },
+      ];
+
+      onEvent({
+        type: "message_complete",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "text", text: `Tool call ${agentLoopCallCount}` },
+            {
+              type: "tool_use",
+              id: `tu-${agentLoopCallCount}`,
+              name: "bash",
+              input: { command: "ls" },
+            },
+          ],
+        },
+      });
+      onEvent({
+        type: "usage",
+        inputTokens: 100,
+        outputTokens: 50,
+        model: "test-model",
+        providerDurationMs: 100,
+      });
+
+      if (options?.onCheckpoint) {
+        await options.onCheckpoint({
+          turnIndex: 0,
+          toolCount: 1,
+          hasToolUse: true,
+          history: withProgress,
+        });
+      }
+
+      return withProgress;
+    };
+
+    // Compaction reports `estimatedInputTokens` well below the 161_500
+    // threshold — the "compaction is productive" signal (no `exhausted`
+    // flag) that lets the loop continue in place.
+    let compactionCallCount = 0;
+    const ctx = makeCtx({
+      agentLoopRun,
+      contextWindowManager: {
+        shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        maybeCompact: async () => {
+          compactionCallCount++;
+          return {
+            compacted: true,
+            messages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text", text: "Hello" }],
+              },
+            ] as Message[],
+            compactedPersistedMessages: 5,
+            summaryText: "Compaction summary",
+            previousEstimatedInputTokens: 170_000,
+            estimatedInputTokens: 100_000,
+            maxInputTokens: 200_000,
+            thresholdTokens: 160_000,
+            compactedMessages: 10,
+            summaryCalls: 1,
+            summaryInputTokens: 500,
+            summaryOutputTokens: 200,
+            summaryModel: "mock-model",
+          };
+        },
+      } as unknown as AgentLoopConversationContext["contextWindowManager"],
+    });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+    // 1 initial auto-compact + 1 productive mid-loop compaction. The
+    // loop continues in place after compacting, so the orchestrator
+    // never re-enters `run()` — it is invoked exactly once.
+    expect(compactionCallCount).toBe(2);
+    expect(agentLoopCallCount).toBe(1);
+
+    // No escalation to the convergence loop because the mid-loop
+    // `maybeCompact` returned productive (no `exhausted` flag).
+    expect(setAgentLoopExitReasonOnLatestLogMock).not.toHaveBeenCalledWith(
       "test-conv",
       "context_too_large",
     );
@@ -1955,13 +2241,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     };
 
     let agentLoopCallCount = 0;
-    const agentLoopRun: AgentLoopRun = async (
-      messages,
-      onEvent,
-      _signal,
-      _requestId,
-      onCheckpoint,
-    ) => {
+    const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       agentLoopCallCount++;
 
       const withProgress: Message[] = [
@@ -2015,14 +2298,14 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       });
 
       // Always yield at checkpoint — simulates reduction not helping enough
-      if (onCheckpoint) {
-        const decision = await onCheckpoint({
+      if (options?.onCheckpoint) {
+        const decision = await options.onCheckpoint({
           turnIndex: 0,
           toolCount: 1,
           hasToolUse: true,
           history: withProgress,
         });
-        if (decision === "yield") {
+        if (decision !== "continue") {
           return withProgress;
         }
       }
@@ -2063,6 +2346,11 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       agentLoopRun,
       contextWindowManager: {
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
+        // Under the new architecture (Compaction Re-homing Arc, Bullet 1)
+        // the retry budget lives inside `ContextWindowManager._maybeCompact`,
+        // so a single daemon-level call represents the full manager retry
+        // sequence. Signal `exhausted: true` immediately to escalate the
+        // mid-loop to the convergence reducer.
         maybeCompact: async () => ({
           compacted: true,
           messages: [
@@ -2082,6 +2370,7 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
           summaryInputTokens: 500,
           summaryOutputTokens: 200,
           summaryModel: "mock-model",
+          exhausted: true,
         }),
       } as unknown as AgentLoopConversationContext["contextWindowManager"],
     });
@@ -2092,8 +2381,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     // once more after yieldedForBudget triggered re-entry
     expect(reducerCallCount).toBe(2);
 
-    // Agent loop: 1 initial + 3 mid-loop re-entries + 2 convergence re-runs = 6 calls
-    expect(agentLoopCallCount).toBe(6);
+    // Agent loop: 1 initial + 2 convergence re-runs = 3 calls. The mid-loop
+    // no longer drives daemon-level retries — the manager owns its retry
+    // budget and signals exhaustion via the `exhausted` flag.
+    expect(agentLoopCallCount).toBe(3);
     expect(setAgentLoopExitReasonOnLatestLogMock).toHaveBeenCalledWith(
       "test-conv",
       "context_too_large",
@@ -2194,6 +2485,9 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     };
 
     const agentLoopRun: AgentLoopRun = async (messages, onEvent) => {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       onEvent({
         type: "message_complete",
         message: {
@@ -2290,13 +2584,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
     mockOverflowAction = "auto_compress_latest_turn";
 
     let agentLoopCallCount = 0;
-    const agentLoopRun: AgentLoopRun = async (
-      messages,
-      onEvent,
-      _signal,
-      _requestId,
-      onCheckpoint,
-    ) => {
+    const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
+      // Prime the assistant row anchor — production code emits this from
+      // `AgentLoop.run` just before `provider.sendMessage`.
+      await onEvent({ type: "llm_call_started" });
       agentLoopCallCount++;
 
       const withProgress: Message[] = [
@@ -2350,14 +2641,14 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       });
 
       // Every checkpoint yields — including the final auto_compress rerun.
-      if (onCheckpoint) {
-        const decision = await onCheckpoint({
+      if (options?.onCheckpoint) {
+        const decision = await options.onCheckpoint({
           turnIndex: 0,
           toolCount: 1,
           hasToolUse: true,
           history: withProgress,
         });
-        if (decision === "yield") {
+        if (decision !== "continue") {
           return withProgress;
         }
       }
@@ -2365,32 +2656,82 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       return withProgress;
     };
 
+    // `maybeCompact` is invoked through three distinct call sites:
+    //   1. Start-of-turn compaction (no `force` option) — return a no-op
+    //      so the start-of-turn pass doesn't perturb state. The mock's
+    //      `shouldCompact` already returns `needed: false`, but the
+    //      orchestrator still invokes the compaction pipeline.
+    //   2. Mid-loop after the initial agent-loop yield (`force: true`) —
+    //      must signal `exhausted: true` so the daemon escalates to the
+    //      convergence reducer instead of looping forever.
+    //   3. auto_compress_latest_turn emergency compaction (`force: true`,
+    //      `minKeepRecentUserTurns: 0`) — succeeds and drops tokens below
+    //      threshold; the subsequent rerun yields again and is classified
+    //      as BUDGET_YIELD_UNRECOVERED.
+    let forcedMaybeCompactCallCount = 0;
     const ctx = makeCtx({
       agentLoopRun,
       contextWindowManager: {
         shouldCompact: () => ({ needed: false, estimatedTokens: 0 }),
-        // The compaction pipeline (default terminal) routes through this
-        // for the emergency `auto_compress_latest_turn` path.
-        maybeCompact: async () => ({
-          compacted: true,
-          messages: [
-            {
-              role: "user" as const,
-              content: [{ type: "text", text: "compacted" }],
-            },
-          ] as Message[],
-          compactedPersistedMessages: 5,
-          summaryText: "Emergency summary",
-          previousEstimatedInputTokens: 170_000,
-          estimatedInputTokens: 90_000,
-          maxInputTokens: 200_000,
-          thresholdTokens: 160_000,
-          compactedMessages: 10,
-          summaryCalls: 1,
-          summaryInputTokens: 500,
-          summaryOutputTokens: 200,
-          summaryModel: "mock-model",
-        }),
+        maybeCompact: async (
+          _msgs: Message[],
+          _signal: AbortSignal,
+          opts?: { force?: boolean },
+        ) => {
+          // Start-of-turn calls pass no `force` option; route them to a
+          // no-op so only the mid-loop and emergency paths drive the test.
+          if (!opts?.force) {
+            return { compacted: false };
+          }
+          forcedMaybeCompactCallCount++;
+          if (forcedMaybeCompactCallCount === 1) {
+            // Mid-loop call — under the new architecture (Compaction
+            // Re-homing Arc, Bullet 1) the manager owns its own retry
+            // budget; signal exhaustion to escalate to convergence.
+            return {
+              compacted: true,
+              messages: [
+                {
+                  role: "user" as const,
+                  content: [{ type: "text", text: "mid-loop compacted" }],
+                },
+              ] as Message[],
+              compactedPersistedMessages: 5,
+              summaryText: "Mid-loop summary",
+              previousEstimatedInputTokens: 170_000,
+              estimatedInputTokens: 165_000,
+              maxInputTokens: 200_000,
+              thresholdTokens: 160_000,
+              compactedMessages: 10,
+              summaryCalls: 1,
+              summaryInputTokens: 500,
+              summaryOutputTokens: 200,
+              summaryModel: "mock-model",
+              exhausted: true,
+            };
+          }
+          // Emergency compaction call from auto_compress_latest_turn.
+          return {
+            compacted: true,
+            messages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text", text: "compacted" }],
+              },
+            ] as Message[],
+            compactedPersistedMessages: 5,
+            summaryText: "Emergency summary",
+            previousEstimatedInputTokens: 170_000,
+            estimatedInputTokens: 90_000,
+            maxInputTokens: 200_000,
+            thresholdTokens: 160_000,
+            compactedMessages: 10,
+            summaryCalls: 1,
+            summaryInputTokens: 500,
+            summaryOutputTokens: 200,
+            summaryModel: "mock-model",
+          };
+        },
       } as unknown as AgentLoopConversationContext["contextWindowManager"],
     });
 

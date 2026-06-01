@@ -12,10 +12,6 @@
  * IPC, and converts the result back into an HTTP Response.
  */
 
-import {
-  getIpcRoutePolicy,
-  type IpcRoutePolicy,
-} from "../../auth/ipc-route-policy.js";
 import { resolveScopeProfile } from "../../auth/scopes.js";
 import { parseSub } from "../../auth/subject.js";
 import { validateEdgeToken } from "../../auth/token-exchange.js";
@@ -26,7 +22,11 @@ import {
   IpcTransportError,
   ipcCallAssistant,
 } from "../../ipc/assistant-client.js";
-import { matchRoute } from "../../ipc/route-schema-cache.js";
+import {
+  getCachedRoutePolicy,
+  matchRoute,
+  type RouteSchemaPolicy,
+} from "../../ipc/route-schema-cache.js";
 import { getLogger } from "../../logger.js";
 
 const log = getLogger("ipc-runtime-proxy");
@@ -98,7 +98,28 @@ export async function tryIpcProxy(
   }
 
   // --- Policy enforcement --------------------------------------------------
-  const policy = getIpcRoutePolicy(match.operationId);
+  // The policy comes straight from the daemon's route schema (see
+  // `assistant/src/ipc/routes/route-adapter.ts`). The daemon is the single
+  // source of truth; the gateway no longer maintains a parallel table.
+  // `undefined` means the schema knows the route but didn't include a
+  // policy field — treat as fail-closed (should be impossible because
+  // `matchRoute` succeeded against the same schema, but defensive).
+  const policy = getCachedRoutePolicy(match.operationId);
+  if (policy === undefined) {
+    log.warn(
+      { path: pathname, operationId: match.operationId },
+      "IPC proxy: matched route has no policy entry in cache; rejecting",
+    );
+    return Response.json(
+      {
+        error: {
+          code: "FORBIDDEN",
+          message: "Policy unavailable for this route",
+        },
+      },
+      { status: 403 },
+    );
+  }
   const policyDenied = enforceRoutePolicy(policy, claims, pathname);
   if (policyDenied) return policyDenied;
 
@@ -240,7 +261,7 @@ export async function tryIpcProxy(
  * Returns a 403 Response when denied, null when allowed.
  */
 function enforceRoutePolicy(
-  policy: IpcRoutePolicy | undefined,
+  policy: RouteSchemaPolicy | null,
   claims: TokenClaims | undefined,
   path: string,
 ): Response | null {
@@ -288,8 +309,13 @@ function enforceRoutePolicy(
     }
   }
 
-  // Check required scopes.
-  const scopes = resolveScopeProfile(claims.scope_profile);
+  // Check required scopes. The daemon ships scopes as plain strings; we
+  // compare them against the resolved scope-profile set as strings — an
+  // unknown scope string from the daemon will simply not match anything
+  // in the set, denying access.
+  const scopes = resolveScopeProfile(
+    claims.scope_profile,
+  ) as ReadonlySet<string>;
   for (const required of policy.requiredScopes) {
     if (!scopes.has(required)) {
       log.warn(

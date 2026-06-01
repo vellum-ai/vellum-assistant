@@ -121,25 +121,18 @@ const CATALOG_RECORD: CatalogRecord = {
       "Selects which concept pages to inject for the next agent turn by routing over a cached page index.",
     domain: "memory",
   },
-  memoryV3Filter: {
-    id: "memoryV3Filter",
-    displayName: "Memory V3 Filter",
+  memoryV3RouteL1: {
+    id: "memoryV3RouteL1",
+    displayName: "Memory V3 L1 Router",
     description:
-      "Cheaply filters the V3 multi-lane candidate set before descent.",
+      "Picks which leaves of the topic tree to open for the next agent turn by routing over a cache-warm static leaf block.",
     domain: "memory",
   },
-  memoryV3Descent: {
-    id: "memoryV3Descent",
-    displayName: "Memory V3 Descent",
+  memoryV3SelectL2: {
+    id: "memoryV3SelectL2",
+    displayName: "Memory V3 L2 Selector",
     description:
-      "Drives the V3 bounded-descent traversal through the memory tree.",
-    domain: "memory",
-  },
-  memoryV3Gate: {
-    id: "memoryV3Gate",
-    displayName: "Memory V3 Gate",
-    description:
-      "Final capable gate that decides which V3 candidates are injected for the next turn.",
+      "Selects which pages within an opened topic-tree leaf are relevant for the next agent turn, one bounded call per leaf over a cache-warm static page block.",
     domain: "memory",
   },
   memoryV2Consolidation: {

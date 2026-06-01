@@ -12,7 +12,7 @@ import { useNavigate, useParams } from "react-router";
 import { Loader2 } from "lucide-react";
 import { Typography } from "@vellum/design-library";
 
-import { useAssistantContext } from "@/components/layout/assistant-context";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
@@ -36,7 +36,7 @@ import {
 export function DocumentViewerPage() {
   const { surfaceId } = useParams<{ surfaceId: string }>();
   const navigate = useNavigate();
-  const { assistantId } = useAssistantContext();
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
 
   const [doc, setDoc] = useState<DocumentContent | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,11 +45,14 @@ export function DocumentViewerPage() {
   const viewerRef = useRef<DocumentViewerContainerHandle>(null);
 
   useEffect(() => {
-    if (!surfaceId || !assistantId) {
-      setError(!surfaceId ? "No document ID provided." : "No assistant loaded.");
+    if (!surfaceId) {
+      setError("No document ID provided.");
       setLoading(false);
       return;
     }
+    // Wait for the selection store to resolve before fetching — on cold nav
+    // assistantId starts null and the lifecycle hook fills it asynchronously.
+    if (!assistantId) return;
 
     let cancelled = false;
     void (async () => {
@@ -73,7 +76,7 @@ export function DocumentViewerPage() {
     return () => {
       cancelled = true;
     };
-  }, [surfaceId]);
+  }, [surfaceId, assistantId]);
 
   // -------------------------------------------------------------------------
   // SSE subscription for real-time comment events

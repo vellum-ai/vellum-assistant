@@ -5,7 +5,7 @@ import { useSearchParams, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { toast } from "@vellum/design-library/components/toast";
-import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/index";
+import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
 import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal";
 import { BillingPanel } from "@/domains/settings/components/billing-panel";
 import { BillingPortalReturnHandler } from "@/domains/settings/components/billing-portal-return-handler";

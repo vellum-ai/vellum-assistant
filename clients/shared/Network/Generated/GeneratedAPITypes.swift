@@ -6061,14 +6061,6 @@ public struct ProviderConnectionAuth: Codable, Sendable {
     }
 }
 
-/// Status of a provider connection. `active` (default) means the connection
-/// is offered in picker UIs. `disabled` hides it from pickers but keeps it
-/// visible in the settings sheet so the user can re-enable it.
-public enum ConnectionStatus: String, Codable, Sendable {
-    case active
-    case disabled
-}
-
 /// A model entry exposed by an openai-compatible provider connection.
 public struct ConnectionModel: Codable, Sendable {
     public let id: String
@@ -6086,7 +6078,6 @@ public struct ProviderConnection: Codable, Sendable {
     /// One of: `anthropic`, `openai`, `gemini`, `ollama`, `fireworks`, `openrouter`.
     public let provider: String
     public let auth: ProviderConnectionAuth
-    public let status: ConnectionStatus
     public let label: String?
     public let createdAt: Int
     public let updatedAt: Int
@@ -6101,11 +6092,10 @@ public struct ProviderConnection: Codable, Sendable {
     /// Model entries exposed by an openai-compatible provider connection.
     public let models: [ConnectionModel]?
 
-    public init(name: String, provider: String, auth: ProviderConnectionAuth, status: ConnectionStatus = .active, label: String? = nil, createdAt: Int, updatedAt: Int, isManaged: Bool = false, baseUrl: String? = nil, models: [ConnectionModel]? = nil) {
+    public init(name: String, provider: String, auth: ProviderConnectionAuth, label: String? = nil, createdAt: Int, updatedAt: Int, isManaged: Bool = false, baseUrl: String? = nil, models: [ConnectionModel]? = nil) {
         self.name = name
         self.provider = provider
         self.auth = auth
-        self.status = status
         self.label = label
         self.createdAt = createdAt
         self.updatedAt = updatedAt
@@ -6114,17 +6104,15 @@ public struct ProviderConnection: Codable, Sendable {
         self.models = models
     }
 
-    /// Decodes responses from daemons that predate the `status` or `isManaged`
-    /// fields. `status` defaults to `.active`; `isManaged` defaults to `false`.
-    /// Mixed-version setups (the app explicitly supports them via
-    /// version-mismatch handling) would otherwise throw `keyNotFound` and
-    /// silently strand the Providers UI.
+    /// Decodes responses from daemons that predate the `isManaged` field.
+    /// `isManaged` defaults to `false`. Mixed-version setups (the app
+    /// explicitly supports them via version-mismatch handling) would otherwise
+    /// throw `keyNotFound` and silently strand the Providers UI.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.name = try container.decode(String.self, forKey: .name)
         self.provider = try container.decode(String.self, forKey: .provider)
         self.auth = try container.decode(ProviderConnectionAuth.self, forKey: .auth)
-        self.status = try container.decodeIfPresent(ConnectionStatus.self, forKey: .status) ?? .active
         self.label = try container.decodeIfPresent(String.self, forKey: .label)
         self.createdAt = try container.decode(Int.self, forKey: .createdAt)
         self.updatedAt = try container.decode(Int.self, forKey: .updatedAt)
@@ -6149,26 +6137,22 @@ public struct CreateProviderConnectionRequest: Codable, Sendable {
     public let provider: String
     public let auth: ProviderConnectionAuth
     public let label: String?
-    public let status: ConnectionStatus?
 
-    public init(name: String, provider: String, auth: ProviderConnectionAuth, label: String? = nil, status: ConnectionStatus? = nil) {
+    public init(name: String, provider: String, auth: ProviderConnectionAuth, label: String? = nil) {
         self.name = name
         self.provider = provider
         self.auth = auth
         self.label = label
-        self.status = status
     }
 }
 
 /// Request body for `PATCH /v1/inference/provider-connections/:name`.
 public struct UpdateProviderConnectionRequest: Codable, Sendable {
     public let auth: ProviderConnectionAuth
-    public let status: ConnectionStatus?
     public let label: String?
 
-    public init(auth: ProviderConnectionAuth, status: ConnectionStatus? = nil, label: String? = nil) {
+    public init(auth: ProviderConnectionAuth, label: String? = nil) {
         self.auth = auth
-        self.status = status
         self.label = label
     }
 }

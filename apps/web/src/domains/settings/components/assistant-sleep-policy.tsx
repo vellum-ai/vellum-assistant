@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { toast } from "@vellum/design-library/components/toast";
-import { useEnvironmentStore } from "@/lib/environment/environment-store";
+import { useEnvironmentStore } from "@/stores/environment-store";
 import {
   assistantsSleepPolicyDetailReadOptions,
   assistantsSleepPolicyDetailReadQueryKey,

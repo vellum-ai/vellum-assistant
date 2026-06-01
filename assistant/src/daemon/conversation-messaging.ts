@@ -26,6 +26,7 @@ import {
 } from "../memory/attachments-store.js";
 import {
   addMessage,
+  extractImageSourcePaths,
   getConversation,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
@@ -284,22 +285,44 @@ export function buildSlackMetaForPersistence(params: {
   return writeSlackMetadata(slackMeta);
 }
 
+// ── EnqueueMessageOptions ────────────────────────────────────────────
+
+/** Options for `enqueueMessage`. Only `content` is required; everything
+ *  else has a sensible default or is genuinely optional. */
+export interface EnqueueMessageOptions {
+  content: string;
+  attachments?: UserMessageAttachment[];
+  onEvent?: (msg: ServerMessage) => void;
+  requestId?: string;
+  activeSurfaceId?: string;
+  currentPage?: string;
+  metadata?: Record<string, unknown>;
+  isInteractive?: boolean;
+  displayContent?: string;
+  transport?: ConversationTransportMetadata;
+  clientMessageId?: string;
+}
+
 // ── enqueueMessage ───────────────────────────────────────────────────
 
 export function enqueueMessage(
   ctx: MessagingConversationContext,
-  content: string,
-  attachments: UserMessageAttachment[],
-  onEvent: (msg: ServerMessage) => void,
-  requestId: string,
-  activeSurfaceId?: string,
-  currentPage?: string,
-  metadata?: Record<string, unknown>,
-  options?: { isInteractive?: boolean },
-  displayContent?: string,
-  transport?: ConversationTransportMetadata,
-  clientMessageId?: string,
+  options: EnqueueMessageOptions,
 ): { queued: boolean; requestId: string; rejected?: boolean } {
+  const {
+    content,
+    attachments = [],
+    onEvent,
+    requestId = crypto.randomUUID(),
+    activeSurfaceId,
+    currentPage,
+    metadata,
+    isInteractive,
+    displayContent,
+    transport,
+    clientMessageId,
+  } = options;
+
   if (!ctx.processing) {
     return { queued: false, requestId };
   }
@@ -316,20 +339,20 @@ export function enqueueMessage(
     content,
     attachments,
     requestId,
-    onEvent,
+    onEvent: onEvent ?? (() => {}),
     activeSurfaceId,
     currentPage,
     metadata,
     turnChannelContext,
     turnInterfaceContext,
-    isInteractive: options?.isInteractive,
+    isInteractive,
     transport,
     displayContent,
     sentAt: Date.now(),
     clientMessageId,
   });
   if (!accepted) {
-    onEvent({
+    onEvent?.({
       type: "error",
       conversationId: ctx.conversationId,
       message:
@@ -341,16 +364,26 @@ export function enqueueMessage(
   return { queued: true, requestId };
 }
 
+// ── PersistMessageOptions ────────────────────────────────────────────
+
+/** Shared options for `persistUserMessage` and `persistQueuedMessageBody`. */
+export interface PersistMessageOptions {
+  content: string;
+  attachments?: UserMessageAttachment[];
+  requestId?: string;
+  metadata?: Record<string, unknown>;
+  displayContent?: string;
+  clientMessageId?: string;
+}
+
 // ── persistUserMessage ───────────────────────────────────────────────
 
 export async function persistUserMessage(
   ctx: MessagingConversationContext,
-  content: string,
-  attachments: UserMessageAttachment[],
-  requestId?: string,
-  metadata?: Record<string, unknown>,
-  displayContent?: string,
-): Promise<string> {
+  options: PersistMessageOptions,
+): Promise<{ id: string; deduplicated: boolean }> {
+  const { content, attachments = [] } = options;
+
   if (ctx.processing) {
     throw new Error("Conversation is already processing a message");
   }
@@ -359,20 +392,23 @@ export async function persistUserMessage(
     throw new Error("Message content or attachments are required");
   }
 
-  const reqId = requestId ?? uuid();
+  const reqId = options.requestId ?? uuid();
   ctx.currentRequestId = reqId;
   ctx.processing = true;
   ctx.abortController = new AbortController();
 
   try {
-    return await persistQueuedMessageBody(
-      ctx,
-      content,
+    const result = await persistQueuedMessageBody(ctx, {
+      ...options,
       attachments,
-      reqId,
-      metadata,
-      displayContent,
-    );
+      requestId: reqId,
+    });
+    if (result.deduplicated) {
+      ctx.processing = false;
+      ctx.abortController = null;
+      ctx.currentRequestId = undefined;
+    }
+    return result;
   } catch (err) {
     ctx.processing = false;
     ctx.abortController = null;
@@ -394,12 +430,16 @@ export async function persistUserMessage(
  */
 export async function persistQueuedMessageBody(
   ctx: MessagingConversationContext,
-  content: string,
-  attachments: UserMessageAttachment[],
-  requestId: string,
-  metadata: Record<string, unknown> | undefined,
-  displayContent: string | undefined,
-): Promise<string> {
+  options: PersistMessageOptions,
+): Promise<{ id: string; deduplicated: boolean }> {
+  const {
+    content,
+    attachments = [],
+    requestId = uuid(),
+    metadata,
+    displayContent,
+    clientMessageId,
+  } = options;
   const attachmentInputs = attachments.map((attachment) => ({
     id: attachment.id,
     filename: attachment.filename,
@@ -431,13 +471,7 @@ export async function persistQueuedMessageBody(
     const turnIfCtx =
       extractTurnInterfaceContext(metadata) ?? ctx.getTurnInterfaceContext();
     const provenance = provenanceFromTrustContext(ctx.trustContext);
-    const imageSourcePaths: Record<string, string> = {};
-    for (let i = 0; i < attachments.length; i++) {
-      const a = attachments[i];
-      if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
-        imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
-      }
-    }
+    const imageSourcePaths = extractImageSourcePaths(attachments);
 
     // Strip the transient `slackInbound` carrier key from the persisted
     // metadata — it's an in-memory plumbing field, not a stored column value.
@@ -468,7 +502,7 @@ export async function persistQueuedMessageBody(
             assistantMessageInterface: turnIfCtx.assistantMessageInterface,
           }
         : {}),
-      ...(Object.keys(imageSourcePaths).length > 0 ? { imageSourcePaths } : {}),
+      ...(imageSourcePaths ? { imageSourcePaths } : {}),
       ...(slackMeta ? { slackMeta } : {}),
     };
 
@@ -485,8 +519,13 @@ export async function persistQueuedMessageBody(
       ctx.conversationId,
       "user",
       contentToPersist,
-      mergedMetadata,
+      { metadata: mergedMetadata, clientMessageId },
     );
+
+    if (persistedUserMessage.deduplicated) {
+      ctx.messages.pop();
+      return { id: persistedUserMessage.id, deduplicated: true };
+    }
 
     if (turnCtx) {
       setConversationOriginChannelIfUnset(
@@ -569,7 +608,7 @@ export async function persistQueuedMessageBody(
       );
     }
 
-    return persistedUserMessage.id;
+    return { id: persistedUserMessage.id, deduplicated: false };
   } catch (err) {
     ctx.messages.pop();
     throw err;

@@ -6,10 +6,14 @@ This directory holds reconnaissance notes for specific source assistants. Each f
 
 | Assistant | Reference                  |
 | --------- | -------------------------- |
+| ChatGPT   | [chatgpt.md](chatgpt.md)   |
+| Claude    | [claude.md](claude.md)     |
 | Hermes    | [hermes.md](hermes.md)     |
 | OpenClaw  | [openclaw.md](openclaw.md) |
 
 Add a file here when onboarding a new source assistant. Keep the shape consistent so the skill can pivot off the same structure each time.
+
+ChatGPT conversation history is delegated to the separate `chatgpt-import` skill, which owns the export-and-parse flow; `chatgpt.md` covers only ChatGPT's non-conversation material.
 
 ## Optimized Flow: tar-and-transport
 

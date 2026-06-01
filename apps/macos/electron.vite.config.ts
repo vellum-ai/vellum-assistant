@@ -1,3 +1,5 @@
+import { execSync } from "node:child_process";
+
 import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 
 // Reference: https://electron-vite.org/config/
@@ -13,9 +15,27 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 // CJS interop is handled correctly at bundle time.
 const ESM_ONLY_DEPS_TO_INLINE = ["electron-store", "conf"];
 
+// Resolved at config-evaluation time and inlined into the main bundle via
+// Vite's `define`. Prefer the CI-provided GITHUB_SHA (7-char prefix);
+// fall back to `git rev-parse --short HEAD` on a developer checkout; emit
+// "unknown" when neither is available (e.g. building from a tarball).
+const resolveBuildSha = (): string => {
+  if (process.env.GITHUB_SHA) return process.env.GITHUB_SHA.slice(0, 7);
+  try {
+    return execSync("git rev-parse --short HEAD", { encoding: "utf8" }).trim();
+  } catch {
+    return "unknown";
+  }
+};
+
+const BUILD_SHA_DEFINE = {
+  __VELLUM_BUILD_SHA__: JSON.stringify(resolveBuildSha()),
+};
+
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin({ exclude: ESM_ONLY_DEPS_TO_INLINE })],
+    define: BUILD_SHA_DEFINE,
     build: {
       outDir: "out/main",
       lib: {

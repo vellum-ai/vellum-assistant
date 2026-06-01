@@ -695,21 +695,18 @@ export async function runAssistantDrivenCompaction(
 
   let response: ProviderResponse;
   try {
-    response = await args.provider.sendMessage(
-      requestMessages,
-      args.tools,
-      args.systemPrompt,
-      {
-        signal: args.signal,
-        config: {
-          callSite: COMPACTION_CALL_SITE,
-          usageTracking: "manual",
-          ...(args.overrideProfile
-            ? { overrideProfile: args.overrideProfile }
-            : {}),
-        },
+    response = await args.provider.sendMessage(requestMessages, {
+      tools: args.tools,
+      systemPrompt: args.systemPrompt,
+      signal: args.signal,
+      config: {
+        callSite: COMPACTION_CALL_SITE,
+        usageTracking: "manual",
+        ...(args.overrideProfile
+          ? { overrideProfile: args.overrideProfile }
+          : {}),
       },
-    );
+    });
   } catch (err) {
     log.warn({ err }, "Compaction provider call failed");
     return {
@@ -1068,21 +1065,18 @@ export async function runEmergencyCompaction(
 
   let response: ProviderResponse;
   try {
-    response = await args.provider.sendMessage(
-      requestMessages,
-      args.tools,
-      args.systemPrompt,
-      {
-        signal: args.signal,
-        config: {
-          callSite: COMPACTION_CALL_SITE,
-          usageTracking: "manual",
-          ...(args.overrideProfile
-            ? { overrideProfile: args.overrideProfile }
-            : {}),
-        },
+    response = await args.provider.sendMessage(requestMessages, {
+      tools: args.tools,
+      systemPrompt: args.systemPrompt,
+      signal: args.signal,
+      config: {
+        callSite: COMPACTION_CALL_SITE,
+        usageTracking: "manual",
+        ...(args.overrideProfile
+          ? { overrideProfile: args.overrideProfile }
+          : {}),
       },
-    );
+    });
   } catch (err) {
     log.warn({ err }, "Emergency compaction provider call failed");
     return {

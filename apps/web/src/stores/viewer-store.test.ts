@@ -89,19 +89,14 @@ describe("handleAppLoadFailed", () => {
 });
 
 describe("closeApp", () => {
-  it("clears app state and resets minimized", () => {
-    useViewerStore.setState({ activeAppId: "app-1", openedAppState: SAMPLE_APP, isAppMinimized: true });
+  it("resets to chat view, clears app state, and resets minimized", () => {
+    useViewerStore.setState({ mainView: "app", activeAppId: "app-1", openedAppState: SAMPLE_APP, isAppMinimized: true });
     getState().closeApp();
     const state = getState();
+    expect(state.mainView).toBe("chat");
     expect(state.activeAppId).toBeNull();
     expect(state.openedAppState).toBeNull();
     expect(state.isAppMinimized).toBe(false);
-  });
-
-  it("does not change mainView (caller decides)", () => {
-    useViewerStore.setState({ mainView: "app" });
-    getState().closeApp();
-    expect(getState().mainView).toBe("app");
   });
 });
 
@@ -121,8 +116,9 @@ describe("toggleAppMinimized", () => {
 describe("handleAppUnpinned", () => {
   it("resets to chat when the pinned app matches the active app in 'app' view", () => {
     useViewerStore.setState({ mainView: "app", activeAppId: "app-1", openedAppState: SAMPLE_APP });
-    getState().handleAppUnpinned("app-1");
+    const didClose = getState().handleAppUnpinned("app-1");
     const state = getState();
+    expect(didClose).toBe(true);
     expect(state.mainView).toBe("chat");
     expect(state.activeAppId).toBeNull();
     expect(state.openedAppState).toBeNull();
@@ -130,20 +126,23 @@ describe("handleAppUnpinned", () => {
 
   it("resets when in app-editing view", () => {
     useViewerStore.setState({ mainView: "app-editing", activeAppId: "app-1" });
-    getState().handleAppUnpinned("app-1");
+    const didClose = getState().handleAppUnpinned("app-1");
+    expect(didClose).toBe(true);
     expect(getState().mainView).toBe("chat");
   });
 
   it("is a no-op when appId does not match", () => {
     useViewerStore.setState({ mainView: "app", activeAppId: "app-1" });
-    getState().handleAppUnpinned("app-2");
+    const didClose = getState().handleAppUnpinned("app-2");
+    expect(didClose).toBe(false);
     expect(getState().mainView).toBe("app");
     expect(getState().activeAppId).toBe("app-1");
   });
 
   it("is a no-op when not in app or app-editing view", () => {
     useViewerStore.setState({ mainView: "chat", activeAppId: "app-1" });
-    getState().handleAppUnpinned("app-1");
+    const didClose = getState().handleAppUnpinned("app-1");
+    expect(didClose).toBe(false);
     expect(getState().mainView).toBe("chat");
     expect(getState().activeAppId).toBe("app-1");
   });

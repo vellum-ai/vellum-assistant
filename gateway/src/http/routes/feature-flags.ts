@@ -2,10 +2,7 @@ import {
   loadFeatureFlagDefaults,
   isFlagDeclared,
 } from "../../feature-flag-defaults.js";
-import {
-  hasRemoteFeatureFlagSnapshot,
-  readRemoteFeatureFlags,
-} from "../../feature-flag-remote-store.js";
+import { readRemoteFeatureFlags } from "../../feature-flag-remote-store.js";
 import {
   readPersistedFeatureFlags,
   writeFeatureFlag,
@@ -33,20 +30,20 @@ export function createFeatureFlagsGetHandler() {
       const defaults = loadFeatureFlagDefaults();
       const persisted = readPersistedFeatureFlags();
       const remote = readRemoteFeatureFlags();
-      const hasRemoteSnapshot = hasRemoteFeatureFlagSnapshot();
 
-      // Build entries for ALL declared flags, merging persisted values
+      // Build entries for ALL declared flags, merging persisted values.
       const entries: FeatureFlagEntry[] = [];
       for (const [key, def] of Object.entries(defaults)) {
         const persistedValue = persisted[key];
+        const remoteValue = remote[key];
         entries.push({
           key,
           label: def.label,
           enabled:
             persistedValue !== undefined
               ? persistedValue
-              : hasRemoteSnapshot
-                ? (remote[key] ?? false)
+              : remoteValue !== undefined
+                ? remoteValue
                 : def.defaultEnabled,
           defaultEnabled: def.defaultEnabled,
           description: def.description,

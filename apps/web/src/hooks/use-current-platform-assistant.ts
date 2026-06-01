@@ -19,6 +19,12 @@ export interface UseCurrentPlatformAssistantResult {
   platformAssistants: Assistant[];
 }
 
+/**
+ * Resolves and manages the active platform-hosted assistant for the
+ * current organization. Fetches the platform assistant list, persists
+ * the user's selection per-org, and auto-selects the first assistant
+ * when no prior selection exists.
+ */
 export function useCurrentPlatformAssistant(): UseCurrentPlatformAssistantResult {
   const orgId = useOrganizationStore.use.currentOrganizationId();
   const byOrg = useCurrentPlatformAssistantStore.use.byOrg();

@@ -3,8 +3,8 @@ import { mock } from "bun:test";
 import { QueryClient } from "@tanstack/react-query";
 
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { TurnActions, TurnState } from "@/domains/messaging/turn-store";
-import { INITIAL_TURN_STATE } from "@/domains/messaging/turn-store";
+import type { TurnActions, TurnState } from "@/domains/chat/turn-store";
+import { INITIAL_TURN_STATE } from "@/domains/chat/turn-store";
 
 /** Build a minimal mock StreamHandlerContext with spies on every callback. */
 export function makeCtx(
@@ -16,7 +16,6 @@ export function makeCtx(
     streamContextRef: {
       current: { assistantId: "ast-1", conversationId: "conv-1" },
     },
-    activeConversationIdRef: { current: "conv-1" },
     assistantIdRef: { current: "ast-1" },
     setMessages: mock(() => {}),
     messagesRef: { current: [] },
@@ -50,7 +49,7 @@ export function makeCtx(
       deleteQueuedMessage: mock(() => {}),
     } satisfies TurnActions,
     getTurnState: () => ({ ...INITIAL_TURN_STATE }) as TurnState,
-    clearProcessingKey: mock(() => {}),
+    endTurn: mock(() => {}),
     setError: mock(() => {}),
     streamRef: { current: { cancel: mock(() => {}) } as never },
     cancelReconciliation: mock(() => {}),
@@ -63,9 +62,6 @@ export function makeCtx(
     scheduleConversationListRefetch: mock(() => {}),
     queryClient: new QueryClient(),
     setCompactionCircuitOpenUntil: mock(() => {}),
-    applyDiskPressureStatusEvent: mock(() => {}),
-    refreshAssistantIdentity: mock(() => Promise.resolve()),
-    invalidateAvatar: mock(() => {}),
     pendingQueuedMessageIdsRef: { current: [] },
     requestIdToMessageIdRef: { current: new Map() },
     pendingLocalDeletionsRef: { current: new Set() },

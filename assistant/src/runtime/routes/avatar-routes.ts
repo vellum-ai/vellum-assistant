@@ -26,6 +26,7 @@ import {
   getAvatarImagePath,
   getWorkspaceDir,
 } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { publishAvatarChanged } from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
@@ -260,6 +261,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "avatar_character_components",
     endpoint: "avatar/character-components",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleGetCharacterComponents,
     summary: "Get character components",
     description: "Return available avatar character components.",
@@ -269,6 +274,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "avatar_render_from_traits",
     endpoint: "avatar/render-from-traits",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleRenderFromTraits,
     summary: "Render avatar from traits",
     description: "Write character traits and render an avatar PNG.",
@@ -286,6 +295,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "notify_avatar_updated",
     endpoint: "avatar/notify-updated",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: ({ headers }: RouteHandlerArgs) => {
       publishAvatarChanged(headers?.["x-vellum-client-id"]?.trim() || undefined);
       return { ok: true };
@@ -301,6 +314,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "avatar_generate",
     endpoint: "avatar/generate",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleGenerateAvatar,
     summary: "Generate AI avatar",
     description: "Generate an AI avatar from a text description and save it.",
@@ -312,6 +329,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "avatar_set",
     endpoint: "avatar/set",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleSetAvatar,
     summary: "Set avatar from image file",
     description: "Copy an image file to the avatar location.",
@@ -323,6 +344,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "avatar_remove",
     endpoint: "avatar/remove",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleRemoveAvatar,
     summary: "Remove custom avatar",
     description:
@@ -334,6 +359,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "avatar_get",
     endpoint: "avatar/get",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleGetAvatar,
     summary: "Get current avatar",
     description: "Retrieve the current avatar as a file path or base64 string.",
@@ -350,6 +379,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "avatar_character_ascii",
     endpoint: "avatar/character/ascii",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleCharacterAscii,
     summary: "Render character as ASCII art",
     description: "Render the current native character as ASCII art.",

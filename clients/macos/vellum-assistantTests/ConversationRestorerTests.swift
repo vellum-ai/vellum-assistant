@@ -123,10 +123,10 @@ private struct NoopConversationHistoryClient: ConversationHistoryClientProtocol 
 }
 
 private actor RecordingConversationListClient: ConversationListClientProtocol {
-    private(set) var fetchRequests: [(offset: Int, limit: Int, conversationType: String?)] = []
+    private(set) var fetchRequests: [(offset: Int, limit: Int, conversationType: String?, archiveStatus: String?)] = []
 
-    func fetchConversationList(offset: Int, limit: Int, conversationType: String?) async -> ConversationListResponse? {
-        fetchRequests.append((offset: offset, limit: limit, conversationType: conversationType))
+    func fetchConversationList(offset: Int, limit: Int, conversationType: String?, archiveStatus: String?) async -> ConversationListResponse? {
+        fetchRequests.append((offset: offset, limit: limit, conversationType: conversationType, archiveStatus: archiveStatus))
         return ConversationListResponse(
             type: "conversation_list_response",
             conversations: [],
@@ -150,19 +150,37 @@ private actor RecordingConversationListClient: ConversationListClientProtocol {
 /// total is exhausted) so tests can verify the restorer drains every page
 /// instead of stopping at the first.
 private actor PagedConversationListClient: ConversationListClientProtocol {
-    private let totalsByType: [String?: Int]
-    private(set) var fetchRequests: [(offset: Int, limit: Int, conversationType: String?)] = []
+    /// Total rows per (conversationType, archiveStatus) bucket. The archived
+    /// bucket is keyed on `archiveStatus == "archived"` (with
+    /// `conversationType == nil`); everything else keys on
+    /// `conversationType` with `archiveStatus == nil`.
+    private let totalForeground: Int
+    private let totalBackground: Int
+    private let totalArchived: Int
+    private(set) var fetchRequests: [(offset: Int, limit: Int, conversationType: String?, archiveStatus: String?)] = []
 
-    init(totalForeground: Int, totalBackground: Int) {
-        self.totalsByType = [nil: totalForeground, "background": totalBackground]
+    init(totalForeground: Int, totalBackground: Int, totalArchived: Int = 0) {
+        self.totalForeground = totalForeground
+        self.totalBackground = totalBackground
+        self.totalArchived = totalArchived
     }
 
-    func fetchConversationList(offset: Int, limit: Int, conversationType: String?) async -> ConversationListResponse? {
-        fetchRequests.append((offset: offset, limit: limit, conversationType: conversationType))
-        let total = totalsByType[conversationType] ?? 0
+    func fetchConversationList(offset: Int, limit: Int, conversationType: String?, archiveStatus: String?) async -> ConversationListResponse? {
+        fetchRequests.append((offset: offset, limit: limit, conversationType: conversationType, archiveStatus: archiveStatus))
+        let total: Int
+        let prefix: String
+        if archiveStatus == "archived" {
+            total = totalArchived
+            prefix = "archived"
+        } else if conversationType == "background" {
+            total = totalBackground
+            prefix = "background"
+        } else {
+            total = totalForeground
+            prefix = "fg"
+        }
         let remaining = max(0, total - offset)
         let pageCount = min(remaining, limit)
-        let prefix = conversationType ?? "fg"
         let items: [ConversationListResponseItem] = (0..<pageCount).map { i in
             let dict: [String: Any] = [
                 "id": "\(prefix)-\(offset + i)",
@@ -960,7 +978,10 @@ struct ConversationRestorerTests {
         #expect(restorer.pendingHistoryByConversationId["conv-inactive"] == nil)
 
         try? await Task.sleep(nanoseconds: 500_000_000)
-        #expect(await listClient.fetchRequests.count == 2)
+        // Three parallel streams on cold restore: foreground (active),
+        // background (active), and archived. See
+        // `fetchConversationList` in ConversationRestorer.swift.
+        #expect(await listClient.fetchRequests.count == 3)
     }
 
     @Test @MainActor
@@ -982,21 +1003,66 @@ struct ConversationRestorerTests {
         // pagination loop enough time to drain both endpoints.
         try? await Task.sleep(nanoseconds: 1_500_000_000)
 
-        // Foreground: 450 rows -> ceil(450/200) = 3 pages (offsets 0, 200, 400).
+        // Foreground (archiveStatus == nil → daemon active default): 450 rows
+        // -> ceil(450/200) = 3 pages (offsets 0, 200, 400).
         // Background: 700 rows -> ceil(700/200) = 4 pages (offsets 0, 200, 400, 600).
+        // Archived: 0 rows -> 1 page (the empty response terminates the loop).
         let requests = await listClient.fetchRequests
-        let foregroundRequests = requests.filter { $0.conversationType == nil }
+        let foregroundRequests = requests.filter {
+            $0.conversationType == nil && $0.archiveStatus == nil
+        }
         let backgroundRequests = requests.filter { $0.conversationType == "background" }
+        let archivedRequests = requests.filter { $0.archiveStatus == "archived" }
         #expect(foregroundRequests.count == 3)
         #expect(backgroundRequests.count == 4)
+        #expect(archivedRequests.count == 1)
         #expect(foregroundRequests.map(\.offset) == [0, 200, 400])
         #expect(backgroundRequests.map(\.offset) == [0, 200, 400, 600])
+        #expect(archivedRequests.allSatisfy { $0.archiveStatus == "archived" })
 
         // After draining, every row from both endpoints should be present and
         // the sidebar's "Load More" affordance should be disabled.
         #expect(delegate.conversations.count == 1150)
         #expect(delegate.hasMoreConversations == false)
         #expect(delegate.serverOffset == 450)
+    }
+
+    @Test @MainActor
+    func fetchConversationListMergesArchivedStream() async {
+        let dc = GatewayConnectionManager()
+        let listClient = PagedConversationListClient(
+            totalForeground: 10,
+            totalBackground: 5,
+            totalArchived: 7
+        )
+        let restorer = ConversationRestorer(
+            connectionManager: dc,
+            eventStreamClient: dc.eventStreamClient,
+            conversationHistoryClient: NoopConversationHistoryClient(),
+            conversationListClient: listClient
+        )
+        let delegate = MockConversationRestorerDelegate(connectionManager: dc, eventStreamClient: dc.eventStreamClient)
+        restorer.delegate = delegate
+
+        restorer.scheduleInvalidationRefetch()
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
+
+        let requests = await listClient.fetchRequests
+        let archivedRequests = requests.filter { $0.archiveStatus == "archived" }
+        // Archived: 7 rows -> 1 page (totalArchived <= pageSize).
+        #expect(archivedRequests.count == 1)
+        // Foreground stream is unaware of archived rows — pass `archiveStatus`
+        // explicitly only when the caller wants archived.
+        let foregroundRequests = requests.filter {
+            $0.conversationType == nil && $0.archiveStatus == nil
+        }
+        #expect(foregroundRequests.allSatisfy { $0.archiveStatus == nil })
+
+        // Merged: 10 foreground + 5 background + 7 archived = 22 rows.
+        #expect(delegate.conversations.count == 22)
+        // serverOffset reflects the foreground DB cursor only — archived rows
+        // don't shift the loadMore offset.
+        #expect(delegate.serverOffset == 10)
     }
 
     @Test @MainActor

@@ -85,11 +85,15 @@ export function SetupStep({
   maxTier,
   onBack,
   onAdvance,
+  dotIndex,
+  dotTotal,
 }: {
   storageGib: number | null;
   maxTier: MachineTierEnum | null;
   onBack: () => void;
   onAdvance: () => void;
+  dotIndex: number;
+  dotTotal: number;
 }) {
   const { data: activeAssistant } = useQuery(assistantsActiveRetrieveOptions());
   const currentSize = (activeAssistant?.machine_size as MachineSizeEnum) || "small";
@@ -194,7 +198,7 @@ export function SetupStep({
           Back
         </Button>
         <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-          <StepDots current={0} />
+          <StepDots current={dotIndex} total={dotTotal} />
         </div>
         <div className="flex gap-2">
           <Button

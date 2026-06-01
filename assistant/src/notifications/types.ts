@@ -45,6 +45,12 @@ export interface NotificationDeliveryResult {
 export interface DeliveryResult {
   success: boolean;
   error?: string;
+  /**
+   * Channel-native message identifier captured at send time (e.g. Slack `ts`).
+   * Persisted onto `notification_deliveries.messageId` so later edits can
+   * target the same message via `ChannelAdapter.update()`.
+   */
+  messageId?: string;
 }
 
 /** Resolved destination for a specific channel. */
@@ -91,6 +97,16 @@ export interface ChannelDeliveryPayload {
   urgency: AttentionHints["urgency"];
 }
 
+/**
+ * Patch supplied when an already-delivered notification is edited.
+ * Adapters only need to act on `title` and `body` — feed-only fields
+ * like `urgency` and `status` are handled by the home-feed patch.
+ */
+export interface ChannelUpdatePayload {
+  title?: string;
+  body?: string;
+}
+
 /** Interface that each channel adapter must implement. */
 export interface ChannelAdapter {
   channel: NotificationChannel;
@@ -98,6 +114,27 @@ export interface ChannelAdapter {
     payload: ChannelDeliveryPayload,
     destination: ChannelDestination,
   ): Promise<DeliveryResult>;
+  /**
+   * Optional: edit a previously-sent message in place. Channels that
+   * cannot edit (push, email, SMS) omit this and the router treats
+   * them as `"unsupported"`. Adapters that implement it use
+   * `delivery.messageId` (captured at send time) as the channel-native
+   * handle for the in-place update.
+   */
+  update?(
+    delivery: ChannelUpdateContext,
+    patch: ChannelUpdatePayload,
+  ): Promise<DeliveryResult>;
+}
+
+/** Per-delivery state an adapter needs to update a previously-sent message. */
+export interface ChannelUpdateContext {
+  /** notification_deliveries.id */
+  deliveryId: string;
+  /** Channel-native destination (e.g. Slack chat id). */
+  destination: string;
+  /** Channel-native message identifier captured at send time. */
+  messageId: string | null;
 }
 
 // -- Decision engine output ---------------------------------------------------

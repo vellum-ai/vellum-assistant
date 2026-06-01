@@ -51,8 +51,7 @@ mock.module("@anthropic-ai/sdk", () => ({
           _options?: Record<string, unknown>,
         ) => {
           lastStreamParams = JSON.parse(JSON.stringify(params));
-          const handlers: Record<string, ((...args: unknown[]) => void)[]> =
-            {};
+          const handlers: Record<string, ((...args: unknown[]) => void)[]> = {};
           return {
             on(event: string, cb: (...args: unknown[]) => void) {
               (handlers[event] ??= []).push(cb);
@@ -74,6 +73,7 @@ mock.module("@anthropic-ai/sdk", () => ({
 
 // Import after mocking
 import { AnthropicProvider } from "../providers/anthropic/client.js";
+import { isNativeWebSearchCapableProvider } from "../providers/registry.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -98,6 +98,34 @@ const sampleTools: ToolDefinition[] = [
     },
   },
 ];
+
+describe("Native Web Search — Selection Semantics", () => {
+  test("only native-capable inference providers/models request provider-native web search", () => {
+    expect(
+      isNativeWebSearchCapableProvider("anthropic", "claude-opus-4-7"),
+    ).toBe(true);
+    expect(isNativeWebSearchCapableProvider("openai", "gpt-5")).toBe(true);
+    expect(
+      isNativeWebSearchCapableProvider(
+        "openrouter",
+        "anthropic/claude-opus-4-7",
+      ),
+    ).toBe(true);
+
+    expect(
+      isNativeWebSearchCapableProvider(
+        "fireworks",
+        "accounts/fireworks/models/kimi-k2p6",
+      ),
+    ).toBe(false);
+    expect(isNativeWebSearchCapableProvider("gemini", "gemini-3.1-pro")).toBe(
+      false,
+    );
+    expect(isNativeWebSearchCapableProvider("openrouter", "openai/gpt-5")).toBe(
+      false,
+    );
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Tests — Round-trip: fromAnthropicBlock
@@ -296,7 +324,7 @@ describe("Native Web Search — Tool Filtering", () => {
       useNativeWebSearch: true,
     });
 
-    await provider.sendMessage([userMsg("Hi")], sampleTools);
+    await provider.sendMessage([userMsg("Hi")], { tools: sampleTools });
 
     const tools = lastStreamParams!.tools as Array<Record<string, unknown>>;
 
@@ -323,7 +351,7 @@ describe("Native Web Search — Tool Filtering", () => {
       useNativeWebSearch: false,
     });
 
-    await provider.sendMessage([userMsg("Hi")], sampleTools);
+    await provider.sendMessage([userMsg("Hi")], { tools: sampleTools });
 
     const tools = lastStreamParams!.tools as Array<Record<string, unknown>>;
 
@@ -357,7 +385,9 @@ describe("Native Web Search — Tool Filtering", () => {
       },
     ];
 
-    await provider.sendMessage([userMsg("Hi")], toolsWithoutWebSearch);
+    await provider.sendMessage([userMsg("Hi")], {
+      tools: toolsWithoutWebSearch,
+    });
 
     const tools = lastStreamParams!.tools as Array<Record<string, unknown>>;
     expect(tools).toHaveLength(1);
@@ -370,7 +400,7 @@ describe("Native Web Search — Tool Filtering", () => {
       useNativeWebSearch: true,
     });
 
-    await provider.sendMessage([userMsg("Hi")], sampleTools);
+    await provider.sendMessage([userMsg("Hi")], { tools: sampleTools });
 
     const tools = lastStreamParams!.tools as Array<{
       name: string;
@@ -417,14 +447,10 @@ describe("Native Web Search — Streaming Events", () => {
     ];
 
     const events: ProviderEvent[] = [];
-    await provider.sendMessage(
-      [userMsg("Search something")],
-      sampleTools,
-      undefined,
-      {
-        onEvent: (event) => events.push(event),
-      },
-    );
+    await provider.sendMessage([userMsg("Search something")], {
+      tools: sampleTools,
+      onEvent: (event) => events.push(event),
+    });
 
     const serverToolEvents = events.filter(
       (e) => e.type === "server_tool_start",
@@ -456,14 +482,10 @@ describe("Native Web Search — Streaming Events", () => {
     ];
 
     const events: ProviderEvent[] = [];
-    await provider.sendMessage(
-      [userMsg("Read a file")],
-      sampleTools,
-      undefined,
-      {
-        onEvent: (event) => events.push(event),
-      },
-    );
+    await provider.sendMessage([userMsg("Read a file")], {
+      tools: sampleTools,
+      onEvent: (event) => events.push(event),
+    });
 
     const serverToolEvents = events.filter(
       (e) => e.type === "server_tool_start",

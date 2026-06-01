@@ -14,7 +14,12 @@ describe("handleMessageQueued", () => {
       pendingQueuedMessageIdsRef: { current: ["stable-1"] },
     });
     handleMessageQueued(
-      { type: "message_queued", requestId: "req-1", position: 2 },
+      {
+        type: "message_queued",
+        conversationId: "conv-1",
+        requestId: "req-1",
+        position: 2,
+      },
       ctx,
     );
     expect(ctx.turnActions.enqueueMessage).toHaveBeenCalled();
@@ -27,7 +32,12 @@ describe("handleMessageQueued", () => {
       pendingQueuedMessageIdsRef: { current: [] },
     });
     handleMessageQueued(
-      { type: "message_queued", requestId: "req-1", position: 0 },
+      {
+        type: "message_queued",
+        conversationId: "conv-1",
+        requestId: "req-1",
+        position: 0,
+      },
       ctx,
     );
     expect(ctx.setMessages).not.toHaveBeenCalled();
@@ -39,7 +49,12 @@ describe("handleMessageQueued", () => {
       pendingLocalDeletionsRef: { current: new Set(["stable-1"]) },
     });
     handleMessageQueued(
-      { type: "message_queued", requestId: "req-1", position: 0 },
+      {
+        type: "message_queued",
+        conversationId: "conv-1",
+        requestId: "req-1",
+        position: 0,
+      },
       ctx,
     );
     expect(ctx.pendingLocalDeletionsRef.current.has("stable-1")).toBe(false);
@@ -52,7 +67,11 @@ describe("handleMessageDequeued", () => {
     const ctx = makeCtx();
     ctx.requestIdToMessageIdRef.current.set("req-1", "stable-1");
     handleMessageDequeued(
-      { type: "message_dequeued", requestId: "req-1" },
+      {
+        type: "message_dequeued",
+        conversationId: "conv-1",
+        requestId: "req-1",
+      },
       ctx,
     );
     expect(ctx.turnActions.dequeueMessage).toHaveBeenCalled();
@@ -63,7 +82,11 @@ describe("handleMessageDequeued", () => {
   it("skips setMessages when no messageId mapping exists", () => {
     const ctx = makeCtx();
     handleMessageDequeued(
-      { type: "message_dequeued", requestId: "unknown" },
+      {
+        type: "message_dequeued",
+        conversationId: "conv-1",
+        requestId: "unknown",
+      },
       ctx,
     );
     expect(ctx.turnActions.dequeueMessage).toHaveBeenCalled();
@@ -76,7 +99,11 @@ describe("handleMessageQueuedDeleted", () => {
     const ctx = makeCtx();
     ctx.requestIdToMessageIdRef.current.set("req-1", "stable-1");
     handleMessageQueuedDeleted(
-      { type: "message_queued_deleted", requestId: "req-1" },
+      {
+        type: "message_queued_deleted",
+        conversationId: "conv-1",
+        requestId: "req-1",
+      },
       ctx,
     );
     expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalled();
@@ -87,7 +114,11 @@ describe("handleMessageQueuedDeleted", () => {
   it("skips setMessages when no messageId mapping exists", () => {
     const ctx = makeCtx();
     handleMessageQueuedDeleted(
-      { type: "message_queued_deleted", requestId: "unknown" },
+      {
+        type: "message_queued_deleted",
+        conversationId: "conv-1",
+        requestId: "unknown",
+      },
       ctx,
     );
     expect(ctx.turnActions.deleteQueuedMessage).toHaveBeenCalled();
@@ -99,7 +130,11 @@ describe("handleMessageRequestComplete", () => {
   it("is an intentional no-op", () => {
     const ctx = makeCtx();
     handleMessageRequestComplete(
-      { type: "message_request_complete", requestId: "req-1" },
+      {
+        type: "message_request_complete",
+        conversationId: "conv-1",
+        requestId: "req-1",
+      },
       ctx,
     );
     expect(ctx.setMessages).not.toHaveBeenCalled();

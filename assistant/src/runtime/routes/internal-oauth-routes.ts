@@ -10,6 +10,7 @@ import {
   consumeCallback,
   consumeCallbackError,
 } from "../../security/oauth-callback-registry.js";
+import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -18,6 +19,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "internal_oauth_callback",
     endpoint: "internal/oauth/callback",
     method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Internal OAuth callback",
     description:
       "Receives forwarded OAuth callback results (code or error) from the gateway and resolves the pending callback in the runtime.",

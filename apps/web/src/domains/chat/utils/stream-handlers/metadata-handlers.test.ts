@@ -1,24 +1,30 @@
 import { describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
-import { conversationsQueryKey } from "@/domains/conversations/conversation-queries";
-import type { Conversation } from "@/types/conversation-types";
+
 import {
   handleUsageUpdate,
-  handleConversationTitleUpdated,
   handleCompactionCircuitOpen,
   handleCompactionCircuitClosed,
-  handleDiskPressureStatusChanged,
-  handleIdentityChanged,
-  handleAvatarUpdated,
 } from "@/domains/chat/utils/stream-handlers/metadata-handlers";
+
+const baseUsage = {
+  type: "usage_update",
+  conversationId: "conv-1",
+  inputTokens: 100,
+  outputTokens: 50,
+  totalInputTokens: 100,
+  totalOutputTokens: 50,
+  estimatedCost: 0.0021,
+  model: "claude-sonnet-4",
+} as const;
 
 describe("handleUsageUpdate", () => {
   it("computes fill ratio and updates context window usage", () => {
     const ctx = makeCtx();
     handleUsageUpdate(
       {
-        type: "usage_update",
+        ...baseUsage,
         contextWindowTokens: 5000,
         contextWindowMaxTokens: 10000,
       },
@@ -36,19 +42,13 @@ describe("handleUsageUpdate", () => {
 
   it("returns early for non-finite token counts", () => {
     const ctx = makeCtx();
-    handleUsageUpdate(
-      { type: "usage_update", contextWindowTokens: undefined },
-      ctx,
-    );
+    handleUsageUpdate({ ...baseUsage, contextWindowTokens: undefined }, ctx);
     expect(ctx.setContextWindowUsage).not.toHaveBeenCalled();
   });
 
   it("sets fillRatio to null when maxTokens is missing", () => {
     const ctx = makeCtx();
-    handleUsageUpdate(
-      { type: "usage_update", contextWindowTokens: 5000 },
-      ctx,
-    );
+    handleUsageUpdate({ ...baseUsage, contextWindowTokens: 5000 }, ctx);
     expect(
       ctx.contextWindowUsageByConversationRef.current.get("conv-1"),
     ).toEqual({
@@ -62,45 +62,15 @@ describe("handleUsageUpdate", () => {
     const ctx = makeCtx();
     handleUsageUpdate(
       {
-        type: "usage_update",
+        ...baseUsage,
         contextWindowTokens: 20000,
         contextWindowMaxTokens: 10000,
       },
       ctx,
     );
     expect(
-      ctx.contextWindowUsageByConversationRef.current.get("conv-1")
-        ?.fillRatio,
+      ctx.contextWindowUsageByConversationRef.current.get("conv-1")?.fillRatio,
     ).toBe(1);
-  });
-});
-
-describe("handleConversationTitleUpdated", () => {
-  it("patches conversation title in the conversations query cache", () => {
-    const ctx = makeCtx();
-    ctx.queryClient.setQueryData<Conversation[]>(
-      conversationsQueryKey(ctx.assistantIdRef.current),
-      [
-        { conversationId: "conv-1", title: "Old Title" } as Conversation,
-      ],
-    );
-
-    handleConversationTitleUpdated(
-      {
-        type: "conversation_title_updated",
-        conversationId: "conv-1",
-        title: "New Title",
-      },
-      ctx,
-    );
-
-    const cached = ctx.queryClient.getQueryData<Conversation[]>(
-      conversationsQueryKey(ctx.assistantIdRef.current),
-    );
-    const conv = cached?.find(
-      (c) => c.conversationId === "conv-1",
-    );
-    expect(conv?.title).toBe("New Title");
   });
 });
 
@@ -111,7 +81,7 @@ describe("handleCompactionCircuitOpen", () => {
       {
         type: "compaction_circuit_open",
         conversationId: "conv-1",
-        reason: "test",
+        reason: "3_consecutive_failures",
         openUntil: Date.now() + 60000,
       },
       ctx,
@@ -128,32 +98,5 @@ describe("handleCompactionCircuitClosed", () => {
       ctx,
     );
     expect(ctx.setCompactionCircuitOpenUntil).toHaveBeenCalledWith(null);
-  });
-});
-
-describe("handleDiskPressureStatusChanged", () => {
-  it("delegates to applyDiskPressureStatusEvent", () => {
-    const ctx = makeCtx();
-    handleDiskPressureStatusChanged(
-      { type: "disk_pressure_status_changed", status: null },
-      ctx,
-    );
-    expect(ctx.applyDiskPressureStatusEvent).toHaveBeenCalledWith(null);
-  });
-});
-
-describe("handleIdentityChanged", () => {
-  it("calls refreshAssistantIdentity with force=true", () => {
-    const ctx = makeCtx();
-    handleIdentityChanged({ type: "identity_changed" }, ctx);
-    expect(ctx.refreshAssistantIdentity).toHaveBeenCalledWith(true);
-  });
-});
-
-describe("handleAvatarUpdated", () => {
-  it("calls invalidateAvatar", () => {
-    const ctx = makeCtx();
-    handleAvatarUpdated({ type: "avatar_updated" }, ctx);
-    expect(ctx.invalidateAvatar).toHaveBeenCalled();
   });
 });

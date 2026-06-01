@@ -3,7 +3,7 @@ import { Loader2 } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 
 import { DetailCard } from "@/components/detail-card";
-import { DeviceRow } from "@/domains/settings/components/devices/device-row";
+import { DeviceRow } from "@/domains/settings/components/device-row";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { Assistant } from "@/generated/api/types.gen";
 

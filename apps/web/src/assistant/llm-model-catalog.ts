@@ -22,6 +22,15 @@ export interface LlmCatalogModel {
 export const MODELS_BY_PROVIDER = {
   anthropic: [
     {
+      id: "claude-opus-4-8",
+      displayName: "Claude Opus 4.8",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
       id: "claude-opus-4-7",
       displayName: "Claude Opus 4.7",
       contextWindowTokens: 1_000_000,
@@ -226,6 +235,15 @@ export const MODELS_BY_PROVIDER = {
     },
   ],
   openrouter: [
+    {
+      id: "anthropic/claude-opus-4.8",
+      displayName: "Claude Opus 4.8",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
     {
       id: "anthropic/claude-opus-4.7",
       displayName: "Claude Opus 4.7",

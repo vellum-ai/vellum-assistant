@@ -1495,6 +1495,26 @@ public struct ChatAttachment: Identifiable {
         self.filePath = filePath
         self.rawData = rawData
     }
+
+    /// Returns a copy with a different `id`, preserving all other fields.
+    /// Used to reconcile an optimistic client-local attachment ID with the
+    /// canonical daemon-assigned ID returned from upload, so lazy-load fetch
+    /// resolves against the daemon instead of 404ing on the unknown local ID.
+    public func withId(_ newId: String) -> ChatAttachment {
+        ChatAttachment(
+            id: newId,
+            filename: filename,
+            mimeType: mimeType,
+            data: data,
+            thumbnailData: thumbnailData,
+            dataLength: dataLength,
+            sizeBytes: sizeBytes,
+            thumbnailImage: thumbnailImage,
+            filePath: filePath,
+            sourceType: sourceType,
+            rawData: rawData
+        )
+    }
 }
 
 /// Tracks the state of a guardian decision prompt displayed in chat.

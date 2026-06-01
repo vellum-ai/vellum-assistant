@@ -7,6 +7,7 @@
  */
 
 import type pino from "pino";
+import { v4 as uuid } from "uuid";
 
 import type { AgentEvent } from "../agent/loop.js";
 import type {
@@ -16,12 +17,16 @@ import type {
 import { getConfig } from "../config/loader.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
 import { getCalibrationProviderKey } from "../context/token-estimator.js";
+import { projectAssistantMessage } from "../memory/conversation-attention-store.js";
 import {
+  deleteMessageById,
   getConversation,
   getMessageById,
+  messageMetadataSchema,
   provenanceFromTrustContext,
   updateMessageContent,
 } from "../memory/conversation-crud.js";
+import { indexMessageNow } from "../memory/indexer.js";
 import {
   backfillMessageIdOnLogs,
   buildProviderErrorResponsePayload,
@@ -36,17 +41,18 @@ import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
-import { defaultPersistenceTerminal } from "../plugins/defaults/persistence.js";
+import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/terminal.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
-  PersistAddResult,
   PersistArgs,
+  PersistReserveResult,
   PersistResult,
   TurnContext,
 } from "../plugins/types.js";
 import type { ContentBlock, ImageContent } from "../providers/types.js";
 import { isContextOverflowError } from "../providers/types.js";
+import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
 import {
@@ -61,21 +67,36 @@ import {
   cleanAssistantContent,
   drainDirectiveDisplayBuffer,
 } from "./assistant-attachments.js";
-import type { AgentLoopConversationContext } from "./conversation-agent-loop.js";
+import type {
+  AgentLoopConversationContext,
+  AssistantSurface,
+} from "./conversation-agent-loop.js";
 import {
   buildConversationErrorMessage,
   classifyConversationError,
   isContextTooLarge,
+  maxTokensReachedClassification,
 } from "./conversation-error.js";
 import { isProviderOrderingError } from "./conversation-slash.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
-import type { ServerMessage } from "./message-protocol.js";
+import type {
+  CardSurfaceData,
+  ServerMessage,
+  SurfaceAction,
+  UiSurfaceShow,
+} from "./message-protocol.js";
+import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import type {
   WebSearchMetadata,
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
 
 const log = getLogger("agent-loop-handlers");
+
+// ── Partial-persistence tunables ─────────────────────────────────────
+// Debounce for mid-turn `updateContent` writes from text deltas.
+// Indexer + projector still fire ONLY at `handleMessageComplete`.
+const PARTIAL_PERSIST_DEBOUNCE_MS = 1000;
 
 /**
  * Build a {@link TurnContext} from the handler's deps for pipeline logging
@@ -149,6 +170,21 @@ export interface EventHandlerState {
   contextTooLargeError: unknown;
   providerErrorUserMessage: string | null;
   lastAssistantMessageId: string | undefined;
+  /**
+   * True when `handleLlmCallStarted` has reserved an empty assistant row
+   * that has NOT yet been finalized via `handleMessageComplete`
+   * (`op:"updateContent"` + indexing + projection). Used by error/retry
+   * paths to detect a stranded reservation that must be cleaned up
+   * before the next LLM call reserves a fresh row — without it, every
+   * retryable failure (overflow, ordering, image overflow) and every
+   * terminal provider rejection would leak an empty assistant bubble
+   * into the transcript and mispoint downstream sync/projection.
+   *
+   * Cleared by `handleMessageComplete` on successful finalize, and by
+   * the synthetic-error branch in `conversation-agent-loop.ts` after it
+   * absorbs the reserved row into the error message.
+   */
+  assistantRowAwaitingFinalization: boolean;
   readonly pendingToolResults: Map<string, PendingToolResult>;
   readonly persistedToolUseIds: Set<string>;
   readonly accumulatedDirectives: DirectiveRequest[];
@@ -157,7 +193,6 @@ export interface EventHandlerState {
   readonly toolContentBlockToolNames: Map<number, string>;
   readonly directiveWarnings: string[];
   readonly toolUseIdToName: Map<string, string>;
-  currentTurnToolNames: string[];
   /** Sticky for the whole run: this turn created/refreshed an app. */
   appBuildToolUsedThisRun: boolean;
   /** Tracks whether the first text delta has been emitted this turn for activity state transitions. */
@@ -211,6 +246,12 @@ export interface EventHandlerState {
   readonly serverToolStartedAt: Map<string, number>;
   /** Original input from server_tool_start, keyed by tool_use_id, so the complete handler can read the query. */
   readonly serverToolInputs: Map<string, Record<string, unknown>>;
+  /** Active debounce timer for partial persistence; `undefined` when idle. */
+  pendingPartialFlushTimer: ReturnType<typeof setTimeout> | undefined;
+  /** In-flight partial flush write awaited at finalize to avoid overwrite races. */
+  pendingPartialFlushPromise: Promise<void> | undefined;
+  /** Running mirror of the in-flight assistant message's content. */
+  currentMessageContent: ContentBlock[];
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -249,6 +290,7 @@ export function createEventHandlerState(): EventHandlerState {
     contextTooLargeError: null,
     providerErrorUserMessage: null,
     lastAssistantMessageId: undefined,
+    assistantRowAwaitingFinalization: false,
     pendingToolResults: new Map(),
     persistedToolUseIds: new Set(),
     accumulatedDirectives: [],
@@ -256,7 +298,6 @@ export function createEventHandlerState(): EventHandlerState {
     toolContentBlockToolNames: new Map(),
     directiveWarnings: [],
     toolUseIdToName: new Map(),
-    currentTurnToolNames: [],
     appBuildToolUsedThisRun: false,
     firstTextDeltaEmitted: false,
     firstThinkingDeltaEmitted: false,
@@ -270,7 +311,116 @@ export function createEventHandlerState(): EventHandlerState {
     turnStartedAt: Date.now(),
     serverToolStartedAt: new Map(),
     serverToolInputs: new Map(),
+    pendingPartialFlushTimer: undefined,
+    pendingPartialFlushPromise: undefined,
+    currentMessageContent: [],
   };
+}
+
+// ── Partial-persistence helpers ──────────────────────────────────────
+
+/** Canonical persisted-content build: clean → append surfaces → redact. */
+function buildPersistedAssistantContent(
+  rawBlocks: readonly ContentBlock[],
+  surfaces: readonly AssistantSurface[],
+): ContentBlock[] {
+  const { cleanedContent } = cleanAssistantContent(rawBlocks);
+  const cleaned = cleanedContent as ContentBlock[];
+  const withSurfaces: ContentBlock[] = [...cleaned];
+  for (const surface of surfaces) {
+    withSurfaces.push({
+      type: "ui_surface",
+      surfaceId: surface.surfaceId,
+      surfaceType: surface.surfaceType,
+      title: surface.title,
+      data: surface.data,
+      actions: surface.actions,
+      display: surface.display,
+      ...(surface.persistent ? { persistent: true } : {}),
+    } as unknown as ContentBlock);
+  }
+  return withSurfaces.map((block) => {
+    if (block.type === "text") {
+      const tb = block as Extract<ContentBlock, { type: "text" }>;
+      return { ...tb, text: redactSecrets(tb.text) };
+    }
+    return block;
+  });
+}
+
+/** Append a streamed text chunk to `state.currentMessageContent`, fusing into tail text block. */
+function appendTextToCurrentMessage(
+  state: EventHandlerState,
+  text: string,
+): void {
+  if (text.length === 0) return;
+  const tail = state.currentMessageContent.at(-1);
+  if (tail && tail.type === "text") {
+    tail.text = tail.text + text;
+  } else {
+    state.currentMessageContent.push({ type: "text", text });
+  }
+}
+
+/** Reset partial-persist accumulator and any pending flush state. Idempotent. */
+function resetPartialPersistAccumulator(state: EventHandlerState): void {
+  if (state.pendingPartialFlushTimer !== undefined) {
+    clearTimeout(state.pendingPartialFlushTimer);
+    state.pendingPartialFlushTimer = undefined;
+  }
+  state.currentMessageContent = [];
+  state.pendingPartialFlushPromise = undefined;
+}
+
+/** Flush `state.currentMessageContent` to the row via the persistence pipeline. */
+async function flushAccumulatedContent(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): Promise<void> {
+  const messageId = state.lastAssistantMessageId;
+  if (messageId === undefined) return;
+  if (state.currentMessageContent.length === 0) return;
+
+  const built = buildPersistedAssistantContent(state.currentMessageContent, []);
+  const contentJson = JSON.stringify(built);
+
+  try {
+    await runPipeline<PersistArgs, PersistResult>(
+      "persistence",
+      getMiddlewaresFor("persistence"),
+      defaultPersistenceTerminal,
+      {
+        op: "updateContent",
+        messageId,
+        content: contentJson,
+      },
+      buildHandlerTurnContext(deps),
+      DEFAULT_TIMEOUTS.persistence,
+    );
+  } catch (err) {
+    deps.rlog.warn(
+      { err, messageId },
+      "partial flush of accumulated assistant content failed; finalize at message_complete will recover",
+    );
+  }
+}
+
+/** Schedule a debounced partial flush. First-scheduled wins; no-op when timer pending. */
+function schedulePartialFlush(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): void {
+  if (state.pendingPartialFlushTimer !== undefined) return;
+  state.pendingPartialFlushTimer = setTimeout(() => {
+    state.pendingPartialFlushTimer = undefined;
+    const flushPromise = flushAccumulatedContent(state, deps);
+    state.pendingPartialFlushPromise = flushPromise;
+    void flushPromise.finally(() => {
+      if (state.pendingPartialFlushPromise === flushPromise) {
+        state.pendingPartialFlushPromise = undefined;
+      }
+    });
+  }, PARTIAL_PERSIST_DEBOUNCE_MS);
 }
 
 // ── Shared Helper ────────────────────────────────────────────────────
@@ -311,6 +461,9 @@ function emitLlmCallStartedIfNeeded(
 // tools the client discards it (extractCodePreview only handles app tools),
 // so we skip forwarding entirely to avoid transport/decode overhead.
 const APP_TOOL_NAMES = new Set(["app_create"]);
+const MAX_TOKENS_CONTINUE_PROMPT =
+  "Continue from where you stopped. Do not repeat content you've already sent.";
+const MAX_TOKENS_SURFACE_COMPLETION_SUMMARY = "Continue";
 
 // ── Friendly Tool Names ──────────────────────────────────────────────
 
@@ -393,6 +546,139 @@ function resolveAssistantReplyTimestampTimezone(
   }).effectiveTimezone;
 }
 
+/**
+ * Assemble the metadata envelope written to the assistant message row.
+ *
+ * Stamped at reserve time (before `provider.sendMessage`) so the row carries
+ * channel provenance from the moment it lands in SQLite, mirroring the
+ * snapshot that handleMessageComplete used to compute at end-of-turn. All
+ * inputs (channel context, trust context, turnStartedAt) are stable across
+ * the LLM call, so building this once at reserve is equivalent to building
+ * it at complete. Slack reply rows further stamp a `slackMeta` sub-object —
+ * the `channelTs` field stays absent here and is back-filled by
+ * `deliverReplyViaCallback` after the gateway returns the ts.
+ */
+function buildAssistantChannelMetadata(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {
+    ...provenanceFromTrustContext(deps.ctx.trustContext),
+    userMessageChannel: deps.turnChannelContext.userMessageChannel,
+    assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
+    userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
+    assistantMessageInterface:
+      deps.turnInterfaceContext.assistantMessageInterface,
+    sentAt: state.turnStartedAt,
+  };
+
+  if (deps.turnChannelContext.assistantMessageChannel === "slack") {
+    const channelId = deps.ctx.trustContext?.requesterChatId;
+    if (channelId) {
+      const threadTs = getThreadTs(deps.ctx.conversationId);
+      const timestampTimezone = resolveAssistantReplyTimestampTimezone(
+        deps.ctx,
+      );
+      const timestampTimezoneLabel = formatSlackTimezoneLabel(
+        timestampTimezone,
+        { nowMs: state.turnStartedAt },
+      );
+      const partialSlackMeta: Partial<SlackMessageMetadata> = {
+        source: "slack",
+        eventKind: "message",
+        channelId,
+        ...(threadTs ? { threadTs } : {}),
+        timestampTimezone,
+        ...(timestampTimezoneLabel ? { timestampTimezoneLabel } : {}),
+      };
+      // `channelTs` is filled in by the post-send reconciliation step in
+      // `deliverReplyViaCallback`; cast through the Partial to satisfy
+      // the writer's type at this pre-send boundary.
+      metadata.slackMeta = writeSlackMetadata(
+        partialSlackMeta as SlackMessageMetadata,
+      );
+    }
+  }
+
+  return metadata;
+}
+
+/**
+ * Reserve an empty assistant row for the LLM call about to begin, stash
+ * its id on `state.lastAssistantMessageId`, and announce the boundary on
+ * the wire via `assistant_turn_start`.
+ *
+ * Awaited so the row exists and the client has the anchor id BEFORE any
+ * streaming delta arrives — every subsequent `deps.onEvent` in this LLM
+ * call stamps `messageId: state.lastAssistantMessageId`, and
+ * `handleMessageComplete` flushes the final content to the same row via
+ * `op: "updateContent"` instead of inserting a fresh one.
+ *
+ * Multi-LLM-call agent turns (LLM call → tool execution → LLM call) emit
+ * one `llm_call_started` per call, so each LLM call reserves its own row.
+ * The read-path `findDisplayTurnEndIndex` collapses consecutive assistant
+ * rows for the merged history view, matching today's per-call DB layout.
+ */
+export async function handleLlmCallStarted(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+): Promise<void> {
+  // Clean up an orphaned reservation from a previous LLM call in this run
+  // that errored before `message_complete` could finalize it. This covers
+  // the retryable paths (overflow, ordering, image overflow) where the
+  // agent loop re-enters with a fresh `run()` and reserves another row;
+  // without this delete the failed-attempt row stays in the transcript as
+  // an empty assistant bubble. The finalized-row case is filtered out via
+  // the `assistantRowAwaitingFinalization` flag — `handleMessageComplete`
+  // clears it after the successful `updateContent`, so the previous call's
+  // committed row is never touched here.
+  //
+  // Direct `deleteMessageById` (not via the `persistence` pipeline) is
+  // intentional: a never-finalized reservation has no segments, no
+  // attachments, and no observable history — undoing it isn't a real
+  // persistence event for plugins to react to, so routing through the
+  // pipeline would only widen the mock surface for no observability win.
+  if (state.assistantRowAwaitingFinalization && state.lastAssistantMessageId) {
+    try {
+      deleteMessageById(state.lastAssistantMessageId);
+    } catch (err) {
+      // Non-fatal: a leaked empty row is preferable to a turn-level throw.
+      deps.rlog.warn(
+        { err, messageId: state.lastAssistantMessageId },
+        "Failed to clean up stranded reserved assistant row before new reservation",
+      );
+    }
+  }
+
+  const metadata = buildAssistantChannelMetadata(state, deps);
+  const reserveResult = (await runPipeline<PersistArgs, PersistResult>(
+    "persistence",
+    getMiddlewaresFor("persistence"),
+    defaultPersistenceTerminal,
+    {
+      op: "reserve",
+      conversationId: deps.ctx.conversationId,
+      role: "assistant",
+      metadata,
+    },
+    buildHandlerTurnContext(deps),
+    DEFAULT_TIMEOUTS.persistence,
+  )) as PersistReserveResult;
+  state.lastAssistantMessageId = reserveResult.message.id;
+  state.assistantRowAwaitingFinalization = true;
+  // Fresh row → fresh accumulator. If an earlier (failed) LLM call
+  // within the same run left partial state behind, the
+  // `assistantRowAwaitingFinalization` cleanup above already deleted
+  // the orphan row, so the accumulator content would point at a
+  // non-existent id. Reset here so the new row starts from zero.
+  resetPartialPersistAccumulator(state);
+  deps.onEvent({
+    type: "assistant_turn_start",
+    messageId: reserveResult.message.id,
+    conversationId: deps.ctx.conversationId,
+  });
+}
+
 // ── Individual Handlers ──────────────────────────────────────────────
 
 function handleTextDelta(
@@ -421,8 +707,13 @@ function handleTextDelta(
       type: "assistant_text_delta",
       text: drained.emitText,
       conversationId: deps.ctx.conversationId,
+      messageId: state.lastAssistantMessageId,
     });
     if (deps.shouldGenerateTitle) state.firstAssistantText += drained.emitText;
+    // Mirror the drained delta into state.currentMessageContent so partial
+    // flushes mid-turn see the same content the user is watching live.
+    appendTextToCurrentMessage(state, drained.emitText);
+    schedulePartialFlush(state, deps);
   }
 }
 
@@ -458,6 +749,7 @@ function handleThinkingDelta(
     type: "assistant_thinking_delta",
     thinking: event.thinking,
     conversationId: deps.ctx.conversationId,
+    messageId: state.lastAssistantMessageId,
   });
 }
 
@@ -467,7 +759,6 @@ export function handleToolUse(
   event: Extract<AgentEvent, { type: "tool_use" }>,
 ): void {
   state.toolUseIdToName.set(event.id, event.name);
-  state.currentTurnToolNames.push(event.name);
   if (event.name === "app_create" || event.name === "app_refresh") {
     state.appBuildToolUsedThisRun = true;
   }
@@ -488,11 +779,12 @@ export function handleToolUse(
     input: event.input,
     conversationId: deps.ctx.conversationId,
     toolUseId: event.id,
+    messageId: state.lastAssistantMessageId,
   });
 }
 
 export function handleToolUsePreviewStart(
-  _state: EventHandlerState,
+  state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_use_preview_start" }>,
 ): void {
@@ -501,6 +793,7 @@ export function handleToolUsePreviewStart(
     toolUseId: event.toolUseId,
     toolName: event.toolName,
     conversationId: deps.ctx.conversationId,
+    messageId: state.lastAssistantMessageId,
   });
   const statusText = `Preparing ${friendlyToolName(event.toolName)}...`;
   deps.ctx.emitActivityState(
@@ -513,7 +806,7 @@ export function handleToolUsePreviewStart(
 }
 
 function handleToolOutputChunk(
-  _state: EventHandlerState,
+  state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "tool_output_chunk" }>,
 ): void {
@@ -571,6 +864,7 @@ function handleToolOutputChunk(
       chunk: event.chunk,
       conversationId: deps.ctx.conversationId,
       toolUseId: event.toolUseId,
+      messageId: state.lastAssistantMessageId,
       subType: structured.subType,
       subToolName: structured.subToolName,
       subToolInput: structured.subToolInput,
@@ -583,12 +877,13 @@ function handleToolOutputChunk(
       chunk: event.chunk,
       conversationId: deps.ctx.conversationId,
       toolUseId: event.toolUseId,
+      messageId: state.lastAssistantMessageId,
     });
   }
 }
 
 export function handleInputJsonDelta(
-  _state: EventHandlerState,
+  state: EventHandlerState,
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "input_json_delta" }>,
 ): void {
@@ -602,6 +897,7 @@ export function handleInputJsonDelta(
     content: event.accumulatedJson,
     conversationId: deps.ctx.conversationId,
     toolUseId: event.toolUseId,
+    messageId: state.lastAssistantMessageId,
   });
 }
 
@@ -728,6 +1024,7 @@ export function handleToolResult(
     diff: event.diff,
     status: event.status,
     conversationId: deps.ctx.conversationId,
+    messageId: state.lastAssistantMessageId,
     imageData: imageDataList?.[0],
     imageDataList,
     toolUseId: event.toolUseId,
@@ -907,6 +1204,69 @@ function handleError(
   }
 }
 
+export function handleMaxTokensReached(
+  _state: EventHandlerState,
+  deps: EventHandlerDeps,
+  event: Extract<AgentEvent, { type: "max_tokens_reached" }>,
+): void {
+  const classified = maxTokensReachedClassification();
+  const surfaceId = `max_tokens_${uuid()}`;
+  const data: CardSurfaceData = {
+    title: "Response limit reached",
+    subtitle: "The partial response above was saved.",
+    body: classified.userMessage,
+  };
+  const actions: SurfaceAction[] = [
+    {
+      id: "relay_prompt",
+      label: "Continue",
+      style: "primary",
+      data: {
+        prompt: MAX_TOKENS_CONTINUE_PROMPT,
+        _completeSurface: true,
+        _completionSummary: MAX_TOKENS_SURFACE_COMPLETION_SUMMARY,
+      },
+    },
+  ];
+
+  deps.ctx.surfaceState.set(surfaceId, {
+    surfaceType: "card",
+    title: data.title,
+    data,
+    actions,
+  });
+  deps.ctx.currentTurnSurfaces.push({
+    surfaceId,
+    surfaceType: "card",
+    title: data.title,
+    data,
+    actions,
+    display: "inline",
+    persistent: true,
+  });
+
+  deps.rlog.warn(
+    {
+      conversationId: deps.ctx.conversationId,
+      stopReason: event.stopReason,
+      surfaceId,
+    },
+    "Surfacing max-tokens continuation card",
+  );
+
+  deps.onEvent({
+    type: "ui_surface_show",
+    conversationId: deps.ctx.conversationId,
+    surfaceId,
+    surfaceType: "card",
+    title: data.title,
+    data,
+    actions,
+    display: "inline",
+    persistent: true,
+  } as UiSurfaceShow);
+}
+
 export async function handleMessageComplete(
   state: EventHandlerState,
   deps: EventHandlerDeps,
@@ -915,12 +1275,36 @@ export async function handleMessageComplete(
   // Reset per-turn tool tracking for the new turn.
   state.currentTurnToolUseIds = [];
 
+  // Cancel any pending debounced partial flush and await an already
+  // in-flight one before the authoritative `updateContent` below.
+  // Without the timer-clear, a timer that fires during this handler
+  // could double-write (idempotent in content but wastes a write) or
+  // race ahead of the indexer/projector and serve a stale snapshot.
+  // Without the await, a partial pipeline call that was dispatched a
+  // moment before this handler can settle AFTER the final write and
+  // overwrite the authoritative row.
+  if (state.pendingPartialFlushTimer !== undefined) {
+    clearTimeout(state.pendingPartialFlushTimer);
+    state.pendingPartialFlushTimer = undefined;
+  }
+  if (state.pendingPartialFlushPromise !== undefined) {
+    try {
+      await state.pendingPartialFlushPromise;
+    } catch {
+      // The partial flush swallows its own pipeline errors via
+      // `rlog.warn`; the `try`/`catch` here is defensive against
+      // future changes that might surface them.
+    }
+    state.pendingPartialFlushPromise = undefined;
+  }
+
   // Flush any remaining directive display buffer
   if (state.pendingDirectiveDisplayBuffer.length > 0) {
     deps.onEvent({
       type: "assistant_text_delta",
       text: state.pendingDirectiveDisplayBuffer,
       conversationId: deps.ctx.conversationId,
+      messageId: state.lastAssistantMessageId,
     });
     if (deps.shouldGenerateTitle)
       state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
@@ -984,13 +1368,14 @@ export async function handleMessageComplete(
     state.pendingToolResults.clear();
   }
 
-  // Clean assistant content and accumulate directives
-  const {
-    cleanedContent,
-    directives: msgDirectives,
-    warnings: msgWarnings,
-  } = cleanAssistantContent(event.message.content);
-  const cleanedBlocks = cleanedContent as ContentBlock[];
+  // Accumulate directives + warnings from the assistant content for
+  // downstream attachment processing. `cleanAssistantContent` is also
+  // called inside {@link buildPersistedAssistantContent} below; running
+  // it here separately is the cheapest way to keep the directive
+  // side-effects local to this handler while letting the shared helper
+  // own the persisted-content shape.
+  const { directives: msgDirectives, warnings: msgWarnings } =
+    cleanAssistantContent(event.message.content);
   state.accumulatedDirectives.push(...msgDirectives);
   state.directiveWarnings.push(...msgWarnings);
   if (msgDirectives.length > 0) {
@@ -1012,104 +1397,135 @@ export async function handleMessageComplete(
   // are applied in handleToolResult after all tools for the turn complete,
   // then the persisted message is updated via updateMessageContent.
 
-  // Build content with UI surfaces
-  const contentWithSurfaces: ContentBlock[] = [...cleanedBlocks];
-  for (const surface of deps.ctx.currentTurnSurfaces) {
-    contentWithSurfaces.push({
-      type: "ui_surface",
-      surfaceId: surface.surfaceId,
-      surfaceType: surface.surfaceType,
-      title: surface.title,
-      data: surface.data,
-      actions: surface.actions,
-      display: surface.display,
-      ...(surface.persistent ? { persistent: true } : {}),
-    } as unknown as ContentBlock);
+  // Build the canonical persisted content (cleaned + surfaces +
+  // redacted) via the shared helper. The partial-persist flush uses
+  // the same helper with `surfaces=[]` so a mid-turn snapshot lands in
+  // the same shape as the finalize.
+  const contentForPersistence = buildPersistedAssistantContent(
+    event.message.content as ContentBlock[],
+    deps.ctx.currentTurnSurfaces,
+  );
+
+  // The row was reserved at `llm_call_started` (with channel metadata
+  // stamped at that point) and `state.lastAssistantMessageId` carries its
+  // id. Flush the final content via `updateContent` instead of inserting a
+  // new row. No `syncToDisk` flag here — the orchestrator separately
+  // invokes `syncMessageToDisk` on `state.lastAssistantMessageId` after
+  // the loop completes (see
+  // `conversation-agent-loop.ts::syncLastAssistantMessageToDisk`).
+  const assistantMessageId = state.lastAssistantMessageId;
+  if (!assistantMessageId) {
+    throw new Error(
+      "handleMessageComplete fired without a prior llm_call_started reserving an assistant row",
+    );
   }
-
-  const assistantChannelMetadata: Record<string, unknown> = {
-    ...provenanceFromTrustContext(deps.ctx.trustContext),
-    userMessageChannel: deps.turnChannelContext.userMessageChannel,
-    assistantMessageChannel: deps.turnChannelContext.assistantMessageChannel,
-    userMessageInterface: deps.turnInterfaceContext.userMessageInterface,
-    assistantMessageInterface:
-      deps.turnInterfaceContext.assistantMessageInterface,
-    sentAt: state.turnStartedAt,
-  };
-
-  // When the assistant is replying through Slack, stamp a `slackMeta`
-  // sub-object so the transcript-rendering / thread-aware-context lookup
-  // can identify this row's thread without joining tables.
-  // Persistence happens BEFORE the Slack adapter sends the message, so
-  // Slack's authoritative `ts` (-> `channelTs`) is not yet known and is
-  // intentionally omitted here. The post-send reconciliation step in
-  // `deliverReplyViaCallback` writes `channelTs` back into this row once
-  // the gateway returns the Slack-assigned ts, restoring a fully-formed
-  // metadata envelope before any subsequent turn reads the row.
-  if (deps.turnChannelContext.assistantMessageChannel === "slack") {
-    const channelId = deps.ctx.trustContext?.requesterChatId;
-    if (channelId) {
-      const threadTs = getThreadTs(deps.ctx.conversationId);
-      const timestampTimezone = resolveAssistantReplyTimestampTimezone(
-        deps.ctx,
-      );
-      const timestampTimezoneLabel = formatSlackTimezoneLabel(
-        timestampTimezone,
-        { nowMs: state.turnStartedAt },
-      );
-      const partialSlackMeta: Partial<SlackMessageMetadata> = {
-        source: "slack",
-        eventKind: "message",
-        channelId,
-        ...(threadTs ? { threadTs } : {}),
-        timestampTimezone,
-        ...(timestampTimezoneLabel ? { timestampTimezoneLabel } : {}),
-      };
-      assistantChannelMetadata.slackMeta = writeSlackMetadata(
-        // `channelTs` is filled in by the post-send reconciliation step in
-        // `deliverReplyViaCallback`; cast through the Partial to satisfy
-        // the writer's type at this pre-send boundary.
-        partialSlackMeta as SlackMessageMetadata,
-      );
-    }
-  }
-  // Redact known-pattern secrets from assistant text blocks before they are
-  // written to durable storage. Non-text blocks (images, UI surfaces) pass
-  // through unchanged. The live model history retains the original values.
-  const contentForPersistence = contentWithSurfaces.map((block) => {
-    if (block.type === "text") {
-      const tb = block as Extract<ContentBlock, { type: "text" }>;
-      return { ...tb, text: redactSecrets(tb.text) };
-    }
-    return block;
-  });
-
-  // Route the assistant-message persistence through the `persistence`
-  // pipeline. No `syncToDisk` here — the orchestrator separately invokes
-  // `syncMessageToDisk` on `state.lastAssistantMessageId` after the loop
-  // completes (see `conversation-agent-loop.ts::syncLastAssistantMessageToDisk`).
-  const assistantPersistResult = (await runPipeline<PersistArgs, PersistResult>(
+  const contentJson = JSON.stringify(contentForPersistence);
+  await runPipeline<PersistArgs, PersistResult>(
     "persistence",
     getMiddlewaresFor("persistence"),
     defaultPersistenceTerminal,
     {
-      op: "add",
-      conversationId: deps.ctx.conversationId,
-      role: "assistant",
-      content: JSON.stringify(contentForPersistence),
-      metadata: assistantChannelMetadata,
+      op: "updateContent",
+      messageId: assistantMessageId,
+      content: contentJson,
     },
     buildHandlerTurnContext(deps),
     DEFAULT_TIMEOUTS.persistence,
-  )) as PersistAddResult;
-  const assistantMsg = assistantPersistResult.message;
-  state.lastAssistantMessageId = assistantMsg.id;
+  );
+  state.assistantRowAwaitingFinalization = false;
+  // Reset the partial-persist mirror so subsequent calls in this turn
+  // start with an empty running view.
+  state.currentMessageContent = [];
+
+  // ── Indexing + attention projection (restored from the pre-B3 `add` path) ──
+  // `reserveMessage` + `updateMessageContent` are CRUD-only: they don't run
+  // the memory indexer or the attention-cursor projector. The pre-B3 path
+  // wrote the row via `addMessage`, which ran both as side-effects of the
+  // insert. Calling them here keeps the assistant row's external state
+  // (Qdrant segments, conversation attention cursor) in lockstep with the
+  // finalized content. Both are non-fatal — a memory hiccup must not
+  // escalate a successful generation into a turn-level throw. Indexing
+  // intentionally fires AFTER `updateContent` succeeds so we never index
+  // the empty reserved placeholder.
+  const finalizedRow = getMessageById(
+    assistantMessageId,
+    deps.ctx.conversationId,
+  );
+  if (finalizedRow) {
+    let provenanceTrustClass:
+      | "guardian"
+      | "trusted_contact"
+      | "unknown"
+      | undefined;
+    let automated: boolean | undefined;
+    if (finalizedRow.metadata) {
+      try {
+        const parsedMeta = messageMetadataSchema.safeParse(
+          JSON.parse(finalizedRow.metadata),
+        );
+        if (parsedMeta.success) {
+          provenanceTrustClass = parsedMeta.data.provenanceTrustClass;
+          automated = parsedMeta.data.automated;
+        }
+      } catch {
+        // Malformed metadata JSON — fall through with undefined fields,
+        // matching the legacy behavior in `addMessage`.
+      }
+    }
+    try {
+      await indexMessageNow(
+        {
+          messageId: assistantMessageId,
+          conversationId: deps.ctx.conversationId,
+          role: "assistant",
+          content: contentJson,
+          createdAt: finalizedRow.createdAt,
+          scopeId: "default",
+          provenanceTrustClass,
+          automated,
+        },
+        getConfig().memory,
+      );
+    } catch (err) {
+      deps.rlog.warn(
+        {
+          err,
+          conversationId: deps.ctx.conversationId,
+          messageId: assistantMessageId,
+        },
+        "Failed to index assistant message for memory (non-fatal)",
+      );
+    }
+    try {
+      const attentionStateChanged = projectAssistantMessage({
+        conversationId: deps.ctx.conversationId,
+        messageId: assistantMessageId,
+        messageAt: finalizedRow.createdAt,
+      });
+      if (attentionStateChanged) {
+        void publishSyncInvalidation([
+          conversationMetadataSyncTag(deps.ctx.conversationId),
+        ]);
+      }
+    } catch (err) {
+      deps.rlog.warn(
+        {
+          err,
+          conversationId: deps.ctx.conversationId,
+          messageId: assistantMessageId,
+        },
+        "Failed to project assistant message for attention tracking (non-fatal)",
+      );
+    }
+  }
 
   // Backfill message_id on all LLM request logs from this turn.
   // The agent loop is single-threaded per conversation, so all rows with
-  // message_id IS NULL belong to the current turn.
+  // message_id IS NULL belong to the current turn. The reserved id was
+  // available before the LLM call ran but the logs are inserted DURING
+  // the call, so the sweep still runs here.
   try {
-    backfillMessageIdOnLogs(deps.ctx.conversationId, assistantMsg.id);
+    backfillMessageIdOnLogs(deps.ctx.conversationId, assistantMessageId);
   } catch (err) {
     deps.rlog.warn(
       { err },
@@ -1118,7 +1534,10 @@ export async function handleMessageComplete(
   }
 
   try {
-    backfillMemoryRecallLogMessageId(deps.ctx.conversationId, assistantMsg.id);
+    backfillMemoryRecallLogMessageId(
+      deps.ctx.conversationId,
+      assistantMessageId,
+    );
   } catch (err) {
     deps.rlog.warn(
       { err },
@@ -1129,7 +1548,7 @@ export async function handleMessageComplete(
   try {
     backfillMemoryV2ActivationMessageId(
       deps.ctx.conversationId,
-      assistantMsg.id,
+      assistantMessageId,
     );
   } catch (err) {
     deps.rlog.warn(
@@ -1140,8 +1559,10 @@ export async function handleMessageComplete(
 
   deps.ctx.currentTurnSurfaces = [];
 
-  // Emit trace event
-  const charCount = cleanedBlocks
+  // Emit trace event. Char count is computed from the cleaned +
+  // redacted text blocks (UI surface blocks filtered out via the
+  // type guard) — same shape as what was just persisted.
+  const charCount = contentForPersistence
     .filter(
       (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
     )
@@ -1329,6 +1750,9 @@ export async function dispatchAgentEvent(
 ): Promise<void> {
   try {
     switch (event.type) {
+      case "llm_call_started":
+        await handleLlmCallStarted(state, deps);
+        break;
       case "text_delta":
         handleTextDelta(state, deps, event);
         break;
@@ -1369,6 +1793,7 @@ export async function dispatchAgentEvent(
           input: event.input,
           conversationId: deps.ctx.conversationId,
           toolUseId: event.toolUseId,
+          messageId: state.lastAssistantMessageId,
         });
         break;
       }
@@ -1448,12 +1873,16 @@ export async function dispatchAgentEvent(
           isError: event.isError,
           conversationId: deps.ctx.conversationId,
           toolUseId: event.toolUseId,
+          messageId: state.lastAssistantMessageId,
           ...(metadata ? { activityMetadata: { webSearch: metadata } } : {}),
         });
         break;
       }
       case "error":
         handleError(state, deps, event);
+        break;
+      case "max_tokens_reached":
+        handleMaxTokensReached(state, deps, event);
         break;
       case "provider_error":
         handleProviderError(deps, event);

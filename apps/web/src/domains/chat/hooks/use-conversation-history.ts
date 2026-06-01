@@ -33,16 +33,14 @@ import {
   reconcileDisplayMessagesWithLatestHistory,
 } from "@/domains/chat/utils/reconcile";
 import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
-import {
-  recordChatDiagnostic,
-  summarizeDisplayMessages,
-} from "@/domains/chat/utils/diagnostics";
+import { recordDiagnostic } from "@/lib/diagnostics";
+import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
-import type { SubagentStatus } from "@/domains/chat/api/event-types";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+import type { SubagentStatus } from "@vellumai/assistant-api";
 
 import {
   parsePendingSecretState,
@@ -77,7 +75,6 @@ interface UseConversationHistoryParams {
   requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  lastSuggestionMsgIdRef: MutableRefObject<string | null>;
   autoGreetRef: MutableRefObject<boolean>;
 
   // State setters
@@ -87,7 +84,6 @@ interface UseConversationHistoryParams {
   setError: Dispatch<SetStateAction<ChatError | null>>;
   setAutoGreetPending: Dispatch<SetStateAction<boolean>>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
-  setSuggestion: Dispatch<SetStateAction<string | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
   // Callbacks
@@ -118,7 +114,6 @@ export function useConversationHistory({
   requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  lastSuggestionMsgIdRef,
   autoGreetRef,
   setMessages,
   setTranscriptPagination,
@@ -126,7 +121,6 @@ export function useConversationHistory({
   setError,
   setAutoGreetPending,
   setContextWindowUsage,
-  setSuggestion,
   setCompactionCircuitOpenUntil,
   resetChatAttachments,
   shouldSuppressGenericChatErrorNotice,
@@ -157,7 +151,6 @@ export function useConversationHistory({
     requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    lastSuggestionMsgIdRef,
     contextWindowUsageByConversationRef,
     dismissedSurfaceIdsRef,
     setMessages,
@@ -166,7 +159,6 @@ export function useConversationHistory({
     setError,
     setAutoGreetPending,
     setContextWindowUsage,
-    setSuggestion,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,
     shouldSuppressGenericChatErrorNotice,
@@ -185,7 +177,7 @@ export function useConversationHistory({
     const isFreshSwitch = switchResetRef.current;
     switchResetRef.current = false;
 
-    recordChatDiagnostic("history_tq_data_apply", {
+    recordDiagnostic("history_tq_data_apply", {
       assistantId,
       conversationId: activeConversationId,
       isFreshSwitch,
@@ -199,7 +191,7 @@ export function useConversationHistory({
         dismissedSurfaceIdsRef.current,
       );
 
-      recordChatDiagnostic("history_tq_set_messages", {
+      recordDiagnostic("history_tq_set_messages", {
         assistantId,
         conversationId: activeConversationId,
         isFreshSwitch,
@@ -262,7 +254,7 @@ export function useConversationHistory({
         }
       }
     } else {
-      recordChatDiagnostic("history_tq_empty", {
+      recordDiagnostic("history_tq_empty", {
         assistantId,
         conversationId: activeConversationId,
       });

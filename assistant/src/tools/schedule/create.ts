@@ -1,6 +1,7 @@
 import { formatIntegrationSummary } from "../../schedule/integration-status.js";
 import { validateRruleSetLines } from "../../schedule/recurrence-engine.js";
 import { normalizeScheduleSyntax } from "../../schedule/recurrence-types.js";
+import { validateScriptTimeoutMs } from "../../schedule/run-script.js";
 import type {
   RoutingIntent,
   ScheduleMode,
@@ -43,9 +44,17 @@ export async function executeScheduleCreate(
     | Record<string, unknown>
     | undefined;
   const quiet = (input.quiet as boolean) ?? false;
-  const reuseConversation = (input.reuse_conversation as boolean) ?? false;
+  const reuseConversation = input.reuse_conversation as boolean | undefined;
   const maxRetries = input.max_retries as number | undefined;
   const retryBackoffMs = input.retry_backoff_ms as number | undefined;
+  const timeoutMs = input.timeout_ms as number | undefined;
+
+  if (timeoutMs !== undefined) {
+    const timeoutError = validateScriptTimeoutMs(timeoutMs);
+    if (timeoutError) {
+      return { content: `Error: ${timeoutError}`, isError: true };
+    }
+  }
 
   if (!name || typeof name !== "string") {
     return {
@@ -134,6 +143,7 @@ export async function executeScheduleCreate(
         reuseConversation,
         maxRetries,
         retryBackoffMs,
+        timeoutMs,
       });
 
       const fireDate = formatLocalDate(job.nextRunAt);
@@ -214,6 +224,7 @@ export async function executeScheduleCreate(
       reuseConversation,
       maxRetries,
       retryBackoffMs,
+      timeoutMs,
     });
 
     const scheduleDescription =

@@ -1,5 +1,5 @@
+import type { ConversationListInvalidatedReason } from "../../api/events/conversation-list-invalidated.js";
 import type { IdentityFields } from "../../daemon/handlers/identity.js";
-import type { ConversationListInvalidatedReason } from "../../daemon/message-types/conversations.js";
 import {
   conversationMessagesSyncTag,
   conversationMetadataSyncTag,
@@ -64,7 +64,7 @@ const SHAPE_CHANGING_REASONS: ReadonlySet<ConversationListInvalidatedReason> =
  *
  * Web consumes `sync_changed` (`conversationsList` for shape changes,
  * `conversation:<id>:metadata` for content changes) directly and patches
- * the cached list in place — see `useAssistantSyncStream` for the consumer
+ * the cached list in place — see `useConversationSync` for the consumer
  * side. macOS (`ConversationRestorer.swift`) still listens for the typed
  * broadcast.
  *

@@ -2,16 +2,16 @@ import { type Dispatch, type RefObject, type SetStateAction, useCallback, useRef
 
 import * as Sentry from "@sentry/browser";
 
+import { bucketMessagesAdded, recordDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
 import {
-  bucketMessagesAdded,
-  recordChatDiagnostic,
-  resolvePlatformTag,
   summarizeDisplayMessages,
   summarizeRuntimeMessages,
 } from "@/domains/chat/utils/diagnostics";
 import { type DisplayMessage, reconcileMessages } from "@/domains/chat/utils/reconcile";
-import { isSending, useTurnStore } from "@/domains/messaging/turn-store";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages";
+import { useConversationStore } from "@/stores/conversation-store";
+import { endTurn } from "@/domains/chat/turn-coordinator";
 
 const RECONCILE_DELAY_MS = 5000;
 const RECONCILE_MAX_MS = 60_000;
@@ -21,7 +21,6 @@ interface UseMessageReconciliationArgs {
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
   streamEpochRef: RefObject<number>;
-  activeConversationIdRef: RefObject<string | null>;
   initialPageOldestTsRef: RefObject<number | null>;
 }
 
@@ -118,7 +117,6 @@ export function useMessageReconciliation({
   setMessages,
   streamContextRef,
   streamEpochRef,
-  activeConversationIdRef,
   initialPageOldestTsRef,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -127,7 +125,7 @@ export function useMessageReconciliation({
     if (reconcileTimerRef.current) {
       clearTimeout(reconcileTimerRef.current);
       reconcileTimerRef.current = null;
-      recordChatDiagnostic("reconciliation_loop_cancelled", {});
+      recordDiagnostic("reconciliation_loop_cancelled", {});
     }
   }, []);
 
@@ -140,7 +138,7 @@ export function useMessageReconciliation({
       messagesAdded: number;
     } => {
       if (serverMessages.length === 0) {
-        recordChatDiagnostic("reconciliation_skipped_empty_server", {});
+        recordDiagnostic("reconciliation_skipped_empty_server", {});
         return { changed: false, assistantProgress: false, messagesAdded: 0 };
       }
 
@@ -165,7 +163,7 @@ export function useMessageReconciliation({
         localAfter = summarizeDisplayMessages(next);
         return next;
       });
-      recordChatDiagnostic("reconciliation_applied", {
+      recordDiagnostic("reconciliation_applied", {
         changed,
         assistantProgress,
         messagesAdded,
@@ -190,6 +188,7 @@ export function useMessageReconciliation({
     (
       serverMessages: RuntimeMessage[],
       snapshotTurnId: string | null,
+      snapshotConversationId: string,
     ): ReconcileActiveConversationResult => {
       const { changed, assistantProgress, messagesAdded } =
         reconcileFromServerDetailed(serverMessages);
@@ -224,7 +223,19 @@ export function useMessageReconciliation({
         isSending(useTurnStore.getState()) &&
         useTurnStore.getState().activeTurnId === snapshotTurnId;
       if (wasStuck) {
-        useTurnStore.getState().onPollReconciled(snapshotTurnId);
+        // The rescue must clear BOTH the turn-store (so the local
+        // lifecycle becomes idle) AND the conversation-level processing
+        // key (so `canStopGeneration` and the sidebar processing dot
+        // can settle). `endTurn` does both atomically — without that
+        // pairing the rescue would leave `activeConversationIsProcessing`
+        // stuck because the graduation effect in `useAttentionTracking`
+        // explicitly skips the active conversation, making this the
+        // only path that clears it when SSE drops the terminal event.
+        endTurn({
+          conversationId: snapshotConversationId,
+          reason: "rescued",
+          rescuedTurnId: snapshotTurnId,
+        });
         // `POLL_RECONCILED` is the silent-stall rescue: the server
         // reports assistant progress that the client never observed
         // via SSE, meaning a terminal event (`message_complete`
@@ -300,7 +311,7 @@ export function useMessageReconciliation({
   const startReconciliationLoop = useCallback(
     (epoch: number) => {
       cancelReconciliation();
-      recordChatDiagnostic("reconciliation_loop_start", { epoch });
+      recordDiagnostic("reconciliation_loop_start", { epoch });
 
       const startTime = Date.now();
       let stableCount = 0;
@@ -309,7 +320,7 @@ export function useMessageReconciliation({
         reconcileTimerRef.current = null;
         const ctx = streamContextRef.current;
         if (!ctx || epoch !== streamEpochRef.current) {
-          recordChatDiagnostic("reconciliation_loop_finish", {
+          recordDiagnostic("reconciliation_loop_finish", {
             epoch,
             reason: !ctx ? "no_context" : "epoch_changed",
             stableCount,
@@ -318,7 +329,7 @@ export function useMessageReconciliation({
           return;
         }
         if (Date.now() - startTime >= RECONCILE_MAX_MS) {
-          recordChatDiagnostic("reconciliation_loop_finish", {
+          recordDiagnostic("reconciliation_loop_finish", {
             epoch,
             reason: "max_duration",
             stableCount,
@@ -331,7 +342,7 @@ export function useMessageReconciliation({
         fetchConversationMessages(ctx.assistantId, ctx.conversationId)
           .then((serverMessages) => {
             if (epoch !== streamEpochRef.current) return;
-            recordChatDiagnostic("reconciliation_fetch", {
+            recordDiagnostic("reconciliation_fetch", {
               assistantId: ctx.assistantId,
               conversationId: ctx.conversationId,
               epoch,
@@ -342,6 +353,7 @@ export function useMessageReconciliation({
             const { changed } = reconcileFetchedMessages(
               serverMessages,
               snapshotTurnId,
+              ctx.conversationId,
             );
             if (changed) {
               stableCount = 0;
@@ -350,7 +362,7 @@ export function useMessageReconciliation({
             }
 
             if (stableCount >= RECONCILE_STABLE_COUNT) {
-              recordChatDiagnostic("reconciliation_loop_finish", {
+              recordDiagnostic("reconciliation_loop_finish", {
                 epoch,
                 reason: "stable",
                 stableCount,
@@ -359,7 +371,7 @@ export function useMessageReconciliation({
               return;
             }
             if (epoch !== streamEpochRef.current) {
-              recordChatDiagnostic("reconciliation_loop_finish", {
+              recordDiagnostic("reconciliation_loop_finish", {
                 epoch,
                 reason: "epoch_changed_post_fetch",
                 stableCount,
@@ -371,7 +383,7 @@ export function useMessageReconciliation({
           })
           .catch(() => {
             if (epoch !== streamEpochRef.current) {
-              recordChatDiagnostic("reconciliation_loop_finish", {
+              recordDiagnostic("reconciliation_loop_finish", {
                 epoch,
                 reason: "epoch_changed_post_error",
                 stableCount,
@@ -379,7 +391,7 @@ export function useMessageReconciliation({
               });
               return;
             }
-            recordChatDiagnostic("reconciliation_fetch_error", {
+            recordDiagnostic("reconciliation_fetch_error", {
               assistantId: ctx.assistantId,
               conversationId: ctx.conversationId,
               epoch,
@@ -421,21 +433,25 @@ export function useMessageReconciliation({
           ctx.assistantId,
           ctx.conversationId,
         );
-        if (activeConversationIdRef.current !== ctx.conversationId) return empty;
+        if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.
         if (streamEpochRef.current !== snapshotEpoch) return empty;
-        recordChatDiagnostic("reconciliation_active_fetch", {
+        recordDiagnostic("reconciliation_active_fetch", {
           assistantId: ctx.assistantId,
           conversationId: ctx.conversationId,
           epoch: snapshotEpoch,
           server: summarizeRuntimeMessages(serverMessages),
         });
-        return reconcileFetchedMessages(serverMessages, snapshotTurnId);
+        return reconcileFetchedMessages(
+          serverMessages,
+          snapshotTurnId,
+          ctx.conversationId,
+        );
       } catch {
         // Non-fatal: a fetch failure doesn't prove the turn completed.
         // The .finally() nonce bump reopens SSE to deliver terminal events.
-        recordChatDiagnostic("reconciliation_active_fetch_error", {
+        recordDiagnostic("reconciliation_active_fetch_error", {
           assistantId: ctx.assistantId,
           conversationId: ctx.conversationId,
           epoch: snapshotEpoch,
@@ -446,7 +462,6 @@ export function useMessageReconciliation({
     [
     streamContextRef,
     streamEpochRef,
-    activeConversationIdRef,
     reconcileFetchedMessages,
   ]);
 

@@ -8,7 +8,7 @@ import {
 } from "../lib/assistant-config.js";
 import { dockerResourceNames, wakeContainers } from "../lib/docker.js";
 import { seedGuardianTokenFromSiblingEnv } from "../lib/guardian-token.js";
-import { isProcessAlive, stopProcessByPidFile } from "../lib/process";
+import { resolveProcessState, stopProcessByPidFile } from "../lib/process";
 import {
   generateLocalSigningKey,
   isAssistantWatchModeAvailable,
@@ -85,36 +85,26 @@ export async function wake(): Promise<void> {
 
   const pidFile = getDaemonPidPath(resources);
 
-  // Check if daemon is already running
   let daemonRunning = false;
-  if (existsSync(pidFile)) {
-    const pidStr = readFileSync(pidFile, "utf-8").trim();
-    const pid = parseInt(pidStr, 10);
-    if (!isNaN(pid)) {
-      try {
-        process.kill(pid, 0);
-        daemonRunning = true;
-        if (watch) {
-          // Restart in watch mode — but only if source files are available.
-          // Watch mode requires bun --watch with .ts sources; packaged desktop
-          // builds only have a compiled binary. Stopping the daemon without a
-          // viable watch-mode path would leave the user with no running assistant.
-          if (!isAssistantWatchModeAvailable()) {
-            console.log(
-              `Assistant running (pid ${pid}) — watch mode not available (no source files). Keeping existing process.`,
-            );
-          } else {
-            console.log(
-              `Assistant running (pid ${pid}) — restarting in watch mode...`,
-            );
-            await stopProcessByPidFile(pidFile, "assistant");
-            daemonRunning = false;
-          }
-        } else {
-          console.log(`Assistant already running (pid ${pid}).`);
-        }
-      } catch {
-        // Process not alive, will start below
+  const daemonState = await resolveProcessState(
+    pidFile,
+    resources.daemonPort,
+    "Assistant",
+  );
+  if (daemonState.status === "healthy") {
+    if (watch && isAssistantWatchModeAvailable()) {
+      console.log(
+        `Assistant running (pid ${daemonState.pid}) — restarting in watch mode...`,
+      );
+      await stopProcessByPidFile(pidFile, "assistant");
+    } else {
+      daemonRunning = true;
+      if (watch) {
+        console.log(
+          `Assistant running (pid ${daemonState.pid}) — watch mode not available (no source files). Keeping existing process.`,
+        );
+      } else {
+        console.log(`Assistant already running (pid ${daemonState.pid}).`);
       }
     }
   }
@@ -153,6 +143,15 @@ export async function wake(): Promise<void> {
     saveAssistantEntry(entry);
   }
 
+  let bootstrapSecret = entry.guardianBootstrapSecret;
+  let bootstrapSecretBackfilled = false;
+  if (!bootstrapSecret) {
+    bootstrapSecret = generateLocalSigningKey();
+    entry.guardianBootstrapSecret = bootstrapSecret;
+    saveAssistantEntry(entry);
+    bootstrapSecretBackfilled = true;
+  }
+
   if (!daemonRunning) {
     await startLocalDaemon(watch, resources, { foreground, signingKey });
   }
@@ -161,26 +160,47 @@ export async function wake(): Promise<void> {
   {
     const vellumDir = join(resources.instanceDir, ".vellum");
     const gatewayPidFile = join(vellumDir, "gateway.pid");
-    const { alive, pid } = isProcessAlive(gatewayPidFile);
-    if (alive) {
-      if (watch) {
-        // Guard gateway restart separately: check gateway source availability.
-        if (!isGatewayWatchModeAvailable()) {
+    const gatewayState = await resolveProcessState(
+      gatewayPidFile,
+      resources.gatewayPort,
+      "Gateway",
+    );
+    const gatewayAlive = gatewayState.status === "healthy";
+    const needsRestart = bootstrapSecretBackfilled && gatewayAlive;
+    if (needsRestart) {
+      const restartWithWatch = watch && isGatewayWatchModeAvailable();
+      if (restartWithWatch) {
+        console.log(
+          `Gateway running (pid ${gatewayState.pid}) — restarting to apply bootstrap secret...`,
+        );
+      } else {
+        console.log(
+          `Gateway running (pid ${gatewayState.pid}) — restarting without watch mode to apply bootstrap secret...`,
+        );
+      }
+      await stopProcessByPidFile(gatewayPidFile, "gateway");
+      await startGateway(restartWithWatch, resources, {
+        signingKey,
+        bootstrapSecret,
+      });
+    } else if (gatewayAlive) {
+      if (watch && isGatewayWatchModeAvailable()) {
+        console.log(
+          `Gateway running (pid ${gatewayState.pid}) — restarting in watch mode...`,
+        );
+        await stopProcessByPidFile(gatewayPidFile, "gateway");
+        await startGateway(watch, resources, { signingKey, bootstrapSecret });
+      } else {
+        if (watch) {
           console.log(
-            `Gateway running (pid ${pid}) — watch mode not available (no source files). Keeping existing process.`,
+            `Gateway running (pid ${gatewayState.pid}) — watch mode not available (no source files). Keeping existing process.`,
           );
         } else {
-          console.log(
-            `Gateway running (pid ${pid}) — restarting in watch mode...`,
-          );
-          await stopProcessByPidFile(gatewayPidFile, "gateway");
-          await startGateway(watch, resources, { signingKey });
+          console.log(`Gateway already running (pid ${gatewayState.pid}).`);
         }
-      } else {
-        console.log(`Gateway already running (pid ${pid}).`);
       }
     } else {
-      await startGateway(watch, resources, { signingKey });
+      await startGateway(watch, resources, { signingKey, bootstrapSecret });
     }
   }
 
@@ -196,7 +216,10 @@ export async function wake(): Promise<void> {
 
   // Auto-start ngrok if webhook integrations (e.g. Telegram) are configured.
   const workspaceDir = join(resources.instanceDir, ".vellum", "workspace");
-  const ngrokChild = await maybeStartNgrokTunnel(resources.gatewayPort, workspaceDir);
+  const ngrokChild = await maybeStartNgrokTunnel(
+    resources.gatewayPort,
+    workspaceDir,
+  );
   if (ngrokChild?.pid) {
     const ngrokPidFile = join(resources.instanceDir, ".vellum", "ngrok.pid");
     writeFileSync(ngrokPidFile, String(ngrokChild.pid));

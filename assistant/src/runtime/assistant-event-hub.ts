@@ -43,6 +43,7 @@ import { appendEventToStream } from "../signals/event-stream.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantEvent } from "./assistant-event.js";
 import { buildAssistantEvent } from "./assistant-event.js";
+import { stampAndBuffer } from "./conversation-stream-state.js";
 
 const log = getLogger("assistant-event-hub");
 
@@ -604,6 +605,11 @@ export function broadcastMessage(
           excludeClientId,
         }
       : undefined;
+  // Stamp per-conversation seq and (when replayable) push onto the ring
+  // buffer. Mutates `event.seq` in place. Targeted/exclusion publishes
+  // are stamped but not buffered -- replay by `conversationId` alone
+  // would leak them to subscribers outside their intended delivery set.
+  stampAndBuffer(event, { replayable: publishOptions == null });
   _hubChain = _hubChain
     .then(() => assistantEventHub.publish(event, publishOptions))
     .then(() => {
@@ -657,7 +663,6 @@ function resolveCanonicalRequestSourceType(
   if (sourceChannel === "vellum") return "desktop";
   return "channel";
 }
-
 
 /**
  * Lazily load heavy dependencies and create a canonical guardian request +
@@ -732,4 +737,3 @@ async function createCanonicalRequestForConfirmation(
     );
   }
 }
-

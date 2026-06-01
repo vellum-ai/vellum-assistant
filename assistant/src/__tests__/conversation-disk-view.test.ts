@@ -387,13 +387,9 @@ describe("syncMessageToDisk", () => {
       originChannel: null,
     });
 
-    const msg = await addMessage(
-      conv.id,
-      "user",
-      "Hello, assistant!",
-      undefined,
-      { skipIndexing: true },
-    );
+    const msg = await addMessage(conv.id, "user", "Hello, assistant!", {
+      skipIndexing: true,
+    });
 
     syncMessageToDisk(conv.id, msg.id, conv.createdAt);
 
@@ -429,7 +425,7 @@ describe("syncMessageToDisk", () => {
       { type: "tool_use", name: "image_resize", input: { width: 800 } },
     ]);
 
-    const msg = await addMessage(conv.id, "assistant", content, undefined, {
+    const msg = await addMessage(conv.id, "assistant", content, {
       skipIndexing: true,
     });
 
@@ -458,7 +454,7 @@ describe("syncMessageToDisk", () => {
       originChannel: null,
     });
 
-    const msg = await addMessage(conv.id, "user", "See attached", undefined, {
+    const msg = await addMessage(conv.id, "user", "See attached", {
       skipIndexing: true,
     });
 
@@ -491,10 +487,10 @@ describe("syncMessageToDisk", () => {
       originChannel: null,
     });
 
-    const msg1 = await addMessage(conv.id, "user", "First", undefined, {
+    const msg1 = await addMessage(conv.id, "user", "First", {
       skipIndexing: true,
     });
-    const msg2 = await addMessage(conv.id, "assistant", "Second", undefined, {
+    const msg2 = await addMessage(conv.id, "assistant", "Second", {
       skipIndexing: true,
     });
 
@@ -523,7 +519,7 @@ describe("syncMessageToDisk", () => {
     );
     mkdirSync(legacyDirPath, { recursive: true });
 
-    const msg = await addMessage(conv.id, "user", "Legacy path", undefined, {
+    const msg = await addMessage(conv.id, "user", "Legacy path", {
       skipIndexing: true,
     });
 
@@ -551,7 +547,7 @@ describe("syncMessageToDisk", () => {
       originChannel: null,
     });
 
-    const msg = await addMessage(conv.id, "user", "Disk repair", undefined, {
+    const msg = await addMessage(conv.id, "user", "Disk repair", {
       skipIndexing: true,
     });
     const att = uploadAttachment("repair.png", "image/png", "iVBORw0K");
@@ -607,14 +603,13 @@ describe("rebuildConversationDiskViewFromDbState", () => {
       originChannel: null,
     });
 
-    const userMsg = await addMessage(conv.id, "user", "find docs", undefined, {
+    const userMsg = await addMessage(conv.id, "user", "find docs", {
       skipIndexing: true,
     });
     const assistantPart1 = await addMessage(
       conv.id,
       "assistant",
       JSON.stringify([{ type: "text", text: "Searching..." }]),
-      undefined,
       { skipIndexing: true },
     );
     const internalToolResult = await addMessage(
@@ -623,14 +618,12 @@ describe("rebuildConversationDiskViewFromDbState", () => {
       JSON.stringify([
         { type: "tool_result", tool_use_id: "tool-1", content: "done" },
       ]),
-      undefined,
       { skipIndexing: true },
     );
     const assistantPart2 = await addMessage(
       conv.id,
       "assistant",
       JSON.stringify([{ type: "text", text: "Found it." }]),
-      undefined,
       { skipIndexing: true },
     );
 

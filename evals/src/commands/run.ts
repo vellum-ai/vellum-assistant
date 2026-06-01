@@ -184,6 +184,13 @@ export function registerRunCommand(program: Command): void {
         const session = sessionId(opts.label, sessionTimestamp);
         const sessionLabel = opts.label;
 
+        // Snapshot argv at the top of the action handler — Commander
+        // doesn't mutate `process.argv` but a downstream library or a
+        // signal handler conceivably could, and we want every run in
+        // the session to record the same canonical command. `slice()`
+        // detaches us from any later in-place edits.
+        const cliArgv = process.argv.slice();
+
         // Polymorphic dispatch — each benchmark's `src/run.ts` owns
         // its own execution shape (Cartesian profile × `TestDef`,
         // ingest→ask over `BenchmarkItem`, …). The CLI just hands
@@ -195,6 +202,7 @@ export function registerRunCommand(program: Command): void {
           filterFlag: filter,
           session,
           sessionLabel,
+          cliArgv,
           progress,
           maxTurns: opts.maxTurns,
         });

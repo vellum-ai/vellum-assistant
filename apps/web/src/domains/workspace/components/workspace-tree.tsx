@@ -4,8 +4,15 @@
  * provides search filtering plus file/folder creation.
  */
 
-import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  queryOptions,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
+import {
+  ArrowDownAZ,
+  ArrowDownWideNarrow,
   ChevronDown,
   ChevronRight,
   Eye,
@@ -37,6 +44,12 @@ import { Popover } from "@vellum/design-library/components/popover";
 import { client } from "@/generated/api/client.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
+import {
+  sortEntries,
+  type WorkspaceSortMode,
+} from "@/domains/workspace/utils/sort-entries";
+
+export type { WorkspaceSortMode };
 
 // ---------------------------------------------------------------------------
 // API helpers
@@ -46,7 +59,7 @@ interface WorkspaceTreeEntry {
   name?: string;
   path?: string;
   type?: string;
-  size?: number;
+  size?: number | null;
   mimeType?: string;
   modifiedAt?: string;
 }
@@ -57,13 +70,14 @@ interface WorkspaceTreeResponse {
 
 function workspaceTreeRetrieveOptions(opts: {
   path: { assistant_id: string };
-  query?: { path?: string; showHidden?: boolean };
+  query?: { path?: string; showHidden?: boolean; includeDirSizes?: boolean };
 }) {
   return queryOptions<WorkspaceTreeResponse>({
     queryFn: async () => {
       const query: Record<string, string> = {};
       if (opts.query?.path) query.path = opts.query.path;
       if (opts.query?.showHidden) query.showHidden = "true";
+      if (opts.query?.includeDirSizes) query.includeDirSizes = "true";
       const { data, error } = await client.get<WorkspaceTreeResponse, unknown>({
         url: "/v1/assistants/{assistant_id}/workspace/tree/",
         path: opts.path,
@@ -119,6 +133,7 @@ function TreeNode({
   expandedPaths,
   selectedPath,
   showHidden,
+  sortMode,
   searchLower,
   onToggleExpand,
   onSelectPath,
@@ -129,6 +144,7 @@ function TreeNode({
   expandedPaths: Set<string>;
   selectedPath: string | null;
   showHidden: boolean;
+  sortMode: WorkspaceSortMode;
   searchLower: string;
   onToggleExpand: (path: string) => void;
   onSelectPath: (path: string) => void;
@@ -148,15 +164,21 @@ function TreeNode({
   const { data } = useQuery({
     ...workspaceTreeRetrieveOptions({
       path: { assistant_id: assistantId },
-      query: { path: entryPath, showHidden },
+      query: {
+        path: entryPath,
+        showHidden,
+        includeDirSizes: sortMode === "size",
+      },
     }),
     enabled: isDirectory && effectivelyExpanded,
   });
 
-  const children = useMemo(() => data?.entries ?? [], [data?.entries]);
+  const children = useMemo(
+    () => sortEntries(data?.entries ?? [], sortMode),
+    [data?.entries, sortMode],
+  );
   const nameMatches =
-    searchLower === "" ||
-    entryName.toLowerCase().includes(searchLower);
+    searchLower === "" || entryName.toLowerCase().includes(searchLower);
 
   // Filter files by name match. Directories stay visible during search so
   // their children can mount, fetch, and reveal deeply nested matches.
@@ -208,7 +230,7 @@ function TreeNode({
         )}
         <FileIconForEntry entry={entry} />
         <span className="min-w-0 flex-1 truncate">{entryName}</span>
-        {!isDirectory && entry.size != null && (
+        {entry.size != null && (
           <span
             className="shrink-0 text-label-medium-default tabular-nums"
             style={{ color: "var(--content-tertiary)" }}
@@ -227,6 +249,7 @@ function TreeNode({
               expandedPaths={expandedPaths}
               selectedPath={selectedPath}
               showHidden={showHidden}
+              sortMode={sortMode}
               searchLower={searchLower}
               onToggleExpand={onToggleExpand}
               onSelectPath={onSelectPath}
@@ -336,19 +359,23 @@ export function WorkspaceTree({
   expandedPaths,
   selectedPath,
   showHidden,
+  sortMode,
   onToggleExpand,
   onExpandPath,
   onSelectPath,
   onToggleShowHidden,
+  onChangeSortMode,
 }: {
   assistantId: string;
   expandedPaths: Set<string>;
   selectedPath: string | null;
   showHidden: boolean;
+  sortMode: WorkspaceSortMode;
   onToggleExpand: (path: string) => void;
   onExpandPath: (path: string) => void;
   onSelectPath: (path: string) => void;
   onToggleShowHidden: () => void;
+  onChangeSortMode: (next: WorkspaceSortMode) => void;
 }) {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -362,8 +389,13 @@ export function WorkspaceTree({
   const { data, isLoading } = useQuery(
     workspaceTreeRetrieveOptions({
       path: { assistant_id: assistantId },
-      query: { showHidden },
+      query: { showHidden, includeDirSizes: sortMode === "size" },
     }),
+  );
+
+  const rootEntries = useMemo(
+    () => sortEntries(data?.entries ?? [], sortMode),
+    [data?.entries, sortMode],
   );
 
   const invalidateTree = useCallback(() => {
@@ -439,6 +471,32 @@ export function WorkspaceTree({
             type="button"
             variant="ghost"
             size="compact"
+            iconOnly={
+              sortMode === "size" ? (
+                <ArrowDownWideNarrow aria-hidden />
+              ) : (
+                <ArrowDownAZ aria-hidden />
+              )
+            }
+            onClick={() =>
+              onChangeSortMode(sortMode === "size" ? "name" : "size")
+            }
+            aria-label={sortMode === "size" ? "Sort by name" : "Sort by size"}
+            title={
+              sortMode === "size"
+                ? "Sorted by size — switch to name"
+                : "Sorted by name — switch to size"
+            }
+            tintColor={
+              sortMode === "size"
+                ? "var(--content-default)"
+                : "var(--content-tertiary)"
+            }
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="compact"
             iconOnly={showHidden ? <Eye aria-hidden /> : <EyeOff aria-hidden />}
             onClick={onToggleShowHidden}
             aria-label={showHidden ? "Hide hidden files" : "Show hidden files"}
@@ -494,7 +552,7 @@ export function WorkspaceTree({
               style={{ color: "var(--content-tertiary)" }}
             />
           </div>
-        ) : !data?.entries?.length ? (
+        ) : !rootEntries.length ? (
           <p
             className="px-3 py-4 text-center text-body-medium-lighter"
             style={{ color: "var(--content-tertiary)" }}
@@ -502,7 +560,7 @@ export function WorkspaceTree({
             No files found
           </p>
         ) : (
-          data.entries.map((entry) => (
+          rootEntries.map((entry) => (
             <TreeNode
               key={entry.path}
               entry={entry}
@@ -510,6 +568,7 @@ export function WorkspaceTree({
               expandedPaths={expandedPaths}
               selectedPath={selectedPath}
               showHidden={showHidden}
+              sortMode={sortMode}
               searchLower={searchLower}
               onToggleExpand={onToggleExpand}
               onSelectPath={onSelectPath}
@@ -613,7 +672,10 @@ export function WorkspaceTreeCreateMenu({
           onClick={() => onSelectKind("file")}
           className="w-full justify-start rounded-none"
           leftIcon={
-            <FilePlus aria-hidden style={{ color: "var(--content-tertiary)" }} />
+            <FilePlus
+              aria-hidden
+              style={{ color: "var(--content-tertiary)" }}
+            />
           }
           role="menuitem"
         >
@@ -625,7 +687,10 @@ export function WorkspaceTreeCreateMenu({
           onClick={() => onSelectKind("folder")}
           className="w-full justify-start rounded-none"
           leftIcon={
-            <FolderPlus aria-hidden style={{ color: "var(--content-tertiary)" }} />
+            <FolderPlus
+              aria-hidden
+              style={{ color: "var(--content-tertiary)" }}
+            />
           }
           role="menuitem"
         >

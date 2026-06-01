@@ -2,7 +2,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import { addMessage, createConversation } from "../../memory/conversation-crud.js";
+import {
+  addMessage,
+  createConversation,
+  type MessageRole,
+} from "../../memory/conversation-crud.js";
 import {
   getConversationByKey,
   setConversationKey,
@@ -14,6 +18,7 @@ import {
   messages as messagesTable,
 } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -22,7 +27,7 @@ const log = getLogger("conversations-import-routes");
 // -- Types --
 
 interface ImportMessage {
-  role: string;
+  role: MessageRole;
   content: string | Array<{ type: string; text: string }>;
   createdAt?: number;
 }
@@ -59,7 +64,10 @@ function resolveTimestamps(conv: ImportConversation): {
 // -- Handler --
 
 async function handleConversationsImport({ body }: RouteHandlerArgs) {
-  if (!body || !Array.isArray((body as Record<string, unknown>).conversations)) {
+  if (
+    !body ||
+    !Array.isArray((body as Record<string, unknown>).conversations)
+  ) {
     throw new BadRequestError("conversations array required");
   }
 
@@ -70,7 +78,8 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
   let imported = 0;
   let skipped = 0;
   let totalMessages = 0;
-  const errors: Array<{ index: number; sourceKey?: string; error: string }> = [];
+  const errors: Array<{ index: number; sourceKey?: string; error: string }> =
+    [];
 
   for (let idx = 0; idx < payload.conversations.length; idx++) {
     const conv = payload.conversations[idx];
@@ -90,7 +99,8 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
         }
       }
 
-      const { convCreatedAt, convUpdatedAt, messageTimestamps } = resolveTimestamps(conv);
+      const { convCreatedAt, convUpdatedAt, messageTimestamps } =
+        resolveTimestamps(conv);
 
       const conversation = createConversation(conv.title);
 
@@ -99,7 +109,7 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
           typeof msg.content === "string"
             ? msg.content
             : JSON.stringify(msg.content);
-        await addMessage(conversation.id, msg.role, contentStr, undefined, {
+        await addMessage(conversation.id, msg.role, contentStr, {
           skipIndexing: true,
         });
       }
@@ -122,7 +132,11 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
         .orderBy(messagesTable.createdAt)
         .all();
 
-      for (let i = 0; i < dbMessages.length && i < messageTimestamps.length; i++) {
+      for (
+        let i = 0;
+        i < dbMessages.length && i < messageTimestamps.length;
+        i++
+      ) {
         db.update(messagesTable)
           .set({ createdAt: messageTimestamps[i] })
           .where(eq(messagesTable.id, dbMessages[i].id))
@@ -188,6 +202,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversations_import",
     endpoint: "conversations/import",
     method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleConversationsImport,
     summary: "Import conversations",
     description: "Import conversations from a standard JSON payload.",

@@ -14,6 +14,7 @@ import { z } from "zod";
 import { getDb } from "../../memory/db-connection.js";
 import { memoryGraphNodes } from "../../memory/schema.js";
 import { resolveBundledDir } from "../../util/bundled-asset.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { RouteError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -105,6 +106,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "brain_graph_get",
     endpoint: "brain-graph",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get brain graph data",
     description:
       "Return a knowledge-graph shaped for brain-lobe visualization, with memory items mapped to brain regions.",
@@ -124,6 +129,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "brain_graph_ui",
     endpoint: "brain-graph-ui",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Serve brain graph UI",
     description:
       "Return the brain-graph HTML visualization page. The gateway injects an auth token before serving.",

@@ -8,7 +8,7 @@ import {
   assistantsMaintenanceModeExitCreate,
 } from "@/generated/api/sdk.gen";
 import type { MaintenanceMode } from "@/generated/api/types.gen";
-import { reportError } from "@/lib/errors/report";
+import { reportError } from "@/utils/error-report";
 
 interface RecoveryModeControlsProps {
   assistantId: string;

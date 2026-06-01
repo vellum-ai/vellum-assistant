@@ -91,8 +91,9 @@ mock.module("../memory/conversation-crud.js", () => ({
     _conversationId: string,
     role: string,
     content: string,
-    metadata?: Record<string, unknown>,
+    options?: { metadata?: Record<string, unknown> },
   ) => {
+    const metadata = options?.metadata;
     const id = `persisted-${nextMockMessageId++}`;
     mockDbMessages.push({
       id,
@@ -536,7 +537,7 @@ describe("loadFromDb history repair", () => {
       trustClass: "guardian",
       sourceChannel: "telegram",
     });
-    await conversation.persistUserMessage("Guardian follow-up", []);
+    await conversation.persistUserMessage({ content: "Guardian follow-up" });
     const messagesAfterPersist = conversation.getMessages();
 
     expect(messagesAfterPersist).toHaveLength(5);

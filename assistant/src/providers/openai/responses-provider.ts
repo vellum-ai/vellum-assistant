@@ -12,7 +12,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "../types.js";
 import { ContextOverflowError } from "../types.js";
 import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
@@ -26,7 +25,7 @@ export interface OpenAIResponsesProviderOptions {
   streamTimeoutMs?: number;
   useNativeWebSearch?: boolean;
   /** When true, target the Codex subscription endpoint and strip fields it
-   *  rejects (`max_output_tokens`, `reasoning`, `text`, `tools`). */
+   *  rejects (`max_output_tokens`). */
   codexSubscription?: boolean;
 }
 
@@ -74,6 +73,9 @@ interface ResponsesStreamEvent {
   response?: {
     model?: string;
     status?: string;
+    incomplete_details?: {
+      reason?: "max_output_tokens" | "content_filter";
+    } | null;
     /** Full output items array — preserved as part of rawResponse for the
      *  LLM context normalizer, which uses its presence to detect Responses
      *  API payloads in stored diagnostics. */
@@ -157,11 +159,9 @@ export class OpenAIResponsesProvider implements Provider {
 
   async sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
-    const { config, onEvent, signal } = options ?? {};
+    const { tools, systemPrompt, config, onEvent, signal } = options ?? {};
     const configObj = config as Record<string, unknown> | undefined;
     const maxTokens = configObj?.max_tokens as number | undefined;
     const modelOverride = configObj?.model as string | undefined;
@@ -188,24 +188,22 @@ export class OpenAIResponsesProvider implements Provider {
         params.max_output_tokens = maxTokens;
       }
 
-      if (!this.codexSubscription) {
-        const reasoningEffort = effort
-          ? EFFORT_TO_REASONING_EFFORT[effort]
-          : undefined;
-        if (reasoningEffort) {
-          params.reasoning = { effort: reasoningEffort };
-        }
-
-        if (
-          verbosity &&
-          VALID_VERBOSITIES.has(verbosity) &&
-          modelSupportsVerbosity(modelOverride ?? this.model)
-        ) {
-          params.text = { verbosity };
-        }
+      const reasoningEffort = effort
+        ? EFFORT_TO_REASONING_EFFORT[effort]
+        : undefined;
+      if (reasoningEffort) {
+        params.reasoning = { effort: reasoningEffort };
       }
 
-      if (tools && tools.length > 0 && !this.codexSubscription) {
+      if (
+        verbosity &&
+        VALID_VERBOSITIES.has(verbosity) &&
+        modelSupportsVerbosity(modelOverride ?? this.model)
+      ) {
+        params.text = { verbosity };
+      }
+
+      if (tools && tools.length > 0) {
         if (
           this.useNativeWebSearch &&
           tools.some((t) => t.name === "web_search")
@@ -218,9 +216,9 @@ export class OpenAIResponsesProvider implements Provider {
             parameters: t.input_schema,
             strict: null,
           }));
-          const webSearchTool = {
-            type: "web_search_preview" as const,
-          };
+          const webSearchTool = this.codexSubscription
+            ? { type: "web_search" as const, external_web_access: false }
+            : { type: "web_search_preview" as const };
           params.tools = [...mappedOther, webSearchTool];
         } else {
           params.tools = tools.map((t) => ({
@@ -256,20 +254,26 @@ export class OpenAIResponsesProvider implements Provider {
       let rawFinalResponse: unknown = undefined;
 
       try {
-        // The SDK exposes `client.responses.stream()` — cast through
-        // `unknown` to avoid `any` while the SDK's exported types stabilise.
+        // Use `create()` with `stream: true` instead of the higher-level
+        // `stream()` helper. The `stream()` helper wraps the response in a
+        // `ResponseStream` that runs `maybeParseResponse()` after iteration,
+        // which crashes when the Codex subscription endpoint omits `output`
+        // from the `response.completed` event payload.
         const responsesApi = this.client.responses as unknown as {
-          stream(
+          create(
             p: Record<string, unknown>,
-            o: { signal: AbortSignal; headers?: Record<string, string> },
-          ): AsyncIterable<ResponsesStreamEvent>;
+            o?: { signal?: AbortSignal; headers?: Record<string, string> },
+          ): Promise<AsyncIterable<ResponsesStreamEvent>>;
         };
-        const stream = responsesApi.stream(params, {
-          signal: timeoutSignal,
-          ...(usageAttributionHeaders
-            ? { headers: usageAttributionHeaders }
-            : {}),
-        });
+        const stream = await responsesApi.create(
+          { ...params, stream: true },
+          {
+            signal: timeoutSignal,
+            ...(usageAttributionHeaders
+              ? { headers: usageAttributionHeaders }
+              : {}),
+          },
+        );
 
         for await (const event of stream) {
           switch (event.type) {
@@ -341,7 +345,8 @@ export class OpenAIResponsesProvider implements Provider {
               break;
             }
 
-            case "response.completed": {
+            case "response.completed":
+            case "response.incomplete": {
               const response = event.response;
               if (response) {
                 rawFinalResponse = response;
@@ -356,15 +361,22 @@ export class OpenAIResponsesProvider implements Provider {
                   cachedInputTokens =
                     response.usage.input_tokens_details?.cached_tokens ?? 0;
                 }
-                finishReason = response.status ?? "completed";
+                finishReason =
+                  response.incomplete_details?.reason ??
+                  response.status ??
+                  (event.type === "response.incomplete"
+                    ? "incomplete"
+                    : "completed");
               }
               // Emit server_tool_complete for any web search calls that were started.
-              for (const toolUseId of webSearchCallIds) {
-                onEvent?.({
-                  type: "server_tool_complete",
-                  toolUseId,
-                  isError: false,
-                });
+              if (event.type === "response.completed") {
+                for (const toolUseId of webSearchCallIds) {
+                  onEvent?.({
+                    type: "server_tool_complete",
+                    toolUseId,
+                    isError: false,
+                  });
+                }
               }
               break;
             }

@@ -9,6 +9,17 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
+// Stub the background-wake publisher so these store-level unit tests stay
+// hermetic. `notifySchedulesChanged()` fires a debounced background-wake
+// refresh on every mutation; left real, that 250ms timer performs a
+// synchronous DB read plus a platform-client lookup which compete with the
+// serialized async event delivery and can push a `sync_changed` past the
+// wait deadline on loaded runners. Background-wake behavior is covered by the
+// background-wake tests.
+mock.module("../background-wake/publisher.js", () => ({
+  refreshBackgroundWakeIntent: () => {},
+}));
+
 import { SYNC_TAGS } from "../daemon/message-types/sync.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
@@ -38,7 +49,11 @@ function getRawDb(): import("bun:sqlite").Database {
 }
 
 async function waitFor(predicate: () => boolean): Promise<void> {
-  const deadline = Date.now() + 500;
+  // Event delivery is async (serialized through the hub's broadcast chain),
+  // so poll until it lands. The deadline is generous to absorb scheduling
+  // jitter on loaded CI runners — the happy path returns the moment the
+  // predicate holds, so a larger budget costs nothing when events flow.
+  const deadline = Date.now() + 2000;
   while (Date.now() < deadline) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 5));
@@ -1016,6 +1031,73 @@ describe("routing and mode fields", () => {
     expect(updated!.mode).toBe("notify");
     expect(updated!.routingIntent).toBe("single_channel");
     expect(updated!.routingHints).toEqual({ channel: "telegram" });
+  });
+});
+
+// ── Script timeout override ─────────────────────────────────────────
+
+describe("script timeout override", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("defaults timeoutMs to null when not provided", () => {
+    // GIVEN a schedule created without a timeout override
+    const job = createSchedule({
+      name: "No timeout",
+      cronExpression: "0 9 * * *",
+      message: "no timeout",
+      syntax: "cron",
+    });
+
+    // THEN the stored timeout is null (the runner falls back to the default)
+    expect(job.timeoutMs).toBeNull();
+    expect(getSchedule(job.id)!.timeoutMs).toBeNull();
+  });
+
+  test("persists a timeoutMs override through create/read", () => {
+    // GIVEN a script schedule created with a custom timeout
+    const job = createSchedule({
+      name: "Slow script",
+      cronExpression: "0 9 * * *",
+      message: "",
+      script: "sleep 5",
+      mode: "script",
+      syntax: "cron",
+      timeoutMs: 120_000,
+    });
+
+    // THEN the override round-trips through the store
+    expect(job.timeoutMs).toBe(120_000);
+    expect(getSchedule(job.id)!.timeoutMs).toBe(120_000);
+  });
+
+  test("updateSchedule sets and clears the timeout override", () => {
+    // GIVEN a schedule with a custom timeout
+    const job = createSchedule({
+      name: "Adjust timeout",
+      cronExpression: "0 9 * * *",
+      message: "",
+      script: "echo hi",
+      mode: "script",
+      syntax: "cron",
+      timeoutMs: 90_000,
+    });
+
+    // WHEN the timeout is changed
+    const updated = updateSchedule(job.id, { timeoutMs: 5_000 });
+
+    // THEN the new value is stored
+    expect(updated!.timeoutMs).toBe(5_000);
+
+    // AND WHEN the timeout is cleared back to the default
+    const cleared = updateSchedule(job.id, { timeoutMs: null });
+
+    // THEN it reverts to null
+    expect(cleared!.timeoutMs).toBeNull();
+    expect(getSchedule(job.id)!.timeoutMs).toBeNull();
   });
 });
 

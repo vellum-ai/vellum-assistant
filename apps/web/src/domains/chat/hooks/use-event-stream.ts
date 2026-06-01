@@ -33,25 +33,31 @@ import {
   useRef,
 } from "react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types";
-import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat-utils";
+import type { AssistantEvent } from "@/types/event-types";
+import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import {
   bucketMessagesAdded,
-  recordChatDiagnostic,
+  recordDiagnostic,
   resolvePlatformTag,
-} from "@/domains/chat/utils/diagnostics";
+} from "@/lib/diagnostics";
+import {
+  getLastSeenSeq,
+  replaceLastSeenSeq,
+  setLastSeenSeq,
+} from "@/lib/streaming/last-seen-seq";
+import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncRouter,
 } from "@/lib/sync/web-sync-router";
 
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { endTurn } from "@/domains/chat/turn-coordinator";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   isSending,
   useTurnStore,
-} from "@/domains/messaging/turn-store";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+} from "@/domains/chat/turn-store";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import { useEventBusStore } from "@/stores/event-bus-store";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
 
@@ -221,9 +227,19 @@ export function useEventStream({
     const presence: ChatEventStream = { cancel: () => {} };
     streamRef.current = presence;
 
-    const unsubEvent = bus.subscribe("sse.event", (event) => {
-      const eventConversationId = (event as { conversationId?: string })
-        .conversationId;
+    // Read once at subscription setup — the flag requires a reload to
+    // flip, so it cannot change during the lifetime of this effect.
+    const seqGapEnabled = isSeqGapDetectionEnabled();
+
+    // Gate so the very first event after a conversation switch seeds
+    // the seq cursor without triggering a reconcile. Prevents spurious
+    // refetches when switching to a conversation whose stored cursor
+    // is stale (e.g., stored=50 but server is at seq=500).
+    let seededSeqForConversation = false;
+
+    const unsubEvent = bus.subscribe("sse.event", (envelope) => {
+      const event = envelope.message;
+      const eventConversationId = envelope.conversationId;
       // Two-stage filter to prevent cross-conversation event leakage.
       // The bus opens a single unfiltered SSE connection, so every
       // event for every conversation flows through this subscriber.
@@ -245,7 +261,7 @@ export function useEventStream({
         eventConversationId === undefined ||
         eventConversationId !== activeConversationIdLatestRef.current
       ) {
-        recordChatDiagnostic("sse_event_wrong_conversation_filtered", {
+        recordDiagnostic("sse_event_wrong_conversation_filtered", {
           eventConversationId,
           activeConversationId: activeConversationIdLatestRef.current,
           eventType: event.type,
@@ -253,7 +269,49 @@ export function useEventStream({
         });
         return;
       }
+
+      const eventSeq = envelope.seq;
+      let gapDetected = false;
+      if (seqGapEnabled && eventSeq != null && eventConversationId) {
+        if (seededSeqForConversation) {
+          const stored = getLastSeenSeq(eventConversationId) ?? 0;
+          if (eventSeq < stored) {
+            // Server seq counter restarted (daemon restart). Replace
+            // the stale cursor and reconcile to pick up any state
+            // changes from the restart.
+            recordDiagnostic("sse_seq_generation_reset", {
+              conversationId: eventConversationId,
+              stored,
+              observed: eventSeq,
+            });
+            replaceLastSeenSeq(eventConversationId, eventSeq);
+            gapDetected = true;
+            reconcileActiveConversationRef.current();
+          } else if (eventSeq > stored + 1) {
+            recordDiagnostic("sse_seq_gap_detected", {
+              conversationId: eventConversationId,
+              stored,
+              observed: eventSeq,
+              gap: eventSeq - stored,
+            });
+            gapDetected = true;
+            reconcileActiveConversationRef.current();
+          }
+        } else {
+          seededSeqForConversation = true;
+        }
+      }
+
       handleStreamEventRef.current(event, streamEpochRef.current);
+
+      // Advance the seq cursor AFTER the handler returns so a thrown
+      // handler does not advance the cursor past unapplied work.
+      // Skip advancement when a gap was detected — the reconcile
+      // refetch will deliver authoritative state. If reconcile fails,
+      // the next contiguous event will re-detect the gap and retry.
+      if (seqGapEnabled && eventSeq != null && eventConversationId && !gapDetected) {
+        setLastSeenSeq(eventConversationId, eventSeq);
+      }
     });
 
     return () => {
@@ -303,7 +361,7 @@ export function useEventStream({
       .subscribe("sse.opened", ({ assistantId: openedFor, cause }) => {
         if (openedFor !== capturedAssistantId) return;
         const epoch = ++streamEpochRef.current;
-        recordChatDiagnostic("sse_stream_opened", {
+        recordDiagnostic("sse_stream_opened", {
           assistantId: capturedAssistantId,
           conversationId: capturedConversationId,
           epoch,
@@ -328,7 +386,7 @@ export function useEventStream({
         // reconcile.
         if (cause === "watchdog" || cause === "error") {
           void (async () => {
-            recordChatDiagnostic("sse_stream_reconnect", {
+            recordDiagnostic("sse_stream_reconnect", {
               assistantId: capturedAssistantId,
               conversationId: capturedConversationId,
               epoch,
@@ -349,7 +407,7 @@ export function useEventStream({
             // would cancel the newer loop and then exit as stale,
             // leaving no active loop running.
             if (epoch !== streamEpochRef.current) {
-              recordChatDiagnostic("sse_post_reconnect_stale", {
+              recordDiagnostic("sse_post_reconnect_stale", {
                 assistantId: capturedAssistantId,
                 conversationId: capturedConversationId,
                 epoch,
@@ -361,7 +419,7 @@ export function useEventStream({
             startReconciliationLoopRef.current(epoch);
             if (cause !== "watchdog") return;
             const latencyMs = Date.now() - startedAt;
-            recordChatDiagnostic("sse_post_watchdog_reconcile_result", {
+            recordDiagnostic("sse_post_watchdog_reconcile_result", {
               assistantId: capturedAssistantId,
               conversationId: capturedConversationId,
               epoch,
@@ -442,19 +500,16 @@ export function useEventStream({
       .getState()
       .subscribe("sse.closed", ({ reason }) => {
         const hadActiveTurn = isSending(useTurnStore.getState());
-        recordChatDiagnostic("sse_stream_error", {
+        recordDiagnostic("sse_stream_error", {
           assistantId: capturedAssistantId,
           conversationId: capturedConversationId,
           epoch: streamEpochRef.current,
           messageLength: reason.length,
         });
-        useTurnStore.getState().onSessionError();
-        {
-          const convId = streamContextRef.current?.conversationId;
-          if (convId) {
-            useConversationStore.getState().removeProcessingConversationId(convId);
-          }
-        }
+        endTurn({
+          conversationId: streamContextRef.current?.conversationId,
+          reason: "session_error",
+        });
         // Idle SSE drops should reopen the stream without interrupting the
         // user; active turns still surface the reconnect state immediately.
         if (hadActiveTurn) {

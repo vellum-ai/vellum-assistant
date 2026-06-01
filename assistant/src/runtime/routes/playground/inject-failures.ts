@@ -42,7 +42,7 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "playgroundInjectCompactionFailures",
     endpoint: "conversations/:id/playground/inject-compaction-failures",
     method: "POST",
-    policyKey: "conversations/playground/inject-failures",
+    policy: null,
     summary:
       "Directly mutate compaction circuit-breaker state (dev-only playground)",
     tags: ["playground"],

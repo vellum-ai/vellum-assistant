@@ -67,6 +67,24 @@ export interface LlmJudgeOptions {
 export interface LlmJudgeResult {
   label: boolean;
   reason: string;
+  /**
+   * Normalized usage record from the OpenAI chat-completions response,
+   * shaped so `summarizeAssistantUsage` + `priceUsageRecord` (in
+   * `evals/src/lib/`) can fold it into the run's usage.json alongside
+   * the agent's own assistant-event usage. Populated only when the
+   * upstream response carried a `usage` block; deterministic eval
+   * functions (`norm_phrase_set_match`, `mc_choice_match`, …) never
+   * produce a judge usage record.
+   *
+   * Shape uses the canonical evals fields (`input_tokens`,
+   * `output_tokens`, `provider`, `model`) so it drops straight onto
+   * `event.message.usage` without any further translation at the
+   * runner. Original OpenAI field names (`prompt_tokens`,
+   * `completion_tokens`, `total_tokens`) are preserved as siblings for
+   * audit so the report can still surface the upstream provider's
+   * exact numbers.
+   */
+  usage?: Record<string, unknown>;
 }
 
 export async function llmAbstentionChecker(
@@ -138,7 +156,7 @@ async function runLlmJudge(run: JudgeRun): Promise<LlmJudgeResult> {
     modelFinalAnswer: finalAnswerText,
   });
 
-  const judgeText = await callChatCompletion({
+  const completion = await callChatCompletion({
     apiKey,
     baseUrl: run.opts.evaluatorBaseUrl ?? DEFAULT_OPENAI_BASE_URL,
     model: evaluatorModel,
@@ -157,8 +175,12 @@ async function runLlmJudge(run: JudgeRun): Promise<LlmJudgeResult> {
       run.opts.evaluatorTimeoutSeconds ?? DEFAULT_EVALUATOR_TIMEOUT_SECONDS,
   });
 
-  const parsed = parseLlmBinaryJudgement(judgeText);
-  return { label: parsed.label === 1, reason: parsed.reason };
+  const parsed = parseLlmBinaryJudgement(completion.content);
+  return {
+    label: parsed.label === 1,
+    reason: parsed.reason,
+    ...(completion.usage ? { usage: completion.usage } : {}),
+  };
 }
 
 interface UserPromptInputs {
@@ -233,9 +255,20 @@ interface ChatCompletionRequest {
   timeoutSeconds: number;
 }
 
+interface ChatCompletionOutcome {
+  content: string;
+  /**
+   * Normalized usage record (see `LlmJudgeResult.usage` docstring).
+   * Undefined if the upstream response did not carry a `usage` block —
+   * some local/non-OpenAI endpoints omit it, and we'd rather surface
+   * that as "missing" in the report than fabricate zeros.
+   */
+  usage?: Record<string, unknown>;
+}
+
 async function callChatCompletion(
   request: ChatCompletionRequest,
-): Promise<string> {
+): Promise<ChatCompletionOutcome> {
   const url = `${request.baseUrl.replace(/\/+$/, "")}/chat/completions`;
   const body: Record<string, unknown> = {
     model: request.model,
@@ -277,6 +310,12 @@ async function callChatCompletion(
   }
 
   const data = (await response.json()) as ChatCompletionResponse;
+  const content = extractContent(data);
+  const usage = normalizeJudgeUsage(data.usage, request.model);
+  return usage ? { content, usage } : { content };
+}
+
+function extractContent(data: ChatCompletionResponse): string {
   const messageContent = data.choices?.[0]?.message?.content;
   if (typeof messageContent === "string") {
     const trimmed = messageContent.trim();
@@ -300,12 +339,80 @@ async function callChatCompletion(
   throw new Error("Evaluator model returned empty response content.");
 }
 
+/**
+ * Translate the OpenAI `usage` block on a chat-completions response
+ * into the canonical evals usage shape. We:
+ *
+ *  - rename `prompt_tokens` → `input_tokens` and `completion_tokens` →
+ *    `output_tokens` so `summarizeAssistantUsage` (which reads
+ *    `input_tokens` / `output_tokens` as primary keys) and
+ *    `priceUsageRecord` both see them without further translation
+ *  - stamp `provider: "openai"` and `model: <evaluatorModel>` so the
+ *    pricing table lookup hits an OpenAI row (the judge call always
+ *    goes through OpenAI's chat-completions API — even when a base-URL
+ *    override points at a local server, attributing it to OpenAI keeps
+ *    the report's accounting consistent)
+ *  - preserve the original OpenAI field names alongside so a future
+ *    auditor can still see the exact numbers the upstream returned
+ *
+ * Returns `undefined` when the response had no `usage` block at all
+ * (some local non-OpenAI endpoints skip it). Callers leave the field
+ * off the result rather than fabricating zeros.
+ */
+function normalizeJudgeUsage(
+  usage: ChatCompletionUsage | undefined,
+  evaluatorModel: string,
+): Record<string, unknown> | undefined {
+  if (!usage || typeof usage !== "object") return undefined;
+  const promptTokens = numberOrUndefined(usage.prompt_tokens);
+  const completionTokens = numberOrUndefined(usage.completion_tokens);
+  const totalTokens = numberOrUndefined(usage.total_tokens);
+
+  // If literally none of the three token fields were present, surface
+  // nothing — the report's "missing" path is the honest answer.
+  if (
+    promptTokens === undefined &&
+    completionTokens === undefined &&
+    totalTokens === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    provider: "openai",
+    model: evaluatorModel,
+    source: "longmemeval-v2-judge",
+    ...(promptTokens !== undefined ? { input_tokens: promptTokens } : {}),
+    ...(completionTokens !== undefined
+      ? { output_tokens: completionTokens }
+      : {}),
+    ...(promptTokens !== undefined ? { prompt_tokens: promptTokens } : {}),
+    ...(completionTokens !== undefined
+      ? { completion_tokens: completionTokens }
+      : {}),
+    ...(totalTokens !== undefined ? { total_tokens: totalTokens } : {}),
+  };
+}
+
+function numberOrUndefined(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+interface ChatCompletionUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
 interface ChatCompletionResponse {
   choices?: Array<{
     message?: {
       content?: string | Array<{ text?: string }>;
     };
   }>;
+  usage?: ChatCompletionUsage;
 }
 
 function resolveApiKey(opts: LlmJudgeOptions): string | undefined {

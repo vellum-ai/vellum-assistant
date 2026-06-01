@@ -17,7 +17,6 @@ import { create } from "zustand";
 import { toast } from "@vellum/design-library";
 import { integrationsVercelConfigGet } from "@/generated/daemon/sdk.gen";
 import type { AppsByIdPublishPostResponse } from "@/generated/daemon/types.gen";
-import { isCredentialError } from "@/types/publish-types";
 import { createSelectors } from "@/utils/create-selectors";
 import { publishApp } from "@/utils/publish-app";
 import { shareApp as shareAppApi } from "@/utils/share-app";
@@ -44,11 +43,7 @@ export interface DeployState {
 }
 
 export interface DeployActions {
-  startSharing: () => void;
-  finishSharing: () => void;
   shareApp: (assistantId: string, appId: string, appName: string) => Promise<void>;
-  startDeploying: () => void;
-  finishDeploying: (clearPendingAppId?: boolean) => void;
   deployApp: (assistantId: string, appId: string, appName: string, appHtml: string) => Promise<void>;
   deployAfterTokenSaved: (assistantId: string) => Promise<void>;
   showTokenDialog: (pendingAppId: string) => void;
@@ -62,6 +57,15 @@ export type DeployStore = DeployState & DeployActions;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+function isCredentialError(result: AppsByIdPublishPostResponse): boolean {
+  return (
+    result.errorCode === "credentials_missing" ||
+    !!result.error?.includes("not allowed to use credential") ||
+    !!result.error?.includes("domain restrictions") ||
+    !!result.error?.includes("Credential use failed")
+  );
+}
 
 function showPublishResultToast(result: AppsByIdPublishPostResponse): void {
   if (result.publicUrl) {
@@ -96,14 +100,6 @@ const INITIAL_STATE: DeployState = {
 const useDeployStoreBase = create<DeployStore>()((set, get) => ({
   ...INITIAL_STATE,
 
-  startSharing: () => {
-    set({ isSharing: true });
-  },
-
-  finishSharing: () => {
-    set({ isSharing: false });
-  },
-
   shareApp: async (assistantId, appId, appName) => {
     if (get().isSharing) return;
     set({ isSharing: true });
@@ -117,17 +113,6 @@ const useDeployStoreBase = create<DeployStore>()((set, get) => ({
     } finally {
       set({ isSharing: false });
     }
-  },
-
-  startDeploying: () => {
-    set({ isDeploying: true });
-  },
-
-  finishDeploying: (clearPendingAppId) => {
-    set({
-      isDeploying: false,
-      ...(clearPendingAppId ? { pendingDeployAppId: null } : {}),
-    });
   },
 
   deployApp: async (assistantId, appId, appName, appHtml) => {

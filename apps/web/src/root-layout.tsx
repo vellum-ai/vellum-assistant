@@ -1,18 +1,23 @@
-import { Outlet, useNavigate, useOutletContext } from "react-router";
+import { Outlet, useNavigate } from "react-router";
 
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
+import { useGlobalDeepLinkConsumer } from "@/hooks/use-global-deep-link-consumer";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport";
-import {
-  useAssistantLifecycle,
-  type UseAssistantLifecycleReturn,
-} from "@/domains/chat/hooks/use-assistant-lifecycle";
+import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useAuthStore } from "@/stores/auth-store";
-import { useEnvironmentStore } from "@/lib/environment/environment-store";
-import { useAssistantSyncStream } from "@/hooks/use-assistant-sync-stream";
-import { useClientFeatureFlagSync } from "@/lib/feature-flags/use-client-feature-flag-sync";
-import { useAssistantFeatureFlagSync } from "@/lib/feature-flags/use-assistant-feature-flag-sync";
+import { useEnvironmentStore } from "@/stores/environment-store";
+import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
+import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
+import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
+import { useConversationSync } from "@/domains/conversations/use-conversation-sync";
+import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
+import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
+import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";
+import { useAssistantFeatureFlagSync } from "@/hooks/use-assistant-feature-flag-sync";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 
 /**
  * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
@@ -22,32 +27,16 @@ import { useAssistantFeatureFlagSync } from "@/lib/feature-flags/use-assistant-f
 const KEYBOARD_OPEN_THRESHOLD_PX = 100;
 
 /**
- * Outlet-context shape provided by `RootLayout`. Child layouts
- * (`ChatLayout`, `SettingsLayout`, `LogsLayout`, onboarding routes)
- * consume the lifecycle through `useRootOutletContext()`.
- */
-export interface RootOutletContext {
-  lifecycle: UseAssistantLifecycleReturn;
-}
-
-/**
- * Read the assistant lifecycle from the root outlet context. Child
- * layouts (`ChatLayout`, `SettingsLayout`, `LogsLayout`) call this to
- * avoid running a duplicate `useAssistantLifecycle` state machine.
- */
-export function useRootOutletContext(): RootOutletContext {
-  return useOutletContext<RootOutletContext>();
-}
-
-/**
  * App-level layout route. Owns three cross-route concerns:
  *
  * 1. Safe-area insets and iOS visual-viewport keyboard tracking.
- * 2. The single assistant lifecycle (`useAssistantLifecycle`), passed
- *    to every child layout via outlet context. Resolving lifecycle here
- *    means SettingsLayout / LogsLayout / onboarding routes can see the
- *    current assistant without each layout running its own polling
- *    state machine.
+ * 2. The single assistant lifecycle (`useAssistantLifecycle`). Mounted
+ *    here as a side effect — the hook publishes `assistantState` and
+ *    stable imperative callbacks into `useAssistantLifecycleStore`,
+ *    and the active assistant id into `useAssistantSelectionStore`.
+ *    Mounting once at the app root means every layout / route can
+ *    read the current assistant via store selectors without each
+ *    running a duplicate polling state machine.
  * 3. The event-bus owner (`useEventBusInit`). Bus producers (SSE
  *    connection, visibility / online / offline listeners, Capacitor
  *    app-state) need to be alive on every authenticated route — not
@@ -56,7 +45,6 @@ export function useRootOutletContext(): RootOutletContext {
  *
  * References:
  * - React Router layout routes: https://reactrouter.com/start/data/routing
- * - React Router outlet context: https://reactrouter.com/start/framework/outlet
  * - env() safe-area-inset: https://developer.mozilla.org/en-US/docs/Web/CSS/env
  * - Visual Viewport API: https://developer.mozilla.org/en-US/docs/Web/API/Visual_Viewport_API
  */
@@ -71,42 +59,53 @@ export function RootLayout() {
   const hasPlatformSession = useAuthStore.use.hasPlatformSession();
   const isNonProduction = useEnvironmentStore.use.isNonProduction();
   useClientFeatureFlagSync(hasPlatformSession && !authLoading);
-  const lifecycle = useAssistantLifecycle({
+  useAssistantLifecycle({
     isLoggedIn,
     isLoading: authLoading,
     isRetired: false,
     isNonProduction,
     hasPlatformSession,
     onRedirect: navigate,
+    resolveOnboardingRedirect,
   });
 
-  useAssistantFeatureFlagSync(hasPlatformSession ? lifecycle.assistantId : null);
-  useAssistantSyncStream(
-    lifecycle.assistantId,
-    lifecycle.assistantState.kind === "active",
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantStateKind = useAssistantLifecycleStore(
+    (s) => s.assistantState.kind,
   );
+  const isAssistantActive = assistantStateKind === "active";
+  useAssistantFeatureFlagSync(hasPlatformSession ? assistantId : null);
+  useAssistantResourceSync(assistantId, isAssistantActive);
+  useConversationSync(assistantId, isAssistantActive);
+  useFeatureFlagBusSync(assistantId, isAssistantActive);
+  useNotificationIntentSync(assistantId);
+  useDocumentEditorSync();
 
-  useEventBusInit({
-    assistantId: lifecycle.assistantId,
-    isAssistantActive: lifecycle.assistantState.kind === "active",
-    checkAssistant: lifecycle.checkAssistant,
-  });
+  useEventBusInit({ assistantId, isAssistantActive });
+  // Inbound deep-link navigation + window activation. Mounted here
+  // (not in `ChatPage`) so a `vellum://thread/...` arriving while
+  // the user is on `/assistant/settings`, `/logs`, etc. still
+  // navigates. The composer-pre-fill half lives in `ChatPage`'s
+  // `useDeepLinkConsumer` because it owns `setInput`; the two
+  // hand off via `pending-deep-link-store`.
+  useGlobalDeepLinkConsumer();
 
   const keyboardOpen =
     isMobile &&
     visibleViewport !== null &&
     visibleViewport.keyboardHeight > KEYBOARD_OPEN_THRESHOLD_PX;
 
-  const followVisualViewport =
-    keyboardOpen &&
-    visibleViewport !== null &&
-    (visibleViewport.offsetTop !== 0 || visibleViewport.offsetLeft !== 0);
-
-  const innerTransform = followVisualViewport
-    ? `translate3d(${visibleViewport.offsetLeft}px, ${visibleViewport.offsetTop}px, 0)`
-    : undefined;
-
-  const outletContext: RootOutletContext = { lifecycle };
+  // When the iOS keyboard opens, the system scrolls the layout viewport
+  // down by `offsetTop` to keep the focused input visible. Size the outer
+  // container to `height + offsetTop` and add matching `paddingTop` so the
+  // content area stays exactly `visualViewport.height` (border-box) while
+  // the container's background fills the entire visible region. This
+  // replaces the previous `translate3d(0, offsetTop, 0)` approach which
+  // positioned the content correctly but left the bottom `offsetTop` pixels
+  // outside the container's background, exposing the body's default
+  // background as a visible gap above the keyboard.
+  const keyboardOffsetTop =
+    keyboardOpen && visibleViewport ? visibleViewport.offsetTop : 0;
 
   return (
     <div
@@ -116,8 +115,9 @@ export function RootLayout() {
         background: "var(--surface-base)",
         height:
           keyboardOpen && visibleViewport
-            ? `${visibleViewport.height}px`
+            ? `${visibleViewport.height + keyboardOffsetTop}px`
             : "100dvh",
+        paddingTop: keyboardOffsetTop > 0 ? `${keyboardOffsetTop}px` : undefined,
         paddingBottom: keyboardOpen
           ? "0px"
           : "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
@@ -128,20 +128,11 @@ export function RootLayout() {
         isolation: "isolate",
       }}
     >
-      <div
-        className="flex min-w-0 flex-col overflow-hidden h-full w-full"
-        style={{
-          transform: innerTransform,
-          transformOrigin: innerTransform ? "0 0" : undefined,
-        }}
-      >
-        <Outlet context={outletContext} />
+      <div className="flex min-w-0 flex-col overflow-hidden h-full w-full">
+        <Outlet />
       </div>
 
-      {/* Portal target for mobile overlays that use `position: fixed`.
-          Lives outside the inner wrapper so the keyboard-following
-          `translate3d(...)` doesn't shift the overlay's containing block.
-          See: https://www.w3.org/TR/css-transforms-1/#transform-rendering */}
+      {/* Portal target for mobile overlays that use `position: fixed`. */}
       <div id="viewport-overlays" />
     </div>
   );

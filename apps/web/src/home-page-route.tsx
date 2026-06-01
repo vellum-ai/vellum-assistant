@@ -2,20 +2,22 @@ import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router";
 
 import { Typography } from "@vellum/design-library";
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
-import { useAssistantContext } from "@/components/layout/assistant-context";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { useConversationListQuery } from "@/domains/conversations/conversation-queries";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { HomePage } from "@/domains/home/home-page";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
 export function HomePageRoute() {
   const navigate = useNavigate();
-  const { assistantId } = useActiveAssistantContext();
-  const { setTopBarCenter } = useAssistantContext();
+  const assistantId = useActiveAssistantId();
+  const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
+  const isMobile = useIsMobile();
   const { conversations } = useConversationListQuery(assistantId);
   const validConversationIds = useMemo(
     () => new Set(conversations.map((c) => c.conversationId)),
@@ -23,23 +25,30 @@ export function HomePageRoute() {
   );
 
   useEffect(() => {
-    setTopBarCenter(
-      <Typography
-        variant="body-medium-default"
-        className="text-[var(--content-secondary)]"
-      >
-        Home
-      </Typography>,
-    );
+    if (isMobile) {
+      setTopBarCenter(
+        <Typography
+          variant="body-medium-default"
+          className="text-[var(--content-secondary)]"
+        >
+          Home
+        </Typography>,
+      );
+    } else {
+      setTopBarCenter(null);
+    }
     return () => { setTopBarCenter(null); };
-  }, [setTopBarCenter]);
+  }, [isMobile, setTopBarCenter]);
 
   return (
     <HomePage
       assistantId={assistantId}
       validConversationIds={validConversationIds}
       onStartNewChat={() => {
-        navigate(routes.assistant);
+        useViewerStore.getState().setMainView("chat");
+        const draftConversationId = createDraftConversationId();
+        useConversationStore.getState().setActiveConversationId(draftConversationId);
+        navigate(routes.conversation(draftConversationId));
         requestComposerFocus();
       }}
       onOpenConversation={(conversationId) =>

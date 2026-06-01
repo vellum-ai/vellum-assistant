@@ -27,10 +27,9 @@ import {
  *   2. In local mode with zero assistants, clear any stale completion flag
  *      (lockfile was lost/emptied since last onboarding).
  *   3. If onboarding is already marked completed, let the user through.
- *   4. If the intended destination isn't the chat surface itself
- *      (`/assistant`), let them through — sibling paths
- *      `/assistant/settings/...`, `/assistant/onboarding/...`,
- *      `/admin/...` etc. shouldn't be gated.
+ *   4. If the intended destination is outside `/assistant` entirely, or
+ *      inside the onboarding flow (`/assistant/onboarding/...`), let
+ *      them through — the former isn't ours, the latter avoids loops.
  *   5. Otherwise, route them to welcome (local mode) or privacy (platform).
  */
 export function resolveOnboardingRedirect({
@@ -49,7 +48,8 @@ export function resolveOnboardingRedirect({
   // `//assistant.host/`). Parse out the pathname before matching so we
   // don't miss absolute URLs whose path is the assistant surface.
   const path = extractPathname(intendedDestination);
-  if (path !== routes.assistant) return null;
+  if (!path.startsWith(routes.assistant)) return null;
+  if (path.startsWith(`${routes.assistant}/onboarding`)) return null;
   return getOnboardingEntrypoint();
 }
 

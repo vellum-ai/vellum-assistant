@@ -30,10 +30,10 @@ useReducer because:
 
 ```ts
 // Good — component only re-renders when its slice changes
-const messages = useChatStore((s) => s.messages);
+const phase = useTurnStore((s) => s.phase);
 
 // Avoid — every consumer re-renders on any context change
-const { messages } = useContext(ChatContext);
+const { phase } = useContext(TurnContext);
 ```
 
 References:
@@ -104,94 +104,6 @@ References:
 - [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)
 - [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/learn/guides/auto-generating-selectors)
 
-## Auth state lives in a Zustand store
-
-Auth is cross-domain shared state — used by middleware, route
-components, API interceptors, and platform bridges. It lives in a
-Zustand store (`stores/auth-store.ts`), not a React Context. This
-is critical because:
-
-- **Middleware and loaders** need auth state outside the React tree —
-  `useAuthStore.getState()` works anywhere; Context requires a
-  component.
-- **API interceptors** need to read/write auth state synchronously.
-- **Selector support** — components subscribe to only the auth slice
-  they need (e.g., `useAuthStore(s => s.isAuthenticated)`).
-
-References:
-- [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
-- [React Router — Middleware](https://reactrouter.com/how-to/middleware)
-
-## Logout destroys the JS context via hard navigation
-
-Logout uses `hardNavigate()` from `lib/auth/hard-navigate.ts`, not
-React Router's `navigate()`. `hardNavigate()` calls
-`window.location.replace()`, which destroys the entire JavaScript
-execution context — every Zustand module-level singleton, every
-closure, every in-flight timer — guaranteeing no in-memory state
-leaks across auth boundaries. Using `replace` instead of assigning
-`location.href` removes the pre-logout page from session history,
-preventing back-navigation and bfcache restoration of stale state.
-React Router intentionally does not provide a "destroy everything"
-helper because SPA routers are designed to *preserve* state across
-navigations; for logout, preservation is the problem.
-
-Before the hard navigation, the auth store's `logout()` action
-clears user-scoped browser storage (`lib/auth/session-cleanup.ts`).
-The cleanup preserves any key starting with `device:` (device-scoped
-settings managed by `lib/device-settings.ts`) and removes all other
-keys matching app prefixes (`vellum`, `onboarding.`, `ff:client:`,
-`voice:`, `integrations.`). New app keys are cleared by default; new
-device settings are preserved by default — no manual list to maintain.
-
-### Device-scoped localStorage (`device:` namespace)
-
-Settings that describe the physical device rather than a user account
-use the `device:` key prefix and are managed via `lib/device-settings.ts`.
-To add a new device setting, add an entry to the `DEVICE_SETTINGS`
-registry in that file and use `getDeviceSetting` / `setDeviceSetting`
-in your component — session-cleanup.ts automatically preserves it.
-
-Current device settings:
-
-| Setting            | Key                          |
-|--------------------|------------------------------|
-| Theme              | `device:theme`               |
-| Share analytics    | `device:share_analytics`     |
-| Share diagnostics  | `device:share_diagnostics`   |
-| Biometric enabled  | `device:biometric_enabled`   |
-| LLM log retention  | `device:llm_log_retention`   |
-| Timezone           | `device:timezone`            |
-| Media embeds       | `device:media_embeds_enabled`|
-| Embed domains      | `device:media_embed_domains` |
-| Last user ID       | `device:last_user_id`        |
-
-Cross-tab logout uses `BroadcastChannel` → `clearUserScopedStorage()`
-+ `window.location.reload()` so other tabs also destroy their JS
-context and clean storage.
-
-**Do not replace `hardNavigate()` with `navigate()` on logout call
-sites.** SPA navigation preserves module-level Zustand state, which
-is a privacy/security concern on shared devices.
-
-References:
-- [web.dev — Sign-out best practices](https://web.dev/articles/sign-out-best-practices)
-- [React — Preserving and Resetting State](https://react.dev/learn/preserving-and-resetting-state)
-
-## Turn state lives in `domains/messaging/turn-store.ts`
-
-Turn lifecycle (sending, thinking, streaming, idle, errored), queue
-depth, active tool-call count, and current turn identity are managed
-by the turn store. Use `useTurnStore(selector)` in React components
-and `useTurnStore.getState()` in non-React code (stream handlers,
-reconciliation). Do not prop-drill turn state or dispatch functions.
-
-Action naming follows the
-[Flux-inspired practice](https://zustand.docs.pmnd.rs/learn/guides/flux-inspired-practice):
-`on*` for SSE-event reactions (`onTextDelta`, `onStreamError`,
-`onPollReconciled`), imperative for user/system-initiated actions
-(`requestSend`, `cancelGeneration`, `resetTurn`).
-
 ## Selector patterns
 
 **New code uses atomic selectors via `createSelectors`** — see the next
@@ -207,18 +119,18 @@ migrate them — new code uses atomic selectors instead.
 
 ```ts
 // 1. Primitive selector — works without useShallow
-const assistantId = useChatStore((s) => s.assistantId);
+const phase = useTurnStore((s) => s.phase);
 
 // 2. Object/array slice — required useShallow to suppress the
 //    new-reference-per-render re-render storm.
 //    Replace in new code with two atomic selectors side-by-side.
-const { messages, assistantId } = useChatStore(
-  useShallow((s) => ({ messages: s.messages, assistantId: s.assistantId })),
+const { phase, statusText } = useTurnStore(
+  useShallow((s) => ({ phase: s.phase, statusText: s.statusText })),
 );
 
 // 3. Derived/transformed state — useShallow doesn't help.
 //    Replace in new code with an atomic selector + useMemo in the consumer.
-const unread = useChatStore((s) => s.messages.filter((m) => !m.read));
+const isActive = useTurnStore((s) => s.phase !== "idle");
 ```
 
 References:
@@ -353,6 +265,32 @@ References:
 - [React Query — Comparison](https://tanstack.com/query/latest/docs/framework/react/comparison)
 - [TkDodo — Working with Zustand](https://tkdodo.eu/blog/working-with-zustand) — React Query maintainer's guidance on the boundary between server state (RQ) and client/infrastructure state (Zustand)
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
+
+### Canonical migration example
+
+When migrating an imperative `setTimeout`-driven fetch loop to
+TanStack Query, the load-bearing patterns (mutation ref stability,
+explicit `staleTime: 0` on imperative re-checks, `setQueryData`
+post-mutation seeding, `setTimeout`-wrapped retry backoff,
+`useEffect` on query data instead of the low-level
+`queryClient.getQueryCache().subscribe(...)`) are demonstrated in
+[`src/assistant/queries.ts`](../src/assistant/queries.ts) and
+[`src/assistant/use-lifecycle.ts`](../src/assistant/use-lifecycle.ts).
+Each load-bearing call site has an inline comment explaining the
+invariant it preserves and the failure mode it prevents. Read those
+files as the source of truth — they update with the code.
+
+The same trio also demonstrates the **hook-as-side-effect +
+Zustand-as-state** pattern: `use-lifecycle.ts` returns `void` and
+publishes everything it produces (the `assistantState` discriminated
+union, the stable imperative actions) into
+[`src/assistant/lifecycle-store.ts`](../src/assistant/lifecycle-store.ts)
+and [`src/assistant/selection-store.ts`](../src/assistant/selection-store.ts).
+Consumers read via atomic selectors; nothing flows through outlet
+context. This is the shape to copy when a side-effect orchestrator
+needs to expose its state to the whole tree — not a `useReducer`,
+not a Context provider, not a custom-hook return threaded through
+layouts.
 
 ## useReducer is not used for client state
 

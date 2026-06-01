@@ -192,8 +192,13 @@ const { invalidatePageIndex } =
 function makeProvider(pageIds: number[]): Provider {
   return {
     name: "stub",
-    sendMessage: async (messages, tools, systemPrompt, options) => {
-      providerCalls.push({ messages, tools, systemPrompt, options });
+    sendMessage: async (messages, options) => {
+      providerCalls.push({
+        messages,
+        tools: options?.tools,
+        systemPrompt: options?.systemPrompt,
+        options,
+      });
       return {
         model: "stub-model",
         stopReason: "tool_use",

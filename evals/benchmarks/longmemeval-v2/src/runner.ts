@@ -5,7 +5,7 @@
  * `EvalRunResult`-shaped execution:
  *
  *   - `loadLongMemEvalV2`        — `BenchmarkItem`s with eval_function strings
- *   - `loadTrajectories` +       — per-question workspace file writes
+ *   - `openTrajectories` +       — per-question workspace file writes
  *      `materializeWorkspaceFiles`
  *   - `runIngestAsk`             — two-conversation runner (ingest → ask)
  *   - `evalFromSpec`             — dispatched evaluator (deterministic or LLM)
@@ -15,52 +15,51 @@
  *     don't need a second branch to consume V2 results)
  *   - same artifact layout under `.runs/<runId>/` via the existing
  *     `runArtifacts` helpers (`run.json`, `metrics.json`, `transcript.json`,
- *     `assistant-events.json`, `progress.ndjson`)
- *   - same progress reporter wrapping: caller's reporter → persisted
- *     `progress.ndjson` row + heartbeat tick on every event
- *
- * Out of scope for PR-6 (deliberately deferred, not forgotten):
- *   - extracting the progress-wrap / heartbeat boilerplate into a shared
- *     helper used by both `runEvalOnce` and this runner. PR-4 punted the
- *     "unify shared infrastructure" extract to PR-6; doing the extract
- *     here would balloon the diff past the "wire" concern. Tracked for
- *     a follow-up PR — see the `// PR-6 follow-up` markers below.
- *   - usage / cost telemetry. `runIngestAsk` doesn't return per-call
- *     usage and the V2 judges call OpenAI directly (no provider wrapper).
- *     Will be picked up alongside the cache + telemetry PR.
+ *     `assistant-events.json`, `ingest-assistant-events.json`,
+ *     `progress.ndjson`)
+ *   - same wrapped progress reporter + heartbeat ticker, shared with
+ *     `runEvalOnce` via `createRunProgressLifecycle` (the PR-8 extract
+ *     that replaced the inlined `// PR-6 follow-up` blocks)
+ *   - same usage.json shape, fed through `summarizeAssistantUsage` over
+ *     both conversations' events plus the LLM judge's normalized usage
+ *     record when present (PR-9). The agent half rides on
+ *     `event.message.usage` exactly the way `runEvalOnce` ingests it;
+ *     the judge half is synthesized as a single fake usage event from
+ *     `EvalResult.usage` and folded into the same summarizer pass so
+ *     the per-model totals + cost diagnostics + cost status all stay
+ *     centralized in one place.
  */
-import { setInterval as nodeSetInterval } from "node:timers";
+import { writeFile } from "node:fs/promises";
 
+import type { AgentEvent } from "../../../src/lib/adapter";
 import {
   type EvalRunResult,
   markErrorAsReportedToProgress,
 } from "../../../src/lib/runner/run-once";
+import type { EvalProgressReporter } from "../../../src/lib/runner/progress";
+import { createRunProgressLifecycle } from "../../../src/lib/runner/progress-lifecycle";
 import {
-  type EvalProgressEvent,
-  type EvalProgressReporter,
-} from "../../../src/lib/runner/progress";
-import {
-  appendProgressEvent,
   ensureRunArtifacts,
   type MetricResult,
-  updateHeartbeat,
   updateRunMetadata,
+  writeIngestAssistantEvents,
   writeRunMetadata,
   writeTranscript,
+  writeUsage,
 } from "../../../src/lib/metrics";
 import type { Profile } from "../../../src/lib/profile";
 import type { TranscriptTurn } from "../../../src/lib/transcript";
 import { runIngestAsk } from "../../../src/lib/runner/run-ingest-ask";
-import { writeFile } from "node:fs/promises";
+import { summarizeAssistantUsage } from "../../../src/lib/usage";
 
 import { type EvalOverrides, type EvalResult, evalFromSpec } from "./judge";
 import type { BenchmarkItem } from "./loader";
 import {
-  type TrajectoryRecord,
   WORKSPACE_MANIFEST_PATH,
   WORKSPACE_TRAJECTORY_DIR,
   materializeWorkspaceFiles,
 } from "./trajectories";
+import type { TrajectoryReader } from "./trajectory-reader";
 
 export interface RunLongMemEvalV2UnitInput {
   /** Profile to hatch. */
@@ -68,17 +67,25 @@ export interface RunLongMemEvalV2UnitInput {
   /** The V2 question to run, already joined to its haystack. */
   item: BenchmarkItem;
   /**
-   * The full `trajectories.jsonl` map. Loaded once per `evals run`
-   * invocation by the caller and passed in here so we don't re-read
-   * a ~1 GB file per question.
+   * Open handle over `trajectories.jsonl`. The caller opens it once
+   * per `evals run` invocation and passes it through here so we
+   * neither re-scan the ~1 GB file per question nor hold a gigabyte
+   * of records resident across the whole run.
    */
-  trajectories: Map<string, TrajectoryRecord>;
+  trajectoryReader: TrajectoryReader;
   /** Logical run id; namespaced as `<benchmark>-<profile>-<questionId>-<ts>`. */
   runId: string;
   /** Logical session id for the originating `evals run` invocation. */
   sessionId?: string;
   /** Optional human-readable session label. */
   sessionLabel?: string;
+  /**
+   * `process.argv` captured at the top of the originating `evals run`.
+   * Forwarded onto every `RunMetadata` so the report UI can show the
+   * exact command that produced the run. Undefined when invoked
+   * programmatically.
+   */
+  cliArgv?: string[];
   /** Caller's progress reporter. We tee every event to disk + heartbeat. */
   progress?: EvalProgressReporter;
   /**
@@ -138,6 +145,31 @@ function metricFromEvalResult(
 }
 
 /**
+ * Roll the agent's two conversation event streams + the LLM judge's
+ * usage record (if any) into the same `usage.json` shape `runEvalOnce`
+ * writes. Sharing `summarizeAssistantUsage` keeps token sums, cost
+ * pricing, and cost diagnostics consistent across the two runner shapes
+ * — Phase 2's cost/latency Pareto reads usage.json identically for both.
+ *
+ * The judge record is synthesized as a single `type: "usage"` event so
+ * the summarizer treats it exactly like any other usage-bearing
+ * AgentEvent. `EvalResult.usage` is already shaped (provider/model/
+ * input_tokens/output_tokens) by the judge so no further translation
+ * happens here.
+ */
+function buildRunUsageEvents(
+  ingestEvents: AgentEvent[],
+  questionEvents: AgentEvent[],
+  judgeUsage: Record<string, unknown> | undefined,
+): AgentEvent[] {
+  const events: AgentEvent[] = [...ingestEvents, ...questionEvents];
+  if (judgeUsage) {
+    events.push({ message: { type: "usage", usage: judgeUsage } });
+  }
+  return events;
+}
+
+/**
  * Runs a single LongMemEval-V2 question against a profile.
  *
  * Mirrors `runEvalOnce`'s lifecycle (artifacts → metadata(running) →
@@ -150,35 +182,16 @@ export async function runLongMemEvalV2Unit(
 ): Promise<EvalRunResult> {
   const sessionId = input.sessionId ?? input.runId;
   const sessionLabel = input.sessionLabel;
-  const userProgress = input.progress;
+  const cliArgv = input.cliArgv;
 
-  // PR-6 follow-up: this wrapper duplicates the one in `runEvalOnce`.
-  // The extract was promised by the PR-4 punt comment in `run-ingest-ask.ts`
-  // but moving it now would blow past PR-6's "wire" concern. Tracked.
-  const progress: EvalProgressReporter = (event: EvalProgressEvent) => {
-    if (userProgress) {
-      try {
-        userProgress(event);
-      } catch {
-        // Best-effort reporting — never break the run on a misbehaving
-        // reporter.
-      }
-    }
-    void appendProgressEvent(input.runId, {
-      ...event,
-      emittedAt: new Date().toISOString(),
-    }).catch(() => undefined);
-    void updateHeartbeat(input.runId).catch(() => undefined);
-  };
+  // Shared with `runEvalOnce` — wrapped reporter + 5s heartbeat ticker.
+  // `dispose()` in the `finally` below stops the ticker (idempotent).
+  const { progress, dispose } = createRunProgressLifecycle({
+    runId: input.runId,
+    userProgress: input.progress,
+  });
 
   const startedAt = new Date().toISOString();
-
-  // PR-6 follow-up: heartbeat ticker is also duplicated from
-  // `runEvalOnce`. Same extract target.
-  const heartbeatInterval = nodeSetInterval(() => {
-    void updateHeartbeat(input.runId).catch(() => undefined);
-  }, 5_000);
-  heartbeatInterval.unref();
 
   let artifactDir = "";
   try {
@@ -201,6 +214,7 @@ export async function runLongMemEvalV2Unit(
       runId: input.runId,
       sessionId,
       sessionLabel,
+      cliArgv,
       profileId: input.profile.id,
       testId: input.item.questionId,
       status: "running",
@@ -218,7 +232,10 @@ export async function runLongMemEvalV2Unit(
       message: "Materializing trajectory files",
       detail: `${input.item.trajectoryIds.length} trajectories`,
     });
-    const inputs = materializeWorkspaceFiles(input.item, input.trajectories);
+    const inputs = await materializeWorkspaceFiles(
+      input.item,
+      input.trajectoryReader,
+    );
     progress({
       step: "setup",
       status: "done",
@@ -270,15 +287,16 @@ export async function runLongMemEvalV2Unit(
     ];
     await writeTranscript(input.runId, transcript);
 
-    // Persist the question-turn events. We deliberately drop the
-    // ingest-turn events on the floor for now — they're the agent's
-    // private memory-formation work, and surfacing them in the same
-    // file as the question-turn events would confuse the report
-    // server's "assistant said this in response to the question" view.
+    // Persist the question-turn events as the run's `assistant-events.json`
+    // (what the agent said in response to the question), and the ingest-turn
+    // events as `ingest-assistant-events.json` (the agent's memory-formation
+    // work consuming the haystack sessions). The report surfaces them as two
+    // separate sections so the question-turn view doesn't get diluted.
     await writeFile(
       artifacts.assistantEventsPath,
       JSON.stringify(ingestAskResult.questionEvents, null, 2),
     );
+    await writeIngestAssistantEvents(input.runId, ingestAskResult.ingestEvents);
 
     progress({
       step: "metrics",
@@ -297,6 +315,20 @@ export async function runLongMemEvalV2Unit(
     );
     const metric = metricFromEvalResult(evalResult, input.item);
     await writeFile(artifacts.metricsPath, JSON.stringify([metric], null, 2));
+
+    // Roll usage from both conversations + the judge (if it surfaced
+    // one) through the shared summarizer. Best-effort: a write failure
+    // is logged via the swallowed promise but never blocks the run —
+    // the metric + transcript are already on disk.
+    const usageEvents = buildRunUsageEvents(
+      ingestAskResult.ingestEvents,
+      ingestAskResult.questionEvents,
+      evalResult.usage,
+    );
+    await writeUsage(input.runId, summarizeAssistantUsage(usageEvents)).catch(
+      () => undefined,
+    );
+
     progress({
       step: "metrics",
       status: "done",
@@ -355,6 +387,6 @@ export async function runLongMemEvalV2Unit(
     ).catch(() => undefined);
     throw err;
   } finally {
-    clearInterval(heartbeatInterval);
+    dispose();
   }
 }

@@ -24,19 +24,24 @@ mock.module("../mcp/mcp-auth-state.js", () => ({
   getMcpAuthState: mockGetMcpAuthState,
 }));
 
-mock.module("../config/loader.js", () => ({
-  loadRawConfig: () => ({
-    mcp: {
-      servers: {
-        "my-server": {
-          transport: { type: "sse", url: "https://mcp.example.com" },
-          enabled: true,
-          defaultRiskLevel: "high",
-        },
+const mockConfig = {
+  mcp: {
+    servers: {
+      "my-server": {
+        transport: { type: "sse", url: "https://mcp.example.com" },
+        enabled: true,
+        defaultRiskLevel: "high",
       },
     },
-  }),
+  },
+};
+mock.module("../config/loader.js", () => ({
+  loadRawConfig: () => mockConfig,
   saveRawConfig: () => {},
+  // route-policy → config/env transitively imports `getConfig`; stub it
+  // here so the mock surface matches what consumers expect.
+  getConfig: () => mockConfig,
+  getConfigReadOnly: () => mockConfig,
 }));
 
 mock.module("../util/logger.js", () => ({

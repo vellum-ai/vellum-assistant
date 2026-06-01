@@ -6,13 +6,13 @@
  * functions here use the raw HeyAPI client until gateway codegen is wired up.
  */
 
+import { client } from "@/generated/api/client.gen";
 import {
   ApiError,
   assertHasResponse,
-  client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client";
+} from "@/utils/api-errors";
 
 export interface GlobalThresholds {
   interactive: string;

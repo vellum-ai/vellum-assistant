@@ -30,6 +30,13 @@ mock.module("@vellum/design-library/components/toast", () => ({
   ToastContent: () => null,
 }));
 
+// These tests exercise the subscription entitlement gate, not the platform
+// gate. Mock usePlatformGate to always return "full" so the managed email
+// form renders and the entitlement logic is reachable.
+mock.module("@/hooks/use-platform-gate", () => ({
+  usePlatformGate: () => "full",
+}));
+
 const { EmailServiceCard } = await import("@/domains/settings/ai/ai-page");
 
 const ASSISTANT_ID = "asst-1";

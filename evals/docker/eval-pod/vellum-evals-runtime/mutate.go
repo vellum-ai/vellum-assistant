@@ -5,6 +5,13 @@
 // runc, is born already trusting our recording CA and sharing the parent
 // (pod) network namespace.
 //
+// MutateConfig is unconditional: it always applies all three mutations to
+// whatever spec it is handed. The decision of *which* containers to rewrite
+// is a separate policy concern (mitmOptIn) enforced on the create path in
+// main.go — only the single run/species container the orchestrator opts in
+// is mutated, so sidecars and other containers keep their own network
+// namespace and default trust store.
+//
 // Three mutations, applied in order:
 //  1. Append three CA env vars to .process.env
 //     (NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE, SSL_CERT_FILE)
@@ -25,6 +32,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -32,6 +40,16 @@ const (
 	// CA is bind-mounted. Hardcoded by convention so HTTP libraries can be
 	// pointed at it via env vars below.
 	CAContainerPath = "/etc/ssl/certs/recording-ca.pem"
+
+	// mitmOptInAnnotation is the OCI annotation key that authorizes the
+	// create-time spec rewrite. The eval orchestrator sets it (via
+	// `docker run --annotation ai.vellum.evals.mitm=1`) on the single
+	// run/species container that should be MITM'd. Its absence is the
+	// fail-safe default: any container without it is left byte-for-byte
+	// untouched, preserving its own network namespace and trust store.
+	// Reverse-domain notation per the OCI annotation guidance:
+	// https://github.com/opencontainers/image-spec/blob/main/annotations.md
+	mitmOptInAnnotation = "ai.vellum.evals.mitm"
 )
 
 // caEnvVars are the three env vars our HTTP-library-of-choice ecosystems
@@ -42,8 +60,35 @@ var caEnvVars = []string{
 	"SSL_CERT_FILE=" + CAContainerPath,       // openssl-based fallbacks (curl, Go, Ruby)
 }
 
+// mitmOptIn reports whether the OCI spec carries the opt-in annotation that
+// authorizes the MITM rewrite. A container is opted in only when the
+// orchestrator explicitly set mitmOptInAnnotation to a truthy value
+// ("1" or "true", case-insensitive). A decode failure or a missing/false
+// annotation yields false: the fail-safe default is to leave the container
+// untouched. This gate is what scopes the wrapper to the run/species
+// container even if it is ever (mis-)registered as the inner dockerd's
+// default-runtime.
+func mitmOptIn(configJSON []byte) bool {
+	var spec struct {
+		Annotations map[string]string `json:"annotations"`
+	}
+	if err := json.Unmarshal(configJSON, &spec); err != nil {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(spec.Annotations[mitmOptInAnnotation])) {
+	case "1", "true":
+		return true
+	default:
+		return false
+	}
+}
+
 // MutateConfig takes the raw bytes of an OCI config.json, applies the three
 // mutations described in the package doc, and returns the new bytes.
+//
+// MutateConfig does not itself check the opt-in annotation — callers must
+// gate on mitmOptIn first (see mutateCreateBundle). Keeping the check out of
+// this function keeps the mutation logic pure and table-testable.
 //
 // caHostPath is the absolute path on the host (eval-pod) filesystem where
 // the recording CA PEM lives. The eval-pod startup script is responsible

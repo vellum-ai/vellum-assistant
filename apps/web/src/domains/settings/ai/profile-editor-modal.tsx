@@ -18,7 +18,7 @@ import {
 
 import { type ProfileEntry, formatCompactTokens } from "@/domains/settings/ai/ai-page";
 import { type Profile } from "@/domains/settings/ai/manage-profiles-modal";
-import { resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
+import { geminiThinkingLevels, resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
 import { type ConnectionModel, type ProviderConnection } from "@/domains/settings/ai/provider-connections-client";
 import { toKebabCase as toKebabCaseImpl } from "@/domains/settings/ai/slugify";
 
@@ -31,11 +31,20 @@ export { toKebabCaseImpl as toKebabCase };
 const ALL_PROVIDERS = Object.keys(MODELS_BY_PROVIDER) as (keyof typeof MODELS_BY_PROVIDER)[];
 const OPENAI_COMPATIBLE_PROVIDER = "openai-compatible";
 
-const CODEX_SUBSCRIPTION_MODEL_IDS = new Set(["gpt-5.4", "gpt-5.3-codex"]);
+const CODEX_SUBSCRIPTION_MODEL_IDS = new Set([
+  "gpt-5.5",
+  "gpt-5.4",
+  "gpt-5.4-mini",
+  "gpt-5.3-codex",
+]);
 
 const EFFORT_OPTIONS = ["none", "low", "medium", "high", "xhigh", "max"] as const;
 const SPEED_OPTIONS = ["standard", "fast"] as const;
 const VERBOSITY_OPTIONS = ["low", "medium", "high"] as const;
+// Sentinel for the Gemini thinking-level selector: "inherit" → omit
+// thinking.level so the daemon applies the model default (mirrors effort's
+// "none"). Concrete levels come from `geminiThinkingLevels(model)`.
+const THINKING_LEVEL_INHERIT = "default";
 
 const DEFAULT_MAX_OUTPUT_TOKENS = 64_000;
 const MIN_MAX_OUTPUT_TOKENS = 1_000; // matches TOKEN_SLIDER_MIN_TOKENS in page.tsx
@@ -233,6 +242,10 @@ function ProfileEditorModalInner({
   const [thinkingStreamThinking, setThinkingStreamThinking] = useState<boolean>(
     initialValues?.thinking?.streamThinking ?? false,
   );
+  // Gemini reasoning-depth knob. "default" = inherit the model default.
+  const [thinkingLevel, setThinkingLevel] = useState<string>(
+    initialValues?.thinking?.level ?? THINKING_LEVEL_INHERIT,
+  );
 
   // Derived: selected model from catalog
   const selectedModel = useMemo(
@@ -381,6 +394,7 @@ function ProfileEditorModalInner({
     setTemperature(0.7);
     setThinkingEnabled(false);
     setThinkingStreamThinking(false);
+    setThinkingLevel(THINKING_LEVEL_INHERIT);
   }
 
   function handleConnectionChange(newConnection: string) {
@@ -524,6 +538,11 @@ function ProfileEditorModalInner({
           ...(thinkingEnabled ? { streamThinking: thinkingStreamThinking } : {}),
         };
       }
+      // Gemini: a chosen level implies thinking is on; "default" omits the
+      // field so the daemon applies the model default.
+      if (visibility.thinkingLevel && thinkingLevel !== THINKING_LEVEL_INHERIT) {
+        entry.thinking = { enabled: true, level: thinkingLevel };
+      }
       // Status — always include in edit mode; omit in create when active (default)
       if (effectiveMode === "edit") {
         entry.status = status;
@@ -565,6 +584,13 @@ function ProfileEditorModalInner({
       if (selectedConn?.auth.type === "oauth_subscription") {
         return catalogModels.filter((m) => CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id));
       }
+      if (
+        !providerConnection &&
+        availableConnectionsForProvider.length > 0 &&
+        availableConnectionsForProvider.every((c) => c.auth.type === "oauth_subscription")
+      ) {
+        return catalogModels.filter((m) => CODEX_SUBSCRIPTION_MODEL_IDS.has(m.id));
+      }
       return catalogModels;
     }
     // Static catalog is empty (openai-compatible) — derive from connections.
@@ -596,6 +622,16 @@ function ProfileEditorModalInner({
     providerConnection,
     availableConnectionsForProvider,
   ]);
+
+  useEffect(() => {
+    if (
+      model &&
+      availableModels.length > 0 &&
+      !availableModels.some((m) => m.id === model)
+    ) {
+      setModel("");
+    }
+  }, [model, availableModels]);
 
   return (
     <Modal.Content size="md">
@@ -1006,6 +1042,25 @@ function ProfileEditorModalInner({
                   />
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Thinking level (Gemini) */}
+          {visibility.thinkingLevel && (
+            <div className="space-y-1">
+              <label className="block text-body-small-default text-[var(--content-tertiary)]">
+                Thinking level{" "}
+                <span className="text-[var(--content-disabled)]">(default = inherit)</span>
+              </label>
+              <SegmentControl
+                items={[THINKING_LEVEL_INHERIT, ...geminiThinkingLevels(model)].map((v) => ({
+                  value: v,
+                  label: v,
+                }))}
+                value={thinkingLevel}
+                onChange={(v) => setThinkingLevel(v)}
+                ariaLabel="Thinking level"
+              />
             </div>
           )}
 

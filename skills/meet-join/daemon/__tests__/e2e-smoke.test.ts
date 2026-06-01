@@ -98,8 +98,7 @@ interface InsertCall {
   conversationId: string;
   role: string;
   content: string;
-  metadata?: Record<string, unknown>;
-  opts?: { skipIndexing?: boolean };
+  options?: { metadata?: Record<string, unknown>; skipIndexing?: boolean };
 }
 
 function makeInsertRecorder(): { fn: InsertMessageFn; calls: InsertCall[] } {
@@ -109,10 +108,9 @@ function makeInsertRecorder(): { fn: InsertMessageFn; calls: InsertCall[] } {
     conversationId,
     role,
     content,
-    metadata,
-    opts,
+    options,
   ) => {
-    calls.push({ conversationId, role, content, metadata, opts });
+    calls.push({ conversationId, role, content, options });
     counter += 1;
     return { id: `msg-${counter}` };
   };
@@ -500,8 +498,8 @@ describe("Meet pipeline end-to-end", () => {
       });
       expect(joinLine).toBeDefined();
       expect(joinLine?.role).toBe("user");
-      expect(joinLine?.opts).toMatchObject({ skipIndexing: true });
-      expect(joinLine?.metadata).toMatchObject({
+      expect(joinLine?.options?.skipIndexing).toBe(true);
+      expect(joinLine?.options?.metadata).toMatchObject({
         meetingId: MEETING_ID,
         meetParticipantId: "p-alice",
         meetParticipantChange: "joined",
@@ -575,7 +573,7 @@ describe("Meet pipeline end-to-end", () => {
       });
       expect(aliceFinal).toBeDefined();
       expect(aliceFinal?.role).toBe("user");
-      expect(aliceFinal?.metadata).toMatchObject({
+      expect(aliceFinal?.options?.metadata).toMatchObject({
         meetingId: MEETING_ID,
         meetSpeakerName: "Alice",
       });

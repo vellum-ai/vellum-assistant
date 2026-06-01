@@ -85,7 +85,12 @@ export interface HistorySurface {
   surfaceType: string;
   title?: string;
   data: Record<string, unknown>;
-  actions?: Array<{ id: string; label: string; style?: string }>;
+  actions?: Array<{
+    id: string;
+    label: string;
+    style?: string;
+    data?: Record<string, unknown>;
+  }>;
   display?: string;
   persistent?: boolean;
   completed?: boolean;

@@ -8,7 +8,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { ExternalLink } from "lucide-react";
 
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
@@ -24,13 +23,14 @@ import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types";
 import { isPointerCoarse } from "@/utils/pointer";
-import { useShallow } from "zustand/shallow";
 import {
   EMPTY_SUBAGENT_ENTRIES,
   useSubagentStore,
   type SubagentEntry,
-} from "@/domains/subagents/subagent-store";
-import type { AllowlistOption, ChatMessageToolCall, ConfirmationDecision, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
+} from "@/domains/chat/subagent-store";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 
 export interface OpenRuleEditorContext {
   toolName: string;
@@ -48,8 +48,7 @@ export interface OpenRuleEditorContext {
  * grouping rules for tool calls / text / inline surfaces are duplicated
  * verbatim so the virtualized transcript produces byte-identical markup to
  * the legacy rendering path. Do NOT change the grouping rules in this file
- * without updating the legacy path in lockstep — PR 7 wires this component
- * in and will delete the legacy loop.
+ * without updating the legacy path in lockstep.
  */
 export interface TranscriptMessageBodyProps {
   message: DisplayMessage;
@@ -296,34 +295,15 @@ function SlackMessageAttribution({
   const label = getSlackSenderLabel(message, assistantDisplayName);
   if (!label) return null;
 
-  const url = getSlackLinkUrl(message.slackMessage?.messageLink);
   const className =
     "inline-flex items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]";
-  const content = (
-    <>
-      <span>{label}</span>
-      {url && <ExternalLink aria-hidden className="h-3 w-3 shrink-0" />}
-    </>
-  );
-
-  if (!url) {
-    return (
-      <div data-testid="slack-message-attribution" className={className}>
-        {content}
-      </div>
-    );
-  }
-
   return (
-    <a
+    <div
       data-testid="slack-message-attribution"
-      href={url}
-      target="_blank"
-      rel="noreferrer noopener"
-      className={`${className} hover:text-[var(--content-default)]`}
+      className={className}
     >
-      {content}
-    </a>
+      <span>{label}</span>
+    </div>
   );
 }
 
@@ -352,11 +332,16 @@ export function TranscriptMessageBody({
   const hasInterleavedToolCalls = message.contentOrder?.some(
     (e) => e.type === "toolCall" || e.type === "tool",
   );
+  const isSlackMessage = Boolean(message.slackMessage);
 
   const textBubbleClass =
     message.role === "user"
-      ? "max-w-[80%] rounded-lg px-4 py-3 bg-[var(--surface-lift)] text-[var(--content-default)]"
-      : "w-full text-[var(--content-default)]";
+      ? `max-w-[80%] rounded-lg bg-[var(--surface-lift)] px-4 py-3 text-[var(--content-default)] ${
+          isSlackMessage ? "sm:max-w-[420px]" : ""
+        }`
+      : isSlackMessage
+        ? "max-w-[80%] text-[var(--content-default)] sm:max-w-[640px]"
+        : "w-full text-[var(--content-default)]";
 
   const handleExpandChange = (toolCallId: string, isExpanded: boolean) => {
     if (isExpanded) {
@@ -402,7 +387,7 @@ export function TranscriptMessageBody({
       return;
     }
 
-    if (slackMessageUrl) {
+    if (slackMessageUrl && isPointerCoarse()) {
       if (window.getSelection()?.toString()) return;
       window.open(slackMessageUrl, "_blank", "noopener,noreferrer");
       return;
@@ -488,16 +473,16 @@ export function TranscriptMessageBody({
   // `resolveSpawnedSubagentIds` render an inline card even when the spawn
   // tool call has no `result` yet.
   const linkedSubagentEntries = useSubagentStore(
-    useShallow((s) => lookupSubagentEntriesForMessage(s.byParent, message)),
+    (s) => lookupSubagentEntriesForMessage(s.byParent, message),
   );
 
   // Subscribe to the tool-use-id index alongside the per-message bucket above.
-  // Spawns are infrequent, so subscribing to the whole map is acceptable; PR 2
-  // keeps the map reference stable across non-spawn mutations, so this does not
-  // re-render message bodies on unrelated subagent activity. This anchors each
-  // `subagent_spawn` tool call to its subagent by `tc.id`, independent of the
-  // (optimistic→server) message id.
-  const byToolUseId = useSubagentStore(useShallow((s) => s.byToolUseId));
+  // Spawns are infrequent, so subscribing to the whole map is acceptable; the
+  // store keeps the map reference stable across non-spawn mutations, so this
+  // does not re-render message bodies on unrelated subagent activity. This
+  // anchors each `subagent_spawn` tool call to its subagent by `tc.id`,
+  // independent of the (optimistic→server) message id.
+  const byToolUseId = useSubagentStore.use.byToolUseId();
 
   // Message-scoped: two non-consecutive `subagent_spawn` tool-call groups
   // must not both positional-match the same linked entry. Accumulates across
@@ -577,9 +562,7 @@ export function TranscriptMessageBody({
         ref={wrapperRef}
         onClick={handleBubbleClick}
         data-revealed={revealed}
-        data-slack-message-link={slackMessageUrl ? "true" : undefined}
-        title={slackMessageUrl ? "Open in Slack" : undefined}
-        className={`group/msg flex ${slackMessageUrl ? "cursor-pointer" : ""} ${message.role === "user" ? "justify-end" : "justify-start"}`}
+        className={`group/msg flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
       >
         <div
           className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
@@ -680,6 +663,7 @@ export function TranscriptMessageBody({
               timestamp={messageTimestamp}
               role={message.role}
               isStreaming={message.isStreaming}
+              openInSlackUrl={slackMessageUrl}
               onFork={forkHandler}
               onInspect={inspectHandler}
             />
@@ -742,9 +726,7 @@ export function TranscriptMessageBody({
       ref={wrapperRef}
       onClick={handleBubbleClick}
       data-revealed={revealed}
-      data-slack-message-link={slackMessageUrl ? "true" : undefined}
-      title={slackMessageUrl ? "Open in Slack" : undefined}
-      className={`group/msg flex ${slackMessageUrl ? "cursor-pointer" : ""} ${message.role === "user" ? "justify-end" : "justify-start"}`}
+      className={`group/msg flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
     >
       <div
         className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
@@ -825,6 +807,7 @@ export function TranscriptMessageBody({
             timestamp={messageTimestamp}
             role={message.role}
             isStreaming={message.isStreaming}
+            openInSlackUrl={slackMessageUrl}
             onFork={forkHandler}
             onInspect={inspectHandler}
           />

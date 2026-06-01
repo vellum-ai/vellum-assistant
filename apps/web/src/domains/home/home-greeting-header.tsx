@@ -53,6 +53,7 @@ export function HomeGreetingHeader({
           iconOnly={<SquarePen />}
           onClick={onStartNewChat}
           aria-label="New Chat"
+          tooltip="New Chat"
           className="!rounded-full"
         />
       ) : (

@@ -327,7 +327,7 @@ export async function processMessage(
         attachments,
         options?.displayContent,
       ),
-      userMetaWithSlack,
+      { metadata: userMetaWithSlack },
     );
     conversation.getMessages().push(llmMsg);
 
@@ -377,7 +377,7 @@ export async function processMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
-      serverChannelMeta,
+      { metadata: serverChannelMeta },
     );
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
@@ -420,7 +420,7 @@ export async function processMessage(
         attachments,
         options?.displayContent,
       ),
-      compactUserMeta,
+      { metadata: compactUserMeta },
     );
     conversation.getMessages().push(cleanMsg);
 
@@ -438,7 +438,7 @@ export async function processMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
-      compactChannelMeta,
+      { metadata: compactChannelMeta },
     );
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
@@ -481,7 +481,7 @@ export async function processMessage(
         attachments,
         options?.displayContent,
       ),
-      cleanUserMeta,
+      { metadata: cleanUserMeta },
     );
     conversation.getMessages().push(cleanMsg);
 
@@ -492,7 +492,7 @@ export async function processMessage(
       conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
-      cleanChannelMeta,
+      { metadata: cleanChannelMeta },
     );
     conversation.getMessages().push(assistantMsg);
     publishConversationMessagesChanged(conversationId);
@@ -508,13 +508,13 @@ export async function processMessage(
   const persistMetadata = options?.slackInbound
     ? { slackInbound: options.slackInbound }
     : undefined;
-  const messageId = await conversation.persistUserMessage(
-    resolvedContent,
+  const { id: messageId } = await conversation.persistUserMessage({
+    content: resolvedContent,
     attachments,
     requestId,
-    persistMetadata,
-    options?.displayContent,
-  );
+    metadata: persistMetadata,
+    displayContent: options?.displayContent,
+  });
   publishConversationMessagesChanged(conversationId);
 
   if (options?.isInteractive === true) {
@@ -571,13 +571,13 @@ export async function processMessageInBackground(
   const persistMetadata = options?.slackInbound
     ? { slackInbound: options.slackInbound }
     : undefined;
-  const messageId = await conversation.persistUserMessage(
+  const { id: messageId } = await conversation.persistUserMessage({
     content,
     attachments,
     requestId,
-    persistMetadata,
-    options?.displayContent,
-  );
+    metadata: persistMetadata,
+    displayContent: options?.displayContent,
+  });
   publishConversationMessagesChanged(conversationId);
 
   if (options?.isInteractive === true) {

@@ -11,6 +11,7 @@ import type { HostProxyCapability } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { datesToISO } from "../../util/json.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -19,6 +20,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "list_clients",
     endpoint: "clients",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List connected clients",
     description:
       "Return all connected clients, optionally filtered by capability.",
@@ -78,6 +83,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "disconnect_client",
     endpoint: "clients/disconnect",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Force-disconnect a client",
     description:
       "Dispose all hub subscribers for the given clientId, forcibly closing their SSE streams.",

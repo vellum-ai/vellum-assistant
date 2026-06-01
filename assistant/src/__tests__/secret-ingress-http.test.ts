@@ -100,8 +100,8 @@ mock.module("../memory/conversation-crud.js", () => ({
     conversationId: string,
     role: string,
     content: string,
-    metadata?: Record<string, unknown>,
-  ) => addMessageMock(conversationId, role, content, metadata),
+    options?: { metadata?: Record<string, unknown> },
+  ) => addMessageMock(conversationId, role, content, options),
   getMessages: () => [],
   provenanceFromTrustContext: () => undefined,
   setConversationOriginChannelIfUnset: () => {},
@@ -188,7 +188,10 @@ function makeRequest(
   });
 }
 
-const persistUserMessageMock = mock(async () => "persisted-id");
+const persistUserMessageMock = mock(async () => ({
+  id: "persisted-id",
+  deduplicated: false,
+}));
 const runAgentLoopMock = mock(async () => undefined);
 
 function makeSendMessageDeps() {

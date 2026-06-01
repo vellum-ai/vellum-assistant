@@ -864,7 +864,10 @@ final class ConversationListStore {
         isLoadingMoreConversations = true
         Task { [weak self] in
             guard let self else { return }
-            if let response = await conversationListClient.fetchConversationList(offset: serverOffset, limit: 50, conversationType: nil) {
+            // `archiveStatus: nil` defers to the daemon's `"active"` default —
+            // load-more pages active rows only; the Archive tab fetches its
+            // own stream during cold restore.
+            if let response = await conversationListClient.fetchConversationList(offset: serverOffset, limit: 50, conversationType: nil, archiveStatus: nil) {
                 self.appendConversations(from: response)
             } else {
                 self.isLoadingMoreConversations = false
@@ -880,7 +883,7 @@ final class ConversationListStore {
             guard let self else { return }
             while self.hasMoreConversations {
                 let response = await self.conversationListClient.fetchConversationList(
-                    offset: self.serverOffset, limit: 200, conversationType: nil
+                    offset: self.serverOffset, limit: 200, conversationType: nil, archiveStatus: nil
                 )
                 guard let response else { break }
                 self.appendConversations(from: response)

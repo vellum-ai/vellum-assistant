@@ -22,6 +22,7 @@ import { getWorkspaceDir } from "../../util/platform.js";
 import { getDb } from "../db-connection.js";
 import { embedWithRetry } from "../embed.js";
 import { generateSparseEmbedding } from "../embedding-backend.js";
+import { wrapMemoryBlock } from "../memory-marker.js";
 import type { QdrantSparseVector } from "../qdrant-client.js";
 import { memorySummaries } from "../schema.js";
 import { conversations } from "../schema/conversations.js";
@@ -895,13 +896,45 @@ export function stripExistingMemoryInjections(messages: Message[]): Message[] {
   const last = messages[messages.length - 1];
   if (!last || last.role !== "user") return messages;
 
-  const firstNonMemory = countMemoryPrefixBlocks(last.content);
-  if (firstNonMemory === 0) return messages;
+  const stripped = stripMemoryPrefixFromUserMessage(last);
+  if (stripped === last) return messages;
 
-  return [
-    ...messages.slice(0, -1),
-    { ...last, content: last.content.slice(firstNonMemory) },
-  ];
+  return [...messages.slice(0, -1), stripped];
+}
+
+/**
+ * Strip the memory-injected prefix from a single user message. Returns the
+ * same message reference unchanged when it is not a user message or carries no
+ * injected prefix, so callers can cheaply detect no-ops. Shared by
+ * `stripExistingMemoryInjections` (last message only) and
+ * `stripAllMemoryInjections` (every user message).
+ */
+function stripMemoryPrefixFromUserMessage(message: Message): Message {
+  if (message.role !== "user") return message;
+  const firstNonMemory = countMemoryPrefixBlocks(message.content);
+  if (firstNonMemory === 0) return message;
+  return { ...message, content: message.content.slice(firstNonMemory) };
+}
+
+/**
+ * Remove memory-injected blocks from EVERY user message, not just the last.
+ *
+ * memory-v3 live mode strips the injected `<memory>` block from all historical
+ * user messages each turn: it keeps the prompt lean and makes history
+ * byte-stable for prompt caching (v2 strips only the last user message — see
+ * `stripExistingMemoryInjections`). Reuses the same per-message block
+ * recognition as the last-message strip. Wired into the runtime-assembly
+ * suppression step (`conversation-runtime-assembly.ts`), which calls it when
+ * `memory-v3-live` is on and the v3 injector produced a block this turn.
+ */
+export function stripAllMemoryInjections(messages: Message[]): Message[] {
+  let changed = false;
+  const result = messages.map((message) => {
+    const stripped = stripMemoryPrefixFromUserMessage(message);
+    if (stripped !== message) changed = true;
+    return stripped;
+  });
+  return changed ? result : messages;
 }
 
 /**
@@ -933,7 +966,7 @@ function injectTextBlock(messages: Message[], text: string): Message[] {
       content: [
         {
           type: "text" as const,
-          text: `<memory>\n${text}\n</memory>`,
+          text: wrapMemoryBlock(text),
         },
         ...userTail.content,
       ],
@@ -977,7 +1010,7 @@ function injectMemoryBlock(
 
   blocks.push({
     type: "text" as const,
-    text: `<memory>\n${text}\n</memory>`,
+    text: wrapMemoryBlock(text),
   });
 
   return [

@@ -4,9 +4,10 @@ import {
   findAssistantByName,
   getActiveAssistant,
   loadAllAssistants,
+  resolveCloud,
   saveAssistantEntry,
+  type AssistantEntry,
 } from "../lib/assistant-config";
-import type { AssistantEntry } from "../lib/assistant-config";
 import {
   captureImageRefs,
   GATEWAY_INTERNAL_PORT,
@@ -88,19 +89,6 @@ function parseArgs(): { name: string | null; version: string | null } {
   }
 
   return { name, version };
-}
-
-function resolveCloud(entry: AssistantEntry): string {
-  if (entry.cloud) {
-    return entry.cloud;
-  }
-  if (entry.project) {
-    return "gcp";
-  }
-  if (entry.sshUser) {
-    return "custom";
-  }
-  return "local";
 }
 
 /**

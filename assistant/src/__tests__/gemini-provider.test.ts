@@ -36,6 +36,7 @@ interface FakeChunk {
   usageMetadata?: {
     promptTokenCount?: number;
     candidatesTokenCount?: number;
+    cachedContentTokenCount?: number;
   };
   modelVersion?: string;
 }
@@ -98,10 +99,15 @@ function finishChunk(
   reason: string,
   prompt: number,
   output: number,
+  cached?: number,
 ): FakeChunk {
   return {
     candidates: [{ finishReason: reason }],
-    usageMetadata: { promptTokenCount: prompt, candidatesTokenCount: output },
+    usageMetadata: {
+      promptTokenCount: prompt,
+      candidatesTokenCount: output,
+      ...(cached !== undefined ? { cachedContentTokenCount: cached } : {}),
+    },
     modelVersion: "gemini-3-flash-preview-001",
   };
 }
@@ -203,8 +209,6 @@ describe("GeminiProvider", () => {
     const events: ProviderEvent[] = [];
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { onEvent: (e) => events.push(e) },
     );
 
@@ -221,8 +225,7 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      "You are a helpful assistant.",
+      { systemPrompt: "You are a helpful assistant." },
     );
 
     const config = lastStreamParams!.config as Record<string, unknown>;
@@ -248,8 +251,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       {
         config: {
           thinking: {
@@ -273,8 +274,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { thinking: { type: "disabled" } } },
     );
 
@@ -298,8 +297,6 @@ describe("GeminiProvider", () => {
     );
     await liteProvider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       {
         config: {
           thinking: { type: "adaptive", level: "high", streamThinking: false },
@@ -316,8 +313,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { thinking: { type: "adaptive" } } },
     );
 
@@ -325,6 +320,112 @@ describe("GeminiProvider", () => {
     // No level/streamThinking → omit so Google's per-model default applies
     // (Gemini 3.x defaults to "medium" with dynamic thinking).
     expect(config.thinkingConfig).toBeUndefined();
+  });
+
+  // Gemini 3.x Pro models reject MINIMAL and cannot disable thinking, so the
+  // provider must never send a level below the Pro floor ("low") and must pin
+  // a supported default when none is requested.
+  test("Pro: adaptive with no level pins the documented default (high)", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const proProvider = new GeminiProvider(
+      "test-api-key",
+      "gemini-3.1-pro-preview",
+    );
+    await proProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { thinking: { type: "adaptive", streamThinking: true } } },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "HIGH",
+      includeThoughts: true,
+    });
+  });
+
+  test("Pro: disabled maps to the LOW floor, not MINIMAL", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const proProvider = new GeminiProvider(
+      "test-api-key",
+      "gemini-3.1-pro-preview",
+    );
+    await proProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { thinking: { type: "disabled" } } },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "LOW",
+      includeThoughts: false,
+    });
+  });
+
+  test("Pro: an explicit minimal level is clamped up to LOW", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const proProvider = new GeminiProvider(
+      "test-api-key",
+      "gemini-3.1-pro-preview-customtools",
+    );
+    await proProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      {
+        config: {
+          thinking: {
+            type: "adaptive",
+            level: "minimal",
+            streamThinking: false,
+          },
+        },
+      },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "LOW",
+      includeThoughts: false,
+    });
+  });
+
+  test("Pro: a supported explicit level passes through unchanged", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    const proProvider = new GeminiProvider(
+      "test-api-key",
+      "gemini-3.1-pro-preview",
+    );
+    await proProvider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      {
+        config: {
+          thinking: { type: "adaptive", level: "medium", streamThinking: true },
+        },
+      },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({
+      thinkingLevel: "MEDIUM",
+      includeThoughts: true,
+    });
+  });
+
+  test("non-Pro: adaptive with no level keeps Google's default (only includeThoughts)", async () => {
+    fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
+
+    // Default provider is gemini-3-flash-preview (Flash). Flash accepts MINIMAL
+    // and resolves an absent level via Google's per-model default, so we leave
+    // thinkingLevel unset and only forward the streaming preference.
+    await provider.sendMessage(
+      [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+      { config: { thinking: { type: "adaptive", streamThinking: true } } },
+    );
+
+    const config = lastStreamParams!.config as Record<string, unknown>;
+    expect(config.thinkingConfig).toEqual({ includeThoughts: true });
   });
 
   // -----------------------------------------------------------------------
@@ -347,7 +448,7 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Read /tmp/test" }] }],
-      tools,
+      { tools: tools },
     );
 
     const config = lastStreamParams!.config as Record<string, unknown>;
@@ -659,6 +760,91 @@ describe("GeminiProvider", () => {
     });
   });
 
+  function toolResultWithAudio(mediaType: string, data: string): Message[] {
+    return [
+      { role: "user", content: [{ type: "text", text: "Read clip" }] },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_use",
+            id: "call_audio",
+            name: "file_read",
+            input: { path: "/tmp/clip" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "call_audio",
+            content: "Audio loaded: /tmp/clip",
+            is_error: false,
+            contentBlocks: [
+              {
+                type: "file",
+                source: {
+                  type: "base64",
+                  media_type: mediaType,
+                  data,
+                  filename: "clip",
+                },
+              },
+            ],
+          },
+        ],
+      },
+    ];
+  }
+
+  test("sends tool_result audio as a separate inlineData Content (audio/mpeg → audio/mp3)", async () => {
+    fakeChunks = [textChunk("I hear a bell"), finishChunk("STOP", 20, 10)];
+
+    await provider.sendMessage(toolResultWithAudio("audio/mpeg", "QUJDREVG"));
+
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: Array<Record<string, unknown>>;
+    }>;
+    // user, model(functionCall), user(functionResponse), user(audio inlineData)
+    expect(contents).toHaveLength(4);
+    expect(contents[2].parts[0]).toMatchObject({
+      functionResponse: { name: "file_read" },
+    });
+    // Audio must NOT be mixed into the functionResponse Content.
+    expect(contents[2].parts.some((p) => "inlineData" in p)).toBe(false);
+    expect(contents[3].role).toBe("user");
+    expect(contents[3].parts[0]).toEqual({
+      inlineData: { mimeType: "audio/mp3", data: "QUJDREVG" },
+    });
+  });
+
+  test("drops unsupported tool_result audio (m4a) — no extra Content", async () => {
+    fakeChunks = [textChunk("ok"), finishChunk("STOP", 10, 2)];
+
+    await provider.sendMessage(toolResultWithAudio("audio/x-m4a", "QUJDREVG"));
+
+    const contents = lastStreamParams!.contents as Array<{ parts: unknown[] }>;
+    expect(contents).toHaveLength(3); // no separate media Content
+  });
+
+  test("degrades oversize tool_result audio into the functionResponse output", async () => {
+    fakeChunks = [textChunk("ok"), finishChunk("STOP", 10, 2)];
+    const oversize = "A".repeat(17_000_000); // > 12 MB raw
+
+    await provider.sendMessage(toolResultWithAudio("audio/mpeg", oversize));
+
+    const contents = lastStreamParams!.contents as Array<{
+      parts: Array<{ functionResponse?: { response: { output: string } } }>;
+    }>;
+    expect(contents).toHaveLength(3); // no inlineData Content
+    expect(contents[2].parts[0].functionResponse?.response.output).toContain(
+      "too large",
+    );
+  });
+
   test("replays Gemini thought signatures on serialized tool_use history", async () => {
     fakeChunks = [textChunk("OK"), finishChunk("STOP", 10, 2)];
 
@@ -740,8 +926,6 @@ describe("GeminiProvider", () => {
           ],
         },
       ],
-      undefined,
-      undefined,
       { config: { model: "models/gemini-3.1-pro-preview" } },
     );
 
@@ -879,6 +1063,127 @@ describe("GeminiProvider", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Audio content (native Gemini audio input)
+  // -----------------------------------------------------------------------
+  test("sends audio file blocks inline, normalizing audio/mpeg → audio/mp3", async () => {
+    fakeChunks = [textChunk("I hear a bell"), finishChunk("STOP", 100, 5)];
+
+    const messages: Message[] = [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "What do you hear?" },
+          {
+            type: "file",
+            source: {
+              type: "base64",
+              media_type: "audio/mpeg",
+              data: "QUJDREVG",
+              filename: "clip.mp3",
+            },
+          },
+        ],
+      },
+    ];
+
+    await provider.sendMessage(messages);
+
+    const contents = lastStreamParams!.contents as Array<{
+      role: string;
+      parts: unknown[];
+    }>;
+    expect(contents[0].parts).toHaveLength(2);
+    expect(contents[0].parts[1]).toEqual({
+      inlineData: { mimeType: "audio/mp3", data: "QUJDREVG" },
+    });
+  });
+
+  test("sends supported audio types inline unchanged", async () => {
+    for (const mime of ["audio/wav", "audio/ogg", "audio/flac", "audio/aac"]) {
+      fakeChunks = [textChunk("ok"), finishChunk("STOP", 10, 2)];
+      await provider.sendMessage([
+        {
+          role: "user",
+          content: [
+            {
+              type: "file",
+              source: {
+                type: "base64",
+                media_type: mime,
+                data: "QUJDREVG",
+                filename: `clip.${mime.split("/")[1]}`,
+              },
+            },
+          ],
+        },
+      ]);
+      const contents = lastStreamParams!.contents as Array<{
+        parts: unknown[];
+      }>;
+      expect(contents[0].parts[0]).toEqual({
+        inlineData: { mimeType: mime, data: "QUJDREVG" },
+      });
+    }
+  });
+
+  test("degrades unsupported audio (m4a/mp4) to a text placeholder", async () => {
+    for (const mime of ["audio/x-m4a", "audio/mp4"]) {
+      fakeChunks = [textChunk("ok"), finishChunk("STOP", 10, 2)];
+      await provider.sendMessage([
+        {
+          role: "user",
+          content: [
+            {
+              type: "file",
+              source: {
+                type: "base64",
+                media_type: mime,
+                data: "QUJDREVG",
+                filename: "memo.m4a",
+              },
+            },
+          ],
+        },
+      ]);
+      const parts = (
+        lastStreamParams!.contents as Array<{ parts: unknown[] }>
+      )[0].parts;
+      expect(parts[0]).toHaveProperty("text");
+      expect(parts[0]).not.toHaveProperty("inlineData");
+      expect((parts[0] as { text: string }).text).toContain("memo.m4a");
+    }
+  });
+
+  test("degrades oversize inline audio to a text placeholder", async () => {
+    fakeChunks = [textChunk("ok"), finishChunk("STOP", 10, 2)];
+    // base64 length * 3/4 must exceed the 12 MB inline cap.
+    const oversize = "A".repeat(17_000_000);
+
+    await provider.sendMessage([
+      {
+        role: "user",
+        content: [
+          {
+            type: "file",
+            source: {
+              type: "base64",
+              media_type: "audio/mpeg",
+              data: oversize,
+              filename: "long.mp3",
+            },
+          },
+        ],
+      },
+    ]);
+
+    const parts = (lastStreamParams!.contents as Array<{ parts: unknown[] }>)[0]
+      .parts;
+    expect(parts[0]).not.toHaveProperty("inlineData");
+    expect((parts[0] as { text: string }).text).toContain("too large");
+    expect((parts[0] as { text: string }).text).toContain("long.mp3");
+  });
+
+  // -----------------------------------------------------------------------
   // max_tokens config
   // -----------------------------------------------------------------------
   test("passes max_tokens as maxOutputTokens", async () => {
@@ -886,8 +1191,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { config: { max_tokens: 64000 } },
     );
 
@@ -904,8 +1207,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { signal: controller.signal },
     );
 
@@ -925,8 +1226,6 @@ describe("GeminiProvider", () => {
 
     await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      undefined,
-      undefined,
       { signal: controller.signal },
     );
 
@@ -1046,8 +1345,6 @@ describe("GeminiProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);
@@ -1066,8 +1363,6 @@ describe("GeminiProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);
@@ -1085,8 +1380,6 @@ describe("GeminiProvider", () => {
     try {
       await provider.sendMessage(
         [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-        undefined,
-        undefined,
         { signal: controller.signal },
       );
       expect(true).toBe(false);
@@ -1160,6 +1453,36 @@ describe("GeminiProvider", () => {
     ]);
 
     expect(result.usage).toEqual({ inputTokens: 0, outputTokens: 0 });
+  });
+
+  // -----------------------------------------------------------------------
+  // Implicit prompt caching (cache reads)
+  // -----------------------------------------------------------------------
+  test("surfaces cachedContentTokenCount as cacheReadInputTokens", async () => {
+    // Gemini reports cached tokens as a subset already included in
+    // promptTokenCount, so inputTokens stays the inclusive total and the
+    // cached subset is reported separately for the discounted cache-read rate.
+    fakeChunks = [textChunk("Hi back"), finishChunk("STOP", 100, 20, 30)];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.usage).toEqual({
+      inputTokens: 100,
+      outputTokens: 20,
+      cacheReadInputTokens: 30,
+    });
+  });
+
+  test("omits cacheReadInputTokens when no tokens were cached", async () => {
+    fakeChunks = [textChunk("Hi back"), finishChunk("STOP", 100, 20, 0)];
+
+    const result = await provider.sendMessage([
+      { role: "user", content: [{ type: "text", text: "Hi" }] },
+    ]);
+
+    expect(result.usage).toEqual({ inputTokens: 100, outputTokens: 20 });
   });
 
   // -----------------------------------------------------------------------

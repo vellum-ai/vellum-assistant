@@ -11,7 +11,7 @@ import type { ReactNode } from "react";
 import { createElement } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
@@ -54,23 +54,28 @@ function publishInteractionResolved(payload: {
 }) {
   act(() => {
     useEventBusStore.getState().publish("sse.event", {
-      type: "interaction_resolved",
-      requestId: payload.requestId,
+      id: `evt-${payload.requestId}`,
       conversationId: payload.conversationId,
-      state: payload.state,
-      // Cast through the daemon-mirrored union; tests intentionally feed
-      // both user-facing and host-proxy kinds.
-      kind: (payload.kind ?? "confirmation") as
-        | "confirmation"
-        | "secret"
-        | "question"
-        | "acp_confirmation"
-        | "host_bash"
-        | "host_file"
-        | "host_cu"
-        | "host_browser"
-        | "host_app_control"
-        | "host_transfer",
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "interaction_resolved",
+        requestId: payload.requestId,
+        conversationId: payload.conversationId,
+        state: payload.state,
+        // Cast through the daemon-mirrored union; tests intentionally feed
+        // both user-facing and host-proxy kinds.
+        kind: (payload.kind ?? "confirmation") as
+          | "confirmation"
+          | "secret"
+          | "question"
+          | "acp_confirmation"
+          | "host_bash"
+          | "host_file"
+          | "host_cu"
+          | "host_browser"
+          | "host_app_control"
+          | "host_transfer",
+      },
     });
   });
 }

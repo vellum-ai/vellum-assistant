@@ -24,6 +24,7 @@ import {
 } from "../db/schema.js";
 import { readCredential } from "../credential-reader.js";
 import { credentialKey } from "../credential-key.js";
+import { arePlatformFeaturesEnabled } from "../feature-flag-resolver.js";
 import { getLogger } from "../logger.js";
 
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
@@ -544,6 +545,13 @@ function mintRefreshToken(
  * callers fall back to a generated principal ID in that case.
  */
 async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
+  if (!arePlatformFeaturesEnabled()) {
+    log.debug(
+      "platform-features-in-local-mode is disabled — skipping platform owner display name fetch",
+    );
+    return null;
+  }
+
   const isPlatform =
     process.env.IS_PLATFORM?.trim().toLowerCase() === "true" ||
     process.env.IS_PLATFORM?.trim() === "1";

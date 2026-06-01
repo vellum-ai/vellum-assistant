@@ -27,7 +27,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import {
   COMPACTION_CIRCUIT_FAILURE_THRESHOLD,
   defaultCircuitBreakerPlugin,
-} from "../plugins/defaults/circuit-breaker.js";
+} from "../plugins/defaults/circuit-breaker/register.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

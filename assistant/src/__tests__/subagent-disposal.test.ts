@@ -14,7 +14,7 @@ interface FakeManagedSubagent {
       content: Array<{ type: string; text: string }>;
     }>;
     sendToClient: (msg: ServerMessage) => void;
-    persistUserMessage?: (msg: string) => string;
+    persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
     enqueueMessage?: () => { rejected: boolean; queued: boolean };
     usageStats: {
@@ -64,7 +64,8 @@ function injectFakeSubagent(
   const internals = asInternals(manager);
 
   internals.subagents.set(subagentId, {
-    conversation: conversation === undefined ? makeFakeConversation() : conversation,
+    conversation:
+      conversation === undefined ? makeFakeConversation() : conversation,
     state,
     parentSendToClient: parentSendToClient ?? (() => {}),
   });
@@ -104,7 +105,10 @@ describe("SubagentManager terminal disposal", () => {
     injectFakeSubagent(manager, subagentId, state);
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {};
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
@@ -127,7 +131,10 @@ describe("SubagentManager terminal disposal", () => {
     injectFakeSubagent(manager, subagentId, state);
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {
       throw new Error("LLM error");
     };
@@ -148,7 +155,10 @@ describe("SubagentManager terminal disposal", () => {
     injectFakeSubagent(manager, subagentId, state);
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {
       throw new Error("Conversation aborted");
     };
@@ -167,7 +177,10 @@ describe("SubagentManager terminal disposal", () => {
     injectFakeSubagent(manager, subagentId, state);
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {};
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
@@ -269,7 +282,10 @@ describe("SubagentManager terminal disposal", () => {
       outputTokens: 200,
       estimatedCost: 0.05,
     };
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {};
 
     await asInternals(manager).runSubagent(subagentId, "Do something");
@@ -291,7 +307,10 @@ describe("SubagentManager terminal disposal", () => {
     injectFakeSubagent(manager, subagentId, state);
 
     const managed = asInternals(manager).subagents.get(subagentId)!;
-    managed.conversation!.persistUserMessage = () => "msg-1";
+    managed.conversation!.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     managed.conversation!.runAgentLoop = async () => {};
     // Simulate that a message was enqueued during the run.
     managed.hadEnqueuedMessages = true;

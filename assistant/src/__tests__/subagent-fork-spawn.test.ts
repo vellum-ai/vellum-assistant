@@ -17,7 +17,7 @@ interface FakeManagedSubagent {
     dispose: () => void;
     messages: Message[];
     sendToClient: (msg: ServerMessage) => void;
-    persistUserMessage?: (msg: string) => string;
+    persistUserMessage?: () => { id: string; deduplicated: boolean };
     runAgentLoop?: () => Promise<void>;
     enqueueMessage?: () => { rejected: boolean; queued: boolean };
     injectInheritedContext?: (messages: Message[]) => void;
@@ -127,7 +127,10 @@ describe("SubagentManager fork spawn", () => {
 
     const injectedMessages: Message[][] = [];
     const fakeConversation = makeFakeConversation();
-    fakeConversation.persistUserMessage = () => "msg-1";
+    fakeConversation.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     fakeConversation.runAgentLoop = async () => {};
     fakeConversation.injectInheritedContext = (msgs: Message[]) => {
       injectedMessages.push(msgs);
@@ -197,7 +200,10 @@ describe("SubagentManager fork spawn", () => {
 
     let injectCalled = false;
     const fakeConversation = makeFakeConversation();
-    fakeConversation.persistUserMessage = () => "msg-1";
+    fakeConversation.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     fakeConversation.runAgentLoop = async () => {};
     fakeConversation.injectInheritedContext = () => {
       injectCalled = true;
@@ -272,7 +278,10 @@ describe("SubagentManager fork spawn", () => {
     const subagentId = "sub-fork-role";
 
     const fakeConversation = makeFakeConversation();
-    fakeConversation.persistUserMessage = () => "msg-1";
+    fakeConversation.persistUserMessage = () => ({
+      id: "msg-1",
+      deduplicated: false,
+    });
     fakeConversation.runAgentLoop = async () => {};
     fakeConversation.injectInheritedContext = () => {};
     fakeConversation.setSubagentAllowedTools = () => {};

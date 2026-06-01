@@ -1,4 +1,5 @@
 import { type MutableRefObject, useEffect, useRef } from "react";
+import type { Terminal as TerminalType, IDisposable } from "xterm";
 import "xterm/css/xterm.css";
 
 export interface TerminalDimensions {
@@ -22,8 +23,7 @@ export function TerminalConsole({
   writeRef,
 }: TerminalConsoleProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const terminalRef = useRef<any>(null);
+  const terminalRef = useRef<TerminalType | null>(null);
   const onDataRef = useRef(onData);
   const onResizeRef = useRef(onResize);
   const readOnlyRef = useRef(readOnly);
@@ -47,21 +47,16 @@ export function TerminalConsole({
     const el = containerRef.current;
     let disposed = false;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let terminal: any = null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let fitAddon: any = null;
+    let terminal: TerminalType | null = null;
     let resizeObserver: ResizeObserver | null = null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let dataDisposable: any = null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let resizeDisposable: any = null;
+    let dataDisposable: IDisposable | null = null;
+    let resizeDisposable: IDisposable | null = null;
 
     Promise.all([import("xterm"), import("xterm-addon-fit")]).then(
       ([{ Terminal }, { FitAddon }]) => {
         if (disposed || !el) return;
 
-        terminal = new Terminal({
+        const term = new Terminal({
           cursorBlink: true,
           fontFamily: '"JetBrains Mono", "Fira Code", monospace',
           fontSize: 14,
@@ -89,13 +84,14 @@ export function TerminalConsole({
           disableStdin: readOnly,
           scrollback: 2000,
         });
+        terminal = term;
 
-        fitAddon = new FitAddon();
-        terminal.loadAddon(fitAddon);
-        terminal.open(el);
-        terminalRef.current = terminal;
+        const fit = new FitAddon();
+        term.loadAddon(fit);
+        term.open(el);
+        terminalRef.current = term;
 
-        terminal.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+        term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
           if (
             event.key === "k" &&
             event.metaKey &&
@@ -105,7 +101,7 @@ export function TerminalConsole({
           ) {
             if (event.type === "keydown") {
               event.preventDefault();
-              terminal.clear();
+              term.clear();
             }
             return false;
           }
@@ -113,24 +109,24 @@ export function TerminalConsole({
         });
 
         try {
-          fitAddon.fit();
-          if (terminal.cols && terminal.rows) {
+          fit.fit();
+          if (term.cols && term.rows) {
             onResizeRef.current?.({
-              cols: terminal.cols,
-              rows: terminal.rows,
+              cols: term.cols,
+              rows: term.rows,
             });
           }
         } catch {
           // fit() can throw if the container has no layout yet
         }
 
-        dataDisposable = terminal.onData((data: string) => {
+        dataDisposable = term.onData((data: string) => {
           if (!readOnlyRef.current) {
             onDataRef.current?.(data);
           }
         });
 
-        resizeDisposable = terminal.onResize(
+        resizeDisposable = term.onResize(
           ({ cols, rows }: { cols: number; rows: number }) => {
             onResizeRef.current?.({ cols, rows });
           },
@@ -138,7 +134,7 @@ export function TerminalConsole({
 
         resizeObserver = new ResizeObserver(() => {
           try {
-            fitAddon.fit();
+            fit.fit();
           } catch {
             // Ignore layout not ready errors
           }
@@ -146,7 +142,7 @@ export function TerminalConsole({
         resizeObserver.observe(el);
 
         if (writeRef) {
-          writeRef.current = (data: string) => terminal.write(data);
+          writeRef.current = (data: string) => term.write(data);
         }
       },
     );

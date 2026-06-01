@@ -45,14 +45,17 @@ function makeContext(opts?: {
     surfaceActionRequestIds: new Set<string>(),
     currentTurnSurfaces: [],
     isProcessing: () => false,
-    enqueueMessage: (content, _attachments, _onEvent, requestId) => {
-      const resolvedId = requestId ?? "mock-request-id";
-      enqueueCalls.push({ content, requestId: resolvedId });
+    enqueueMessage: (options) => {
+      const resolvedId = options.requestId ?? "mock-request-id";
+      enqueueCalls.push({ content: options.content, requestId: resolvedId });
       return { queued: false, requestId: resolvedId };
     },
     getQueueDepth: () => 0,
-    processMessage: async (content, _attachments, _onEvent, requestId) => {
-      processCalls.push({ content, requestId });
+    processMessage: async (options) => {
+      processCalls.push({
+        content: options.content,
+        requestId: options.requestId,
+      });
       return "ok";
     },
     withSurface: createSurfaceMutex(),

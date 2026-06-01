@@ -414,12 +414,10 @@ describe("buildTranscriptItems", () => {
     expect((items[0] as MessageItem).message).toBe(slack);
   });
 
-  test("queued blank user rows are NOT dropped (queued marker handles them)", () => {
-    // A blank user row with queueStatus="queued" passes through the filter
-    // so the projection layer can collapse it into a single QueuedMarker
-    // entry — dropping would hide the user's pending intent. Optimistic
-    // queued user rows carry a client-generated `id` and `isOptimistic:
-    // true`.
+  test("queued user rows are omitted from the transcript", () => {
+    // The queue drawer is the only visible queue surface. Optimistic queued
+    // user rows remain in state so the drawer can render and manage them, but
+    // the transcript itself should not add a duplicate queued marker row.
     const queued = makeMessage({
       role: "user",
       content: "Send when ready",
@@ -434,9 +432,7 @@ describe("buildTranscriptItems", () => {
       messages: [queued],
     });
 
-    // Queued marker collapses queued rows into a single QueuedMarkerItem.
-    expect(items).toHaveLength(1);
-    expect(items[0]!.kind).toBe("queuedMarker");
+    expect(items).toEqual([]);
   });
 
   test("assistant blank rows are NOT dropped (filter is user-only)", () => {

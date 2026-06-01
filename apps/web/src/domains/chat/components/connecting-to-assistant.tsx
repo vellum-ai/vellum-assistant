@@ -9,7 +9,7 @@ import type {
   ReachabilityState,
 } from "@/assistant/use-assistant-reachability";
 import { MAX_ATTEMPTS } from "@/assistant/use-assistant-reachability";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { routes } from "@/utils/routes";
 

@@ -11,6 +11,7 @@ import {
   type SyncChangedEvent,
 } from "@/lib/sync/types";
 import { getClientId } from "@/lib/telemetry/client-identity";
+import { useConversationStore } from "@/stores/conversation-store";
 
 export interface ActiveConversationMessagesRefreshResult {
   changed: boolean;
@@ -18,12 +19,7 @@ export interface ActiveConversationMessagesRefreshResult {
   assistantProgress: boolean;
 }
 
-interface CurrentRef<T> {
-  current: T;
-}
-
 export interface WebSyncRouterOptions {
-  activeConversationIdRef: CurrentRef<string | null>;
   invalidateAvatar: () => void;
   refreshAssistantIdentity: (force?: boolean) => Promise<void>;
   invalidateAssistantConfig: () => void;
@@ -77,7 +73,10 @@ export function createWebSyncRouter(
       options.scheduleConversationListRefetch,
     ),
     registry.registerPattern(isConversationMetadataSyncTag, () => {
-      options.scheduleConversationListRefetch();
+      // RootLayout's `useConversationSync` owns metadata tags and
+      // GET-and-patches the single cached row. Handling the tag here as a
+      // no-op keeps it out of unknown-tag telemetry without re-draining every
+      // paginated conversation list during active turns.
     }),
     registry.registerPattern(isConversationMessagesSyncTag, ({ tag }) => {
       // List-level refetch on `:messages` tags is deliberately omitted.
@@ -90,7 +89,7 @@ export function createWebSyncRouter(
       // We still need the active-conversation message refetch when
       // the tag matches the currently-open conversation — those
       // message rows are owned by a separate query.
-      if (tagMatchesActiveConversation(tag, options.activeConversationIdRef)) {
+      if (tagMatchesActiveConversation(tag)) {
         return options.refreshActiveConversationMessages().then(() => {});
       }
     }),
@@ -117,7 +116,7 @@ export function createWebSyncRouter(
     },
     dispatchReconnect: async () => {
       const dispatch = await registry.dispatchReconnect();
-      const activeConversationId = options.activeConversationIdRef.current;
+      const activeConversationId = useConversationStore.getState().activeConversationId;
       let activeConversationMessages: ActiveConversationMessagesRefreshResult | null =
         null;
       if (activeConversationId) {
@@ -140,11 +139,10 @@ export function createWebSyncRouter(
 
 function tagMatchesActiveConversation(
   tag: string,
-  activeConversationIdRef: CurrentRef<string | null>,
 ): boolean {
   const parsed = parseConversationSyncTag(tag);
   return (
     parsed !== null &&
-    parsed.conversationId === activeConversationIdRef.current
+    parsed.conversationId === useConversationStore.getState().activeConversationId
   );
 }

@@ -21,6 +21,7 @@ import { rawAll } from "../../memory/raw-query.js";
 import { semanticSearch } from "../../memory/search/semantic.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -274,6 +275,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "search_global",
     endpoint: "search/global",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleGlobalSearch,
     summary: "Global search",
     description:

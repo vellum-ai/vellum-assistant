@@ -9,11 +9,12 @@ import {
   useSyncExternalStore,
 } from "react";
 
-import { Button } from "@vellum/design-library";
+import { Button, cn } from "@vellum/design-library";
 import {
   postSttTranscribe,
   type SttFailureReason,
 } from "@/domains/voice/stt-api";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store";
 
 // ---------------------------------------------------------------------------
@@ -569,6 +570,8 @@ export const VoiceInputButton = forwardRef<
     [assistantId, disabled, startRecording, stopRecording],
   );
 
+  const isNative = useIsNativePlatform();
+
   if (!supported || !assistantId) return null;
 
   // The button has three visible states:
@@ -611,7 +614,10 @@ export const VoiceInputButton = forwardRef<
       aria-pressed={recording}
       aria-busy={processing}
       title={label}
-      className="[--vbtn-fg:var(--content-secondary)]"
+      className={cn(
+        "[--vbtn-fg:var(--content-secondary)]",
+        isNative && recording && "h-12 w-12 max-md:h-12 max-md:w-12",
+      )}
     />
   );
 });

@@ -65,17 +65,23 @@ context provider mounted in `<App />`.
 
 `ChatLayout` owns a shared `ChatLayoutHeader` that renders on every
 child route (home, chat, library, identity, etc.). Child routes
-populate the header's center and right sections via
-`setTopBarCenter` / `setTopBarRightSlot` from `useAssistantContext()`.
-Register content in a `useEffect` and clear it on unmount:
+populate the header's center and right sections via the
+`useChatLayoutSlotsStore` setters. Register content in a `useEffect`
+and clear it on unmount:
 
 ```ts
-const { setTopBarCenter } = useAssistantContext();
+const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
 useEffect(() => {
   setTopBarCenter(<span>Page Title</span>);
   return () => { setTopBarCenter(null); };
 }, [setTopBarCenter]);
 ```
+
+A Zustand store rather than outlet context because `ActiveAssistantGate`
+sits between `ChatLayout` and gated routes — outlet context value
+flowing through an intermediate `<Outlet />` resolves to `undefined`
+([React Router source](https://github.com/remix-run/react-router/blob/main/packages/react-router/lib/hooks.tsx)
+wraps every `<Outlet>` in its own `OutletContext.Provider`).
 
 Every child route under `ChatLayout` should register its title this
 way. Without it the header center is empty, which is especially
@@ -154,7 +160,7 @@ References:
 
 ### Organize by domain, not technical layer
 
-Group code by what it does (messages, conversations, streaming,
+Group code by what it does (messages, conversations, voice,
 interactions), not by what it is (hooks, utils, components). The
 top-level folder for domain modules is called **`domains/`**.
 
@@ -167,6 +173,7 @@ src/
   stores/                          # app-level Zustand stores (cross-domain)
     viewer-store.ts
     sse-connected-store.ts
+    conversation-store.ts
   domains/                         # feature modules
     messages/                      # message lifecycle
       message-store.ts
@@ -177,36 +184,29 @@ src/
       components/
         chat-body.tsx
     conversations/                 # conversation CRUD, grouping, selection
-      conversation-store.ts
-      conversation-store.test.ts
+      conversation-queries.ts
       use-conversation-loader.ts
       types.ts
-    streaming/                     # SSE transport, event parsing
-      stream-store.ts
-      stream-transport.ts
-      event-parser.ts
-      event-types.ts
-      handlers/
-        message-handlers.ts
-        interaction-handlers.ts
-        types.ts
-    interactions/                   # user-facing prompts
-      interaction-store.ts
-      interaction-store.test.ts
-      types.ts
+    chat/                          # chat feature module
+      turn-store.ts                #   turn-level state machine
+      turn-coordinator.ts          #   atomic turn-store + conversation-store transitions
+      turn-selectors.ts            #   render-decision selectors from TurnState
   hooks/                           # cross-domain shared hooks
     use-is-mobile.ts
     use-visible-viewport.ts
   utils/                           # cross-domain shared utilities
     format.ts
     browser.ts
-  types/                           # cross-domain shared types
+  types/                           # cross-domain shared types (no owning module)
     window.d.ts
+    event-types.ts
+    conversation-types.ts
   lib/                             # third-party integrations & infrastructure
     sentry/                        #   Sentry error reporting (init, consent control)
     auth/                          #   allauth client, CSRF, auth middleware
     feature-flags/                 #   feature flag provider
     sync/                          #   server state sync (tag registry, router)
+    streaming/                     #   SSE transport, event parsing, debug tracking
     api-client.ts                  #   HeyAPI configured client + interceptors
     telemetry/                     #   client identity for daemon registration
   runtime/                         # framework adapters, platform bridges
@@ -220,7 +220,7 @@ src/
 This app uses `domains/` over the more common `features/` because
 "features" implies product-level concepts (like "chat" or
 "settings") that contain multiple domains. `messages`,
-`conversations`, and `streaming` are business domains with distinct
+`conversations`, and `voice` are business domains with distinct
 data models and lifecycles — not features. `domains/` is more precise
 for a DDD-influenced architecture and signals that each folder
 represents a bounded context.
@@ -233,9 +233,8 @@ References:
 
 Domains are **business capabilities**, not URL segments. A route
 composes one or more domains; a domain may be used by zero or more
-routes. `conversations/`, `interactions/`, and `subagents/` have no
-routes of their own — they are composed by page-level domains
-(`chat/`, `home/`) that do map to routes.
+routes. `conversations/` has no routes of its own — it is composed by
+page-level domains (`chat/`, `home/`) that do map to routes.
 
 The dependency direction is one-way:
 `shared → domains → page domains → routes`.
@@ -296,7 +295,10 @@ Think of domains like database tables, not nested documents. Split by
 
 - **No circular dependencies.** If A imports from B AND B imports
   from A, either merge them or hoist the shared code to a
-  top-level directory.
+  top-level directory. **Exception:** `import type` is erased at
+  compile time and never creates a runtime cycle — use it when a
+  sub-module only needs types from its parent
+  ([TypeScript docs](https://www.typescriptlang.org/docs/handbook/modules/reference.html#type-only-imports-and-exports)).
 
 For further reading, [bulletproof-react's project structure
 docs](https://github.com/alan2207/bulletproof-react/blob/master/docs/project-structure.md#cross-feature-access)
@@ -307,11 +309,11 @@ Examples of correct splits:
 - `messages/` vs `conversations/`: messages are created, streamed,
   delta-updated, and compacted — different lifecycle from conversation
   CRUD and grouping.
-- `streaming/` vs `messages/`: SSE transport and reconnection logic
+- `lib/streaming/` vs `messages/`: SSE transport and reconnection logic
   changes for different reasons than message state management.
-- `interactions/` vs `turn/`: user-facing prompts (secrets,
-  confirmations) have their own state machine, independent from the
-  turn lifecycle (idle → sending → receiving → complete).
+- `chat/interaction-store` vs `chat/turn-store`: user-facing prompts
+  (secrets, confirmations) have their own state machine, independent
+  from the turn lifecycle (idle → sending → receiving → complete).
 
 ### Conversation identifiers: `conversationId` vs `conversationKey`
 
@@ -381,11 +383,11 @@ owns it.
 | Folder | Purpose | Example contents |
 |---|---|---|
 | `assistant/` | Core business-domain code for the assistant itself — the central concept every feature composes around. Every domain may depend on it; it depends on no domain. New top-level business-concept folders require explicit team approval. | `api.ts`, `lifecycle.ts`, `types.ts`, `llm-model-catalog.ts` |
-| `stores/` | App-level Zustand stores (cross-domain state) | `viewer-store.ts`, `sse-connected-store.ts` |
-| `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-keyboard-shortcuts.ts` |
+| `stores/` | App-level Zustand stores (cross-domain state) | `viewer-store.ts`, `sse-connected-store.ts`, `assistant-feature-flag-store.ts` |
+| `hooks/` | Cross-domain React hooks | `use-is-mobile.ts`, `use-visible-viewport.ts`, `use-feature-flag-bus-sync.ts` |
 | `utils/` | Pure utility functions (no side effects, no third-party SDKs) | `format.ts`, `browser.ts`, `network-status.ts`, `stable-id.ts` |
-| `types/` | Shared type definitions | `window.d.ts`, `api-types.ts` |
-| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/, `sync/` (state sync), `api-client.ts` (HeyAPI) |
+| `types/` | Cross-domain shared type definitions with no clear owning module. Types consumed by a single module live with that module. Types produced by a module live in the module that produces them — consumers use `import type`. | `window.d.ts`, `event-types.ts`, `conversation-types.ts` |
+| `lib/` | Third-party integrations and infrastructure wrappers (have side effects, configure SDK instances, manage lifecycle) | `sentry/` (error reporting), `auth/` (allauth + CSRF), `feature-flags/` (catalog + registry), `sync/` (state sync), `streaming/` (SSE transport), `diagnostics.ts` (session ring buffer), `api-client.ts` (HeyAPI) |
 | `runtime/` | Framework adapters and native platform bridges | `route-adapter.ts`, `native-auth.ts`, `native-deep-link.ts`, `app-bridge.ts` |
 | `components/` | Cross-domain shared UI | `error-boundary.tsx`, `sign-in-gate.tsx`, `providers.tsx` |
 
@@ -422,6 +424,19 @@ If the code imports a third-party SDK and configures it → `lib/`. If it bridge
 Do not use barrel files (`index.ts` that re-export siblings). Import
 from the source file directly. If you believe this rule should change,
 open a GitHub issue to discuss.
+
+### No single-file directories
+
+A directory that contains exactly one file should be flattened — move
+the file up one level and remove the empty directory. Directories
+exist to organize multiple files, not to wrap a single file.
+
+When flattening, verify the file lands in the **correct parent**
+directory, not just one level up. For example, a Zustand store nested
+in `domains/settings/stores/theme-store.ts` should move to the
+domain root (`domains/settings/theme-store.ts`) or to top-level
+`stores/` if it's cross-domain — not just flatten in place if the
+parent directory is wrong.
 
 ---
 
@@ -814,6 +829,69 @@ leave a `TODO` next to it pointing at the planned consolidation. The
 end state has a single native bridge interface (Capacitor today,
 Electron next) so app code shouldn't be branching on which shell is
 wrapping the SPA.
+
+---
+
+## Platform gating
+
+The web app can run in three auth/hosting configurations that affect
+which UI surfaces are available:
+
+| Signal | Where | What it means |
+|--------|-------|---------------|
+| `isLocalMode()` | `src/lib/local-mode.ts` | `true` when `VITE_PLATFORM_MODE` is unset — the app is running against a local/self-hosted daemon, not the Vellum platform |
+| `hasPlatformSession` | `src/stores/auth-store.ts` | `true` when the user has a valid session with the Vellum platform (set asynchronously after probing the allauth session endpoint) |
+| `platformFeaturesInLocalMode` | feature flag store | Per-assistant flag (default `true`). When `false` in local mode, the API interceptor no-ops all platform client requests |
+
+### The five user states
+
+1. **Platform-hosted + logged in** — full access to everything
+2. **Platform-hosted + NOT logged in** — session expired; platform-dependent UI is *disabled* with a "log in" prompt
+3. **Self-hosted + platform features ON + logged in** — full access
+4. **Self-hosted + platform features ON + NOT logged in** — platform-dependent UI is *disabled*
+5. **Self-hosted + platform features OFF** — platform-dependent UI is *gated* (hidden entirely)
+
+### `usePlatformGate()` hook
+
+`src/hooks/use-platform-gate.ts` encapsulates the decision tree and
+returns one of three states:
+
+| Return value | Meaning | When |
+|-------------|---------|------|
+| `"full"` | Feature is fully functional | `hasPlatformSession` is `true` |
+| `"disabled"` | Show the UI but disable it (prompt re-login) | `hasPlatformSession` is `false`, platform features still enabled |
+| `"gated"` | Hide the UI entirely | Local mode AND `platformFeaturesInLocalMode` is `false` |
+
+Use this hook for any UI surface that depends on the Vellum platform
+API. The three actions map to concrete UI patterns:
+
+- **Full** — render normally.
+- **Disabled** — render the container/chrome but replace interactive
+  content with a `<Notice tone="info">` prompting platform login.
+  Disable platform API queries (`enabled: platformGate === "full"`).
+- **Gated** — don't render the component at all. If a parent container
+  (e.g. a settings card with a managed/your-own toggle) would be empty
+  without the gated content, render only the non-platform portion
+  without the toggle.
+
+### Daemon-owned endpoints routed through the platform proxy
+
+Many features use the platform API client but actually hit
+daemon-owned endpoints via `RuntimeProxyWildcardView` (the platform
+proxies `/v1/assistants/{id}/<path>` → daemon `/v1/<path>`). In local
+mode, the self-hosted ingress rewrite in `api-interceptors.ts` already
+reroutes these to the gateway directly — the
+`RUNTIME_PROXIED_FIRST_SEGMENTS` allowlist is skipped entirely in
+local mode. These features work in all five states with no gating
+needed. Examples: AI page (profiles, providers, models), Inspector,
+Home, Workspace, Contacts.
+
+### Organization store
+
+The organization store (`src/stores/organization-store.ts`) only
+fetches when `hasPlatformSession` is `true`. Organizations are a
+platform concept — in self-hosted mode the interceptor already strips
+the `Vellum-Organization-Id` header and uses bearer auth instead.
 
 ---
 

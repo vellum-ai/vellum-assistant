@@ -290,9 +290,8 @@ export async function runAgenticRecall(
     try {
       response = await provider.sendMessage(
         [userTextMessage(promptBundle.prompt)],
-        [...RECALL_AGENT_TOOL_DEFINITIONS],
-        undefined,
         {
+          tools: [...RECALL_AGENT_TOOL_DEFINITIONS],
           // `thinking: disabled` is required because we set `temperature: 0`
           // explicitly. Anthropic 400s on `temperature` ≠ 1 whenever thinking
           // is enabled or in adaptive mode; without this, profiles that
@@ -591,9 +590,8 @@ async function tryFinalFinishRecall(options: {
   try {
     response = await options.provider.sendMessage(
       [userTextMessage(promptBundle.prompt)],
-      [FINISH_RECALL_TOOL_DEFINITION],
-      undefined,
       {
+        tools: [FINISH_RECALL_TOOL_DEFINITION],
         // `thinking: disabled` required for the same reason as the agent
         // round above — Anthropic 400s on `temperature` ≠ 1 whenever
         // thinking is enabled or in adaptive mode.

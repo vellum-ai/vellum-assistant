@@ -39,24 +39,24 @@ import type { LogRow } from "../../../memory/llm-request-log-store.js";
 interface FakeSourceState {
   conversation: { id: string } | null;
   selectedCall: LogRow | null;
-  previousNonCompactionCallCreatedAt: number | null;
+  turnBounds: { startTime: number; endTime: number } | null;
   compactionLogs: LogRow[];
 }
 
 const state: FakeSourceState = {
   conversation: null,
   selectedCall: null,
-  previousNonCompactionCallCreatedAt: null,
+  turnBounds: null,
   compactionLogs: [],
 };
 
-// Records the inputs the handler passed to the source so tests can
-// pin the windowing plumbing without relying on the projection.
+// Records the inputs the handler passed to its collaborators so tests
+// can pin the windowing plumbing without relying on the projection.
 const sourceCalls = {
   getRequestLogByIdArgs: [] as string[],
-  getPreviousNonCompactionCallCreatedAtArgs: [] as Array<{
+  getTurnTimeBoundsArgs: [] as Array<{
     conversationId: string;
-    beforeCreatedAt: number;
+    messageCreatedAt: number;
   }>,
   getCompactionLogsBetweenArgs: [] as Array<{
     conversationId: string;
@@ -70,6 +70,13 @@ mock.module("../../../memory/conversation-crud.js", () => ({
     state.conversation && state.conversation.id === id
       ? state.conversation
       : null,
+  getTurnTimeBounds: (conversationId: string, messageCreatedAt: number) => {
+    sourceCalls.getTurnTimeBoundsArgs.push({
+      conversationId,
+      messageCreatedAt,
+    });
+    return state.turnBounds;
+  },
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
@@ -81,16 +88,6 @@ mock.module("../../../memory/llm-request-log-source.js", () => ({
     },
     getRequestLogsByMessageId: async () => [],
     getRequestLogsByConversationId: async () => [],
-    getPreviousNonCompactionCallCreatedAt: async (
-      conversationId: string,
-      beforeCreatedAt: number,
-    ) => {
-      sourceCalls.getPreviousNonCompactionCallCreatedAtArgs.push({
-        conversationId,
-        beforeCreatedAt,
-      });
-      return state.previousNonCompactionCallCreatedAt;
-    },
     getCompactionLogsBetween: async (
       conversationId: string,
       afterCreatedAt: number | null,
@@ -107,7 +104,10 @@ mock.module("../../../memory/llm-request-log-source.js", () => ({
 }));
 
 // Imported AFTER the mocks so the handler picks up the fakes.
-import { projectLogRowToCompactionTrailEvent,ROUTES } from "../conversation-compaction-routes.js";
+import {
+  projectLogRowToCompactionTrailEvent,
+  ROUTES,
+} from "../conversation-compaction-routes.js";
 import { BadRequestError, NotFoundError } from "../errors.js";
 
 const route = ROUTES.find(
@@ -135,10 +135,10 @@ function fakeLogRow(overrides: Partial<LogRow> = {}): LogRow {
 beforeEach(() => {
   state.conversation = null;
   state.selectedCall = null;
-  state.previousNonCompactionCallCreatedAt = null;
+  state.turnBounds = null;
   state.compactionLogs = [];
   sourceCalls.getRequestLogByIdArgs.length = 0;
-  sourceCalls.getPreviousNonCompactionCallCreatedAtArgs.length = 0;
+  sourceCalls.getTurnTimeBoundsArgs.length = 0;
   sourceCalls.getCompactionLogsBetweenArgs.length = 0;
 });
 
@@ -151,7 +151,7 @@ describe("conversation-compaction-routes — registration", () => {
     expect(route).toBeDefined();
     expect(route.method).toBe("GET");
     expect(route.endpoint).toBe("conversations/:id/compaction");
-    expect(route.policyKey).toBe("conversations/compaction");
+    expect(route.policy?.requiredScopes).toContain("chat.read");
   });
 });
 
@@ -215,14 +215,15 @@ describe("handleGetCompactionTrail — request-shape errors", () => {
 // ---------------------------------------------------------------------
 
 describe("handleGetCompactionTrail — happy path", () => {
-  test("forwards both window bounds to the source (prior call as floor, selected call as ceiling)", async () => {
+  test("forwards the turn window to the source (start - 1 as floor, end + 1 as ceiling)", async () => {
     state.conversation = { id: "conv-1" };
     state.selectedCall = fakeLogRow({
       id: "call-selected",
       conversationId: "conv-1",
       createdAt: 5000,
     });
-    state.previousNonCompactionCallCreatedAt = 2000;
+    // Selected call sits inside a turn that runs [2000, 9000].
+    state.turnBounds = { startTime: 2000, endTime: 9000 };
     state.compactionLogs = [];
 
     await handler({
@@ -231,27 +232,56 @@ describe("handleGetCompactionTrail — happy path", () => {
     });
 
     expect(sourceCalls.getRequestLogByIdArgs).toEqual(["call-selected"]);
-    expect(sourceCalls.getPreviousNonCompactionCallCreatedAtArgs).toEqual([
-      { conversationId: "conv-1", beforeCreatedAt: 5000 },
+    expect(sourceCalls.getTurnTimeBoundsArgs).toEqual([
+      { conversationId: "conv-1", messageCreatedAt: 5000 },
     ]);
+    // 1ms-shift around the exclusive `(>, <)` predicate so rows that
+    // land on the bounds themselves come back.
     expect(sourceCalls.getCompactionLogsBetweenArgs).toEqual([
-      { conversationId: "conv-1", afterCreatedAt: 2000, beforeCreatedAt: 5000 },
+      { conversationId: "conv-1", afterCreatedAt: 1999, beforeCreatedAt: 9001 },
     ]);
   });
 
-  test("passes a null floor when the selected call is the first real call in the conversation", async () => {
+  test("scopes the trail to the whole turn — compactions after the selected call are in scope", async () => {
+    // Selecting an early call in a turn that contains compactions
+    // *after* the selected call must still surface those later events.
+    // This is the core promise of turn-scoping: position within the
+    // turn is irrelevant.
     state.conversation = { id: "conv-1" };
     state.selectedCall = fakeLogRow({
-      id: "call-first",
+      id: "call-early",
       conversationId: "conv-1",
-      createdAt: 5000,
+      createdAt: 2500,
     });
-    state.previousNonCompactionCallCreatedAt = null;
+    state.turnBounds = { startTime: 2000, endTime: 9000 };
     state.compactionLogs = [];
 
     await handler({
       pathParams: { id: "conv-1" },
-      queryParams: { callId: "call-first" },
+      queryParams: { callId: "call-early" },
+    });
+
+    // Ceiling is the *turn end*, not the selected call's createdAt.
+    expect(sourceCalls.getCompactionLogsBetweenArgs).toEqual([
+      { conversationId: "conv-1", afterCreatedAt: 1999, beforeCreatedAt: 9001 },
+    ]);
+  });
+
+  test("falls back to a null floor + selectedCall.createdAt ceiling when getTurnTimeBounds returns null", async () => {
+    // The only-message-in-conversation edge case. Preserves the
+    // pre-turn-scoping behavior for this degenerate input.
+    state.conversation = { id: "conv-1" };
+    state.selectedCall = fakeLogRow({
+      id: "call-solo",
+      conversationId: "conv-1",
+      createdAt: 5000,
+    });
+    state.turnBounds = null;
+    state.compactionLogs = [];
+
+    await handler({
+      pathParams: { id: "conv-1" },
+      queryParams: { callId: "call-solo" },
     });
 
     expect(sourceCalls.getCompactionLogsBetweenArgs).toEqual([
@@ -266,7 +296,7 @@ describe("handleGetCompactionTrail — happy path", () => {
       conversationId: "conv-1",
       createdAt: 5000,
     });
-    state.previousNonCompactionCallCreatedAt = 2000;
+    state.turnBounds = { startTime: 2000, endTime: 9000 };
     state.compactionLogs = [];
 
     const result = await handler({
@@ -283,7 +313,7 @@ describe("handleGetCompactionTrail — happy path", () => {
       conversationId: "conv-1",
       createdAt: 9000,
     });
-    state.previousNonCompactionCallCreatedAt = 500;
+    state.turnBounds = { startTime: 500, endTime: 10_000 };
     state.compactionLogs = [
       fakeLogRow({
         id: "compaction-1",
@@ -307,7 +337,7 @@ describe("handleGetCompactionTrail — happy path", () => {
     // Field-set check on the first event — values are validated by the
     // projection tests below; here we just confirm the route emits the
     // full wire shape.
-    expect(Object.keys((result.events[0] as object)).sort()).toEqual([
+    expect(Object.keys(result.events[0] as object).sort()).toEqual([
       "createdAt",
       "durationMs",
       "estimatedCostUsd",

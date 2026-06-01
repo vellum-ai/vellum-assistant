@@ -20,7 +20,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import {
   DEFAULT_COMPACTION_PLUGIN_NAME,
   defaultCompactionTerminal,
-} from "../plugins/defaults/compaction.js";
+} from "../plugins/defaults/compaction/terminal.js";
 import { runPipeline } from "../plugins/pipeline.js";
 import {
   type CompactionArgs,

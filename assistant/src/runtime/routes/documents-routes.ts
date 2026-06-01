@@ -14,6 +14,7 @@ import {
 } from "../../documents/document-store.js";
 import { rawAll } from "../../memory/raw-query.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { renderMarkdownToPDF } from "./document-pdf-renderer.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
@@ -69,8 +70,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "listDocuments",
     endpoint: "documents",
     method: "GET",
-    policyKey: "documents",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List documents",
     description: "Return all documents, optionally filtered by conversation.",
     tags: ["documents"],
@@ -106,8 +109,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getDocument",
     endpoint: "documents/:id",
     method: "GET",
-    policyKey: "documents",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get a document",
     description: "Return a single document by surface ID.",
     tags: ["documents"],
@@ -134,8 +139,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "saveDocument",
     endpoint: "documents",
     method: "POST",
-    policyKey: "documents",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Save a document",
     description: "Create or upsert a document (by surfaceId).",
     tags: ["documents"],
@@ -195,8 +202,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "linkDocumentConversation",
     endpoint: "documents/:id/conversations",
     method: "POST",
-    policyKey: "documents",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Link a document to a conversation",
     description:
       "Associate a document with a conversation so the assistant sees it as context.",
@@ -227,8 +236,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "exportDocumentPDF",
     endpoint: "documents/:id/pdf",
     method: "GET",
-    policyKey: "documents",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Export a document as PDF",
     description: "Render a document to PDF and return the binary content.",
     tags: ["documents"],

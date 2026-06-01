@@ -1,7 +1,7 @@
 import { lazy } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
-import type { SubagentEntry } from "@/domains/subagents/subagent-store";
+import type { SubagentEntry } from "@/domains/chat/subagent-store";
 
 const SubagentDetailPanel = lazy(() =>
   import("@/domains/chat/components/subagent-detail-panel").then((m) => ({
@@ -23,13 +23,8 @@ interface MobileSubagentDetailOverlayProps {
 /**
  * Mobile-only full-screen overlay that hosts the subagent detail panel.
  *
- * **Mounting constraint**: must render outside `RootLayout`'s inner
- * transformed wrapper (see `src/root-layout.tsx`) so
- * `position: fixed` anchors to the viewport's initial containing block
- * rather than the keyboard-following transform `RootLayout` applies when
- * the soft keyboard opens.
- *
- * https://www.w3.org/TR/css-transforms-1/#transform-rendering
+ * **Mounting constraint**: must render inside `RootLayout`'s
+ * `#viewport-overlays` portal, outside the main content wrapper.
  */
 export function MobileSubagentDetailOverlay({
   entry,

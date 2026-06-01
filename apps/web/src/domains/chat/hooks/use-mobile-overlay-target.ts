@@ -5,8 +5,8 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 /**
  * Resolves the mobile overlay portal target after DOM commit so chat-side
  * full-screen overlays (`MobileDocumentOverlay`, `MobileSubagentDetailOverlay`,
- * `MobileAppOverlay`) can be portaled outside `RootLayout`'s transformed
- * wrapper.
+ * `MobileAppOverlay`) can be portaled into `RootLayout`'s `#viewport-overlays`
+ * container, outside the main content wrapper.
  *
  * Why the `useEffect` instead of resolving the element during render:
  * `document.getElementById("viewport-overlays")` is a DOM read that needs

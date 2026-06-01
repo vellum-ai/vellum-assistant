@@ -383,6 +383,9 @@ struct AssistantTransferSection: View {
     private func bootstrapActorToken(localAssistantId: String) async throws -> String {
         let deviceId = HostIdComputer.computeHostId()
         let body: [String: String] = ["platform": "macos", "deviceId": deviceId]
+        let secret = LockfileAssistant.loadByName(localAssistantId)?.guardianBootstrapSecret
+        var extraHeaders: [String: String] = [:]
+        if let secret { extraHeaders["x-bootstrap-secret"] = secret }
 
         return try await GatewayHTTPClient.withAssistant(localAssistantId) {
             var delay: UInt64 = 2_000_000_000
@@ -392,6 +395,7 @@ struct AssistantTransferSection: View {
                 if let response = try? await GatewayHTTPClient.post(
                     path: "guardian/init",
                     json: body,
+                    extraHeaders: extraHeaders,
                     timeout: 15
                 ), response.isSuccess,
                    let json = try? JSONSerialization.jsonObject(with: response.data) as? [String: Any],

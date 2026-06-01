@@ -13,7 +13,8 @@ import type { CharacterComponents, CharacterTraits } from "@/types/avatar";
 import { fetchSkills, installSkill, uninstallSkill } from "@/domains/intelligence/skills/api";
 import type { SkillInfo } from "@/domains/intelligence/skills/types";
 import { getAssistant } from "@/assistant/api";
-import { type AssistantIdentity, fetchAssistantIdentity } from "@/assistant/identity";
+import { fetchAssistantIdentity } from "@/assistant/identity";
+import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
 
 export interface IdentityCardProps {
   assistantName: string;
@@ -178,7 +179,7 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
     isLoading: isAvatarLoading,
     invalidate: invalidateAvatar,
   } = useAssistantAvatar(assistantId);
-  const [identity, setIdentity] = useState<AssistantIdentity | null>(null);
+  const [identity, setIdentity] = useState<IdentityGetResponse | null>(null);
   const [assistantCreatedAt, setAssistantCreatedAt] = useState<string | null>(null);
   const [loadedAssistantId, setLoadedAssistantId] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);

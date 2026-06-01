@@ -1,10 +1,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { DiskPressureStatus } from "@vellumai/assistant-api";
+
 import {
   acknowledgeAssistantDiskPressure,
   getAssistantDiskPressureStatus,
-  type DiskPressureStatus,
 } from "@/assistant/api";
 import {
   DISK_PRESSURE_POLL_INTERVAL_MS,
@@ -12,6 +13,7 @@ import {
   getDiskPressureMonitorMode,
   type DiskPressureMonitorMode,
 } from "@/assistant/disk-pressure";
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useEventBusStore } from "@/stores/event-bus-store";
 
 export interface UseDiskPressureMonitorOptions {
@@ -203,6 +205,16 @@ export function useDiskPressureMonitor({
     },
     [assistantId, applyStatusForAssistant, clearStatus, enabled],
   );
+
+  // React to daemon-pushed disk pressure events via the event bus.
+  // Complements the polling interval and resume-refresh above so
+  // status changes are reflected immediately without waiting for
+  // the next poll tick.
+  useBusSubscription("sse.event", (envelope) => {
+    const event = envelope.message;
+    if (event.type !== "disk_pressure_status_changed") return;
+    applyStatusEvent(event.status);
+  });
 
   const acknowledge = useCallback(async () => {
     const requestedAssistantId = assistantId;

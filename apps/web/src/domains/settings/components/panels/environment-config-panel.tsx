@@ -1,7 +1,7 @@
 import { Tag } from "@vellum/design-library/components/tag";
 import { Toggle } from "@vellum/design-library/components/toggle";
 import { DetailCard } from "@/components/detail-card";
-import { useEnvironmentStore } from "@/lib/environment/environment-store";
+import { useEnvironmentStore } from "@/stores/environment-store";
 
 export function EnvironmentConfigPanel() {
   const emailRootDomain = useEnvironmentStore.use.emailRootDomain();

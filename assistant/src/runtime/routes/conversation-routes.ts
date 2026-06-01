@@ -18,6 +18,7 @@ import {
   parseInterfaceId,
   supportsHostProxy,
 } from "../../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getConfig } from "../../config/loader.js";
 import {
@@ -26,6 +27,7 @@ import {
 } from "../../conversations/message-consolidation.js";
 import { createApprovalConversationGenerator } from "../../daemon/approval-generators.js";
 import type { Conversation } from "../../daemon/conversation.js";
+import { persistQueuedMessageBody } from "../../daemon/conversation-messaging.js";
 import {
   buildModelInfoEvent,
   formatCleanResult,
@@ -40,6 +42,7 @@ import { getOrCreateConversation as getOrCreateConversationInstance } from "../.
 import { canonicalizeTimeZone } from "../../daemon/date-context.js";
 import {
   buildScanFirstMessage,
+  buildSelfIntroMessage,
   getCannedFirstGreeting,
   isWakeUpGreeting,
 } from "../../daemon/first-greeting.js";
@@ -75,6 +78,7 @@ import {
 } from "../../memory/canonical-guardian-store.js";
 import {
   addMessage,
+  extractImageSourcePaths,
   getConversation,
   getMessages,
   getMessagesPaginated,
@@ -82,8 +86,6 @@ import {
   type MessageRow,
   provenanceFromTrustContext,
   setConversationInferenceProfile,
-  setConversationOriginChannelIfUnset,
-  setConversationOriginInterfaceIfUnset,
 } from "../../memory/conversation-crud.js";
 import {
   getConversationByKey,
@@ -107,6 +109,7 @@ import { getWorkspacePromptPath } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { routeGuardianReply } from "../guardian-reply-router.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import type {
@@ -139,6 +142,9 @@ const log = getLogger("conversation-routes");
 /** Matches the `<no_response/>` sentinel used by channel delivery suppression. */
 const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/g;
 const ATTACHMENT_ENTRY_RE = /^attachment:(\d+)$/;
+
+/** Feature flag gating the self-intro first message (see first-greeting.ts). */
+const SELF_INTRO_GREETING_FLAG = "self-intro-greeting" as const;
 
 const SUGGESTION_CACHE_MAX = 100;
 const VALID_RISK_THRESHOLDS = ["none", "low", "medium", "high"] as const;
@@ -395,23 +401,10 @@ async function tryConsumeCanonicalGuardianReply(params: {
   // is not re-processed as a new user turn.
   let messageId: string | undefined;
   try {
-    const guardianImageSourcePaths: Record<string, string> = {};
-    for (let i = 0; i < attachments.length; i++) {
-      const a = attachments[i];
-      if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
-        guardianImageSourcePaths[`${i}:${a.filename}`] = a.filePath;
-      }
-    }
-    const channelMeta = {
-      userMessageChannel: sourceChannel,
-      assistantMessageChannel: sourceChannel,
-      userMessageInterface: sourceInterface,
-      assistantMessageInterface: sourceInterface,
-      provenanceTrustClass: "guardian" as const,
-      ...(Object.keys(guardianImageSourcePaths).length > 0
-        ? { imageSourcePaths: guardianImageSourcePaths }
-        : {}),
-    };
+    const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
+      provenanceOverride: { provenanceTrustClass: "guardian" },
+      attachments,
+    });
 
     const cleanUserMessage = createUserMessage(content, attachments);
     const llmUserMessage = enrichMessageWithSourcePaths(
@@ -422,7 +415,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       conversationId,
       "user",
       JSON.stringify(cleanUserMessage.content),
-      channelMeta,
+      { metadata: channelMeta },
     );
     messageId = persistedUser.id;
 
@@ -436,7 +429,7 @@ async function tryConsumeCanonicalGuardianReply(params: {
       conversationId,
       "assistant",
       JSON.stringify(assistantMessage.content),
-      channelMeta,
+      { metadata: channelMeta },
     );
 
     // Avoid mutating in-memory history / emitting stream deltas while a run is active.
@@ -713,6 +706,7 @@ export function handleListMessages({
   });
 
   const messages: RuntimeMessagePayload[] = parsed.map((m) => {
+    const mergedMessageIds = m.id ? (mergedIdMap.get(m.id) ?? []) : [];
     let msgAttachments: RuntimeAttachmentMetadata[] = [];
     if (m.id) {
       // Use metadata-only query first to avoid loading large base64
@@ -846,6 +840,7 @@ export function handleListMessages({
     const displayTimestamp = m.sentAt ?? m.timestamp;
     return {
       id: m.id ?? "",
+      ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
       role: m.role,
       content: m.text,
       timestamp: new Date(displayTimestamp).toISOString(),
@@ -1405,6 +1400,15 @@ export async function handleSendMessage(
     conversation.getMessages().length,
   );
   const isScanPath = !!scanUrl && isWakeUp;
+  // Self-intro path: when we know a name, send a natural introduction on the
+  // user's behalf instead of the canned greeting, so the assistant generates a
+  // real first response. Gated behind the `self-intro-greeting` flag (default
+  // off); `undefined` (flag off or no names) falls back to the canned path.
+  const selfIntro =
+    isWakeUp &&
+    isAssistantFeatureFlagEnabled(SELF_INTRO_GREETING_FLAG, getConfig())
+      ? buildSelfIntroMessage(body.onboarding ?? undefined)
+      : undefined;
 
   let effectiveContent: string | undefined;
   if (isScanPath) {
@@ -1415,51 +1419,44 @@ export async function handleSendMessage(
     // Fall through to normal inference path below
   } else if (isWakeUp && body.onboarding?.initialMessage) {
     effectiveContent = body.onboarding.initialMessage;
+  } else if (isWakeUp && selfIntro) {
+    // Rewrite to the self-introduction and fall through to real inference
+    // (mirrors the scan path above).
+    effectiveContent = selfIntro;
   } else if (isWakeUp) {
     const cannedGreeting = getCannedFirstGreeting(body.onboarding ?? undefined);
 
     conversation.processing = true;
     let cleanupDeferred = false;
     try {
-      const provenance = provenanceFromTrustContext(conversation.trustContext);
-      const channelMeta = {
-        ...provenance,
+      const rawContent = content ?? "";
+      const attachments = hasAttachments
+        ? smDeps.resolveAttachments(attachmentIds)
+        : [];
+      const greetingMeta = {
         userMessageChannel: sourceChannel,
         assistantMessageChannel: sourceChannel,
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
       };
-
-      const rawContent = content ?? "";
-      const attachments = hasAttachments
-        ? smDeps.resolveAttachments(attachmentIds)
-        : [];
-      const userMsg = createUserMessage(rawContent, attachments);
-      const persisted = await addMessage(
-        mapping.conversationId,
-        "user",
-        JSON.stringify(userMsg.content),
-        channelMeta,
-      );
-      conversation.getMessages().push(userMsg);
-
-      setConversationOriginChannelIfUnset(
-        mapping.conversationId,
-        sourceChannel,
-      );
-      setConversationOriginInterfaceIfUnset(
-        mapping.conversationId,
-        sourceInterface,
-      );
+      const persisted = await persistQueuedMessageBody(conversation, {
+        content: rawContent,
+        attachments,
+        requestId: crypto.randomUUID(),
+        metadata: greetingMeta,
+      });
 
       const conversationId = mapping.conversationId;
+      const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
+        trustContext: conversation.trustContext,
+      });
 
       const assistantMsg = createAssistantMessage(cannedGreeting);
       const persistedAssistant = await addMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        channelMeta,
+        { metadata: channelMeta },
       );
       conversation.getMessages().push(assistantMsg);
 
@@ -1603,25 +1600,22 @@ export async function handleSendMessage(
   if (conversation.isProcessing()) {
     // Queue the message so it's processed when the current turn completes
     const requestId = crypto.randomUUID();
-    const enqueueResult = conversation.enqueueMessage(
-      contentAfterScan,
+    const enqueueResult = conversation.enqueueMessage({
+      content: contentAfterScan,
       attachments,
-      broadcastMessage,
+      onEvent: broadcastMessage,
       requestId,
-      undefined, // activeSurfaceId
-      undefined, // currentPage
-      {
+      metadata: {
         userMessageChannel: sourceChannel,
         assistantMessageChannel: sourceChannel,
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
         ...(body.automated === true ? { automated: true } : {}),
       },
-      { isInteractive },
-      undefined, // displayContent
+      isInteractive,
       transport,
       clientMessageId,
-    );
+    });
     if (enqueueResult.rejected) {
       return new RouteResponse(
         JSON.stringify({ accepted: false, error: "queue_full" }),
@@ -1741,52 +1735,39 @@ export async function handleSendMessage(
     conversation.processing = true;
     let cleanupDeferred = false;
     try {
-      const provenance = provenanceFromTrustContext(conversation.trustContext);
-      const imageSourcePaths: Record<string, string> = {};
-      for (let i = 0; i < attachments.length; i++) {
-        const a = attachments[i];
-        if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
-          imageSourcePaths[`${i}:${a.filename}`] = a.filePath;
-        }
-      }
-      const channelMeta = {
-        ...provenance,
+      const slashMeta = {
         userMessageChannel: sourceChannel,
         assistantMessageChannel: sourceChannel,
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
         ...(body.automated === true ? { automated: true } : {}),
-        ...(Object.keys(imageSourcePaths).length > 0
-          ? { imageSourcePaths }
-          : {}),
       };
-      const cleanMsg = createUserMessage(rawContent, attachments);
-      const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
-      const persisted = await addMessage(
-        mapping.conversationId,
-        "user",
-        JSON.stringify(cleanMsg.content),
-        channelMeta,
-      );
-      conversation.getMessages().push(llmMsg);
+      const persisted = await persistQueuedMessageBody(conversation, {
+        content: rawContent,
+        attachments,
+        requestId: crypto.randomUUID(),
+        metadata: slashMeta,
+        clientMessageId,
+      });
+      if (persisted.deduplicated) {
+        return {
+          accepted: true,
+          messageId: persisted.id,
+          conversationId: mapping.conversationId,
+        };
+      }
 
+      const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
+        trustContext: conversation.trustContext,
+      });
       const assistantMsg = createAssistantMessage(slashResult.message);
       const persistedAssistant = await addMessage(
         mapping.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        channelMeta,
+        { metadata: channelMeta },
       );
       conversation.getMessages().push(assistantMsg);
-
-      setConversationOriginChannelIfUnset(
-        mapping.conversationId,
-        sourceChannel,
-      );
-      setConversationOriginInterfaceIfUnset(
-        mapping.conversationId,
-        sourceInterface,
-      );
 
       // Snapshot model info now so the deferred callback cannot observe
       // a config change from a concurrent request.
@@ -1850,23 +1831,21 @@ export async function handleSendMessage(
 
   if (slashResult.kind === "compact") {
     conversation.processing = true;
-    const provenance = provenanceFromTrustContext(conversation.trustContext);
-    const channelMeta = {
-      ...provenance,
+    const slashMeta = {
       userMessageChannel: sourceChannel,
       assistantMessageChannel: sourceChannel,
       userMessageInterface: sourceInterface,
       assistantMessageInterface: sourceInterface,
     };
-    const cleanMsg = createUserMessage(rawContent, attachments);
-    let persisted: Awaited<ReturnType<typeof addMessage>>;
+    let persisted: Awaited<ReturnType<typeof persistQueuedMessageBody>>;
     try {
-      persisted = await addMessage(
-        mapping.conversationId,
-        "user",
-        JSON.stringify(cleanMsg.content),
-        channelMeta,
-      );
+      persisted = await persistQueuedMessageBody(conversation, {
+        content: rawContent,
+        attachments,
+        requestId: crypto.randomUUID(),
+        metadata: slashMeta,
+        clientMessageId,
+      });
     } catch (err) {
       // The fire-and-forget compaction below owns clearing `processing`, but a
       // throw from this initial persist never reaches it — reset here so the
@@ -1875,9 +1854,20 @@ export async function handleSendMessage(
       silentlyWithLog(conversation.drainQueue(), "compact-command queue drain");
       throw err;
     }
-    conversation.getMessages().push(cleanMsg);
+    if (persisted.deduplicated) {
+      conversation.processing = false;
+      silentlyWithLog(conversation.drainQueue(), "compact-dedup queue drain");
+      return {
+        accepted: true,
+        messageId: persisted.id,
+        conversationId: mapping.conversationId,
+      };
+    }
 
     const conversationId = mapping.conversationId;
+    const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
+      trustContext: conversation.trustContext,
+    });
 
     // Fire-and-forget: return 202 immediately, run compaction async.
     // forceCompact() makes an LLM call that can exceed the client's
@@ -1908,7 +1898,7 @@ export async function handleSendMessage(
           conversationId,
           "assistant",
           JSON.stringify(assistantMsg.content),
-          channelMeta,
+          { metadata: channelMeta },
         );
         assistantMessagePersisted = true;
         conversation.getMessages().push(assistantMsg);
@@ -1960,23 +1950,30 @@ export async function handleSendMessage(
     // initial user-message persist below, which would otherwise leave the
     // conversation stuck in queued mode indefinitely.
     try {
-      const provenance = provenanceFromTrustContext(conversation.trustContext);
-      const channelMeta = {
-        ...provenance,
+      const slashMeta = {
         userMessageChannel: sourceChannel,
         assistantMessageChannel: sourceChannel,
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
       };
-      const cleanMsg = createUserMessage(rawContent, attachments);
-      const persisted = await addMessage(
-        mapping.conversationId,
-        "user",
-        JSON.stringify(cleanMsg.content),
-        channelMeta,
-      );
-      conversation.getMessages().push(cleanMsg);
+      const persisted = await persistQueuedMessageBody(conversation, {
+        content: rawContent,
+        attachments,
+        requestId: crypto.randomUUID(),
+        metadata: slashMeta,
+        clientMessageId,
+      });
+      if (persisted.deduplicated) {
+        return {
+          accepted: true,
+          messageId: persisted.id,
+          conversationId,
+        };
+      }
 
+      const channelMeta = buildChannelMetadata(sourceChannel, sourceInterface, {
+        trustContext: conversation.trustContext,
+      });
       let assistantMessagePersisted = false;
       try {
         broadcastMessage({
@@ -1996,7 +1993,7 @@ export async function handleSendMessage(
           conversationId,
           "assistant",
           JSON.stringify(assistantMsg.content),
-          channelMeta,
+          { metadata: channelMeta },
         );
         assistantMessagePersisted = true;
         conversation.getMessages().push(assistantMsg);
@@ -2040,16 +2037,22 @@ export async function handleSendMessage(
   const resolvedContent = slashResult.content;
 
   const requestId = crypto.randomUUID();
-  let messageId: string;
-  try {
-    messageId = await conversation.persistUserMessage(
-      resolvedContent,
-      attachments,
-      requestId,
-      body.automated === true ? { automated: true } : undefined,
-    );
-  } catch (err) {
-    throw err;
+  const persistResult = await conversation.persistUserMessage({
+    content: resolvedContent,
+    attachments,
+    requestId,
+    metadata: body.automated === true ? { automated: true } : undefined,
+    clientMessageId,
+  });
+
+  const messageId = persistResult.id;
+
+  if (persistResult.deduplicated) {
+    return {
+      accepted: true,
+      messageId,
+      conversationId: mapping.conversationId,
+    };
   }
 
   broadcastMessage({
@@ -2142,9 +2145,10 @@ async function generateLlmSuggestion(
   // tokens here would be wasteful.
   const response = await provider.sendMessage(
     [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
-    [], // no tools
-    systemPrompt,
     {
+      tools: [],
+      // no tools
+      systemPrompt,
       config: {
         callSite: "replySuggestion",
         max_tokens: 60,
@@ -2366,6 +2370,47 @@ function handleSearchConversations({
 }
 
 // ---------------------------------------------------------------------------
+// Metadata helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Assemble the standard channel metadata object for message persistence.
+ *
+ * Combines provenance (trust context), channel/interface routing, and
+ * optional per-message fields (automated flag, image source paths) into the
+ * Record that `addMessage` stores in the `metadata` column.
+ */
+function buildChannelMetadata(
+  sourceChannel: string,
+  sourceInterface: string,
+  opts?: {
+    trustContext?: Parameters<typeof provenanceFromTrustContext>[0];
+    provenanceOverride?: Record<string, unknown>;
+    automated?: boolean;
+    attachments?: ReadonlyArray<{
+      filename: string;
+      mimeType: string;
+      filePath?: string;
+    }>;
+  },
+): Record<string, unknown> {
+  const provenance =
+    opts?.provenanceOverride ?? provenanceFromTrustContext(opts?.trustContext);
+  const imageSourcePaths = opts?.attachments
+    ? extractImageSourcePaths(opts.attachments)
+    : undefined;
+  return {
+    ...provenance,
+    userMessageChannel: sourceChannel,
+    assistantMessageChannel: sourceChannel,
+    userMessageInterface: sourceInterface,
+    assistantMessageInterface: sourceInterface,
+    ...(opts?.automated ? { automated: true } : {}),
+    ...(imageSourcePaths ? { imageSourcePaths } : {}),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Module-level state
 // ---------------------------------------------------------------------------
 
@@ -2395,6 +2440,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "messages_get",
     endpoint: "messages",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List messages",
     description:
       "Return messages for a conversation, including attachments and interface file metadata.",
@@ -2424,6 +2473,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "messages_post",
     endpoint: "messages",
     method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Send a message",
     description:
       "Send a user message to a conversation and trigger the assistant response.",
@@ -2456,6 +2509,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "search_get",
     endpoint: "search",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Search conversations",
     description: "Full-text search across all conversations.",
     tags: ["conversations"],
@@ -2469,6 +2526,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "suggestion_get",
     endpoint: "suggestion",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get reply suggestion",
     description:
       "Return an LLM-generated follow-up suggestion for the most recent assistant message.",

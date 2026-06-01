@@ -17,6 +17,7 @@
 
 import type { AgentLoopConfig, ResolvedSystemPrompt } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
+import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
 import type {
   InterfaceId,
   TurnChannelContext,
@@ -74,6 +75,7 @@ import type { OnboardingContext } from "../types/onboarding-context.js";
 import type { AbortReason } from "../util/abort-reasons.js";
 import { getLogger } from "../util/logger.js";
 import type { AssistantAttachmentDraft } from "./assistant-attachments.js";
+import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   applyCompactionResult,
   runAgentLoopImpl,
@@ -86,7 +88,11 @@ import {
   disposeConversation,
   loadFromDb as loadFromDbImpl,
 } from "./conversation-lifecycle.js";
-import type { RedirectToSecurePromptOptions } from "./conversation-messaging.js";
+import type {
+  EnqueueMessageOptions,
+  PersistMessageOptions,
+  RedirectToSecurePromptOptions,
+} from "./conversation-messaging.js";
 import {
   enqueueMessage as enqueueMessageImpl,
   persistUserMessage as persistUserMessageImpl,
@@ -94,7 +100,10 @@ import {
 } from "./conversation-messaging.js";
 // Extracted modules
 import { registerConversationNotifiers } from "./conversation-notifiers.js";
-import type { ProcessConversationContext } from "./conversation-process.js";
+import type {
+  ProcessConversationContext,
+  ProcessMessageOptions,
+} from "./conversation-process.js";
 import {
   drainQueue as drainQueueImpl,
   processMessage as processMessageImpl,
@@ -131,14 +140,10 @@ import type {
   SurfaceData,
   SurfaceType,
   UsageStats,
-  UserMessageAttachment,
 } from "./message-protocol.js";
 import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import { isHostProxyTransport } from "./message-types/conversations.js";
-import type {
-  AssistantActivityState,
-  ConfirmationStateChanged,
-} from "./message-types/messages.js";
+import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
@@ -321,15 +326,7 @@ export class Conversation {
     ReturnType<typeof setTimeout>
   >();
   /** @internal */ withSurface = createSurfaceMutex();
-  /** @internal */ currentTurnSurfaces: Array<{
-    surfaceId: string;
-    surfaceType: SurfaceType;
-    title?: string;
-    data: SurfaceData;
-    actions?: Array<{ id: string; label: string; style?: string }>;
-    display?: string;
-    persistent?: boolean;
-  }> = [];
+  /** @internal */ currentTurnSurfaces: AssistantSurface[] = [];
   /** @internal */ workspaceTopLevelContext: string | null = null;
   /** @internal */ workspaceTopLevelDirty = true;
   /**
@@ -590,7 +587,9 @@ export class Conversation {
     };
 
     provider
-      .sendMessage([warmMessage], tools, systemPrompt, {
+      .sendMessage([warmMessage], {
+        tools,
+        systemPrompt,
         config: {
           max_tokens: 1,
           callSite: "mainAgent",
@@ -823,33 +822,15 @@ export class Conversation {
     );
   }
 
-  enqueueMessage(
-    content: string,
-    attachments: UserMessageAttachment[],
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
-    activeSurfaceId?: string,
-    currentPage?: string,
-    metadata?: Record<string, unknown>,
-    options?: { isInteractive?: boolean },
-    displayContent?: string,
-    transport?: ConversationTransportMetadata,
-    clientMessageId?: string,
-  ): { queued: boolean; requestId: string; rejected?: boolean } {
-    return enqueueMessageImpl(
-      this,
-      content,
-      attachments,
-      onEvent ?? this.sendToClient,
-      requestId ?? crypto.randomUUID(),
-      activeSurfaceId,
-      currentPage,
-      metadata,
-      options,
-      displayContent,
-      transport,
-      clientMessageId,
-    );
+  enqueueMessage(options: EnqueueMessageOptions): {
+    queued: boolean;
+    requestId: string;
+    rejected?: boolean;
+  } {
+    return enqueueMessageImpl(this, {
+      ...options,
+      onEvent: options.onEvent ?? this.sendToClient,
+    });
   }
 
   getQueueDepth(): number {
@@ -1022,9 +1003,9 @@ export class Conversation {
   }
 
   emitActivityState(
-    phase: AssistantActivityState["phase"],
-    reason: AssistantActivityState["reason"],
-    anchor: AssistantActivityState["anchor"] = "assistant_turn",
+    phase: AssistantActivityStateEvent["phase"],
+    reason: AssistantActivityStateEvent["reason"],
+    anchor: AssistantActivityStateEvent["anchor"] = "assistant_turn",
     requestId?: string,
     statusText?: string,
   ): void {
@@ -1278,23 +1259,12 @@ export class Conversation {
   }
 
   async persistUserMessage(
-    content: string,
-    attachments: UserMessageAttachment[],
-    requestId?: string,
-    metadata?: Record<string, unknown>,
-    displayContent?: string,
-  ): Promise<string> {
+    options: PersistMessageOptions,
+  ): Promise<{ id: string; deduplicated: boolean }> {
     if (!this.processing) {
       await this.ensureActorScopedHistory();
     }
-    return persistUserMessageImpl(
-      this,
-      content,
-      attachments,
-      requestId,
-      metadata,
-      displayContent,
-    );
+    return persistUserMessageImpl(this, options);
   }
 
   // ── Agent Loop ───────────────────────────────────────────────────
@@ -1332,29 +1302,13 @@ export class Conversation {
     return drainQueueImpl(this as ProcessConversationContext, reason);
   }
 
-  async processMessage(
-    content: string,
-    attachments: UserMessageAttachment[],
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
-    activeSurfaceId?: string,
-    currentPage?: string,
-    options?: { isInteractive?: boolean; callSite?: LLMCallSite },
-    displayContent?: string,
-  ): Promise<string> {
+  async processMessage(options: ProcessMessageOptions): Promise<string> {
     this.cacheWarmAbort?.abort();
     this.cacheWarmAbort = undefined;
-    return processMessageImpl(
-      this as ProcessConversationContext,
-      content,
-      attachments,
-      onEvent ?? this.sendToClient,
-      requestId,
-      activeSurfaceId,
-      currentPage,
-      options,
-      displayContent,
-    );
+    return processMessageImpl(this as ProcessConversationContext, {
+      ...options,
+      onEvent: options.onEvent ?? this.sendToClient,
+    });
   }
 
   // ── History ──────────────────────────────────────────────────────

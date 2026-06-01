@@ -26,6 +26,7 @@ import {
   type SyncChangedEvent,
 } from "@/lib/sync/types";
 import { getClientId } from "@/lib/telemetry/client-identity";
+import { useConversationStore } from "@/stores/conversation-store";
 
 const OTHER_CLIENT_ID = "22222222-2222-2222-2222-222222222222";
 
@@ -34,9 +35,9 @@ interface HarnessOptions {
 }
 
 function createHarness(opts: HarnessOptions = {}) {
-  const activeConversationIdRef = {
-    current: opts.activeConversationId ?? null,
-  };
+  useConversationStore.setState({
+    activeConversationId: opts.activeConversationId ?? null,
+  });
   const calls = {
     invalidateAvatar: 0,
     refreshAssistantIdentity: 0,
@@ -47,7 +48,6 @@ function createHarness(opts: HarnessOptions = {}) {
     refreshActiveConversationMessages: 0,
   };
   const router = createWebSyncRouter({
-    activeConversationIdRef,
     invalidateAvatar: () => {
       calls.invalidateAvatar += 1;
     },
@@ -71,7 +71,7 @@ function createHarness(opts: HarnessOptions = {}) {
       return { changed: false, messagesAdded: 0, assistantProgress: false };
     },
   });
-  return { router, calls, activeConversationIdRef };
+  return { router, calls };
 }
 
 describe("createWebSyncRouter — self-echo drop", () => {
@@ -125,6 +125,22 @@ describe("createWebSyncRouter — self-echo drop", () => {
 
     expect(result.handledTags).toEqual([SYNC_TAGS.conversationsList]);
     expect(calls.scheduleConversationListRefetch).toBe(1);
+  });
+
+  test("metadata-only conversation tags do not refetch the full conversation list", async () => {
+    const { router, calls } = createHarness();
+    const tag = conversationMetadataSyncTag("conv-123");
+    const event: SyncChangedEvent = {
+      type: "sync_changed",
+      tags: [tag],
+    };
+
+    const result = await router.dispatchSyncChanged(event);
+
+    expect(result.handledTags).toEqual([tag]);
+    expect(result.unknownTags).toEqual([]);
+    expect(calls.scheduleConversationListRefetch).toBe(0);
+    expect(calls.refreshActiveConversationMessages).toBe(0);
   });
 
   test("does not drop when originClientId is empty string", async () => {

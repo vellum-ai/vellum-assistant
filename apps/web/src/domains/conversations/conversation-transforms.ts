@@ -107,6 +107,7 @@ export function toConversation(raw: RawConversationSummary): Conversation {
     displayOrder: asNumber(raw.displayOrder),
     channelBinding: mapChannelBinding(raw.channelBinding),
     originChannel,
+    isProcessing: raw.isProcessing,
   };
 }
 

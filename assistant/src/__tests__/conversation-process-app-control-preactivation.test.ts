@@ -33,7 +33,10 @@ mock.module("../util/logger.js", () => ({
  * a connected macOS client for cross-client drain-path coverage. Reset in
  * afterEach so tests don't bleed state.
  */
-let mockCapabilityClients: Array<{ clientId: string; actorPrincipalId?: string }> = [];
+let mockCapabilityClients: Array<{
+  clientId: string;
+  actorPrincipalId?: string;
+}> = [];
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   assistantEventHub: {
@@ -78,7 +81,10 @@ mock.module("../agent/attachments.ts", () => ({
 // SQLite paths after the preactivation block has already run. The drain
 // chain doesn't recurse here because our stubbed `runAgentLoop` is a no-op.
 mock.module("../daemon/conversation-messaging.js", () => ({
-  persistQueuedMessageBody: async () => "user-msg-id",
+  persistQueuedMessageBody: async () => ({
+    id: "user-msg-id",
+    deduplicated: false,
+  }),
 }));
 
 // ---------------------------------------------------------------------------
@@ -136,7 +142,7 @@ function makeFakeContext(opts: {
     },
     async ensureActorScopedHistory() {},
     async persistUserMessage() {
-      return "user-msg-id";
+      return { id: "user-msg-id", deduplicated: false };
     },
     async runAgentLoop() {
       // No-op: the drain path's finally block would normally call drainQueue
@@ -313,7 +319,10 @@ describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
       assistantMessageInterface: "web",
     };
     queue.push(
-      makeQueuedMessage({ requestId: "req-web-1", turnInterfaceContext: ifCtx }),
+      makeQueuedMessage({
+        requestId: "req-web-1",
+        turnInterfaceContext: ifCtx,
+      }),
     );
     const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });
 
@@ -335,7 +344,10 @@ describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
       assistantMessageInterface: "web",
     };
     queue.push(
-      makeQueuedMessage({ requestId: "req-web-2", turnInterfaceContext: ifCtx }),
+      makeQueuedMessage({
+        requestId: "req-web-2",
+        turnInterfaceContext: ifCtx,
+      }),
     );
     const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });
 
@@ -355,7 +367,10 @@ describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
       assistantMessageInterface: "web",
     };
     queue.push(
-      makeQueuedMessage({ requestId: "req-web-3", turnInterfaceContext: ifCtx }),
+      makeQueuedMessage({
+        requestId: "req-web-3",
+        turnInterfaceContext: ifCtx,
+      }),
     );
     const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });
 
@@ -372,7 +387,10 @@ describe("drainQueue preactivation re-add for host-proxy interfaces", () => {
       assistantMessageInterface: "web",
     };
     queue.push(
-      makeQueuedMessage({ requestId: "req-web-4", turnInterfaceContext: ifCtx }),
+      makeQueuedMessage({
+        requestId: "req-web-4",
+        turnInterfaceContext: ifCtx,
+      }),
     );
     const ctx = makeFakeContext({ queue, turnInterfaceContext: ifCtx });
 

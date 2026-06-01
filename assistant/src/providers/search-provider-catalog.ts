@@ -42,8 +42,17 @@ export interface SearchProviderCatalogEntry {
    * privacy notices). Defaults to {@link displayName} when omitted.
    */
   readonly displayNameLong?: string;
-  /** Authentication style. `managed` providers are routed through the
-   *  inference provider; `byok` providers require a user-supplied key. */
+  /**
+   * Authentication style for the search provider choice.
+   *
+   * `managed` means the choice does not require a user-supplied search API key.
+   * For `inference-provider-native`, the daemon uses the inference API's native
+   * hosted web-search tool only when the selected inference provider/model
+   * supports it. Managed non-native inference providers keep the app-executed
+   * `web_search` tool, which can route through the platform search proxy.
+   *
+   * `byok` providers require a user-supplied key in Your Own mode.
+   */
   readonly kind: SearchProviderKind;
   /** Placeholder shown in the API-key input. BYOK providers only. */
   readonly apiKeyPrefix?: string;
@@ -99,19 +108,18 @@ export const SEARCH_PROVIDER_CATALOG: readonly SearchProviderCatalogEntry[] = [
 ];
 
 /** Provider ids accepted by the web-search config schema. */
-export const SEARCH_PROVIDER_IDS: readonly string[] = SEARCH_PROVIDER_CATALOG.map(
-  (p) => p.id,
-);
+export const SEARCH_PROVIDER_IDS: readonly string[] =
+  SEARCH_PROVIDER_CATALOG.map((p) => p.id);
 
 /** Catalog entries that store an API key under their bare provider name. */
 export const BYOK_SEARCH_PROVIDERS: readonly SearchProviderCatalogEntry[] =
   SEARCH_PROVIDER_CATALOG.filter((p) => p.kind === "byok");
 
 /** BYOK provider ids, ordered by `fallbackOrder` (ascending). */
-export const SEARCH_PROVIDER_FALLBACK_ORDER: readonly string[] = BYOK_SEARCH_PROVIDERS
-  .slice()
-  .sort((a, b) => (a.fallbackOrder ?? 0) - (b.fallbackOrder ?? 0))
-  .map((p) => p.id);
+export const SEARCH_PROVIDER_FALLBACK_ORDER: readonly string[] =
+  BYOK_SEARCH_PROVIDERS.slice()
+    .sort((a, b) => (a.fallbackOrder ?? 0) - (b.fallbackOrder ?? 0))
+    .map((p) => p.id);
 
 /** Look up a single catalog entry by id. Returns `undefined` if unknown. */
 export function getSearchProvider(

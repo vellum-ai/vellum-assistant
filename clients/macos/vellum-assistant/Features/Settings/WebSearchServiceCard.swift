@@ -10,6 +10,8 @@ import VellumAssistantShared
 /// - **Your Own**: Provider picker + API key. Provider Native is available whenever the
 ///   inference provider supports native web search (e.g. Anthropic, OpenAI), regardless of
 ///   inference mode. Perplexity, Brave, and Tavily are always available as key-based alternatives.
+///   In Managed mode, non-native inference providers can still use platform-backed app-executed
+///   web search, so the card does not rewrite Provider Native to a BYOK provider.
 @MainActor
 struct WebSearchServiceCard: View {
     @ObservedObject var store: SettingsStore
@@ -92,6 +94,12 @@ struct WebSearchServiceCard: View {
             : ["perplexity", "brave", "tavily"]
     }
 
+    private var shouldAutoFallbackProviderNative: Bool {
+        draftMode == "your-own"
+            && draftProvider == "inference-provider-native"
+            && !store.isNativeWebSearchCapable(store.selectedInferenceProvider, model: store.selectedModel)
+    }
+
     /// True when the user has made changes worth saving.
     private var hasChanges: Bool {
         if draftMode == "managed" {
@@ -99,8 +107,12 @@ struct WebSearchServiceCard: View {
             if !isLoggedIn {
                 return false
             }
-            // Managed + logged in: only mode change matters.
+            // Managed mode prefers provider-native search. If a previous
+            // Your Own selection left a BYOK provider stored, Save restores
+            // the native preference so OpenAI/Anthropic use hosted search and
+            // non-native providers fall back to managed Brave.
             return draftMode != store.webSearchMode
+                || store.webSearchProvider != "inference-provider-native"
         }
 
         // Your Own mode: detect mode, provider, and API key changes.
@@ -174,18 +186,21 @@ struct WebSearchServiceCard: View {
         .onChange(of: store.webSearchMode) { _, newValue in
             draftMode = newValue
         }
+        .onChange(of: draftMode) { _, newValue in
+            if newValue == "your-own" && shouldAutoFallbackProviderNative {
+                draftProvider = "perplexity"
+            }
+        }
         .onChange(of: store.webSearchProvider) { _, newValue in
             draftProvider = newValue
             initialProvider = newValue
         }
         .onChange(of: store.selectedInferenceProvider) { _, newProvider in
-            // Auto-correct when the inference provider changes to one that
-            // does not support native web search while provider-native is selected.
-            // Persist the fix so the daemon's services.web-search.provider does
-            // not remain pinned to "inference-provider-native" while the new
-            // provider can't support it — otherwise the custom web_search tool
-            // takes over and may route through an unintended key-based provider.
-            if draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(newProvider, model: store.selectedModel) {
+            // In Your Own mode, auto-correct when the inference provider changes
+            // to one that does not support native web search while provider-native
+            // is selected. In Managed mode, keep the provider selection stable:
+            // non-native providers use the platform-backed app-executed fallback.
+            if draftMode == "your-own" && draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(newProvider, model: store.selectedModel) {
                 draftProvider = "perplexity"
                 if store.webSearchProvider == "inference-provider-native" {
                     enqueueProviderWrite { _ = await store.setWebSearchProvider("perplexity").value }
@@ -194,10 +209,11 @@ struct WebSearchServiceCard: View {
             }
         }
         .onChange(of: store.selectedModel) { _, newModel in
-            // Auto-correct when the model changes to one that breaks native web search
-            // for the current provider (e.g. OpenRouter switching off an `anthropic/*` model).
-            // Persist the fix — see comment on selectedInferenceProvider above.
-            if draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(store.selectedInferenceProvider, model: newModel) {
+            // Auto-correct in Your Own mode when the model changes to one that
+            // breaks native web search for the current provider (e.g. OpenRouter
+            // switching off an `anthropic/*` model). Managed mode keeps the
+            // selection and uses the app-executed fallback instead.
+            if draftMode == "your-own" && draftProvider == "inference-provider-native" && !store.isNativeWebSearchCapable(store.selectedInferenceProvider, model: newModel) {
                 draftProvider = "perplexity"
                 if store.webSearchProvider == "inference-provider-native" {
                     enqueueProviderWrite { _ = await store.setWebSearchProvider("perplexity").value }
@@ -267,7 +283,12 @@ struct WebSearchServiceCard: View {
 
     private func save() {
         let modeChanged = draftMode != store.webSearchMode
-        let pendingMode = modeChanged ? store.setWebSearchMode(draftMode) : nil
+        let shouldRestoreManagedProvider =
+            draftMode == "managed" && store.webSearchProvider != "inference-provider-native"
+        let pendingMode =
+            (modeChanged || shouldRestoreManagedProvider)
+                ? store.setWebSearchMode(draftMode)
+                : nil
 
         // In your-own mode, persist provider and API keys.
         if draftMode == "your-own" {
@@ -282,6 +303,8 @@ struct WebSearchServiceCard: View {
             }
 
             saveSelectedProviderKeyIfNeeded()
+        } else {
+            draftProvider = "inference-provider-native"
         }
 
         // Update initial provider to reflect persisted state

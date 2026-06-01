@@ -1,11 +1,13 @@
 import { useMemo } from "react";
-import { useSearchParams } from "react-router";
+import { Navigate, useSearchParams } from "react-router";
 
 import { AssistantLifecyclePanel } from "@/domains/settings/components/panels/assistant-lifecycle-panel";
 import { EnvironmentConfigPanel } from "@/domains/settings/components/panels/environment-config-panel";
 import { FeatureFlagsPanel } from "@/domains/settings/components/panels/feature-flags-panel";
 import { SentryTestingPanel } from "@/domains/settings/components/panels/sentry-testing-panel";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { cn } from "@/utils/misc";
+import { routes } from "@/utils/routes";
 
 const ALL_TABS = [
   { id: "feature-flags", label: "Feature Flags" },
@@ -17,6 +19,12 @@ type DeveloperTabId = (typeof ALL_TABS)[number]["id"];
 
 export function DeveloperPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
+  const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
+
+  if (hasHydrated && !settingsDeveloperNav) {
+    return <Navigate replace to={routes.settings.general} />;
+  }
 
   const activeTab: DeveloperTabId = useMemo(() => {
     const tabParam = searchParams.get("tab");

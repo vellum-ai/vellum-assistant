@@ -7,8 +7,8 @@ private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "Guard
 public protocol GuardianClientProtocol {
     func fetchPendingActions(conversationId: String) async -> GuardianActionsPendingResponseMessage?
     func submitDecision(requestId: String, action: String, conversationId: String?) async -> GuardianActionDecisionResponseMessage?
-    func bootstrapActorToken(platform: String, deviceId: String) async -> Bool
-    func resetBootstrap() async -> Bool
+    func bootstrapActorToken(platform: String, deviceId: String, bootstrapSecret: String?) async -> Bool
+    func resetBootstrap(bootstrapSecret: String?) async -> Bool
 }
 
 /// Gateway-backed implementation of ``GuardianClientProtocol``.
@@ -78,15 +78,14 @@ public struct GuardianClient: GuardianClientProtocol {
     /// `ActorTokenManager`.
     ///
     /// - Returns: `true` on success, `false` on failure.
-    public func bootstrapActorToken(platform: String, deviceId: String) async -> Bool {
+    public func bootstrapActorToken(platform: String, deviceId: String, bootstrapSecret: String? = nil) async -> Bool {
         let body: [String: Any] = [
             "platform": platform,
             "deviceId": deviceId
         ]
 
-        // Generate a one-time bootstrap secret in memory (never stored on disk).
-        let bootstrapSecret = UUID().uuidString
-        let extraHeaders = ["x-bootstrap-secret": bootstrapSecret]
+        let secret = bootstrapSecret ?? UUID().uuidString
+        let extraHeaders = ["x-bootstrap-secret": secret]
 
         do {
             let response = try await GatewayHTTPClient.post(
@@ -118,13 +117,14 @@ public struct GuardianClient: GuardianClientProtocol {
     // MARK: - Bootstrap Reset
 
     /// Calls `POST /v1/guardian/reset-bootstrap` to remove the guardian-init
-    /// lock file so that `/v1/guardian/init` can be called again. Bare-metal
-    /// only — returns `false` on containerized deployments or if the gateway
-    /// is unreachable.
-    public func resetBootstrap() async -> Bool {
+    /// lock file so that `/v1/guardian/init` can be called again.
+    /// Requires the bootstrap secret when one is configured.
+    public func resetBootstrap(bootstrapSecret: String? = nil) async -> Bool {
+        var extraHeaders: [String: String] = [:]
+        if let bootstrapSecret { extraHeaders["x-bootstrap-secret"] = bootstrapSecret }
         do {
             let response = try await GatewayHTTPClient.post(
-                path: "guardian/reset-bootstrap", json: [:], timeout: 5, unprefixed: true
+                path: "guardian/reset-bootstrap", json: [:], extraHeaders: extraHeaders, timeout: 5, unprefixed: true
             )
             guard response.isSuccess else {
                 log.error("Reset bootstrap failed (HTTP \(response.statusCode))")

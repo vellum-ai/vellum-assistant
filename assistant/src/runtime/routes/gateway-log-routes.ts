@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Shared helper ───────────────────────────────────────────────────────
@@ -64,6 +65,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "gateway_logs_tail",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "gateway/logs/tail",
     handler: handleGatewayLogsTail,
     summary: "Tail gateway log entries",

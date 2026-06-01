@@ -20,8 +20,11 @@ import type {
   AgentEvent,
   CheckpointDecision,
   CheckpointInfo,
+  MidLoopCompaction,
 } from "../agent/loop.js";
-import { AgentLoop } from "../agent/loop.js";
+import { AgentLoop, isMaxTokensStopReason } from "../agent/loop.js";
+import type { TurnContext } from "../plugins/types.js";
+import { PluginTimeoutError } from "../plugins/types.js";
 import type {
   Message,
   Provider,
@@ -42,8 +45,6 @@ function createMockProvider(responses: ProviderResponse[]): {
     name: "mock",
     async sendMessage(
       _messages: Message[],
-      _tools?: ToolDefinition[],
-      _systemPrompt?: string,
       _options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
       const response = responses[callIndex] ?? responses[responses.length - 1];
@@ -60,6 +61,18 @@ function textResponse(text: string): ProviderResponse {
     model: "mock-model",
     usage: { inputTokens: 10, outputTokens: 5 },
     stopReason: "end_turn",
+  };
+}
+
+function maxTokensResponse(
+  text: string,
+  stopReason: string = "max_tokens",
+): ProviderResponse {
+  return {
+    content: [{ type: "text", text }],
+    model: "mock-model",
+    usage: { inputTokens: 10, outputTokens: 5 },
+    stopReason,
   };
 }
 
@@ -89,6 +102,40 @@ const userMessage: Message = {
   content: [{ type: "text", text: "Hello" }],
 };
 
+// A turn context whose `contextWindowManager.maybeCompact` returns a canned
+// result, so the loop's native compaction pipeline runs without the real
+// orchestrator machinery.
+function fakeCompactionTurnContext(result: {
+  compacted: boolean;
+  exhausted: boolean;
+}): TurnContext {
+  return {
+    requestId: "req-compact",
+    conversationId: "conv-compact",
+    turnIndex: 0,
+    trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    contextWindowManager: {
+      maybeCompact: async () => result,
+    },
+  } as unknown as TurnContext;
+}
+
+// A turn context whose compaction call times out, exercising the loop's
+// PluginTimeoutError handling.
+function timeoutCompactionTurnContext(): TurnContext {
+  return {
+    requestId: "req-compact",
+    conversationId: "conv-compact",
+    turnIndex: 0,
+    trust: { sourceChannel: "vellum", trustClass: "unknown" },
+    contextWindowManager: {
+      maybeCompact: async () => {
+        throw new PluginTimeoutError("compaction", "default-compaction", 1);
+      },
+    },
+  } as unknown as TurnContext;
+}
+
 function lastExitEvent(
   events: AgentEvent[],
 ): Extract<AgentEvent, { type: "agent_loop_exit" }> | undefined {
@@ -107,6 +154,15 @@ function countExitEvents(events: AgentEvent[]): number {
 // ---------------------------------------------------------------------------
 
 describe("AgentLoop exit-reason instrumentation", () => {
+  test("recognizes provider output-token stop reasons", () => {
+    expect(isMaxTokensStopReason("max_tokens")).toBe(true);
+    expect(isMaxTokensStopReason("MAX_TOKENS")).toBe(true);
+    expect(isMaxTokensStopReason("length")).toBe(true);
+    expect(isMaxTokensStopReason("max_output_tokens")).toBe(true);
+    expect(isMaxTokensStopReason("end_turn")).toBe(false);
+    expect(isMaxTokensStopReason(undefined)).toBe(false);
+  });
+
   test("emits exit event exactly once with 'no_tool_calls' on plain text response", async () => {
     const { provider } = createMockProvider([textResponse("Hi there!")]);
     const loop = new AgentLoop(provider, "system prompt");
@@ -134,6 +190,59 @@ describe("AgentLoop exit-reason instrumentation", () => {
     expect(events[events.length - 1].type).toBe("agent_loop_exit");
   });
 
+  test("emits continuation surface event and exits on max_tokens", async () => {
+    const { provider } = createMockProvider([
+      maxTokensResponse("Partial answer"),
+    ]);
+    const loop = new AgentLoop(provider, "system prompt");
+
+    const events: AgentEvent[] = [];
+    await loop.run([userMessage], (e) => {
+      events.push(e);
+    });
+
+    expect(events.map((e) => e.type)).toEqual([
+      "llm_call_started",
+      "usage",
+      "max_tokens_reached",
+      "message_complete",
+      "agent_loop_exit",
+    ]);
+    expect(countExitEvents(events)).toBe(1);
+    expect(lastExitEvent(events)?.reason).toBe("max_tokens_reached");
+  });
+
+  test("does not persist unexecuted tool_use blocks when max_tokens stops output", async () => {
+    const { provider } = createMockProvider([
+      {
+        content: [
+          { type: "text", text: "I need to check that." },
+          {
+            type: "tool_use",
+            id: "tool-1",
+            name: "read_file",
+            input: { path: "/tmp/example.txt" },
+          },
+        ],
+        model: "mock-model",
+        usage: { inputTokens: 10, outputTokens: 5 },
+        stopReason: "max_tokens",
+      },
+    ]);
+    const loop = new AgentLoop(provider, "system prompt", {}, dummyTools);
+
+    const events: AgentEvent[] = [];
+    const { history: result } = await loop.run([userMessage], (e) => {
+      events.push(e);
+    });
+
+    expect(events.some((e) => e.type === "tool_use")).toBe(false);
+    expect(lastExitEvent(events)?.reason).toBe("max_tokens_reached");
+    expect(result[result.length - 1]!.content).toEqual([
+      { type: "text", text: "I need to check that." },
+    ]);
+  });
+
   test("emits 'aborted_pre_call' when signal is already aborted at run start", async () => {
     const { provider } = createMockProvider([textResponse("never sent")]);
     const loop = new AgentLoop(provider, "system prompt");
@@ -142,7 +251,13 @@ describe("AgentLoop exit-reason instrumentation", () => {
     controller.abort();
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => { events.push(e); }, controller.signal);
+    await loop.run(
+      [userMessage],
+      (e) => {
+        events.push(e);
+      },
+      { signal: controller.signal },
+    );
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("aborted_pre_call");
@@ -166,7 +281,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
     );
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => { events.push(e); });
+    await loop.run([userMessage], (e) => {
+      events.push(e);
+    });
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("yield_to_user");
@@ -187,18 +304,214 @@ describe("AgentLoop exit-reason instrumentation", () => {
     );
 
     const onCheckpoint = (_info: CheckpointInfo): CheckpointDecision =>
-      "yield";
+      "budget";
 
     const events: AgentEvent[] = [];
     await loop.run(
       [userMessage],
-      (e) => { events.push(e); },
-      undefined,
-      undefined,
-      onCheckpoint,
+      (e) => {
+        events.push(e);
+      },
+      { onCheckpoint },
     );
 
     expect(countExitEvents(events)).toBe(0);
+  });
+
+  test("yields with 'budget' when the in-loop budget gate trips", async () => {
+    // GIVEN a provider that calls a tool (reaching a checkpoint) before it
+    // would continue with a text response.
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("never reached"),
+    ]);
+    const toolExecutor = async () => ({ content: "ok", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    // AND an effective context window so small that any real token estimate
+    // of the running history exceeds the mid-loop threshold.
+    // WHEN the loop checkpoints after the tool results land
+    const result = await loop.run([userMessage], () => {}, {
+      resolveContextWindow: () => ({
+        maxInputTokens: 10,
+        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+      }),
+    });
+
+    // THEN it yields for budget before issuing the next provider call.
+    expect(result.exitReason).toBe("budget");
+  });
+
+  test("does not yield for budget when overflow recovery is disabled", async () => {
+    // GIVEN the same tiny context window but overflow recovery disabled — the
+    // agent-wake configuration, which must never yield for budget.
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("done"),
+    ]);
+    const toolExecutor = async () => ({ content: "ok", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    // WHEN the loop runs to completion
+    const result = await loop.run([userMessage], () => {}, {
+      resolveContextWindow: () => ({
+        maxInputTokens: 10,
+        overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
+      }),
+    });
+
+    // THEN it never yields for budget.
+    expect(result.exitReason).not.toBe("budget");
+  });
+
+  test("compacts in place and continues when the budget gate trips with a compaction hook", async () => {
+    // GIVEN a tool round that reaches a checkpoint, followed by a plain text
+    // response that ends the run after compaction continues the loop.
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("done after compaction"),
+    ]);
+    const toolExecutor = async () => ({ content: "ok", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    let prepared = false;
+    let persisted = false;
+    let reinjected = false;
+    const compaction: MidLoopCompaction = {
+      prepare: (history) => {
+        prepared = true;
+        return { rawHistory: history, options: undefined };
+      },
+      onTimeout: async () => {},
+      persist: async () => {
+        persisted = true;
+        return { exhausted: false };
+      },
+      reinject: async () => {
+        reinjected = true;
+        return [userMessage];
+      },
+    };
+
+    // WHEN the in-loop budget gate trips at the checkpoint
+    const result = await loop.run([userMessage], () => {}, {
+      resolveContextWindow: () => ({
+        maxInputTokens: 10,
+        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+      }),
+      compaction,
+      turnContext: fakeCompactionTurnContext({
+        compacted: true,
+        exhausted: false,
+      }),
+    });
+
+    // THEN the loop runs the compaction ceremony in place and continues to a
+    // clean exit instead of yielding for budget.
+    expect(prepared).toBe(true);
+    expect(persisted).toBe(true);
+    expect(reinjected).toBe(true);
+    expect(result.exitReason).not.toBe("budget");
+  });
+
+  test("yields 'budget' when inline compaction times out", async () => {
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("never reached"),
+    ]);
+    const toolExecutor = async () => ({ content: "ok", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    let timedOut = false;
+    const compaction: MidLoopCompaction = {
+      prepare: (history) => ({ rawHistory: history, options: undefined }),
+      onTimeout: async () => {
+        timedOut = true;
+      },
+      persist: async () => ({ exhausted: false }),
+      reinject: async () => {
+        throw new Error("reinject must not run after a timeout");
+      },
+    };
+
+    // WHEN the compaction pipeline throws a PluginTimeoutError
+    const result = await loop.run([userMessage], () => {}, {
+      resolveContextWindow: () => ({
+        maxInputTokens: 10,
+        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+      }),
+      compaction,
+      turnContext: timeoutCompactionTurnContext(),
+    });
+
+    // THEN the loop records the timeout and yields for budget so the
+    // orchestrator can escalate.
+    expect(timedOut).toBe(true);
+    expect(result.exitReason).toBe("budget");
+  });
+
+  test("yields 'budget' when inline compaction reports exhausted", async () => {
+    const { provider } = createMockProvider([
+      toolUseResponse("t1", "read_file", { path: "/a.txt" }),
+      textResponse("never reached"),
+    ]);
+    const toolExecutor = async () => ({ content: "ok", isError: false });
+    const loop = new AgentLoop(
+      provider,
+      "system",
+      {},
+      dummyTools,
+      toolExecutor,
+    );
+
+    const compaction: MidLoopCompaction = {
+      prepare: (history) => ({ rawHistory: history, options: undefined }),
+      onTimeout: async () => {},
+      persist: async () => ({ exhausted: true }),
+      reinject: async () => {
+        throw new Error("reinject must not run when exhausted");
+      },
+    };
+
+    // WHEN compaction exhausts its retry budget
+    const result = await loop.run([userMessage], () => {}, {
+      resolveContextWindow: () => ({
+        maxInputTokens: 10,
+        overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
+      }),
+      compaction,
+      turnContext: fakeCompactionTurnContext({
+        compacted: false,
+        exhausted: true,
+      }),
+    });
+
+    // THEN the loop yields for budget so the orchestrator can escalate.
+    expect(result.exitReason).toBe("budget");
   });
 
   test("emits 'error' when provider throws an unhandled error", async () => {
@@ -211,7 +524,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
     const loop = new AgentLoop(provider, "system prompt");
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => { events.push(e); });
+    await loop.run([userMessage], (e) => {
+      events.push(e);
+    });
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("error");
@@ -238,7 +553,9 @@ describe("AgentLoop exit-reason instrumentation", () => {
     );
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => { events.push(e); });
+    await loop.run([userMessage], (e) => {
+      events.push(e);
+    });
 
     expect(countExitEvents(events)).toBe(1);
   });
@@ -263,7 +580,13 @@ describe("AgentLoop exit-reason instrumentation", () => {
     );
 
     const events: AgentEvent[] = [];
-    await loop.run([userMessage], (e) => { events.push(e); }, controller.signal);
+    await loop.run(
+      [userMessage],
+      (e) => {
+        events.push(e);
+      },
+      { signal: controller.signal },
+    );
 
     expect(countExitEvents(events)).toBe(1);
     expect(lastExitEvent(events)?.reason).toBe("aborted_during_tools");

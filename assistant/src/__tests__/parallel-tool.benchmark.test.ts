@@ -34,11 +34,13 @@ function createMockProvider(responses: ProviderResponse[]): {
     name: "mock",
     async sendMessage(
       messages: Message[],
-      tools?: ToolDefinition[],
-      systemPrompt?: string,
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
-      calls.push({ messages: [...messages], tools, systemPrompt });
+      calls.push({
+        messages: [...messages],
+        tools: options?.tools,
+        systemPrompt: options?.systemPrompt,
+      });
       const response = responses[callIndex] ?? responses[responses.length - 1];
       callIndex++;
 
@@ -304,11 +306,9 @@ describe("Parallel tool execution benchmarks", () => {
         toolExecutor,
       );
       const start = Date.now();
-      const history = await loop.run(
-        [userMessage],
-        () => {},
-        controller.signal,
-      );
+      const { history } = await loop.run([userMessage], () => {}, {
+        signal: controller.signal,
+      });
       const elapsed = Date.now() - start;
 
       // Should exit quickly after the 50ms abort, not wait 500ms

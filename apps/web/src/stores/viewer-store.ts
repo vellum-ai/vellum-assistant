@@ -25,8 +25,29 @@ import { create } from "zustand";
 
 import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
 import { createSelectors } from "@/utils/create-selectors";
+
+/** Views that overlay the main content and track a "back" destination. */
+type OverlayView = "document" | "subagent-detail" | "tool-detail";
+
+/**
+ * Resolve the "view before" value for overlay navigation.
+ *
+ * When navigating to an overlay view (document, subagent-detail, tool-detail),
+ * the previous non-overlay view is preserved so the close action can restore
+ * it. If already inside an overlay, the existing saved view is kept rather
+ * than capturing the current overlay as the "back" destination.
+ */
+function resolveViewBefore(
+  state: ViewerState,
+  field: "viewBeforeDocument" | "viewBeforeSubagentDetail" | "viewBeforeToolDetail",
+): Exclude<MainView, OverlayView> {
+  const mv = state.mainView;
+  if (mv === "document" || mv === "subagent-detail" || mv === "tool-detail") {
+    return state[field];
+  }
+  return mv as Exclude<MainView, OverlayView>;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -101,7 +122,7 @@ export interface ViewerActions {
   handleAppLoadFailed: () => void;
   closeApp: () => void;
   toggleAppMinimized: () => void;
-  handleAppUnpinned: (appId: string) => void;
+  handleAppUnpinned: (appId: string) => boolean;
   enterAppEditing: () => void;
   exitAppEditing: () => void;
 
@@ -217,6 +238,7 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
 
   closeApp: () => {
     set({
+      mainView: "chat",
       activeAppId: null,
       openedAppState: null,
       isAppMinimized: false,
@@ -233,18 +255,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       state.activeAppId !== appId ||
       (state.mainView !== "app" && state.mainView !== "app-editing")
     ) {
-      return;
+      return false;
     }
-    set({
-      mainView: "chat",
-      activeAppId: null,
-      openedAppState: null,
-    });
-    // The viewer state and the conversation store's `editingConversationId`
-    // are coupled: leaving the app-editing view should drop the editing
-    // pointer too. Owning this here keeps the cross-store coordination in
-    // one place instead of pushing it onto every caller of `useActiveAppPinSync`.
-    useConversationStore.getState().setEditingConversationId(null);
+    get().closeApp();
+    return true;
   },
 
   enterAppEditing: () => {
@@ -258,17 +272,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   // --- Subagent detail ---
 
   openSubagentDetail: (subagentId) => {
-    const state = get();
-    const viewBeforeSubagentDetail =
-      state.mainView === "subagent-detail" ||
-      state.mainView === "document" ||
-      state.mainView === "tool-detail"
-        ? state.viewBeforeSubagentDetail
-        : (state.mainView as Exclude<MainView, "document" | "subagent-detail" | "tool-detail">);
     set({
       mainView: "subagent-detail",
       activeSubagentId: subagentId,
-      viewBeforeSubagentDetail,
+      viewBeforeSubagentDetail: resolveViewBefore(get(), "viewBeforeSubagentDetail"),
     });
   },
 
@@ -282,17 +289,10 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   // --- Tool detail ---
 
   openToolDetail: (payload) => {
-    const state = get();
-    const viewBeforeToolDetail =
-      state.mainView === "tool-detail" ||
-      state.mainView === "subagent-detail" ||
-      state.mainView === "document"
-        ? state.viewBeforeToolDetail
-        : (state.mainView as Exclude<MainView, "document" | "subagent-detail" | "tool-detail">);
     set({
       mainView: "tool-detail",
       activeToolDetail: payload,
-      viewBeforeToolDetail,
+      viewBeforeToolDetail: resolveViewBefore(get(), "viewBeforeToolDetail"),
     });
   },
 
@@ -306,28 +306,15 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   // --- Document viewer ---
 
   openDocument: () => {
-    const state = get();
-    const viewBeforeDocument =
-      state.mainView === "document" ||
-      state.mainView === "subagent-detail" ||
-      state.mainView === "tool-detail"
-        ? state.viewBeforeDocument
-        : (state.mainView as Exclude<MainView, "document" | "subagent-detail" | "tool-detail">);
     set({
       mainView: "document",
       openedDocumentState: null,
-      viewBeforeDocument,
+      viewBeforeDocument: resolveViewBefore(get(), "viewBeforeDocument"),
     });
   },
 
   loadDocument: async (assistantId, documentSurfaceId) => {
-    const state = get();
-    const viewBeforeDocument =
-      state.mainView === "document" ||
-      state.mainView === "subagent-detail" ||
-      state.mainView === "tool-detail"
-        ? state.viewBeforeDocument
-        : (state.mainView as Exclude<MainView, "document" | "subagent-detail" | "tool-detail">);
+    const viewBeforeDocument = resolveViewBefore(get(), "viewBeforeDocument");
     set({
       mainView: "document",
       activeDocumentSurfaceId: documentSurfaceId,

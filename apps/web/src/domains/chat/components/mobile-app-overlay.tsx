@@ -1,4 +1,4 @@
-import { AppViewerContainer } from "@/components/apps/app-viewer-container";
+import { AppViewerContainer } from "@/components/app-viewer-container";
 import type { OpenedAppState } from "@/stores/viewer-store";
 
 interface MobileAppOverlayProps {
@@ -32,15 +32,8 @@ interface MobileAppOverlayProps {
  * minimized (`isAppMinimized=true`) so the chat behind becomes interactive
  * again.
  *
- * **Mounting constraint**: must render outside `RootLayout`'s inner
- * transformed wrapper (see `src/root-layout.tsx`). When
- * the soft keyboard opens, `RootLayout` applies a `translate3d(...)` to its
- * inner div to follow the visual viewport — any `position: fixed` element
- * inside that transformed wrapper anchors to the transform's origin rather
- * than the viewport's initial containing block, and the overlay drifts with
- * the keyboard. Render as a sibling of the inner wrapper instead.
- *
- * https://www.w3.org/TR/css-transforms-1/#transform-rendering
+ * **Mounting constraint**: must render inside `RootLayout`'s
+ * `#viewport-overlays` portal, outside the main content wrapper.
  */
 export function MobileAppOverlay({
   openedAppState,

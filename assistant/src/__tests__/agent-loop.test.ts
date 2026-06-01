@@ -41,11 +41,14 @@ function createMockProvider(responses: ProviderResponse[]): {
     name: "mock",
     async sendMessage(
       messages: Message[],
-      tools?: ToolDefinition[],
-      systemPrompt?: string,
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
-      calls.push({ messages: [...messages], tools, systemPrompt, options });
+      calls.push({
+        messages: [...messages],
+        tools: options?.tools,
+        systemPrompt: options?.systemPrompt,
+        options,
+      });
       const response = responses[callIndex] ?? responses[responses.length - 1];
       callIndex++;
 
@@ -115,7 +118,7 @@ describe("AgentLoop", () => {
     const loop = new AgentLoop(provider, "system prompt");
 
     const events: AgentEvent[] = [];
-    const history = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run([userMessage], collectEvents(events));
 
     // History should contain original user message + assistant response
     expect(history).toHaveLength(2);
@@ -149,7 +152,7 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
     const events: AgentEvent[] = [];
-    const history = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run([userMessage], collectEvents(events));
 
     // Tool executor was called with correct args
     expect(toolCalls).toHaveLength(1);
@@ -201,18 +204,11 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
 
-    await loop.run(
-      [userMessage],
-      collectEvents([]),
-      undefined,
-      "req-1",
-      undefined,
-      "mainAgent",
-      undefined,
-      undefined,
-      undefined,
-      () => overrideProfile,
-    );
+    await loop.run([userMessage], collectEvents([]), {
+      requestId: "req-1",
+      callSite: "mainAgent",
+      resolveOverrideProfile: () => overrideProfile,
+    });
 
     expect(calls).toHaveLength(2);
     expect(calls[0].options?.config?.overrideProfile).toBeUndefined();
@@ -240,19 +236,14 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
 
-    await loop.run(
-      [userMessage],
-      collectEvents([]),
-      undefined,
-      "req-1",
-      undefined,
-      "mainAgent",
-      undefined,
-      undefined,
-      1_000,
-      undefined,
-      () => maxInputTokens,
-    );
+    await loop.run([userMessage], collectEvents([]), {
+      requestId: "req-1",
+      callSite: "mainAgent",
+      resolveContextWindow: () => ({
+        maxInputTokens,
+        overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
+      }),
+    });
 
     const secondCallMessages = calls[1].messages;
     const lastMsg = secondCallMessages[secondCallMessages.length - 1];
@@ -288,7 +279,7 @@ describe("AgentLoop", () => {
       dummyTools,
       toolExecutor,
     );
-    const history = await loop.run([userMessage], () => {});
+    const { history } = await loop.run([userMessage], () => {});
 
     // Provider called 3 times (two tool rounds + final text)
     expect(calls).toHaveLength(3);
@@ -308,7 +299,7 @@ describe("AgentLoop", () => {
 
     // No tool executor provided
     const loop = new AgentLoop(provider, "system", {}, dummyTools);
-    const history = await loop.run([userMessage], () => {});
+    const { history } = await loop.run([userMessage], () => {});
 
     // Should stop after first response (no executor to handle tool use)
     expect(history).toHaveLength(2);
@@ -327,7 +318,7 @@ describe("AgentLoop", () => {
 
     const loop = new AgentLoop(provider, "system");
     const events: AgentEvent[] = [];
-    const history = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run([userMessage], collectEvents(events));
 
     // Only the original message remains (no assistant message added on error)
     expect(history).toHaveLength(1);
@@ -347,7 +338,9 @@ describe("AgentLoop", () => {
 
     const { provider } = createMockProvider([textResponse("Should not reach")]);
     const loop = new AgentLoop(provider, "system");
-    const history = await loop.run([userMessage], () => {}, controller.signal);
+    const { history } = await loop.run([userMessage], () => {}, {
+      signal: controller.signal,
+    });
 
     // Loop should exit immediately, returning only original messages
     expect(history).toHaveLength(1);
@@ -379,7 +372,9 @@ describe("AgentLoop", () => {
       dummyTools,
       toolExecutor,
     );
-    const history = await loop.run([userMessage], () => {}, controller.signal);
+    const { history } = await loop.run([userMessage], () => {}, {
+      signal: controller.signal,
+    });
 
     // After the first tool turn, abort fires. The while loop checks signal at the
     // top and breaks. History: user, assistant(t1), user(result1)
@@ -427,7 +422,9 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
     const start = Date.now();
-    const history = await loop.run([userMessage], () => {}, controller.signal);
+    const { history } = await loop.run([userMessage], () => {}, {
+      signal: controller.signal,
+    });
     const elapsed = Date.now() - start;
 
     // The loop should exit quickly (~50ms for abort), not wait 10s for the tool
@@ -700,7 +697,7 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
     const events: AgentEvent[] = [];
-    const history = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run([userMessage], collectEvents(events));
 
     // All 3 tools should have been called
     expect(executionLog).toHaveLength(3);
@@ -797,11 +794,9 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
     const events: AgentEvent[] = [];
-    const history = await loop.run(
-      [userMessage],
-      collectEvents(events),
-      controller.signal,
-    );
+    const { history } = await loop.run([userMessage], collectEvents(events), {
+      signal: controller.signal,
+    });
 
     // No tools should have been executed
     expect(toolCalls).toHaveLength(0);
@@ -917,7 +912,7 @@ describe("AgentLoop", () => {
       return "continue";
     };
 
-    await loop.run([userMessage], () => {}, undefined, undefined, onCheckpoint);
+    await loop.run([userMessage], () => {}, { onCheckpoint });
 
     expect(checkpoints).toHaveLength(1);
     expect(checkpoints[0]).toMatchObject({
@@ -948,13 +943,9 @@ describe("AgentLoop", () => {
 
     const onCheckpoint = (): CheckpointDecision => "continue";
 
-    const history = await loop.run(
-      [userMessage],
-      () => {},
-      undefined,
-      undefined,
+    const { history } = await loop.run([userMessage], () => {}, {
       onCheckpoint,
-    );
+    });
 
     // All 3 provider calls should happen (2 tool turns + final text)
     expect(calls).toHaveLength(3);
@@ -980,15 +971,11 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
 
-    const onCheckpoint = (): CheckpointDecision => "yield";
+    const onCheckpoint = (): CheckpointDecision => "budget";
 
-    const history = await loop.run(
-      [userMessage],
-      () => {},
-      undefined,
-      undefined,
+    const { history } = await loop.run([userMessage], () => {}, {
       onCheckpoint,
-    );
+    });
 
     // Only 1 provider call should happen — loop yields after first tool turn
     expect(calls).toHaveLength(1);
@@ -1014,7 +1001,7 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
 
-    const history = await loop.run([userMessage], () => {});
+    const { history } = await loop.run([userMessage], () => {});
 
     // Normal behavior: 2 provider calls, full history
     expect(calls).toHaveLength(2);
@@ -1046,7 +1033,7 @@ describe("AgentLoop", () => {
       return "continue";
     };
 
-    await loop.run([userMessage], () => {}, undefined, undefined, onCheckpoint);
+    await loop.run([userMessage], () => {}, { onCheckpoint });
 
     expect(checkpoints).toHaveLength(3);
     expect(checkpoints[0].turnIndex).toBe(0);
@@ -1067,13 +1054,9 @@ describe("AgentLoop", () => {
       return "continue";
     };
 
-    const history = await loop.run(
-      [userMessage],
-      () => {},
-      undefined,
-      undefined,
+    const { history } = await loop.run([userMessage], () => {}, {
       onCheckpoint,
-    );
+    });
 
     // Checkpoint should never be called for a text-only response
     expect(checkpoints).toHaveLength(0);
@@ -1130,7 +1113,7 @@ describe("AgentLoop", () => {
       return "continue";
     };
 
-    await loop.run([userMessage], () => {}, undefined, undefined, onCheckpoint);
+    await loop.run([userMessage], () => {}, { onCheckpoint });
 
     expect(checkpoints).toHaveLength(1);
     expect(checkpoints[0].toolCount).toBe(3);
@@ -1162,17 +1145,13 @@ describe("AgentLoop", () => {
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       checkpoints.push(checkpoint);
       // Yield on turn 3 (0-indexed)
-      return checkpoint.turnIndex === 3 ? "yield" : "continue";
+      return checkpoint.turnIndex === 3 ? "budget" : "continue";
     };
 
     const events: AgentEvent[] = [];
-    const history = await loop.run(
-      [userMessage],
-      collectEvents(events),
-      undefined,
-      undefined,
+    const { history } = await loop.run([userMessage], collectEvents(events), {
       onCheckpoint,
-    );
+    });
 
     // Turns 0, 1, 2, 3 execute (4 provider calls). Turn 3 yields, so turns 4+ never execute.
     expect(calls).toHaveLength(4);
@@ -1236,16 +1215,12 @@ describe("AgentLoop", () => {
 
     const onCheckpoint = (checkpoint: CheckpointInfo): CheckpointDecision => {
       // Yield on the second turn (turnIndex 1)
-      return checkpoint.turnIndex === 1 ? "yield" : "continue";
+      return checkpoint.turnIndex === 1 ? "budget" : "continue";
     };
 
-    const history = await loop.run(
-      [userMessage],
-      () => {},
-      undefined,
-      undefined,
+    const { history } = await loop.run([userMessage], () => {}, {
       onCheckpoint,
-    );
+    });
 
     // 2 provider calls: first tool turn + second tool turn (yield after second)
     expect(calls).toHaveLength(2);
@@ -1457,7 +1432,7 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
     const events: AgentEvent[] = [];
-    const history = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run([userMessage], collectEvents(events));
 
     // The tool result user message is at index 2 in history
     const toolResultMsg = history[2];
@@ -1508,7 +1483,7 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
     const events: AgentEvent[] = [];
-    const history = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run([userMessage], collectEvents(events));
 
     // The tool result user message is at index 2 in history
     const toolResultMsg = history[2];
@@ -1568,7 +1543,7 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
     const events: AgentEvent[] = [];
-    const history = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run([userMessage], collectEvents(events));
 
     // The final assistant message in HISTORY should retain placeholders
     // (so the model never sees real values on subsequent turns)
@@ -1672,7 +1647,7 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
     const events: AgentEvent[] = [];
-    const history = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run([userMessage], collectEvents(events));
 
     const lastAssistant = history[history.length - 1];
     const textBlock = lastAssistant.content.find(
@@ -1820,7 +1795,7 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
     const events: AgentEvent[] = [];
-    const history = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run([userMessage], collectEvents(events));
 
     // Provider should be called 3 times: initial, empty response, retry
     expect(calls).toHaveLength(3);
@@ -1898,7 +1873,7 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
     const events: AgentEvent[] = [];
-    const history = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run([userMessage], collectEvents(events));
 
     // Provider called exactly 2 times: initial [text+tool_use], then empty.
     // No third (retry) call because the prior turn had visible text.
@@ -1960,7 +1935,7 @@ describe("AgentLoop", () => {
       toolExecutor,
     );
     const events: AgentEvent[] = [];
-    const history = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run([userMessage], collectEvents(events));
 
     // Provider called 3 times: initial, empty, retry (also empty)
     expect(calls).toHaveLength(3);
@@ -1991,7 +1966,7 @@ describe("AgentLoop", () => {
 
     const loop = new AgentLoop(provider, "system");
     const events: AgentEvent[] = [];
-    const history = await loop.run([userMessage], collectEvents(events));
+    const { history } = await loop.run([userMessage], collectEvents(events));
 
     // Should NOT retry — this is the first turn with no tool use history
     expect(calls).toHaveLength(1);
@@ -2005,14 +1980,7 @@ describe("AgentLoop", () => {
     const { provider, calls } = createMockProvider([textResponse("ok")]);
 
     const loop = new AgentLoop(provider, "system");
-    await loop.run(
-      [userMessage],
-      () => {},
-      undefined, // signal
-      undefined, // requestId
-      undefined, // onCheckpoint
-      "heartbeatAgent",
-    );
+    await loop.run([userMessage], () => {}, { callSite: "heartbeatAgent" });
 
     expect(calls).toHaveLength(1);
     expect(calls[0].options?.config?.callSite).toBe("heartbeatAgent");

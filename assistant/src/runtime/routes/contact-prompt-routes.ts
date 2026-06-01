@@ -20,6 +20,7 @@ import { z } from "zod";
 
 import { getLogger } from "../../util/logger.js";
 import { broadcastMessage } from "../assistant-event-hub.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("contact-prompt-routes");
@@ -155,6 +156,10 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
     operationId: "contacts_prompt",
     endpoint: "contacts/prompt",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleContactPrompt,
     summary: "Prompt user to register a contact channel",
     description:
@@ -174,6 +179,10 @@ export const CONTACT_PROMPT_ROUTES: RouteDefinition[] = [
     operationId: "resolve_contact_prompt",
     endpoint: "resolve_contact_prompt",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: resolveContactPrompt,
     summary: "Gateway callback: resolve a pending contact prompt",
     description:

@@ -1,7 +1,7 @@
 import { client } from "@/generated/api/client.gen";
 
 
-import { ApiError, assertHasResponse, extractErrorMessage } from "@/lib/api-errors";
+import { ApiError, assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 
 // ---------------------------------------------------------------------------
 // Types

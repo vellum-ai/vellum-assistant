@@ -1,14 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  AgentEvent,
-  CheckpointDecision,
-  CheckpointInfo,
-} from "../agent/loop.js";
+import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
   conversationMessagesSyncTag,
-  type SyncChangedMessage,
+  type SyncChangedEvent,
 } from "../daemon/message-types/sync.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
@@ -136,6 +132,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   getMessageById: () => null,
   getLastUserTimestampBefore: () => 0,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  updateMessageContent: mock(() => {}),
 }));
 
 mock.module("../memory/conversation-queries.js", () => ({
@@ -205,7 +202,7 @@ mock.module("../config/skill-state.js", () => ({
 interface PendingRun {
   resolve: (history: Message[]) => void;
   messages: Message[];
-  onEvent: (event: AgentEvent) => void;
+  onEvent: (event: AgentEvent) => void | Promise<void>;
 }
 
 let pendingRuns: PendingRun[] = [];
@@ -224,16 +221,12 @@ mock.module("../agent/loop.js", () => ({
     }
     async run(
       messages: Message[],
-      onEvent: (event: AgentEvent) => void,
-      _signal?: AbortSignal,
-      _requestId?: string,
-      _onCheckpoint?: (
-        checkpoint: CheckpointInfo,
-      ) => CheckpointDecision | Promise<CheckpointDecision>,
-    ): Promise<Message[]> {
-      return new Promise<Message[]>((resolve) => {
+      onEvent: (event: AgentEvent) => void | Promise<void>,
+    ): Promise<AgentLoopRunResult> {
+      const history = await new Promise<Message[]>((resolve) => {
         pendingRuns.push({ resolve, messages, onEvent });
       });
+      return { history, exitReason: null };
     }
   },
 }));
@@ -334,29 +327,32 @@ async function waitForPendingRun(
   }
 }
 
-function resolveRun(index: number) {
+async function resolveRun(index: number) {
   const run = pendingRuns[index];
   if (!run) throw new Error(`No pending run at index ${index}`);
   const assistantMsg: Message = {
     role: "assistant",
     content: [{ type: "text", text: `reply-${index}` }],
   };
-  run.onEvent({
+  // Prime the assistant row anchor — production code emits this from
+  // `AgentLoop.run` just before `provider.sendMessage`.
+  await run.onEvent({ type: "llm_call_started" });
+  await run.onEvent({
     type: "usage",
     inputTokens: 10,
     outputTokens: 5,
     model: "mock",
     providerDurationMs: 100,
   });
-  run.onEvent({ type: "message_complete", message: assistantMsg });
+  await run.onEvent({ type: "message_complete", message: assistantMsg });
   run.resolve([...run.messages, assistantMsg]);
 }
 
 function syncChangedMessages(): {
-  messages: SyncChangedMessage[];
+  messages: SyncChangedEvent[];
   dispose: () => void;
 } {
-  const messages: SyncChangedMessage[] = [];
+  const messages: SyncChangedEvent[] = [];
   const subscription = assistantEventHub.subscribe({
     type: "process",
     callback: (event) => {
@@ -389,27 +385,30 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const events3: ServerMessage[] = [];
 
     // Start first message — blocks on agent loop
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue a slash-like passthrough and a normal passthrough after it.
     // Both resolve to passthrough, so the batch builder groups them into one run.
-    conversation.enqueueMessage(
-      "/not-a-skill",
-      [],
-      (e) => eventsSlash.push(e),
-      "req-slash",
-    );
-    conversation.enqueueMessage("msg-3", [], (e) => events3.push(e), "req-3");
+    conversation.enqueueMessage({
+      content: "/not-a-skill",
+      onEvent: (e) => eventsSlash.push(e),
+      requestId: "req-slash",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: (e) => events3.push(e),
+      requestId: "req-3",
+    });
     expect(conversation.getQueueDepth()).toBe(2);
 
     // Complete first run — drain pulls both queued messages into one batched run.
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -420,8 +419,50 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     // Exactly 2 runs total: msg-1 + batched [/not-a-skill, msg-3].
     expect(pendingRuns.length).toBe(2);
 
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 50));
+  });
+
+  test("batched queued messages with the same event sink do not duplicate assistant stream events", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const sharedEvents: ServerMessage[] = [];
+    const sharedOnEvent = (event: ServerMessage) => sharedEvents.push(event);
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: sharedOnEvent,
+      requestId: "req-2",
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: sharedOnEvent,
+      requestId: "req-3",
+    });
+
+    resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(
+      sharedEvents.filter((event) => event.type === "message_dequeued"),
+    ).toHaveLength(2);
+
+    sharedEvents.length = 0;
     resolveRun(1);
     await new Promise((r) => setTimeout(r, 50));
+
+    expect(
+      sharedEvents.filter((event) => event.type === "message_complete"),
+    ).toHaveLength(1);
   });
 
   test("queued skill-name slash passes through as-is", async () => {
@@ -432,24 +473,23 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const eventsSlash: ServerMessage[] = [];
 
     // Start first message — blocks on agent loop
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue a slash command that matches a skill name — still passes through
-    conversation.enqueueMessage(
-      "/start-the-day",
-      [],
-      (e) => eventsSlash.push(e),
-      "req-slash",
-    );
+    conversation.enqueueMessage({
+      content: "/start-the-day",
+      onEvent: (e) => eventsSlash.push(e),
+      requestId: "req-slash",
+    });
 
     // Complete first run — triggers drain
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -464,7 +504,7 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     // Content passes through as-is — no rewriting
     expect(text).toContain("/start-the-day");
 
-    resolveRun(1);
+    await resolveRun(1);
     await new Promise((r) => setTimeout(r, 50));
   });
 
@@ -477,25 +517,36 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const eventsBye: ServerMessage[] = [];
 
     // Start in-flight message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue ["hi", "/compact", "bye"]. /compact is non-passthrough, so the
     // batch builder stops at "hi" (length-1 batch → drainSingleMessage). Then
     // /compact takes its short-circuit path (no new runAgentLoop), and "bye"
     // drains as its own run.
-    conversation.enqueueMessage("hi", [], (e) => eventsHi.push(e), "req-hi");
-    conversation.enqueueMessage(
-      "/compact",
-      [],
-      (e) => eventsCompact.push(e),
-      "req-compact",
-    );
-    conversation.enqueueMessage("bye", [], (e) => eventsBye.push(e), "req-bye");
+    conversation.enqueueMessage({
+      content: "hi",
+      onEvent: (e) => eventsHi.push(e),
+      requestId: "req-hi",
+    });
+    conversation.enqueueMessage({
+      content: "/compact",
+      onEvent: (e) => eventsCompact.push(e),
+      requestId: "req-compact",
+    });
+    conversation.enqueueMessage({
+      content: "bye",
+      onEvent: (e) => eventsBye.push(e),
+      requestId: "req-bye",
+    });
     expect(conversation.getQueueDepth()).toBe(3);
 
     // Resolve msg-1 → drain pulls only "hi" (batch builder stops at /compact).
-    resolveRun(0);
+    await resolveRun(0);
     await p1;
     await waitForPendingRun(2);
 
@@ -504,14 +555,14 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
 
     // Resolve "hi" → /compact short-circuits without a new runAgentLoop, then
     // drains "bye" as its own run.
-    resolveRun(1);
+    await resolveRun(1);
     await waitForPendingRun(3);
 
     expect(eventsCompact.some((e) => e.type === "message_complete")).toBe(true);
     expect(eventsBye.some((e) => e.type === "message_dequeued")).toBe(true);
     expect(pendingRuns.length).toBe(3);
 
-    resolveRun(2);
+    await resolveRun(2);
     await new Promise((r) => setTimeout(r, 50));
   });
 
@@ -525,7 +576,11 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const sync = syncChangedMessages();
     try {
       await expect(
-        conversation.processMessage("/compact", [], () => {}, "req-compact"),
+        conversation.processMessage({
+          content: "/compact",
+          attachments: [],
+          requestId: "req-compact",
+        }),
       ).rejects.toThrow("compaction failed");
 
       await waitFor(

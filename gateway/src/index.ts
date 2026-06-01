@@ -160,6 +160,7 @@ import {
 import { SleepWakeDetector } from "./sleep-wake-detector.js";
 import { callTelegramApi } from "./telegram/api.js";
 import { fetchImpl } from "./fetch.js";
+import { arePlatformFeaturesEnabled } from "./feature-flag-resolver.js";
 import { isNewCommand, handleNewCommand } from "./webhook-pipeline.js";
 import { reconcileTelegramWebhook } from "./telegram/webhook-manager.js";
 import { registerEmailCallbackRoute } from "./email/register-callback.js";
@@ -1326,7 +1327,8 @@ async function main() {
     {
       path: "/v1/trust-rules",
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => handleTrustRulesList(req),
     },
     {
@@ -1334,32 +1336,37 @@ async function main() {
       // the /:id catch-all regex so the literal path is matched first.
       path: "/v1/trust-rules/suggest",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesSuggest(req),
     },
     {
       path: "/v1/trust-rules",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesCreate(req),
     },
     {
       // Reset must be registered before the /:id catch-all regex
       path: /^\/v1\/trust-rules\/([^/]+)\/reset$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesReset(req, params[0]),
     },
     {
       path: /^\/v1\/trust-rules\/([^/]+)$/,
       method: "PATCH",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesUpdate(req, params[0]),
     },
     {
       path: /^\/v1\/trust-rules\/([^/]+)$/,
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
 
@@ -1377,7 +1384,8 @@ async function main() {
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => handleTrustRulesList(req),
     },
     {
@@ -1385,32 +1393,37 @@ async function main() {
       // so the literal /suggest segment is matched first.
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/suggest\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesSuggest(req),
     },
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => handleTrustRulesCreate(req),
     },
     {
       // Reset must be registered before the /:id catch-all regex.
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/reset\/?$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesReset(req, params[0]),
     },
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/?$/,
       method: "PATCH",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesUpdate(req, params[0]),
     },
     {
       path: /^\/v1\/assistants\/[^/]+\/trust-rules\/([^/]+)\/?$/,
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) => handleTrustRulesDelete(req, params[0]),
     },
   ];
@@ -1753,6 +1766,13 @@ async function main() {
    *  Throttled to at most one outbound POST per 30 seconds. */
   let lastRecordActivityTs = 0;
   async function notifyRecordActivity(): Promise<void> {
+    if (!arePlatformFeaturesEnabled()) {
+      log.debug(
+        "platform-features-in-local-mode is disabled — skipping record-activity",
+      );
+      return;
+    }
+
     const now = Date.now();
     if (now - lastRecordActivityTs < 30_000) return;
     lastRecordActivityTs = now;

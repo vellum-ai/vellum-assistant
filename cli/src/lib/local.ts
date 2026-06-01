@@ -17,7 +17,11 @@ import {
 } from "./assistant-config.js";
 import { GATEWAY_PORT } from "./constants.js";
 import { httpHealthCheck, waitForDaemonReady } from "./http-client.js";
-import { stopProcessByPidFile } from "./process.js";
+import {
+  resolveProcessState,
+  stopProcess,
+  stopProcessByPidFile,
+} from "./process.js";
 import { openLogFile, pipeToLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
@@ -319,80 +323,16 @@ type DaemonStartOptions = {
   signingKey?: string;
 };
 
-async function startDaemonFromSource(
-  assistantIndex: string,
-  resources: LocalInstanceResources,
+/**
+ * Apply per-instance resource overrides and shared daemon options to an
+ * environment object. Called from all daemon spawn paths (source, watch,
+ * bundled binary) to eliminate drift between the three.
+ */
+function applyDaemonEnvOverrides(
+  env: Record<string, string | undefined>,
+  resources: LocalInstanceResources | undefined,
   options?: DaemonStartOptions,
-): Promise<void> {
-  const foreground = options?.foreground ?? false;
-  const daemonMainPath = resolveDaemonMainPath(assistantIndex);
-
-  // Ensure the directory containing PID/socket files exists. For named
-  // instances this is instanceDir/.vellum/workspace/ (matching daemon's getWorkspaceDir()).
-  const pidFile = getDaemonPidPath(resources);
-  mkdirSync(dirname(pidFile), { recursive: true });
-
-  // --- Lifecycle guard: prevent split-brain daemon state ---
-  if (existsSync(pidFile)) {
-    try {
-      const content = readFileSync(pidFile, "utf-8").trim();
-
-      // Another caller is already spawning the daemon — wait for it
-      // instead of racing to spawn a duplicate.
-      if (content === "starting") {
-        console.log(
-          "   Assistant is starting — waiting for it to become ready...",
-        );
-        if (await waitForDaemonReady(resources.daemonPort, 60000)) {
-          console.log("   Assistant is ready\n");
-          return;
-        }
-        // The other spawn may have failed; clean up and proceed to spawn.
-        try {
-          unlinkSync(pidFile);
-        } catch {}
-      }
-
-      const pid = parseInt(content, 10);
-      if (!isNaN(pid)) {
-        try {
-          process.kill(pid, 0);
-          console.log(`   Assistant already running (pid ${pid})\n`);
-          return;
-        } catch {
-          try {
-            unlinkSync(pidFile);
-          } catch {}
-        }
-      }
-    } catch {}
-  }
-
-  // PID file was stale or missing — check if daemon is responding via HTTP
-  if (await isDaemonResponsive(resources.daemonPort)) {
-    // Recover PID tracking so lifecycle commands (sleep, retire,
-    // stopLocalProcesses) can manage this daemon process.
-    const recoveredPid = recoverPidFile(pidFile, resources.daemonPort);
-    if (recoveredPid) {
-      console.log(
-        `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
-      );
-    } else {
-      console.log("   Assistant is responsive — skipping restart\n");
-    }
-    return;
-  }
-
-  const env: Record<string, string | undefined> = {
-    ...process.env,
-    RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
-    VELLUM_CLOUD: "local",
-    VELLUM_DEV: "1",
-    VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
-    ...(options?.signingKey
-      ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
-      : {}),
-  };
+): void {
   if (resources) {
     env.VELLUM_WORKSPACE_DIR = join(
       resources.instanceDir,
@@ -414,12 +354,62 @@ async function startDaemonFromSource(
     env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
     delete env.QDRANT_URL;
   }
+  if (options?.signingKey) {
+    env.ACTOR_TOKEN_SIGNING_KEY = options.signingKey;
+  }
   if (options?.defaultWorkspaceConfigPath) {
     env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
       options.defaultWorkspaceConfigPath;
   }
-
   applyIpcSocketDirOverride(env);
+}
+
+function logDaemonReadiness(ready: boolean): void {
+  if (ready) {
+    console.log("   Assistant ready\n");
+  } else {
+    console.log(
+      "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
+    );
+  }
+}
+
+async function startDaemonFromSource(
+  assistantIndex: string,
+  resources: LocalInstanceResources,
+  options?: DaemonStartOptions,
+): Promise<void> {
+  const foreground = options?.foreground ?? false;
+  const daemonMainPath = resolveDaemonMainPath(assistantIndex);
+
+  // Ensure the directory containing PID/socket files exists. For named
+  // instances this is instanceDir/.vellum/workspace/ (matching daemon's getWorkspaceDir()).
+  const pidFile = getDaemonPidPath(resources);
+  mkdirSync(dirname(pidFile), { recursive: true });
+
+  // --- Lifecycle guard: prevent split-brain daemon state ---
+  if (await awaitStartingSentinel(pidFile, resources.daemonPort)) return;
+
+  const daemonState = await resolveProcessState(
+    pidFile,
+    resources.daemonPort,
+    "Assistant",
+  );
+  if (daemonState.status === "healthy") {
+    console.log(`   Assistant already running (pid ${daemonState.pid})\n`);
+    return;
+  }
+
+  if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return;
+
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
+    VELLUM_CLOUD: "local",
+    VELLUM_DEV: "1",
+    VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
+  };
+  applyDaemonEnvOverrides(env, resources, options);
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
   // detect the in-progress spawn and wait instead of racing.
@@ -469,94 +459,27 @@ async function startDaemonWatchFromSource(
   mkdirSync(dirname(pidFile), { recursive: true });
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
-  // If a daemon is already running, skip spawning a new one.
-  if (existsSync(pidFile)) {
-    try {
-      const content = readFileSync(pidFile, "utf-8").trim();
+  if (await awaitStartingSentinel(pidFile, resources.daemonPort)) return;
 
-      // Another caller is already spawning the daemon — wait for it
-      // instead of racing to spawn a duplicate.
-      if (content === "starting") {
-        console.log(
-          "   Assistant is starting — waiting for it to become ready...",
-        );
-        if (await waitForDaemonReady(resources.daemonPort, 60000)) {
-          console.log("   Assistant is ready\n");
-          return;
-        }
-        // The other spawn may have failed; clean up and proceed to spawn.
-        try {
-          unlinkSync(pidFile);
-        } catch {}
-      }
-
-      const pid = parseInt(content, 10);
-      if (!isNaN(pid)) {
-        try {
-          process.kill(pid, 0); // Check if alive
-          console.log(`   Assistant already running (pid ${pid})\n`);
-          return;
-        } catch {
-          // Process doesn't exist, clean up stale PID file
-          try {
-            unlinkSync(pidFile);
-          } catch {}
-        }
-      }
-    } catch {}
-  }
-
-  // PID file was stale or missing — check if daemon is responding via HTTP
-  if (await isDaemonResponsive(resources.daemonPort)) {
-    // Recover PID tracking so lifecycle commands (sleep, retire,
-    // stopLocalProcesses) can manage this daemon process.
-    const recoveredPid = recoverPidFile(pidFile, resources.daemonPort);
-    if (recoveredPid) {
-      console.log(
-        `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
-      );
-    } else {
-      console.log("   Assistant is responsive — skipping restart\n");
-    }
+  const daemonState = await resolveProcessState(
+    pidFile,
+    resources.daemonPort,
+    "Assistant",
+  );
+  if (daemonState.status === "healthy") {
+    console.log(`   Assistant already running (pid ${daemonState.pid})\n`);
     return;
   }
+
+  if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return;
 
   const env: Record<string, string | undefined> = {
     ...process.env,
     RUNTIME_HTTP_PORT: process.env.RUNTIME_HTTP_PORT || "7821",
     VELLUM_DEV: "1",
     VELLUM_ENVIRONMENT: process.env.VELLUM_ENVIRONMENT || "local",
-    ...(options?.signingKey
-      ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
-      : {}),
   };
-  if (resources) {
-    env.VELLUM_WORKSPACE_DIR = join(
-      resources.instanceDir,
-      ".vellum",
-      "workspace",
-    );
-    env.GATEWAY_SECURITY_DIR = join(
-      resources.instanceDir,
-      ".vellum",
-      "protected",
-    );
-    env.CREDENTIAL_SECURITY_DIR = join(
-      resources.instanceDir,
-      ".vellum",
-      "protected",
-    );
-    env.RUNTIME_HTTP_PORT = String(resources.daemonPort);
-    env.GATEWAY_PORT = String(resources.gatewayPort);
-    env.QDRANT_HTTP_PORT = String(resources.qdrantPort);
-    delete env.QDRANT_URL;
-  }
-  if (options?.defaultWorkspaceConfigPath) {
-    env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
-      options.defaultWorkspaceConfigPath;
-  }
-
-  applyIpcSocketDirOverride(env);
+  applyDaemonEnvOverrides(env, resources, options);
 
   // Write a sentinel PID file before spawning so concurrent hatch() calls
   // detect the in-progress spawn and wait instead of racing.
@@ -658,6 +581,63 @@ function recoverPidFile(
     writeFileSync(pidFile, String(pid), "utf-8");
   }
   return pid;
+}
+
+/**
+ * Handle the "starting" sentinel in a PID file. When another caller is
+ * already spawning the daemon, wait for it to become ready instead of
+ * racing to spawn a duplicate.
+ *
+ * Returns `true` if the daemon became ready (caller should return early),
+ * `false` if the spawn failed or the sentinel wasn't present (caller
+ * should proceed). Cleans up the PID file on failure.
+ */
+async function awaitStartingSentinel(
+  pidFile: string,
+  daemonPort: number,
+): Promise<boolean> {
+  if (!existsSync(pidFile)) return false;
+  try {
+    const content = readFileSync(pidFile, "utf-8").trim();
+    if (content !== "starting") return false;
+  } catch {
+    return false;
+  }
+
+  console.log("   Assistant is starting — waiting for it to become ready...");
+  if (await waitForDaemonReady(daemonPort, 60000)) {
+    console.log("   Assistant is ready\n");
+    return true;
+  }
+  try {
+    unlinkSync(pidFile);
+  } catch {}
+  return false;
+}
+
+/**
+ * Check if a daemon without a valid PID file is still reachable on its
+ * HTTP port (orphaned process). If so, recover its PID file so lifecycle
+ * commands can manage it.
+ *
+ * Returns `true` if an orphaned daemon was found (caller should skip
+ * starting a new one), `false` otherwise.
+ */
+async function checkOrphanedDaemon(
+  pidFile: string,
+  daemonPort: number,
+): Promise<boolean> {
+  if (!(await isDaemonResponsive(daemonPort))) return false;
+
+  const recoveredPid = recoverPidFile(pidFile, daemonPort);
+  if (recoveredPid) {
+    console.log(
+      `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
+    );
+  } else {
+    console.log("   Assistant is responsive — skipping restart\n");
+  }
+  return true;
 }
 
 export async function discoverPublicUrl(
@@ -900,64 +880,24 @@ export async function startLocalDaemon(
 
     const pidFile = getDaemonPidPath(resources);
 
-    // If a daemon is already running, skip spawning a new one.
-    // This prevents cascading kill→restart cycles when multiple callers
-    // invoke hatch() concurrently (setupDaemonClient + ensureDaemonConnected).
-    let daemonAlive = false;
-    if (existsSync(pidFile)) {
-      try {
-        const content = readFileSync(pidFile, "utf-8").trim();
+    // --- Lifecycle guard: prevent split-brain daemon state ---
+    if (await awaitStartingSentinel(pidFile, resources.daemonPort)) {
+      ensureBunInstalled();
+      return;
+    }
 
-        // Another caller is already spawning the daemon — wait for it
-        // instead of racing to spawn a duplicate.
-        if (content === "starting") {
-          console.log(
-            "   Assistant is starting — waiting for it to become ready...",
-          );
-          if (await waitForDaemonReady(resources.daemonPort, 60000)) {
-            console.log("   Assistant is ready\n");
-            ensureBunInstalled();
-            return;
-          }
-          // The other spawn may have failed; clean up and proceed to spawn.
-          try {
-            unlinkSync(pidFile);
-          } catch {}
-        }
-
-        const pid = parseInt(content, 10);
-        if (!isNaN(pid)) {
-          try {
-            process.kill(pid, 0); // Check if alive
-            daemonAlive = true;
-            console.log(`   Assistant already running (pid ${pid})\n`);
-          } catch {
-            // Process doesn't exist, clean up stale PID file
-            try {
-              unlinkSync(pidFile);
-            } catch {}
-          }
-        }
-      } catch {}
+    const daemonState = await resolveProcessState(
+      pidFile,
+      resources.daemonPort,
+      "Assistant",
+    );
+    const daemonAlive = daemonState.status === "healthy";
+    if (daemonAlive) {
+      console.log(`   Assistant already running (pid ${daemonState.pid})\n`);
     }
 
     if (!daemonAlive) {
-      // The PID file was stale or missing, but a daemon with a different PID
-      // may still be listening on the HTTP port (e.g. if the PID file was
-      // overwritten by a crashed restart attempt). Check before starting a new one.
-      if (await isDaemonResponsive(resources.daemonPort)) {
-        // Restore PID tracking so lifecycle commands (sleep, retire,
-        // stopLocalProcesses) can manage this daemon process.
-        const recoveredPid = recoverPidFile(pidFile, resources.daemonPort);
-        if (recoveredPid) {
-          console.log(
-            `   Assistant is responsive (pid ${recoveredPid}) — skipping restart\n`,
-          );
-        } else {
-          console.log("   Assistant is responsive — skipping restart\n");
-        }
-        // Ensure bun is available for runtime features (browser, skills install)
-        // even when reusing an existing daemon.
+      if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) {
         ensureBunInstalled();
         return;
       }
@@ -1013,39 +953,7 @@ export async function startLocalDaemon(
           daemonEnv[key] = process.env[key]!;
         }
       }
-      if (options?.defaultWorkspaceConfigPath) {
-        daemonEnv.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
-          options.defaultWorkspaceConfigPath;
-      }
-      // When running a named instance, override env so the daemon resolves
-      // all paths under the instance directory and listens on its own port.
-      if (resources) {
-        daemonEnv.VELLUM_WORKSPACE_DIR = join(
-          resources.instanceDir,
-          ".vellum",
-          "workspace",
-        );
-        daemonEnv.GATEWAY_SECURITY_DIR = join(
-          resources.instanceDir,
-          ".vellum",
-          "protected",
-        );
-        daemonEnv.CREDENTIAL_SECURITY_DIR = join(
-          resources.instanceDir,
-          ".vellum",
-          "protected",
-        );
-        daemonEnv.RUNTIME_HTTP_PORT = String(resources.daemonPort);
-        daemonEnv.GATEWAY_PORT = String(resources.gatewayPort);
-        daemonEnv.QDRANT_HTTP_PORT = String(resources.qdrantPort);
-        delete daemonEnv.QDRANT_URL;
-      }
-
-      if (options?.signingKey) {
-        daemonEnv.ACTOR_TOKEN_SIGNING_KEY = options.signingKey;
-      }
-
-      applyIpcSocketDirOverride(daemonEnv);
+      applyDaemonEnvOverrides(daemonEnv, resources, options);
 
       // Write a sentinel PID file before spawning so concurrent hatch() calls
       // see the file and fall through to the isDaemonResponsive() port check
@@ -1112,13 +1020,7 @@ export async function startLocalDaemon(
       }
     }
 
-    if (daemonReady) {
-      console.log("   Assistant ready\n");
-    } else {
-      console.log(
-        "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
-      );
-    }
+    logDaemonReadiness(daemonReady);
   } else {
     console.log("🔨 Starting local assistant...");
 
@@ -1131,34 +1033,17 @@ export async function startLocalDaemon(
     }
     if (watch) {
       await startDaemonWatchFromSource(assistantIndex, resources, options);
-
-      const daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
-      if (daemonReady) {
-        console.log("   Assistant ready\n");
-      } else {
-        console.log(
-          "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
-        );
-      }
     } else {
       await startDaemonFromSource(assistantIndex, resources, options);
-
-      const daemonReady = await waitForDaemonReady(resources.daemonPort, 60000);
-      if (daemonReady) {
-        console.log("   Assistant ready\n");
-      } else {
-        console.log(
-          "   ⚠️  Assistant did not become ready within 60s — continuing anyway\n",
-        );
-      }
     }
+    logDaemonReadiness(await waitForDaemonReady(resources.daemonPort, 60000));
   }
 }
 
 export async function startGateway(
   watch: boolean = false,
   resources?: LocalInstanceResources,
-  options?: { signingKey?: string },
+  options?: { signingKey?: string; bootstrapSecret?: string },
 ): Promise<string> {
   const effectiveGatewayPort = resources?.gatewayPort ?? GATEWAY_PORT;
 
@@ -1193,6 +1078,9 @@ export async function startGateway(
     DEFAULT_ASSISTANT_ID: "self",
     ...(options?.signingKey
       ? { ACTOR_TOKEN_SIGNING_KEY: options.signingKey }
+      : {}),
+    ...(options?.bootstrapSecret
+      ? { GUARDIAN_BOOTSTRAP_SECRET: options.bootstrapSecret }
       : {}),
     ...(watch
       ? {
@@ -1273,27 +1161,7 @@ export async function startGateway(
   // Wait for the gateway to be responsive before returning. Without this,
   // callers may try to connect before the HTTP server is listening and get
   // connection-refused errors.
-  const start = Date.now();
-  const timeoutMs = 30000;
-  let ready = false;
-  while (Date.now() - start < timeoutMs) {
-    try {
-      const res = await fetch(
-        `http://localhost:${effectiveGatewayPort}/healthz`,
-        {
-          signal: AbortSignal.timeout(2000),
-        },
-      );
-      if (res.ok) {
-        ready = true;
-        break;
-      }
-    } catch {
-      // Gateway not ready yet
-    }
-    await new Promise((r) => setTimeout(r, 250));
-  }
-
+  const ready = await waitForDaemonReady(effectiveGatewayPort, 30000);
   if (!ready) {
     console.warn(
       "⚠ Gateway started but health check did not respond within 30s",
@@ -1302,6 +1170,20 @@ export async function startGateway(
 
   console.log("✅ Gateway started\n");
   return gatewayUrl;
+}
+
+/** Check whether a PID belongs to an ngrok process via its command line. */
+function isNgrokProcess(pid: number): boolean {
+  try {
+    const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf-8",
+      timeout: 3000,
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+    return /ngrok/.test(output);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -1326,15 +1208,14 @@ export async function stopLocalProcesses(
 
   // Kill ngrok directly by PID rather than using stopProcessByPidFile, because
   // isVellumProcess() won't match the ngrok binary — resulting in a no-op that
-  // leaves ngrok running.
+  // leaves ngrok running. Verify the PID still belongs to ngrok before killing
+  // to avoid hitting an unrelated process if the OS has reused the PID.
   const ngrokPidFile = join(vellumDir, "ngrok.pid");
   if (existsSync(ngrokPidFile)) {
     try {
       const pid = parseInt(readFileSync(ngrokPidFile, "utf-8").trim(), 10);
-      if (!isNaN(pid)) {
-        try {
-          process.kill(pid, "SIGTERM");
-        } catch {}
+      if (!isNaN(pid) && isNgrokProcess(pid)) {
+        await stopProcess(pid, "ngrok");
       }
       unlinkSync(ngrokPidFile);
     } catch {}

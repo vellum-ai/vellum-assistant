@@ -4,8 +4,14 @@ import {
   setQueuePosition,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { MessageDequeuedEvent, MessageQueuedDeletedEvent, MessageQueuedEvent, MessageRequestCompleteEvent } from "@/domains/chat/api/event-types";
+import type {
+  MessageDequeuedEvent,
+  MessageQueuedDeletedEvent,
+  MessageQueuedEvent,
+  MessageRequestCompleteEvent,
+} from "@vellumai/assistant-api";
 import { deleteQueuedMessage } from "@/domains/chat/api/messages";
+import { useConversationStore } from "@/stores/conversation-store";
 
 export function handleMessageQueued(
   event: MessageQueuedEvent,
@@ -20,20 +26,17 @@ export function handleMessageQueued(
 
   if (ctx.pendingLocalDeletionsRef.current.has(messageId)) {
     ctx.pendingLocalDeletionsRef.current.delete(messageId);
-    if (
-      ctx.assistantIdRef.current &&
-      ctx.activeConversationIdRef.current
-    ) {
+    const conversationId =
+      useConversationStore.getState().activeConversationId;
+    if (ctx.assistantIdRef.current && conversationId) {
       void deleteQueuedMessage(
         ctx.assistantIdRef.current,
-        ctx.activeConversationIdRef.current,
+        conversationId,
         requestId,
       );
     }
   } else {
-    ctx.setMessages((prev) =>
-      setQueuePosition(prev, messageId, position + 1),
-    );
+    ctx.setMessages((prev) => setQueuePosition(prev, messageId, position + 1));
   }
 }
 

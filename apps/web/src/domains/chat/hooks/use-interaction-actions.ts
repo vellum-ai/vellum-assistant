@@ -14,16 +14,19 @@
 import * as Sentry from "@sentry/react";
 import { type Dispatch, type MutableRefObject, type SetStateAction, useCallback, useState } from "react";
 
-import { addTrustRule } from "@/domains/trust-rules/api";
+import { addTrustRule } from "@/lib/trust-rules-api";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
-import { useTurnStore } from "@/domains/messaging/turn-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import { useTurnStore } from "@/domains/chat/turn-store";
+import { endTurn } from "@/domains/chat/turn-coordinator";
 
 import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils";
-import { deriveCommandText } from "@/domains/chat/utils/chat-utils";
+import { deriveCommandText } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
-import type { AllowlistOption, ConfirmationDecision, DirectoryScopeOption, QuestionResponseEntry, ScopeOption } from "@/domains/chat/api/event-types";
+import type { ConfirmationDecision } from "@/types/event-types";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { submitConfirmation, submitContactPrompt, submitQuestionResponse, submitSecretResponse } from "@/domains/chat/api/interactions";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
 
@@ -69,7 +72,6 @@ export interface UseInteractionActionsParams {
   setError: Dispatch<ChatError | null>;
   messagesRef: MutableRefObject<DisplayMessage[]>;
   streamContextRef: MutableRefObject<StreamContext | null>;
-  activeConversationIdRef: MutableRefObject<string | null>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
 }
 
@@ -106,7 +108,6 @@ export function useInteractionActions({
   setError,
   messagesRef,
   streamContextRef,
-  activeConversationIdRef,
   confirmationToolCallMapRef,
 }: UseInteractionActionsParams): UseInteractionActionsReturn {
   const pendingSecret = useInteractionStore.use.pendingSecret();
@@ -154,7 +155,7 @@ export function useInteractionActions({
         }
 
         useInteractionStore.getState().submitSecretEnd(true);
-        const convKey = activeConversationIdRef.current;
+        const convKey = useConversationStore.getState().activeConversationId;
         if (convKey) {
           useConversationStore.getState().removeAttentionConversationId(convKey);
         }
@@ -181,11 +182,11 @@ export function useInteractionActions({
       submitSecretResponse(ctx.assistantId, requestId, "", "none").catch(() => {});
     }
     useInteractionStore.getState().dismissSecret();
-    const convKey = activeConversationIdRef.current;
+    const convKey = useConversationStore.getState().activeConversationId;
     if (convKey) {
       useConversationStore.getState().removeAttentionConversationId(convKey);
     }
-    useTurnStore.getState().onStreamError();
+    endTurn({ conversationId: convKey, reason: "error" });
   }, []);
 
   // -------------------------------------------------------------------------
@@ -238,7 +239,10 @@ export function useInteractionActions({
 
   const handleContactPromptCancel = useCallback(() => {
     useInteractionStore.getState().dismissContactRequest();
-    useTurnStore.getState().onStreamError();
+    endTurn({
+      conversationId: useConversationStore.getState().activeConversationId,
+      reason: "error",
+    });
   }, []);
 
   // -------------------------------------------------------------------------
@@ -256,7 +260,7 @@ export function useInteractionActions({
       const confirmationDecisionValue = decision === "allow" ? "approved" : "denied";
       useInteractionStore.getState().dismissConfirmation();
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      const convKey = activeConversationIdRef.current;
+      const convKey = useConversationStore.getState().activeConversationId;
       if (convKey) {
         useConversationStore.getState().removeAttentionConversationId(convKey);
       }

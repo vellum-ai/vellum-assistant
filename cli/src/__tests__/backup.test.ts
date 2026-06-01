@@ -162,6 +162,16 @@ beforeEach(() => {
   });
   getBackupsDirMock.mockReset();
   getBackupsDirMock.mockReturnValue("/tmp/backups-default");
+  loadGuardianTokenSpy.mockReset();
+  loadGuardianTokenSpy.mockReturnValue({
+    accessToken: "local-token",
+    accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+  } as unknown as ReturnType<typeof guardianToken.loadGuardianToken>);
+  leaseGuardianTokenSpy.mockReset();
+  leaseGuardianTokenSpy.mockResolvedValue({
+    accessToken: "leased-token",
+    accessTokenExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+  } as unknown as Awaited<ReturnType<typeof guardianToken.leaseGuardianToken>>);
   mkdirSyncMock.mockReset();
   mkdirSyncMock.mockImplementation((() => undefined) as never);
   writeFileSyncMock.mockReset();
@@ -206,6 +216,34 @@ function mockGcsDownload(body: Uint8Array, ok = true, status = 200) {
     });
   }) as unknown as typeof globalThis.fetch;
 }
+
+describe("vellum backup <local>: guardian bootstrap secret", () => {
+  test("passes the lockfile bootstrap secret when leasing a fresh guardian token", async () => {
+    const localEntry = {
+      assistantId: "local-assistant",
+      runtimeUrl: "http://127.0.0.1:7830",
+      cloud: "local",
+      guardianBootstrapSecret: "bootstrap-secret-value",
+    } satisfies assistantConfig.AssistantEntry;
+    findAssistantByNameMock.mockReturnValue(localEntry);
+    loadGuardianTokenSpy.mockReturnValue(null);
+    setArgv("my-local", "--output", "/tmp/local-backup.vbundle");
+
+    globalThis.fetch = mock(async () => {
+      return new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+      });
+    }) as unknown as typeof globalThis.fetch;
+
+    await backup();
+
+    expect(leaseGuardianTokenSpy).toHaveBeenCalledWith(
+      "http://127.0.0.1:7830",
+      "local-assistant",
+      "bootstrap-secret-value",
+    );
+  });
+});
 
 describe("vellum backup <platform-managed>: GCS happy path", () => {
   test("requests upload URL → kicks off runtime export → polls → downloads from GCS → writes file", async () => {

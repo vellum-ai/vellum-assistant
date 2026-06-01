@@ -68,6 +68,19 @@ export interface ContextWindowResult {
   summaryText: string;
   reason?: string;
   summaryFailed?: boolean;
+  /**
+   * Set to `true` when {@link ContextWindowManager.maybeCompact} ran the
+   * compactor up to `overflowRecovery.maxAttempts` times and still could
+   * not reduce the estimated input tokens below the auto-threshold (or a
+   * single attempt produced no token reduction at all). Callers that
+   * orchestrate mid-loop compaction use this as the "give up, escalate"
+   * signal — there's no point retrying the compactor again; reducers
+   * (truncation / media stubbing) need to step in.
+   *
+   * Omitted (treated as `false`) on no-op early returns and on successful
+   * compactions that did clear the threshold.
+   */
+  exhausted?: boolean;
 }
 
 export interface ShouldCompactResult {
@@ -322,7 +335,7 @@ export class ContextWindowManager {
       });
     }
 
-    const args: CompactionRunArgs = {
+    const baseArgs: CompactionRunArgs = {
       conversationId: this.conversationId,
       messages,
       provider: this.provider,
@@ -337,47 +350,144 @@ export class ContextWindowManager {
       nonPersistedPrefixCount: this.nonPersistedPrefixCount,
     };
 
-    const result = await runAssistantDrivenCompaction(args);
+    // Retry budget for the compactor itself. Lives here (not in the
+    // orchestrator/agent loop) because the question "did this compactor
+    // make enough progress?" is a compaction-internal concern. The agent
+    // loop only needs to know the binary outcome — drop below threshold,
+    // or signal `exhausted` so reducers escalate.
+    const maxAttempts = this.config.overflowRecovery.maxAttempts;
 
+    let result = await runAssistantDrivenCompaction(baseArgs);
+
+    // Compactor early-returned without doing any work (e.g. no eligible
+    // messages, summary failed, disabled mid-way). Nothing to retry.
     if (!result.compacted) return result;
 
-    // Recompute the post-compaction token estimate now that the message
-    // array has been rebuilt. The compactor returns a conservative
-    // placeholder; the agent loop wants the real number for its next
-    // budget decision.
-    let estimatedInputTokens = result.estimatedInputTokens;
-    try {
-      estimatedInputTokens = estimatePromptTokens(
-        result.messages,
-        this.systemPrompt,
-        {
-          providerName: this.estimationProviderName,
-          toolTokenBudget: this.toolTokenBudget,
-        },
-      );
-    } catch (err) {
-      log.warn({ err }, "Post-compaction token estimate failed");
+    let estimatedInputTokens = this.recomputePostCompactionEstimate(
+      result.messages,
+      result.estimatedInputTokens,
+    );
+    this.consumeCompactionState(result.compactedMessages);
+
+    // If a single pass already cleared the auto-threshold, ship it.
+    if (estimatedInputTokens < thresholdTokens) {
+      return { ...result, estimatedInputTokens };
     }
 
-    // Consume any non-persisted prefix messages that were compacted away
-    // and clear the injected-summary flag.
+    // Still above the threshold after one pass — retry on the compacted
+    // history, up to the remaining budget. Each retry runs against the
+    // PREVIOUS attempt's output, building a tighter summary each time.
+    // Bail early as soon as a pass fails to reduce — that's a stuck
+    // compactor and another attempt won't help.
+    let previousEstimate = estimatedInputTokens;
+    for (let attempt = 2; attempt <= maxAttempts; attempt++) {
+      const nextResult = await runAssistantDrivenCompaction({
+        ...baseArgs,
+        messages: result.messages,
+        previousEstimatedInputTokens: previousEstimate,
+        nonPersistedPrefixCount: this.nonPersistedPrefixCount,
+      });
+      if (!nextResult.compacted) break;
+      const nextEstimate = this.recomputePostCompactionEstimate(
+        nextResult.messages,
+        nextResult.estimatedInputTokens,
+      );
+      this.consumeCompactionState(nextResult.compactedMessages);
+      result = mergeCompactionResults(result, nextResult);
+      estimatedInputTokens = nextEstimate;
+      if (estimatedInputTokens < thresholdTokens) {
+        return { ...result, estimatedInputTokens };
+      }
+      // Non-productive (compacted but didn't shrink) — stuck compactor.
+      if (estimatedInputTokens >= previousEstimate) break;
+      previousEstimate = estimatedInputTokens;
+    }
+
+    // Out of attempts or stuck — surface `exhausted` so the orchestrator
+    // can escalate to reducer tiers instead of re-running the compactor.
+    return { ...result, estimatedInputTokens, exhausted: true };
+  }
+
+  /**
+   * Recompute the prompt-token estimate against the post-compaction
+   * message array. The compactor returns a conservative placeholder; the
+   * orchestrator needs the real number for its next budget decision.
+   */
+  private recomputePostCompactionEstimate(
+    messages: Message[],
+    fallback: number,
+  ): number {
+    try {
+      return estimatePromptTokens(messages, this.systemPrompt, {
+        providerName: this.estimationProviderName,
+        toolTokenBudget: this.toolTokenBudget,
+      });
+    } catch (err) {
+      log.warn({ err }, "Post-compaction token estimate failed");
+      return fallback;
+    }
+  }
+
+  /**
+   * Decrement the non-persisted prefix bookkeeping and clear the
+   * injected-summary flag after a productive compaction. Called once per
+   * successful internal attempt so multi-attempt runs keep the count
+   * honest as the leading injected messages get folded into the summary.
+   */
+  private consumeCompactionState(compactedMessages: number): void {
     const compactedAway = Math.min(
       this.nonPersistedPrefixCount,
-      result.compactedMessages,
+      compactedMessages,
     );
     this.nonPersistedPrefixCount = Math.max(
       0,
       this.nonPersistedPrefixCount - compactedAway,
     );
     this.summaryIsInjected = false;
-
-    return { ...result, estimatedInputTokens };
   }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Combine the result of a follow-up compaction attempt with the running
+ * aggregate so the orchestrator sees cumulative work — total messages
+ * folded into the summary, total summary LLM calls, total token spend —
+ * across all internal retries. Content fields (the new messages array,
+ * latest summary text, latest estimate) take the `next` attempt's value.
+ */
+function mergeCompactionResults(
+  prev: ContextWindowResult,
+  next: ContextWindowResult,
+): ContextWindowResult {
+  return {
+    ...next,
+    previousEstimatedInputTokens: prev.previousEstimatedInputTokens,
+    compactedMessages: prev.compactedMessages + next.compactedMessages,
+    compactedPersistedMessages:
+      prev.compactedPersistedMessages + next.compactedPersistedMessages,
+    summaryCalls: prev.summaryCalls + next.summaryCalls,
+    summaryInputTokens: prev.summaryInputTokens + next.summaryInputTokens,
+    summaryOutputTokens: prev.summaryOutputTokens + next.summaryOutputTokens,
+    summaryCacheCreationInputTokens:
+      (prev.summaryCacheCreationInputTokens ?? 0) +
+      (next.summaryCacheCreationInputTokens ?? 0),
+    summaryCacheReadInputTokens:
+      (prev.summaryCacheReadInputTokens ?? 0) +
+      (next.summaryCacheReadInputTokens ?? 0),
+    summaryRawResponses: [
+      ...(prev.summaryRawResponses ?? []),
+      ...(next.summaryRawResponses ?? []),
+    ],
+    // Any failure across attempts taints the run for the circuit breaker.
+    summaryFailed:
+      next.summaryFailed === true || prev.summaryFailed === true
+        ? true
+        : (next.summaryFailed ?? prev.summaryFailed),
+  };
+}
 
 function noopResult(
   messages: Message[],

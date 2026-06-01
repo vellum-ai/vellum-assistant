@@ -17,7 +17,7 @@ import type {
   AgentLoop,
   AgentLoopExitReason,
   CheckpointDecision,
-  CheckpointInfo,
+  MidLoopCompaction,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
 import type {
@@ -26,6 +26,7 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import {
   contextWindowConfigFromEffective,
   type EffectiveContextWindow,
@@ -59,6 +60,7 @@ import { commitAppTurnChanges } from "../memory/app-git-service.js";
 import { getApp, listAppFiles, resolveAppDir } from "../memory/app-store.js";
 import { enqueueAutoAnalysisOnCompaction } from "../memory/auto-analysis-enqueue.js";
 import {
+  deleteMessageById,
   getConversation,
   getConversationOriginChannel,
   getConversationOriginInterface,
@@ -94,17 +96,17 @@ import {
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
-import { defaultCompactionTerminal } from "../plugins/defaults/compaction.js";
-import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair.js";
+import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
+import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair/terminal.js";
 import {
   asDefaultGraphPayload,
   type DefaultMemoryRetrievalDeps,
   type GraphMemoryPayload,
   runDefaultMemoryRetrieval,
-} from "../plugins/defaults/memory-retrieval.js";
-import { defaultPersistenceTerminal } from "../plugins/defaults/persistence.js";
-import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate.js";
-import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate.js";
+} from "../plugins/defaults/memory-retrieval/register.js";
+import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/terminal.js";
+import { defaultTitleGenerateTerminal } from "../plugins/defaults/title-generate/terminal.js";
+import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
@@ -219,10 +221,7 @@ import type {
 } from "./message-protocol.js";
 import type { MemoryRecalled } from "./message-types/memory.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
-import {
-  conversationMetadataSyncTag,
-  SYNC_TAGS,
-} from "./message-types/sync.js";
+import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import { parseActualTokensFromError } from "./parse-actual-tokens-from-error.js";
 import type { TraceEmitter } from "./trace-emitter.js";
 import type { TrustContext } from "./trust-context.js";
@@ -282,7 +281,7 @@ function formatDiskPressureBlockedMessage(): string {
 //
 // The circuit-breaker behavior (3 consecutive summary-LLM failures trips a
 // 1-hour cooldown) is now implemented by the `circuitBreaker` plugin
-// pipeline. The default plugin (`plugins/defaults/circuit-breaker.ts`)
+// pipeline. The default plugin (`plugins/defaults/circuit-breaker/register.ts`)
 // replicates the legacy threshold/cooldown constants and event-emission
 // semantics exactly — it operates on the `consecutiveCompactionFailures` /
 // `compactionCircuitOpenUntil` fields the conversation still owns so the
@@ -405,7 +404,7 @@ async function isCompactionCircuitOpen(ctx: {
  * paths don't silently reset the 3-strike counter.
  *
  * The default plugin handles threshold-based tripping and cooldown reset;
- * see `plugins/defaults/circuit-breaker.ts` for the canonical semantics.
+ * see `plugins/defaults/circuit-breaker/register.ts` for the canonical semantics.
  */
 export async function trackCompactionOutcome(
   ctx: {
@@ -486,6 +485,26 @@ function buildPluginTurnContext(
 
 // ── Context Interface ────────────────────────────────────────────────
 
+/**
+ * Per-surface entry tracked on the current turn. Inline shape kept stable so
+ * routes and persistence helpers can consume it via a named import instead of
+ * `infer`-extracting from {@link AgentLoopConversationContext}.
+ */
+export interface AssistantSurface {
+  surfaceId: string;
+  surfaceType: SurfaceType;
+  title?: string;
+  data: SurfaceData;
+  actions?: Array<{
+    id: string;
+    label: string;
+    style?: string;
+    data?: Record<string, unknown>;
+  }>;
+  display?: string;
+  persistent?: boolean;
+}
+
 export interface AgentLoopConversationContext {
   readonly conversationId: string;
   messages: Message[];
@@ -535,15 +554,7 @@ export interface AgentLoopConversationContext {
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   surfaceActionRequestIds: Set<string>;
   approvedViaPromptThisTurn?: boolean;
-  currentTurnSurfaces: Array<{
-    surfaceId: string;
-    surfaceType: SurfaceType;
-    title?: string;
-    data: SurfaceData;
-    actions?: Array<{ id: string; label: string; style?: string }>;
-    display?: string;
-    persistent?: boolean;
-  }>;
+  currentTurnSurfaces: AssistantSurface[];
 
   workingDir: string;
   workspaceTopLevelContext: string | null;
@@ -765,12 +776,14 @@ export async function runAgentLoopImpl(
     llm: config.llm,
     callSite: turnCallSite,
     overrideProfile: turnOverrideProfile ?? undefined,
+    selectionSeed: ctx.conversationId,
   });
   let currentEffectiveContextWindow: EffectiveContextWindow =
     effectiveContextWindow;
   let currentContextWindowConfig = contextWindowConfigFromEffective(
     resolveCallSiteConfig(turnCallSite, config.llm, {
       overrideProfile: turnOverrideProfile ?? undefined,
+      selectionSeed: ctx.conversationId,
     }).contextWindow,
     currentEffectiveContextWindow,
   );
@@ -789,10 +802,12 @@ export async function runAgentLoopImpl(
         llm: config.llm,
         callSite: turnCallSite,
         overrideProfile: currentOverrideProfile,
+        selectionSeed: ctx.conversationId,
       });
       currentContextWindowConfig = contextWindowConfigFromEffective(
         resolveCallSiteConfig(turnCallSite, config.llm, {
           overrideProfile: currentOverrideProfile,
+          selectionSeed: ctx.conversationId,
         }).contextWindow,
         currentEffectiveContextWindow,
       );
@@ -850,6 +865,25 @@ export async function runAgentLoopImpl(
       overflowRecovery,
       providerMaxTokens,
       preflightBudget: Math.floor(providerMaxTokens * (1 - safetyMargin)),
+    };
+  };
+  /**
+   * The agent loop's window into the orchestrator's current effective
+   * context window. The loop reads `maxInputTokens` for tool-result
+   * truncation and `overflowRecovery` for its mid-loop budget gate, applying
+   * the long-history safety-margin bump itself off its own running history.
+   * Resolved fresh on each access so a mid-turn profile change is reflected.
+   */
+  const resolveContextWindow = (): {
+    maxInputTokens: number;
+    overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
+  } => {
+    refreshCurrentProfileState();
+    const { enabled, safetyMarginRatio } =
+      currentEffectiveContextWindow.overflowRecovery;
+    return {
+      maxInputTokens: currentEffectiveContextWindow.maxInputTokens,
+      overflowRecovery: { enabled, safetyMarginRatio },
     };
   };
 
@@ -1047,10 +1081,7 @@ export async function runAgentLoopImpl(
           });
           onEvent({
             type: "sync_changed",
-            tags: [
-              SYNC_TAGS.conversationsList,
-              conversationMetadataSyncTag(ctx.conversationId),
-            ],
+            tags: [conversationMetadataSyncTag(ctx.conversationId)],
           });
         },
       };
@@ -1756,8 +1787,21 @@ export async function runAgentLoopImpl(
     // to the reduced `ctx.messages`.
     let reducerCompacted = compactedThisTurn;
 
+    // memory-v3-live: route the turn's `<memory>` block to the v3 injector.
+    // When on, runtime assembly suppresses v2's `<memory>` injection (only
+    // when the v3 injector actually produced a block — otherwise v2 stays as a
+    // fallback) and the provider anchors its long-TTL cache breakpoint on the
+    // most recent STABLE user message, since the latest user message now
+    // carries the volatile per-turn memory block. Flag off → bit-for-bit
+    // identical to today's v2 path.
+    const memoryV3Live = isAssistantFeatureFlagEnabled(
+      "memory-v3-live",
+      getConfig(),
+    );
+
     // Shared injection options — reused whenever we need to re-inject after reduction.
     const injectionOpts = {
+      suppressV2MemoryForV3: memoryV3Live,
       diskPressureContext,
       activeSurface,
       activeDocuments,
@@ -2236,35 +2280,10 @@ export async function runAgentLoopImpl(
       await eventHandler({ type: "agent_loop_exit", reason });
     };
 
-    const onCheckpoint = async (
-      checkpoint: CheckpointInfo,
-    ): Promise<CheckpointDecision> => {
-      state.currentTurnToolNames = [];
-
+    const onCheckpoint = async (): Promise<CheckpointDecision> => {
       if (ctx.canHandoffAtCheckpoint()) {
-        yieldedForHandoff = true;
-        pendingCheckpointYield = "handoff";
-        return "yield";
+        return "handoff";
       }
-
-      // Mid-loop token budget check: estimate current context size and
-      // yield if we're approaching the preflight budget. This lets the
-      // conversation-agent-loop run compaction before the provider rejects.
-      if (overflowRecovery.enabled) {
-        const midLoopThreshold =
-          resolveCurrentContextBudget().preflightBudget * 0.85;
-        const estimated = await runTokenEstimatePipeline(checkpoint.history);
-        if (estimated > midLoopThreshold) {
-          rlog.warn(
-            { phase: "mid-loop", estimated, threshold: midLoopThreshold },
-            "Token estimate approaching budget — yielding for compaction",
-          );
-          yieldedForBudget = true;
-          pendingCheckpointYield = "budget";
-          return "yield";
-        }
-      }
-
       return "continue";
     };
 
@@ -2280,19 +2299,147 @@ export async function runAgentLoopImpl(
     // and overwrites `turnIndex` with its own tool-use iteration counter.
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
-    let updatedHistory = await ctx.agentLoop.run(
-      runMessages,
-      eventHandler,
-      abortController.signal,
-      reqId,
-      onCheckpoint,
-      turnCallSite,
-      loopTurnCtx,
-      turnOverrideProfile,
-      resolveCurrentMaxInputTokens(),
-      resolveCurrentOverrideProfile,
-      resolveCurrentMaxInputTokens,
-    );
+    // Hooks for the loop-owned mid-loop compaction. The agent loop owns the
+    // trigger (its budget gate), the `compaction` pipeline call, and the
+    // inline continue; these callbacks bridge the durable / injection state
+    // the loop is intentionally blind to. Re-injection and persistence stay
+    // orchestrator-supplied for now.
+    const midLoopCompaction: MidLoopCompaction = {
+      onCompacting: () => {
+        ctx.emitActivityState(
+          "thinking",
+          "context_compacting",
+          "assistant_turn",
+          reqId,
+          "Compacting context",
+        );
+      },
+      prepare: (history) => {
+        // Strip injected context so the compactor summarizes the raw
+        // persistent messages, and commit the stripped set to durable state.
+        const rawHistory = stripInjectionsForCompaction(history);
+        ctx.messages = rawHistory;
+        markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
+        return {
+          rawHistory,
+          options: {
+            lastCompactedAt: ctx.contextCompactedAt ?? undefined,
+            force: true,
+            targetInputTokensOverride:
+              resolveCurrentContextBudget().preflightBudget,
+            conversationOriginChannel:
+              getConversationOriginChannel(ctx.conversationId) ?? undefined,
+            overrideProfile: resolveCurrentOverrideProfile() ?? null,
+          },
+        };
+      },
+      onTimeout: async () => {
+        await trackCompactionOutcome(ctx, true, onEvent);
+      },
+      persist: async (result, rawHistory) => {
+        const compactResult = result as Awaited<
+          ReturnType<typeof ctx.contextWindowManager.maybeCompact>
+        >;
+        // `force: true` bypasses the cooldown/threshold gates but early
+        // returns for "no eligible messages" / "insufficient messages" still
+        // leave `summaryFailed` undefined. Only track when the summary LLM
+        // actually ran.
+        if (compactResult.summaryFailed !== undefined) {
+          await trackCompactionOutcome(
+            ctx,
+            compactResult.summaryFailed,
+            onEvent,
+          );
+        }
+        if (compactResult.compacted) {
+          await applySuccessfulCompaction(compactResult, rawHistory);
+          reducerCompacted = true;
+          shouldInjectWorkspace = true;
+        }
+        return { exhausted: compactResult.exhausted ?? false };
+      },
+      reinject: async () => {
+        // stripInjectionsForCompaction() unconditionally removed the existing
+        // NOW.md block, so re-inject the current content regardless of whether
+        // compaction actually ran.
+        const injection = await applyRuntimeInjections(ctx.messages, {
+          ...injectionOpts,
+          pkbContext: currentPkbContent,
+          memoryV2Static: currentMemoryV2Static,
+          nowScratchpad: currentNowContent,
+          workspaceTopLevelContext: shouldInjectWorkspace
+            ? ctx.workspaceTopLevelContext
+            : null,
+          // Suppress the chronological-transcript snapshot once the reducer
+          // has collapsed `ctx.messages`; the captured snapshot reflects the
+          // full persisted transcript and would overwrite compaction.
+          slackChronologicalMessages: reducerCompacted
+            ? null
+            : injectionOpts.slackChronologicalMessages,
+          mode: currentInjectionMode,
+          turnContext: buildPluginTurnContext(ctx, reqId),
+        });
+        runMessages = injection.messages;
+        if (isTrustedActor && currentInjectionMode !== "minimal") {
+          ctx.graphMemory.retrackCachedNodes();
+        }
+        const midLoopCompactStrip =
+          stripHistoricalWebSearchResults(runMessages);
+        if (midLoopCompactStrip.stats.blocksStripped > 0) {
+          rlog.info(
+            { phase: "mid-loop-compact", ...midLoopCompactStrip.stats },
+            "Converted historical web_search_tool_result blocks to text summaries",
+          );
+          runMessages = midLoopCompactStrip.messages;
+        }
+        preRepairMessages = runMessages;
+        preRunHistoryLength = runMessages.length;
+        return runMessages;
+      },
+    };
+
+    /**
+     * Shared closure: runs the agent loop with the orchestrator's turn
+     * context and maps the loop's returned checkpoint pause-reason into the
+     * orchestrator's yield bookkeeping. Returns the updated history so call
+     * sites consume it exactly as before. Pass `compaction` only for the
+     * primary run, where the loop compacts in place when its budget gate
+     * trips; reruns omit it and keep yielding for budget.
+     */
+    const runAgentLoop = async (
+      msgs: Message[],
+      compaction?: MidLoopCompaction,
+    ): Promise<Message[]> => {
+      const { history, exitReason } = await ctx.agentLoop.run(
+        msgs,
+        eventHandler,
+        {
+          signal: abortController.signal,
+          requestId: reqId,
+          onCheckpoint,
+          callSite: turnCallSite,
+          turnContext: loopTurnCtx,
+          overrideProfile: turnOverrideProfile,
+          resolveOverrideProfile: resolveCurrentOverrideProfile,
+          resolveContextWindow,
+          compaction,
+          // memory-v3-live: the latest user message carries the volatile v3
+          // `<memory>` block, so anchor the provider's long-TTL cache breakpoint
+          // on the most recent stable message instead.
+          mutableLatestUserMessage: memoryV3Live,
+        },
+      );
+      if (exitReason === "handoff") {
+        yieldedForHandoff = true;
+        pendingCheckpointYield = "handoff";
+      } else if (exitReason === "budget") {
+        yieldedForBudget = true;
+        pendingCheckpointYield = "budget";
+      }
+      return history;
+    };
+
+    let updatedHistory = await runAgentLoop(runMessages, midLoopCompaction);
 
     rlog.info(
       { resultMessageCount: updatedHistory.length },
@@ -2304,167 +2451,16 @@ export async function runAgentLoopImpl(
       pendingCheckpointYield = null;
     }
 
-    // ── Proactive mid-loop compaction ───────────────────────────────
-    // When the agent loop yielded because the token budget check in
-    // onCheckpoint detected approaching limits, run compaction on the
-    // accumulated history and re-enter the agent loop. This is distinct
-    // from the reactive convergence loop below that fires after a
-    // provider rejection — here we compact *before* hitting the limit.
-    let midLoopCompactAttempts = 0;
-    while (
-      yieldedForBudget &&
-      midLoopCompactAttempts <
-        resolveCurrentContextBudget().overflowRecovery.maxAttempts &&
-      !state.contextTooLargeDetected &&
-      !abortController.signal.aborted
-    ) {
-      midLoopCompactAttempts++;
-      yieldedForBudget = false;
-      pendingCheckpointYield = null;
-
-      rlog.info(
-        { phase: "mid-loop-compact" },
-        "Running compaction after checkpoint yield",
-      );
-
-      // Strip injected context from updated history before compacting,
-      // so we compact the "raw" persistent messages.
-      const rawHistory = stripInjectionsForCompaction(updatedHistory);
-      ctx.messages = rawHistory;
-      markHistoryStrippedBestEffort(ctx.conversationId, Date.now(), rlog);
-
-      ctx.emitActivityState(
-        "thinking",
-        "context_compacting",
-        "assistant_turn",
-        reqId,
-        "Compacting context",
-      );
-      let midLoopCompact: Awaited<
-        ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-      >;
-      try {
-        midLoopCompact = (await runPipeline<CompactionArgs, CompactionResult>(
-          "compaction",
-          getMiddlewaresFor("compaction"),
-          (args) =>
-            defaultCompactionTerminal(args, buildPluginTurnContext(ctx, reqId)),
-          {
-            messages: ctx.messages,
-            signal: abortController.signal,
-            options: {
-              lastCompactedAt: ctx.contextCompactedAt ?? undefined,
-              force: true,
-              targetInputTokensOverride:
-                resolveCurrentContextBudget().preflightBudget,
-              conversationOriginChannel:
-                getConversationOriginChannel(ctx.conversationId) ?? undefined,
-              overrideProfile: resolveCurrentOverrideProfile() ?? null,
-            },
-          },
-          buildPluginTurnContext(ctx, reqId),
-          DEFAULT_TIMEOUTS.compaction,
-        )) as Awaited<ReturnType<typeof ctx.contextWindowManager.maybeCompact>>;
-      } catch (err) {
-        if (err instanceof PluginTimeoutError) {
-          // Mid-loop compaction timed out. Record the failure for the
-          // circuit breaker and escalate to the convergence loop's more
-          // aggressive reducer tiers (tool-result truncation, media
-          // stubbing, injection downgrade) by flipping the overflow flag
-          // and breaking out of the mid-loop retry. The existing
-          // "exhausted all attempts" block further down handles the
-          // escalation.
-          rlog.warn(
-            { err, phase: "mid-loop-compact" },
-            "Compaction pipeline timed out — escalating to convergence loop",
-          );
-          await trackCompactionOutcome(ctx, true, onEvent);
-          state.contextTooLargeDetected = true;
-          break;
-        }
-        throw err;
-      }
-      // `force: true` bypasses the cooldown/threshold gates but early returns
-      // for "no eligible messages" / "insufficient messages" still leave
-      // `summaryFailed` undefined. Only track when the summary LLM actually ran.
-      if (midLoopCompact.summaryFailed !== undefined) {
-        await trackCompactionOutcome(
-          ctx,
-          midLoopCompact.summaryFailed,
-          onEvent,
-        );
-      }
-      if (midLoopCompact.compacted) {
-        await applySuccessfulCompaction(midLoopCompact, rawHistory);
-        reducerCompacted = true;
-        shouldInjectWorkspace = true;
-      }
-
-      // Re-inject runtime context and re-enter the agent loop.
-      // stripInjectionsForCompaction() unconditionally removed the existing
-      // NOW.md block from ctx.messages above, so we must always re-inject
-      // the current content regardless of whether compaction actually ran.
-      const injection = await applyRuntimeInjections(ctx.messages, {
-        ...injectionOpts,
-        pkbContext: currentPkbContent,
-        memoryV2Static: currentMemoryV2Static,
-        nowScratchpad: currentNowContent,
-        workspaceTopLevelContext: shouldInjectWorkspace
-          ? ctx.workspaceTopLevelContext
-          : null,
-        // Suppress the chronological-transcript snapshot once the reducer
-        // has collapsed `ctx.messages`; the captured snapshot reflects the
-        // full persisted transcript and would overwrite compaction.
-        slackChronologicalMessages: reducerCompacted
-          ? null
-          : injectionOpts.slackChronologicalMessages,
-        mode: currentInjectionMode,
-        turnContext: buildPluginTurnContext(ctx, reqId),
-      });
-      runMessages = injection.messages;
-      if (isTrustedActor && currentInjectionMode !== "minimal") {
-        ctx.graphMemory.retrackCachedNodes();
-      }
-      const midLoopCompactStrip = stripHistoricalWebSearchResults(runMessages);
-      if (midLoopCompactStrip.stats.blocksStripped > 0) {
-        rlog.info(
-          { phase: "mid-loop-compact", ...midLoopCompactStrip.stats },
-          "Converted historical web_search_tool_result blocks to text summaries",
-        );
-        runMessages = midLoopCompactStrip.messages;
-      }
-      preRepairMessages = runMessages;
-      preRunHistoryLength = runMessages.length;
-
-      updatedHistory = await ctx.agentLoop.run(
-        runMessages,
-        eventHandler,
-        abortController.signal,
-        reqId,
-        onCheckpoint,
-        turnCallSite,
-        loopTurnCtx,
-        turnOverrideProfile,
-        resolveCurrentMaxInputTokens(),
-        resolveCurrentOverrideProfile,
-        resolveCurrentMaxInputTokens,
-      );
-    }
-
-    // If mid-loop compaction exhausted all attempts but the agent loop
-    // still yielded (yieldedForBudget is true), the turn is incomplete.
-    // Escalate to the convergence loop's more aggressive reducer tiers
-    // (tool-result truncation, media stubbing, injection downgrade)
-    // instead of silently treating an incomplete turn as done.
+    // The loop compacts in place when its budget gate trips and only yields
+    // `exitReason = "budget"` when that inline compaction timed out or
+    // exhausted its retry budget (the `reinject` hook has already restored
+    // runtime context for the productive case). Escalate to the convergence
+    // loop's more aggressive reducer tiers so a half-finished turn doesn't
+    // reach the user.
     if (yieldedForBudget && !abortController.signal.aborted) {
       rlog.warn(
-        {
-          phase: "mid-loop-compact",
-          midLoopCompactAttempts,
-          maxAttempts:
-            resolveCurrentContextBudget().overflowRecovery.maxAttempts,
-        },
-        "Mid-loop compaction exhausted all attempts — escalating to convergence loop",
+        { phase: "mid-loop-compact" },
+        "Inline compaction could not get under budget — escalating to convergence loop",
       );
       state.contextTooLargeDetected = true;
     }
@@ -2496,19 +2492,7 @@ export async function runAgentLoopImpl(
       state.orderingErrorDetected = false;
       state.deferredOrderingError = null;
 
-      updatedHistory = await ctx.agentLoop.run(
-        runMessages,
-        eventHandler,
-        abortController.signal,
-        reqId,
-        onCheckpoint,
-        turnCallSite,
-        loopTurnCtx,
-        turnOverrideProfile,
-        resolveCurrentMaxInputTokens(),
-        resolveCurrentOverrideProfile,
-        resolveCurrentMaxInputTokens,
-      );
+      updatedHistory = await runAgentLoop(runMessages);
 
       if (state.orderingErrorDetected) {
         rlog.error(
@@ -2567,19 +2551,7 @@ export async function runAgentLoopImpl(
         };
       });
       runMessages = ctx.messages;
-      updatedHistory = await ctx.agentLoop.run(
-        runMessages,
-        eventHandler,
-        abortController.signal,
-        reqId,
-        onCheckpoint,
-        turnCallSite,
-        loopTurnCtx,
-        turnOverrideProfile,
-        resolveCurrentMaxInputTokens(),
-        resolveCurrentOverrideProfile,
-        resolveCurrentMaxInputTokens,
-      );
+      updatedHistory = await runAgentLoop(runMessages);
       if (state.imageTooLargeDetected) {
         rlog.error(
           { phase: "image-recovery" },
@@ -2827,19 +2799,7 @@ export async function runAgentLoopImpl(
         state.contextTooLargeDetected = false;
         yieldedForBudget = false;
 
-        updatedHistory = await ctx.agentLoop.run(
-          runMessages,
-          eventHandler,
-          abortController.signal,
-          reqId,
-          onCheckpoint,
-          turnCallSite,
-          loopTurnCtx,
-          turnOverrideProfile,
-          resolveCurrentMaxInputTokens(),
-          resolveCurrentOverrideProfile,
-          resolveCurrentMaxInputTokens,
-        );
+        updatedHistory = await runAgentLoop(runMessages);
 
         // If the rerun still yields at checkpoint, the turn is still
         // incomplete — continue reducing through the remaining tiers
@@ -2983,19 +2943,7 @@ export async function runAgentLoopImpl(
           preRunHistoryLength = runMessages.length;
           state.contextTooLargeDetected = false;
 
-          updatedHistory = await ctx.agentLoop.run(
-            runMessages,
-            eventHandler,
-            abortController.signal,
-            reqId,
-            onCheckpoint,
-            turnCallSite,
-            loopTurnCtx,
-            turnOverrideProfile,
-            resolveCurrentMaxInputTokens(),
-            resolveCurrentOverrideProfile,
-            resolveCurrentMaxInputTokens,
-          );
+          updatedHistory = await runAgentLoop(runMessages);
         }
         // action === "fail_gracefully" falls through to the final error below
       }
@@ -3220,6 +3168,34 @@ export async function runAgentLoopImpl(
       !abortController.signal.aborted &&
       !yieldedForHandoff
     ) {
+      // Drop any reservation stranded by the failed LLM call before
+      // inserting the synthetic error message. The B3 pre-allocation
+      // path reserves an empty assistant row at `llm_call_started`;
+      // when the call exits through the provider-error branch (no
+      // `message_complete`), `assistantRowAwaitingFinalization` stays
+      // true. Without this delete the transcript would carry both the
+      // empty reserved row AND the error message — and downstream sync
+      // (`syncLastAssistantMessageToDisk`) would mis-target the empty
+      // row. After delete we set `lastAssistantMessageId` to the new
+      // error row's id so the post-loop emission paths still point at
+      // a real message.
+      if (
+        state.assistantRowAwaitingFinalization &&
+        state.lastAssistantMessageId
+      ) {
+        // Direct `deleteMessageById` (not via the `persistence` pipeline):
+        // see the same rationale on the matching cleanup in
+        // `handleLlmCallStarted` — an unfinalized reservation has no
+        // observable history for plugins.
+        try {
+          deleteMessageById(state.lastAssistantMessageId);
+        } catch (err) {
+          rlog.warn(
+            { err, messageId: state.lastAssistantMessageId },
+            "Failed to clean up stranded reserved assistant row on provider-error path (non-fatal)",
+          );
+        }
+      }
       const errChannelMeta = {
         ...provenanceFromTrustContext(ctx.trustContext),
         userMessageChannel: capturedTurnChannelContext.userMessageChannel,
@@ -3247,6 +3223,15 @@ export async function runAgentLoopImpl(
         DEFAULT_TIMEOUTS.persistence,
       )) as PersistAddResult;
       persistedErrorAssistantMessage = true;
+      // Repoint `lastAssistantMessageId` at the synthetic error row so the
+      // post-loop sync, attachment resolution, and `message_complete`/
+      // `generation_handoff` emissions all reference a real, persisted
+      // message id. The previous reservation (if any) was already deleted
+      // above. Mark finalization complete so the next LLM call in this run
+      // (or a downstream handler) doesn't try to clean up an id that
+      // already corresponds to a finalized row.
+      state.lastAssistantMessageId = errorPersistResult.message.id;
+      state.assistantRowAwaitingFinalization = false;
       newMessages.push(errorAssistantMessage);
       // Pipe the just-assigned message id into any orphaned LLM request log
       // row(s) for this turn. The success path links rows via
@@ -3512,10 +3497,7 @@ export async function runAgentLoopImpl(
           });
           onEvent({
             type: "sync_changed",
-            tags: [
-              SYNC_TAGS.conversationsList,
-              conversationMetadataSyncTag(ctx.conversationId),
-            ],
+            tags: [conversationMetadataSyncTag(ctx.conversationId)],
           });
         },
         signal: abortController.signal,

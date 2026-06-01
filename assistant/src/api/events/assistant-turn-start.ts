@@ -20,13 +20,11 @@
 
 import { z } from "zod";
 
-export const AssistantTurnStartEventSchema = z
-  .object({
-    type: z.literal("assistant_turn_start"),
-    messageId: z.string(),
-    conversationId: z.string().optional(),
-  })
-  .strict();
+export const AssistantTurnStartEventSchema = z.object({
+  type: z.literal("assistant_turn_start"),
+  messageId: z.string(),
+  conversationId: z.string().optional(),
+});
 
 export type AssistantTurnStartEvent = z.infer<
   typeof AssistantTurnStartEventSchema

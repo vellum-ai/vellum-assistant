@@ -30,25 +30,26 @@ import {
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
 import { resolveEditChatDraftConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
+import { recordDiagnostic } from "@/lib/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
-import { isSending, useTurnStore } from "@/domains/messaging/turn-store";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
+import { endTurn } from "@/domains/chat/turn-coordinator";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import {
   findConversation,
   prependConversation,
   removeConversation,
   resolveDraftKey,
 } from "@/domains/conversations/conversation-queries";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 import {
   consumePendingPreChatContext,
   type PreChatOnboardingContext,
 } from "@/domains/onboarding/prechat";
 
 import { clearQueueStatus } from "@/domains/chat/hooks/stream-message-updaters";
-import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat-utils";
+import { attachConfirmationToToolCall } from "@/domains/chat/utils/chat";
 import type { ChatError } from "@/domains/chat/types";
 
 import {
@@ -65,7 +66,7 @@ import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
 
 // Re-export pure utilities so existing consumers don't break.
@@ -119,7 +120,6 @@ interface UseSendMessageParams {
 
   // Refs
   assistantIdRef: MutableRefObject<string | null>;
-  activeConversationIdRef: MutableRefObject<string | null>;
 
   messagesRef: MutableRefObject<DisplayMessage[]>;
   streamRef: MutableRefObject<ChatEventStream | null>;
@@ -162,7 +162,6 @@ export function useSendMessage({
   diskPressureChatBlockReason,
   messages,
   assistantIdRef,
-  activeConversationIdRef,
   messagesRef,
   streamRef,
   streamContextRef,
@@ -266,7 +265,7 @@ export function useSendMessage({
       const isCurrentSendScope = (resolvedConversationId?: string | null) =>
         isAsyncChatScopeCurrent({
           currentAssistantId: assistantIdRef.current,
-          currentConversationId: activeConversationIdRef.current,
+          currentConversationId: useConversationStore.getState().activeConversationId,
           requestAssistantId,
           requestConversationId,
           resolvedConversationId,
@@ -310,11 +309,11 @@ export function useSendMessage({
       }
       if (!postResult.ok) {
         if (!isCurrentSendScope()) {
-          recordChatDiagnostic("send_error_ignored_inactive_conversation", {
+          recordDiagnostic("send_error_ignored_inactive_conversation", {
             assistantId: requestAssistantId,
             conversationId: requestConversationId,
             activeAssistantId: assistantIdRef.current,
-            activeConversationId: activeConversationIdRef.current,
+            activeConversationId: useConversationStore.getState().activeConversationId,
           });
           return { status: "ignored" };
         }
@@ -323,7 +322,7 @@ export function useSendMessage({
           postResult.error.detail,
           "Something went wrong. Please try again.",
         );
-        useTurnStore.getState().onStreamError();
+        endTurn({ conversationId: requestConversationId, reason: "error" });
         return {
           status: "failed",
           error: {
@@ -352,12 +351,12 @@ export function useSendMessage({
       const effectiveConversationId = postResult.conversationId;
 
       if (!isCurrentSendScope(effectiveConversationId)) {
-        recordChatDiagnostic("send_result_ignored_inactive_conversation", {
+        recordDiagnostic("send_result_ignored_inactive_conversation", {
           assistantId: postResult.assistantId,
           conversationId: requestConversationId,
           resolvedConversationId: effectiveConversationId,
           activeAssistantId: assistantIdRef.current,
-          activeConversationId: activeConversationIdRef.current,
+          activeConversationId: useConversationStore.getState().activeConversationId,
         });
         return {
           status: "ok",
@@ -393,12 +392,12 @@ export function useSendMessage({
       pollForResponse(postResult.assistantId, postResult.messageId, effectiveConversationId)
         .then(async (reply) => {
           if (!isCurrentSendScope(effectiveConversationId)) {
-            recordChatDiagnostic("poll_response_ignored_inactive_conversation", {
+            recordDiagnostic("poll_response_ignored_inactive_conversation", {
               assistantId: postResult.assistantId,
               conversationId: requestConversationId,
               resolvedConversationId: effectiveConversationId,
               activeAssistantId: assistantIdRef.current,
-              activeConversationId: activeConversationIdRef.current,
+              activeConversationId: useConversationStore.getState().activeConversationId,
             });
             return;
           }
@@ -486,7 +485,14 @@ export function useSendMessage({
         })
         .finally(() => {
           if (!isCurrentSendScope(effectiveConversationId)) return;
-          useTurnStore.getState().onPollReconciled(turnId);
+          // Defense-in-depth: settle the turn if SSE didn't already.
+          // `onPollReconciled` no-ops when the turn is already idle, so
+          // this is safe to call alongside the SSE terminal handlers.
+          endTurn({
+            conversationId: effectiveConversationId,
+            reason: "rescued",
+            rescuedTurnId: turnId,
+          });
         });
 
       return {
@@ -719,7 +725,7 @@ export function useSendMessage({
           resolveEditChatDraftConversationId(activeConversationId, newConversationId);
 
           // Only update active view state if the user is still on this conversation.
-          if (activeConversationIdRef.current === activeConversationId) {
+          if (useConversationStore.getState().activeConversationId === activeConversationId) {
             draftConversationIdResolutionRef.current = true;
             previousConversationIdRef.current = newConversationId;
             useConversationStore.getState().setActiveConversationId(newConversationId);
@@ -733,6 +739,11 @@ export function useSendMessage({
           tags: { context: "send_chat_message" },
         });
         setError({ message: "Something went wrong. Please try again." });
+        // Multi-key processing-key cleanup: when a send is retargeted
+        // (e.g. draft → new conversation), both the original active key
+        // and the resolved key may have processing markers. `endTurn`
+        // covers the single-conversation pairing; this catch-all clears
+        // every key the send touched and fires `onStreamError` once.
         useTurnStore.getState().onStreamError();
         const keysToClean = [activeConversationId, resolvedId].filter(Boolean) as string[];
         if (keysToClean.length > 0) {
@@ -761,12 +772,11 @@ export function useSendMessage({
   const handleStopGenerating = useCallback(async () => {
     if (!assistantId || !activeConversationId) return;
     streamEpochRef.current++;
-    useTurnStore.getState().cancelGeneration();
+    endTurn({ conversationId: activeConversationId, reason: "cancelled" });
     setMessages(stopStreamingAndClearConfirmations);
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
     confirmationToolCallMapRef.current.clear();
-    useConversationStore.getState().removeProcessingConversationId(activeConversationId);
     try {
       await conversationsByIdCancelPost({
         path: { assistant_id: assistantId, id: activeConversationId },

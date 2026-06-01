@@ -5,7 +5,6 @@ import { makeAuthenticatedRequestTool } from "../tools/credential-execution/make
 import { manageSecureCommandTool } from "../tools/credential-execution/manage-secure-command-tool.js";
 import { runAuthenticatedCommandTool } from "../tools/credential-execution/run-authenticated-command.js";
 import { cesTools, getCesToolsIfEnabled } from "../tools/tool-manifest.js";
-import type { Tool } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Schema shape tests
@@ -79,7 +78,7 @@ describe("CES tool schema shapes", () => {
 describe("CES tool manifest registration", () => {
   test("cesTools contains exactly three CES tools", () => {
     expect(cesTools).toHaveLength(3);
-    const names = cesTools.map((t: Tool) => t.name);
+    const names = cesTools.map((t) => t.name);
     expect(names).toContain("make_authenticated_request");
     expect(names).toContain("run_authenticated_command");
     expect(names).toContain("manage_secure_command_tool");

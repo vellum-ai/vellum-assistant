@@ -62,22 +62,13 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext & {
     isProcessing: () => false,
     enqueueMessage: () => ({ queued: false, requestId: "req-1" }),
     getQueueDepth: () => 0,
-    processMessage: async (
-      content: string,
-      attachments: UserMessageAttachment[],
-      _onEvent: (msg: ServerMessage) => void,
-      requestId?: string,
-      activeSurfaceId?: string,
-      _currentPage?: string,
-      _options?: { isInteractive?: boolean },
-      displayContent?: string,
-    ) => {
+    processMessage: async (options) => {
       processMessageCalls.push({
-        content,
-        attachments,
-        requestId,
-        activeSurfaceId,
-        displayContent,
+        content: options.content,
+        attachments: options.attachments,
+        requestId: options.requestId,
+        activeSurfaceId: options.activeSurfaceId,
+        displayContent: options.displayContent,
       });
       return "msg-1";
     },
@@ -180,6 +171,52 @@ describe("surface action delivery to assistant", () => {
     expect(ctx.processMessageCalls[0].content).toContain(
       "[User action on table surface:",
     );
+  });
+
+  test("history-restored relay action uses stored prompt data and can complete the surface", async () => {
+    const ctx = makeContext();
+    const surfaceId = "max-token-surface";
+    ctx.surfaceState.set(surfaceId, {
+      surfaceType: "card",
+      data: {
+        title: "Response limit reached",
+        body: "Continue from where the assistant stopped.",
+      },
+      actions: [
+        {
+          id: "relay_prompt",
+          label: "Continue",
+          style: "primary",
+          data: {
+            prompt: "Continue from where you stopped.",
+            _completeSurface: true,
+            _completionSummary: "Continue",
+          },
+        },
+      ],
+    });
+
+    await handleSurfaceAction(ctx, surfaceId, "relay_prompt");
+
+    expect(ctx.processMessageCalls).toHaveLength(1);
+    expect(ctx.processMessageCalls[0]!.content).toBe(
+      "Continue from where you stopped.",
+    );
+    expect(
+      broadcastedMessages.some(
+        (msg) =>
+          msg.type === "ui_surface_complete" &&
+          msg.surfaceId === surfaceId &&
+          msg.summary === "Continue",
+      ),
+    ).toBe(true);
+    expect(
+      broadcastedMessages.some(
+        (msg) =>
+          msg.type === "user_message_echo" &&
+          msg.text === "Continue from where you stopped.",
+      ),
+    ).toBe(true);
   });
 
   test("action on history-restored surface (no pending) still processes", async () => {

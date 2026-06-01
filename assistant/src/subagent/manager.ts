@@ -436,7 +436,9 @@ export class SubagentManager {
             "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯",
           ].join("\n")
         : objective;
-      const messageId = await conversation.persistUserMessage(message, []);
+      const { id: messageId } = await conversation.persistUserMessage({
+        content: message,
+      });
       await conversation.runAgentLoop(message, messageId, undefined, {
         callSite: "subagentSpawn",
         ...(managed.state.config.overrideProfile
@@ -610,7 +612,7 @@ export class SubagentManager {
       return "terminal";
 
     // If the conversation is busy, queue the message; otherwise process immediately.
-    const result = managed.conversation.enqueueMessage(trimmed, []);
+    const result = managed.conversation.enqueueMessage({ content: trimmed });
     if (result.rejected) {
       return "sent"; // error event already delivered via sendToClient
     }
@@ -621,7 +623,9 @@ export class SubagentManager {
       // Capture conversation before the await — managed.conversation may be
       // nulled by an external dispose() while persistUserMessage is awaited.
       const conversation = managed.conversation;
-      const messageId = await conversation.persistUserMessage(trimmed, []);
+      const { id: messageId } = await conversation.persistUserMessage({
+        content: trimmed,
+      });
       conversation
         .runAgentLoop(trimmed, messageId, undefined, {
           callSite: "subagentSpawn",
@@ -985,19 +989,14 @@ export class SubagentManager {
       );
       return;
     }
-    const enqueueResult = parentConversation.enqueueMessage(
-      message,
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
+    const enqueueResult = parentConversation.enqueueMessage({
+      content: message,
       metadata,
-    );
+    });
     if (!enqueueResult.queued && !enqueueResult.rejected) {
       parentConversation
-        .persistUserMessage(message, [], undefined, metadata)
-        .then((messageId) =>
+        .persistUserMessage({ content: message, metadata })
+        .then(({ id: messageId }) =>
           parentConversation.runAgentLoop(message, messageId),
         )
         .catch((err) => {

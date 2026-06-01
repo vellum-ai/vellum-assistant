@@ -154,13 +154,9 @@ function makeIdleSession(opts?: {
   let processing = false;
   return {
     isProcessing: () => processing,
-    persistUserMessage: (
-      _content: string,
-      _attachments: unknown[],
-      requestId?: string,
-    ) => {
+    persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
-      return requestId ?? "msg-1";
+      return { id: options.requestId ?? "msg-1", deduplicated: false };
     },
     memoryPolicy: {
       scopeId: "default",
@@ -223,13 +219,9 @@ function makeConfirmationEmittingSession(opts?: {
   const tool = opts?.toolName ?? "shell_command";
   return {
     isProcessing: () => processing,
-    persistUserMessage: (
-      _content: string,
-      _attachments: unknown[],
-      requestId?: string,
-    ) => {
+    persistUserMessage: (options: { requestId?: string }) => {
       processing = true;
-      return requestId ?? "msg-1";
+      return { id: options.requestId ?? "msg-1", deduplicated: false };
     },
     memoryPolicy: {
       scopeId: "default",
@@ -266,7 +258,11 @@ function makeConfirmationEmittingSession(opts?: {
           input: { command: "ls" },
           riskLevel: "medium",
           allowlistOptions: [
-            { label: "Allow ls", description: "Allow ls command", pattern: "ls" },
+            {
+              label: "Allow ls",
+              description: "Allow ls command",
+              pattern: "ls",
+            },
           ],
           scopeOptions: [{ label: "This conversation", scope: "session" }],
           persistentDecisionsAllowed: true,

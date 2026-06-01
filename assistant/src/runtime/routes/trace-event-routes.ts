@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { getTraceEvents } from "../../memory/trace-event-store.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -44,6 +45,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "trace_events_list",
     endpoint: "trace-events",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List trace events",
     description: "Return persisted trace events for a conversation.",
     tags: ["trace"],

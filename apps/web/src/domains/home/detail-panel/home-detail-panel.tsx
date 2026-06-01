@@ -9,7 +9,8 @@ import {
   X,
 } from "lucide-react";
 
-import { Button, Menu, Typography } from "@vellum/design-library";
+import { Button, Menu, Tag, Typography } from "@vellum/design-library";
+import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
 import { CATEGORY_STYLES } from "../home-feed-filter-bar";
 import { HomeGenericDetail } from "./home-generic-detail";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
@@ -63,6 +64,7 @@ export function HomeDetailPanel({
             iconOnly={<ArrowLeft />}
             onClick={onClose}
             aria-label="Back"
+            tooltip="Back"
           />
 
           <Typography
@@ -79,6 +81,7 @@ export function HomeDetailPanel({
               onUpdateStatus(item.id, isUnread ? "seen" : "new")
             }
             aria-label={isUnread ? "Mark as read" : "Mark as unread"}
+            tooltip={isUnread ? "Mark as read" : "Mark as unread"}
           />
           {isDismissed ? (
             <Button
@@ -86,6 +89,7 @@ export function HomeDetailPanel({
               iconOnly={<RotateCcw />}
               onClick={() => onUpdateStatus(item.id, "seen")}
               aria-label="Restore"
+              tooltip="Restore"
             />
           ) : (
             <Button
@@ -93,14 +97,15 @@ export function HomeDetailPanel({
               iconOnly={<Trash2 />}
               onClick={() => onDismiss(item.id)}
               aria-label="Dismiss"
+              tooltip="Dismiss"
             />
           )}
         </div>
 
         {/* Detail header */}
-        <div className="flex items-start justify-center gap-3 px-4 py-3">
+        <div className="flex items-center gap-3 px-4 py-3">
           <span
-            className="mt-0.5 flex shrink-0 items-center justify-center rounded-full"
+            className="flex shrink-0 items-center justify-center rounded-full"
             style={{
               width: 40,
               height: 40,
@@ -120,6 +125,9 @@ export function HomeDetailPanel({
           >
             {item.title ?? item.summary}
           </Typography>
+          <Tag tone="neutral" className="shrink-0" title={formatFullLocalDate(item.timestamp)}>
+            {formatRelativeDate(item.timestamp)}
+          </Tag>
         </div>
 
         {/* Divider */}
@@ -177,6 +185,10 @@ export function HomeDetailPanel({
           {item.title ?? item.summary}
         </Typography>
 
+        <Tag tone="neutral" className="shrink-0" title={formatFullLocalDate(item.timestamp)}>
+          {formatRelativeDate(item.timestamp)}
+        </Tag>
+
         {hasValidConversation ? (
           <Button
             variant="outlined"
@@ -195,6 +207,7 @@ export function HomeDetailPanel({
               size="compact"
               iconOnly={<MoreVertical />}
               aria-label="More actions"
+              tooltip="More actions"
             />
           </Menu.Trigger>
           <Menu.Content align="end">
@@ -238,6 +251,7 @@ export function HomeDetailPanel({
           iconOnly={<X />}
           onClick={onClose}
           aria-label="Close detail panel"
+          tooltip="Close"
         />
       </div>
 

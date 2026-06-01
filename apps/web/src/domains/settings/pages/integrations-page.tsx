@@ -22,15 +22,15 @@ import {
   fetchOAuthProviders,
   type OAuthProviderSummary,
 } from "@/domains/settings/api/oauth-providers";
-import { reportError } from "@/lib/errors/report";
+import { reportError } from "@/utils/error-report";
 import { routes } from "@/utils/routes";
 
 import {
   getLocalSetting,
   setLocalSetting,
-} from "@/lib/local-settings";
+} from "@/utils/local-settings";
 
-const BANNER_STORAGE_KEY = "integrations.bannerDismissed";
+const BANNER_STORAGE_KEY = "vellum:integrations:bannerDismissed";
 
 type IntegrationFilter = "all" | "enabled" | "not-enabled";
 

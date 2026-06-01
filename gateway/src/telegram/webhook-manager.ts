@@ -2,6 +2,7 @@ import type { CredentialCache } from "../credential-cache.js";
 import type { ConfigFileCache } from "../config-file-cache.js";
 import { credentialKey } from "../credential-key.js";
 import { fetchImpl } from "../fetch.js";
+import { arePlatformFeaturesEnabled } from "../feature-flag-resolver.js";
 import { callTelegramApi } from "./api.js";
 import { getLogger } from "../logger.js";
 
@@ -31,6 +32,13 @@ interface PlatformCallbackRouteResponse {
 async function registerManagedTelegramCallbackRoute(
   caches?: WebhookManagerCaches,
 ): Promise<string | undefined> {
+  if (!arePlatformFeaturesEnabled()) {
+    log.debug(
+      "platform-features-in-local-mode is disabled — skipping managed Telegram callback registration",
+    );
+    return undefined;
+  }
+
   const [platformBaseUrlRaw, assistantApiKeyRaw, assistantIdRaw] =
     caches?.credentials
       ? await Promise.all([

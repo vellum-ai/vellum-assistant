@@ -13,7 +13,7 @@ import {
   assistantsListQueryKey,
   organizationsBillingSubscriptionOnboardingDomainCreateMutation,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { useEnvironmentStore } from "@/lib/environment/environment-store";
+import { useEnvironmentStore } from "@/stores/environment-store";
 
 import { DomainField } from "@/domains/settings/components/domain-field";
 import { IconBadge, StepDots } from "./primitives";
@@ -181,7 +181,7 @@ export function DomainStep({ onBack, onExit }: { onBack: () => void; onExit: () 
           Back
         </Button>
         <div className="pointer-events-none absolute inset-x-0 flex justify-center">
-          <StepDots current={1} />
+          <StepDots current={0} />
         </div>
         <div className="flex items-center gap-2">
           {isLocked ? (

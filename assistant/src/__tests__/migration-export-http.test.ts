@@ -500,10 +500,10 @@ describe("export config sanitization", () => {
 
 describe("route policy registration", () => {
   test("migrations/export policy requires settings.write scope", async () => {
-    const { getPolicy } = await import("../runtime/auth/route-policy.js");
-    const policy = getPolicy("migrations/export");
+    const { ROUTES } = await import("../runtime/routes/index.js");
+    const policy = (ROUTES.find((r) => r.endpoint === "migrations/export")?.policy ?? null);
 
-    expect(policy).toBeDefined();
+    expect(policy).not.toBeNull();
     expect(policy?.requiredScopes).toContain("settings.write");
     expect(policy?.allowedPrincipalTypes).toContain("actor");
     expect(policy?.allowedPrincipalTypes).toContain("svc_gateway");
@@ -511,10 +511,10 @@ describe("route policy registration", () => {
   });
 
   test("migrations/validate policy is still registered", async () => {
-    const { getPolicy } = await import("../runtime/auth/route-policy.js");
-    const policy = getPolicy("migrations/validate");
+    const { ROUTES } = await import("../runtime/routes/index.js");
+    const policy = (ROUTES.find((r) => r.endpoint === "migrations/validate")?.policy ?? null);
 
-    expect(policy).toBeDefined();
+    expect(policy).not.toBeNull();
     expect(policy?.requiredScopes).toContain("settings.read");
   });
 });
@@ -525,10 +525,10 @@ describe("route policy registration", () => {
 
 describe("auth policy shape", () => {
   test("export policy requires settings.write and would deny without it", async () => {
-    const { getPolicy } = await import("../runtime/auth/route-policy.js");
-    const policy = getPolicy("migrations/export");
+    const { ROUTES } = await import("../runtime/routes/index.js");
+    const policy = (ROUTES.find((r) => r.endpoint === "migrations/export")?.policy ?? null);
 
-    expect(policy).toBeDefined();
+    expect(policy).not.toBeNull();
     // Verify the policy shape means a caller without settings.write would be denied
     expect(policy!.requiredScopes).toEqual(["settings.write"]);
     // Verify only the expected principal types are allowed
@@ -539,9 +539,9 @@ describe("auth policy shape", () => {
   });
 
   test("export policy differs from validate policy on scopes (validate is read-only)", async () => {
-    const { getPolicy } = await import("../runtime/auth/route-policy.js");
-    const exportPolicy = getPolicy("migrations/export");
-    const validatePolicy = getPolicy("migrations/validate");
+    const { ROUTES } = await import("../runtime/routes/index.js");
+    const exportPolicy = (ROUTES.find((r) => r.endpoint === "migrations/export")?.policy ?? null);
+    const validatePolicy = (ROUTES.find((r) => r.endpoint === "migrations/validate")?.policy ?? null);
 
     // validate is read-only so requires settings.read; export requires settings.write
     expect(exportPolicy!.requiredScopes).toEqual(["settings.write"]);

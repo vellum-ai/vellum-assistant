@@ -24,6 +24,7 @@ import { getConversationByKey } from "../../memory/conversation-key-store.js";
 import { getAllToolDefinitions } from "../../tools/registry.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspacePromptPath } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { runBtwSidechain } from "../btw-sidechain.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
 import { getCachedIntro, setCachedIntro } from "./identity-intro-cache.js";
@@ -179,7 +180,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "runBtwSidechain",
     endpoint: "btw",
     method: "POST",
-    policyKey: "btw",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Run ephemeral LLM side-chain",
     description:
       "Stream an ephemeral LLM call reusing the conversation's provider and message history. Response is SSE (btw_text_delta, btw_complete, btw_error).",

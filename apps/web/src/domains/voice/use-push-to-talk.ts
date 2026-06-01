@@ -8,6 +8,7 @@ import {
   parseActivator,
   type PTTActivator,
 } from "@/utils/ptt-activator";
+import { getLocalSetting } from "@/utils/local-settings";
 
 /**
  * Imperative handle (subset of `VoiceInputButtonHandle`) that the hook drives.
@@ -119,13 +120,8 @@ export function usePushToTalk(
     }
 
     const readActivator = () => {
-      try {
-        activatorRef.current = parseActivator(
-          window.localStorage.getItem(LS_PTT_ACTIVATION_KEY),
-        );
-      } catch {
-        activatorRef.current = { kind: "off" };
-      }
+      const raw = getLocalSetting(LS_PTT_ACTIVATION_KEY, "");
+      activatorRef.current = raw ? parseActivator(raw) : { kind: "off" };
     };
     readActivator();
 

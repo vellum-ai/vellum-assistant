@@ -48,8 +48,10 @@ const addMessageMock = mock(
     conversationId: string,
     role: string,
     content: string,
-    _metadata?: Record<string, unknown>,
-    _opts?: { skipIndexing?: boolean },
+    _options?: {
+      metadata?: Record<string, unknown>;
+      skipIndexing?: boolean;
+    },
   ) => ({
     id: "xpost-msg-1",
     conversationId,
@@ -197,8 +199,10 @@ describe("messaging-send tool", () => {
       "bound-conv-99",
       "assistant",
       JSON.stringify([{ type: "text", text: "hello from A" }]),
-      { automated: true, crossPostedFrom: "conv-A" },
-      { skipIndexing: true },
+      {
+        metadata: { automated: true, crossPostedFrom: "conv-A" },
+        skipIndexing: true,
+      },
     );
     expect(syncMessageToDiskMock).toHaveBeenCalledWith(
       "bound-conv-99",

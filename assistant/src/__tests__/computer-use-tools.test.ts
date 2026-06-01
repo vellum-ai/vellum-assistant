@@ -23,7 +23,7 @@ interface JsonSchema {
 }
 
 /** Cast a tool definition's input_schema to a usable JSON Schema shape. */
-function schema(tool: { input_schema: object }): JsonSchema {
+function schema(tool: { input_schema?: object }): JsonSchema {
   return tool.input_schema as JsonSchema;
 }
 
@@ -53,7 +53,7 @@ describe("computer-use tool definitions", () => {
 
   test("all tools have descriptions", () => {
     for (const tool of allComputerUseTools) {
-      expect(tool.description.length).toBeGreaterThan(0);
+      expect(tool.description!.length).toBeGreaterThan(0);
     }
   });
 });

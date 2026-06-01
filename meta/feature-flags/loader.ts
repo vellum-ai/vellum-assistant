@@ -14,7 +14,7 @@ import { join } from 'path';
 // Types
 // ---------------------------------------------------------------------------
 
-export type FeatureFlagScope = 'assistant' | 'client';
+export type FeatureFlagScope = 'assistant' | 'client' | 'both';
 
 export interface FeatureFlagDefinition {
   id: string;
@@ -50,12 +50,12 @@ export async function loadFeatureFlagRegistry(): Promise<FeatureFlagRegistry> {
 // Scope filters
 // ---------------------------------------------------------------------------
 
-/** Return only flags with `scope === 'assistant'`. */
+/** Return flags consumed by the assistant backend (`scope === 'assistant'` or `'both'`). */
 export function getAssistantScopeFlags(registry: FeatureFlagRegistry): FeatureFlagDefinition[] {
-  return registry.flags.filter((f) => f.scope === 'assistant');
+  return registry.flags.filter((f) => f.scope === 'assistant' || f.scope === 'both');
 }
 
-/** Return only flags with `scope === 'client'`. */
+/** Return flags consumed by clients (`scope === 'client'` or `'both'`). */
 export function getClientScopeFlags(registry: FeatureFlagRegistry): FeatureFlagDefinition[] {
-  return registry.flags.filter((f) => f.scope === 'client');
+  return registry.flags.filter((f) => f.scope === 'client' || f.scope === 'both');
 }

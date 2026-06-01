@@ -82,6 +82,7 @@ const addMessageMock = mock(
     _metadata?: Record<string, unknown>,
   ) => ({
     id: role === "user" ? "persisted-user-id" : "persisted-assistant-id",
+    deduplicated: false,
   }),
 );
 
@@ -129,8 +130,10 @@ mock.module("../memory/conversation-crud.js", () => ({
     conversationId: string,
     role: string,
     content: string,
-    metadata?: Record<string, unknown>,
-  ) => addMessageMock(conversationId, role, content, metadata),
+    options?: { metadata?: Record<string, unknown> },
+  ) => addMessageMock(conversationId, role, content, options),
+  extractImageSourcePaths: () => undefined,
+  getConversation: () => null,
   getConversationOverrideProfile: () => "short-context",
   getMessages: () => [],
   provenanceFromTrustContext: (ctx: unknown) =>
@@ -140,6 +143,20 @@ mock.module("../memory/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+}));
+
+mock.module("../memory/conversation-disk-view.js", () => ({
+  syncMessageToDisk: () => {},
+  updateMetaFile: () => {},
+}));
+
+mock.module("../memory/attachments-store.js", () => ({
+  getAttachmentsByIds: () => [],
+  getSourcePathsForAttachments: () => new Map(),
+  attachmentExists: () => false,
+  linkAttachmentToMessage: () => {},
+  attachInlineAttachmentToMessage: () => {},
+  validateAttachmentUpload: () => ({ ok: true }),
 }));
 
 mock.module("../daemon/conversation-process.js", () => ({
@@ -209,8 +226,13 @@ const _testAuthContext: AuthContext = {
 
 function makeConversation() {
   const persistUserMessage = mock(
-    async (_content: string, _attachments: unknown[], _requestId?: string) =>
-      "persisted-user-id",
+    async (_options: {
+      content: string;
+      attachments?: unknown[];
+      requestId?: string;
+      metadata?: Record<string, unknown>;
+      clientMessageId?: string;
+    }) => ({ id: "persisted-user-id", deduplicated: false }),
   );
   const runAgentLoop = mock(
     async (
@@ -239,12 +261,20 @@ function makeConversation() {
   const events: unknown[] = [];
   const messages: unknown[] = [];
   const conversation = {
+    conversationId: "conv-slash-test",
+    messages,
+    processing: false,
+    abortController: null,
+    currentRequestId: undefined,
+    queue: { length: 0 },
     setTrustContext: () => {},
     updateClient: (_fn: unknown, _b: boolean) => {},
     emitConfirmationStateChanged: () => {},
     emitActivityState: () => {},
     setTurnChannelContext: () => {},
     setTurnInterfaceContext: () => {},
+    getTurnChannelContext: () => null,
+    getTurnInterfaceContext: () => null,
     ensureActorScopedHistory: async () => {},
     isProcessing: () => false,
     hasAnyPendingConfirmation: () => false,

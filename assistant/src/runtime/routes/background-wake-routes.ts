@@ -7,6 +7,7 @@ import {
 import type { BackgroundWakeRuntime } from "../../background-wake/runtime-registry.js";
 import { getBackgroundWakeRuntime } from "../../background-wake/runtime-registry.js";
 import { getLogger } from "../../util/logger.js";
+import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, ServiceUnavailableError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -309,7 +310,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getBackgroundWakeIntent",
     endpoint: "background-wake/intent",
     method: "GET",
-    policyKey: "background-wake",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Get background wake intent",
     description: "Return the current computed background wake intent.",
     tags: ["background-wake"],
@@ -322,7 +326,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "prepareBackgroundWakeSleep",
     endpoint: "background-wake/prepare-sleep",
     method: "POST",
-    policyKey: "background-wake",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Prepare for assistant sleep",
     description:
       "Return the current background wake intent and whether sleep should be deferred.",
@@ -337,7 +344,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "drainDueBackgroundWake",
     endpoint: "background-wake/drain-due",
     method: "POST",
-    policyKey: "background-wake",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Drain due background wake work",
     description:
       "Run due heartbeat and scheduler work for a background wake lease.",

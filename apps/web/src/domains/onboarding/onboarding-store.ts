@@ -15,9 +15,9 @@
  * |-------------------|-------------------------------|------------------------|
  * | `shareAnalytics`  | `device:share_analytics`      | privacy page (direct)  |
  * | `shareDiagnostics`| `device:share_diagnostics`    | privacy page + Sentry  |
- * | `tosAccepted`     | `onboarding.tosAccepted`      | onboarding pages       |
- * | `aiDataConsent`   | `onboarding.aiDataConsent`    | onboarding pages       |
- * | `completed`       | `onboarding.completed`        | onboarding + chat gate |
+ * | `tosAccepted`     | `vellum:onboarding:tosAccepted`  | onboarding pages       |
+ * | `aiDataConsent`   | `vellum:onboarding:aiDataConsent`| onboarding pages       |
+ * | `completed`       | `vellum:onboarding:completed`    | onboarding + chat gate |
  *
  * We deliberately do **not** use Zustand's `persist` middleware here.
  * `persist` writes the full state envelope on every update, which would
@@ -53,13 +53,13 @@ import {
   getLocalBool,
   setLocalBool,
   watchSetting,
-} from "@/lib/local-settings";
-import { deviceKey } from "@/lib/device-settings";
+} from "@/utils/local-settings";
+import { deviceKey } from "@/utils/device-settings";
 import {
   KEY_TOS_ACCEPTED,
   KEY_AI_DATA_CONSENT,
   KEY_COMPLETED,
-} from "@/lib/onboarding-cleanup";
+} from "@/utils/onboarding-cleanup";
 
 // ---------------------------------------------------------------------------
 // Storage keys — shared with other surfaces

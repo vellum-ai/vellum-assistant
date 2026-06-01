@@ -1,4 +1,4 @@
-import { publicAsset } from "@/lib/public-asset";
+import { publicAsset } from "@/utils/public-asset";
 
 /**
  * Decorative SVG footer pinned to the bottom of every onboarding screen.

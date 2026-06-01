@@ -9,8 +9,8 @@ import { RestartAssistant } from "@/domains/settings/components/restart-assistan
 import { RecoveryModeControls } from "@/domains/settings/components/recovery-mode-controls";
 import { type Assistant, getAssistant } from "@/assistant/api";
 import { useAuthStore } from "@/stores/auth-store";
-import { reportError } from "@/lib/errors/report";
-import { clearOnboardingFlags } from "@/lib/onboarding-cleanup";
+import { reportError } from "@/utils/error-report";
+import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import { routes } from "@/utils/routes";
 
 function isInternalUser(email: string | null, isAdmin: boolean): boolean {

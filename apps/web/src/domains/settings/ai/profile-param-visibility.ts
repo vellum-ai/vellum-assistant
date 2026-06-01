@@ -13,6 +13,9 @@ export interface ProfileParamVisibility {
   verbosity: boolean;
   temperature: boolean;
   thinking: boolean;
+  /** Gemini's reasoning-depth knob (`thinking.level`). Distinct from `thinking`
+   * (Anthropic/OpenRouter enable + stream toggles) — Gemini uses a level. */
+  thinkingLevel: boolean;
 }
 
 export const VISIBILITY_NONE: ProfileParamVisibility = {
@@ -23,6 +26,7 @@ export const VISIBILITY_NONE: ProfileParamVisibility = {
   verbosity: false,
   temperature: false,
   thinking: false,
+  thinkingLevel: false,
 };
 
 function isOpenAIGPT5Family(modelId: string): boolean {
@@ -42,6 +46,29 @@ function knownOpenRouterReasoningModel(modelId: string): boolean {
     modelId === "qwen/qwen3.5-397b-a17b" ||
     modelId === "moonshotai/kimi-k2.6"
   );
+}
+
+const GEMINI_THINKING_LEVELS_FULL = ["minimal", "low", "medium", "high"] as const;
+const GEMINI_THINKING_LEVELS_PRO = ["low", "medium", "high"] as const;
+
+/**
+ * Gemini 3.x Pro family accepts only low/medium/high (no "minimal") and cannot
+ * disable thinking. Mirrors the daemon's `isGeminiProModel` in
+ * `assistant/src/providers/gemini/client.ts`.
+ */
+function isGeminiProModel(modelId: string): boolean {
+  return /^gemini-3.*pro/.test(modelId);
+}
+
+/**
+ * Thinking levels selectable for a Gemini model, lowest → highest. Pro models
+ * omit "minimal". The daemon clamps anything below a model's floor, so this is
+ * a UX nicety rather than a correctness guarantee.
+ */
+export function geminiThinkingLevels(modelId: string): readonly string[] {
+  return isGeminiProModel(modelId.toLowerCase())
+    ? GEMINI_THINKING_LEVELS_PRO
+    : GEMINI_THINKING_LEVELS_FULL;
 }
 
 function modelSupportsThinking(provider: string, modelId: string): boolean {
@@ -102,5 +129,6 @@ export function resolveProfileParamVisibility(
     verbosity: providerId === "openai" && isOpenAIGPT5Family(modelId),
     temperature: usesAnthropicWire,
     thinking: (providerId === "anthropic" || providerId === "openrouter") && supportsThinkingResult,
+    thinkingLevel: providerId === "gemini" && supportsThinkingResult,
   };
 }

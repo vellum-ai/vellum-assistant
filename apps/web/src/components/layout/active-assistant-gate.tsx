@@ -1,55 +1,44 @@
 import { Loader2 } from "lucide-react";
-import { Outlet, useOutletContext } from "react-router";
+import { Outlet } from "react-router";
 
 import { Typography } from "@vellum/design-library";
 
-import {
-  useAssistantContext,
-  type AssistantContextValue,
-} from "@/components/layout/assistant-context";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 
 /**
- * Narrowed outlet context for routes mounted inside `ActiveAssistantGate`.
- * Guarantees `assistantId: string` (non-null) and that the daemon is
- * reachable (`assistantState.kind === "active"`).
- */
-export interface ActiveAssistantContextValue
-  extends Omit<AssistantContextValue, "assistantId"> {
-  assistantId: string;
-}
-
-/**
- * Layout route that defers rendering of its child `<Outlet />` until the
- * assistant lifecycle has resolved: `assistantId` is non-null AND
- * `assistantState.kind === "active"`. Until both are true a single
+ * Layout route that defers rendering of its child `<Outlet />` until
+ * the assistant lifecycle has resolved: the selection store has a
+ * non-null `activeAssistantId` AND the lifecycle store reports
+ * `assistantState.kind === "active"`. Until both are true a
  * placeholder is rendered.
  *
- * Without this gate, every route component that reads `assistantId` from
- * `useAssistantContext()` and feeds it to a `useQuery` (e.g. home, identity,
- * library, workspace, contacts) suffers a silent-degradation bug on cold
- * navigation: the query stays `enabled: false`, `isLoading` is false, and
- * the page renders its fully-empty fallback state instead of waiting.
+ * Without this gate, every route that reads `activeAssistantId` from
+ * the store and feeds it to a `useQuery` (e.g. home, identity,
+ * library, workspace, contacts, intelligence) suffers a
+ * silent-degradation bug on cold navigation: the query stays
+ * `enabled: false`, `isLoading` is false, and the page renders its
+ * fully-empty fallback state instead of waiting for the lifecycle to
+ * resolve.
  *
- * Inside this gate, child routes call `useActiveAssistantContext()`
- * instead of `useAssistantContext()` to read the narrowed context.
+ * Inside this gate, child routes use `useActiveAssistantId()` from
+ * `@/assistant/use-active-assistant-id` to read a non-null
+ * `assistantId: string`. Non-gated routes (`ChatPage`,
+ * `DocumentViewerPage`) intentionally render across pre-active
+ * lifecycle states and read `useAssistantSelectionStore.use.activeAssistantId()`
+ * directly, handling the null case themselves.
  */
 export function ActiveAssistantGate() {
-  const ctx = useAssistantContext();
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantStateKind = useAssistantLifecycleStore(
+    (s) => s.assistantState.kind,
+  );
 
-  if (!ctx.assistantId || ctx.assistantState.kind !== "active") {
+  if (!assistantId || assistantStateKind !== "active") {
     return <ActiveAssistantPlaceholder />;
   }
 
-  const activeCtx: ActiveAssistantContextValue = {
-    ...ctx,
-    assistantId: ctx.assistantId,
-  };
-
-  return <Outlet context={activeCtx} />;
-}
-
-export function useActiveAssistantContext(): ActiveAssistantContextValue {
-  return useOutletContext<ActiveAssistantContextValue>();
+  return <Outlet />;
 }
 
 function ActiveAssistantPlaceholder() {

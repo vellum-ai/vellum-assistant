@@ -48,11 +48,35 @@ export function buildFtsMatchQuery(
   return unique.map((token) => `"${token.replace(/"/g, '""')}"`).join(" ");
 }
 
+/**
+ * How {@link listConversations} (and friends) treats archived rows.
+ *
+ * - `"active"` — exclude rows with a non-null `archivedAt`. The default
+ *   for sidebar lists, restore, CLI pickers, and anything user-facing.
+ * - `"archived"` — return ONLY archived rows. Powers the Archive page
+ *   so it does not have to pull the entire conversation history and
+ *   filter client-side.
+ * - `"all"` — include both. Reserved for migrations and back-compat
+ *   call sites that genuinely want everything in one query.
+ */
+export type ArchiveStatusFilter = "active" | "archived" | "all";
+
+function archiveStatusClause(status: ArchiveStatusFilter) {
+  switch (status) {
+    case "active":
+      return sql`${conversations.archivedAt} IS NULL`;
+    case "archived":
+      return sql`${conversations.archivedAt} IS NOT NULL`;
+    case "all":
+      return null;
+  }
+}
+
 export function listConversations(
   limit?: number,
   backgroundOnly = false,
   offset = 0,
-  includeArchived = true,
+  archiveStatus: ArchiveStatusFilter = "active",
 ): ConversationRow[] {
   ensureDisplayOrderMigration();
   ensureGroupMigration();
@@ -69,9 +93,8 @@ export function listConversations(
   const typeCond = backgroundOnly
     ? sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
     : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
-  const where = includeArchived
-    ? typeCond
-    : sql`${typeCond} AND ${conversations.archivedAt} IS NULL`;
+  const archiveCond = archiveStatusClause(archiveStatus);
+  const where = archiveCond ? sql`${typeCond} AND ${archiveCond}` : typeCond;
   const query = db
     .select()
     .from(conversations)
@@ -172,10 +195,13 @@ export function getMessageRoleStatsByConversation(
   );
 }
 
-export function listPinnedConversations(): ConversationRow[] {
+export function listPinnedConversations(
+  archiveStatus: ArchiveStatusFilter = "active",
+): ConversationRow[] {
   ensureDisplayOrderMigration();
   ensureGroupMigration();
   const db = getDb();
+  const archiveCond = archiveStatusClause(archiveStatus);
   const query = db
     .select()
     .from(conversations)
@@ -183,6 +209,7 @@ export function listPinnedConversations(): ConversationRow[] {
       and(
         sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private')`,
         sql`is_pinned = 1`,
+        ...(archiveCond ? [archiveCond] : []),
       ),
     )
     .orderBy(
@@ -247,12 +274,17 @@ export function listConversationsByTitlePrefix(
   }));
 }
 
-export function countConversations(backgroundOnly = false): number {
+export function countConversations(
+  backgroundOnly = false,
+  archiveStatus: ArchiveStatusFilter = "active",
+): number {
   ensureGroupMigration();
   const db = getDb();
-  const where = backgroundOnly
+  const typeCond = backgroundOnly
     ? sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
     : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
+  const archiveCond = archiveStatusClause(archiveStatus);
+  const where = archiveCond ? sql`${typeCond} AND ${archiveCond}` : typeCond;
   const [{ total }] = db
     .select({ total: count() })
     .from(conversations)

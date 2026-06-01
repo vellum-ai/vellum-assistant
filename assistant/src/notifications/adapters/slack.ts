@@ -16,6 +16,8 @@ import type {
   ChannelAdapter,
   ChannelDeliveryPayload,
   ChannelDestination,
+  ChannelUpdateContext,
+  ChannelUpdatePayload,
   DeliveryResult,
   NotificationChannel,
 } from "../types.js";
@@ -52,9 +54,7 @@ function resolveSlackMessageText(payload: ChannelDeliveryPayload): string {
  * - Optional context: message preview
  * - Context: approval code instructions + invite directive
  */
-function buildAccessRequestBlocks(
-  payload: Record<string, unknown>,
-): unknown[] {
+function buildAccessRequestBlocks(payload: Record<string, unknown>): unknown[] {
   const blocks: unknown[] = [];
 
   // Header
@@ -209,24 +209,58 @@ export class SlackAdapter implements ChannelAdapter {
       payload.contextPayload != null;
 
     try {
-      if (isAccessRequest) {
-        const blocks = buildAccessRequestBlocks(payload.contextPayload!);
-        await sendSlackReply(chatId, messageText, { blocks });
-      } else {
-        await sendSlackReply(chatId, messageText, { useBlocks: true });
-      }
+      const result = isAccessRequest
+        ? await sendSlackReply(chatId, messageText, {
+            blocks: buildAccessRequestBlocks(payload.contextPayload!),
+          })
+        : await sendSlackReply(chatId, messageText, { useBlocks: true });
 
       log.info(
-        { sourceEventName: payload.sourceEventName, chatId },
+        { sourceEventName: payload.sourceEventName, chatId, ts: result.ts },
         "Slack notification delivered",
       );
 
-      return { success: true };
+      return { success: true, messageId: result.ts };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
         { err, sourceEventName: payload.sourceEventName, chatId },
         "Failed to deliver Slack notification",
+      );
+      return { success: false, error: message };
+    }
+  }
+
+  async update(
+    delivery: ChannelUpdateContext,
+    patch: ChannelUpdatePayload,
+  ): Promise<DeliveryResult> {
+    if (!delivery.messageId) {
+      return {
+        success: false,
+        error:
+          "missing_message_id: this delivery has no captured Slack ts (sent before edit support landed)",
+      };
+    }
+    const text = patch.body?.trim() || patch.title?.trim();
+    if (!text) {
+      return { success: false, error: "no body or title supplied for update" };
+    }
+    try {
+      const result = await sendSlackReply(delivery.destination, text, {
+        messageTs: delivery.messageId,
+        useBlocks: true,
+      });
+      log.info(
+        { chatId: delivery.destination, messageTs: delivery.messageId },
+        "Slack notification updated",
+      );
+      return { success: true, messageId: result.ts ?? delivery.messageId };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(
+        { err, chatId: delivery.destination, messageTs: delivery.messageId },
+        "Failed to update Slack notification",
       );
       return { success: false, error: message };
     }

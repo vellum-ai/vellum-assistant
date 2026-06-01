@@ -182,6 +182,25 @@ final class ChatActionHandler {
                 vm.messages[idx].daemonMessageId = messageId
             }
 
+        case .attachmentIdsReconciled(let conversationId, let mapping):
+            guard belongsToConversation(conversationId) else { return }
+            // Rewrite the optimistic row's client-local attachment IDs to the
+            // daemon-assigned IDs so lazy-load fetch/Save resolve. Matched by the
+            // unique local ID, so only the just-sent row is touched.
+            for mIdx in vm.messages.indices {
+                guard vm.messages[mIdx].role == .user,
+                      !vm.messages[mIdx].attachments.isEmpty else { continue }
+                var changed = false
+                let remapped = vm.messages[mIdx].attachments.map { att -> ChatAttachment in
+                    guard let serverId = mapping[att.id] else { return att }
+                    changed = true
+                    return att.withId(serverId)
+                }
+                if changed {
+                    vm.messages[mIdx].attachments = remapped
+                }
+            }
+
         case .assistantThinkingDelta(let delta):
             guard belongsToConversation(delta.conversationId) else { return }
             guard !vm.isCancelling else { break }

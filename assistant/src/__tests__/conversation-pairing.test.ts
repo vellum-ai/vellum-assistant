@@ -39,8 +39,7 @@ const addMessageMock = mock(
     _conversationId: string,
     _role: string,
     _content: string,
-    _metadata?: unknown,
-    _opts?: unknown,
+    _options?: unknown,
   ) => {
     if (addMessageShouldThrow) throw new Error("DB write failed");
     return { id: mockMessageId };
@@ -104,6 +103,7 @@ import type {
   NotificationChannel,
   RenderedChannelCopy,
 } from "../notifications/types.js";
+import { setOverridesForTesting } from "./feature-flag-test-helpers.js";
 
 // ── Test helpers ────────────────────────────────────────────────────────
 
@@ -123,6 +123,11 @@ function makeSignal(
       isAsyncBackground: true,
       visibleInSourceNow: false,
     },
+    // Most existing pairing tests pre-date the passive-by-default gate and
+    // exercise the conversation-creation path. Default to the opt-in flag so
+    // they continue to assert creation semantics; the dedicated passive-gate
+    // test below explicitly omits it to cover the new default.
+    requiresConversation: true,
     ...overrides,
   };
 }
@@ -150,6 +155,10 @@ describe("pairDeliveryWithConversation", () => {
     addMessageShouldThrow = false;
     mockExistingConversations = {};
     mockBindings = {};
+    // The passive-suppression gate requires the home-page flag; default it on
+    // so the existing creation/suppression expectations hold. The dedicated
+    // flag-off test below overrides this to assert the create fallback.
+    setOverridesForTesting({ "home-page": true });
   });
 
   // ── start_new_conversation (vellum) ─────────────────────────────────
@@ -287,8 +296,11 @@ describe("pairDeliveryWithConversation", () => {
       copy,
     );
 
-    const optsArg = addMessageMock.mock.calls[0]![4] as Record<string, unknown>;
-    expect(optsArg.skipIndexing).toBe(true);
+    const optionsArg = addMessageMock.mock.calls[0]![3] as Record<
+      string,
+      unknown
+    >;
+    expect(optionsArg.skipIndexing).toBe(true);
   });
 
   // ── continue_existing_conversation (telegram) ─────────────────────
@@ -814,6 +826,76 @@ describe("pairDeliveryWithConversation", () => {
     expect(createConversationMock).toHaveBeenCalledTimes(1);
     // Binding lookup should not be called for non-continue_existing channels
     expect(getBindingByChannelChatMock).not.toHaveBeenCalled();
+  });
+
+  // ── Passive default: vellum no-creates without opt-in ─────────────
+
+  test("passive vellum signal does not create a conversation or message", async () => {
+    const signal = makeSignal({ requiresConversation: undefined });
+    const copy = makeCopy();
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      copy,
+    );
+
+    expect(result.conversationId).toBeNull();
+    expect(result.messageId).toBeNull();
+    expect(result.strategy).toBe("start_new_conversation");
+    expect(result.createdNewConversation).toBe(false);
+    expect(result.conversationFallbackUsed).toBe(false);
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).not.toHaveBeenCalled();
+  });
+
+  test("passive vellum signal creates a conversation when home-page flag is off", async () => {
+    // Without the home feed there is no surface for passive notifications, so
+    // the suppression is gated off and pairing falls back to creating a
+    // conversation (the pre-home-feed behavior).
+    setOverridesForTesting({ "home-page": false });
+    const signal = makeSignal({ requiresConversation: undefined });
+    const copy = makeCopy();
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      copy,
+    );
+
+    expect(result.conversationId).toBe("conv-001");
+    expect(result.messageId).toBe("msg-001");
+    expect(result.strategy).toBe("start_new_conversation");
+    expect(result.createdNewConversation).toBe(true);
+    expect(result.conversationFallbackUsed).toBe(false);
+    expect(createConversationMock).toHaveBeenCalledTimes(1);
+    expect(addMessageMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("passive vellum signal still honors explicit reuse_existing action", async () => {
+    mockExistingConversations["conv-explicit-passive"] = {
+      id: "conv-explicit-passive",
+      source: "notification",
+      title: "Existing",
+    };
+    const signal = makeSignal({ requiresConversation: undefined });
+    const copy = makeCopy();
+    const conversationAction: ConversationAction = {
+      action: "reuse_existing",
+      conversationId: "conv-explicit-passive",
+    };
+
+    const result = await pairDeliveryWithConversation(
+      signal,
+      "vellum" as NotificationChannel,
+      copy,
+      { conversationAction },
+    );
+
+    expect(result.conversationId).toBe("conv-explicit-passive");
+    expect(result.createdNewConversation).toBe(false);
+    expect(createConversationMock).not.toHaveBeenCalled();
+    expect(addMessageMock).toHaveBeenCalledTimes(1);
   });
 
   // ── conversationMetadata.conversationType override ─────────────────

@@ -67,12 +67,6 @@ export interface ChatBodyProps {
   /** True when an attachment drag is active; shows a drop-target overlay. */
   isAttachmentDragOver: boolean;
 
-  /**
-   * True when the soft keyboard is open. Tightens bottom padding around
-   * the composer so the input stays close to the keyboard's top edge.
-   */
-  isKeyboardOpen: boolean;
-
   /** True when the "Go to Newest" pill should be shown above the composer. */
   showScrollToLatest: boolean;
   /** Click handler for the "Go to Newest" pill. */
@@ -127,6 +121,12 @@ export interface ChatBodyProps {
   channelFooterSlot?: ReactNode;
 
   /**
+   * Optional replacement for the generic read-only banner. Used by channel
+   * surfaces that can provide a native "open there" action.
+   */
+  readonlyBannerSlot?: ReactNode;
+
+  /**
    * Optional conversation-starter chip grid rendered inside the max-width
    * wrapper directly below the composer. Visible only on the empty state;
    * the parent passes `undefined` once messages arrive. Rendered as a
@@ -173,7 +173,6 @@ export function ChatBody({
   composerProps,
   dragHandlers,
   isAttachmentDragOver,
-  isKeyboardOpen,
   showScrollToLatest,
   onScrollToLatest,
   isStreaming = false,
@@ -187,6 +186,7 @@ export function ChatBody({
   queuedDrawerSlot,
   questionPromptSlot,
   channelFooterSlot,
+  readonlyBannerSlot,
   startersSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
@@ -229,9 +229,7 @@ export function ChatBody({
           draft text, attachments) and iOS Safari does not blur the input
           on first send (LUM-1506 / LUM-1516). */}
       <div
-        className={`relative px-3 pt-2 sm:px-6 sm:pb-0 ${
-          isKeyboardOpen ? "pb-2" : "pb-4"
-        }`}
+        className="relative px-3 pt-2 pb-2 sm:px-6 sm:pb-0"
       >
         {refreshFeedback && (
           <div className="pointer-events-none absolute inset-x-0 bottom-full z-10 flex justify-center pb-2">
@@ -265,14 +263,29 @@ export function ChatBody({
           {questionPromptSlot}
           {channelFooterSlot}
           {isChannelReadonly ? (
-            <ChatReadonlyBanner
-              canStopGenerating={canStopGenerating}
-              onStopGenerating={composerProps.onStopGenerating}
-            />
+            readonlyBannerSlot ? (
+              <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">{readonlyBannerSlot}</div>
+                {canStopGenerating ? (
+                  <Button
+                    variant="primary"
+                    iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
+                    onClick={composerProps.onStopGenerating}
+                    aria-label="Stop generating"
+                    title="Stop generation"
+                  />
+                ) : null}
+              </div>
+            ) : (
+              <ChatReadonlyBanner
+                canStopGenerating={canStopGenerating}
+                onStopGenerating={composerProps.onStopGenerating}
+              />
+            )
           ) : (
             <ChatComposer {...composerProps} />
           )}
-          {!isKeyboardOpen && startersSlot}
+          {startersSlot}
         </div>
       </div>
       {isAttachmentDragOver && (

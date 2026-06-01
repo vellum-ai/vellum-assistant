@@ -144,6 +144,25 @@ final class InferenceProfileTests: XCTestCase {
         XCTAssertEqual(onlyStreamThinking?["streamThinking"] as? Bool, true)
     }
 
+    func testThinkingLevelRoundTrips() {
+        let original = InferenceProfile(
+            name: "gemini-level",
+            provider: "gemini",
+            model: "gemini-3.1-pro-preview",
+            thinkingLevel: "high"
+        )
+
+        let thinking = original.toJSON()["thinking"] as? [String: Any]
+        XCTAssertNotNil(thinking, "Thinking dict must be present when a level is set")
+        XCTAssertEqual(thinking?["level"] as? String, "high")
+        XCTAssertNil(thinking?["enabled"])
+        XCTAssertNil(thinking?["streamThinking"])
+
+        let decoded = InferenceProfile(name: "gemini-level", json: original.toJSON())
+        XCTAssertEqual(decoded.thinkingLevel, "high")
+        XCTAssertEqual(decoded, original)
+    }
+
     // MARK: - Decoder edge cases
 
     func testEmptyStringFieldsDecodeAsNil() {

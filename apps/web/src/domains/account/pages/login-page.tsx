@@ -6,7 +6,7 @@ import { Button } from "@vellum/design-library";
 import { AppleLogo } from "@/components/icons/apple-logo";
 import { GoogleLogo } from "@/components/icons/google-logo";
 import { NativeSplash } from "@/components/native-splash";
-import { LoginBackground } from "@/domains/account/components/login-background";
+import { LoginBackground } from "@/domains/account/login-background";
 import { PROVIDER_ID, buildProviderCallbackUrl } from "@/domains/account/login-flow";
 import { ensureGatewayToken } from "@/lib/auth/gateway-session";
 import {
@@ -17,6 +17,7 @@ import {
   getPlatformAssistants,
   setSelectedAssistantId,
   gatewayProxyUrl,
+  fetchGuardianToken,
 } from "@/lib/local-mode";
 import {
   startAuthFlow,
@@ -268,9 +269,10 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
       setConnectError(null);
       setConnectingId(assistant.assistantId);
       try {
+        const guardianToken = await fetchGuardianToken(assistant.assistantId);
         const tokenUrl = `${gatewayProxyUrl(assistant.resources!.gatewayPort)}/auth/token`;
         setSelectedAssistantId(assistant.assistantId);
-        await ensureGatewayToken(tokenUrl);
+        await ensureGatewayToken(tokenUrl, guardianToken);
         await useAuthStore.getState().initSession();
         navigate(returnTo || "/assistant");
       } catch {

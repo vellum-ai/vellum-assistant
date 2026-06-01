@@ -12,8 +12,8 @@ import {
   getAssistantHealthz,
 } from "@/assistant/api";
 import { useAuthStore } from "@/stores/auth-store";
-import { reportError } from "@/lib/errors/report";
-import { useEnvironmentStore } from "@/lib/environment/environment-store";
+import { reportError } from "@/utils/error-report";
+import { useEnvironmentStore } from "@/stores/environment-store";
 import { DevModeVersionUnlock } from "@/domains/settings/components/dev-mode-version-unlock";
 
 const CURRENT_ASSISTANT_QUERY_KEY = ["currentAssistant"] as const;

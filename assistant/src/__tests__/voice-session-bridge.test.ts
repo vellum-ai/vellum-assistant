@@ -56,7 +56,10 @@ initializeDb();
 function makeStreamingSession(events: ServerMessage[]): Conversation {
   return {
     isProcessing: () => false,
-    persistUserMessage: () => undefined as unknown as string,
+    persistUserMessage: async () => ({
+      id: "test-msg-id",
+      deduplicated: false,
+    }),
     memoryPolicy: {
       scopeId: "default",
       includeDefaultFallback: false,
@@ -262,13 +265,9 @@ describe("voice-session-bridge", () => {
     const session = {
       isProcessing: () => false,
       currentRequestId: undefined as string | undefined,
-      persistUserMessage: (
-        _content: string,
-        _attachments: unknown[],
-        requestId?: string,
-      ) => {
-        session.currentRequestId = requestId;
-        return undefined as unknown as string;
+      persistUserMessage: (options: { requestId?: string }) => {
+        session.currentRequestId = options.requestId;
+        return { id: "test-msg-id", deduplicated: false };
       },
       memoryPolicy: {
         scopeId: "default",
@@ -353,13 +352,9 @@ describe("voice-session-bridge", () => {
     const session = {
       isProcessing: () => false,
       currentRequestId: undefined as string | undefined,
-      persistUserMessage: (
-        _content: string,
-        _attachments: unknown[],
-        requestId?: string,
-      ) => {
-        session.currentRequestId = requestId;
-        return undefined as unknown as string;
+      persistUserMessage: (options: { requestId?: string }) => {
+        session.currentRequestId = options.requestId;
+        return { id: "test-msg-id", deduplicated: false };
       },
       memoryPolicy: {
         scopeId: "default",
@@ -732,7 +727,10 @@ describe("voice-session-bridge", () => {
 
     const session = {
       isProcessing: () => false,
-      persistUserMessage: () => undefined as unknown as string,
+      persistUserMessage: async () => ({
+        id: "test-msg-id",
+        deduplicated: false,
+      }),
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
@@ -817,7 +815,10 @@ describe("voice-session-bridge", () => {
 
     const session = {
       isProcessing: () => false,
-      persistUserMessage: () => undefined as unknown as string,
+      persistUserMessage: async () => ({
+        id: "test-msg-id",
+        deduplicated: false,
+      }),
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
@@ -885,7 +886,10 @@ describe("voice-session-bridge", () => {
 
     const session = {
       isProcessing: () => false,
-      persistUserMessage: () => undefined as unknown as string,
+      persistUserMessage: async () => ({
+        id: "test-msg-id",
+        deduplicated: false,
+      }),
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
@@ -959,7 +963,10 @@ describe("voice-session-bridge", () => {
 
     const session = {
       isProcessing: () => false,
-      persistUserMessage: () => undefined as unknown as string,
+      persistUserMessage: async () => ({
+        id: "test-msg-id",
+        deduplicated: false,
+      }),
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
@@ -1049,7 +1056,10 @@ describe("voice-session-bridge", () => {
 
     const session = {
       isProcessing: () => false,
-      persistUserMessage: () => undefined as unknown as string,
+      persistUserMessage: async () => ({
+        id: "test-msg-id",
+        deduplicated: false,
+      }),
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
@@ -1122,7 +1132,10 @@ describe("voice-session-bridge", () => {
 
     const session = {
       isProcessing: () => false,
-      persistUserMessage: () => undefined as unknown as string,
+      persistUserMessage: async () => ({
+        id: "test-msg-id",
+        deduplicated: false,
+      }),
       memoryPolicy: {
         scopeId: "default",
         includeDefaultFallback: false,
@@ -1388,13 +1401,9 @@ describe("voice-session-bridge", () => {
     const session = {
       isProcessing: () => false,
       currentRequestId: undefined as string | undefined,
-      persistUserMessage: (
-        _content: string,
-        _attachments: unknown[],
-        requestId?: string,
-      ) => {
-        session.currentRequestId = requestId;
-        return undefined as unknown as string;
+      persistUserMessage: (options: { requestId?: string }) => {
+        session.currentRequestId = options.requestId;
+        return { id: "test-msg-id", deduplicated: false };
       },
       memoryPolicy: {
         scopeId: "default",

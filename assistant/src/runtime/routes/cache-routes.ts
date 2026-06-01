@@ -12,6 +12,7 @@ import {
   getCacheEntry,
   setCacheEntry,
 } from "../../skills/skill-cache-store.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Handlers ──────────────────────────────────────────────────────────
@@ -55,6 +56,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "cache_set",
     endpoint: "cache/set",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleCacheSet,
     summary: "Set a cache entry",
     description:
@@ -69,6 +74,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "cache_get",
     endpoint: "cache/get",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleCacheGet,
     summary: "Get a cache entry",
     description: "Retrieve a cached value by key. Returns null if not found.",
@@ -84,6 +93,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "cache_delete",
     endpoint: "cache/delete",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleCacheDelete,
     summary: "Delete a cache entry",
     description: "Remove a cached value by key.",

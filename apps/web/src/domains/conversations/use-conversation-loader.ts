@@ -21,12 +21,12 @@ import {
 import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
-} from "@/lib/last-viewed-conversation-storage";
+} from "@/utils/last-viewed-conversation-storage";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
 
-import { useConversationStore } from "@/domains/conversations/conversation-store";
+import { useConversationStore } from "@/stores/conversation-store";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
 import type { NavigateFunction } from "react-router";
@@ -35,7 +35,7 @@ import type { AssistantStateKind, ChatError } from "@/domains/chat/types";
 import { useConversationHistory } from "@/domains/chat/hooks/use-conversation-history";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { ApiError } from "@/domains/chat/api/client";
+import { ApiError } from "@/utils/api-errors";
 import type { Conversation } from "@/types/conversation-types";
 import { isBackgroundConversation } from "@/utils/conversation-predicates";
 import {
@@ -81,7 +81,6 @@ interface UseConversationLoaderParams {
   draftConversationIdResolutionRef: MutableRefObject<boolean>;
   previousConversationIdRef: MutableRefObject<string | null>;
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
-  activeConversationIdRef: MutableRefObject<string | null>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   streamingMessageIdsRef: MutableRefObject<Set<string>>;
@@ -89,7 +88,6 @@ interface UseConversationLoaderParams {
   requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  lastSuggestionMsgIdRef: MutableRefObject<string | null>;
   autoGreetRef: MutableRefObject<boolean>;
   conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   pendingInitialMessageRef: MutableRefObject<{ conversationId: string; content: string } | null>;
@@ -101,7 +99,6 @@ interface UseConversationLoaderParams {
   setError: Dispatch<SetStateAction<ChatError | null>>;
   setAutoGreetPending: Dispatch<SetStateAction<boolean>>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
-  setSuggestion: Dispatch<SetStateAction<string | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
   // Callbacks
@@ -148,7 +145,6 @@ export function useConversationLoader({
   draftConversationIdResolutionRef,
   previousConversationIdRef,
   onboardingDraftConversationIdRef,
-  activeConversationIdRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   streamingMessageIdsRef,
@@ -156,7 +152,6 @@ export function useConversationLoader({
   requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  lastSuggestionMsgIdRef,
   autoGreetRef,
   conversationListInvalidatedTimerRef,
   pendingInitialMessageRef,
@@ -166,7 +161,6 @@ export function useConversationLoader({
   setError,
   setAutoGreetPending,
   setContextWindowUsage,
-  setSuggestion,
   setCompactionCircuitOpenUntil,
   resetChatAttachments,
   shouldSuppressGenericChatErrorNotice,
@@ -404,7 +398,7 @@ export function useConversationLoader({
     const key = resolveBootstrappedConversationId({
       queryParamKey: explicitConversationId,
       onboardingDraftConversationId,
-      currentConversationId: activeConversationIdRef.current,
+      currentConversationId: useConversationStore.getState().activeConversationId,
       currentAssistantId: assistantIdRef.current,
       nextAssistantId: assistantId,
       storedConversationId: loadLastViewedConversationId(assistantId),
@@ -425,7 +419,6 @@ export function useConversationLoader({
     searchParams,
     navigate,
     assistantIdRef,
-    activeConversationIdRef,
     onboardingDraftConversationIdRef,
   ]);
 
@@ -465,7 +458,6 @@ export function useConversationLoader({
     requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    lastSuggestionMsgIdRef,
     autoGreetRef,
     setMessages,
     setTranscriptPagination,
@@ -473,7 +465,6 @@ export function useConversationLoader({
     setError,
     setAutoGreetPending,
     setContextWindowUsage,
-    setSuggestion,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,
     shouldSuppressGenericChatErrorNotice,

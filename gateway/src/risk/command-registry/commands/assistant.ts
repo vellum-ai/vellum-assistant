@@ -124,6 +124,9 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "credentials inspect",
   "credentials reveal",
   "credentials status",
+  "db",
+  "db status",
+  "db repair",
   "gateway",
   "gateway logs",
   "gateway logs tail",
@@ -160,9 +163,6 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory v2 reembed-skills",
   "memory v2 activation",
   "memory v2 validate",
-  "memory v3",
-  "memory v3 validate",
-  "memory v3 tree",
   "notifications",
   "notifications send",
   "notifications list",
@@ -413,6 +413,12 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "conversations rename", risk: "low" },
   { path: "conversations wake", risk: "low" },
   { path: "credential-execution grants revoke", risk: "medium" },
+  {
+    path: "db repair",
+    risk: "medium",
+    reason:
+      "Runs the database repair sequence. First step is a read-only integrity check; future steps will mutate the SQLite database to recover state.",
+  },
   { path: "domain register", risk: "medium" },
   { path: "email register", risk: "medium" },
   { path: "email unregister", risk: "medium" },
@@ -488,16 +494,6 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "low",
     reason: "Read-only diagnostic walk over concept pages and edges",
   },
-  {
-    path: "memory v3 validate",
-    risk: "low",
-    reason: "Read-only structural validation of the v3 tree DAG",
-  },
-  {
-    path: "memory v3 tree",
-    risk: "low",
-    reason: "Read-only print of the v3 tree DAG structure",
-  },
   { path: "notifications send", risk: "low" },
   {
     path: "oauth request",
@@ -550,8 +546,11 @@ const riskOverrides: AssistantRiskOverride[] = [
   },
   {
     path: "schedules execute",
-    risk: "medium",
-    reason: "Triggers immediate schedule execution with assistant-side effects",
+    risk: "high",
+    reason:
+      "Triggers immediate schedule execution. Script-mode schedules shell out " +
+      "via sh -c on the host, and the schedule ID arg is opaque to the " +
+      "classifier — must conservatively assume host shell execution",
   },
   { path: "sequence pause", risk: "medium" },
   { path: "sequence resume", risk: "medium" },

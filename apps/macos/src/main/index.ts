@@ -1,17 +1,53 @@
-import { app, BrowserWindow, ipcMain, net, protocol, session, shell } from "electron";
+import { app, ipcMain, net, protocol, session, shell } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
+import { installAbout, openAboutWindow } from "./about";
+import { APP_PROTOCOL } from "./app-config";
+import { resolveAppProtocolPath } from "./app-protocol";
+import {
+  extractDeepLinkFromArgv,
+  handleDeepLink,
+  installDeepLinks,
+} from "./deep-links";
+import { installDock } from "./dock";
+import {
+  ensureVisible as ensureMainWindowVisible,
+  installMainWindow,
+  toggleVisibility as toggleMainWindowVisibility,
+} from "./main-window";
 import { installApplicationMenu } from "./menu";
+import { installPowerEvents } from "./power-events";
 import { readSetting, writeSetting } from "./settings";
+import { installTray } from "./tray";
 
-const DEV_SERVER_URL = "http://localhost:5173";
-const DEV_SERVER_ORIGIN = new URL(DEV_SERVER_URL).origin;
-const APP_PROTOCOL = "app";
-const APP_HOST = "vellum.ai";
-
+// Dev-only: override the workspace `name` (`@vellumai/macos`) so the
+// menu bar's first submenu reads "Vellum Electron", and — more
+// importantly — so `app.getPath("userData")` resolves to
+// `~/Library/Application Support/Vellum Electron/`, cleanly separate
+// from the Swift `Vellum.app` / `Vellum Local.app` / `Vellum Dev.app`
+// installs the developer may also be running.
+//
+// Caveat: `app.setName()` does NOT change the Dock / Cmd-Tab label.
+// Those come from the running binary's `CFBundleName` — in dev the
+// binary is `node_modules/electron/dist/Electron.app`, so the Dock
+// says "Electron". That's cosmetic and acceptable for dev runs; the
+// userData split is what actually prevents collision with Swift
+// installs. Packaged builds get a real `productName` from
+// electron-builder, which writes `CFBundleName`, at which point
+// Dock / Cmd-Tab pick up the real name too.
+//
+// Gated on `!app.isPackaged` so a packaged build keeps its
+// electron-builder-derived `CFBundleName` instead of being overridden
+// at runtime. Must run before `app.getPath("userData")` is first read;
+// the electron-store instance in `./settings` is constructed lazily on
+// first IPC call, so this timing holds as long as `app.setName` runs
+// before `app.whenReady`.
+if (!app.isPackaged) {
+  app.setName("Vellum Electron");
+}
 const isDev = !app.isPackaged;
 
 // Single-instance lock: relaunches focus the existing window instead of
@@ -38,69 +74,12 @@ protocol.registerSchemesAsPrivileged([
   },
 ]);
 
-let mainWindow: BrowserWindow | null = null;
-
-const createWindow = (): void => {
-  mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 800,
-    show: false,
-    webPreferences: {
-      preload: path.join(__dirname, "../preload/index.js"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webSecurity: true,
-      allowRunningInsecureContent: false,
-      experimentalFeatures: false,
-      devTools: isDev,
-    },
-  });
-
-  mainWindow.once("ready-to-show", () => {
-    mainWindow?.show();
-  });
-
-  mainWindow.on("closed", () => {
-    mainWindow = null;
-  });
-
-  // Same-origin allowlist for top-level navigation. Scoped to the main
-  // window — popups (OAuth flows etc.) need to redirect between provider
-  // domains and our callback origin, so they're left unrestricted.
-  mainWindow.webContents.on("will-navigate", (event, url) => {
-    let target: URL;
-    try {
-      target = new URL(url);
-    } catch {
-      event.preventDefault();
-      return;
-    }
-    const allowed =
-      (isDev && target.origin === DEV_SERVER_ORIGIN) ||
-      (!isDev && target.protocol === `${APP_PROTOCOL}:` && target.host === APP_HOST);
-    if (allowed) return;
-    event.preventDefault();
-    // External http(s) top-level navigations (e.g. `window.location.href =
-    // "https://billing.stripe.com/..."`) route to the system browser instead
-    // of silently failing. Other schemes stay blocked.
-    if (target.protocol === "https:" || target.protocol === "http:") {
-      void shell.openExternal(url);
-    }
-  });
-
-  const loadTarget = isDev ? DEV_SERVER_URL : `${APP_PROTOCOL}://${APP_HOST}/index.html`;
-  mainWindow.loadURL(loadTarget).catch((err: unknown) => {
-    console.error(`[window] loadURL failed for ${loadTarget}:`, err);
-  });
-};
-
-const focusMainWindow = (): void => {
-  if (!mainWindow) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.show();
-  mainWindow.focus();
-};
+// Deep-link plumbing — register at module top-level so the
+// `will-finish-launching` subscription captures URLs delivered AT
+// launch (the OS opens the app via a `vellum://` click → `open-url`
+// can fire before `whenReady`). Registering in `whenReady` misses
+// the launching URL — the #1 deep-link bug in Electron apps.
+installDeepLinks();
 
 // Serve apps/web/dist/ as static files via `app://vellum.ai/...`. Route-like
 // paths (no file extension, or `.html`) fall back to index.html so React
@@ -108,21 +87,30 @@ const focusMainWindow = (): void => {
 // missing static assets return 404 so a stale or partial deploy surfaces as
 // a load error rather than silently serving HTML with a wrong Content-Type.
 // Reference: https://www.electronjs.org/docs/latest/api/protocol#protocolhandlescheme-handler
+// `apps/web/vite.config.ts` sets `base: "/assistant/"`, so the built
+// HTML emits asset URLs like `/assistant/assets/index.js`. The
+// renderer files on disk live directly under `rendererRoot`, NOT
+// under `rendererRoot/assistant/`. Pass the mount as a separate
+// parameter so the protocol handler strips it before path resolution.
+const RENDERER_MOUNT = "/assistant";
+
 const registerAppProtocol = (): void => {
   // The packaged renderer bundle lives next to the main bundle. When this app
   // is built into an .asar/Resources/app/ tree, apps/web/dist/ is copied to
   // ../renderer relative to the main process bundle.
   const rendererRoot = path.join(__dirname, "../renderer");
-  const rendererRootWithSep = rendererRoot + path.sep;
   const indexHtml = path.join(rendererRoot, "index.html");
 
   protocol.handle(APP_PROTOCOL, async (request) => {
-    const url = new URL(request.url);
-    const relativePath = decodeURIComponent(url.pathname).replace(/^\/+/, "");
-    const resolved = path.normalize(path.join(rendererRoot, relativePath));
-    if (resolved !== rendererRoot && !resolved.startsWith(rendererRootWithSep)) {
+    const result = resolveAppProtocolPath(
+      rendererRoot,
+      request.url,
+      RENDERER_MOUNT,
+    );
+    if (result.kind === "forbidden") {
       return new Response("Forbidden", { status: 403 });
     }
+    const { resolved } = result;
     if (await fileExists(resolved)) {
       return net.fetch(pathToFileURL(resolved).toString());
     }
@@ -272,22 +260,44 @@ app
     }
     installPermissionHandler();
     installSettingsIpc();
+    installAbout();
     installApplicationMenu();
+    installDock();
+    installPowerEvents();
+    installTray({
+      toggleMainWindow: toggleMainWindowVisibility,
+      ensureMainWindow: ensureMainWindowVisible,
+      openAbout: openAboutWindow,
+    });
     spawnDaemon();
-    createWindow();
+    installMainWindow();
 
+    // Dock-icon click / Cmd-Tab re-activation: bring the main window
+    // back to front, recreating it if it was previously closed. The
+    // primitive handles both the destroyed-window and the
+    // visible-but-not-focused cases, so we don't need to branch here
+    // on auxiliary window counts the way the old check did.
     app.on("activate", () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
-        createWindow();
-      }
+      ensureMainWindowVisible();
     });
   })
   .catch((err: unknown) => {
     console.error("[app] whenReady setup failed:", err);
   });
 
-app.on("second-instance", () => {
-  focusMainWindow();
+app.on("second-instance", (_event, argv) => {
+  // Behavior change vs prior code path: previously a second-instance
+  // launch was a no-op when the main window had been destroyed. Now
+  // we recreate so the user always sees a window in response to
+  // re-launching the app.
+  ensureMainWindowVisible();
+  // Cross-platform deep-link delivery: macOS routes second-launch
+  // deep links via a fresh `open-url` on the primary instance (argv
+  // is empty). Windows / Linux deliver the URL via argv and
+  // `open-url` never fires. Always check argv here so the buffered
+  // / broadcast pipeline is platform-agnostic.
+  const deepLink = extractDeepLinkFromArgv(argv);
+  if (deepLink) handleDeepLink(deepLink);
 });
 
 app.on("web-contents-created", (_event, contents) => {

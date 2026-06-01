@@ -72,8 +72,6 @@ function makeRecordingProvider(responses: ProviderResponse[]): {
     name: "mock",
     async sendMessage(
       _messages: Message[],
-      _tools?: ToolDefinition[],
-      _systemPrompt?: string,
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
       configs.push(options?.config as Record<string, unknown> | undefined);
@@ -120,16 +118,10 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
       toolExecutor,
     );
 
-    await loop.run(
-      [userMessage],
-      () => {},
-      undefined, // signal
-      undefined, // requestId
-      undefined, // onCheckpoint
-      "mainAgent", // callSite
-      undefined, // turnContext
-      "fast", // overrideProfile
-    );
+    await loop.run([userMessage], () => {}, {
+      callSite: "mainAgent",
+      overrideProfile: "fast",
+    });
 
     // Three sends — initial + two tool round-trips.
     expect(configs()).toHaveLength(3);
@@ -158,16 +150,10 @@ describe("AgentLoop.run — overrideProfile plumbing", () => {
     const { provider, configs } = makeRecordingProvider([textResponse("hi")]);
     const loop = new AgentLoop(provider, "system", { maxTokens: 1024 });
 
-    await loop.run(
-      [userMessage],
-      () => {},
-      undefined,
-      undefined,
-      undefined,
-      "mainAgent",
-      undefined,
-      "does-not-exist",
-    );
+    await loop.run([userMessage], () => {}, {
+      callSite: "mainAgent",
+      overrideProfile: "does-not-exist",
+    });
 
     expect(configs()[0]?.overrideProfile).toBe("does-not-exist");
   });
@@ -223,7 +209,7 @@ class FakeConversation {
     return Promise.resolve();
   }
   persistUserMessage() {
-    return Promise.resolve("msg-id");
+    return Promise.resolve({ id: "msg-id", deduplicated: false });
   }
   runAgentLoop(
     _content: string,

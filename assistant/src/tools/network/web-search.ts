@@ -15,7 +15,11 @@ import {
   sleep,
 } from "../../util/retry.js";
 import { registerTool } from "../registry.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 import { extractDomain } from "./domain-normalize.js";
 import type { ManagedSearchProxyResult } from "./managed-search-proxy.js";
 
@@ -101,8 +105,11 @@ interface TavilySearchResponse {
 function getWebSearchProvider(): WebSearchProvider {
   const config = getConfig();
   const configured = config.services["web-search"].provider ?? "perplexity";
-  // 'inference-provider-native' is handled by the inference provider client
-  // directly; fall back to perplexity for other providers.
+  // In Your Own mode, `inference-provider-native` is only executable when the
+  // inference provider swaps this tool for a native hosted-search definition.
+  // If this app-executed tool is still invoked, fall back to the existing BYOK
+  // provider chain. Managed mode short-circuits before this function and uses
+  // the platform search proxy instead.
   if (configured === "inference-provider-native") return "perplexity";
   return configured as WebSearchProvider;
 }
@@ -766,14 +773,14 @@ const WEB_SEARCH_FALLBACK_ORDER: readonly WebSearchProvider[] = Object.values(
   .sort((a, b) => a.fallbackOrder - b.fallbackOrder)
   .map((adapter) => adapter.id);
 
-class WebSearchTool implements Tool {
-  name = "web_search";
-  description =
-    "Search the web and return results. Useful for looking up current information, documentation, or anything the assistant doesn't know.";
-  category = "network";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
-  input_schema = {
+export const webSearchTool = {
+  name: "web_search",
+  description:
+    "Search the web and return results. Useful for looking up current information, documentation, or anything the assistant doesn't know.",
+  category: "network",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
+  input_schema: {
     type: "object",
     properties: {
       query: {
@@ -797,7 +804,7 @@ class WebSearchTool implements Tool {
       },
     },
     required: ["query"],
-  };
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -899,8 +906,7 @@ class WebSearchTool implements Tool {
         `Web search failed: ${msg}`,
       );
     }
-  }
-}
+  },
+} satisfies ToolDefinition;
 
-export const webSearchTool = new WebSearchTool();
 registerTool(webSearchTool);

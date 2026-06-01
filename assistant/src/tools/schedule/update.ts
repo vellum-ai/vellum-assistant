@@ -4,6 +4,7 @@ import {
   normalizeScheduleSyntax,
   type ScheduleSyntax,
 } from "../../schedule/recurrence-types.js";
+import { validateScriptTimeoutMs } from "../../schedule/run-script.js";
 import type {
   RoutingIntent,
   ScheduleMode,
@@ -116,6 +117,20 @@ export async function executeScheduleUpdate(
     updates.retryBackoffMs = input.retry_backoff_ms;
   }
 
+  // Script execution timeout override (null clears it, reverting to default)
+  if (input.timeout_ms !== undefined) {
+    if (input.timeout_ms === null) {
+      updates.timeoutMs = null;
+    } else {
+      const timeoutMs = input.timeout_ms as number;
+      const timeoutError = validateScriptTimeoutMs(timeoutMs);
+      if (timeoutError) {
+        return { content: `Error: ${timeoutError}`, isError: true };
+      }
+      updates.timeoutMs = timeoutMs;
+    }
+  }
+
   // Auto-detect syntax when expression changes without explicit syntax
   if (input.expression !== undefined || input.syntax !== undefined) {
     const resolved = normalizeScheduleSyntax({
@@ -183,6 +198,7 @@ export async function executeScheduleUpdate(
         reuseConversation?: boolean;
         maxRetries?: number;
         retryBackoffMs?: number;
+        timeoutMs?: number | null;
       },
     );
 

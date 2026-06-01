@@ -19,6 +19,7 @@ import {
 } from "../../daemon/handlers/config-channels.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { revokePendingSessions } from "../channel-verification-service.js";
 import {
   cancelOutbound,
@@ -271,6 +272,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "channel_verification_sessions_create",
     endpoint: "channel-verification-sessions",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Create verification session",
     description:
       "Create a channel verification session (inbound challenge, outbound, or trusted contact).",
@@ -290,6 +295,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "channel_verification_sessions_resend",
     endpoint: "channel-verification-sessions/resend",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Resend verification code",
     description: "Resend the outbound verification code.",
     tags: ["channel-verification"],
@@ -303,6 +312,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "channel_verification_sessions_cancel",
     endpoint: "channel-verification-sessions",
     method: "DELETE",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Cancel verification sessions",
     description:
       "Cancel all active inbound and outbound verification sessions.",
@@ -316,6 +329,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "channel_verification_sessions_revoke",
     endpoint: "channel-verification-sessions/revoke",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Revoke verification binding",
     description: "Cancel all sessions and revoke the guardian binding.",
     tags: ["channel-verification"],
@@ -328,6 +345,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "channel_verification_sessions_status",
     endpoint: "channel-verification-sessions/status",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get verification status",
     description: "Check guardian binding and verification session status.",
     tags: ["channel-verification"],

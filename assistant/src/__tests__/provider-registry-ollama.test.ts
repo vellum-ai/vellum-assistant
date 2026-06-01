@@ -5,6 +5,7 @@ const actualSecureKeys = await import("../security/secure-keys.js");
 mock.module("../security/secure-keys.js", () => ({
   ...actualSecureKeys,
   getSecureKeyAsync: async () => undefined,
+  getProviderKeyAsync: async () => undefined,
 }));
 
 import { LLMSchema } from "../config/schemas/llm.js";
@@ -16,30 +17,52 @@ import {
 
 const baseLlm = LLMSchema.parse({});
 
+function ollamaConfig(webSearch: {
+  mode: "managed" | "your-own";
+  provider: "inference-provider-native";
+}) {
+  return {
+    services: {
+      inference: {},
+      "image-generation": {
+        mode: "your-own" as const,
+        provider: "gemini" as const,
+        model: "gemini-3.1-flash-image-preview",
+      },
+      "web-search": webSearch,
+    },
+    llm: {
+      ...baseLlm,
+      default: {
+        ...baseLlm.default,
+        provider: "ollama" as const,
+        model: "claude-opus-4-6",
+      },
+    },
+  };
+}
+
 describe("provider registry (ollama)", () => {
   test("registers ollama when selected provider has no API key", async () => {
-    await initializeProviders({
-      services: {
-        inference: {},
-        "image-generation": {
-          mode: "your-own",
-          provider: "gemini",
-          model: "gemini-3.1-flash-image-preview",
-        },
-        "web-search": {
-          mode: "your-own",
-          provider: "inference-provider-native",
-        },
-      },
-      llm: {
-        ...baseLlm,
-        default: {
-          ...baseLlm.default,
-          provider: "ollama" as const,
-          model: "claude-opus-4-6",
-        },
-      },
-    });
+    await initializeProviders(
+      ollamaConfig({
+        mode: "your-own",
+        provider: "inference-provider-native",
+      }),
+    );
+
+    const provider = getProvider("ollama");
+    expect(provider.name).toBe("ollama");
+    expect(listProviders()).toEqual(["ollama"]);
+  });
+
+  test("managed native web search preference does not make ollama a managed web-search provider", async () => {
+    await initializeProviders(
+      ollamaConfig({
+        mode: "managed",
+        provider: "inference-provider-native",
+      }),
+    );
 
     const provider = getProvider("ollama");
     expect(provider.name).toBe("ollama");

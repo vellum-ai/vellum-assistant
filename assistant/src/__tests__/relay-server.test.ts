@@ -424,24 +424,25 @@ describe("relay-server", () => {
             includeDefaultFallback: false,
           },
           isProcessing: () => false,
-          persistUserMessage: async (
-            content: string,
-            _attachments: unknown[],
-            requestId?: string,
-          ) => {
-            session.currentRequestId = requestId;
+          persistUserMessage: async (options: {
+            content: string;
+            requestId?: string;
+          }) => {
+            session.currentRequestId = options.requestId;
             const message = await addMessage(
               conversationId,
               "user",
-              JSON.stringify([{ type: "text", text: content }]),
+              JSON.stringify([{ type: "text", text: options.content }]),
               {
-                userMessageChannel: "phone",
-                assistantMessageChannel: "phone",
-                userMessageInterface: "phone",
-                assistantMessageInterface: "phone",
+                metadata: {
+                  userMessageChannel: "phone",
+                  assistantMessageChannel: "phone",
+                  userMessageInterface: "phone",
+                  assistantMessageInterface: "phone",
+                },
               },
             );
-            return message.id;
+            return { id: message.id, deduplicated: false };
           },
           setChannelCapabilities: () => {},
           setAssistantId: () => {},
@@ -486,10 +487,12 @@ describe("relay-server", () => {
                 "assistant",
                 JSON.stringify([{ type: "text", text: fullText }]),
                 {
-                  userMessageChannel: "phone",
-                  assistantMessageChannel: "phone",
-                  userMessageInterface: "phone",
-                  assistantMessageInterface: "phone",
+                  metadata: {
+                    userMessageChannel: "phone",
+                    assistantMessageChannel: "phone",
+                    userMessageInterface: "phone",
+                    assistantMessageInterface: "phone",
+                  },
                 },
               );
             }

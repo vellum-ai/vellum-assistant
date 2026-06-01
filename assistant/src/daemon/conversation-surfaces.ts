@@ -28,6 +28,8 @@ import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
+import type { EnqueueMessageOptions } from "./conversation-messaging.js";
+import type { ProcessMessageOptions } from "./conversation-process.js";
 import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
@@ -45,7 +47,6 @@ import type {
   UiSurfaceShow,
 } from "./message-protocol.js";
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
-import type { ConversationTransportMetadata } from "./message-types/conversations.js";
 import type { HostAppControlInput } from "./message-types/host-app-control.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
 import type { TrustContext } from "./trust-context.js";
@@ -518,29 +519,13 @@ export interface SurfaceConversationContext {
   /** True when no interactive client is connected (headless / channel-only). */
   readonly hasNoClient?: boolean;
   isProcessing(): boolean;
-  enqueueMessage(
-    content: string,
-    attachments: UserMessageAttachment[],
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
-    activeSurfaceId?: string,
-    currentPage?: string,
-    metadata?: Record<string, unknown>,
-    options?: { isInteractive?: boolean },
-    displayContent?: string,
-    transport?: ConversationTransportMetadata,
-  ): { queued: boolean; requestId: string; rejected?: boolean };
+  enqueueMessage(options: EnqueueMessageOptions): {
+    queued: boolean;
+    requestId: string;
+    rejected?: boolean;
+  };
   getQueueDepth(): number;
-  processMessage(
-    content: string,
-    attachments: UserMessageAttachment[],
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
-    activeSurfaceId?: string,
-    currentPage?: string,
-    options?: { isInteractive?: boolean },
-    displayContent?: string,
-  ): Promise<string>;
+  processMessage(options: ProcessMessageOptions): Promise<string>;
   /** Serialize operations on a given surface to prevent read-modify-write races. */
   withSurface<T>(surfaceId: string, fn: () => T | Promise<T>): Promise<T>;
 }
@@ -1142,6 +1127,34 @@ export type SurfaceActionResult =
   | { accepted: false; error: string }
   | void;
 
+const SURFACE_COMPLETE_FLAG = "_completeSurface";
+const SURFACE_COMPLETION_SUMMARY_FIELD = "_completionSummary";
+
+function getRequestedSurfaceCompletionSummary(
+  data?: Record<string, unknown>,
+): string | null {
+  if (data?.[SURFACE_COMPLETE_FLAG] !== true) return null;
+  const summary =
+    typeof data[SURFACE_COMPLETION_SUMMARY_FIELD] === "string"
+      ? data[SURFACE_COMPLETION_SUMMARY_FIELD].trim()
+      : "";
+  return summary || "Completed";
+}
+
+function completeSurfaceFromAction(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+  summary: string,
+): void {
+  broadcastMessage({
+    type: "ui_surface_complete",
+    conversationId: ctx.conversationId,
+    surfaceId,
+    summary,
+  });
+  markSurfaceCompleted(ctx, surfaceId, summary);
+}
+
 export async function handleSurfaceAction(
   ctx: SurfaceConversationContext,
   surfaceId: string,
@@ -1318,9 +1331,16 @@ export async function handleSurfaceAction(
     }
 
     // Determine message content from the action.
+    const stored = ctx.surfaceState.get(surfaceId);
+    const actionDef = stored?.actions?.find((a) => a.id === actionId);
+    const mergedData: Record<string, unknown> | undefined =
+      actionDef?.data || data ? { ...actionDef?.data, ...data } : undefined;
+
     const isRelay = actionId === "relay_prompt" || actionId === "agent_prompt";
     const prompt =
-      isRelay && typeof data?.prompt === "string" ? data.prompt.trim() : "";
+      isRelay && typeof mergedData?.prompt === "string"
+        ? mergedData.prompt.trim()
+        : "";
 
     // Read accumulated state once — used by both relay and custom action paths.
     const accState = ctx.accumulatedSurfaceState.get(surfaceId);
@@ -1329,9 +1349,9 @@ export async function handleSurfaceAction(
     // Extract file attachments from action data so they are sent as proper
     // image/file content blocks instead of dumping base64 into the text.
     let attachments: UserMessageAttachment[] = [];
-    let actionDataForText = data;
-    if (data && Array.isArray(data.files)) {
-      const files = data.files as Array<Record<string, unknown>>;
+    let actionDataForText = mergedData;
+    if (mergedData && Array.isArray(mergedData.files)) {
+      const files = mergedData.files as Array<Record<string, unknown>>;
       attachments = files
         .filter(
           (f) =>
@@ -1351,7 +1371,7 @@ export async function handleSurfaceAction(
       // attachments — otherwise preserve the original data so the model still
       // sees the files field (e.g. IDs/paths from dynamic app actions).
       if (attachments.length > 0) {
-        const { files: _files, ...rest } = data;
+        const { files: _files, ...rest } = mergedData;
         actionDataForText = Object.keys(rest).length > 0 ? rest : undefined;
       }
     }
@@ -1414,21 +1434,24 @@ export async function handleSurfaceAction(
       attributes: { source: "surface_action", surfaceId, actionId },
     });
 
-    const result = ctx.enqueueMessage(
+    const result = ctx.enqueueMessage({
       content,
       attachments,
       onEvent,
       requestId,
-      surfaceId,
-      undefined,
-      undefined,
-      undefined,
+      activeSurfaceId: surfaceId,
       displayContent,
-    );
+    });
 
     if (result.rejected) {
       ctx.surfaceActionRequestIds.delete(requestId);
       return;
+    }
+
+    const requestedCompletionSummary =
+      getRequestedSurfaceCompletionSummary(mergedData);
+    if (requestedCompletionSummary) {
+      completeSurfaceFromAction(ctx, surfaceId, requestedCompletionSummary);
     }
 
     // One-shot: clear accumulated state now that the message has been accepted.
@@ -1461,16 +1484,14 @@ export async function handleSurfaceAction(
       "Processing surface action immediately (history-restored) with attachments",
     );
     ctx
-      .processMessage(
+      .processMessage({
         content,
         attachments,
         onEvent,
         requestId,
-        surfaceId,
-        undefined,
-        undefined,
+        activeSurfaceId: surfaceId,
         displayContent,
-      )
+      })
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         log.error(
@@ -1653,21 +1674,21 @@ export async function handleSurfaceAction(
     "Surface action follow-up: preparing to send message to model",
   );
 
-  const result = ctx.enqueueMessage(
+  const result = ctx.enqueueMessage({
     content,
-    pendingAttachments,
+    attachments: pendingAttachments,
     onEvent,
     requestId,
-    surfaceId,
-    undefined,
-    undefined,
-    undefined,
+    activeSurfaceId: surfaceId,
     displayContent,
-  );
+  });
   if (result.rejected) {
     ctx.surfaceActionRequestIds.delete(requestId);
     return;
   }
+
+  const requestedCompletionSummary =
+    getRequestedSurfaceCompletionSummary(mergedData);
 
   // One-shot interactive surfaces — auto-complete now that the message has
   // been accepted. Deferred until after rejection check so the surface stays
@@ -1678,15 +1699,19 @@ export async function handleSurfaceAction(
     "file_upload",
     "task_preferences",
   ];
-  if (ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)) {
+  if (
+    requestedCompletionSummary ||
+    ONE_SHOT_SURFACE_TYPES.includes(pending.surfaceType)
+  ) {
+    const completionSummary = requestedCompletionSummary ?? summary;
     broadcastMessage({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
       surfaceId,
-      summary,
+      summary: completionSummary,
       submittedData: mergedDataForText,
     });
-    markSurfaceCompleted(ctx, surfaceId, summary);
+    markSurfaceCompleted(ctx, surfaceId, completionSummary);
   }
 
   // One-shot: clear accumulated state now that the message has been accepted.
@@ -1744,16 +1769,14 @@ export async function handleSurfaceAction(
     "Processing surface action as follow-up with attachments",
   );
   ctx
-    .processMessage(
+    .processMessage({
       content,
-      pendingAttachments,
+      attachments: pendingAttachments,
       onEvent,
       requestId,
-      surfaceId,
-      undefined,
-      undefined,
+      activeSurfaceId: surfaceId,
       displayContent,
-    )
+    })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error(

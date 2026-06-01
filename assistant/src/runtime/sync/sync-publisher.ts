@@ -1,6 +1,6 @@
-import type { SyncChangedMessage } from "../../daemon/message-types/sync.js";
 import {
   buildSyncChangedMessage,
+  type SyncChangedEvent,
   type SyncInvalidationTag,
 } from "../../daemon/message-types/sync.js";
 import { getLogger } from "../../util/logger.js";
@@ -11,7 +11,7 @@ const log = getLogger("sync-publisher");
 export async function publishSyncInvalidation(
   tags: SyncInvalidationTag[],
   originClientId?: string,
-): Promise<SyncChangedMessage> {
+): Promise<SyncChangedEvent> {
   const message = buildSyncChangedMessage(tags, originClientId);
   try {
     broadcastMessage(message);

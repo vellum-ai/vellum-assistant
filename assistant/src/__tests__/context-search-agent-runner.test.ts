@@ -699,7 +699,10 @@ describe("runAgenticRecall", () => {
       citationIds: ["workspace:more"],
       unresolved: ["The original seed only named the topic."],
     });
-    const finalTools = providerCalls[1]?.[1] as Array<{ name: string }>;
+    const finalOptions = providerCalls[1]?.[1] as {
+      tools?: Array<{ name: string }>;
+    };
+    const finalTools = finalOptions?.tools as Array<{ name: string }>;
     expect(finalTools.map((tool) => tool.name)).toEqual(["finish_recall"]);
     expect(result.evidence.map((item) => item.id)).toEqual(["workspace:more"]);
     expect(result.content).toBe(
@@ -876,7 +879,7 @@ describe("runAgenticRecall", () => {
 
     expect(getConfiguredProviderCallSites).toEqual(["recall"]);
     expect(providerCalls).toHaveLength(1);
-    const options = providerCalls[0]?.[3] as {
+    const options = providerCalls[0]?.[1] as {
       config?: Record<string, unknown>;
     };
     expect(options.config).toEqual({
@@ -928,7 +931,7 @@ describe("runAgenticRecall", () => {
     );
 
     expect(providerCalls).toHaveLength(2);
-    const finalizeOptions = providerCalls[1]?.[3] as {
+    const finalizeOptions = providerCalls[1]?.[1] as {
       config?: Record<string, unknown>;
     };
     expect(finalizeOptions.config).toEqual({

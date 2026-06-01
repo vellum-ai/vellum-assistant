@@ -27,12 +27,21 @@ export function resolveEffectiveContextWindow({
   llm,
   callSite,
   overrideProfile,
+  selectionSeed,
 }: {
   llm: LLMConfig;
   callSite: LLMCallSite;
   overrideProfile?: string;
+  /**
+   * Per-conversation mix seed (the conversation id). Threaded so context-window
+   * sizing for a mix profile reflects the same arm the dispatch path picks.
+   */
+  selectionSeed?: string;
 }): EffectiveContextWindow {
-  const resolved = resolveCallSiteConfig(callSite, llm, { overrideProfile });
+  const resolved = resolveCallSiteConfig(callSite, llm, {
+    overrideProfile,
+    selectionSeed,
+  });
   const catalogModel = PROVIDER_CATALOG.find(
     (provider) => provider.id === resolved.provider,
   )?.models.find((model) => model.id === resolved.model);

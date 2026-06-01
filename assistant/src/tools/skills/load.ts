@@ -26,7 +26,11 @@ import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
 import { registerTool } from "../registry.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
 /** Skill sources eligible for inline command expansion in v1. */
 const INLINE_COMMAND_ELIGIBLE_SOURCES = new Set([
@@ -120,24 +124,28 @@ function formatToolSchemas(
   return lines.join("\n").trimEnd();
 }
 
-export class SkillLoadTool implements Tool {
-  name = "skill_load";
-  description =
-    "Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills.";
-  category = "skills";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
+export const skillLoadTool = {
+  name: "skill_load",
 
-  input_schema = {
-        type: "object",
-        properties: {
-          skill: {
-            type: "string",
-            description: "The skill id or skill name to load.",
-          },
-        },
-        required: ["skill"],
-      };
+  description:
+    "Load full instructions for a skill. Works for both bundled skills (listed in the catalog) and custom workspace skills.",
+
+  category: "skills",
+
+  executionTarget: "sandbox",
+
+  defaultRiskLevel: RiskLevel.Low,
+
+  input_schema: {
+    type: "object",
+    properties: {
+      skill: {
+        type: "string",
+        description: "The skill id or skill name to load.",
+      },
+    },
+    required: ["skill"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -516,8 +524,6 @@ export class SkillLoadTool implements Tool {
       ].join("\n"),
       isError: false,
     };
-  }
-}
-
-export const skillLoadTool = new SkillLoadTool();
+  },
+} satisfies ToolDefinition;
 registerTool(skillLoadTool);

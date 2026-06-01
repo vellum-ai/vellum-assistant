@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
 import {
@@ -118,6 +120,22 @@ describe("conversation sync tags", () => {
         (event) => event.message.type === "conversation_list_invalidated",
       ),
     ).toBe(false);
+  });
+
+  test("agent-loop title updates emit metadata-only sync tags (no list umbrella)", () => {
+    const source = readFileSync(
+      join(import.meta.dir, "..", "daemon", "conversation-agent-loop.ts"),
+      "utf-8",
+    );
+    const titleUpdateBlocks =
+      source.match(
+        /type: "conversation_title_updated"[\s\S]{0,500}?type: "sync_changed"[\s\S]{0,250}?tags: \[[\s\S]*?\]/g,
+      ) ?? [];
+
+    expect(titleUpdateBlocks.length).toBeGreaterThanOrEqual(2);
+    for (const block of titleUpdateBlocks) {
+      expect(block).not.toContain("SYNC_TAGS.conversationsList");
+    }
   });
 
   test("create emits a sync_changed with the conversationsList umbrella tag", async () => {

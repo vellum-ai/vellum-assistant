@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import type { ChannelId } from "../../channels/types.js";
 import { getReadinessService } from "../../daemon/handlers/config-channels.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   getInviteAdapterRegistry,
   resolveAdapterHandle,
@@ -89,10 +90,13 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "channels_readiness_get",
     endpoint: "channels/readiness",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get channel readiness",
     description: "Return readiness snapshots for one or all channels.",
     tags: ["channels"],
-    requirePolicyEnforcement: true,
     handler: handleGetChannelReadiness,
     queryParams: [
       {
@@ -115,10 +119,13 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "channels_readiness_refresh_post",
     endpoint: "channels/readiness/refresh",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Refresh channel readiness",
     description: "Invalidate cache and re-evaluate channel readiness.",
     tags: ["channels"],
-    requirePolicyEnforcement: true,
     handler: handleRefreshChannelReadiness,
     requestBody: z.object({
       channel: z.string().describe("Optional channel ID to refresh"),

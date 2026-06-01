@@ -32,6 +32,40 @@ struct LogExporterClientArtifactsTests {
     // MARK: - All Artifacts Present
 
     @Test
+    func sanitizedLockfileRedactsGuardianBootstrapSecret() throws {
+        let raw: [String: Any] = [
+            "assistants": [
+                [
+                    "assistantId": "assistant-123",
+                    "runtimeUrl": "http://127.0.0.1:7830",
+                    "bearerToken": "bearer-token",
+                    "guardianBootstrapSecret": "bootstrap-secret-value",
+                    "cloud": "local"
+                ]
+            ]
+        ]
+
+        let sanitized = LogExporter.sanitizedLockfileForExport(raw)
+        guard let assistants = sanitized["assistants"] as? [[String: Any]],
+              let assistant = assistants.first else {
+            Issue.record("Expected sanitized lockfile assistants")
+            return
+        }
+
+        #expect(assistant["guardianBootstrapSecret"] == nil)
+        #expect(assistant["bearerToken"] == nil)
+        #expect(assistant["runtimeUrl"] == nil)
+        #expect(assistant["hasGuardianBootstrapSecret"] as? Bool == true)
+        #expect(assistant["hasBearerToken"] as? Bool == true)
+        #expect(assistant["hasRuntimeUrl"] as? Bool == true)
+
+        let data = try JSONSerialization.data(withJSONObject: sanitized)
+        let json = String(decoding: data, as: UTF8.self)
+        #expect(!json.contains("bootstrap-secret-value"))
+        #expect(!json.contains("bearer-token"))
+    }
+
+    @Test
     func collectsAllClientArtifactsWhenPresent() throws {
         let (source, dest) = try makeTempDirs()
         defer { cleanup(source) }

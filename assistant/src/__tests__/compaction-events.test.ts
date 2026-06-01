@@ -10,12 +10,7 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
-import type {
-  AgentEvent,
-  AgentLoopConfig,
-  CheckpointDecision,
-  CheckpointInfo,
-} from "../agent/loop.js";
+import type { AgentEvent, AgentLoopConfig } from "../agent/loop.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
@@ -238,11 +233,6 @@ mock.module("../agent/loop.js", () => ({
     async run(
       _messages: Message[],
       _onEvent: (event: AgentEvent) => void,
-      _signal?: AbortSignal,
-      _requestId?: string,
-      _onCheckpoint?: (
-        checkpoint: CheckpointInfo,
-      ) => CheckpointDecision | Promise<CheckpointDecision>,
     ): Promise<Message[]> {
       return [];
     }

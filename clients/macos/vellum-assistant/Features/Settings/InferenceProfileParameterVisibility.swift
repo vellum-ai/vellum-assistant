@@ -10,6 +10,9 @@ struct InferenceProfileParameterVisibility: Equatable {
     var verbosity: Bool
     var temperature: Bool
     var thinking: Bool
+    /// Gemini's reasoning-depth knob (`thinking.level`). Distinct from
+    /// `thinking` (Anthropic/OpenRouter enable + stream toggles).
+    var thinkingLevel: Bool
 
     static let none = InferenceProfileParameterVisibility(
         maxTokens: false,
@@ -17,7 +20,8 @@ struct InferenceProfileParameterVisibility: Equatable {
         speed: false,
         verbosity: false,
         temperature: false,
-        thinking: false
+        thinking: false,
+        thinkingLevel: false
     )
 
     static func resolve(
@@ -54,7 +58,8 @@ struct InferenceProfileParameterVisibility: Equatable {
             speed: provider == "anthropic" && modelId.contains("opus"),
             verbosity: provider == "openai" && isOpenAIGPT5Family(modelId),
             temperature: usesAnthropicWire,
-            thinking: (provider == "anthropic" || provider == "openrouter") && supportsThinking
+            thinking: (provider == "anthropic" || provider == "openrouter") && supportsThinking,
+            thinkingLevel: provider == "gemini" && supportsThinking
         )
     }
 
@@ -69,6 +74,7 @@ struct InferenceProfileParameterVisibility: Equatable {
             sanitized.thinkingEnabled = nil
             sanitized.thinkingStreamThinking = nil
         }
+        if !thinkingLevel { sanitized.thinkingLevel = nil }
         return sanitized
     }
 
@@ -116,6 +122,22 @@ struct InferenceProfileParameterVisibility: Equatable {
 
     private static func isOpenAIGPT5Family(_ modelId: String) -> Bool {
         modelId == "gpt-5" || modelId.hasPrefix("gpt-5.") || modelId.hasPrefix("gpt-5-")
+    }
+
+    /// Gemini 3.x Pro family accepts only low/medium/high (no "minimal") and
+    /// cannot disable thinking. Mirrors the daemon's `isGeminiProModel` in
+    /// `assistant/src/providers/gemini/client.ts`.
+    private static func isGeminiProModel(_ modelId: String) -> Bool {
+        modelId.range(of: #"^gemini-3.*pro"#, options: .regularExpression) != nil
+    }
+
+    /// Thinking levels selectable for a Gemini model, lowest → highest. Pro
+    /// models omit "minimal". The daemon clamps anything below a model's floor,
+    /// so this is a UX nicety rather than a correctness guarantee.
+    static func geminiThinkingLevels(_ modelId: String) -> [String] {
+        isGeminiProModel(modelId.lowercased())
+            ? ["low", "medium", "high"]
+            : ["minimal", "low", "medium", "high"]
     }
 
     private static func knownOpenRouterReasoningModel(_ modelId: String) -> Bool {

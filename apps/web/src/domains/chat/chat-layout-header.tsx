@@ -67,6 +67,7 @@ export function ChatLayoutHeader({
             aria-label="Open navigation"
             aria-expanded={drawerOpen}
             aria-controls="chat-side-menu"
+            tooltip="Open navigation"
             onClick={toggleSidebar}
           />
         ) : (
@@ -76,6 +77,7 @@ export function ChatLayoutHeader({
             aria-label="Toggle sidebar"
             aria-expanded={!collapsed}
             aria-controls="chat-side-menu"
+            tooltip="Toggle sidebar"
             onClick={toggleSidebar}
           />
         )}
@@ -86,6 +88,7 @@ export function ChatLayoutHeader({
               iconOnly={<House />}
               aria-label={hasUnreadHome && !isHomeActive ? "Home (unread notifications)" : "Home"}
               aria-current={isHomeActive ? "page" : undefined}
+              tooltip="Home"
               onClick={onOpenHome}
             />
             {hasUnreadHome && !isHomeActive ? (
@@ -103,7 +106,7 @@ export function ChatLayoutHeader({
                 variant="ghost"
                 iconOnly={<Search />}
                 aria-label="Search (Ctrl+K)"
-                title="Search (Ctrl+K)"
+                tooltip="Search (Ctrl+K)"
                 onClick={onSearchClick}
               />
             ) : null}
@@ -111,7 +114,7 @@ export function ChatLayoutHeader({
               variant="ghost"
               iconOnly={<ChevronLeft />}
               aria-label="Back (Ctrl+[)"
-              title="Back (Ctrl+[)"
+              tooltip="Back (Ctrl+[)"
               disabled={!canGoBack}
               className={!canGoBack ? "opacity-35" : undefined}
               onClick={onGoBack}
@@ -120,7 +123,7 @@ export function ChatLayoutHeader({
               variant="ghost"
               iconOnly={<ChevronRight />}
               aria-label="Forward (Ctrl+])"
-              title="Forward (Ctrl+])"
+              tooltip="Forward (Ctrl+])"
               disabled={!canGoForward}
               className={!canGoForward ? "opacity-35" : undefined}
               onClick={onGoForward}
@@ -139,7 +142,7 @@ export function ChatLayoutHeader({
             variant="ghost"
             iconOnly={<Search />}
             aria-label="Search (Ctrl+K)"
-            title="Search (Ctrl+K)"
+            tooltip="Search (Ctrl+K)"
             onClick={onSearchClick}
           />
         ) : null}

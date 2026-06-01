@@ -32,6 +32,7 @@ import type { RepairResult } from "../daemon/history-repair.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import type { MessageRole } from "../memory/conversation-crud.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
 import type {
   ContentBlock,
@@ -42,11 +43,7 @@ import type {
   ToolDefinition,
 } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
-import type {
-  LoadedTool,
-  ToolContext,
-  ToolExecutionResult,
-} from "../tools/types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
@@ -144,22 +141,20 @@ export type TurnResult = { readonly output: unknown };
 /**
  * Pipeline arguments for `llmCall` — mirrors the inputs to
  * {@link Provider.sendMessage}. The terminal handler (the default plugin)
- * delegates straight to `args.provider.sendMessage(args.messages, args.tools,
- * args.systemPrompt, args.options)`; middleware may observe or rewrite any
- * field before that call, short-circuit with a synthetic {@link LLMCallResult},
- * or post-process the response on the way out.
+ * delegates straight to `args.provider.sendMessage(args.messages, args.options)`;
+ * middleware may observe or rewrite any field before that call, short-circuit
+ * with a synthetic {@link LLMCallResult}, or post-process the response on the
+ * way out.
  *
  * `provider` is passed in `args` (rather than resolved from the runtime) so
  * middleware can swap it deterministically per-call. `options` carries the
- * full `SendMessageOptions` bag — `config`, `onEvent`, and `signal` — so
- * middleware can substitute streaming handlers or cancellation signals
- * without reconstructing them.
+ * full `SendMessageOptions` bag — `tools`, `systemPrompt`, `config`,
+ * `onEvent`, and `signal` — so middleware can substitute streaming handlers,
+ * tool sets, or cancellation signals without reconstructing them.
  */
 export type LLMCallArgs = {
   readonly provider: Provider;
   readonly messages: Message[];
-  readonly tools?: ToolDefinition[];
-  readonly systemPrompt?: string;
   readonly options?: SendMessageOptions;
 };
 export type LLMCallResult = ProviderResponse;
@@ -440,7 +435,7 @@ export interface OverflowReduceResult {
  * message-CRUD operations plugins may observe, redirect, or short-circuit:
  *
  * - `add`           — append a new message (`addMessage`). Mirrors
- *                     `addMessage(conversationId, role, content, metadata?, opts?)`.
+ *                     `addMessage(conversationId, role, content, options?)`.
  *                     When `syncToDisk` is set, the default plugin also runs
  *                     {@link syncMessageToDisk} against the just-persisted row
  *                     so the JSONL disk view stays consistent. The
@@ -466,7 +461,7 @@ export interface OverflowReduceResult {
 export type PersistAddArgs = {
   readonly op: "add";
   readonly conversationId: string;
-  readonly role: string;
+  readonly role: MessageRole;
   readonly content: string;
   readonly metadata?: Record<string, unknown>;
   readonly addOptions?: { readonly skipIndexing?: boolean };
@@ -483,7 +478,7 @@ export type PersistAddArgs = {
 export type PersistReserveArgs = {
   readonly op: "reserve";
   readonly conversationId: string;
-  readonly role: string;
+  readonly role: MessageRole;
   readonly metadata?: Record<string, unknown>;
 };
 
@@ -656,6 +651,17 @@ export interface EmptyResponseArgs {
    * visible text. See `agent/loop.ts` for why the whole-run scan matters.
    */
   readonly priorAssistantHadVisibleText: boolean;
+  /**
+   * Provider-reported stop reason for the assistant turn being evaluated.
+   * `null`/`undefined` when the provider didn't report one (older
+   * providers, partial responses). The default terminal uses this to
+   * distinguish an explicit safety-classifier refusal (Anthropic's
+   * `"refusal"`) from an organically-empty turn — refusals deserve a
+   * nudge even on the very first model call of the run, whereas an
+   * organically-empty first call usually means the model legitimately
+   * had nothing to say.
+   */
+  readonly stopReason: string | null | undefined;
 }
 
 /**
@@ -1156,10 +1162,10 @@ export interface Plugin {
    * `@vellumai/plugin-api`); the loader derives `name` from the
    * `tools/<name>.ts` basename and runs the definition through
    * `finalizeTool` to fill omitted required fields, producing the
-   * `LoadedTool` values stored here. Category / ownership metadata is
+   * `Tool` values stored here. Category / ownership metadata is
    * stamped by `registerPluginTools` at registration time.
    */
-  tools?: LoadedTool[];
+  tools?: Tool[];
   /** HTTP route registrations served by the assistant. */
   routes?: PluginRouteRegistration[];
   /** Skill registrations loaded at startup. */

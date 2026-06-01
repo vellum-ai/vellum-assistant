@@ -19,7 +19,7 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "playgroundListSeededConversations",
     endpoint: "playground/seeded-conversations",
     method: "GET",
-    policyKey: "playground/seeded-conversations/list",
+    policy: null,
     summary: "List conversations created by the seed-conversation endpoint",
     tags: ["playground"],
     handler: () => {
@@ -34,7 +34,7 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "playgroundDeleteSeededConversation",
     endpoint: "playground/seeded-conversations/:id",
     method: "DELETE",
-    policyKey: "playground/seeded-conversations/delete-one",
+    policy: null,
     summary: "Delete a single seeded conversation (prefix-gated)",
     tags: ["playground"],
     pathParams: [{ name: "id", type: "uuid" }],
@@ -56,7 +56,7 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "playgroundDeleteAllSeededConversations",
     endpoint: "playground/seeded-conversations",
     method: "DELETE",
-    policyKey: "playground/seeded-conversations/delete-all",
+    policy: null,
     summary: "Delete every seeded playground conversation (prefix-gated)",
     tags: ["playground"],
     handler: () => {

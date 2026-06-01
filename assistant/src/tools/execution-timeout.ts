@@ -1,8 +1,7 @@
+import { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "../api/constants/tool-execution.js";
 import type { ToolExecutionResult } from "./types.js";
 
 const TIMEOUT_SENTINEL = Symbol("tool-timeout");
-
-const DEFAULT_TOOL_TIMEOUT_SEC = 120;
 
 /**
  * Convert a config-provided seconds value to a safe milliseconds value,
@@ -11,7 +10,7 @@ const DEFAULT_TOOL_TIMEOUT_SEC = 120;
 export function safeTimeoutMs(sec: unknown): number {
   const n = Number(sec);
   if (!Number.isFinite(n) || n <= 0) {
-    return DEFAULT_TOOL_TIMEOUT_SEC * 1000;
+    return DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC * 1000;
   }
   return n * 1000;
 }
@@ -29,7 +28,7 @@ export async function executeWithTimeout(
   const safeMs =
     Number.isFinite(timeoutMs) && timeoutMs > 0
       ? timeoutMs
-      : DEFAULT_TOOL_TIMEOUT_SEC * 1000;
+      : DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC * 1000;
   let timeoutHandle: ReturnType<typeof setTimeout>;
   const timeoutPromise = new Promise<typeof TIMEOUT_SENTINEL>((resolve) => {
     timeoutHandle = setTimeout(() => resolve(TIMEOUT_SENTINEL), safeMs);

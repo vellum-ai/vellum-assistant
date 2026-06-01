@@ -9,6 +9,7 @@
 import { z } from "zod";
 
 import { getConfig, invalidateConfigCache } from "../../config/loader.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Handlers ──────────────────────────────────────────────────────────
@@ -30,7 +31,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "oauth_connection_changed",
     endpoint: "oauth/connection-changed",
     method: "POST",
-    policyKey: "oauth/connection-changed",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleOAuthConnectionChanged,
     summary: "Notify the assistant that an OAuth connection changed",
     description:

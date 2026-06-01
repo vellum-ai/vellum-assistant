@@ -192,9 +192,9 @@ export async function runNarrativeRefinement(
         "Review and refine the narrative structure of these memories. Identify story arcs and assign roles with the benefit of hindsight.",
       ),
     ],
-    [NARRATIVE_TOOL_SCHEMA],
-    systemPrompt,
     {
+      tools: [NARRATIVE_TOOL_SCHEMA],
+      systemPrompt,
       config: {
         callSite: "narrativeRefinement" as const,
         tool_choice: { type: "tool" as const, name: "refine_narratives" },

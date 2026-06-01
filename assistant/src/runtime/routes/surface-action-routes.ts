@@ -13,6 +13,7 @@ import type { ChannelId } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
 import { getLogger } from "../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
 import { resolveLocalTrustContext } from "../local-actor-identity.js";
 import {
@@ -225,6 +226,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "triggerSurfaceAction",
     endpoint: "surface-actions",
     method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Trigger a surface action",
     description:
       "Execute an interactive action on a surface (e.g. button click, form submit).",
@@ -257,6 +262,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "undoSurfaceAction",
     endpoint: "surfaces/:id/undo",
     method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Undo last surface action",
     description: "Revert the most recent action on a surface.",
     tags: ["surfaces"],

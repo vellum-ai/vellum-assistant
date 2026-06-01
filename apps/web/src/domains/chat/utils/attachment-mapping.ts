@@ -1,4 +1,4 @@
-import type { DisplayAttachment } from "@/domains/chat/types/types";
+import type { DisplayAttachment } from "@/types/attachment-types";
 import type { RuntimeAttachment } from "@/domains/chat/api/messages";
 
 /**

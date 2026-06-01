@@ -9,7 +9,10 @@ import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { getDb } from "../memory/db-connection.js";
 import { getLogger } from "../util/logger.js";
-import { isConnectionCompatibleWithModel } from "./connection-model-compat.js";
+import {
+  describeSubscriptionModelIncompatibility,
+  isConnectionCompatibleWithModel,
+} from "./connection-model-compat.js";
 import { tryResolveProviderForConnectionName } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import { initializeProviders, listProviders } from "./registry.js";
@@ -19,7 +22,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
   ToolUseContent,
 } from "./types.js";
 
@@ -53,16 +55,14 @@ export class CallSiteConfiguredProvider implements Provider {
 
   sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const config = options?.config;
     if (config?.callSite) {
-      return this.inner.sendMessage(messages, tools, systemPrompt, options);
+      return this.inner.sendMessage(messages, options);
     }
 
-    return this.inner.sendMessage(messages, tools, systemPrompt, {
+    return this.inner.sendMessage(messages, {
       ...options,
       config: {
         ...config,
@@ -132,6 +132,17 @@ export async function resolveConfiguredProvider(
         );
         if (active) {
           connectionName = active.name;
+        } else {
+          const incompatMsg = describeSubscriptionModelIncompatibility(
+            candidates,
+            resolved.model,
+          );
+          if (incompatMsg) {
+            log.warn(
+              { callSite, inferenceProvider, model: resolved.model },
+              incompatMsg,
+            );
+          }
         }
       } catch {
         // DB not available — fall through to the existing null-return path.

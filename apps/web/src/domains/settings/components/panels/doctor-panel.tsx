@@ -32,10 +32,11 @@ import {
   buildVellumHeaders,
   buildVellumMutatingHeaders,
 } from "@/lib/auth/request-headers";
-import { reportError } from "@/lib/errors/report";
+import { reportError } from "@/utils/error-report";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import { isPointerCoarse } from "@/utils/pointer";
 import { ShareFeedbackModal } from "@/components/share-feedback-modal";
+import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { DoctorAvatar } from "@/domains/settings/components/panels/doctor-avatar";
 import {
   type ChatEntry,
@@ -468,6 +469,7 @@ export function DoctorPanel({
   const [pendingApproval, setPendingApproval] = useState(false);
   const [pendingBackup, setPendingBackup] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const platformGate = usePlatformGate();
   const [thinking, setThinking] = useState(false);
   const [selectedHistorySessionId, setSelectedHistorySessionId] = useState<
     string | null
@@ -1005,13 +1007,15 @@ export function DoctorPanel({
           >
             Beta
           </Tag>
-          <button
-            type="button"
-            onClick={() => setFeedbackOpen(true)}
-            className="cursor-pointer text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
-          >
-            Share Feedback
-          </button>
+          {platformGate === "full" && (
+            <button
+              type="button"
+              onClick={() => setFeedbackOpen(true)}
+              className="cursor-pointer text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-secondary)]"
+            >
+              Share Feedback
+            </button>
+          )}
         </div>
 
         {isSessionActive && (

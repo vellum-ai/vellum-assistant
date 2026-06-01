@@ -43,6 +43,7 @@ import {
   migrateActivationState,
   migrateActivationStateFkCascade,
   migrateAddConversationInferenceProfile,
+  migrateAddMemoryV3Selections,
   migrateAddSourceTypeColumns,
   migrateAssistantContactMetadata,
   migrateBackfillAudioAttachmentMimeTypes,
@@ -125,6 +126,7 @@ import {
   migrateLlmRequestLogsCreatedAtIndex,
   migrateLlmUsageAddRawUsage,
   migrateLlmUsageAttribution,
+  migrateLlmUsageEventsAddAssistantVersion,
   migrateMemoryGraphImageRefs,
   migrateMemoryItemSupersession,
   migrateMemoryRecallLogsQueryContext,
@@ -134,6 +136,7 @@ import {
   migrateMemoryV3AutoEdges,
   migrateMemoryV3Coactivation,
   migrateMessageBookmarks,
+  migrateMessagesClientMessageId,
   migrateMessagesConversationCreatedAtIndex,
   migrateMessagesFtsBackfill,
   migrateNormalizePhoneIdentities,
@@ -183,6 +186,7 @@ import {
   migrateScheduleRetryPolicy,
   migrateScheduleReuseConversation,
   migrateScheduleScriptColumn,
+  migrateScheduleScriptTimeout,
   migrateScheduleWakeConversationId,
   migrateSchemaIndexesAndColumns,
   migrateScrubCorruptedImageAttachments,
@@ -464,6 +468,10 @@ export function initializeDb(): void {
     migrateMemoryV3AutoEdges,
     migrateLlmRequestLogCallSite,
     migrateDropProviderConnectionStatus,
+    migrateMessagesClientMessageId,
+    migrateLlmUsageEventsAddAssistantVersion,
+    migrateAddMemoryV3Selections,
+    migrateScheduleScriptTimeout,
   ];
 
   // Run each migration step, catching and logging individual failures so one

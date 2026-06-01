@@ -16,21 +16,24 @@ import type { SkillIpcRoute } from "../skill-ipc-types.js";
 // -- Param schemas --------------------------------------------------------
 
 /**
- * Shape mirrors the daemon's `addMessage()` positional signature:
- * `(conversationId, role, content, metadata?, opts?)`. Metadata is a
- * free-form record (validated downstream by `messageMetadataSchema` with a
- * warn-and-store fallback). Only `skipIndexing` is recognised in `opts`.
+ * IPC params for `addMessage()`. `role` is constrained to the
+ * `MessageRole` union. `metadata` is a free-form record (validated
+ * downstream by `messageMetadataSchema` with a warn-and-store fallback).
+ * `skipIndexing` and `clientMessageId` mirror `AddMessageOptions`.
+ *
+ * The `opts` field is a backward-compat shim: the macOS app and platform
+ * do not release together, so a skill-host built against an older contract
+ * may still send `{ opts: { skipIndexing } }` instead of the flat shape.
+ * The handler flattens it via `skipIndexing ?? opts?.skipIndexing`.
  */
 const MemoryAddMessageParams = z.object({
   conversationId: z.string().min(1),
-  role: z.string().min(1),
+  role: z.enum(["user", "assistant", "system"]),
   content: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
-  opts: z
-    .object({
-      skipIndexing: z.boolean().optional(),
-    })
-    .optional(),
+  skipIndexing: z.boolean().optional(),
+  clientMessageId: z.string().optional(),
+  opts: z.object({ skipIndexing: z.boolean().optional() }).optional(),
 });
 
 /** Mirrors `WakeOptions` from `runtime/agent-wake.ts`. */
@@ -43,9 +46,20 @@ const MemoryWakeOpportunityParams = z.object({
 // -- Handlers -------------------------------------------------------------
 
 async function handleAddMessage(params?: Record<string, unknown>) {
-  const { conversationId, role, content, metadata, opts } =
-    MemoryAddMessageParams.parse(params);
-  return addMessage(conversationId, role, content, metadata, opts);
+  const {
+    conversationId,
+    role,
+    content,
+    metadata,
+    skipIndexing,
+    clientMessageId,
+    opts,
+  } = MemoryAddMessageParams.parse(params);
+  return addMessage(conversationId, role, content, {
+    metadata,
+    skipIndexing: skipIndexing ?? opts?.skipIndexing,
+    clientMessageId,
+  });
 }
 
 async function handleWakeAgentForOpportunity(

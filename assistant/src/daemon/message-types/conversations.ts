@@ -1,7 +1,13 @@
 // Conversation lifecycle, auth, model config, and history types.
 
+import type { CompactionCircuitClosedEvent } from "../../api/events/compaction-circuit-closed.js";
+import type { CompactionCircuitOpenEvent } from "../../api/events/compaction-circuit-open.js";
+import type { ConversationErrorEvent } from "../../api/events/conversation-error.js";
+import type { ConversationListInvalidatedEvent } from "../../api/events/conversation-list-invalidated.js";
+import type { ConversationTitleUpdatedEvent } from "../../api/events/conversation-title-updated.js";
 import type { GenerationCancelledEvent } from "../../api/events/generation-cancelled.js";
 import type { GenerationHandoffEvent } from "../../api/events/generation-handoff.js";
+import type { UsageUpdateEvent } from "../../api/events/usage-update.js";
 import type {
   ChannelId,
   HostProxyInterfaceId,
@@ -216,12 +222,6 @@ export interface ConversationInfo {
   inferenceProfile?: string;
 }
 
-export interface ConversationTitleUpdated {
-  type: "conversation_title_updated";
-  conversationId: string;
-  title: string;
-}
-
 /** Channel binding metadata exposed in conversation list APIs. */
 interface ChannelBinding {
   sourceChannel: ChannelId;
@@ -425,19 +425,6 @@ export interface UndoComplete {
   conversationId?: string;
 }
 
-export interface UsageUpdate {
-  type: "usage_update";
-  conversationId: string;
-  inputTokens: number;
-  outputTokens: number;
-  totalInputTokens: number;
-  totalOutputTokens: number;
-  estimatedCost: number;
-  model: string;
-  contextWindowTokens?: number;
-  contextWindowMaxTokens?: number;
-}
-
 /**
  * Emitted after each LLM call with per-call token deltas and estimated cost.
  * Clients accumulate these additively for live-updating usage metrics.
@@ -465,7 +452,7 @@ export interface UsageResponse {
  * `/compact`). Carries the fresh `estimatedInputTokens` so clients can refresh
  * the context-window indicator without waiting for the next `usage_update`.
  *
- * Scoped per-conversation — see `CompactionCircuitOpen` doc for why.
+ * Scoped per-conversation — see `CompactionCircuitOpenEvent` doc for why.
  */
 export interface ContextCompacted {
   type: "context_compacted";
@@ -509,90 +496,6 @@ export interface ContextCompacted {
  * conversation would set the "auto-compaction paused" banner on every open
  * `ChatViewModel`.
  */
-export interface CompactionCircuitOpen {
-  type: "compaction_circuit_open";
-  conversationId: string;
-  reason: "3_consecutive_failures";
-  /** Timestamp (ms since epoch) when the breaker will allow auto-compaction again. */
-  openUntil: number;
-}
-
-/**
- * Emitted when the compaction circuit breaker transitions from open → closed
- * because a successful compaction reset
- * `ctx.compactionCircuitOpenUntil`. The Swift client clears its banner state
- * on receipt so the "auto-compaction paused" indicator dismisses immediately
- * instead of lingering until the original `openUntil` deadline (up to 1h).
- *
- * Only fires on the open→closed transition — successful compactions while
- * the breaker was already closed would be noise.
- *
- * Scoped per-conversation — see `CompactionCircuitOpen` doc for why.
- */
-export interface CompactionCircuitClosed {
-  type: "compaction_circuit_closed";
-  conversationId: string;
-}
-
-export type ConversationErrorCode =
-  | "PROVIDER_NETWORK"
-  | "PROVIDER_RATE_LIMIT"
-  | "MANAGED_USAGE_LIMIT"
-  | "PROVIDER_OVERLOADED"
-  | "PROVIDER_API"
-  | "IMAGE_TOO_LARGE"
-  | "PROVIDER_BILLING"
-  | "PROVIDER_ORDERING"
-  | "PROVIDER_WEB_SEARCH"
-  | "PROVIDER_NOT_CONFIGURED"
-  | "PROVIDER_INVALID_KEY"
-  | "MANAGED_KEY_INVALID"
-  | "CONTEXT_TOO_LARGE"
-  | "BUDGET_YIELD_UNRECOVERED"
-  | "CONVERSATION_ABORTED"
-  | "CONVERSATION_PROCESSING_FAILED"
-  | "DISK_SPACE_CRITICAL"
-  | "REGENERATE_FAILED"
-  | "UNKNOWN";
-
-export interface ConversationErrorMessage {
-  type: "conversation_error";
-  conversationId: string;
-  code: ConversationErrorCode;
-  userMessage: string;
-  retryable: boolean;
-  debugDetails?: string;
-  /** Machine-readable error category for log report metadata and triage. */
-  errorCategory?: string;
-  /**
-   * Name of the `provider_connections` row in play when the error occurred.
-   * Surfaced by the macOS chat banner so users know which connection to fix
-   * (e.g. an invalid API key on `my-anthropic`). Optional because some
-   * errors fire before a connection is resolved.
-   */
-  connectionName?: string;
-  /**
-   * Name of the resolved profile (`llm.activeProfile` or per-call override)
-   * in play when the error occurred. Lets the macOS chat banner point
-   * users at the right profile even when the connection name is generic.
-   * Optional because some errors fire before a profile is resolved.
-   */
-  profileName?: string;
-}
-
-/** Reason the conversation list was invalidated. */
-export type ConversationListInvalidatedReason =
-  | "created"
-  | "renamed"
-  | "deleted"
-  | "reordered"
-  | "seen_changed";
-
-/** Server push — tells clients their sidebar conversation list is stale. */
-export interface ConversationListInvalidated {
-  type: "conversation_list_invalidated";
-  reason: ConversationListInvalidatedReason;
-}
 
 /** Server push — broadcast when a schedule creates a conversation. */
 export interface ScheduleConversationCreated {
@@ -646,19 +549,19 @@ export type _ConversationsServerMessages =
   | ModelInfo
   | HistoryResponse
   | UndoComplete
-  | UsageUpdate
+  | UsageUpdateEvent
   | UsageProgress
   | UsageResponse
   | ContextCompacted
-  | CompactionCircuitOpen
-  | CompactionCircuitClosed
-  | ConversationErrorMessage
+  | CompactionCircuitOpenEvent
+  | CompactionCircuitClosedEvent
+  | ConversationErrorEvent
   | ConversationInfo
-  | ConversationTitleUpdated
+  | ConversationTitleUpdatedEvent
   | ConversationListResponse
   | ConversationsClearResponse
   | ConversationSearchResponse
   | MessageContentResponse
-  | ConversationListInvalidated
+  | ConversationListInvalidatedEvent
   | ScheduleConversationCreated
   | OpenConversation;

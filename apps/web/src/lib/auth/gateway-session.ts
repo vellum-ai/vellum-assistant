@@ -1,22 +1,24 @@
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
 import {
   isLocalMode,
   getLocalGatewayUrl,
 } from "@/lib/local-mode";
 
-const LS_TOKEN_KEY = "gw:token";
-const LS_EXPIRES_KEY = "gw:expiresAt";
-const LS_TOKEN_SOURCE_KEY = "gw:tokenSource";
+const LS_TOKEN_KEY = "vellum:gw:token";
+const LS_EXPIRES_KEY = "vellum:gw:expiresAt";
+const LS_TOKEN_SOURCE_KEY = "vellum:gw:tokenSource";
+
+// Legacy key names kept as read fallbacks in case the startup migration
+// in storage-migration.ts failed (e.g. QuotaExceededError on setItem).
+const LEGACY_TOKEN_KEY = "gw:token";
+const LEGACY_EXPIRES_KEY = "gw:expiresAt";
+const LEGACY_TOKEN_SOURCE_KEY = "gw:tokenSource";
 
 let cachedToken: string | null = null;
 let cachedExpiresAt: number = 0;
 let cachedTokenSource: string | null = null;
 
 export function isGatewayAuthEnabled(): boolean {
-  if (isLocalMode()) {
-    return getLocalGatewayUrl() != null;
-  }
-  return useClientFeatureFlagStore.getState().gatewayWebAuth === true;
+  return isLocalMode() && getLocalGatewayUrl() != null;
 }
 
 export function isGatewayAuthMode(): boolean {
@@ -33,8 +35,12 @@ export function getGatewayToken(): string | null {
   }
   cachedToken = null;
   try {
-    const token = localStorage.getItem(LS_TOKEN_KEY);
-    const expiresAtRaw = localStorage.getItem(LS_EXPIRES_KEY);
+    const token =
+      localStorage.getItem(LS_TOKEN_KEY) ??
+      localStorage.getItem(LEGACY_TOKEN_KEY);
+    const expiresAtRaw =
+      localStorage.getItem(LS_EXPIRES_KEY) ??
+      localStorage.getItem(LEGACY_EXPIRES_KEY);
     if (token && expiresAtRaw) {
       const expiresAt = Number(expiresAtRaw);
       if (!isTokenExpired(expiresAt)) {
@@ -49,9 +55,13 @@ export function getGatewayToken(): string | null {
   return null;
 }
 
-async function acquireGatewayToken(tokenUrl?: string): Promise<string> {
+async function acquireGatewayToken(tokenUrl?: string, guardianToken?: string): Promise<string> {
   const url = tokenUrl ?? "/auth/token";
-  const res = await fetch(url, { method: "POST" });
+  const headers: Record<string, string> = {};
+  if (guardianToken) {
+    headers["Authorization"] = `Bearer ${guardianToken}`;
+  }
+  const res = await fetch(url, { method: "POST", headers });
   if (!res.ok) {
     throw new Error(`Gateway token request failed: ${res.status}`);
   }
@@ -72,15 +82,18 @@ async function acquireGatewayToken(tokenUrl?: string): Promise<string> {
   return token;
 }
 
-export async function ensureGatewayToken(tokenUrl?: string): Promise<string> {
+export async function ensureGatewayToken(tokenUrl?: string, guardianToken?: string): Promise<string> {
   const source = tokenUrl ?? "/auth/token";
-  const storedSource = cachedTokenSource ?? localStorage.getItem(LS_TOKEN_SOURCE_KEY);
+  const storedSource =
+    cachedTokenSource ??
+    localStorage.getItem(LS_TOKEN_SOURCE_KEY) ??
+    localStorage.getItem(LEGACY_TOKEN_SOURCE_KEY);
   if (storedSource && storedSource !== source) {
     clearGatewayToken();
   }
   const existing = getGatewayToken();
   if (existing) return existing;
-  return acquireGatewayToken(tokenUrl);
+  return acquireGatewayToken(tokenUrl, guardianToken);
 }
 
 export function getLocalTokenUrl(): string | undefined {
@@ -97,6 +110,9 @@ export function clearGatewayToken(): void {
     localStorage.removeItem(LS_TOKEN_KEY);
     localStorage.removeItem(LS_EXPIRES_KEY);
     localStorage.removeItem(LS_TOKEN_SOURCE_KEY);
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
+    localStorage.removeItem(LEGACY_EXPIRES_KEY);
+    localStorage.removeItem(LEGACY_TOKEN_SOURCE_KEY);
   } catch {
     // localStorage unavailable
   }

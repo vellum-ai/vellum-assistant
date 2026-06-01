@@ -4,8 +4,12 @@ import { createInterface } from "readline";
 import { watch } from "fs";
 import { join } from "path";
 
-import { resolveAssistant } from "../lib/assistant-config";
-import type { AssistantEntry } from "../lib/assistant-config";
+import {
+  extractHostFromUrl,
+  resolveAssistant,
+  resolveCloud,
+  type AssistantEntry,
+} from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
 import { getLogDir } from "../lib/xdg-log";
 import { execOutput } from "../lib/step-runner";
@@ -111,13 +115,6 @@ function parseArgs(): LogsArgs {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────
-
-function resolveCloud(entry: AssistantEntry): string {
-  if (entry.cloud) return entry.cloud;
-  if (entry.project) return "gcp";
-  if (entry.sshUser) return "custom";
-  return "local";
-}
 
 /**
  * Parse a relative time string like "10m", "2h", "30s" into a Date.
@@ -491,15 +488,6 @@ async function showGcpLogs(
       );
       process.exit(1);
     }
-  }
-}
-
-function extractHostFromUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    return parsed.hostname;
-  } catch {
-    return url.replace(/^https?:\/\//, "").split(":")[0];
   }
 }
 

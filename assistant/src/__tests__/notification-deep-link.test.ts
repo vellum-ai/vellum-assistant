@@ -38,6 +38,13 @@ mock.module("../notifications/deliveries-store.js", () => ({
   findDeliveryByDecisionAndChannel: () => undefined,
 }));
 
+// Mock conversation-crud so the broadcaster's source-context fallback lookup
+// can be driven from tests without DB access.
+let mockExistingConversations: Record<string, { id: string }> = {};
+mock.module("../memory/conversation-crud.js", () => ({
+  getConversation: (id: string) => mockExistingConversations[id] ?? null,
+}));
+
 // Configurable mock for conversation-pairing
 let nextPairingResult:
   | import("../notifications/conversation-pairing.js").PairingResult
@@ -141,6 +148,7 @@ class MockAdapter implements ChannelAdapter {
 describe("notification deep-link metadata", () => {
   beforeEach(() => {
     nextPairingResult = null;
+    mockExistingConversations = {};
   });
 
   describe("VellumAdapter", () => {
@@ -599,6 +607,60 @@ describe("notification deep-link metadata", () => {
       // But each has a distinct messageId for scroll targeting
       expect(deepLink1!.messageId).toBe("msg-delivery-1");
       expect(deepLink2!.messageId).toBe("msg-delivery-2");
+    });
+
+    // ── Source-context fallback when pairing yields no conversation ──
+
+    test("falls back to signal.sourceContextId for deep link when pairing returns no conversation and sourceContextId resolves", async () => {
+      const vellumAdapter = new MockAdapter("vellum");
+      const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+
+      // Passive vellum signal: pairing skips creation, returns null.
+      nextPairingResult = {
+        conversationId: null,
+        messageId: null,
+        strategy: "start_new_conversation" as const,
+        createdNewConversation: false,
+        conversationFallbackUsed: false,
+      };
+
+      const originConvId = "conv-origin-of-event";
+      mockExistingConversations[originConvId] = { id: originConvId };
+
+      const signal = makeSignal({ sourceContextId: originConvId });
+      const decision = makeDecision();
+
+      await broadcaster.broadcastDecision(signal, decision);
+
+      expect(vellumAdapter.sent).toHaveLength(1);
+      const deepLink = vellumAdapter.sent[0].deepLinkTarget;
+      expect(deepLink).toBeDefined();
+      expect(deepLink!.conversationId).toBe(originConvId);
+    });
+
+    test("omits conversationId from deep link when pairing returns no conversation and sourceContextId is a sentinel", async () => {
+      const vellumAdapter = new MockAdapter("vellum");
+      const broadcaster = new NotificationBroadcaster([vellumAdapter]);
+
+      nextPairingResult = {
+        conversationId: null,
+        messageId: null,
+        strategy: "start_new_conversation" as const,
+        createdNewConversation: false,
+        conversationFallbackUsed: false,
+      };
+
+      // Sentinel sourceContextId (job ID, access-req-*, etc.) — getConversation returns null.
+      const signal = makeSignal({ sourceContextId: "access-req-sentinel-xyz" });
+      const decision = makeDecision();
+
+      await broadcaster.broadcastDecision(signal, decision);
+
+      expect(vellumAdapter.sent).toHaveLength(1);
+      const deepLink = vellumAdapter.sent[0].deepLinkTarget;
+      // Decision did not carry a deepLinkTarget either — the resulting
+      // deep link should be undefined or have no conversationId.
+      expect(deepLink?.conversationId).toBeUndefined();
     });
   });
 });

@@ -10,7 +10,10 @@ import {
   MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
 import { WorkspaceFileViewer } from "@/domains/workspace/components/workspace-file-viewer";
-import { WorkspaceTree } from "@/domains/workspace/components/workspace-tree";
+import {
+  WorkspaceTree,
+  type WorkspaceSortMode,
+} from "@/domains/workspace/components/workspace-tree";
 
 export type WorkspaceViewMode = "preview" | "source";
 
@@ -18,6 +21,7 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set());
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [showHidden, setShowHidden] = useState(false);
+  const [sortMode, setSortMode] = useState<WorkspaceSortMode>("name");
   const [viewMode, setViewMode] = useState<WorkspaceViewMode>("preview");
 
   const handleToggleExpand = useCallback((path: string) => {
@@ -53,10 +57,12 @@ export function WorkspaceBrowser({ assistantId }: { assistantId: string }) {
     expandedPaths,
     selectedPath,
     showHidden,
+    sortMode,
     onToggleExpand: handleToggleExpand,
     onExpandPath: handleExpandPath,
     onSelectPath: handleSelectPath,
     onToggleShowHidden: () => setShowHidden((v) => !v),
+    onChangeSortMode: setSortMode,
   };
 
   return (

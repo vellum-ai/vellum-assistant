@@ -18,10 +18,10 @@ import {
   useRef,
 } from "react";
 
-import { useTurnStore } from "@/domains/messaging/turn-store";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
-import { useConversationStore } from "@/domains/conversations/conversation-store";
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
+import { useTurnStore } from "@/domains/chat/turn-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useConversationStore } from "@/stores/conversation-store";
+import { recordDiagnostic } from "@/lib/diagnostics";
 import { loadDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
@@ -45,7 +45,6 @@ export interface UseConversationSwitchParams {
   requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  lastSuggestionMsgIdRef: MutableRefObject<string | null>;
   contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
 
@@ -56,7 +55,6 @@ export interface UseConversationSwitchParams {
   setError: Dispatch<SetStateAction<ChatError | null>>;
   setAutoGreetPending: Dispatch<SetStateAction<boolean>>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
-  setSuggestion: Dispatch<SetStateAction<string | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
   resetChatAttachments: () => void;
@@ -91,7 +89,6 @@ export function useConversationSwitch({
   requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  lastSuggestionMsgIdRef,
   contextWindowUsageByConversationRef,
   dismissedSurfaceIdsRef,
   setMessages,
@@ -100,7 +97,6 @@ export function useConversationSwitch({
   setError,
   setAutoGreetPending,
   setContextWindowUsage,
-  setSuggestion,
   setCompactionCircuitOpenUntil,
   resetChatAttachments,
   shouldSuppressGenericChatErrorNotice,
@@ -132,7 +128,7 @@ export function useConversationSwitch({
     }
     previousConversationIdRef.current = activeConversationId;
 
-    recordChatDiagnostic("conversation_switch_reset", {
+    recordDiagnostic("conversation_switch_reset", {
       assistantId,
       conversationId: activeConversationId,
       outgoingConversationId: outgoingConversationId ?? null,
@@ -156,9 +152,7 @@ export function useConversationSwitch({
     confirmationToolCallMapRef.current.clear();
     setAutoGreetPending(false);
     resetChatAttachments();
-    setSuggestion(null);
     setCompactionCircuitOpenUntil(null);
-    lastSuggestionMsgIdRef.current = null;
     setContextWindowUsage(
       contextWindowUsageByConversationRef.current.get(activeConversationId) ?? null,
     );
@@ -189,7 +183,6 @@ export function useConversationSwitch({
     requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    lastSuggestionMsgIdRef,
     // Setters (stable references):
     setMessages,
     setTranscriptPagination,
@@ -197,7 +190,6 @@ export function useConversationSwitch({
     setError,
     setAutoGreetPending,
     setContextWindowUsage,
-    setSuggestion,
     setCompactionCircuitOpenUntil,
     shouldSuppressGenericChatErrorNotice,
   ]);

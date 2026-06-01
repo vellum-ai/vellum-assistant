@@ -12,7 +12,10 @@ import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
 import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
 import { getConversation } from "../../memory/conversation-crud.js";
 import { normalizeScheduleSyntax } from "../../schedule/recurrence-types.js";
-import { runScript } from "../../schedule/run-script.js";
+import {
+  runScript,
+  validateScriptTimeoutMs,
+} from "../../schedule/run-script.js";
 import {
   cancelSchedule,
   completeScheduleRun,
@@ -27,6 +30,7 @@ import {
   updateSchedule,
 } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -59,6 +63,7 @@ function handleListSchedules(queryParams: Record<string, string>) {
       retryCount: j.retryCount,
       maxRetries: j.maxRetries,
       retryBackoffMs: j.retryBackoffMs,
+      timeoutMs: j.timeoutMs,
       description:
         j.syntax === "cron"
           ? describeCronExpression(j.cronExpression)
@@ -194,10 +199,19 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
     "wakeConversationId",
     "maxRetries",
     "retryBackoffMs",
+    "timeoutMs",
   ] as const) {
     if (key in body) {
       updates[key] = body[key];
     }
+  }
+
+  if (updates.timeoutMs != null) {
+    if (typeof updates.timeoutMs !== "number") {
+      throw new BadRequestError("timeoutMs must be a number or null");
+    }
+    const timeoutError = validateScriptTimeoutMs(updates.timeoutMs);
+    if (timeoutError) throw new BadRequestError(timeoutError);
   }
 
   try {
@@ -259,7 +273,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "listSchedules",
     endpoint: "schedules",
     method: "GET",
-    policyKey: "schedules",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List schedules",
     description: "Return all scheduled jobs.",
     tags: ["schedules"],
@@ -281,7 +298,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "createSchedule",
     endpoint: "schedules",
     method: "POST",
-    policyKey: "schedules",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Create schedule",
     description:
       "Create a new recurring schedule. Currently restricted to mode='execute'.",
@@ -310,7 +330,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "listScheduleRuns",
     endpoint: "schedules/:id/runs",
     method: "GET",
-    policyKey: "schedules",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List schedule runs",
     description: "Return recent invocation history for a schedule.",
     tags: ["schedules"],
@@ -331,7 +354,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "toggleSchedule",
     endpoint: "schedules/:id/toggle",
     method: "POST",
-    policyKey: "schedules/toggle",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Toggle schedule",
     description: "Enable or disable a schedule.",
     tags: ["schedules"],
@@ -348,7 +374,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "deleteSchedule",
     endpoint: "schedules/:id",
     method: "DELETE",
-    policyKey: "schedules",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete schedule",
     description: "Remove a schedule by ID.",
     tags: ["schedules"],
@@ -362,7 +391,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "updateSchedule",
     endpoint: "schedules/:id",
     method: "PATCH",
-    policyKey: "schedules",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Update schedule",
     description: "Partially update fields on a schedule.",
     tags: ["schedules"],
@@ -380,6 +412,10 @@ export const ROUTES: RouteDefinition[] = [
       reuseConversation: z.boolean(),
       maxRetries: z.number().describe("Maximum retry attempts"),
       retryBackoffMs: z.number().describe("Retry backoff in milliseconds"),
+      timeoutMs: z
+        .number()
+        .nullable()
+        .describe("Script-mode execution timeout in ms; null = use default"),
     }),
     responseBody: z.object({
       schedules: z.array(z.unknown()).describe("Updated schedule list"),
@@ -391,7 +427,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "cancelSchedule",
     endpoint: "schedules/:id/cancel",
     method: "POST",
-    policyKey: "schedules/cancel",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Cancel schedule",
     description: "Cancel a pending schedule.",
     tags: ["schedules"],
@@ -405,7 +444,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "runScheduleNow",
     endpoint: "schedules/:id/run",
     method: "POST",
-    policyKey: "schedules/run",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Run schedule now",
     description: "Trigger an immediate execution of a schedule.",
     tags: ["schedules"],
@@ -434,7 +476,9 @@ async function handleRunScheduleNow(id: string) {
         { jobId: schedule.id, name: schedule.name },
         "Executing script schedule manually (run now)",
       );
-      const result = await runScript(schedule.script);
+      const result = await runScript(schedule.script, {
+        timeoutMs: schedule.timeoutMs ?? undefined,
+      });
       completeScheduleRun(runId, {
         status: result.exitCode === 0 ? "ok" : "error",
         output: result.stdout || undefined,
@@ -469,15 +513,12 @@ async function handleRunScheduleNow(id: string) {
           });
           conversation.taskRunId = taskRunId;
           try {
-            await conversation.processMessage(
-              message,
-              [],
-              () => {},
-              undefined,
-              undefined,
-              undefined,
-              { isInteractive: false },
-            );
+            await conversation.processMessage({
+              content: message,
+              attachments: [],
+              onEvent: () => {},
+              isInteractive: false,
+            });
           } finally {
             conversation.taskRunId = undefined;
           }
@@ -565,15 +606,12 @@ async function handleRunScheduleNow(id: string) {
       trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
     });
     activeConversation.taskRunId = undefined;
-    await activeConversation.processMessage(
-      schedule.message,
-      [],
-      () => {},
-      undefined,
-      undefined,
-      undefined,
-      { isInteractive: false },
-    );
+    await activeConversation.processMessage({
+      content: schedule.message,
+      attachments: [],
+      onEvent: () => {},
+      isInteractive: false,
+    });
     completeScheduleRun(runId, { status: "ok" });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

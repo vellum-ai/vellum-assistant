@@ -1,11 +1,11 @@
+import type {
+  ConversationErrorCode,
+  ConversationErrorEvent,
+} from "../api/events/conversation-error.js";
 import { ConnectionResolutionError } from "../providers/connection-resolution.js";
 import { getProviderRoutingSource } from "../providers/registry.js";
 import { isAbortReason } from "../util/abort-reasons.js";
 import { ProviderError, ProviderNotConfiguredError } from "../util/errors.js";
-import type {
-  ConversationErrorCode,
-  ConversationErrorMessage,
-} from "./message-protocol.js";
 
 /**
  * Classified conversation error ready for client emission.
@@ -19,7 +19,7 @@ export interface ClassifiedConversationError {
   errorCategory: string;
   /**
    * Name of the `provider_connections` row in play when the error
-   * occurred. Forwarded to the wire `ConversationErrorMessage` so chat
+   * occurred. Forwarded to the wire `ConversationErrorEvent` so chat
    * banners can point users at the specific slot to fix. Only set by
    * classifiers / callers that have the resolved connection in scope —
    * generic regex fallbacks leave it undefined.
@@ -37,7 +37,7 @@ export interface ClassifiedConversationError {
 
 /**
  * Optional resolved-config context that callers can attach to error
- * classification so the resulting `ConversationErrorMessage` can name the
+ * classification so the resulting `ConversationErrorEvent` can name the
  * exact connection / profile in play. Used in particular by the chat
  * dispatch sites to make `PROVIDER_INVALID_KEY` and `PROVIDER_NOT_CONFIGURED`
  * actionable (the macOS banner reads these to render "Invalid API key for
@@ -252,8 +252,7 @@ export function classifyConversationError(
   if (error instanceof ProviderNotConfiguredError) {
     return {
       ...providerNotConfiguredClassification({
-        connectionName:
-          error.connectionName ?? attribution.connectionName,
+        connectionName: error.connectionName ?? attribution.connectionName,
         profileName: error.profileName ?? attribution.profileName,
       }),
       debugDetails,
@@ -268,9 +267,7 @@ export function classifyConversationError(
       retryable: true,
       debugDetails,
       errorCategory: "provider_not_configured",
-      ...(error.connectionName
-        ? { connectionName: error.connectionName }
-        : {}),
+      ...(error.connectionName ? { connectionName: error.connectionName } : {}),
       ...(attribution.profileName
         ? { profileName: attribution.profileName }
         : {}),
@@ -809,12 +806,27 @@ export function budgetYieldUnrecoveredClassification(): ClassifiedConversationEr
 }
 
 /**
+ * Classify a model response that stopped because the output-token limit was
+ * reached. The turn may have produced useful partial text, so the recovery is
+ * a follow-up user turn rather than a retry of the same request.
+ */
+export function maxTokensReachedClassification(): ClassifiedConversationError {
+  return {
+    code: "MAX_TOKENS_REACHED",
+    userMessage:
+      "I hit the response limit before I could finish. Continue and I'll pick up from where I stopped.",
+    retryable: true,
+    errorCategory: "max_tokens_reached",
+  };
+}
+
+/**
  * Build a `conversation_error` server message from a classified error.
  */
 export function buildConversationErrorMessage(
   conversationId: string,
   classified: ClassifiedConversationError,
-): ConversationErrorMessage {
+): ConversationErrorEvent {
   return {
     type: "conversation_error",
     conversationId,
@@ -829,8 +841,6 @@ export function buildConversationErrorMessage(
     ...(classified.connectionName
       ? { connectionName: classified.connectionName }
       : {}),
-    ...(classified.profileName
-      ? { profileName: classified.profileName }
-      : {}),
+    ...(classified.profileName ? { profileName: classified.profileName } : {}),
   };
 }

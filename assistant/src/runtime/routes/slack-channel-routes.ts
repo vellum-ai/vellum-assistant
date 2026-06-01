@@ -12,6 +12,7 @@ import {
   getSlackConversationInfo,
   SlackApiError,
 } from "../../messaging/providers/slack/api.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishSyncInvalidation } from "../sync/sync-publisher.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -171,6 +172,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "slack_channel_name_resolve",
     endpoint: "conversations/:conversationId/slack-channel/resolve",
     method: "POST",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleSlackChannelNameResolve,
     summary: "Resolve Slack channel name",
     description:

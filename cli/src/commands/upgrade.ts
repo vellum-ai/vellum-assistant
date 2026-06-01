@@ -7,9 +7,10 @@ import {
   findAssistantByName,
   getActiveAssistant,
   loadAllAssistants,
+  resolveCloud,
   saveAssistantEntry,
+  type AssistantEntry,
 } from "../lib/assistant-config";
-import type { AssistantEntry } from "../lib/assistant-config";
 import {
   captureImageRefs,
   GATEWAY_INTERNAL_PORT,
@@ -143,19 +144,6 @@ function parseArgs(): UpgradeArgs {
   }
 
   return { name, version, latest, prepare, finalize };
-}
-
-function resolveCloud(entry: AssistantEntry): string {
-  if (entry.cloud) {
-    return entry.cloud;
-  }
-  if (entry.project) {
-    return "gcp";
-  }
-  if (entry.sshUser) {
-    return "custom";
-  }
-  return "local";
 }
 
 /**
@@ -512,7 +500,10 @@ async function upgradeDocker(
   } else {
     console.error(`\n❌ Containers failed to become ready within the timeout.`);
 
-    const logDir = await captureUpgradeFailureLogs(res, `${instanceName}-upgrade-failure`);
+    const logDir = await captureUpgradeFailureLogs(
+      res,
+      `${instanceName}-upgrade-failure`,
+    );
     if (logDir) {
       console.log(`📋 Container logs saved to: ${logDir}`);
     }
@@ -938,7 +929,8 @@ async function resolveLatestAndMaybeSelfUpdate(
     );
     if (installResult.error || installResult.status !== 0) {
       const detail =
-        installResult.error?.message ?? `exited with code ${installResult.status}`;
+        installResult.error?.message ??
+        `exited with code ${installResult.status}`;
       console.error(`\n❌ CLI self-update failed: ${detail}`);
       emitCliError("CLI_UPDATE_FAILED", "CLI self-update failed", detail);
       process.exit(1);

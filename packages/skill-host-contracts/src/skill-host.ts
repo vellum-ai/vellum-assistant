@@ -194,18 +194,25 @@ export interface ProvidersFacet {
 // Memory
 // ---------------------------------------------------------------------------
 
+/** Valid message roles for `memory.addMessage`. */
+export type MessageRole = "user" | "assistant" | "system";
+
 /**
  * Callable signature for `memory.addMessage`. Mirrors the daemon's
  * `addMessage()` (in `assistant/src/memory/conversation-crud.ts`) shape.
  * The return type is left as `unknown` because the daemon has additional
  * fields (message id, metadata echo) that skills should not depend on.
  */
+export interface InsertMessageOptions {
+  metadata?: Record<string, unknown>;
+  skipIndexing?: boolean;
+}
+
 export type InsertMessageFn = (
   conversationId: string,
-  role: string,
+  role: MessageRole,
   content: string,
-  metadata?: Record<string, unknown>,
-  opts?: { skipIndexing?: boolean },
+  options?: InsertMessageOptions,
 ) => Promise<unknown>;
 
 /** Opaque payload passed to `memory.wakeAgentForOpportunity`. */

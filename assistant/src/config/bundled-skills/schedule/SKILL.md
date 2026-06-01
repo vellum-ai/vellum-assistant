@@ -94,13 +94,13 @@ The `mode` parameter controls what happens when a schedule fires:
 
 - **execute** (default) - sends the schedule's message to a background assistant conversation for autonomous handling. The assistant processes the message as if the user sent it.
 - **notify** - sends a notification to the user via the notification pipeline. No assistant processing occurs.
-- **script** - runs the `script` field as a shell command directly. No LLM invoked, no conversation created. stdout/stderr are captured in the schedule run record. Exit code 0 = success, non-zero = error. Commands run in the workspace directory with a 60-second timeout.
+- **script** - runs the `script` field as a shell command directly. No LLM invoked, no conversation created. stdout/stderr are captured in the schedule run record. Exit code 0 = success, non-zero = error. Commands run in the workspace directory with a 60-second timeout by default. Override the timeout per schedule with `timeout_ms` (range 1000–1800000 ms) when a script needs more or less time; pass `timeout_ms: null` on update to revert to the default. The guardian can also adjust this from the /assistant/settings/schedules page.
 
 Use `notify` for simple reminders ("remind me to take medicine at 9am"), `execute` for tasks that need assistant action ("check my calendar at 8am and send me a digest"), and `script` for lightweight shell automations that don't need LLM involvement ("refresh a cache", "poll an API", "rotate logs").
 
 ## Conversation Reuse
 
-By default, each schedule run creates a new conversation. For recurring schedules that benefit from accumulating context across runs (e.g. polling-style jobs, daily digests that reference prior results), set `reuse_conversation: true`. When enabled, subsequent runs reuse the conversation from the last successful run instead of creating a new one.
+Recurring schedules reuse the same conversation across runs by default — subsequent runs continue the conversation from the last successful run, preserving context and channel thread continuity. Set `reuse_conversation: false` explicitly if each run should start with a fresh conversation (e.g. independent reports that shouldn't accumulate prior context). One-shot schedules always create a fresh conversation.
 
 - Only applies to **recurring** schedules; ignored for one-shot schedules.
 - If the prior conversation has been deleted, a new one is created automatically.

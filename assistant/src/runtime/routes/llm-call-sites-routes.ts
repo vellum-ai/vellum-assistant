@@ -5,6 +5,7 @@ import {
   CALL_SITE_DOMAINS,
 } from "../../config/schemas/call-site-catalog.js";
 import type { LLMCallSite } from "../../config/schemas/llm.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition } from "./types.js";
 
 async function handleGetCallSites() {
@@ -39,6 +40,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "llm_call_sites_list",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "config/llm/call-sites",
     handler: handleGetCallSites,
     summary: "List LLM call sites",
@@ -49,6 +54,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "llm_profiles_list",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "config/llm/profiles",
     handler: handleListProfiles,
     summary: "List defined LLM profiles",

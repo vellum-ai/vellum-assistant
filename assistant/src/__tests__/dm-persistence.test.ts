@@ -34,9 +34,14 @@ mock.module("../memory/conversation-crud.js", () => ({
     conversationId: string,
     role: string,
     content: string,
-    metadata?: Record<string, unknown>,
+    options?: { metadata?: Record<string, unknown> },
   ) => {
-    addMessageCalls.push({ conversationId, role, content, metadata });
+    addMessageCalls.push({
+      conversationId,
+      role,
+      content,
+      metadata: options?.metadata,
+    });
     return { id: `persisted-${addMessageCalls.length}` };
   },
   getConversation: () => null,
@@ -121,20 +126,17 @@ describe("PR 16 — Slack DM persistence parity", () => {
     // ingress handler builds a `slackInbound` with no `threadTs` and threads
     // it through to persistence.
     const ctx = createSlackTurnContext();
-    await persistQueuedMessageBody(
-      ctx,
-      "hello from DM",
-      [],
-      "req-dm",
-      {
+    await persistQueuedMessageBody(ctx, {
+      content: "hello from DM",
+      requestId: "req-dm",
+      metadata: {
         slackInbound: {
           channelId: "D0123DM",
           channelTs: "1700000000.123456",
           displayName: "Alice",
         },
       },
-      undefined,
-    );
+    });
 
     const slackMeta = lastPersistedSlackMeta();
     expect(slackMeta).not.toBeNull();
@@ -158,19 +160,16 @@ describe("PR 16 — Slack DM persistence parity", () => {
     // gateway can't resolve the user). The envelope should still be written;
     // only the optional displayName field is omitted.
     const ctx = createSlackTurnContext();
-    await persistQueuedMessageBody(
-      ctx,
-      "anonymous DM",
-      [],
-      "req-dm-anon",
-      {
+    await persistQueuedMessageBody(ctx, {
+      content: "anonymous DM",
+      requestId: "req-dm-anon",
+      metadata: {
         slackInbound: {
           channelId: "D9999DM",
           channelTs: "1700000000.555555",
         },
       },
-      undefined,
-    );
+    });
 
     const slackMeta = lastPersistedSlackMeta();
     expect(slackMeta).not.toBeNull();
@@ -182,12 +181,10 @@ describe("PR 16 — Slack DM persistence parity", () => {
 
   test("DM inbound persists Slack actor timezone metadata", async () => {
     const ctx = createSlackTurnContext();
-    await persistQueuedMessageBody(
-      ctx,
-      "hello across timezones",
-      [],
-      "req-dm-timezone",
-      {
+    await persistQueuedMessageBody(ctx, {
+      content: "hello across timezones",
+      requestId: "req-dm-timezone",
+      metadata: {
         slackInbound: {
           channelId: "D0123DM",
           channelTs: "1700000000.777777",
@@ -200,8 +197,7 @@ describe("PR 16 — Slack DM persistence parity", () => {
           speakerTimezoneLabel: "ET",
         },
       },
-      undefined,
-    );
+    });
 
     const slackMeta = lastPersistedSlackMeta();
     expect(slackMeta).not.toBeNull();
@@ -216,12 +212,10 @@ describe("PR 16 — Slack DM persistence parity", () => {
   test("DM and channel-message envelopes differ only by threadTs", async () => {
     // Capture the channel-thread case first.
     const ctx = createSlackTurnContext();
-    await persistQueuedMessageBody(
-      ctx,
-      "channel thread reply",
-      [],
-      "req-channel",
-      {
+    await persistQueuedMessageBody(ctx, {
+      content: "channel thread reply",
+      requestId: "req-channel",
+      metadata: {
         slackInbound: {
           channelId: "C0123CHAN",
           channelTs: "1700000000.999999",
@@ -229,8 +223,7 @@ describe("PR 16 — Slack DM persistence parity", () => {
           displayName: "Bob",
         },
       },
-      undefined,
-    );
+    });
     const channelMeta = lastPersistedSlackMeta();
     expect(channelMeta).not.toBeNull();
     expect(channelMeta!.threadTs).toBe("1700000000.111111");
@@ -238,20 +231,17 @@ describe("PR 16 — Slack DM persistence parity", () => {
     // Now dispatch a DM and assert that every shared field has the same
     // shape — only `threadTs` (and the inputs themselves) differ.
     addMessageCalls.length = 0;
-    await persistQueuedMessageBody(
-      ctx,
-      "DM reply",
-      [],
-      "req-dm-2",
-      {
+    await persistQueuedMessageBody(ctx, {
+      content: "DM reply",
+      requestId: "req-dm-2",
+      metadata: {
         slackInbound: {
           channelId: "D9999DM",
           channelTs: "1700000000.222222",
           displayName: "Carol",
         },
       },
-      undefined,
-    );
+    });
     const dmMeta = lastPersistedSlackMeta();
     expect(dmMeta).not.toBeNull();
     expect(dmMeta!.source).toBe(channelMeta!.source);

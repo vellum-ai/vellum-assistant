@@ -34,6 +34,7 @@ import { routeGuardianReply } from "../runtime/guardian-reply-router.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import type { CleanResult } from "./conversation.js";
+import type { PersistMessageOptions } from "./conversation-messaging.js";
 import {
   persistQueuedMessageBody,
   serializePersistedUserMessageContent,
@@ -158,12 +159,8 @@ export interface ProcessConversationContext {
   currentTurnChannelCapabilities?: ChannelCapabilities;
   ensureActorScopedHistory(): Promise<void>;
   persistUserMessage(
-    content: string,
-    attachments: UserMessageAttachment[],
-    requestId?: string,
-    metadata?: Record<string, unknown>,
-    displayContent?: string,
-  ): Promise<string>;
+    options: PersistMessageOptions,
+  ): Promise<{ id: string; deduplicated: boolean }>;
   runAgentLoop(
     content: string,
     userMessageId: string,
@@ -628,12 +625,9 @@ async function drainSingleMessage(
         next.attachments,
         next.displayContent,
       );
-      await addMessage(
-        conversation.conversationId,
-        "user",
-        contentToPersist,
-        drainChannelMeta,
-      );
+      await addMessage(conversation.conversationId, "user", contentToPersist, {
+        metadata: drainChannelMeta,
+      });
       conversation.messages.push(llmUserMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
@@ -641,7 +635,7 @@ async function drainSingleMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        { ...drainChannelMeta, sentAt: Date.now() },
+        { metadata: { ...drainChannelMeta, sentAt: Date.now() } },
       );
       conversation.messages.push(assistantMsg);
 
@@ -744,7 +738,7 @@ async function drainSingleMessage(
           next.attachments,
           next.displayContent,
         ),
-        drainChannelMeta,
+        { metadata: drainChannelMeta },
       );
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -765,7 +759,7 @@ async function drainSingleMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        { ...drainChannelMeta, sentAt: Date.now() },
+        { metadata: { ...drainChannelMeta, sentAt: Date.now() } },
       );
       conversation.messages.push(assistantMsg);
 
@@ -840,7 +834,7 @@ async function drainSingleMessage(
           next.attachments,
           next.displayContent,
         ),
-        drainChannelMeta,
+        { metadata: drainChannelMeta },
       );
       persistedCleanMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -853,7 +847,7 @@ async function drainSingleMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        { ...drainChannelMeta, sentAt: Date.now() },
+        { metadata: { ...drainChannelMeta, sentAt: Date.now() } },
       );
       conversation.messages.push(assistantMsg);
 
@@ -921,15 +915,16 @@ async function drainSingleMessage(
   // succeeds, runAgentLoop is called and its finally block will drain
   // the next message. If persistUserMessage fails, processMessage
   // resolves early (no runAgentLoop call), so we must continue draining.
-  let userMessageId: string;
+  let persistResult: { id: string; deduplicated: boolean };
   try {
-    userMessageId = await conversation.persistUserMessage(
-      resolvedContent,
-      next.attachments,
-      next.requestId,
-      { ...next.metadata, sentAt: next.sentAt },
-      next.displayContent,
-    );
+    persistResult = await conversation.persistUserMessage({
+      content: resolvedContent,
+      attachments: next.attachments,
+      requestId: next.requestId,
+      metadata: { ...next.metadata, sentAt: next.sentAt },
+      displayContent: next.displayContent,
+      clientMessageId: next.clientMessageId,
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.error(
@@ -957,6 +952,18 @@ async function drainSingleMessage(
     // runAgentLoop never ran, so its finally block won't clear this
     conversation.preactivatedSkillIds = undefined;
     // Continue draining — don't strand remaining messages
+    await drainQueue(conversation);
+    return;
+  }
+
+  const userMessageId = persistResult.id;
+
+  if (persistResult.deduplicated) {
+    log.info(
+      { conversationId: conversation.conversationId, userMessageId },
+      "Skipping agent loop for deduplicated queued message",
+    );
+    conversation.preactivatedSkillIds = undefined;
     await drainQueue(conversation);
     return;
   }
@@ -1217,24 +1224,43 @@ async function drainBatch(
     const qmContent = qmSlash.content;
 
     try {
+      let batchPersistResult: { id: string; deduplicated: boolean };
+      const persistOptions = {
+        content: qmContent,
+        attachments: qm.attachments,
+        requestId: qm.requestId,
+        metadata: { ...qm.metadata, sentAt: qm.sentAt },
+        displayContent: qm.displayContent,
+        clientMessageId: qm.clientMessageId,
+      };
       if (i === 0) {
-        lastUserMessageId = await conversation.persistUserMessage(
-          qmContent,
-          qm.attachments,
-          qm.requestId,
-          { ...qm.metadata, sentAt: qm.sentAt },
-          qm.displayContent,
-        );
+        batchPersistResult =
+          await conversation.persistUserMessage(persistOptions);
       } else {
-        lastUserMessageId = await persistQueuedMessageBody(
+        batchPersistResult = await persistQueuedMessageBody(
           conversation,
-          qmContent,
-          qm.attachments,
-          qm.requestId,
-          { ...qm.metadata, sentAt: qm.sentAt },
-          qm.displayContent,
+          persistOptions,
         );
       }
+      if (batchPersistResult.deduplicated) {
+        if (i === 0) {
+          // Head was deduplicated — persistUserMessage cleared the
+          // processing flag. Recursively drain remaining items so the
+          // first non-duplicate becomes the new batch head and sets
+          // processing via persistUserMessage.
+          const remaining = batch.slice(1);
+          if (remaining.length >= 2) {
+            await drainBatch(conversation, remaining, reason);
+          } else if (remaining.length === 1) {
+            await drainSingleMessage(conversation, remaining[0], reason);
+          } else {
+            await drainQueue(conversation);
+          }
+          return;
+        }
+        continue;
+      }
+      lastUserMessageId = batchPersistResult.id;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       log.error(
@@ -1377,12 +1403,19 @@ async function drainBatch(
   conversation.currentActiveSurfaceId = lastSuccessfulActiveSurfaceId;
   conversation.currentPage = lastSuccessfulCurrentPage;
 
-  // Broadcast agent-loop events only to members whose persist succeeded.
-  // Members whose persist failed already received an error event in the
-  // catch block above; sending them the assistant's streaming response
-  // would surface a reply for a user message that isn't in their DB.
+  // Broadcast agent-loop events only to unique sinks whose persist succeeded.
+  // Multiple web-queued messages share the same broadcastMessage callback; if
+  // we call it once per queued message, every text delta is published N times
+  // to the same SSE stream and the client renders duplicated text.
+  //
+  // Members whose persist failed already received an error event in the catch
+  // block above; sending them the assistant's streaming response would surface
+  // a reply for a user message that isn't in their DB.
+  const successfulEventSinks = Array.from(
+    new Set(successfulBatch.map((qm) => qm.onEvent)),
+  );
   const fanOutOnEvent = (msg: ServerMessage) => {
-    for (const qm of successfulBatch) qm.onEvent(msg);
+    for (const onEvent of successfulEventSinks) onEvent(msg);
   };
 
   const drainLoopOptions: {
@@ -1427,6 +1460,22 @@ async function drainBatch(
     });
 }
 
+// ── ProcessMessageOptions ────────────────────────────────────────────
+
+/** Options for `processMessage`. Only `content` and `attachments` are
+ *  required; everything else has a sensible default or is genuinely optional. */
+export interface ProcessMessageOptions {
+  content: string;
+  attachments: UserMessageAttachment[];
+  onEvent?: (msg: ServerMessage) => void;
+  requestId?: string;
+  activeSurfaceId?: string;
+  currentPage?: string;
+  isInteractive?: boolean;
+  callSite?: LLMCallSite;
+  displayContent?: string;
+}
+
 // ── processMessage ───────────────────────────────────────────────────
 
 /**
@@ -1435,15 +1484,19 @@ async function drainBatch(
  */
 export async function processMessage(
   conversation: ProcessConversationContext,
-  content: string,
-  attachments: UserMessageAttachment[],
-  onEvent: (msg: ServerMessage) => void,
-  requestId?: string,
-  activeSurfaceId?: string,
-  currentPage?: string,
-  options?: { isInteractive?: boolean; callSite?: LLMCallSite },
-  displayContent?: string,
+  options: ProcessMessageOptions,
 ): Promise<string> {
+  const {
+    content,
+    attachments,
+    onEvent = () => {},
+    requestId,
+    activeSurfaceId,
+    currentPage,
+    isInteractive,
+    callSite,
+    displayContent,
+  } = options;
   await conversation.ensureActorScopedHistory();
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
@@ -1522,7 +1575,7 @@ export async function processMessage(
           attachments,
           displayContent,
         ),
-        routerChannelMeta,
+        { metadata: routerChannelMeta },
       );
       conversation.messages.push(llmUserMsg);
 
@@ -1536,7 +1589,7 @@ export async function processMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        routerChannelMeta,
+        { metadata: routerChannelMeta },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1615,7 +1668,7 @@ export async function processMessage(
       conversation.conversationId,
       "user",
       contentToPersist,
-      pmChannelMeta,
+      { metadata: pmChannelMeta },
     );
     conversation.messages.push(llmUserMsg);
 
@@ -1624,7 +1677,7 @@ export async function processMessage(
       conversation.conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
-      pmChannelMeta,
+      { metadata: pmChannelMeta },
     );
     conversation.messages.push(assistantMsg);
 
@@ -1702,7 +1755,7 @@ export async function processMessage(
           attachments,
           displayContent,
         ),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -1723,7 +1776,7 @@ export async function processMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1789,7 +1842,7 @@ export async function processMessage(
           attachments,
           displayContent,
         ),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       persistedCleanMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -1802,7 +1855,7 @@ export async function processMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1857,15 +1910,14 @@ export async function processMessage(
     }
   }
 
-  let userMessageId: string;
+  let pmResult: { id: string; deduplicated: boolean };
   try {
-    userMessageId = await conversation.persistUserMessage(
-      resolvedContent,
+    pmResult = await conversation.persistUserMessage({
+      content: resolvedContent,
       attachments,
       requestId,
-      undefined,
       displayContent,
-    );
+    });
     publishConversationMessagesChanged(conversation.conversationId);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1878,6 +1930,8 @@ export async function processMessage(
     conversation.preactivatedSkillIds = undefined;
     return "";
   }
+
+  const userMessageId = pmResult.id;
 
   // Fire-and-forget: detect notification preferences in the user message
   // and persist any that are found. Runs in the background so it doesn't
@@ -1916,11 +1970,10 @@ export async function processMessage(
     titleText?: string;
     callSite?: LLMCallSite;
   } = { isUserMessage: true };
-  if (options?.isInteractive !== undefined)
-    loopOptions.isInteractive = options.isInteractive;
+  if (isInteractive !== undefined) loopOptions.isInteractive = isInteractive;
   if (agentLoopContent !== resolvedContent)
     loopOptions.titleText = resolvedContent;
-  if (options?.callSite !== undefined) loopOptions.callSite = options.callSite;
+  if (callSite !== undefined) loopOptions.callSite = callSite;
 
   await conversation.runAgentLoop(
     agentLoopContent,

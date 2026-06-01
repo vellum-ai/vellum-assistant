@@ -1,11 +1,55 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import type { Plugin, Connect } from "vite";
 
 const PRODUCTION_ENVIRONMENT_NAME = "production";
+const CLI_PACKAGE_NAME = "@vellumai/cli";
+
+let _resolvedCliPath: string | undefined;
+
+/**
+ * Resolve the CLI entry point via two strategies:
+ *
+ * 1. **Source tree** — `<repoRoot>/cli/src/index.ts` exists (dev mode in monorepo).
+ * 2. **Installed package** — `require.resolve("@vellumai/cli/package.json")` then
+ *    derive the entry point from the resolved package directory.
+ *
+ * The result is cached for the lifetime of the Vite server process.
+ */
+function resolveCliPath(): string {
+  if (_resolvedCliPath) return _resolvedCliPath;
+
+  const repoRoot = path.resolve(import.meta.dirname, "..", "..");
+  const sourceTreePath = path.join(repoRoot, "cli", "src", "index.ts");
+  if (fs.existsSync(sourceTreePath)) {
+    _resolvedCliPath = sourceTreePath;
+    return _resolvedCliPath;
+  }
+
+  const _require = createRequire(import.meta.url);
+  try {
+    const pkgPath = _require.resolve(`${CLI_PACKAGE_NAME}/package.json`);
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8")) as { bin?: Record<string, string> };
+    const binEntry = pkg.bin?.["vellum"];
+    if (binEntry) {
+      const entryPoint = path.resolve(path.dirname(pkgPath), binEntry);
+      if (fs.existsSync(entryPoint)) {
+        _resolvedCliPath = entryPoint;
+        return _resolvedCliPath;
+      }
+    }
+  } catch {
+    // Not found in node_modules
+  }
+
+  throw new Error(
+    `Vellum CLI not found. Looked for source tree at ${sourceTreePath} and npm package ${CLI_PACKAGE_NAME}.`,
+  );
+}
 
 /**
  * Sensitive lockfile fields that must never be served to the browser.
@@ -77,6 +121,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(lockfileMiddleware(lockfilePaths));
       server.middlewares.use(hatchMiddleware());
       server.middlewares.use(retireMiddleware());
+      server.middlewares.use(guardianTokenMiddleware(env));
       server.middlewares.use(gatewayProxyMiddleware());
     },
   };
@@ -268,17 +313,16 @@ function hatchMiddleware(): Connect.NextHandleFunction {
 }
 
 function handleHatch(species: string, res: http.ServerResponse): void {
-  // Resolve CLI entry point in dev mode (Vite runs in Node inside the repo).
-  const repoRoot = path.resolve(import.meta.dirname, "..", "..");
-  const cliPath = path.join(repoRoot, "cli", "src", "index.ts");
-
-  if (!fs.existsSync(cliPath)) {
+  let cliPath: string;
+  try {
+    cliPath = resolveCliPath();
+  } catch (err) {
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
         ok: false,
-        error: `CLI binary not found at ${cliPath}`,
+        error: err instanceof Error ? err.message : String(err),
       }),
     );
     return;
@@ -383,16 +427,16 @@ function retireMiddleware(): Connect.NextHandleFunction {
 const RETIRE_TIMEOUT_MS = 60_000;
 
 function handleRetire(assistantId: string, res: http.ServerResponse): void {
-  const repoRoot = path.resolve(import.meta.dirname, "..", "..");
-  const cliPath = path.join(repoRoot, "cli", "src", "index.ts");
-
-  if (!fs.existsSync(cliPath)) {
+  let cliPath: string;
+  try {
+    cliPath = resolveCliPath();
+  } catch (err) {
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
     res.end(
       JSON.stringify({
         ok: false,
-        error: `CLI binary not found at ${cliPath}`,
+        error: err instanceof Error ? err.message : String(err),
       }),
     );
     return;
@@ -440,6 +484,189 @@ function handleRetire(assistantId: string, res: http.ServerResponse): void {
     respond(500, { ok: false, error: `Failed to spawn CLI: ${err.message}` });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Guardian token middleware
+// ---------------------------------------------------------------------------
+
+function isLoopbackAddr(addr: string): boolean {
+  const v4Mapped = addr.match(/^::ffff:(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})$/i);
+  const normalized = v4Mapped ? v4Mapped[1]! : addr;
+  if (normalized.includes(".")) {
+    return normalized.startsWith("127.");
+  }
+  return normalized === "::1";
+}
+
+const GUARDIAN_TOKEN_PATTERN =
+  /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
+
+const GUARDIAN_TOKEN_REFRESH_TIMEOUT_MS = 15_000;
+
+/**
+ * Resolve the config directory matching `cli/src/lib/environments/paths.ts:getConfigDir`.
+ */
+function resolveConfigDir(env: Record<string, string>): string {
+  const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
+  const xdgConfigHome =
+    env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  if (vellumEnv === PRODUCTION_ENVIRONMENT_NAME) {
+    return path.join(xdgConfigHome, "vellum");
+  }
+  return path.join(xdgConfigHome, `vellum-${vellumEnv}`);
+}
+
+function resolveGuardianTokenPath(
+  env: Record<string, string>,
+  assistantId: string,
+): string {
+  return path.join(resolveConfigDir(env), "assistants", assistantId, "guardian-token.json");
+}
+
+interface GuardianTokenData {
+  accessToken: string;
+  accessTokenExpiresAt: string | number;
+  refreshToken: string;
+  refreshTokenExpiresAt: string | number;
+}
+
+function isAccessTokenExpired(data: GuardianTokenData): boolean {
+  const expiresAt = new Date(data.accessTokenExpiresAt).getTime();
+  if (!Number.isFinite(expiresAt)) return true;
+  return Date.now() >= expiresAt - 60_000;
+}
+
+function isRefreshTokenExpired(data: GuardianTokenData): boolean {
+  const expiresAt = new Date(data.refreshTokenExpiresAt).getTime();
+  if (!Number.isFinite(expiresAt)) return true;
+  return Date.now() >= expiresAt;
+}
+
+/**
+ * Connect middleware that serves guardian access tokens for local assistants.
+ *
+ * GET /assistant/__local/guardian-token/:assistantId
+ *
+ * Reads the guardian token from disk. If the access token is expired,
+ * shells out to the CLI to refresh it, then re-reads from disk.
+ */
+function guardianTokenMiddleware(
+  env: Record<string, string>,
+): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    const match = req.url?.match(GUARDIAN_TOKEN_PATTERN);
+    if (!match) return next();
+
+    if (req.method !== "GET") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    const peer = req.socket.remoteAddress ?? "";
+    if (!isLoopbackAddr(peer)) {
+      res.statusCode = 403;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Forbidden" }));
+      return;
+    }
+
+    const assistantId = decodeURIComponent(match[1]!);
+    const tokenPath = resolveGuardianTokenPath(env, assistantId);
+
+    let raw: string;
+    try {
+      raw = fs.readFileSync(tokenPath, "utf-8");
+    } catch {
+      res.statusCode = 404;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Guardian token not found" }));
+      return;
+    }
+
+    let data: GuardianTokenData;
+    try {
+      data = JSON.parse(raw) as GuardianTokenData;
+    } catch {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Malformed guardian token file" }));
+      return;
+    }
+
+    if (!isAccessTokenExpired(data)) {
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ accessToken: data.accessToken }));
+      return;
+    }
+
+    if (isRefreshTokenExpired(data)) {
+      res.statusCode = 401;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: "Guardian token expired — re-run `vellum hatch` or `vellum wake`" }));
+      return;
+    }
+
+    // Refresh via CLI in a child process
+    let cliPath: string;
+    try {
+      cliPath = resolveCliPath();
+    } catch (err) {
+      res.statusCode = 500;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ error: err instanceof Error ? err.message : String(err) }));
+      return;
+    }
+
+    const child = spawn(
+      "bun",
+      ["run", cliPath, "gateway", "token", "refresh", assistantId],
+      { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, ...env } },
+    );
+
+    let stdout = "";
+    let responded = false;
+
+    const respond = (status: number, body: Record<string, unknown>) => {
+      if (responded) return;
+      responded = true;
+      clearTimeout(timeout);
+      res.statusCode = status;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify(body));
+    };
+
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      respond(500, { error: "Guardian token refresh timed out" });
+    }, GUARDIAN_TOKEN_REFRESH_TIMEOUT_MS);
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+
+    child.on("close", (code) => {
+      if (code === 0) {
+        const accessToken = stdout.trim();
+        if (accessToken) {
+          respond(200, { accessToken });
+        } else {
+          respond(500, { error: "CLI returned empty token" });
+        }
+      } else {
+        respond(401, { error: "Failed to refresh guardian token" });
+      }
+    });
+
+    child.on("error", (err) => {
+      respond(500, { error: `Failed to spawn CLI: ${err.message}` });
+    });
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Gateway proxy middleware
+// ---------------------------------------------------------------------------
 
 const GATEWAY_PATTERN = /^(?:\/assistant)?\/__gateway\/(\d+)(\/.*)?$/;
 

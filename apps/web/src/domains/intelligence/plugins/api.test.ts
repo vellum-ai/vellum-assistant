@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { client } from "@/domains/intelligence/client";
+import { client } from "@/generated/daemon/client.gen";
 import {
   ApiError,
   fetchPluginCatalog,
 } from "@/domains/intelligence/plugins/api";
 
 // ---------------------------------------------------------------------------
-// fetchPluginCatalog — /v1/assistants/{id}/plugins/search/
+// fetchPluginCatalog — /v1/assistants/{id}/plugins/search
 // ---------------------------------------------------------------------------
 //
 // The daemon endpoint takes ?q as an ECMAScript regex (PR #31860). The web
@@ -40,7 +40,7 @@ describe("fetchPluginCatalog", () => {
 
     expect(captured).toHaveLength(1);
     expect(captured[0]?.url).toBe(
-      "/v1/assistants/{assistant_id}/plugins/search/",
+      "/v1/assistants/{assistant_id}/plugins/search",
     );
     expect(captured[0]?.path).toEqual({ assistant_id: "assistant-1" });
     // Each of `.`, `(`, `)` should have been escaped.
