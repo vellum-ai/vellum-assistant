@@ -83,6 +83,7 @@ import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 import { hydrateLastSeenSeqFromStorage } from "@/lib/streaming/last-seen-seq";
+import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
 import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
@@ -224,9 +225,11 @@ export function ChatPage() {
 
   // Hydrate per-conversation seq cursors from localStorage once so gap
   // detection in use-event-stream has a seeded cursor before the first
-  // bus event arrives.
+  // bus event arrives. Gated behind the debug flag.
   useEffect(() => {
-    hydrateLastSeenSeqFromStorage();
+    if (isSeqGapDetectionEnabled()) {
+      hydrateLastSeenSeqFromStorage();
+    }
   }, []);
 
   // -------------------------------------------------------------------------

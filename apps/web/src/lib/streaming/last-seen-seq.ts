@@ -106,6 +106,11 @@ export function clearLastSeenSeq(conversationId: string): void {
   }
 }
 
+/** Snapshot of all in-memory seq cursors. Keyed by conversationId. */
+export function getSeqCursors(): Record<string, number> {
+  return Object.fromEntries(seqMap);
+}
+
 /** Reset all state. Test-only. */
 export function __resetLastSeenSeqForTesting(): void {
   seqMap.clear();

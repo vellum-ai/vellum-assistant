@@ -45,6 +45,7 @@ import {
   replaceLastSeenSeq,
   setLastSeenSeq,
 } from "@/lib/streaming/last-seen-seq";
+import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
 import type {
   ActiveConversationMessagesRefreshResult,
   WebSyncRouter,
@@ -226,6 +227,10 @@ export function useEventStream({
     const presence: ChatEventStream = { cancel: () => {} };
     streamRef.current = presence;
 
+    // Read once at subscription setup — the flag requires a reload to
+    // flip, so it cannot change during the lifetime of this effect.
+    const seqGapEnabled = isSeqGapDetectionEnabled();
+
     // Gate so the very first event after a conversation switch seeds
     // the seq cursor without triggering a reconcile. Prevents spurious
     // refetches when switching to a conversation whose stored cursor
@@ -267,7 +272,7 @@ export function useEventStream({
 
       const eventSeq = envelope.seq;
       let gapDetected = false;
-      if (eventSeq != null && eventConversationId) {
+      if (seqGapEnabled && eventSeq != null && eventConversationId) {
         if (seededSeqForConversation) {
           const stored = getLastSeenSeq(eventConversationId) ?? 0;
           if (eventSeq < stored) {
@@ -304,7 +309,7 @@ export function useEventStream({
       // Skip advancement when a gap was detected — the reconcile
       // refetch will deliver authoritative state. If reconcile fails,
       // the next contiguous event will re-detect the gap and retry.
-      if (eventSeq != null && eventConversationId && !gapDetected) {
+      if (seqGapEnabled && eventSeq != null && eventConversationId && !gapDetected) {
         setLastSeenSeq(eventConversationId, eventSeq);
       }
     });
