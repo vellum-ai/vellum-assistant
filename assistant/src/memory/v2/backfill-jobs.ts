@@ -162,7 +162,7 @@ export async function memoryV2ActivationRecomputeJob(
   // state — so this job opts back into seeing archived rows.
   const conversations = listConversations(
     ACTIVATION_RECOMPUTE_CONVERSATION_LIMIT,
-    false,
+    "foreground",
     0,
     "all",
   );

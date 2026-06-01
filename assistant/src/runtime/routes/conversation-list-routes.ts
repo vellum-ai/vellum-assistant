@@ -23,6 +23,7 @@ import {
 } from "../../memory/conversation-crud.js";
 import { resolveConversationId } from "../../memory/conversation-key-store.js";
 import {
+  type ConversationTypeFilter,
   countConversations,
   listConversations,
   listPinnedConversations,
@@ -176,7 +177,15 @@ function resolveOrThrow(rawId: string): string {
 function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   const limit = Number(queryParams.limit ?? 50);
   const offset = Number(queryParams.offset ?? 0);
-  const backgroundOnly = queryParams.conversationType === "background";
+  // "background" is the back-compat umbrella (background + scheduled); newer
+  // clients can pass "scheduled" to load only the Scheduled section. Anything
+  // else (including absent) defaults to the foreground list.
+  const conversationType: ConversationTypeFilter =
+    queryParams.conversationType === "background"
+      ? "background"
+      : queryParams.conversationType === "scheduled"
+        ? "scheduled"
+        : "foreground";
   // Defaults to `active` so sidebar restores no longer pull archived rows.
   // The Archive page opts into `archived` to render only archived rows
   // without dragging the entire live history through pagination first.
@@ -187,14 +196,18 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
         ? "all"
         : "active";
 
-  let rows = listConversations(limit, backgroundOnly, offset, archiveStatus);
-  const totalCount = countConversations(backgroundOnly, archiveStatus);
+  let rows = listConversations(limit, conversationType, offset, archiveStatus);
+  const totalCount = countConversations(conversationType, archiveStatus);
 
   // On the first page, ensure all pinned conversations are included
   // even if they fall outside the paginated window. Pinned injection is
   // skipped in archived/all views since the Archive page renders archived
   // rows in archive-time order, not pin order.
-  if (offset === 0 && !backgroundOnly && archiveStatus === "active") {
+  if (
+    offset === 0 &&
+    conversationType === "foreground" &&
+    archiveStatus === "active"
+  ) {
     const pinned = listPinnedConversations(archiveStatus);
     const seen = new Set(rows.map((c) => c.id));
     const missing = pinned.filter((c) => !seen.has(c.id));
@@ -358,8 +371,8 @@ export const ROUTES: RouteDefinition[] = [
         type: "string",
         required: false,
         description:
-          'Filter by conversation type. Pass "background" to list only background/scheduled conversations.',
-        schema: { type: "string", enum: ["background"] },
+          'Filter by conversation type. Pass "background" to list background and scheduled conversations together (the back-compat umbrella), or "scheduled" to list only scheduled conversations.',
+        schema: { type: "string", enum: ["background", "scheduled"] },
       },
       {
         name: "archiveStatus",

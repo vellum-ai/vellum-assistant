@@ -72,27 +72,58 @@ function archiveStatusClause(status: ArchiveStatusFilter) {
   }
 }
 
+/**
+ * Which conversation-type bucket {@link listConversations} and
+ * {@link countConversations} return.
+ *
+ * - `"foreground"` — standard conversations only; excludes background,
+ *   scheduled, and private rows. The default for the sidebar's primary list.
+ * - `"background"` — the background **umbrella**: background *and* scheduled
+ *   rows together. Retained as the back-compat value for the single
+ *   `conversationType=background` fetch that older clients (e.g. the macOS
+ *   app, which ships out of lockstep with the daemon) rely on to populate
+ *   both the Background and Scheduled sidebar sections from one request.
+ * - `"scheduled"` — scheduled rows only. Lets the Scheduled section load
+ *   independently of the broader background backlog without over-fetching it.
+ */
+export type ConversationTypeFilter = "foreground" | "background" | "scheduled";
+
+/**
+ * SQL predicate selecting rows for a {@link ConversationTypeFilter}.
+ *
+ * `group_id` is checked alongside `conversationType` so that conversations
+ * routed to `system:background` / `system:scheduled` (e.g. heartbeat) via
+ * conversationMetadata but created with conversationType `"standard"` (vellum
+ * channel strategy) land in the correct bucket. Subagent runs are excluded
+ * from the background/scheduled buckets so the sidebar never surfaces them.
+ *
+ * `"private"` is excluded from the foreground bucket defensively: in-place
+ * snapshot restore swaps the SQLite file without running migrations
+ * in-process, so legacy private rows can briefly exist before migration
+ * cleanup — hide them until the next migration pass deletes them.
+ */
+function conversationTypeClause(filter: ConversationTypeFilter) {
+  const notSubagent = sql`(${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`;
+  switch (filter) {
+    case "foreground":
+      return sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
+    case "background":
+      return sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND ${notSubagent}`;
+    case "scheduled":
+      return sql`(${conversations.conversationType} = 'scheduled' OR group_id = 'system:scheduled') AND ${notSubagent}`;
+  }
+}
+
 export function listConversations(
   limit?: number,
-  backgroundOnly = false,
+  typeFilter: ConversationTypeFilter = "foreground",
   offset = 0,
   archiveStatus: ArchiveStatusFilter = "active",
 ): ConversationRow[] {
   ensureDisplayOrderMigration();
   ensureGroupMigration();
   const db = getDb();
-  // 'private' is excluded defensively: in-place snapshot restore swaps the
-  // SQLite file without running migrations in-process, so legacy private rows
-  // can briefly exist before migration cleanup. Hide them from foreground
-  // lists until the next migration pass deletes them.
-  //
-  // group_id is checked alongside conversationType so that conversations
-  // routed to system:background (e.g. heartbeat) via conversationMetadata
-  // but created with conversationType "standard" (vellum channel strategy)
-  // appear in the correct bucket.
-  const typeCond = backgroundOnly
-    ? sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
-    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
+  const typeCond = conversationTypeClause(typeFilter);
   const archiveCond = archiveStatusClause(archiveStatus);
   const where = archiveCond ? sql`${typeCond} AND ${archiveCond}` : typeCond;
   const query = db
@@ -275,14 +306,12 @@ export function listConversationsByTitlePrefix(
 }
 
 export function countConversations(
-  backgroundOnly = false,
+  typeFilter: ConversationTypeFilter = "foreground",
   archiveStatus: ArchiveStatusFilter = "active",
 ): number {
   ensureGroupMigration();
   const db = getDb();
-  const typeCond = backgroundOnly
-    ? sql`(${conversations.conversationType} IN ('background', 'scheduled') OR group_id IN ('system:background', 'system:scheduled')) AND (${conversations.source} IS NULL OR ${conversations.source} != 'subagent')`
-    : sql`${conversations.conversationType} NOT IN ('background', 'scheduled', 'private') AND COALESCE(group_id, 'system:all') NOT IN ('system:background', 'system:scheduled')`;
+  const typeCond = conversationTypeClause(typeFilter);
   const archiveCond = archiveStatusClause(archiveStatus);
   const where = archiveCond ? sql`${typeCond} AND ${archiveCond}` : typeCond;
   const [{ total }] = db
