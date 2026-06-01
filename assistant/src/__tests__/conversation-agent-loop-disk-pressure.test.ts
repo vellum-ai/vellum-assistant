@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentLoop } from "../agent/loop.js";
 import type { AgentLoopConversationContext } from "../daemon/conversation-agent-loop.js";
 import type { DiskPressureStatus } from "../daemon/disk-pressure-guard.js";
@@ -121,6 +122,7 @@ function makeCtx(
       getToolTokenBudget: () => 0,
       getResolvedTools: () => [],
       getActiveModel: () => undefined,
+      compactionCircuit: new CompactionCircuit("test-conv"),
     } as unknown as AgentLoop,
     provider: { name: "mock-provider" } as Context["provider"],
     systemPrompt: "system",

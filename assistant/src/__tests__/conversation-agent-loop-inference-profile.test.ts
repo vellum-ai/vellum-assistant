@@ -14,6 +14,7 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -411,6 +412,7 @@ function makeCtx(
       getToolTokenBudget: () => 0,
       getResolvedTools: () => [] as ToolDefinition[],
       getActiveModel: () => undefined,
+      compactionCircuit: new CompactionCircuit("test-conv"),
     } as unknown as AgentLoopConversationContext["agentLoop"],
     provider: {
       name: "mock-provider",
