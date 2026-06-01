@@ -19,6 +19,7 @@ import {
   gatewayProxyUrl,
   fetchGuardianToken,
 } from "@/lib/local-mode";
+import { startLoopbackAuth, useIsPlatformLocal } from "@/lib/auth/loopback-auth";
 import {
   startAuthFlow,
   startNativeLogin,
@@ -252,6 +253,7 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
   const [connectError, setConnectError] = useState<string | null>(null);
   const [platformError, setPlatformError] = useState<string | null>(null);
   const [platformLoading, setPlatformLoading] = useState(false);
+  const isPlatformLocal = useIsPlatformLocal();
 
   // Force re-read of lockfile state when refreshKey changes
   void refreshKey;
@@ -259,6 +261,8 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
   const platformAssistants = getPlatformAssistants();
   const hasLocal = localAssistants.length > 0;
   const hasPlatform = platformAssistants.length > 0;
+
+  const callbackUrl = buildProviderCallbackUrl(returnTo);
 
   const handleRefresh = useCallback(() => {
     void loadLockfile().then(() => setRefreshKey((k) => k + 1));
@@ -290,18 +294,21 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
       setPlatformError(null);
       setPlatformLoading(true);
       try {
-        const callbackUrl = buildProviderCallbackUrl(returnTo);
-        await startAuthFlow(PROVIDER_ID, callbackUrl, {
-          ...(providerHint ? { providerHint } : {}),
-          returnTo,
-        });
+        if (isPlatformLocal) {
+          await startAuthFlow(PROVIDER_ID, callbackUrl, {
+            ...(providerHint ? { providerHint } : {}),
+            returnTo,
+          });
+        } else {
+          await startLoopbackAuth(returnTo ?? undefined);
+        }
       } catch (err) {
         console.error("[local-login] platform auth flow failed:", err);
         setPlatformError("Something went wrong. Please try again.");
         setPlatformLoading(false);
       }
     },
-    [returnTo],
+    [returnTo, isPlatformLocal, callbackUrl],
   );
 
   // Auto-connect when only local assistants are present
@@ -312,8 +319,34 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
     // localAssistants excluded: new array ref each render, guarded by hasLocal
   }, [hasLocal, hasPlatform, connectingId, connectError, connectToLocal]);
 
-  // No assistants at all
+  // Auto-redirect to loopback login when only platform assistants exist
+  // and we're in standalone mode (no local Django).
+  useEffect(() => {
+    if (hasPlatform && !hasLocal && !platformLoading && !platformError && isPlatformLocal === false) {
+      setPlatformLoading(true);
+      void handlePlatformProvider();
+    }
+  }, [hasPlatform, hasLocal, platformLoading, platformError, isPlatformLocal, handlePlatformProvider]);
+
+  // No assistants at all — show login buttons when Django is local,
+  // otherwise prompt the user to hatch via CLI.
   if (!hasLocal && !hasPlatform) {
+    if (isPlatformLocal) {
+      return (
+        <DarkLoginShell>
+          <LoginCard>
+            <PlatformLoginButtons
+              returnTo={returnTo}
+              loading={platformLoading}
+              errorMessage={platformError}
+              onProviderClick={(hint) => {
+                void handlePlatformProvider(hint);
+              }}
+            />
+          </LoginCard>
+        </DarkLoginShell>
+      );
+    }
     return (
       <DarkLoginShell>
         <LoginCard>
@@ -337,9 +370,53 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
     );
   }
 
-  // Only platform assistants — render normal login
+  // Only platform assistants
   if (hasPlatform && !hasLocal) {
-    return <WebLoginForm returnTo={returnTo} />;
+    if (isPlatformLocal) {
+      return (
+        <DarkLoginShell>
+          <LoginCard>
+            <PlatformLoginButtons
+              returnTo={returnTo}
+              loading={platformLoading}
+              errorMessage={platformError}
+              onProviderClick={(hint) => {
+                void handlePlatformProvider(hint);
+              }}
+            />
+          </LoginCard>
+        </DarkLoginShell>
+      );
+    }
+    return (
+      <DarkLoginShell>
+        <LoginCard>
+          <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
+            Vellum
+          </h1>
+          {platformError ? (
+            <>
+              <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
+                {platformError}
+              </p>
+              <div className="flex justify-center">
+                <Button
+                  type="button"
+                  variant="outlined"
+                  onClick={() => { setPlatformError(null); }}
+                >
+                  Retry
+                </Button>
+              </div>
+            </>
+          ) : (
+            <p className="text-body-small-default text-center text-[var(--content-secondary)]">
+              Redirecting to sign in...
+            </p>
+          )}
+        </LoginCard>
+      </DarkLoginShell>
+    );
   }
 
   // Only local assistants — auto-connecting state
@@ -384,14 +461,39 @@ function LocalModeLoginPage({ returnTo }: { returnTo: string | null }) {
     <DarkLoginShell>
       <div className="flex w-full max-w-[960px] flex-col items-start justify-center gap-6 md:flex-row">
         <LoginCard>
-          <PlatformLoginButtons
-            returnTo={returnTo}
-            loading={platformLoading}
-            errorMessage={platformError}
-            onProviderClick={(hint) => {
-              void handlePlatformProvider(hint);
-            }}
-          />
+          {isPlatformLocal ? (
+            <PlatformLoginButtons
+              returnTo={returnTo}
+              loading={platformLoading}
+              errorMessage={platformError}
+              onProviderClick={(hint) => {
+                void handlePlatformProvider(hint);
+              }}
+            />
+          ) : (
+            <>
+              <h1 className="text-title-large text-center text-[var(--content-emphasised)]">
+                Vellum Cloud
+              </h1>
+              {platformError && (
+                <p className="text-body-small-default text-center text-[var(--system-negative-strong)]">
+                  {platformError}
+                </p>
+              )}
+              <div className="flex justify-center">
+                <Button
+                  type="button"
+                  variant="primary"
+                  fullWidth
+                  onClick={() => { void handlePlatformProvider(); }}
+                  disabled={platformLoading}
+                  className="max-w-[300px]"
+                >
+                  {platformLoading ? "Redirecting…" : "Sign in"}
+                </Button>
+              </div>
+            </>
+          )}
         </LoginCard>
         <LoginCard>
           <h1 className="text-title-large text-center text-[var(--content-emphasised)]">

@@ -69,6 +69,7 @@ export const router = createBrowserRouter(
             { path: "oauth/popup-complete", lazy: { Component: () => import("@/domains/account/pages/oauth-popup-complete-page").then((m) => m.OAuthPopupCompletePage) } },
             { path: "oauth/complete", lazy: { Component: () => import("@/domains/account/pages/oauth-complete-page").then((m) => m.OAuthCompletePage) } },
             { path: "oauth/desktop-complete", Component: OAuthDesktopCompleteRedirect },
+            { path: "platform-callback", lazy: { Component: () => import("@/domains/account/pages/platform-loopback-page").then((m) => m.PlatformLoopbackPage) } },
             { path: "password/reset", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
             { path: "password/reset/key/:key", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
           ],

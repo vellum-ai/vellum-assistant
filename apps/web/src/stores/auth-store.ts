@@ -30,9 +30,12 @@ import {
 import {
   isLocalMode,
   getPlatformAssistants,
+  getLocalAssistants,
   clearSelectedAssistant,
   primeLocalGatewayConnection,
+  syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
+import { listAssistants } from "@/assistant/api";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { syncOnboardingUser, clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import { clearOrganization } from "@/stores/organization-store";
@@ -145,6 +148,36 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     }
 
     if (isLocalMode() && !isGatewayAuthEnabled()) {
+      const hasPlatformAssistants = getPlatformAssistants().length > 0;
+      if (hasPlatformAssistants) {
+        // Platform assistants require a valid session — await the check
+        // so the auth middleware can redirect to login if it fails.
+        try {
+          const result = await getSession();
+          if (result.ok && result.data.user) {
+            const user = toAuthUser(result.data.user);
+            // Re-sync platform assistants to remove stale lockfile entries.
+            try {
+              const apiAssistants = await listAssistants();
+              if (apiAssistants.ok) {
+                await syncPlatformAssistantsToLockfile(apiAssistants.data);
+                if (getPlatformAssistants().length === 0 && getLocalAssistants().length === 0) {
+                  set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+                  return;
+                }
+              }
+            } catch {
+              // Sync failed — continue with cached data
+            }
+            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+            return;
+          }
+        } catch {
+          // Session check failed — fall through to unauthenticated
+        }
+        set({ isLoggedIn: false, isLoading: false, user: null });
+        return;
+      }
       set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
       getSession()
         .then((result) => {
@@ -249,6 +282,9 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     try {
       await allauthLogout();
     } finally {
+      if (isLocalMode()) {
+        document.cookie = "sessionid=; path=/; samesite=lax; expires=Thu, 01 Jan 1970 00:00:00 UTC";
+      }
       void deleteBiometricToken();
       clearOnboardingFlags();
       clearOrganization();
