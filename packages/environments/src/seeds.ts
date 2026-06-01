@@ -25,15 +25,11 @@ function portBlock(base: number): PortMap {
 }
 
 /**
- * Built-in environment definitions. Mirrors Swift's
- * `clients/macos/vellum-assistant/App/VellumEnvironment.swift` enum and is
- * the TS-side source of truth for the set of known environment names.
- * One other TS site duplicates the name list:
- *   - `assistant/src/util/platform.ts` (`KNOWN_ENVIRONMENTS`)
- * Drift between these two sites is caught at test time by
- * `cli/src/__tests__/env-drift.test.ts`. Fast follow: hoist the shared
- * list into a `packages/environments` package so both sites import
- * from one place.
+ * Built-in environment definitions and the TS-side source of truth for the
+ * set of known environment names. The Swift client mirrors this list in
+ * `clients/macos/vellum-assistant/App/VellumEnvironment.swift`; since Swift
+ * can't import TypeScript, drift between the two is caught at test time by
+ * `cli/src/__tests__/env-drift.test.ts`.
  *
  * Custom environments via a user config file are a future phase — see the
  * "Coexisting environments" design doc. Until then, a call site that needs a

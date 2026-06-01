@@ -1,25 +1,21 @@
-name: PR CLI Checks
+name: CI Main Environments Checks
 
 on:
-  pull_request:
-    types: [synchronize, opened, reopened]
+  workflow_dispatch:
+  push:
+    branches: [main]
     paths:
-      - 'cli/**'
       - 'packages/environments/**'
-      - 'clients/shared/App/VellumEnvironment.swift'
-      - '.github/workflows/pr-cli.yaml'
-
-concurrency:
-  group: pr-cli-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+      - '.github/workflows/ci-main-environments.yaml'
 
 jobs:
   checks:
-    name: Lint, Type Check & Test
+    name: Type Check & Test
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
-        working-directory: cli
+        working-directory: packages/environments
 
     steps:
       - name: Checkout
@@ -33,17 +29,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Lint
-        run: bun run lint
-
-      - name: Lint unused code
-        run: bun run lint:unused
-
       - name: Type check
         run: bun run typecheck
-
-      - name: Compile check
-        run: bun build --compile src/index.ts --outfile /dev/null
 
       - name: Test
         run: bun run test

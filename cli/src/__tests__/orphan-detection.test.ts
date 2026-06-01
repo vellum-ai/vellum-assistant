@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { EnvironmentDefinition } from "@vellumai/environments";
+
 // Point lockfile operations at a temp directory before importing anything that
 // would otherwise resolve real on-host paths.
 const testDir = mkdtempSync(join(tmpdir(), "cli-orphan-detection-test-"));
@@ -16,7 +18,6 @@ import {
   loadAllAssistantsAcrossEnvs,
   type AssistantEntry,
 } from "../lib/assistant-config.js";
-import type { EnvironmentDefinition } from "../lib/environments/types.js";
 
 afterAll(() => {
   rmSync(testDir, { recursive: true, force: true });
@@ -74,11 +75,12 @@ describe("getKnownPidsFromAssistants", () => {
   });
 
   test("collects daemon, gateway, qdrant, and embed-worker PIDs", () => {
-    const entry = makeLocalEntry(
-      "alpha",
-      join(perTestDir, "alpha"),
-      { daemon: "100", gateway: "200", qdrant: "300", embed: "400" },
-    );
+    const entry = makeLocalEntry("alpha", join(perTestDir, "alpha"), {
+      daemon: "100",
+      gateway: "200",
+      qdrant: "300",
+      embed: "400",
+    });
     const pids = getKnownPidsFromAssistants([entry]);
     expect(pids).toEqual(new Set(["100", "200", "300", "400"]));
   });
