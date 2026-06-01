@@ -17,13 +17,13 @@ describe("MessageHoverActions", () => {
     expect(html).toContain("select-none");
   });
 
-  test("hides while the message is streaming", () => {
+  test("hides while the row is live", () => {
     const html = renderToStaticMarkup(
       <MessageHoverActions
         content=""
         timestamp={Date.UTC(2026, 0, 2, 12, 34)}
         role="assistant"
-        isStreaming
+        isLive
       />,
     );
 

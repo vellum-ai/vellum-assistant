@@ -111,7 +111,7 @@ export const TranscriptRow = memo(function TranscriptRow({
       return (
         <TranscriptMessageBody
           message={item.message}
-          isStreaming={
+          isLive={
             liveAssistantRowId != null &&
             item.message.id === liveAssistantRowId
           }

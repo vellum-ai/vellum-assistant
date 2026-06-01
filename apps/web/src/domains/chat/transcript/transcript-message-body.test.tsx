@@ -277,7 +277,7 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isStreaming
+        isLive
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -310,7 +310,7 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isStreaming
+        isLive
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -350,7 +350,7 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isStreaming
+        isLive
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -655,7 +655,7 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isStreaming
+        isLive
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -680,7 +680,7 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isStreaming
+        isLive
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
