@@ -25,13 +25,12 @@
 
 import * as Sentry from "@sentry/react";
 import {
-  type Dispatch,
   type MutableRefObject,
-  type SetStateAction,
   useEffect,
   useLayoutEffect,
   useRef,
 } from "react";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 import type { AssistantEvent } from "@/types/event-types";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
@@ -100,9 +99,6 @@ export interface UseEventStreamParams {
   reachabilityPhase: string;
   reachabilityReset: () => void;
 
-  // Error
-  setError: Dispatch<SetStateAction<{ message: string; code?: string } | null>>;
-
   // Sync router ref for post-reconnect reconcile
   syncRouterRef: MutableRefObject<WebSyncRouter | null>;
 
@@ -132,7 +128,6 @@ export function useEventStream({
   reachabilityProbe,
   reachabilityPhase,
   reachabilityReset,
-  setError,
   syncRouterRef,
   conversationListInvalidatedTimerRef,
 }: UseEventStreamParams): void {
@@ -152,9 +147,6 @@ export function useEventStream({
 
   const reachabilityProbeRef = useRef(reachabilityProbe);
   reachabilityProbeRef.current = reachabilityProbe;
-
-  const setErrorRef = useRef(setError);
-  setErrorRef.current = setError;
 
   const cancelReconciliationRef = useRef(cancelReconciliation);
   cancelReconciliationRef.current = cancelReconciliation;
@@ -592,13 +584,13 @@ export function useEventStream({
     }
     streamRetryBurstCountRef.current += 1;
     if (streamRetryBurstCountRef.current > STREAM_RETRY_BURST_LIMIT) {
-      setErrorRef.current({ message: "Connection lost. Please try again." });
+      useChatSessionStore.getState().setError({ message: "Connection lost. Please try again." });
       reachabilityResetRef.current();
       return;
     }
     if (reachabilityPhase === "ready") {
       useTurnStore.getState().resetTurn();
-      setErrorRef.current(null);
+      useChatSessionStore.getState().setError(null);
     }
     reconcileAfterNextStreamOpenRef.current = true;
     publish("reachability.retry-requested", {});

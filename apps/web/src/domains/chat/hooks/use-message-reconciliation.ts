@@ -1,7 +1,8 @@
-import { type Dispatch, type RefObject, type SetStateAction, useCallback, useRef } from "react";
+import { type RefObject, useCallback, useRef } from "react";
 
 import * as Sentry from "@sentry/browser";
 
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { bucketMessagesAdded, recordDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
 import {
   summarizeDisplayMessages,
@@ -19,7 +20,6 @@ const RECONCILE_MAX_MS = 60_000;
 const RECONCILE_STABLE_COUNT = 2;
 
 interface UseMessageReconciliationArgs {
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
   streamEpochRef: RefObject<number>;
   initialPageOldestTsRef: RefObject<number | null>;
@@ -117,11 +117,11 @@ function serverHasAssistantProgress(
 }
 
 export function useMessageReconciliation({
-  setMessages,
   streamContextRef,
   streamEpochRef,
   initialPageOldestTsRef,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
+  const setMessages = useChatSessionStore.use.setMessages();
   const reconcileTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelReconciliation = useCallback(() => {

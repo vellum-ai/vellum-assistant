@@ -10,29 +10,19 @@
  * `assistantId` so it runs at most once per assistant per page lifetime.
  */
 
-import {
-  type Dispatch,
-  type MutableRefObject,
-  type SetStateAction,
-  useEffect,
-  useRef,
-} from "react";
+import { useEffect, useRef } from "react";
 
 import { loadContextWindowUsageMap } from "@/domains/chat/utils/context-window-storage";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 export interface UseContextWindowUsageHydrationParams {
   assistantId: string | null;
   activeConversationId: string | null;
-  contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
-  setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
 }
 
 export function useContextWindowUsageHydration({
   assistantId,
   activeConversationId,
-  contextWindowUsageByConversationRef,
-  setContextWindowUsage,
 }: UseContextWindowUsageHydrationParams): void {
   const hydratedAssistantIdRef = useRef<string | null>(null);
 
@@ -42,23 +32,19 @@ export function useContextWindowUsageHydration({
     hydratedAssistantIdRef.current = assistantId;
     const stored = loadContextWindowUsageMap(assistantId);
     if (stored.size === 0) return;
-    const merged = new Map(contextWindowUsageByConversationRef.current);
+    const store = useChatSessionStore.getState();
+    const merged = new Map(store.contextWindowUsageByConversation);
     for (const [key, value] of stored) {
       if (!merged.has(key)) {
         merged.set(key, value);
       }
     }
-    contextWindowUsageByConversationRef.current = merged;
+    useChatSessionStore.setState({ contextWindowUsageByConversation: merged });
     if (activeConversationId) {
       const cached = merged.get(activeConversationId);
       if (cached) {
-        setContextWindowUsage(cached);
+        store.setContextWindowUsage(cached);
       }
     }
-  }, [
-    assistantId,
-    activeConversationId,
-    contextWindowUsageByConversationRef,
-    setContextWindowUsage,
-  ]);
+  }, [assistantId, activeConversationId]);
 }

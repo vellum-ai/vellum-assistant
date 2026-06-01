@@ -15,9 +15,10 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createElement, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { createElement, type RefObject, type SetStateAction } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { INITIAL_TURN_STATE, type TurnState, useTurnStore } from "@/domains/chat/turn-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
@@ -126,7 +127,6 @@ type HookReturn = ReturnType<typeof useMessageReconciliation>;
 // ---------------------------------------------------------------------------
 
 interface HarnessProps {
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
   streamEpochRef: RefObject<number>;
   initialPageOldestTsRef?: RefObject<number | null>;
@@ -139,7 +139,6 @@ let hookModule: typeof import("./use-message-reconciliation") | null = null;
 function HookHarness(props: HarnessProps): null {
   if (!hookModule) throw new Error("hookModule not loaded");
   const result = hookModule.useMessageReconciliation({
-    setMessages: props.setMessages,
     streamContextRef: props.streamContextRef,
     streamEpochRef: props.streamEpochRef,
     initialPageOldestTsRef: props.initialPageOldestTsRef ?? makeRef(null),
@@ -173,10 +172,6 @@ function createHarness(overrides?: {
   activeConversationId?: string | null;
   turnState?: TurnState;
 }): HookReturn {
-  const setMessages: Dispatch<SetStateAction<DisplayMessage[]>> = (updater) => {
-    messages = typeof updater === "function" ? updater(messages) : updater;
-  };
-
   // Set turn state on the Zustand store before rendering
   const turnState = overrides?.turnState ?? INITIAL_TURN_STATE;
   useTurnStore.setState(turnState);
@@ -191,9 +186,15 @@ function createHarness(overrides?: {
   });
 
   let captured: HookReturn | null = null;
+  // Seed the chat session store with a setMessages that updates our local variable
+  useChatSessionStore.setState({
+    setMessages: ((updater: SetStateAction<DisplayMessage[]>) => {
+      messages = typeof updater === "function" ? updater(messages) : updater;
+    }) as never,
+  });
+
   renderToStaticMarkup(
     createElement(HookHarness, {
-      setMessages,
       streamContextRef: makeRef(overrides?.streamContext ?? null),
       streamEpochRef: overrides?.streamEpochRef ?? makeRef(overrides?.streamEpoch ?? 0),
       collect: (result) => { captured = result; },

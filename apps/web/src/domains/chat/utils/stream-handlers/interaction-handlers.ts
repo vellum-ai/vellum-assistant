@@ -47,7 +47,7 @@ export function handleConfirmationRequest(
   useInteractionStore.getState().showConfirmation(confData);
 
   const result = attachConfirmationToToolCall(
-    ctx.messagesRef.current,
+    ctx.messages,
     confData,
   );
   ctx.setMessages(() => result.updatedMessages);
@@ -56,7 +56,7 @@ export function handleConfirmationRequest(
     useInteractionStore
       .getState()
       .setInlineConfirmationToolCallId(result.attachedToolCallId);
-    ctx.confirmationToolCallMapRef.current.set(
+    ctx.confirmationToolCallMap.set(
       confData.requestId,
       result.attachedToolCallId,
     );

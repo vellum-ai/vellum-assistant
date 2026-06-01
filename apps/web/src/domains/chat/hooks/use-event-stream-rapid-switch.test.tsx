@@ -64,7 +64,6 @@ function renderEventStreamWithCapture(
         reachabilityProbe: () => {},
         reachabilityPhase: "ready",
         reachabilityReset: () => {},
-        setError: () => {},
         syncRouterRef,
         conversationListInvalidatedTimerRef: timerRef,
       });

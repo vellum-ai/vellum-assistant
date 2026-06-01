@@ -31,7 +31,6 @@ import {
   test,
 } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import type { MutableRefObject } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
@@ -102,6 +101,7 @@ import {
   useRefreshLatestMessages,
 } from "@/domains/chat/hooks/use-refresh-latest-messages";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------
@@ -120,14 +120,7 @@ function makeMsg(
 
 interface HostState {
   messages: DisplayMessage[];
-  messagesRef: MutableRefObject<DisplayMessage[]>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   setMessagesCalls: Array<DisplayMessage[]>;
-  setMessages: (
-    update:
-      | DisplayMessage[]
-      | ((prev: DisplayMessage[]) => DisplayMessage[]),
-  ) => void;
 }
 
 function makeHost(
@@ -141,21 +134,23 @@ function makeHost(
   });
   const host: HostState = {
     messages: initial,
-    messagesRef: { current: initial },
-    dismissedSurfaceIdsRef: { current: dismissed },
     setMessagesCalls: [],
-    setMessages: (update) => {
+  };
+  // Seed the chat session store with the initial state
+  useChatSessionStore.setState({
+    messages: initial,
+    dismissedSurfaceIds: dismissed,
+    setMessages: ((update: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[])) => {
+      const prev = useChatSessionStore.getState().messages;
       const next =
         typeof update === "function"
-          ? (update as (prev: DisplayMessage[]) => DisplayMessage[])(
-              host.messages,
-            )
+          ? (update as (prev: DisplayMessage[]) => DisplayMessage[])(prev)
           : update;
       host.setMessagesCalls.push(next);
       host.messages = next;
-      host.messagesRef.current = next;
-    },
-  };
+      useChatSessionStore.setState({ messages: next });
+    }) as never,
+  });
   return host;
 }
 
@@ -190,9 +185,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -211,9 +203,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: null,
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -264,9 +253,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -321,9 +307,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -366,9 +349,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -408,8 +388,8 @@ describe("useRefreshLatestMessages", () => {
     // check the hook performs.
     fetchLatestImpl = async () => {
       useConversationStore.setState({ activeConversationId: "conv-2" });
-      host.messagesRef.current = [conv2Msg];
       host.messages = [conv2Msg];
+      useChatSessionStore.setState({ messages: [conv2Msg] });
       // Return a "latest" page for the original conversation. If the
       // staleness check fails, these messages would land in conv-2's
       // transcript — that's the bug class the guard prevents.
@@ -432,9 +412,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -466,9 +443,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -506,9 +480,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -521,7 +492,6 @@ describe("useRefreshLatestMessages", () => {
     // setMessages was invoked, but the updater returned the same array
     // reference so React skips the re-render. The contract callers care
     // about is that the rendered messages haven't changed.
-    expect(host.messages).toBe(host.messagesRef.current);
     expect(host.messages.map((m) => m.id)).toEqual(["u1", "a1"]);
   });
 
@@ -564,9 +534,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 
@@ -631,9 +598,6 @@ describe("useRefreshLatestMessages", () => {
     const { result } = renderHook(() =>
       useRefreshLatestMessages({
         assistantId: "asst-1",
-        messagesRef: host.messagesRef,
-        setMessages: host.setMessages,
-        dismissedSurfaceIdsRef: host.dismissedSurfaceIdsRef,
       }),
     );
 

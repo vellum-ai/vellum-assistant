@@ -1,53 +1,41 @@
 /**
- * Conversation history lifecycle — switch resets + TanStack Query data sync.
+ * Conversation history lifecycle — TanStack Query data sync.
  *
- * This hook handles two concerns:
+ * Bridges `useHistoryPagination` (TanStack Query infinite query) and the
+ * `useChatSessionStore` (Zustand):
  *
- * 1. **Conversation-switch resets** — when `activeConversationId` changes,
- *    reset all per-conversation state (turn, interactions, subagents,
- *    pending messages, dismissed surfaces, etc.) so nothing leaks between
- *    conversations.
+ * - When TQ delivers data (from cache or network), applies it to the shared
+ *   `messages` state, reconstructs subagent state, restores pending
+ *   interactions, refreshes surface content, and detects auto-greet.
  *
- * 2. **History data sync** — when `useHistoryPagination` (TanStack Query)
- *    delivers data (from cache or network), apply it to the shared
- *    `messages` state, reconstruct subagent state, restore pending
- *    interactions, refresh surface content, and detect auto-greet.
+ * - Conversation-switch resets are handled by the store's
+ *   `switchToConversation()` action — this hook only consumes the
+ *   `switchResetPending` / `lastAppliedDataTimestamp` coordination fields
+ *   set by that action.
  *
- * The fetch/cache/cancellation machinery that previously lived here
- * (`conversationCacheRef`, `loadEpochRef`, manual LRU rotation) has been
- * replaced by `useHistoryPagination` — a thin `useInfiniteQuery` wrapper
- * that handles all of that via TanStack Query's built-in mechanisms.
+ * @see {@link https://tanstack.com/query/latest/docs/framework/react/guides/infinite-queries}
  */
 
 import * as Sentry from "@sentry/react";
-import {
-  type Dispatch,
-  type MutableRefObject,
-  type SetStateAction,
-  startTransition,
-  useEffect,
-} from "react";
+import { startTransition, useEffect } from "react";
 
 import {
-  type DisplayMessage,
   reconcileDisplayMessagesWithLatestHistory,
 } from "@/domains/chat/utils/reconcile";
 import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
-import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import type { SubagentStatus } from "@vellumai/assistant-api";
 
 import {
   parsePendingSecretState,
   parsePendingConfirmationData,
 } from "@/domains/chat/hooks/use-send-message";
-import { useConversationSwitch } from "@/domains/chat/hooks/use-conversation-switch";
-import type { AssistantStateKind, ChatError } from "@/domains/chat/types";
+import type { AssistantStateKind } from "@/domains/chat/types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces";
 import {
@@ -63,32 +51,6 @@ interface UseConversationHistoryParams {
   assistantId: string | null;
   assistantStateKind: AssistantStateKind;
   activeConversationId: string | null;
-
-  // Refs (owned by parent, read/written by this hook)
-  draftConversationIdResolutionRef: MutableRefObject<boolean>;
-  previousConversationIdRef: MutableRefObject<string | null>;
-
-  contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
-  streamingMessageIdsRef: MutableRefObject<Set<string>>;
-  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
-  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
-  pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
-  confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-
-  // State setters
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
-  setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
-  setError: Dispatch<SetStateAction<ChatError | null>>;
-  setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
-  setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
-
-  // Callbacks
-  resetChatAttachments: () => void;
-
-  // Error classification
-  shouldSuppressGenericChatErrorNotice: (prev: ChatError | null) => boolean;
 }
 
 export interface ConversationHistoryResult {
@@ -103,23 +65,6 @@ export function useConversationHistory({
   assistantId,
   assistantStateKind,
   activeConversationId,
-  draftConversationIdResolutionRef,
-  previousConversationIdRef,
-  contextWindowUsageByConversationRef,
-  dismissedSurfaceIdsRef,
-  streamingMessageIdsRef,
-  pendingQueuedMessageIdsRef,
-  requestIdToMessageIdRef,
-  pendingLocalDeletionsRef,
-  confirmationToolCallMapRef,
-  setMessages,
-  setTranscriptPagination,
-  setIsLoadingHistory,
-  setError,
-  setContextWindowUsage,
-  setCompactionCircuitOpenUntil,
-  resetChatAttachments,
-  shouldSuppressGenericChatErrorNotice,
 }: UseConversationHistoryParams): ConversationHistoryResult {
   // -------------------------------------------------------------------------
   // TanStack Query for history fetching + caching + pagination
@@ -131,46 +76,28 @@ export function useConversationHistory({
   });
 
   // -------------------------------------------------------------------------
-  // Conversation-switch reset — delegated to a focused hook. Owns the two
-  // refs (`switchResetRef`, `lastAppliedDataRef`) the data-apply effect
-  // below reads to decide between a fresh-switch replace and a
-  // background-refetch reconcile.
+  // Store actions (stable references — safe in dependency arrays)
   // -------------------------------------------------------------------------
-  const { switchResetRef, lastAppliedDataRef } = useConversationSwitch({
-    assistantId,
-    assistantStateKind,
-    activeConversationId,
-    draftConversationIdResolutionRef,
-    previousConversationIdRef,
-    streamingMessageIdsRef,
-    pendingQueuedMessageIdsRef,
-    requestIdToMessageIdRef,
-    pendingLocalDeletionsRef,
-    confirmationToolCallMapRef,
-    contextWindowUsageByConversationRef,
-    dismissedSurfaceIdsRef,
-    setMessages,
-    setTranscriptPagination,
-    setIsLoadingHistory,
-    setError,
-    setContextWindowUsage,
-    setCompactionCircuitOpenUntil,
-    resetChatAttachments,
-    shouldSuppressGenericChatErrorNotice,
-  });
+  const setMessages = useChatSessionStore.use.setMessages();
+  const setTranscriptPagination = useChatSessionStore.use.setTranscriptPagination();
+  const setIsLoadingHistory = useChatSessionStore.use.setIsLoadingHistory();
+  const setError = useChatSessionStore.use.setError();
 
   // -------------------------------------------------------------------------
   // Apply TanStack Query data to messages state
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (!pagination.isSuccess || pagination.dataUpdatedAt === lastAppliedDataRef.current) {
+    const store = useChatSessionStore.getState();
+    if (!pagination.isSuccess || pagination.dataUpdatedAt === store.lastAppliedDataTimestamp) {
       return;
     }
     if (!assistantId || !activeConversationId) return;
 
-    lastAppliedDataRef.current = pagination.dataUpdatedAt;
-    const isFreshSwitch = switchResetRef.current;
-    switchResetRef.current = false;
+    useChatSessionStore.getState().setLastAppliedDataTimestamp(pagination.dataUpdatedAt);
+    const isFreshSwitch = store.switchResetPending;
+    if (isFreshSwitch) {
+      useChatSessionStore.getState().consumeSwitchReset();
+    }
 
     recordDiagnostic("history_tq_data_apply", {
       assistantId,
@@ -181,24 +108,22 @@ export function useConversationHistory({
     });
 
     if (pagination.messages.length > 0) {
+      const dismissedSurfaceIds = useChatSessionStore.getState().dismissedSurfaceIds;
       const filteredMessages = filterDismissedSurfaces(
         pagination.messages,
-        dismissedSurfaceIdsRef.current,
+        dismissedSurfaceIds,
       );
 
       recordDiagnostic("history_tq_set_messages", {
         assistantId,
         conversationId: activeConversationId,
         isFreshSwitch,
-        dismissedSurfaceCount: dismissedSurfaceIdsRef.current.size,
+        dismissedSurfaceCount: dismissedSurfaceIds.size,
         filteredMessages: summarizeDisplayMessages(filteredMessages),
       });
 
       startTransition(() => {
         setMessages((prev) => {
-          // Fresh switch or empty state: replace entirely with TQ data.
-          // Background refetch while streaming: reconcile to preserve
-          // optimistic/streaming messages.
           const nextMessages =
             isFreshSwitch || prev.length === 0
               ? filteredMessages
@@ -295,8 +220,6 @@ export function useConversationHistory({
     }
 
     // Restore pending interactions (secrets, confirmations).
-    // Capture the key before the await so we can detect stale responses
-    // when the user switches conversations while the request is in flight.
     const requestedConversationId = activeConversationId;
     void (async () => {
       try {
@@ -304,8 +227,6 @@ export function useConversationHistory({
           assistantId,
           requestedConversationId,
         );
-        // Guard: if the active conversation changed during the fetch,
-        // discard the result to avoid leaking state across conversations.
         if (useConversationStore.getState().activeConversationId !== requestedConversationId) {
           return;
         }
@@ -342,7 +263,6 @@ export function useConversationHistory({
     pagination.isFetchingOlderPages,
     assistantId,
     activeConversationId,
-    dismissedSurfaceIdsRef,
     setMessages,
     setTranscriptPagination,
     setIsLoadingHistory,
@@ -365,9 +285,6 @@ export function useConversationHistory({
   useEffect(() => {
     if (!pagination.isError || !pagination.error) return;
 
-    // Older-page failures are reported to Sentry but don't show a
-    // user-facing error — the initial page loaded successfully and the
-    // user can retry by scrolling up again.
     const isOlderPageError = pagination.isSuccess;
     Sentry.captureException(pagination.error, {
       tags: {

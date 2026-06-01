@@ -35,7 +35,6 @@ export function handleUISurfaceShow(
     data: event.data,
     actions: event.actions,
     display: event.display,
-    toolCallId: event.toolCallId,
   };
   surfaceObj.display = classifySurfaceDisplay(surfaceObj);
   ctx.turnActions.showSurface(isSurfaceInteractive(surfaceObj));
@@ -59,13 +58,13 @@ export function handleUISurfaceDismiss(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.dismissSurface();
-  ctx.dismissedSurfaceIdsRef.current.add(event.surfaceId);
+  ctx.dismissedSurfaceIds.add(event.surfaceId);
   const streamCtx = ctx.streamContextRef.current;
   if (streamCtx) {
     saveDismissedSurfaceIds(
       streamCtx.assistantId,
       streamCtx.conversationId,
-      ctx.dismissedSurfaceIdsRef.current,
+      ctx.dismissedSurfaceIds,
     );
   }
   ctx.setMessages((prev) => dismissSurface(prev, event.surfaceId));
@@ -76,7 +75,7 @@ export function handleUISurfaceComplete(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.completeSurface();
-  const completedSurface = ctx.messagesRef.current
+  const completedSurface = ctx.messages
     .flatMap((m) => m.surfaces ?? [])
     .find((s) => s.surfaceId === event.surfaceId);
   if (

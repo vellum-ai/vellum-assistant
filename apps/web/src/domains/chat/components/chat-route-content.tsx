@@ -32,6 +32,7 @@ import { ConfirmationPromptCard } from "@/domains/chat/components/confirmation-p
 import { ContactPromptCard } from "@/domains/chat/components/contact-prompt-card";
 import { QuestionPromptCard } from "@/domains/chat/components/question-prompt-card";
 import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
@@ -239,20 +240,12 @@ export interface AvatarData {
 
 export interface ChatRouteRefs {
   inputRef: RefObject<HTMLTextAreaElement | null>;
-  messagesRef: MutableRefObject<DisplayMessage[]>;
   sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
   transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   assistantIdRef: MutableRefObject<string | null>;
   streamContextRef: MutableRefObject<StreamContext | null>;
-  expandedToolCallIdsRef: MutableRefObject<Set<string>>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
-  contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
-  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
-  pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
-  confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
   reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
   /**
    * Imperative handle to the mounted `<Transcript />`. Owned by ChatPage
@@ -518,21 +511,12 @@ export function ChatRouteContent({
   } = interactionActions;
   const {
     inputRef,
-    messagesRef,
     sanitizedMessagesRef,
     transcriptItemsRef,
     assistantIdRef: _assistantIdRef,
     streamContextRef,
-    expandedToolCallIdsRef,
-    dismissedSurfaceIdsRef: _dismissedSurfaceIdsRef,
-    contextWindowUsageByConversationRef: _contextWindowUsageByConversationRef,
     streamRef: _streamRef,
     streamEpochRef: _streamEpochRef,
-    pendingQueuedMessageIdsRef: _pendingQueuedMessageIdsRef,
-    requestIdToMessageIdRef: _requestIdToMessageIdRef,
-    pendingLocalDeletionsRef: _pendingLocalDeletionsRef,
-    confirmationToolCallMapRef: _confirmationToolCallMapRef,
-
     reconcileAfterNextStreamOpenRef: _reconcileAfterNextStreamOpenRef,
   } = refs;
 
@@ -810,7 +794,6 @@ export function ChatRouteContent({
     handleRetryRefreshFromPill,
   } = usePullRefresh({
     activeConversationId,
-    messagesRef,
     invalidateHistory: historyPagination.invalidate,
     onRefreshEpoch,
   });
@@ -1206,7 +1189,7 @@ export function ChatRouteContent({
     conversationId: activeConversationId,
     liveAssistantRowId: liveAssistantMessageId,
     assistantDisplayName: assistantName?.trim() || undefined,
-    expandedToolCallIds: expandedToolCallIdsRef.current,
+    expandedToolCallIds: useChatSessionStore.getState().expandedToolCallIds,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
     onOpenApp: handleOpenApp,
     onOpenDocument: handleOpenDocument,
