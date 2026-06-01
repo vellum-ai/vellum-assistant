@@ -192,9 +192,10 @@ describe("handleConfirmationResponse canonical status sync", () => {
         emissionContext: { source: "button" },
       },
     ]);
-    // Canonical status sync is now handled inside Conversation.handleConfirmationResponse,
-    // which this test mocks out — so the handler itself no longer calls resolveCanonicalGuardianRequest.
+    // Both canonical status sync and pendingInteractions lifecycle are owned
+    // by Conversation.handleConfirmationResponse (mocked above). The IPC
+    // handler delegates fully and does not call either directly.
     expect(resolveCanonicalGuardianRequestMock).not.toHaveBeenCalled();
-    expect(resolveMock).toHaveBeenCalledWith("req-confirm-allow", "approved");
+    expect(resolveMock).not.toHaveBeenCalled();
   });
 });

@@ -27,8 +27,11 @@ import {
 } from "lucide-react";
 import { Button, Typography } from "@vellum/design-library";
 
-import type { DocumentComment } from "@/domains/chat/api/document-comments";
-import { createComment, fetchComments } from "@/domains/chat/api/document-comments";
+import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
+import {
+  createComment,
+  fetchComments,
+} from "@/domains/chat/api/document-comments";
 import { documentsPost } from "@/generated/daemon/sdk.gen";
 import type { CommentAnchor } from "@/domains/chat/utils/tiptap-position-map";
 import {
@@ -107,9 +110,14 @@ export function DocumentViewerContainer({
   );
   const [addingInlineComment, setAddingInlineComment] = useState(false);
   const [commentAnchors, setCommentAnchors] = useState<CommentAnchor[]>([]);
-  const [activeHighlight, setActiveHighlight] = useState<{ start: number; end: number } | null>(null);
+  const [activeHighlight, setActiveHighlight] = useState<{
+    start: number;
+    end: number;
+  } | null>(null);
 
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">(
+    "idle",
+  );
 
   const commentPanelRef = useRef<DocumentCommentPanelHandle>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>(null);
@@ -121,15 +129,27 @@ export function DocumentViewerContainer({
       if (savedFadeRef.current) clearTimeout(savedFadeRef.current);
       setSaveStatus("saving");
       saveTimerRef.current = setTimeout(() => {
-        const wordCount = markdown.trim().split(/\s+/).filter((w) => w.length > 0).length;
+        const wordCount = markdown
+          .trim()
+          .split(/\s+/)
+          .filter((w) => w.length > 0).length;
         void documentsPost({
           path: { assistant_id: assistantId },
-          body: { surfaceId, conversationId, title: documentName, content: markdown, wordCount },
+          body: {
+            surfaceId,
+            conversationId,
+            title: documentName,
+            content: markdown,
+            wordCount,
+          },
           throwOnError: true,
         }).then(
           () => {
             setSaveStatus("saved");
-            savedFadeRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
+            savedFadeRef.current = setTimeout(
+              () => setSaveStatus("idle"),
+              2000,
+            );
           },
           () => setSaveStatus("idle"),
         );
@@ -158,12 +178,12 @@ export function DocumentViewerContainer({
   // -------------------------------------------------------------------------
 
   const handleCommentSelect = useCallback(
-    (comment: DocumentComment) => {
-      if (
-        comment.anchorStart != null &&
-        comment.anchorEnd != null
-      ) {
-        setActiveHighlight({ start: comment.anchorStart, end: comment.anchorEnd });
+    (comment: DocumentsByIdCommentsPostResponse) => {
+      if (comment.anchorStart != null && comment.anchorEnd != null) {
+        setActiveHighlight({
+          start: comment.anchorStart,
+          end: comment.anchorEnd,
+        });
       }
     },
     [],
@@ -171,10 +191,15 @@ export function DocumentViewerContainer({
 
   /** Derive comment anchors from loaded comments and push to state. */
   const updateCommentAnchors = useCallback(
-    (comments: DocumentComment[]) => {
+    (comments: DocumentsByIdCommentsPostResponse[]) => {
       const anchors: CommentAnchor[] = comments
         .filter(
-          (c): c is DocumentComment & { anchorStart: number; anchorEnd: number } =>
+          (
+            c,
+          ): c is DocumentsByIdCommentsPostResponse & {
+            anchorStart: number;
+            anchorEnd: number;
+          } =>
             c.status === "open" && c.anchorStart != null && c.anchorEnd != null,
         )
         .map((c) => ({
@@ -202,36 +227,35 @@ export function DocumentViewerContainer({
   }, [assistantId, surfaceId, updateCommentAnchors]);
 
   // Expose refreshComments for external callers (e.g. SSE handler in page).
-  useImperativeHandle(handleRef, () => ({ refreshComments }), [refreshComments]);
+  useImperativeHandle(handleRef, () => ({ refreshComments }), [
+    refreshComments,
+  ]);
 
   // -------------------------------------------------------------------------
   // Inline comment creation
   // -------------------------------------------------------------------------
 
-  const handleCommentSubmit = useCallback(async (commentText: string) => {
-    if (!textSelection) return;
-    setAddingInlineComment(true);
-    try {
-      await createComment(assistantId, surfaceId, {
-        content: commentText,
-        conversationId,
-        anchorStart: textSelection.start,
-        anchorEnd: textSelection.end,
-        anchorText: textSelection.text,
-      });
-      setTextSelection(null);
-      setCommentsPanelOpen(true);
-      await refreshComments();
-    } finally {
-      setAddingInlineComment(false);
-    }
-  }, [
-    assistantId,
-    surfaceId,
-    conversationId,
-    textSelection,
-    refreshComments,
-  ]);
+  const handleCommentSubmit = useCallback(
+    async (commentText: string) => {
+      if (!textSelection) return;
+      setAddingInlineComment(true);
+      try {
+        await createComment(assistantId, surfaceId, {
+          content: commentText,
+          conversationId,
+          anchorStart: textSelection.start,
+          anchorEnd: textSelection.end,
+          anchorText: textSelection.text,
+        });
+        setTextSelection(null);
+        setCommentsPanelOpen(true);
+        await refreshComments();
+      } finally {
+        setAddingInlineComment(false);
+      }
+    },
+    [assistantId, surfaceId, conversationId, textSelection, refreshComments],
+  );
 
   // -------------------------------------------------------------------------
   // Toggle handler
@@ -274,10 +298,7 @@ export function DocumentViewerContainer({
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-[var(--border-base)] bg-[var(--surface-overlay)]">
       {/* Navbar */}
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--border-base)] px-4 py-2">
-        <FileText
-          size={16}
-          style={{ color: "var(--content-secondary)" }}
-        />
+        <FileText size={16} style={{ color: "var(--content-secondary)" }} />
         <Typography
           variant="title-small"
           className="min-w-0 flex-1 truncate text-[var(--content-emphasised)]"
@@ -292,7 +313,10 @@ export function DocumentViewerContainer({
             ) : (
               <Check size={12} />
             )}
-            <Typography variant="label-small-default" className="text-[var(--content-tertiary)]">
+            <Typography
+              variant="label-small-default"
+              className="text-[var(--content-tertiary)]"
+            >
               {saveStatus === "saving" ? "Saving…" : "Saved"}
             </Typography>
           </span>
@@ -314,9 +338,7 @@ export function DocumentViewerContainer({
           size="compact"
           leftIcon={<MessageSquareText />}
           onClick={toggleComments}
-          aria-label={
-            commentsPanelOpen ? "Close comments" : "Open comments"
-          }
+          aria-label={commentsPanelOpen ? "Close comments" : "Open comments"}
           aria-pressed={commentsPanelOpen}
         >
           Comments

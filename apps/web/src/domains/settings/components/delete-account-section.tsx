@@ -1,16 +1,35 @@
 import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import { Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
+import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
 import { DetailCard } from "@/components/detail-card";
 import { userDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
 export function DeleteAccountSection() {
+  // platformHostedOnly: deleting a Vellum platform account from a UI that
+  // is actively connected to a self-hosted assistant is confusing /
+  // disruptive — the user can switch to a platform-hosted assistant to
+  // access this action. The standard gate would still expose it.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // Settings routes are NOT mounted under `<ActiveAssistantGate>`, so a
+  // fresh deep-link to the privacy page renders with lifecycle still in
+  // `{ kind: "loading" }`. The gate above returns `"full"` during that
+  // window (intentional — prevents chrome flicker), but a click on the
+  // delete button during the race would fire `userDeletionRequestCreate`
+  // against a possibly self-hosted assistant. The button MUST stay
+  // disabled until lifecycle resolves positively as platform-hosted.
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const logout = useAuthStore.use.logout();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -28,6 +47,28 @@ export function DeleteAccountSection() {
     },
   });
 
+  // User accounts are a platform concept — there is no account to delete on
+  // a self-hosted assistant. Early return must follow every hook above so
+  // gate transitions (e.g. lifecycle flipping to `self_hosted` after the
+  // API resolves) never skip a hook and trigger a hook-order violation.
+  if (platformGate === "gated") return null;
+
+  const isResolving = platformGate === "full" && !isPlatformHosted;
+
+  // Dialog lifetime can span gate transitions: a user can open the dialog
+  // while resolved-as-hosted, then trigger an assistant switch (lifecycle
+  // re-enters `loading`), then press Confirm. The opener-button gate above
+  // does NOT protect against that — `confirmOpen` is already true and the
+  // ConfirmDialog stays mounted. Close the dialog when `isResolving`
+  // flips true so the user sees it dismiss; the disabled button + spinner
+  // then explain the state. Belt-and-suspenders: also guard `onConfirm`
+  // for the same-tick edge case.
+  useEffect(() => {
+    if (isResolving && confirmOpen) {
+      setConfirmOpen(false);
+    }
+  }, [isResolving, confirmOpen]);
+
   return (
     <>
       <DetailCard
@@ -35,14 +76,25 @@ export function DeleteAccountSection() {
         subtitle="Permanently delete your account and all associated data."
         variant="danger"
       >
-        <Button
-          variant="dangerOutline"
-          onClick={() => setConfirmOpen(true)}
-          disabled={deleteMutation.isPending}
-          className="self-start"
-        >
-          Delete My Account
-        </Button>
+        {platformGate === "disabled" ? (
+          <Notice tone="info">
+            Log in to the Vellum platform to delete your account.
+          </Notice>
+        ) : (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="dangerOutline"
+              onClick={() => setConfirmOpen(true)}
+              disabled={deleteMutation.isPending || isResolving}
+              className="self-start"
+            >
+              Delete My Account
+            </Button>
+            {isResolving && (
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
+            )}
+          </div>
+        )}
       </DetailCard>
       <ConfirmDialog
         open={confirmOpen}
@@ -51,6 +103,13 @@ export function DeleteAccountSection() {
         confirmLabel="Delete Account"
         destructive
         onConfirm={() => {
+          // Defensive: the useEffect above closes the dialog when
+          // `isResolving` flips true, but a click landing in the same
+          // tick as the transition would still reach this handler.
+          if (isResolving) {
+            setConfirmOpen(false);
+            return;
+          }
           setConfirmOpen(false);
           deleteMutation.mutate({});
         }}

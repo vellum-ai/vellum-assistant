@@ -15,8 +15,6 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-export type DocumentComment = DocumentsByIdCommentsPostResponse;
-
 export interface CreateCommentParams {
   content: string;
   conversationId: string;
@@ -34,7 +32,7 @@ export async function fetchComments(
   assistantId: string,
   surfaceId: string,
   status?: "open" | "resolved",
-): Promise<DocumentComment[]> {
+): Promise<DocumentsByIdCommentsPostResponse[]> {
   const { data, error, response } = await documentsByIdCommentsGet({
     path: { assistant_id: assistantId, id: surfaceId },
     query: status ? { status } : {},
@@ -56,7 +54,7 @@ export async function createComment(
   assistantId: string,
   surfaceId: string,
   params: CreateCommentParams,
-): Promise<DocumentComment> {
+): Promise<DocumentsByIdCommentsPostResponse> {
   const { data, error, response } = await documentsByIdCommentsPost({
     path: { assistant_id: assistantId, id: surfaceId },
     body: params,
@@ -79,7 +77,7 @@ async function patchCommentStatus(
   surfaceId: string,
   commentId: string,
   status: "open" | "resolved",
-): Promise<DocumentComment> {
+): Promise<DocumentsByIdCommentsPostResponse> {
   const label = status === "resolved" ? "resolve" : "reopen";
   const { data, error, response } = await documentsByIdCommentsByCommentIdPatch(
     {
@@ -108,7 +106,7 @@ export async function resolveComment(
   assistantId: string,
   surfaceId: string,
   commentId: string,
-): Promise<DocumentComment> {
+): Promise<DocumentsByIdCommentsPostResponse> {
   return patchCommentStatus(assistantId, surfaceId, commentId, "resolved");
 }
 
@@ -116,7 +114,7 @@ export async function reopenComment(
   assistantId: string,
   surfaceId: string,
   commentId: string,
-): Promise<DocumentComment> {
+): Promise<DocumentsByIdCommentsPostResponse> {
   return patchCommentStatus(assistantId, surfaceId, commentId, "open");
 }
 

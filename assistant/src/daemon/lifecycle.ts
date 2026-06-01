@@ -713,7 +713,7 @@ export async function runDaemon(): Promise<void> {
     // `init()`. Ordering is load-bearing (defaults register ahead of user
     // plugins so they compose innermost) and plugin failures are contained so
     // they can't block daemon startup.
-    await initializePlugins({ config });
+    await initializePlugins();
 
     // Start the DaemonServer (conversation manager) before Qdrant so HTTP
     // routes can begin accepting requests while Qdrant initializes.

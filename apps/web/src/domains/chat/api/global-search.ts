@@ -1,37 +1,12 @@
-import { client } from "@/generated/api/client.gen";
+import { searchGlobalGet } from "@/generated/daemon/sdk.gen";
+import type { SearchGlobalGetResponse } from "@/generated/daemon/types.gen";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface GlobalSearchConversation {
-  id: string;
-  title: string | null;
-  updatedAt: number;
-  excerpt: string;
-  matchCount: number;
-}
-
-interface GlobalSearchSchedule {
-  id: string;
-  name: string;
-  cronExpression: string;
-  nextRunAt: number | null;
-  enabled: boolean;
-}
-
-interface GlobalSearchContact {
-  id: string;
-  name: string;
-  email?: string;
-  phone?: string;
-}
-
-export interface GlobalSearchResponse {
-  conversations: GlobalSearchConversation[];
-  schedules: GlobalSearchSchedule[];
-  contacts: GlobalSearchContact[];
-}
+/** Search results grouped by category, as returned by the daemon. */
+export type GlobalSearchResponse = SearchGlobalGetResponse["results"];
 
 // ---------------------------------------------------------------------------
 // API
@@ -39,6 +14,7 @@ export interface GlobalSearchResponse {
 
 const EMPTY_RESULTS: GlobalSearchResponse = {
   conversations: [],
+  memories: [],
   schedules: [],
   contacts: [],
 };
@@ -57,8 +33,7 @@ export async function searchGlobal(
   const limit = options?.limit ?? 20;
 
   try {
-    const { data, response } = await client.get<GlobalSearchResponse, unknown>({
-      url: "/v1/assistants/{assistant_id}/search/global",
+    const { data, response } = await searchGlobalGet({
       path: { assistant_id: assistantId },
       query: {
         q: query,
@@ -69,34 +44,11 @@ export async function searchGlobal(
       signal: options?.signal,
     });
 
-    if (!response?.ok) {
+    if (!response?.ok || !data) {
       return EMPTY_RESULTS;
     }
 
-    // Validate the shape minimally — the daemon may evolve its response.
-    // The daemon wraps category arrays inside a `results` object:
-    //   { query: string, results: { conversations, schedules, contacts } }
-    if (data && typeof data === "object") {
-      const results =
-        (data as unknown as Record<string, unknown>).results ?? data;
-      if (results && typeof results === "object") {
-        return {
-          conversations: Array.isArray(
-            (results as GlobalSearchResponse).conversations,
-          )
-            ? (results as GlobalSearchResponse).conversations
-            : [],
-          schedules: Array.isArray((results as GlobalSearchResponse).schedules)
-            ? (results as GlobalSearchResponse).schedules
-            : [],
-          contacts: Array.isArray((results as GlobalSearchResponse).contacts)
-            ? (results as GlobalSearchResponse).contacts
-            : [],
-        };
-      }
-    }
-
-    return EMPTY_RESULTS;
+    return data.results;
   } catch (err) {
     // AbortError is expected when debounced queries supersede each other.
     if (err instanceof DOMException && err.name === "AbortError") {

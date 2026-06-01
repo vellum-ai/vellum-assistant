@@ -30,7 +30,6 @@ import type {
   ChannelCommandContext,
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
-import type { RepairResult } from "../daemon/history-repair.js";
 import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { MessageRole } from "../memory/conversation-crud.js";
@@ -46,6 +45,7 @@ import type {
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
+import type { RepairResult } from "./defaults/history-repair/terminal.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
 

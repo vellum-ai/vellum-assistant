@@ -47,6 +47,7 @@ import {
 import { AssistantError, ErrorCode, ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { isRetryableNetworkError } from "../util/retry.js";
+import { CompactionCircuit } from "./compaction-circuit.js";
 
 const log = getLogger("agent-loop");
 
@@ -564,6 +565,12 @@ export interface AgentLoopConstructorOptions {
   toolExecutor?: LoopToolExecutor;
   resolveTools?: (history: Message[]) => ToolDefinition[];
   resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt;
+  /**
+   * Conversation this loop drives. Used to scope the loop-held compaction
+   * circuit breaker; defaults to an empty key for test loops that never
+   * exercise compaction.
+   */
+  conversationId?: string;
 }
 
 export class AgentLoop {
@@ -577,13 +584,28 @@ export class AgentLoop {
     | null;
   private toolExecutor: LoopToolExecutor | null;
 
+  /**
+   * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
+   * conversation, so it is the source of truth for the cross-turn failure
+   * counter and cooldown deadline. Non-loop callers (the orchestrator's
+   * compaction paths, `Conversation.forceCompact`, and the dev-only playground
+   * routes) reach it via `agentLoop.compactionCircuit`.
+   */
+  readonly compactionCircuit: CompactionCircuit;
+
   constructor(
     provider: Provider,
     systemPrompt: string,
     options?: AgentLoopConstructorOptions,
   ) {
-    const { config, tools, toolExecutor, resolveTools, resolveSystemPrompt } =
-      options ?? {};
+    const {
+      config,
+      tools,
+      toolExecutor,
+      resolveTools,
+      resolveSystemPrompt,
+      conversationId,
+    } = options ?? {};
     this.provider = provider;
     this.systemPrompt = systemPrompt;
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -591,6 +613,7 @@ export class AgentLoop {
     this.resolveTools = resolveTools ?? null;
     this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
+    this.compactionCircuit = new CompactionCircuit(conversationId ?? "");
   }
 
   /**
