@@ -122,7 +122,7 @@ enum LocalImageBuilder {
             case .gateway:
                 return ServiceBuildConfig(
                     service: service,
-                    context: repoRoot.appendingPathComponent("gateway"),
+                    context: repoRoot,
                     dockerfile: repoRoot.appendingPathComponent("gateway/Dockerfile"),
                     tag: ref.fullReference
                 )
