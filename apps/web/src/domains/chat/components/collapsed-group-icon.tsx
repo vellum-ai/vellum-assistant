@@ -2,7 +2,7 @@ import { useCallback, useState, type ReactNode } from "react";
 
 import type { LucideIcon } from "lucide-react";
 
-import { Popover, Tooltip } from "@vellum/design-library";
+import { Popover, Tooltip, TooltipProvider } from "@vellum/design-library";
 import type { Conversation } from "@/types/conversation-types";
 
 // ---------------------------------------------------------------------------
@@ -84,30 +84,33 @@ export function CollapsedGroupIcon({
   // a tooltip when its trigger is clicked, but a disabled icon has nothing to
   // click, so the tooltip should stay put. We drive `open` ourselves: honor
   // Radix's delayed open, ignore its click-initiated close, and close only on
-  // pointer-leave / blur. (Relies on the app-level TooltipProvider in
-  // src/components/providers.tsx.)
+  // pointer-leave / blur. The compound parts need a TooltipProvider, so we
+  // embed our own (matching the convenience `Tooltip`'s defaults) to stay
+  // self-contained — it nests harmlessly under any app-level provider.
   const [tipOpen, setTipOpen] = useState(false);
 
   if (disabled) {
     return (
-      <Tooltip.Root
-        open={tipOpen}
-        onOpenChange={(next) => {
-          if (next) setTipOpen(true);
-        }}
-      >
-        <Tooltip.Trigger asChild>
-          <div
-            aria-label={label}
-            onPointerLeave={() => setTipOpen(false)}
-            onBlur={() => setTipOpen(false)}
-            className="relative flex h-8 w-8 items-center justify-center rounded-[6px] text-[var(--content-disabled)]"
-          >
-            <Icon size={14} />
-          </div>
-        </Tooltip.Trigger>
-        <Tooltip.Content side="right">{label}</Tooltip.Content>
-      </Tooltip.Root>
+      <TooltipProvider delayDuration={200} skipDelayDuration={300}>
+        <Tooltip.Root
+          open={tipOpen}
+          onOpenChange={(next) => {
+            if (next) setTipOpen(true);
+          }}
+        >
+          <Tooltip.Trigger asChild>
+            <div
+              aria-label={label}
+              onPointerLeave={() => setTipOpen(false)}
+              onBlur={() => setTipOpen(false)}
+              className="relative flex h-8 w-8 items-center justify-center rounded-[6px] text-[var(--content-disabled)]"
+            >
+              <Icon size={14} />
+            </div>
+          </Tooltip.Trigger>
+          <Tooltip.Content side="right">{label}</Tooltip.Content>
+        </Tooltip.Root>
+      </TooltipProvider>
     );
   }
 
