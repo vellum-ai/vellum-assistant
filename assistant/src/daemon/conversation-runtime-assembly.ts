@@ -55,7 +55,7 @@ import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { getWorkspaceDir, getWorkspacePromptPath } from "../util/platform.js";
 import { stripCommentLines } from "../util/strip-comment-lines.js";
-import { filterMessagesForUntrustedActor } from "./conversation-lifecycle.js";
+import { filterMessagesForUntrustedActor } from "./message-provenance.js";
 import { type PkbContextConversation } from "./pkb-context-tracker.js";
 import type { TrustContext } from "./trust-context.js";
 
