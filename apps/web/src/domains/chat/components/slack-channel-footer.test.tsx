@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 
-import { client } from "@/generated/api/client.gen";
+import { client } from "@/generated/daemon/client.gen";
 import { SlackChannelFooter } from "@/domains/chat/components/slack-channel-footer";
 
 describe("SlackChannelFooter lazy channel name resolution", () => {
@@ -64,7 +64,6 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
         assistant_id: "assistant-1",
         conversationId: "conv-lazy-resolve",
       },
-      body: {},
       throwOnError: false,
     });
   });
@@ -291,9 +290,7 @@ describe("SlackChannelFooter lazy channel name resolution", () => {
   });
 
   test("deduplicates in-flight resolution for repeated renders", async () => {
-    let resolvePost:
-      | ((value: typeof nextResolveResponse) => void)
-      | undefined;
+    let resolvePost: ((value: typeof nextResolveResponse) => void) | undefined;
     client.post = mock(async (options: Parameters<typeof client.post>[0]) => {
       postCalls.push(options);
       return await new Promise<typeof nextResolveResponse>((resolve) => {
