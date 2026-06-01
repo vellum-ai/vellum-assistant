@@ -88,7 +88,7 @@ export function useConversationHistory({
 
   // -------------------------------------------------------------------------
   // Conversation-switch reset — calls the store action when the active
-  // conversation changes. This replaces the old `useConversationSwitch` hook.
+  // conversation changes.
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (assistantStateKind !== "active" || !assistantId || !activeConversationId) {

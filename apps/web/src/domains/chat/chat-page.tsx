@@ -752,8 +752,8 @@ export function ChatPage() {
   // Clear the gate when `activeConversationId` changes after first
   // mount. Auto-greet isn't per-conversation state — it's a
   // system-wide "we just hatched" signal that happens to surface in
-  // the chat UI, so it doesn't belong in `useConversationSwitch`'s
-  // reset block. Draft → real ID handoff also trips this, but by then
+  // the chat UI, so it doesn't belong in the conversation-switch
+  // reset. Draft → real ID handoff also trips this, but by then
   // the messages-arrived effect has already dismissed the gate (sending
   // the first message is what resolves the draft), so the second
   // dismiss is a no-op.

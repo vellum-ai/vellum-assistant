@@ -2,17 +2,15 @@
  * Zustand store for per-conversation ephemeral chat session state.
  *
  * Owns the mutable data (messages, errors, pagination, transient maps/sets)
- * that hooks and stream handlers read and write during a conversation. Replaces
- * the 13 `useRef` + 7 `useState` declarations in ChatPage that were passed
- * through 20+ consumer files via relay-station hooks.
+ * that hooks and stream handlers read and write during a conversation.
  *
  * Reactive state (messages, error, isLoadingHistory, …) drives UI via `.use.*`
  * selectors. Imperative-only state (streamingMessageIds, pendingLocalDeletions,
  * …) is read via `getState()` in async callbacks and stream handlers — it never
  * triggers re-renders directly.
  *
- * `switchToConversation()` atomically resets all per-conversation state in one
- * call, replacing the 194-line `useConversationSwitch` hook.
+ * `switchToConversation()` atomically resets all per-conversation state when
+ * the active conversation changes.
  *
  * @see {@link https://zustand.docs.pmnd.rs/}
  * @see {@link https://zustand.docs.pmnd.rs/guides/auto-generating-selectors}
@@ -52,7 +50,7 @@ export interface ChatSessionState {
   // --- Circuit breaker ---
   compactionCircuitOpenUntil: Date | null;
 
-  // --- Per-conversation mutable maps/sets (formerly useRef in ChatPage) ---
+  // --- Per-conversation mutable maps/sets ---
   dismissedSurfaceIds: Set<string>;
   streamingMessageIds: Set<string>;
   pendingQueuedMessageIds: string[];
@@ -105,7 +103,7 @@ export interface ChatSessionActions {
   // --- Conversation lifecycle ---
   /**
    * Atomically reset all per-conversation state when switching to a new
-   * conversation. Replaces the 194-line `useConversationSwitch` hook.
+   * conversation.
    *
    * Caller must pass `resetChatAttachments` because attachment state
    * lives outside this store (in `useChatAttachments`).
