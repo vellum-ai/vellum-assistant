@@ -203,20 +203,19 @@ mock.module("../memory/retriever.js", () => ({
 }));
 
 // Mock AgentLoop to capture the callSite argument that runAgentLoopImpl passes
-// via the options object (see assistant/src/agent/loop.ts → AgentLoopRunOptions).
+// via the options object (see assistant/src/agent/loop.ts → AgentLoopConstructorOptions).
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
     constructor(
       _provider: unknown,
       _systemPrompt: string,
-      config?: Record<string, unknown>,
-      _tools?: unknown,
-      _toolExecutor?: unknown,
-      _resolveTools?: unknown,
-      resolveSystemPrompt?: (history: Message[]) => Record<string, unknown>,
+      options?: {
+        config?: Record<string, unknown>;
+        resolveSystemPrompt?: (history: Message[]) => Record<string, unknown>;
+      },
     ) {
-      captured.constructorMaxTokens = config?.maxTokens;
-      const resolved = resolveSystemPrompt?.([]);
+      captured.constructorMaxTokens = options?.config?.maxTokens;
+      const resolved = options?.resolveSystemPrompt?.([]);
       captured.resolvedMaxTokens = resolved?.maxTokens;
       captured.resolvedHasMaxTokens =
         resolved !== undefined &&

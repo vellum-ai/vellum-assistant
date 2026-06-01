@@ -199,9 +199,9 @@ mock.module("../agent/loop.js", () => ({
     constructor(
       _provider: unknown,
       _systemPrompt: string,
-      config?: Partial<AgentLoopConfig>,
+      options?: { config?: Partial<AgentLoopConfig> },
     ) {
-      lastAgentLoopConfig = config;
+      lastAgentLoopConfig = options?.config;
     }
     getToolTokenBudget() {
       return 0;
