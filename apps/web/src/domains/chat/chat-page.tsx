@@ -846,20 +846,34 @@ export function ChatPage() {
   const handleRequestSubagentDetail = useCallback(
     (subagentId: string) => {
       if (!assistantId) return;
-      void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, subagentId, { skipDedup: true });
+      void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, subagentId);
     },
     [assistantId],
   );
 
+  // Stable signal: changes only when the set of subagent IDs that need a
+  // detail fetch changes (entry appears with conversationId + no events,
+  // or an entry receives events). Immune to loadDetail calls that update
+  // status/objective without changing events, preventing retrigger loops.
+  const unfetchedSubagentKey = useSubagentStore((s) => {
+    const ids: string[] = [];
+    for (const entry of Object.values(s.byId)) {
+      if (entry.conversationId && entry.events.length === 0) {
+        ids.push(entry.subagentId);
+      }
+    }
+    return ids.sort().join(',');
+  });
+
   // Auto-fetch details for subagents reconstructed from history.
   useEffect(() => {
-    if (!assistantId) return;
-    for (const entry of Object.values(subagentById)) {
+    if (!assistantId || !unfetchedSubagentKey) return;
+    for (const entry of Object.values(useSubagentStore.getState().byId)) {
       if (entry.conversationId && entry.events.length === 0) {
         void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, entry.subagentId);
       }
     }
-  }, [assistantId, subagentById]);
+  }, [assistantId, unfetchedSubagentKey]);
 
   // -------------------------------------------------------------------------
   // Interaction actions

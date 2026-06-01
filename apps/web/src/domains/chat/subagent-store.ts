@@ -178,17 +178,9 @@ export interface SubagentActions {
    * Fetch detail from the daemon for a single subagent if not already
    * fetched (or if the entry was rebuilt with a newer spawnedAt).
    * Dedup state lives in the store so it survives component lifecycle.
-   *
-   * Pass `skipDedup: true` for user-initiated retries (e.g. panel open)
-   * where the caller manages its own per-mount guard. The auto-fetch
-   * effect omits it so the `fetchedAt` marker prevents tight loops when
-   * the detail endpoint returns empty events.
+   * Clears the marker on failure or empty events so callers can retry.
    */
-  fetchDetailIfNeeded: (
-    assistantId: string,
-    subagentId: string,
-    options?: { skipDedup?: boolean },
-  ) => Promise<void>;
+  fetchDetailIfNeeded: (assistantId: string, subagentId: string) => Promise<void>;
 
   reset: () => void;
 }
@@ -567,16 +559,14 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     });
   },
 
-  fetchDetailIfNeeded: async (assistantId, subagentId, options) => {
+  fetchDetailIfNeeded: async (assistantId, subagentId) => {
     const { byId, fetchedAt } = get();
     const entry = byId[subagentId];
     if (!entry?.conversationId) return;
     if (entry.events.length > 0) return;
 
-    if (!options?.skipDedup) {
-      const prev = fetchedAt.get(subagentId);
-      if (prev !== undefined && prev >= entry.spawnedAt) return;
-    }
+    const prev = fetchedAt.get(subagentId);
+    if (prev !== undefined && prev >= entry.spawnedAt) return;
 
     // Mark as fetched before the await to prevent concurrent duplicates.
     const nextFetchedAt = new Map(fetchedAt);
@@ -597,6 +587,10 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     }
 
     const events = mapDetailEvents(detail.events);
+
+    if (events.length === 0) {
+      clearMarker();
+    }
 
     get().loadDetail({
       subagentId,
