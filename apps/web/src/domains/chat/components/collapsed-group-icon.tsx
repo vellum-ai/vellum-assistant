@@ -2,7 +2,7 @@ import { useCallback, useState, type ReactNode } from "react";
 
 import type { LucideIcon } from "lucide-react";
 
-import { Popover } from "@vellum/design-library";
+import { Popover, Tooltip } from "@vellum/design-library";
 import type { Conversation } from "@/types/conversation-types";
 
 // ---------------------------------------------------------------------------
@@ -80,37 +80,57 @@ export function CollapsedGroupIcon({
 }: CollapsedGroupIconProps) {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
+  // Controlled tooltip for the disabled (empty) group. By default Radix closes
+  // a tooltip when its trigger is clicked, but a disabled icon has nothing to
+  // click, so the tooltip should stay put. We drive `open` ourselves: honor
+  // Radix's delayed open, ignore its click-initiated close, and close only on
+  // pointer-leave / blur. (Relies on the app-level TooltipProvider in
+  // src/components/providers.tsx.)
+  const [tipOpen, setTipOpen] = useState(false);
 
   if (disabled) {
     return (
-      <div
-        aria-label={label}
-        title="No conversations"
-        className="relative flex h-8 w-8 items-center justify-center rounded-[6px] text-[var(--content-disabled)]"
+      <Tooltip.Root
+        open={tipOpen}
+        onOpenChange={(next) => {
+          if (next) setTipOpen(true);
+        }}
       >
-        <Icon size={14} />
-      </div>
+        <Tooltip.Trigger asChild>
+          <div
+            aria-label={label}
+            onPointerLeave={() => setTipOpen(false)}
+            onBlur={() => setTipOpen(false)}
+            className="relative flex h-8 w-8 items-center justify-center rounded-[6px] text-[var(--content-disabled)]"
+          >
+            <Icon size={14} />
+          </div>
+        </Tooltip.Trigger>
+        <Tooltip.Content side="right">{label}</Tooltip.Content>
+      </Tooltip.Root>
     );
   }
 
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
-      <Popover.Trigger asChild>
-        <button
-          type="button"
-          aria-label={label}
-          aria-haspopup="dialog"
-          className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-[6px] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)]"
-        >
-          <Icon size={14} />
-          {indicatorState != null ? (
-            <span
-              aria-hidden
-              className={`absolute right-0 top-0 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] ${INDICATOR_CLASS[indicatorState]}`}
-            />
-          ) : null}
-        </button>
-      </Popover.Trigger>
+      <Tooltip content={label} side="right">
+        <Popover.Trigger asChild>
+          <button
+            type="button"
+            aria-label={label}
+            aria-haspopup="dialog"
+            className="relative flex h-8 w-8 cursor-pointer items-center justify-center rounded-[6px] text-[var(--content-tertiary)] transition-colors hover:bg-[var(--surface-hover)] hover:text-[var(--content-secondary)] aria-[expanded=true]:bg-[var(--surface-active)] aria-[expanded=true]:text-[var(--content-emphasised)]"
+          >
+            <Icon size={14} />
+            {indicatorState != null ? (
+              <span
+                aria-hidden
+                className={`absolute right-0 top-0 h-2.5 w-2.5 rounded-full border-2 border-[var(--surface-base)] ${INDICATOR_CLASS[indicatorState]}`}
+              />
+            ) : null}
+          </button>
+        </Popover.Trigger>
+      </Tooltip>
       <Popover.Content
         side="right"
         align="start"

@@ -14,6 +14,7 @@ import {
 } from "react";
 
 import { Typography } from "../typography";
+import { Tooltip } from "../tooltip";
 import { cn } from "../../utils/cn";
 
 /**
@@ -441,6 +442,12 @@ export type SideMenuItemIcon = LucideIcon | string;
 export interface SideMenuItemProps {
   icon?: SideMenuItemIcon;
   label: string;
+  /**
+   * When set, the collapsed rail shows this as a styled tooltip on hover
+   * (replacing the native `title`). Ignored when expanded, since the label
+   * is already visible. Mirrors the `tooltip` prop on `Button`.
+   */
+  tooltip?: string;
   badge?: ReactNode;
   trailingIcon?: LucideIcon;
   trailingIconClassName?: string;
@@ -529,6 +536,7 @@ type SharedButtonProps = Omit<
 function SideMenuItem({
   icon,
   label,
+  tooltip,
   badge,
   trailingIcon: TrailingIcon,
   trailingIconClassName,
@@ -590,15 +598,27 @@ function SideMenuItem({
     />
   );
 
-  const titleAttr = collapsed ? label : undefined;
+  // When a styled tooltip is shown (collapsed + `tooltip` set), drop the native
+  // `title` so the two don't stack into a double tooltip on hover.
+  const showStyledTooltip = collapsed && tooltip != null;
+  const titleAttr = collapsed && !showStyledTooltip ? label : undefined;
   const ariaCurrent = active ? ("page" as const) : undefined;
+
+  const withTooltip = (element: ReactNode) =>
+    showStyledTooltip ? (
+      <Tooltip content={tooltip} side="right">
+        {element}
+      </Tooltip>
+    ) : (
+      element
+    );
 
   if (href) {
     const {
       onClick: anchorOnClick,
       ...anchorProps
     } = rest as SharedAnchorProps;
-    return (
+    return withTooltip(
       <a
         ref={ref as Ref<HTMLAnchorElement>}
         data-slot="side-menu-item"
@@ -635,7 +655,7 @@ function SideMenuItem({
     }
   };
 
-  return (
+  return withTooltip(
     <button
       ref={ref as Ref<HTMLButtonElement>}
       data-slot="side-menu-item"
@@ -651,7 +671,7 @@ function SideMenuItem({
       {labelNode}
       {badgeNode}
       {trailingNode}
-    </button>
+    </button>,
   );
 }
 

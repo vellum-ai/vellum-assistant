@@ -204,6 +204,8 @@ export interface ButtonProps
   active?: boolean;
   tintColor?: string;
   tooltip?: string;
+  /** Side the tooltip is placed on. Defaults to Radix's "top". */
+  tooltipSide?: "top" | "right" | "bottom" | "left";
   asChild?: boolean;
   children?: ReactNode;
 }
@@ -225,6 +227,7 @@ export function Button({
   active = false,
   tintColor,
   tooltip,
+  tooltipSide,
   asChild = false,
   className,
   style,
@@ -314,7 +317,11 @@ export function Button({
   );
 
   if (tooltip) {
-    return <Tooltip content={tooltip}>{buttonElement}</Tooltip>;
+    return (
+      <Tooltip content={tooltip} side={tooltipSide}>
+        {buttonElement}
+      </Tooltip>
+    );
   }
 
   return buttonElement;
