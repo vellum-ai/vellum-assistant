@@ -478,7 +478,19 @@ export function NotificationsPage() {
     }
   }, [isPlatformHosted, pauseOpen]);
 
-  const notifications = data?.results ?? [];
+  // The `useQuery` is `enabled: false` in any non-hosted state, but React
+  // Query keeps the previously-fetched cache. If the user loaded
+  // notifications while hosted and the lifecycle then moved to a resolved
+  // non-hosted state (`retired`, `error`, `awaiting_version_selection`,
+  // `self_hosted`) in the same session, `data` is still populated and the
+  // notification cards would render with active "Mark all as read" /
+  // per-row ack / snooze handlers that fire org-scoped mutations against
+  // an org with no platform-hosted target. Treat cached data as invalid
+  // whenever `!isPlatformHosted`, mirroring the `enabled` predicate. This
+  // is the single source of truth for the data-availability gate that
+  // suppresses both `unreadOpen` (→ "Mark all as read" button) and the
+  // list map (→ per-row SnoozeMenu + ack controls).
+  const notifications = isPlatformHosted ? (data?.results ?? []) : [];
   const unreadOpen = notifications.filter(
     (n) => !n.is_read && !n.is_resolved,
   );
@@ -609,8 +621,11 @@ export function NotificationsPage() {
           flips, so the control appears as soon as we know it's safe.
           (Other mutation-firing controls on this page — "Mark all as
           read", per-row ack, snooze — are gated by data-availability:
-          the notifications query is disabled when not hosted, so
-          `notifications = []` and those rows can't render.)
+          `notifications` is explicitly forced to `[]` when
+          `!isPlatformHosted` (see derivation above), which covers both
+          the disabled-query case AND the surviving-cache case where the
+          user loaded notifications while hosted then transitioned to a
+          resolved non-hosted state in the same session.)
         */}
         {isPlatformHosted && (
           isMobile ? (
