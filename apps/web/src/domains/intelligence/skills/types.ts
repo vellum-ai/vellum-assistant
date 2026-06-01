@@ -1,4 +1,7 @@
-import type { SkillsGetResponses } from "@/generated/daemon/types.gen";
+import type {
+  SkillsByIdFilesGetResponse,
+  SkillsGetResponses,
+} from "@/generated/daemon/types.gen";
 
 export type SkillOrigin = "vellum" | "clawhub" | "skillssh" | "custom";
 
@@ -52,36 +55,7 @@ type GeneratedSkill = SkillsGetResponses[200]["skills"][number];
 type AssertAssignable<_Target, _Source extends _Target> = true;
 type _SkillInfoCompat = AssertAssignable<SkillInfo, GeneratedSkill>;
 
-export interface SkillFileEntry {
-  name: string;
-  path: string;
-  size?: number;
-  mimeType?: string;
-  isBinary?: boolean;
-  content?: string | null;
-}
-
-export interface SkillFilesResponse {
-  skill: SkillInfo;
-  files: SkillFileEntry[];
-}
-
-/**
- * Runtime type guard for the `GET /skills/{id}/files` response.
- *
- * The generated type for this endpoint is `200: unknown` (the daemon route
- * lacks a `responseBody` schema). This guard validates the minimum shape
- * so consumers get `SkillFilesResponse` without an unsafe `as` cast.
- */
-export function isSkillFilesResponse(data: unknown): data is SkillFilesResponse {
-  if (data == null || typeof data !== "object") return false;
-  const obj = data as Record<string, unknown>;
-  return (
-    obj.skill != null &&
-    typeof obj.skill === "object" &&
-    Array.isArray(obj.files)
-  );
-}
+export type SkillFileEntry = SkillsByIdFilesGetResponse["files"][number];
 
 export type SkillFilter = "all" | "installed" | "available" | SkillOrigin;
 

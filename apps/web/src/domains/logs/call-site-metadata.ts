@@ -5,21 +5,9 @@
  */
 
 import { configLlmCallsitesGet } from "@/generated/daemon/sdk.gen";
+import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
 
-/**
- * Hand-written response shape for the LLM call-site catalog endpoint.
- * The generated type is `200: unknown` — the daemon route doesn't yet
- * declare a response schema.
- */
-interface CallSiteCatalogResponse {
-  domains: Array<{ id: string; displayName: string }>;
-  callSites: Array<{
-    id: string;
-    displayName: string;
-    description: string;
-    domain: string;
-  }>;
-}
+type CallSiteCatalogResponse = ConfigLlmCallsitesGetResponse;
 
 export interface UsageCallSiteMetadata {
   id: string;
@@ -70,5 +58,5 @@ export async function fetchUsageCallSiteCatalog(
       text || response?.statusText || "Failed to load LLM call-site metadata.",
     );
   }
-  return (data as CallSiteCatalogResponse | undefined) ?? { domains: [], callSites: [] };
+  return data ?? { domains: [], callSites: [] };
 }

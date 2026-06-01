@@ -5,25 +5,10 @@
  */
 
 import { traceeventsGet } from "@/generated/daemon/sdk.gen";
+import type { TraceeventsGetResponse } from "@/generated/daemon/types.gen";
 
-/**
- * Hand-written row shape for trace events. The generated SDK type is
- * `{ events: Array<unknown> }` because the daemon OpenAPI spec declares
- * the array items as a free-form object. This interface captures the
- * properties that consumers actually read.
- */
-export interface TraceEventRow {
-  eventId: string;
-  kind: string;
-  status?: string;
-  summary?: string;
-  timestampMs: number;
-  sequence: number;
-  requestId?: string;
-  attributes?: Record<string, string | number | boolean | null | undefined>;
-}
-
-export type TraceEventsListResponse = { events: TraceEventRow[] };
+export type TraceEventsListResponse = TraceeventsGetResponse;
+export type TraceEventRow = TraceEventsListResponse["events"][number];
 export type TraceEventKind = TraceEventRow["kind"];
 export type TraceEventStatus = NonNullable<TraceEventRow["status"]>;
 
@@ -66,5 +51,5 @@ export async function fetchTraceEvents(
       text || response?.statusText || "Failed to load trace events",
     );
   }
-  return (data as TraceEventsListResponse | undefined) ?? { events: [] };
+  return data ?? { events: [] };
 }

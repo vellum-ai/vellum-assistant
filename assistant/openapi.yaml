@@ -17513,6 +17513,235 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  skill:
+                    oneOf:
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          origin:
+                            type: string
+                            const: vellum
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - origin
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          origin:
+                            type: string
+                            const: clawhub
+                          slug:
+                            type: string
+                          author:
+                            type: string
+                          stars:
+                            type: number
+                          installs:
+                            type: number
+                          reports:
+                            type: number
+                          publishedAt:
+                            type: string
+                          version:
+                            type: string
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - origin
+                          - slug
+                          - author
+                          - stars
+                          - installs
+                          - reports
+                          - version
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          origin:
+                            type: string
+                            const: skillssh
+                          slug:
+                            type: string
+                          sourceRepo:
+                            type: string
+                          installs:
+                            type: number
+                          audit:
+                            type: object
+                            propertyNames:
+                              type: string
+                            additionalProperties:
+                              type: object
+                              properties:
+                                risk:
+                                  type: string
+                                  enum:
+                                    - safe
+                                    - low
+                                    - medium
+                                    - high
+                                    - critical
+                                    - unknown
+                                alerts:
+                                  type: number
+                                score:
+                                  type: number
+                                analyzedAt:
+                                  type: string
+                              required:
+                                - risk
+                                - analyzedAt
+                              additionalProperties: false
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - origin
+                          - slug
+                          - sourceRepo
+                          - installs
+                        additionalProperties: false
+                      - type: object
+                        properties:
+                          id:
+                            type: string
+                          name:
+                            type: string
+                          description:
+                            type: string
+                          emoji:
+                            type: string
+                          kind:
+                            type: string
+                            enum:
+                              - bundled
+                              - installed
+                              - catalog
+                          status:
+                            type: string
+                            enum:
+                              - enabled
+                              - disabled
+                              - available
+                          origin:
+                            type: string
+                            const: custom
+                        required:
+                          - id
+                          - name
+                          - description
+                          - kind
+                          - status
+                          - origin
+                        additionalProperties: false
+                    description: Skill metadata
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        name:
+                          type: string
+                        size:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                        mimeType:
+                          type: string
+                        isBinary:
+                          type: boolean
+                        content:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - path
+                        - name
+                        - size
+                        - mimeType
+                        - isBinary
+                        - content
+                      additionalProperties: false
+                    description: Directory contents
+                required:
+                  - skill
+                  - files
+                additionalProperties: false
       parameters:
         - name: id
           in: path
