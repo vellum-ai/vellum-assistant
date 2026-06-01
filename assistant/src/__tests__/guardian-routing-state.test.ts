@@ -401,23 +401,21 @@ describe("channel-retry-sweep routing state", () => {
     seedFailedEvent("trusted_contact", "guardian-for-sweep");
     let capturedOptions: { isInteractive?: boolean } | undefined;
 
-    await sweepFailedEvents(
-      async (conversationId, _content, _attachmentIds, options) => {
-        capturedOptions = options as { isInteractive?: boolean };
-        const messageId = `message-tc-sweep-${Date.now()}`;
-        const db = getDb();
-        db.insert(messages)
-          .values({
-            id: messageId,
-            conversationId,
-            role: "user",
-            content: JSON.stringify([{ type: "text", text: "retry me" }]),
-            createdAt: Date.now(),
-          })
-          .run();
-        return { messageId };
-      },
-    );
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      capturedOptions = options as { isInteractive?: boolean };
+      const messageId = `message-tc-sweep-${Date.now()}`;
+      const db = getDb();
+      db.insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
 
     expect(capturedOptions?.isInteractive).toBe(true);
   });
@@ -426,23 +424,21 @@ describe("channel-retry-sweep routing state", () => {
     seedFailedEvent("trusted_contact");
     let capturedOptions: { isInteractive?: boolean } | undefined;
 
-    await sweepFailedEvents(
-      async (conversationId, _content, _attachmentIds, options) => {
-        capturedOptions = options as { isInteractive?: boolean };
-        const messageId = `message-tc-no-binding-${Date.now()}`;
-        const db = getDb();
-        db.insert(messages)
-          .values({
-            id: messageId,
-            conversationId,
-            role: "user",
-            content: JSON.stringify([{ type: "text", text: "retry me" }]),
-            createdAt: Date.now(),
-          })
-          .run();
-        return { messageId };
-      },
-    );
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      capturedOptions = options as { isInteractive?: boolean };
+      const messageId = `message-tc-no-binding-${Date.now()}`;
+      const db = getDb();
+      db.insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
 
     expect(capturedOptions?.isInteractive).toBe(false);
   });
@@ -451,23 +447,21 @@ describe("channel-retry-sweep routing state", () => {
     seedFailedEvent("guardian", "guardian-self");
     let capturedOptions: { isInteractive?: boolean } | undefined;
 
-    await sweepFailedEvents(
-      async (conversationId, _content, _attachmentIds, options) => {
-        capturedOptions = options as { isInteractive?: boolean };
-        const messageId = `message-guardian-sweep-${Date.now()}`;
-        const db = getDb();
-        db.insert(messages)
-          .values({
-            id: messageId,
-            conversationId,
-            role: "user",
-            content: JSON.stringify([{ type: "text", text: "retry me" }]),
-            createdAt: Date.now(),
-          })
-          .run();
-        return { messageId };
-      },
-    );
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      capturedOptions = options as { isInteractive?: boolean };
+      const messageId = `message-guardian-sweep-${Date.now()}`;
+      const db = getDb();
+      db.insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
 
     expect(capturedOptions?.isInteractive).toBe(true);
   });
@@ -476,23 +470,21 @@ describe("channel-retry-sweep routing state", () => {
     seedFailedEvent("unknown");
     let capturedOptions: { isInteractive?: boolean } | undefined;
 
-    await sweepFailedEvents(
-      async (conversationId, _content, _attachmentIds, options) => {
-        capturedOptions = options as { isInteractive?: boolean };
-        const messageId = `message-unknown-sweep-${Date.now()}`;
-        const db = getDb();
-        db.insert(messages)
-          .values({
-            id: messageId,
-            conversationId,
-            role: "user",
-            content: JSON.stringify([{ type: "text", text: "retry me" }]),
-            createdAt: Date.now(),
-          })
-          .run();
-        return { messageId };
-      },
-    );
+    await sweepFailedEvents(async (conversationId, _content, options) => {
+      capturedOptions = options as { isInteractive?: boolean };
+      const messageId = `message-unknown-sweep-${Date.now()}`;
+      const db = getDb();
+      db.insert(messages)
+        .values({
+          id: messageId,
+          conversationId,
+          role: "user",
+          content: JSON.stringify([{ type: "text", text: "retry me" }]),
+          createdAt: Date.now(),
+        })
+        .run();
+      return { messageId };
+    });
 
     expect(capturedOptions?.isInteractive).toBe(false);
   });

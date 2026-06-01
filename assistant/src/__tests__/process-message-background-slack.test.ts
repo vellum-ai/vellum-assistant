@@ -254,12 +254,11 @@ describe("processMessageInBackground Slack option propagation", () => {
     const result = await processMessageInBackground(
       "conv-background-slack",
       "Reply from Slack",
-      undefined,
       {
         slackInbound,
+        sourceChannel: "slack",
+        sourceInterface: "slack",
       },
-      "slack",
-      "slack",
     );
 
     expect(result).toEqual({ messageId: "persisted-user-message-id" });
@@ -280,14 +279,13 @@ describe("processMessageInBackground Slack option propagation", () => {
     const processing = processMessage(
       "conv-background-slack",
       "Reply from Slack",
-      undefined,
       {
         onEvent: (msg) => {
           observedMessages.push(msg);
         },
+        sourceChannel: "slack",
+        sourceInterface: "slack",
       },
-      "slack",
-      "slack",
     );
 
     await waitForRunAgentLoopCall();
@@ -322,10 +320,10 @@ describe("processMessageInBackground Slack option propagation", () => {
     await processMessageInBackground(
       "conv-background-slack",
       "Regular background wake",
-      undefined,
-      undefined,
-      "vellum",
-      "web",
+      {
+        sourceChannel: "vellum",
+        sourceInterface: "web",
+      },
     );
 
     expect(activeConversation.persistUserMessage).toHaveBeenCalledTimes(1);

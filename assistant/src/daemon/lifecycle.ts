@@ -952,7 +952,6 @@ export async function runDaemon(): Promise<void> {
         await processMessage(
           conversationId,
           message,
-          undefined,
           options
             ? {
                 ...(options.trustClass

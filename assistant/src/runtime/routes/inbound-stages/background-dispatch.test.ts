@@ -259,7 +259,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     const processMessage: MessageProcessor = async (
       _conversationId,
       _content,
-      _attachmentIds,
       options,
     ) => {
       options?.onEvent?.({
@@ -357,7 +356,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     const processMessage: MessageProcessor = async (
       _conversationId,
       _content,
-      _attachmentIds,
       options,
     ) => {
       options?.onEvent?.({
@@ -458,7 +456,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     const processMessage: MessageProcessor = async (
       _conversationId,
       _content,
-      _attachmentIds,
       options,
     ) => {
       options?.onEvent?.({
@@ -528,7 +525,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     const processMessage: MessageProcessor = async (
       _conversationId,
       _content,
-      _attachmentIds,
       options,
     ) => {
       options?.onEvent?.({
@@ -604,7 +600,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     const processMessage: MessageProcessor = async (
       _conversationId,
       _content,
-      _attachmentIds,
       options,
     ) => {
       options?.onEvent?.({
@@ -681,7 +676,6 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     const processMessage: MessageProcessor = async (
       _conversationId,
       _content,
-      _attachmentIds,
       options,
     ) => {
       options?.onEvent?.({
@@ -892,7 +886,6 @@ describe("Slack thinking status timing", () => {
     const processMessage: MessageProcessor = async (
       _conversationId,
       _content,
-      _attachmentIds,
       options,
     ) => {
       options?.onEvent?.({
@@ -983,7 +976,6 @@ describe("Slack thinking status timing", () => {
     const processMessage: MessageProcessor = async (
       _conversationId,
       _content,
-      _attachmentIds,
       options,
     ) => {
       options?.onEvent?.({
@@ -1020,7 +1012,6 @@ describe("Slack thinking status timing", () => {
     const processMessage: MessageProcessor = async (
       _conversationId,
       _content,
-      _attachmentIds,
       options,
     ) => {
       options?.onEvent?.({
@@ -1071,7 +1062,6 @@ describe("Slack thinking status timing", () => {
     const processMessage: MessageProcessor = async (
       _conversationId,
       _content,
-      _attachmentIds,
       options,
     ) => {
       options?.onEvent?.({
@@ -1145,7 +1135,6 @@ describe("Slack thinking status timing", () => {
     const processMessage: MessageProcessor = async (
       _conversationId,
       _content,
-      _attachmentIds,
       options,
     ) => {
       options?.onEvent?.({
@@ -1196,7 +1185,6 @@ describe("Slack thinking status timing", () => {
     const processMessage: MessageProcessor = async (
       _conversationId,
       _content,
-      _attachmentIds,
       options,
     ) => {
       options?.onEvent?.({
