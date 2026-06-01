@@ -48,6 +48,16 @@ type OverlayView = "document" | "subagent-detail" | "tool-detail";
  * value. Treat it as an expected condition — the UI falls back to chat
  * — rather than a Sentry-worthy crash.
  *
+ * **Narrow to the app-missing case via the message.** A bare `code:
+ * "NOT_FOUND"` match would also swallow route-mismatch / version-skew
+ * 404s (the daemon's catch-all returns `{ error: { code: "NOT_FOUND",
+ * message: "Not found" } }`), and *those* are real telemetry we want
+ * Sentry to see. The app-open handlers throw `NotFoundError("App not
+ * found")` or `NotFoundError("App not found: ${appId}")` (see
+ * `assistant/src/runtime/routes/app-routes.ts` and `app-management-routes.ts`),
+ * so a `startsWith("App not found")` check matches the deleted-app case
+ * specifically without swallowing routing bugs.
+ *
  * **Two assumptions, both verified by `viewer-store.test.ts`:**
  *
  * 1. The daemon wraps the body in an `error` key (`assistant/src/runtime/http-errors.ts`).
@@ -67,7 +77,9 @@ export function isAppNotFoundError(err: unknown): boolean {
   if (typeof err !== "object" || err === null) return false;
   const envelope = (err as { error?: unknown }).error;
   if (typeof envelope !== "object" || envelope === null) return false;
-  return (envelope as { code?: unknown }).code === "NOT_FOUND";
+  if ((envelope as { code?: unknown }).code !== "NOT_FOUND") return false;
+  const message = (envelope as { message?: unknown }).message;
+  return typeof message === "string" && message.startsWith("App not found");
 }
 
 function resolveViewBefore(

@@ -385,12 +385,30 @@ describe("isAppNotFoundError", () => {
   // — production behavior would silently revert to capturing NOT_FOUND noise
   // in Sentry. The Sentry reopen is the signal to come back here.
 
-  it("matches the daemon's nested envelope shape", () => {
+  it("matches the daemon's nested envelope shape with the appId-suffixed message", () => {
     expect(
       isAppNotFoundError({
         error: { code: "NOT_FOUND", message: "App not found: abc-123" },
       }),
     ).toBe(true);
+  });
+
+  it("matches the bare `App not found` message variant", () => {
+    expect(
+      isAppNotFoundError({
+        error: { code: "NOT_FOUND", message: "App not found" },
+      }),
+    ).toBe(true);
+  });
+
+  it("does NOT match a generic route-mismatch 404 (would silently swallow routing regressions)", () => {
+    // The daemon's catch-all returns this for unmatched / version-skewed
+    // routes. Those are real telemetry — keep them visible in Sentry.
+    expect(
+      isAppNotFoundError({
+        error: { code: "NOT_FOUND", message: "Not found" },
+      }),
+    ).toBe(false);
   });
 
   it("does NOT match a flat top-level shape (the wrong assumption the first revision made)", () => {
