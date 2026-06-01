@@ -217,7 +217,7 @@ export function CommunityPage() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <FeatureCard
-          accentColor="var(--content-emphasised)"
+          accentColor="var(--aux-black)"
           label="Open Source"
           icon={<GitHubLogo size={20} />}
           title="Vellum is open source"

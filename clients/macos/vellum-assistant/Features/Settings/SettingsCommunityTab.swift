@@ -132,7 +132,7 @@ private struct OpenSourceFeatureCard: View {
         FeatureCardContainer {
             FeatureCardHeader(
                 icon: .github,
-                iconBg: VColor.contentEmphasized,
+                iconBg: VColor.auxBlack,
                 label: "Open Source"
             )
 

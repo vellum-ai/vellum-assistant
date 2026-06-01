@@ -232,6 +232,7 @@
 
   /* Aux */
   --aux-white: #FFFFFF;
+  --aux-black: #000000;
 
   /* Shadow */
   --shadow-popover: 0 1px 3px 0 rgba(0, 0, 0, 0.10), 0 4px 12px 0 rgba(0, 0, 0, 0.10);
@@ -312,6 +313,7 @@
 
   /* Aux */
   --aux-white: #FFFFFF;
+  --aux-black: #000000;
 
   /* Shadow */
   --shadow-popover: 0 1px 3px 0 rgba(0, 0, 0, 0.25), 0 4px 12px 0 rgba(0, 0, 0, 0.25);
@@ -398,6 +400,7 @@
 
   /* Aux */
   --aux-white: #FFFFFF;
+  --aux-black: #000000;
 
   /* Shadow */
   --shadow-popover: 0 1px 3px 0 rgba(0, 0, 0, 0.25), 0 4px 12px 0 rgba(0, 0, 0, 0.25);
