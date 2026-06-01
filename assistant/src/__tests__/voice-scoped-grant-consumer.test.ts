@@ -145,17 +145,19 @@ function createMockSession(opts?: {
     handleConfirmationResponse: (
       reqId: string,
       decision: string,
-      _pattern?: string,
-      _scope?: string,
-      reason?: string,
+      options?: { decisionContext?: string },
     ) => {
-      confirmationDecision = { requestId: reqId, decision, reason };
+      confirmationDecision = {
+        requestId: reqId,
+        decision,
+        reason: options?.decisionContext,
+      };
     },
     handleSecretResponse: () => {},
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      broadcastFn: (msg: ServerMessage) => void,
+      options?: { onEvent?: (msg: ServerMessage) => void },
     ) => {
       // Emit a confirmation_request through the client callback
       if (clientCallback) {
@@ -170,7 +172,7 @@ function createMockSession(opts?: {
         } as ServerMessage);
       }
       // Then complete the turn
-      broadcastFn({ type: "message_complete" } as ServerMessage);
+      options?.onEvent?.({ type: "message_complete" } as ServerMessage);
     },
   };
 

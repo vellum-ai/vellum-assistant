@@ -1,5 +1,5 @@
 import { Typography } from "@vellum/design-library";
-import type { FeedItem } from "../types";
+import type { FeedItem } from "@vellumai/assistant-api";
 
 type CredentialStatus =
   | "revoked"
@@ -35,9 +35,7 @@ export interface HomeToolPermissionCardProps {
   item: FeedItem;
 }
 
-export function HomeToolPermissionCard({
-  item,
-}: HomeToolPermissionCardProps) {
+export function HomeToolPermissionCard({ item }: HomeToolPermissionCardProps) {
   const metadata = item.metadata;
   const provider = metadata?.provider as string | undefined;
 

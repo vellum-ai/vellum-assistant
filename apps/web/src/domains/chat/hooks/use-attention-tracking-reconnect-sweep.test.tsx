@@ -29,11 +29,14 @@ import {
 
 // Stub the conversation-list query and the mark-seen endpoint so the
 // hook does not try to hit a real backend during renderHook.
-mock.module("@/domains/conversations/conversation-queries", () => ({
+mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: [] }),
+  markConversationSeenLocal: () => {},
+}));
+
+mock.module("@/utils/conversation-cache", () => ({
   getConversations: () => [],
   findConversation: () => undefined,
-  markConversationSeenLocal: () => {},
 }));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
@@ -73,7 +76,7 @@ mock.module("@/domains/chat/api/interactions", () => ({
 }));
 
 const { useAttentionTracking } = await import(
-  "@/domains/conversations/use-attention-tracking"
+  "@/domains/chat/hooks/use-attention-tracking"
 );
 
 function wrapper({ children }: { children: ReactNode }) {

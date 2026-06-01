@@ -353,6 +353,8 @@ export interface AssistantSurface {
   }>;
   display?: string;
   persistent?: boolean;
+  /** Id of the tool call that produced this surface (the `ui_show` proxy tool). Persisted so app previews can gate on the tool result's arrival rather than whole-turn streaming state. */
+  toolCallId?: string;
 }
 
 export interface AgentLoopConversationContext {

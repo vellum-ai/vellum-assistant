@@ -28,14 +28,11 @@ export function handleConfirmationResponse(msg: ConfirmationResponse): void {
   for (const [conversationId, conversation] of conversationEntries()) {
     if (conversation.hasPendingConfirmation(msg.requestId)) {
       touchConversation(conversationId);
-      conversation.handleConfirmationResponse(
-        msg.requestId,
-        decision,
-        msg.selectedPattern,
-        msg.selectedScope,
-        undefined,
-        { source: "button" },
-      );
+      conversation.handleConfirmationResponse(msg.requestId, decision, {
+        selectedPattern: msg.selectedPattern,
+        selectedScope: msg.selectedScope,
+        emissionContext: { source: "button" },
+      });
       // Idempotent cleanup: the prompter's `resolveConfirmation` already
       // resolved the interaction with the correct approved/rejected state
       // before we reach here, so the entry is typically gone. This call is
@@ -225,10 +222,7 @@ export function steerToMessage(
   | { steered: true }
   | {
       steered: false;
-      reason:
-        | "conversation_not_found"
-        | "message_not_found"
-        | "not_processing";
+      reason: "conversation_not_found" | "message_not_found" | "not_processing";
     } {
   const conversation = findConversation(conversationId);
   if (!conversation) {

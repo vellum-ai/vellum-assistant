@@ -186,10 +186,11 @@ describe("handleConfirmationResponse canonical status sync", () => {
     ).toEqual([
       "req-confirm-allow",
       "allow",
-      undefined,
-      undefined,
-      undefined,
-      { source: "button" },
+      {
+        selectedPattern: undefined,
+        selectedScope: undefined,
+        emissionContext: { source: "button" },
+      },
     ]);
     // Canonical status sync is now handled inside Conversation.handleConfirmationResponse,
     // which this test mocks out — so the handler itself no longer calls resolveCanonicalGuardianRequest.

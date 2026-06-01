@@ -35,7 +35,7 @@ import {
 } from "./composer-focus";
 import {
   useConversationListQuery,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -68,7 +68,7 @@ import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
-import { useConversationLoader } from "@/domains/conversations/use-conversation-loader";
+import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loader";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
 import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
@@ -204,9 +204,29 @@ export function ChatPage() {
 
   const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  const [autoGreetPending, setAutoGreetPending] = useState(
-    () => peekPendingPreChatContext()?.initialMessage != null,
-  );
+  // Auto-greet loading gate — single source of truth lives in
+  // `useAssistantLifecycleStore.expectingFirstMessage`. Set by every
+  // hatch path (vanilla auto-hatch, nonprod `hatchVersion`, onboarding
+  // hatching-screen, pre-chat-flow) and by the mount-time pre-chat
+  // detector below. Cleared on the exit conditions below (messages
+  // arrived, 10s safety, conversation switch) or on terminal lifecycle
+  // transitions (error / retired / logout). React-reactive: a mark
+  // fired from inside this ChatPage's tree (e.g. the version-selection
+  // screen) re-renders us via the atomic selector, no mirror needed.
+  const autoGreetPending =
+    useAssistantLifecycleStore.use.expectingFirstMessage();
+
+  // Pre-chat sessionStorage detector. Load-bearing on the *reload*
+  // path: sessionStorage survives a refresh / iOS webview restore,
+  // the lifecycle store does not. If the user reloads after the
+  // pre-chat context is staged but before the first message arrives,
+  // the auto-send hook below still fires from the persisted context,
+  // so the gate has to show. Mark is idempotent.
+  useEffect(() => {
+    if (peekPendingPreChatContext()?.initialMessage != null) {
+      lifecycleService.markExpectingFirstMessage();
+    }
+  }, []);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
     hasMore: false,
@@ -336,7 +356,6 @@ export function ChatPage() {
   const pendingLocalDeletionsRef = useRef<Set<string>>(new Set());
   const confirmationToolCallMapRef = useRef<Map<string, string>>(new Map());
   const streamingMessageIdsRef = useRef<Set<string>>(new Set());
-  const autoGreetRef = useRef(false);
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInitialMessageRef = useRef<{ conversationId: string; content: string } | null>(null);
@@ -534,14 +553,12 @@ export function ChatPage() {
     requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    autoGreetRef,
     conversationListInvalidatedTimerRef,
     pendingInitialMessageRef,
     setMessages,
     setTranscriptPagination: setTranscriptPagination as Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>,
     setIsLoadingHistory,
     setError,
-    setAutoGreetPending,
     setContextWindowUsage,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,
@@ -575,15 +592,14 @@ export function ChatPage() {
   // Onboarding signal consumption
   // -------------------------------------------------------------------------
   // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
-  // it forwards the user after a successful hatch. Flipping `autoGreetRef`
-  // mirrors the existing auto-greet paths so the first assistant message
-  // fires once the chat history loads. The flag is stripped from the URL
-  // immediately so a page refresh doesn't re-trigger the greet.
+  // it forwards the user after a successful hatch. Owns the post-hatch
+  // draft conversation creation + redirect; the auto-greet gate itself
+  // is driven by `lifecycleService.expectingFirstMessage` (set by the
+  // hatching screens before they navigate). The flag is stripped from
+  // the URL immediately so a page refresh doesn't re-trigger the greet.
   useEffect(() => {
     if (searchParams.get("onboarding") !== "1") return;
-    autoGreetRef.current = true;
     setDidOnboarding(true);
-    setAutoGreetPending(true);
     const onboardingDraftConversationId =
       onboardingDraftConversationIdRef.current ?? createDraftConversationId();
     onboardingDraftConversationIdRef.current = onboardingDraftConversationId;
@@ -595,6 +611,7 @@ export function ChatPage() {
     // mount's sendMessage hook and auto-send effect can consume it.
     void navigate(routes.conversation(onboardingDraftConversationId), { replace: true });
   }, [searchParams, navigate]);
+
 
   // -------------------------------------------------------------------------
   // Message reconciliation
@@ -775,26 +792,40 @@ export function ChatPage() {
     void sendMessage(message);
   }, [activeConversationId, assistantId, reachability.state.phase, sendMessage]);
 
-  // Clear the post-onboarding loading gate once the first message appears.
+  // Clear the post-hatch loading gate once the first message appears.
   useEffect(() => {
     if (!autoGreetPending) return;
-    if (messages.length > 0) {
-      setAutoGreetPending(false);
-    }
+    if (messages.length > 0) lifecycleService.clearExpectingFirstMessage();
   }, [autoGreetPending, messages.length]);
 
-  // The onboarding redirect remounts ChatPage after leaving
-  // `/assistant?onboarding=1`; a timeout armed on the first mount is cancelled
-  // during that remount. Arm the safety timer from the actual mounted page
-  // that is rendering the loading gate so a failed auto-send cannot strand
-  // the user on "Connecting..." until refresh.
+  // Safety timer: a failed auto-send / never-arriving greeting can't
+  // strand the user on "Connecting..." until refresh.
   useEffect(() => {
     if (!autoGreetPending) return;
-    const timeout = setTimeout(() => {
-      setAutoGreetPending(false);
-    }, 10_000);
+    const timeout = setTimeout(
+      () => lifecycleService.clearExpectingFirstMessage(),
+      10_000,
+    );
     return () => clearTimeout(timeout);
   }, [autoGreetPending]);
+
+  // Clear the gate when `activeConversationId` changes after first
+  // mount. Auto-greet isn't per-conversation state — it's a
+  // system-wide "we just hatched" signal that happens to surface in
+  // the chat UI, so it doesn't belong in `useConversationSwitch`'s
+  // reset block. Draft → real ID handoff also trips this, but by then
+  // the messages-arrived effect has already dismissed the gate (sending
+  // the first message is what resolves the draft), so the second
+  // dismiss is a no-op.
+  const lastSeenConvIdForGateRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeConversationId == null) return;
+    const previous = lastSeenConvIdForGateRef.current;
+    lastSeenConvIdForGateRef.current = activeConversationId;
+    if (previous != null && previous !== activeConversationId) {
+      lifecycleService.clearExpectingFirstMessage();
+    }
+  }, [activeConversationId]);
 
   // Derive onboardingTasksEmpty from the pending context in sessionStorage.
   // Runs once on mount — if initial message key is present, this is an

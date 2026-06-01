@@ -295,6 +295,10 @@ export function PreChatFlow() {
       });
     }
     clearPrivacyConsent();
+    // Skip-recipe finishes onboarding; the post-hatch greeting is
+    // forthcoming. Mark before navigating so the destination chat
+    // mount shows the loading gate until the greeting arrives.
+    lifecycleService.markExpectingFirstMessage();
     void navigateToChatAfterLifecycleRefresh();
   }, [
     recipe,
@@ -384,6 +388,10 @@ export function PreChatFlow() {
       });
     }
     clearPrivacyConsent();
+    // User finished pre-chat; the post-hatch greeting is forthcoming.
+    // Mark before navigating so the destination chat mount shows the
+    // loading gate until the greeting arrives.
+    lifecycleService.markExpectingFirstMessage();
     await navigateToChatAfterLifecycleRefresh();
   }
 

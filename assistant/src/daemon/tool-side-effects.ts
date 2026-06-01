@@ -16,6 +16,7 @@ import { invalidatePageIndex } from "../memory/v2/page-index.js";
 import { getConceptsDir } from "../memory/v2/page-store.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
+import { publishAppsChanged } from "../runtime/sync/resource-sync-events.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
 import type { ToolExecutionResult } from "../tools/types.js";
@@ -60,8 +61,13 @@ function notifyAppChanged(
   opts?: { fileChange?: boolean; status?: string },
 ): void {
   refreshSurfacesForApp(ctx, appId, opts);
-  broadcastMessage({ type: "app_files_changed", appId });
+  broadcastAppFilesChanged(appId);
   void updatePublishedAppDeployment(appId);
+}
+
+function broadcastAppFilesChanged(appId: string): void {
+  broadcastMessage({ type: "app_files_changed", appId });
+  publishAppsChanged();
 }
 
 // ── Registry ─────────────────────────────────────────────────────────
@@ -109,10 +115,7 @@ registerHook("app_create", (_name, _input, result, { ctx }) => {
       if (parsed.name) {
         void generateAppIcon(parsed.id, parsed.name, parsed.description)
           .then(() => {
-            broadcastMessage({
-              type: "app_files_changed",
-              appId: parsed.id!,
-            });
+            broadcastAppFilesChanged(parsed.id!);
           })
           .catch((err) => {
             log.warn(
@@ -130,14 +133,14 @@ registerHook("app_create", (_name, _input, result, { ctx }) => {
 registerHook("app_generate_icon", (_name, input) => {
   const appId = input.app_id as string | undefined;
   if (appId) {
-    broadcastMessage({ type: "app_files_changed", appId });
+    broadcastAppFilesChanged(appId);
   }
 });
 
 registerHook("app_delete", (_name, input) => {
   const appId = input.app_id as string | undefined;
   if (appId) {
-    broadcastMessage({ type: "app_files_changed", appId });
+    broadcastAppFilesChanged(appId);
   }
 });
 

@@ -194,18 +194,17 @@ src/
       types.ts
       components/
         chat-body.tsx
-    conversations/                 # conversation CRUD, grouping, selection
-      conversation-queries.ts
-      use-conversation-loader.ts
-      types.ts
     chat/                          # chat feature module
       turn-store.ts                #   turn-level state machine
       turn-coordinator.ts          #   atomic turn-store + conversation-store transitions
       turn-selectors.ts            #   render-decision selectors from TurnState
   hooks/                           # cross-domain shared hooks
+    conversation-queries.ts        #   TanStack Query hooks + cache helpers
+    use-conversation-sync.ts       #   SSE-driven metadata sync
     use-is-mobile.ts
     use-visible-viewport.ts
   utils/                           # cross-domain shared utilities
+    conversation-transforms.ts     #   daemon → client field mapping
     format.ts
     browser.ts
   types/                           # cross-domain shared types (no owning module)
@@ -230,10 +229,10 @@ src/
 
 This app uses `domains/` over the more common `features/` because
 "features" implies product-level concepts (like "chat" or
-"settings") that contain multiple domains. `messages`,
-`conversations`, and `voice` are business domains with distinct
-data models and lifecycles — not features. `domains/` is more precise
-for a DDD-influenced architecture and signals that each folder
+"settings") that contain multiple domains. `messages` and
+`streaming` are business domains with distinct data models and
+lifecycles — not features. `domains/` is more precise for a
+DDD-influenced architecture and signals that each folder
 represents a bounded context.
 
 References:
@@ -244,7 +243,7 @@ References:
 
 Domains are **business capabilities**, not URL segments. A route
 composes one or more domains; a domain may be used by zero or more
-routes. `conversations/` has no routes of its own — it is composed by
+routes. `messages/` has no routes of its own — it is composed by
 page-level domains (`chat/`, `home/`) that do map to routes.
 
 The dependency direction is one-way:
@@ -317,9 +316,9 @@ describe a similar one-feature/multi-feature rule that this
 codebase's convention is in the same spirit as.
 
 Examples of correct splits:
-- `messages/` vs `conversations/`: messages are created, streamed,
+- `messages/` vs `chat/`: messages are created, streamed,
   delta-updated, and compacted — different lifecycle from conversation
-  CRUD and grouping.
+  routing, sidebar state, and voice input.
 - `lib/streaming/` vs `messages/`: SSE transport and reconnection logic
   changes for different reasons than message state management.
 - `chat/interaction-store` vs `chat/turn-store`: user-facing prompts

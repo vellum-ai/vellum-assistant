@@ -14,7 +14,11 @@ import { formatFullLocalDate, formatRelativeDate } from "@/utils/format-date";
 import { CATEGORY_STYLES } from "../home-feed-filter-bar";
 import { HomeGenericDetail } from "./home-generic-detail";
 import { HomeToolPermissionCard } from "./home-tool-permission-card";
-import type { FeedItem, FeedItemCategory, FeedItemStatus } from "../types";
+import type {
+  FeedItem,
+  FeedItemCategory,
+  FeedItemStatus,
+} from "@vellumai/assistant-api";
 
 function resolveCategoryStyle(category?: FeedItemCategory) {
   if (category && CATEGORY_STYLES[category]) {
@@ -77,9 +81,7 @@ export function HomeDetailPanel({
           <Button
             variant="ghost"
             iconOnly={isUnread ? <MailOpen /> : <Mail />}
-            onClick={() =>
-              onUpdateStatus(item.id, isUnread ? "seen" : "new")
-            }
+            onClick={() => onUpdateStatus(item.id, isUnread ? "seen" : "new")}
             aria-label={isUnread ? "Mark as read" : "Mark as unread"}
             tooltip={isUnread ? "Mark as read" : "Mark as unread"}
           />
@@ -125,7 +127,11 @@ export function HomeDetailPanel({
           >
             {item.title ?? item.summary}
           </Typography>
-          <Tag tone="neutral" className="shrink-0" title={formatFullLocalDate(item.timestamp)}>
+          <Tag
+            tone="neutral"
+            className="shrink-0"
+            title={formatFullLocalDate(item.timestamp)}
+          >
             {formatRelativeDate(item.timestamp)}
           </Tag>
         </div>
@@ -185,7 +191,11 @@ export function HomeDetailPanel({
           {item.title ?? item.summary}
         </Typography>
 
-        <Tag tone="neutral" className="shrink-0" title={formatFullLocalDate(item.timestamp)}>
+        <Tag
+          tone="neutral"
+          className="shrink-0"
+          title={formatFullLocalDate(item.timestamp)}
+        >
           {formatRelativeDate(item.timestamp)}
         </Tag>
 

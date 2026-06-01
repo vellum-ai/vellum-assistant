@@ -188,6 +188,8 @@ interface UiSurfaceShowBase {
   messageId?: string;
   /** When `true`, clicking an action does not dismiss the surface — the client keeps the card visible and only marks the clicked `actionId` as spent so siblings remain clickable. */
   persistent?: boolean;
+  /** Id of the tool call that produced this surface (the `ui_show` proxy tool). Lets the client gate app previews on the tool result's arrival rather than whole-turn streaming state. */
+  toolCallId?: string;
 }
 
 export interface UiSurfaceShowCard extends UiSurfaceShowBase {

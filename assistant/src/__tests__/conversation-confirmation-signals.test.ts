@@ -366,17 +366,12 @@ describe("centralized confirmation emissions", () => {
     const conversation = makeConversation((msg) => emitted.push(msg));
 
     seedPendingConfirmation(conversation, "req-ctx-1");
-    conversation.handleConfirmationResponse(
-      "req-ctx-1",
-      "allow",
-      undefined,
-      undefined,
-      undefined,
-      {
+    conversation.handleConfirmationResponse("req-ctx-1", "allow", {
+      emissionContext: {
         source: "inline_nl",
         decisionText: "yes please",
       },
-    );
+    });
 
     const confirmMsg = emitted.find(
       (m) =>

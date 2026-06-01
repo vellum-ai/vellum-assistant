@@ -10,7 +10,7 @@ import { createElement, useCallback, useMemo, useState } from "react";
 
 import { Dropdown } from "@vellum/design-library";
 
-import { useConversationListQuery } from "@/domains/conversations/conversation-queries";
+import { useConversationListQuery } from "@/hooks/conversation-queries";
 import type { Conversation } from "@/types/conversation-types";
 import {
   loadLastViewedConversationId,

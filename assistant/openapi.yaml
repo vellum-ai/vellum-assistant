@@ -8454,7 +8454,68 @@ paths:
                 properties:
                   comments:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        surfaceId:
+                          type: string
+                        conversationId:
+                          type: string
+                        author:
+                          type: string
+                        content:
+                          type: string
+                        anchorStart:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        anchorEnd:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        anchorText:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        parentCommentId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        status:
+                          type: string
+                          enum:
+                            - open
+                            - resolved
+                        resolvedBy:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        resolvedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
+                      required:
+                        - id
+                        - surfaceId
+                        - conversationId
+                        - author
+                        - content
+                        - anchorStart
+                        - anchorEnd
+                        - anchorText
+                        - parentCommentId
+                        - status
+                        - resolvedBy
+                        - resolvedAt
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
                     description: Comment records
                 required:
                   - comments
@@ -8499,8 +8560,35 @@ paths:
                     type: string
                   content:
                     type: string
+                  anchorStart:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  anchorEnd:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  anchorText:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  parentCommentId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   status:
                     type: string
+                    enum:
+                      - open
+                      - resolved
+                  resolvedBy:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  resolvedAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   createdAt:
                     type: number
                   updatedAt:
@@ -8511,7 +8599,13 @@ paths:
                   - conversationId
                   - author
                   - content
+                  - anchorStart
+                  - anchorEnd
+                  - anchorText
+                  - parentCommentId
                   - status
+                  - resolvedBy
+                  - resolvedAt
                   - createdAt
                   - updatedAt
                 additionalProperties: false
@@ -8614,17 +8708,59 @@ paths:
                     type: string
                   surfaceId:
                     type: string
+                  conversationId:
+                    type: string
+                  author:
+                    type: string
                   content:
                     type: string
+                  anchorStart:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  anchorEnd:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  anchorText:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  parentCommentId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   status:
                     type: string
+                    enum:
+                      - open
+                      - resolved
+                  resolvedBy:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  resolvedAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  createdAt:
+                    type: number
                   updatedAt:
                     type: number
                 required:
                   - id
                   - surfaceId
+                  - conversationId
+                  - author
                   - content
+                  - anchorStart
+                  - anchorEnd
+                  - anchorText
+                  - parentCommentId
                   - status
+                  - resolvedBy
+                  - resolvedAt
+                  - createdAt
                   - updatedAt
                 additionalProperties: false
       parameters:
