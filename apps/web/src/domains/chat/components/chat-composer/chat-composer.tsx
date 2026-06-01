@@ -305,9 +305,15 @@ export function ChatComposer({
     finalTranscript: liveVoiceFinal,
     assistantTranscript: liveVoiceAssistant,
   } = useLiveVoice();
-  // Anything but idle counts as an active session; while active the dictation
-  // mic is disabled so the two capture flows never run at once.
-  const isLiveVoiceActive = liveVoiceEligible && liveVoiceState !== "idle";
+  // Anything but idle/failed counts as an active session; while active the
+  // dictation mic is disabled so the two capture flows never run at once.
+  // `failed` is a retryable/inactive state in `useLiveVoice`/`LiveVoiceButton`,
+  // so we must treat it as inactive — otherwise dictation stays disabled and
+  // the (empty) transcript surface stays mounted after a failed start.
+  const isLiveVoiceActive =
+    liveVoiceEligible &&
+    liveVoiceState !== "idle" &&
+    liveVoiceState !== "failed";
 
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   const isMobile = useIsMobile();
@@ -723,10 +729,17 @@ export function ChatComposer({
                       // signal only gates the START path; an active session
                       // stays stoppable even while the composer is otherwise
                       // busy (see LiveVoiceButton).
+                      //
+                      // Mutual exclusion (reverse direction): while dictation is
+                      // active (`isVoiceActive`) we disable live voice so it
+                      // can't START a second mic/voice session alongside the
+                      // recorder. `LiveVoiceButton` only applies external
+                      // `disabled` to its START path, so an in-flight live-voice
+                      // session is never trapped by this.
                       <LiveVoiceButton
                         assistantId={assistantId}
                         conversationId={conversationId ?? undefined}
-                        disabled={typingDisabled}
+                        disabled={typingDisabled || isVoiceActive}
                       />
                     )}
                     {/* macOS parity: the send button is hidden during recording

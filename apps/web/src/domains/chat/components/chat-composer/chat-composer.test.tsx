@@ -42,7 +42,7 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
 // narrow union (not an import from the `voice` domain) so the `chat` test stays
 // free of cross-domain coupling — the composer only ever distinguishes idle
 // from non-idle, so the precise phase taxonomy is irrelevant here.
-type MockLiveVoiceState = "idle" | "connecting" | "listening";
+type MockLiveVoiceState = "idle" | "connecting" | "listening" | "failed";
 
 let mockLiveVoiceState: MockLiveVoiceState = "idle";
 let mockLivePartial = "";
@@ -79,12 +79,27 @@ mock.module("@/domains/chat/components/voice-input-button", () => ({
   ),
 }));
 
+// Dictation recording phase. The composer reads `useVoiceRecordingStore`
+// (cross-domain `voice` store) to derive its `isVoiceActive` signal. Mock it
+// via `mock.module` (rather than importing the store) so the `chat` test stays
+// free of cross-domain coupling, matching the live-voice mocks above. Only the
+// `.use.phase()` selector is consumed by the composer.
+let mockVoicePhase = "idle";
+mock.module("@/domains/voice/voice-recording-store", () => ({
+  useVoiceRecordingStore: {
+    use: {
+      phase: () => mockVoicePhase,
+    },
+  },
+}));
+
 function resetLiveVoiceMocks() {
   mockVoiceMode = false;
   mockLiveVoiceState = "idle";
   mockLivePartial = "";
   mockLiveFinal = "";
   mockLiveAssistant = "";
+  mockVoicePhase = "idle";
   liveStartSpy.mockClear();
   liveStopSpy.mockClear();
 }
@@ -727,6 +742,45 @@ describe("ChatComposer — live-voice integration", () => {
     const { queryByLabelText } = renderVoiceComposer();
 
     // THEN no transcript surface is rendered (idle = nothing to show)
+    expect(queryByLabelText("Live voice transcript")).toBeNull();
+  });
+
+  test("dictation active disables the live-voice button (reverse mutual exclusion)", () => {
+    // GIVEN the flag is on, no live session, but dictation is active.
+    // `processing` is one of the two phases that make the composer's
+    // `isVoiceActive` true (alongside `recording`); we use it because
+    // `recording` additionally spins up amplitude analysis (getUserMedia),
+    // which happy-dom doesn't provide — the mutual-exclusion signal is the
+    // same either way.
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "idle";
+    mockVoicePhase = "processing";
+
+    // WHEN the composer renders
+    const { getByLabelText } = renderVoiceComposer();
+
+    // THEN the live-voice start affordance is disabled so it can't open a
+    // second mic/voice session alongside the dictation recorder
+    const liveVoice = getByLabelText("Start voice mode") as HTMLButtonElement;
+    expect(liveVoice.disabled).toBe(true);
+  });
+
+  test("failed live-voice state is inactive: dictation re-enabled, no transcript surface", () => {
+    // GIVEN the flag is on and a live-voice start attempt has failed
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "failed";
+
+    // WHEN the composer renders (dictation idle)
+    const { getByLabelText, queryByLabelText } = renderVoiceComposer();
+
+    // THEN dictation is treated as available again (failed = inactive)...
+    const dictation = getByLabelText(
+      "Start voice input",
+    ) as HTMLButtonElement;
+    expect(dictation.disabled).toBe(false);
+    // ...and the transcript surface is unmounted rather than left hanging
     expect(queryByLabelText("Live voice transcript")).toBeNull();
   });
 });
