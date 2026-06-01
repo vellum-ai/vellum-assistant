@@ -264,11 +264,11 @@ describe("lifecycleService — bootstrap branches", () => {
 
   test("resetForLogout drops the auto-greet one-shot so the next login doesn't inherit it", () => {
     lifecycleService.markExpectingFirstMessage();
-    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
 
     lifecycleService.resetForLogout();
 
-    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
   });
 
   test("transition to error drops the auto-greet one-shot — a subsequent retry-to-existing-active won't show a spurious gate", async () => {
@@ -277,7 +277,7 @@ describe("lifecycleService — bootstrap branches", () => {
     // in `checkAssistant` (the simplest reachable error transition
     // without exhausting the hatch-retry budget or the watchdog).
     lifecycleService.markExpectingFirstMessage();
-    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
 
     getAssistantMock.mockImplementationOnce(async () => {
       throw new Error("network down");
@@ -292,7 +292,7 @@ describe("lifecycleService — bootstrap branches", () => {
     expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
       "error",
     );
-    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
   });
 
   test("gateway-auth short-circuit writes active state without calling the server", async () => {
@@ -395,7 +395,7 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
   });
 
   test("auto_hatch + nonprod does NOT mark expecting-first-message — user has to pick a version first", async () => {
@@ -414,7 +414,7 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
   });
 
   test("auto_hatch + isRetired does NOT mark expecting-first-message", async () => {
@@ -430,7 +430,7 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
   });
 
   test("hatchVersion marks expecting-first-message — the nonprod version-selection greet", () => {
@@ -440,22 +440,22 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     lifecycleService.hatchVersion("v1");
 
-    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
   });
 
   test("clearExpectingFirstMessage flips the store back to false; subsequent reads stay false", () => {
     lifecycleService.markExpectingFirstMessage();
-    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
     lifecycleService.clearExpectingFirstMessage();
-    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
     lifecycleService.clearExpectingFirstMessage();
-    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
   });
 
   test("markExpectingFirstMessage is the public seam onboarding uses (bypasses hatchVersion / auto-hatch)", () => {
-    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
     lifecycleService.markExpectingFirstMessage();
-    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
   });
 });
 

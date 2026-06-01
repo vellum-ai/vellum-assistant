@@ -103,23 +103,6 @@ class AssistantLifecycleService {
    * parents' in the same render cycle.
    */
   private ready = false;
-  /**
-   * One-shot signal that the next `ChatPage` mount should hold the
-   * auto-greet loading gate until the first message arrives. Set on
-   * every hatch path (vanilla auto-hatch and `hatchVersion` here;
-   * onboarding hatching-screen and pre-chat-flow externally) and
-   * drained by the chat surface on exit conditions (messages arrived,
-   * 10s safety, conversation switch).
-   *
-   * Lives on the service rather than in `useAssistantLifecycleStore`
-   * because the only React consumer (ChatPage) merges this with a
-   * separate sessionStorage signal at mount, so the field is read
-   * once via `peek` rather than via store subscription. Lives outside
-   * the React tree because `useConversationLoader`'s post-hatch
-   * redirect remounts ChatPage — the singleton service survives
-   * the redirect.
-   */
-  private expectingFirstMessage = false;
   private inputs: LifecycleServiceInputs = {
     isLoggedIn: false,
     isLoading: true,
@@ -164,7 +147,7 @@ class AssistantLifecycleService {
     // by the outgoing user's hatch path (but never consumed by
     // ChatPage before logout) would seed the incoming user's first
     // mount with a spurious "Connecting..." gate.
-    this.expectingFirstMessage = false;
+    this.clearExpectingFirstMessage();
   }
 
   /**
@@ -271,22 +254,25 @@ class AssistantLifecycleService {
     void this.hatchAndCheck(version);
   }
 
-  markExpectingFirstMessage(): void {
-    this.expectingFirstMessage = true;
-  }
-
   /**
-   * Pure read — safe to call from a `useState` lazy initializer
-   * (which React invokes twice under `StrictMode` to surface
-   * impurities). The chat surface peeks once at mount and drains via
-   * `clearExpectingFirstMessage` from its exit-condition effects.
+   * Mark the chat surface as expecting an auto-greet. Called from
+   * every hatch path (vanilla auto-hatch and `hatchVersion` inside
+   * this service; the onboarding hatching screen, pre-chat-flow,
+   * and the chat-page mount-time pre-chat sessionStorage detector
+   * externally). React consumers subscribe via the
+   * `useAssistantLifecycleStore.use.expectingFirstMessage()` selector,
+   * so a mark fired from inside the ChatPage tree (e.g. the
+   * version-selection screen) triggers a re-render without needing
+   * a remount.
    */
-  peekExpectingFirstMessage(): boolean {
-    return this.expectingFirstMessage;
+  markExpectingFirstMessage(): void {
+    if (useAssistantLifecycleStore.getState().expectingFirstMessage) return;
+    useAssistantLifecycleStore.setState({ expectingFirstMessage: true });
   }
 
   clearExpectingFirstMessage(): void {
-    this.expectingFirstMessage = false;
+    if (!useAssistantLifecycleStore.getState().expectingFirstMessage) return;
+    useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
   }
 
   // ---------------------------------------------------------------------------
@@ -319,7 +305,7 @@ class AssistantLifecycleService {
     // `auto_hatch` re-marks the flag, so this only clears the path
     // where the expectation has actually been invalidated.
     if (next.kind === "error" || next.kind === "retired") {
-      this.expectingFirstMessage = false;
+      this.clearExpectingFirstMessage();
     }
   }
 
@@ -696,7 +682,7 @@ class AssistantLifecycleService {
     this.hatchingVersion = undefined;
     this.generation = 0;
     this.ready = false;
-    this.expectingFirstMessage = false;
+    useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
     this.inputs = {
       isLoggedIn: false,
       isLoading: true,
