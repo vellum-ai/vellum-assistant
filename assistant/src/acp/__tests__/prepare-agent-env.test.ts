@@ -138,9 +138,9 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
     expect(meta!.allowedTools).toContain("acp_spawn");
   });
 
-  test("adds acp_spawn to existing metadata that lacks it", async () => {
+  test("adds acp_spawn to metadata with empty allowedTools (default provisioning path)", async () => {
     metadataStore.set("acp/claude_oauth_token", {
-      allowedTools: ["other_tool"],
+      allowedTools: [],
     });
     seedVaultToken("vault-augment");
 
@@ -148,7 +148,20 @@ describe("prepareAgentEnv — claude-agent-acp gating", () => {
 
     const meta = metadataStore.get("acp/claude_oauth_token");
     expect(meta!.allowedTools).toContain("acp_spawn");
-    expect(meta!.allowedTools).toContain("other_tool");
+  });
+
+  test("respects explicit tool policy that excludes acp_spawn", async () => {
+    metadataStore.set("acp/claude_oauth_token", {
+      allowedTools: ["other_tool"],
+    });
+    seedVaultToken("vault-restricted");
+
+    await expect(
+      prepareAgentEnv({ command: "claude-agent-acp", args: [] }),
+    ).rejects.toThrow("CLAUDE_CODE_OAUTH_TOKEN");
+
+    const meta = metadataStore.get("acp/claude_oauth_token");
+    expect(meta!.allowedTools).toEqual(["other_tool"]);
   });
 
   test("accepts CLAUDE_CODE_OAUTH_TOKEN from agent.env (config.json override) with no vault entry", async () => {

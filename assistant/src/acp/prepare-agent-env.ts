@@ -34,10 +34,14 @@ const ACP_SPAWN_TOOL = "acp_spawn";
 
 /**
  * Ensure the `acp/claude_oauth_token` credential has metadata that allows
- * the `acp_spawn` tool to read it. This is a no-op when the user already
- * provisioned with `--allowed-tools acp_spawn`. For credentials stored
- * before the broker migration (or without explicit tool policy), this
- * adds the policy on first use so the broker doesn't reject the read.
+ * the `acp_spawn` tool to read it, but only for legacy/unmanaged cases:
+ *
+ * - No metadata at all → create with `allowedTools: ["acp_spawn"]`.
+ * - Metadata exists with an empty `allowedTools` → default provisioning
+ *   path (user ran `credentials set` without `--allowed-tools`), add it.
+ * - Metadata exists with a non-empty `allowedTools` → explicit policy set
+ *   by the user/admin. Respect it even if `acp_spawn` is absent — the
+ *   broker will deny the read and the preflight will throw.
  */
 function ensureAcpTokenPolicy(): void {
   const meta = getCredentialMetadata("acp", "claude_oauth_token");
@@ -50,9 +54,9 @@ function ensureAcpTokenPolicy(): void {
     return;
   }
   const tools = meta.allowedTools ?? [];
-  if (!tools.includes(ACP_SPAWN_TOOL)) {
+  if (tools.length === 0) {
     upsertCredentialMetadata("acp", "claude_oauth_token", {
-      allowedTools: [...tools, ACP_SPAWN_TOOL],
+      allowedTools: [ACP_SPAWN_TOOL],
     });
   }
 }
