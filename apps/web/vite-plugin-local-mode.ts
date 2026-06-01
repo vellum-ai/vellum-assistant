@@ -269,8 +269,10 @@ const HATCH_TIMEOUT_MS = 120_000;
  * Connect middleware for the hatch endpoint.
  *
  * Transport: Vite dev middleware (child_process.spawn → CLI binary).
- * In Electron, replace with IPC call to main process: window.electronAPI.hatchAssistant(species). (LUM-1997)
- * The main process has direct access to the hatch-local module without spawning a subprocess.
+ * In Electron the renderer calls `window.vellum.localMode.hatch(species)`
+ * (apps/web/src/runtime/local-mode-host.ts), and the Electron main spawns the
+ * same CLI subprocess (apps/macos/src/main/local-mode.ts). This middleware
+ * stays for the dev server, where there is no Electron main process.
  */
 function hatchMiddleware(): Connect.NextHandleFunction {
   return (req, res, next) => {

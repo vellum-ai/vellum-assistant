@@ -120,11 +120,11 @@ export interface VellumBridge {
   };
   localMode: {
     /**
-     * Provision a local assistant for the requested species by running the
-     * Vellum CLI's `hatchLocal` in the main process. Resolves with the new
-     * assistant's id on success; on failure resolves with `{ ok: false }`
-     * and an error message (rather than rejecting) so the renderer renders
-     * the same error UI it shows for the web/dev middleware path.
+     * Provision a local assistant for the requested species. Main spawns the
+     * Vellum CLI's `hatch` and resolves with the new assistant's id on
+     * success; on failure resolves with `{ ok: false }` and an error message
+     * (rather than rejecting) so the renderer renders the same error UI it
+     * shows for the web/dev middleware path.
      */
     hatch(species: string): Promise<{
       ok: boolean;
