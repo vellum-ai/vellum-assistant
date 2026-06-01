@@ -16,6 +16,8 @@ import {
 
 import { useAuthStore, type AuthUser } from "@/stores/auth-store";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
+import { isLocalMode, hasAssistants } from "@/lib/local-mode";
+import { routes } from "@/utils/routes";
 
 export const authUserContext = createRouterContext<AuthUser | null>(null);
 
@@ -34,6 +36,14 @@ export const authMiddleware: MiddlewareFunction = async ({ request, context }, n
     const url = new URL(request.url);
     const returnTo = encodeURIComponent(url.pathname + url.search);
     throw redirect(`/account/login?returnTo=${returnTo}`);
+  }
+
+  if (isLocalMode() && !hasAssistants()) {
+    const url = new URL(request.url);
+    if (!url.pathname.includes("/onboarding/") && !url.pathname.includes("/account")) {
+      const { hasPlatformSession } = useAuthStore.getState();
+      throw redirect(hasPlatformSession ? routes.onboarding.hosting : routes.onboarding.welcome);
+    }
   }
 
   context.set(authUserContext, user);
