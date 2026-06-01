@@ -1,0 +1,150 @@
+/**
+ * Tests for the live-voice WS connection + token-exchange client.
+ *
+ * Two surfaces under test:
+ *   - `mintLiveVoiceToken` — must POST `/v1/auth/live-voice-token/` through
+ *     the credentialed platform `client` (which attaches session cookie +
+ *     CSRF + org header via the interceptor). We spy on `client.post` rather
+ *     than `mock.module`-ing the whole SDK, matching the pattern in
+ *     `domains/chat/inspector/compaction-trail-fetch.test.ts`.
+ *   - `buildLiveVoiceWsUrl` — must produce the cloud velay URL with the
+ *     `assistantId` in the path, a URL-encoded `?token=`, the `wss` scheme,
+ *     and `conversationId` propagated only when supplied.
+ *
+ * @jest-environment happy-dom
+ */
+
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
+
+import { client } from "@/generated/api/client.gen";
+
+import {
+  buildLiveVoiceWsUrl,
+  LiveVoiceTokenError,
+  mintLiveVoiceToken,
+} from "./connection";
+
+// ---------------------------------------------------------------------------
+// mintLiveVoiceToken
+// ---------------------------------------------------------------------------
+
+type CapturedPostOptions = {
+  url: string;
+  body?: Record<string, unknown>;
+};
+
+let captured: CapturedPostOptions | null = null;
+let nextPostResult: { data: unknown; error: unknown; response: Response };
+const originalPost = client.post;
+
+beforeEach(() => {
+  captured = null;
+  nextPostResult = {
+    data: { token: "tok-abc", expiresAt: "2026-06-01T00:05:00Z" },
+    error: null,
+    response: new Response(null, { status: 200 }),
+  };
+  client.post = mock(async (options: CapturedPostOptions) => {
+    captured = options;
+    return nextPostResult;
+  }) as typeof client.post;
+});
+
+afterEach(() => {
+  client.post = originalPost;
+});
+
+describe("mintLiveVoiceToken", () => {
+  test("POSTs the documented mint endpoint with the assistantId body", async () => {
+    await mintLiveVoiceToken("assistant-1");
+
+    expect(captured).not.toBeNull();
+    expect(captured!.url).toBe("/v1/auth/live-voice-token/");
+    expect(captured!.body).toEqual({ assistantId: "assistant-1" });
+  });
+
+  test("returns { token, expiresAt } from the response", async () => {
+    const result = await mintLiveVoiceToken("assistant-1");
+    expect(result).toEqual({
+      token: "tok-abc",
+      expiresAt: "2026-06-01T00:05:00Z",
+    });
+  });
+
+  test("throws LiveVoiceTokenError with the HTTP status on non-OK", async () => {
+    nextPostResult = {
+      data: null,
+      error: { detail: "forbidden" },
+      response: new Response(null, { status: 403 }),
+    };
+
+    try {
+      await mintLiveVoiceToken("assistant-1");
+      throw new Error("expected mintLiveVoiceToken to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(LiveVoiceTokenError);
+      expect((err as LiveVoiceTokenError).status).toBe(403);
+    }
+  });
+
+  test("throws LiveVoiceTokenError(0) when the body is malformed", async () => {
+    nextPostResult = {
+      data: { token: "tok-abc" }, // missing expiresAt
+      error: null,
+      response: new Response(null, { status: 200 }),
+    };
+
+    try {
+      await mintLiveVoiceToken("assistant-1");
+      throw new Error("expected mintLiveVoiceToken to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(LiveVoiceTokenError);
+      expect((err as LiveVoiceTokenError).status).toBe(0);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildLiveVoiceWsUrl
+// ---------------------------------------------------------------------------
+
+describe("buildLiveVoiceWsUrl", () => {
+  test("builds the cloud velay URL with assistantId path + wss scheme + ?token=", () => {
+    const url = new URL(
+      buildLiveVoiceWsUrl({ assistantId: "assistant-1", token: "tok-abc" }),
+    );
+    expect(url.protocol).toBe("wss:");
+    expect(url.host).toBe("velay.vellum.ai");
+    expect(url.pathname).toBe("/assistant-1/v1/live-voice");
+    expect(url.searchParams.get("token")).toBe("tok-abc");
+    expect(url.searchParams.has("conversationId")).toBe(false);
+  });
+
+  test("URL-encodes tokens containing reserved characters", () => {
+    const token = "a/b+c=d e";
+    const raw = buildLiveVoiceWsUrl({ assistantId: "assistant-1", token });
+    // The encoded form must round-trip back to the original token.
+    expect(new URL(raw).searchParams.get("token")).toBe(token);
+    // And the raw string must not carry the unencoded reserved chars.
+    expect(raw).not.toContain("token=a/b+c=d e");
+  });
+
+  test("appends conversationId as an additional query param when provided", () => {
+    const url = new URL(
+      buildLiveVoiceWsUrl({
+        assistantId: "assistant-1",
+        conversationId: "conv-xyz",
+        token: "tok-abc",
+      }),
+    );
+    expect(url.searchParams.get("token")).toBe("tok-abc");
+    expect(url.searchParams.get("conversationId")).toBe("conv-xyz");
+  });
+});
