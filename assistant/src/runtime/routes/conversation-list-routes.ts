@@ -178,14 +178,24 @@ function handleListConversations({ queryParams = {} }: RouteHandlerArgs) {
   const limit = Number(queryParams.limit ?? 50);
   const offset = Number(queryParams.offset ?? 0);
   // "background" is the back-compat umbrella (background + scheduled); newer
-  // clients can pass "scheduled" to load only the Scheduled section. Anything
-  // else (including absent) defaults to the standard foreground list.
-  const conversationType: ConversationType =
-    queryParams.conversationType === "background"
-      ? "background"
-      : queryParams.conversationType === "scheduled"
-        ? "scheduled"
-        : "standard";
+  // clients can pass "scheduled" to load only the Scheduled section. Absent
+  // defaults to the standard foreground list. Any other value is rejected so
+  // an unrecognized type surfaces as a 400 rather than being silently coerced
+  // to the foreground list (which would mask client/daemon version skew).
+  const rawConversationType = queryParams.conversationType;
+  let conversationType: ConversationType = "standard";
+  if (rawConversationType !== undefined && rawConversationType !== "") {
+    if (
+      rawConversationType === "background" ||
+      rawConversationType === "scheduled"
+    ) {
+      conversationType = rawConversationType;
+    } else {
+      throw new BadRequestError(
+        `Unknown conversationType "${rawConversationType}"; expected "background" or "scheduled".`,
+      );
+    }
+  }
   // Defaults to `active` so sidebar restores no longer pull archived rows.
   // The Archive page opts into `archived` to render only archived rows
   // without dragging the entire live history through pagination first.

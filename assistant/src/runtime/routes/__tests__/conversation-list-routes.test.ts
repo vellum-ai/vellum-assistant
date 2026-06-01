@@ -30,6 +30,7 @@ import { initializeDb } from "../../../memory/db-init.js";
 import { rawRun } from "../../../memory/raw-query.js";
 import { conversations } from "../../../memory/schema.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../conversation-list-routes.js";
+import { BadRequestError } from "../errors.js";
 import type { RouteDefinition } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -223,5 +224,14 @@ describe("GET /v1/conversations — conversationType", () => {
 
     // THEN only the scheduled row is returned (background is excluded)
     expect(result.conversations.map((c) => c.title)).toEqual(["sched-1"]);
+  });
+
+  test("unknown conversationType is rejected with a 400", async () => {
+    // GIVEN a request with an unrecognized conversationType
+    // WHEN listing — THEN it throws a BadRequestError (400) instead of
+    // silently falling back to the foreground list
+    expect(() => invoke({ conversationType: "private" })).toThrow(
+      BadRequestError,
+    );
   });
 });
