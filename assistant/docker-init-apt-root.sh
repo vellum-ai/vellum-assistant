@@ -10,11 +10,7 @@ LOCK_DIR="${DATA_ROOT}.rootfs-init.lock"
 LOCK_PID="${LOCK_DIR}/pid"
 HOST_PATH="/usr/sbin:/usr/bin:/sbin:/bin"
 
-if [ -r /app/assistant/docker-kata-runtime-family.sh ]; then
-  . /app/assistant/docker-kata-runtime-family.sh
-else
-  vellum_is_kata_family_runtime() { [ "${VELLUM_SANDBOX_RUNTIME:-}" = "kata" ]; }
-fi
+. /app/assistant/docker-kata-runtime-family.sh
 
 if ! vellum_is_kata_family_runtime; then
   exit 0
