@@ -293,6 +293,12 @@ export {
   UserMessageEchoEventSchema,
 } from "./events/user-message-echo.js";
 export {
+  type DictationContext,
+  DictationContextSchema,
+  type DictationRequest,
+  DictationRequestSchema,
+} from "./requests/dictation.js";
+export {
   type DiskPressureStatusResponse,
   DiskPressureStatusResponseSchema,
 } from "./responses/disk-pressure-status.js";

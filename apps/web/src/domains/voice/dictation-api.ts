@@ -1,11 +1,8 @@
-import { dictationPost } from "@/generated/daemon/sdk.gen";
-import type {
-  DictationPostData,
-  DictationPostResponse,
-} from "@/generated/daemon/types.gen";
-import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
+import type { DictationContext } from "@vellumai/assistant-api";
 
-export type DictationContext = DictationPostData["body"]["context"];
+import { dictationPost } from "@/generated/daemon/sdk.gen";
+import type { DictationPostResponse } from "@/generated/daemon/types.gen";
+import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 
 /**
  * POST /v1/dictation
