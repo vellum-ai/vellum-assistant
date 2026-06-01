@@ -77,6 +77,30 @@ function getReengagementTimestampPath(): string {
   return join(getWorkspaceDir(), ".reengagement-ts");
 }
 
+function getConsecutiveRunsPath(): string {
+  return join(getWorkspaceDir(), ".heartbeat-consecutive-runs");
+}
+
+function loadPersistedConsecutiveRuns(): number {
+  const path = getConsecutiveRunsPath();
+  if (!existsSync(path)) return 0;
+  try {
+    const raw = readFileSync(path, "utf-8").trim();
+    const parsed = parseInt(raw, 10);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function persistConsecutiveRuns(count: number): void {
+  try {
+    writeFileSync(getConsecutiveRunsPath(), count.toString());
+  } catch {
+    // Best-effort; don't block the heartbeat.
+  }
+}
+
 function isReengagementCooldownElapsed(): boolean {
   const tsPath = getReengagementTimestampPath();
   if (!existsSync(tsPath)) return true;
@@ -156,7 +180,7 @@ export class HeartbeatService {
   // Counter of consecutive auto-heartbeats since the last guardian message.
   // Reset by resetTimer (guardian message), reconfigure, and stop. Force runs
   // bypass the cap and do not increment.
-  private _consecutiveRuns = 0;
+  private _consecutiveRuns = loadPersistedConsecutiveRuns();
   // Bumped every time the counter is reset so an in-flight run that finishes
   // after a guardian message can detect the reset and skip its increment.
   private _resetGeneration = 0;
@@ -174,6 +198,15 @@ export class HeartbeatService {
   /** Epoch-ms timestamp of the next scheduled heartbeat run. */
   get nextRunAt(): number | null {
     return this._nextRunAt;
+  }
+
+  /** Whether the consecutive-run cap has been reached. */
+  get isConsecutiveRunCapReached(): boolean {
+    const config = getConfig().heartbeat;
+    return (
+      config.maxConsecutiveRuns != null &&
+      this._consecutiveRuns >= config.maxConsecutiveRuns
+    );
   }
 
   async runManagedWakeIfDue(
@@ -354,6 +387,7 @@ export class HeartbeatService {
   /** Restart the timer with the latest config (e.g. after settings change). */
   reconfigure(): void {
     this._consecutiveRuns = 0;
+    persistConsecutiveRuns(0);
     this._resetGeneration++;
     this.configEpoch++;
     if (this._pendingRunId) {
@@ -380,6 +414,7 @@ export class HeartbeatService {
     // Counter resets even when the timer is null so a guardian message during
     // a stopped window still clears the count.
     this._consecutiveRuns = 0;
+    persistConsecutiveRuns(0);
     this._resetGeneration++;
     if (!this.timer) return;
     if (this.cronMode) {
@@ -401,6 +436,7 @@ export class HeartbeatService {
 
   async stop(): Promise<void> {
     this._consecutiveRuns = 0;
+    persistConsecutiveRuns(0);
     this._resetGeneration++;
     this.stopped = true;
     if (this.timer) {
@@ -567,6 +603,7 @@ export class HeartbeatService {
       this._lastRunAt = Date.now();
       if (!force && this._resetGeneration === startGeneration) {
         this._consecutiveRuns++;
+        persistConsecutiveRuns(this._consecutiveRuns);
       }
       if (!this.cronMode) {
         this.scheduleNextRun(getConfig().heartbeat.intervalMs);
