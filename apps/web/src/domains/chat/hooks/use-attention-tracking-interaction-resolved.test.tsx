@@ -19,11 +19,17 @@ import {
 
 // The hook fetches the conversation list and runs an initial sweep; stub
 // both so renderHook does not try to hit a real backend.
-mock.module("@/domains/conversations/conversation-queries", () => ({
+mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: [] }),
+  markConversationSeenLocal: () => {},
+  useBackgroundConversationListQuery: () => ({ conversations: [] }),
+  useScheduledConversationListQuery: () => ({ conversations: [] }),
+  refreshConversationRow: async () => {},
+}));
+
+mock.module("@/utils/conversation-cache", () => ({
   getConversations: () => [],
   findConversation: () => undefined,
-  markConversationSeenLocal: () => {},
 }));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
@@ -36,7 +42,7 @@ mock.module("@/domains/chat/api/interactions", () => ({
 }));
 
 const { useAttentionTracking } = await import(
-  "@/domains/conversations/use-attention-tracking"
+  "@/domains/chat/hooks/use-attention-tracking"
 );
 
 function wrapper({ children }: { children: ReactNode }) {

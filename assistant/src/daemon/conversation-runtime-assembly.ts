@@ -301,7 +301,7 @@ function injectActiveSurfaceContext(
     lines.push(
       `The user is viewing app "${ctx.appName ?? "Untitled"}" (app_id: "${ctx.appId}", slug: "${slug}") in workspace mode.`,
       "",
-      'PREREQUISITE: If `app_refresh` is not yet available, call `skill_load` with `id: "app-builder"` first to load it.',
+      'PREREQUISITE: If `app_refresh` is not yet available, call `skill_load` with `skill: "app-builder"` first to load it.',
       "",
       "RULES FOR WORKSPACE MODIFICATION:",
       `1. Use \`file_edit\` to make surgical changes to app files. The file path is \`${getAppDirPath(ctx.appId)}/<path>\`.`,

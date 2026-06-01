@@ -23,7 +23,10 @@ import {
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
-import { getSlackLinkUrl, type Surface } from "@/domains/chat/types/types";
+import {
+  getSlackLinkUrl,
+  type Surface,
+} from "@/domains/chat/types/types";
 import { isPointerCoarse } from "@/utils/pointer";
 import {
   EMPTY_SUBAGENT_ENTRIES,
@@ -54,11 +57,6 @@ export interface OpenRuleEditorContext {
  */
 export interface TranscriptMessageBodyProps {
   message: DisplayMessage;
-  /** Whether this row is the live, not-yet-finalized assistant bubble of
-   *  the active turn. Derived by the transcript from the conversation's
-   *  processing state and message position — drives streaming animations
-   *  and gates hover actions while the turn is in flight. */
-  isStreaming?: boolean;
   assistantDisplayName?: string | null;
   /**
    * Persistent set of expanded tool-call ids. Passed straight through to
@@ -225,18 +223,15 @@ function resolveSpawnedSubagentIds(
 
 function shouldAutoExpandToolCallGroup({
   isCurrentGroup,
-  isStreaming,
   toolCalls,
 }: {
   isCurrentGroup: boolean;
-  isStreaming: boolean;
   toolCalls: ChatMessageToolCall[];
 }): boolean {
-  if (!isCurrentGroup) return false;
-  return (
-    isStreaming ||
-    toolCalls.some((toolCall) => toolCall.status === "running")
-  );
+  if (!isCurrentGroup) {
+    return false;
+  }
+  return toolCalls.some((toolCall) => toolCall.status === "running");
 }
 
 function latestMessageActivityTimestamp(
@@ -329,7 +324,6 @@ function SlackMessageAttribution({
 
 export function TranscriptMessageBody({
   message,
-  isStreaming = false,
   assistantDisplayName,
   expandedToolCallIds,
   expandedCardIds,
@@ -396,7 +390,6 @@ export function TranscriptMessageBody({
   const inspectHandler = inspectMessageId && onInspectMessage
     ? () => onInspectMessage(inspectMessageId)
     : undefined;
-  const isToolCallComplete = !isStreaming;
 
   // Touch-only tap-to-reveal for the hover actions row. Desktop uses
   // group-hover (unchanged); on coarse pointers a tap on the bubble toggles
@@ -459,7 +452,10 @@ export function TranscriptMessageBody({
     (tc.toolName === "ui_show" || tc.toolName === "ui_update" || tc.toolName === "ui_dismiss");
   const messageTimestamp = latestMessageActivityTimestamp(message);
 
-  const renderTextWithInlineSurfaces = (text: string, key: string, hardLineBreaks: boolean) => {
+  // Hard line breaks are enabled for every transcript message regardless of
+  // role: single `\n`s in assistant output (not just user Shift+Enter input)
+  // should render as `<br>` rather than collapse to a space — see JARVIS-1007.
+  const renderTextWithInlineSurfaces = (text: string, key: string) => {
     const inlineSegments = parseInlineSurfaces(text);
     if (inlineSegments) {
       return (
@@ -474,7 +470,7 @@ export function TranscriptMessageBody({
                     onOpenApp={onOpenApp}
                     onOpenDocument={onOpenDocument}
                     assistantId={assistantId}
-                    isToolCallComplete={true}
+                    toolCalls={message.toolCalls}
                   />
                 </div>
               );
@@ -484,7 +480,7 @@ export function TranscriptMessageBody({
                 key={`inline-text-${si}`}
                 className={segmentClass}
               >
-                <ChatMarkdownMessage content={seg.content} hardLineBreaks={hardLineBreaks} />
+                <ChatMarkdownMessage content={seg.content} hardLineBreaks />
               </div>
             );
           })}
@@ -493,7 +489,7 @@ export function TranscriptMessageBody({
     }
     return (
       <div key={key} className={segmentClass}>
-        <ChatMarkdownMessage content={text} hardLineBreaks={hardLineBreaks} />
+        <ChatMarkdownMessage content={text} hardLineBreaks />
       </div>
     );
   };
@@ -694,7 +690,6 @@ export function TranscriptMessageBody({
                       expandedCardIds={expandedCardIds}
                       autoExpand={shouldAutoExpandToolCallGroup({
                         isCurrentGroup: gi === groups.length - 1,
-                        isStreaming,
                         toolCalls,
                       })}
                       onOpenRuleEditor={onOpenRuleEditor}
@@ -723,7 +718,7 @@ export function TranscriptMessageBody({
               if (!text) {
                 return null;
               }
-              return renderTextWithInlineSurfaces(text, `text-${gi}`, message.role === "user");
+              return renderTextWithInlineSurfaces(text, `text-${gi}`);
             }
             if (group.type === "surface") {
               const surface = resolveSurface(group.id);
@@ -738,7 +733,7 @@ export function TranscriptMessageBody({
                     onOpenApp={onOpenApp}
                     onOpenDocument={onOpenDocument}
                     assistantId={assistantId}
-                    isToolCallComplete={isToolCallComplete}
+                    toolCalls={message.toolCalls}
                   />
                 </div>
               );
@@ -755,11 +750,7 @@ export function TranscriptMessageBody({
     // (e.g. tool_use_start before any assistant_text_delta), show the text.
     const interleavedFallback =
       !groups.some((g) => g.type === "text") && messageText
-        ? renderTextWithInlineSurfaces(
-            messageText,
-            "fallback",
-            message.role === "user",
-          )
+        ? renderTextWithInlineSurfaces(messageText, "fallback")
         : null;
 
     // For the user branch: walk the entries in canonical order, tagging text
@@ -813,7 +804,6 @@ export function TranscriptMessageBody({
               content={messageText}
               timestamp={messageTimestamp}
               role={message.role}
-              isStreaming={isStreaming}
               openInSlackUrl={slackMessageUrl}
               onFork={forkHandler}
               onInspect={inspectHandler}
@@ -842,7 +832,7 @@ export function TranscriptMessageBody({
         const segText = seg?.content ?? entry.id;
         contentEntries.push({
           type: "text",
-          node: renderTextWithInlineSurfaces(segText, `text-${entry.id}`, message.role === "user"),
+          node: renderTextWithInlineSurfaces(segText, `text-${entry.id}`),
         });
       } else if (entry.type === "surface") {
         const surface = resolveSurface(entry.id);
@@ -857,7 +847,7 @@ export function TranscriptMessageBody({
                   onOpenApp={onOpenApp}
                   onOpenDocument={onOpenDocument}
                   assistantId={assistantId}
-                  isToolCallComplete={isToolCallComplete}
+                  toolCalls={message.toolCalls}
                 />
               </div>
             ),
@@ -868,14 +858,14 @@ export function TranscriptMessageBody({
     if (contentEntries.length === 0 && messageText) {
       contentEntries.push({
         type: "text",
-        node: renderTextWithInlineSurfaces(messageText, "fallback", message.role === "user"),
+        node: renderTextWithInlineSurfaces(messageText, "fallback"),
       });
     }
   } else {
     contentEntries.push({
       type: "text",
       node: messageText
-        ? renderTextWithInlineSurfaces(messageText, "content", message.role === "user")
+        ? renderTextWithInlineSurfaces(messageText, "content")
         : null,
     });
   }
@@ -914,7 +904,6 @@ export function TranscriptMessageBody({
               expandedCardIds={expandedCardIds}
               autoExpand={shouldAutoExpandToolCallGroup({
                 isCurrentGroup: !hasVisibleLegacyContent,
-                isStreaming,
                 toolCalls: legacyToolCalls,
               })}
               onOpenRuleEditor={onOpenRuleEditor}
@@ -977,7 +966,7 @@ export function TranscriptMessageBody({
                 onOpenApp={onOpenApp}
                 onOpenDocument={onOpenDocument}
                 assistantId={assistantId}
-                isToolCallComplete={isToolCallComplete}
+                toolCalls={message.toolCalls}
               />
             </div>
           ));
@@ -991,7 +980,6 @@ export function TranscriptMessageBody({
             content={messageText}
             timestamp={messageTimestamp}
             role={message.role}
-            isStreaming={isStreaming}
             openInSlackUrl={slackMessageUrl}
             onFork={forkHandler}
             onInspect={inspectHandler}

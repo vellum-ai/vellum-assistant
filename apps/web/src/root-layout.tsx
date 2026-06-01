@@ -12,7 +12,7 @@ import { useEnvironmentStore } from "@/stores/environment-store";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
-import { useConversationSync } from "@/domains/conversations/use-conversation-sync";
+import { useConversationSync } from "@/hooks/use-conversation-sync";
 import { resolveOnboardingRedirect } from "@/domains/onboarding/gate";
 import { useFeatureFlagBusSync } from "@/hooks/use-feature-flag-bus-sync";
 import { useClientFeatureFlagSync } from "@/hooks/use-client-feature-flag-sync";

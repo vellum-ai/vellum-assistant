@@ -21,10 +21,7 @@ import {
   isValidConversationStarterText,
 } from "../../memory/conversation-starter-validation.js";
 import { getDb } from "../../memory/db-connection.js";
-import {
-  enqueueMemoryJob,
-  isMemoryEnabled,
-} from "../../memory/jobs-store.js";
+import { enqueueMemoryJob, isMemoryEnabled } from "../../memory/jobs-store.js";
 import { conversationStarters, memoryJobs } from "../../memory/schema.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
@@ -35,13 +32,15 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // chips form a coherent, non-repetitive row.
 // ---------------------------------------------------------------------------
 
-interface StarterItem {
-  id: string;
-  label: string;
-  prompt: string;
-  category: string | null;
-  batch: number;
-}
+const starterItemSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  prompt: z.string(),
+  category: z.string().nullable(),
+  batch: z.number().int(),
+});
+
+type StarterItem = z.infer<typeof starterItemSchema>;
 
 export const CONVERSATION_STARTERS_STALE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -303,7 +302,9 @@ export const ROUTES: RouteDefinition[] = [
       },
     ],
     responseBody: z.object({
-      starters: z.array(z.unknown()).describe("Ordered list of starter chips"),
+      starters: z
+        .array(starterItemSchema)
+        .describe("Ordered list of starter chips"),
       total: z.number().int().describe("Total number of available starters"),
       status: z
         .enum(["ready", "refreshing", "empty", "generating"])

@@ -60,6 +60,14 @@ function SettingRow({
   );
 }
 
+// Consent checkboxes mirror the primary button: the checked fill uses
+// --primary-base and the check uses --content-inset (the on-primary
+// foreground). This stays correct in every theme — dark fill + white check in
+// light mode, white fill + dark check in dark mode — whereas the design
+// library's hardcoded white check vanishes on the near-white dark-mode fill.
+const CONSENT_CHECKBOX_CLASS =
+  "[&_button[data-state=checked]]:bg-[var(--primary-base)] [&_svg]:text-[var(--content-inset)]";
+
 export function PrivacyScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -104,16 +112,20 @@ export function PrivacyScreen() {
         variant,
       });
     }
-    void navigate(
-      isReplay
-        ? `${routes.onboarding.hatching}?replay=1`
-        : routes.onboarding.hatching,
-    );
+    // Preserve the hosting param (Local/Docker need it so hatching runs the
+    // local hatch instead of a platform hatch).
+    const hostingParam = searchParams.get("hosting");
+    const params = new URLSearchParams();
+    if (hostingParam) params.set("hosting", hostingParam);
+    if (isReplay) params.set("replay", "1");
+    const qs = params.toString();
+    void navigate(`${routes.onboarding.hatching}${qs ? `?${qs}` : ""}`);
   }, [
     isNative,
     isReplay,
     navigate,
     preferredFunnelVariant,
+    searchParams,
     setShareAnalytics,
     setShareDiagnostics,
     shareAnalytics,
@@ -207,6 +219,7 @@ export function PrivacyScreen() {
             onCheckedChange={(next) => setAiDataConsent(next === true)}
             label={aiConsentLabel}
             aria-label="I agree to the AI Data Sharing Policy"
+            className={CONSENT_CHECKBOX_CLASS}
           />
         </div>
 
@@ -216,6 +229,7 @@ export function PrivacyScreen() {
             onCheckedChange={(next) => setTosAccepted(next === true)}
             label={tosLabel}
             aria-label="I agree to the Terms of Service and Privacy Policy"
+            className={CONSENT_CHECKBOX_CLASS}
           />
         </div>
 

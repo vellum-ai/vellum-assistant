@@ -1403,11 +1403,12 @@ export async function handleSendMessage(
   // user's behalf instead of the canned greeting, so the assistant generates a
   // real first response. Gated behind the `self-intro-greeting` flag (default
   // off); `undefined` (flag off or no names) falls back to the canned path.
-  const selfIntro =
+  const selfIntroGreetingEnabled =
     isWakeUp &&
-    isAssistantFeatureFlagEnabled(SELF_INTRO_GREETING_FLAG, getConfig())
-      ? buildSelfIntroMessage(body.onboarding ?? undefined)
-      : undefined;
+    isAssistantFeatureFlagEnabled(SELF_INTRO_GREETING_FLAG, getConfig());
+  const selfIntro = selfIntroGreetingEnabled
+    ? buildSelfIntroMessage(body.onboarding ?? undefined)
+    : undefined;
 
   let effectiveContent: string | undefined;
   if (isScanPath) {
@@ -1416,7 +1417,7 @@ export async function handleSendMessage(
       : ("content-source" as const);
     effectiveContent = buildScanFirstMessage(scanUrl, scanVariant);
     // Fall through to normal inference path below
-  } else if (isWakeUp && body.onboarding?.initialMessage) {
+  } else if (selfIntroGreetingEnabled && body.onboarding?.initialMessage) {
     effectiveContent = body.onboarding.initialMessage;
   } else if (isWakeUp && selfIntro) {
     // Rewrite to the self-introduction and fall through to real inference
@@ -1882,11 +1883,7 @@ export async function handleSendMessage(
           clientMessageId,
         });
         publishConversationMessagesChanged(conversationId, originClientId);
-        conversation.emitActivityState(
-          "thinking",
-          "context_compacting",
-          "assistant_turn",
-        );
+        conversation.emitActivityState("thinking", "context_compacting");
         const result = await conversation.forceCompact({
           targetInputTokensOverride: slashResult.targetInputTokensOverride,
         });

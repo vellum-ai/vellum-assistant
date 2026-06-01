@@ -1,16 +1,12 @@
 import { useCallback, useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import {
-  fetchHomeFeed,
-  triggerFeedAction,
-  updateFeedItemStatus,
-} from "../api";
+import { fetchHomeFeed, triggerFeedAction, updateFeedItemStatus } from "../api";
 import type {
   FeedItem,
   FeedItemStatus,
   HomeFeedResponse,
-} from "../types";
+} from "@vellumai/assistant-api";
 import { subscribe } from "@/lib/event-bus";
 import { homeFeedQueryKey } from "@/lib/sync/query-tags";
 
@@ -57,8 +53,7 @@ export function useHomeFeedQuery(assistantId: string | null) {
 
   const query = useQuery<HomeFeedResponse>({
     queryKey: homeFeedQueryKey(assistantId ?? ""),
-    queryFn: () =>
-      fetchHomeFeed(assistantId!, timeAwaySecondsRef.current),
+    queryFn: () => fetchHomeFeed(assistantId!, timeAwaySecondsRef.current),
     enabled: Boolean(assistantId),
     staleTime: 30_000,
   });
@@ -110,13 +105,8 @@ export function useHomeFeedQuery(assistantId: string | null) {
   });
 
   const triggerAction = useMutation({
-    mutationFn: ({
-      itemId,
-      actionId,
-    }: {
-      itemId: string;
-      actionId: string;
-    }) => triggerFeedAction(assistantId!, itemId, actionId),
+    mutationFn: ({ itemId, actionId }: { itemId: string; actionId: string }) =>
+      triggerFeedAction(assistantId!, itemId, actionId),
 
     onMutate: async ({ itemId }) => {
       const key = homeFeedQueryKey(assistantId!);

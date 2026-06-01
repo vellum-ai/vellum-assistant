@@ -16,6 +16,7 @@ import { type Dispatch, type MutableRefObject, type SetStateAction, useCallback,
 
 import { addTrustRule } from "@/lib/trust-rules-api";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
@@ -23,7 +24,6 @@ import { endTurn } from "@/domains/chat/turn-coordinator";
 
 import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-utils";
 import { deriveCommandText } from "@/domains/chat/utils/chat";
-import type { ChatError } from "@/domains/chat/types";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
@@ -68,11 +68,7 @@ export interface ToolCallRuleContext {
 // ---------------------------------------------------------------------------
 
 export interface UseInteractionActionsParams {
-  setMessages: Dispatch<DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[])>;
-  setError: Dispatch<ChatError | null>;
-  messagesRef: MutableRefObject<DisplayMessage[]>;
   streamContextRef: MutableRefObject<StreamContext | null>;
-  confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -104,12 +100,10 @@ export interface UseInteractionActionsReturn {
 // ---------------------------------------------------------------------------
 
 export function useInteractionActions({
-  setMessages,
-  setError,
-  messagesRef,
   streamContextRef,
-  confirmationToolCallMapRef,
 }: UseInteractionActionsParams): UseInteractionActionsReturn {
+  const setMessages = useChatSessionStore.use.setMessages();
+  const setError = useChatSessionStore.use.setError();
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const isSubmittingSecret = useInteractionStore.use.isSubmittingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
@@ -291,7 +285,7 @@ export function useInteractionActions({
       const nudgeTcId = (() => {
         if (snapshot.riskLevel?.toLowerCase() !== "unknown") return null;
         if (mappedToolCallId) return mappedToolCallId;
-        const currentMessages = messagesRef.current;
+        const currentMessages = useChatSessionStore.getState().messages;
         const msgIdx = currentMessages.findLastIndex(
           (m) => m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0,
         );
@@ -363,7 +357,7 @@ export function useInteractionActions({
         setUnknownNudgeToolCallIds((ids) => new Set([...ids, nudgeTcId]));
       }
 
-      confirmationToolCallMapRef.current.delete(snapshot.requestId);
+      useChatSessionStore.getState().confirmationToolCallMap.delete(snapshot.requestId);
       useInteractionStore.getState().submitConfirmationEnd();
     },
     [],
@@ -383,7 +377,7 @@ export function useInteractionActions({
         return;
       }
 
-      const mappedToolCallId = snapshot ? confirmationToolCallMapRef.current.get(snapshot.requestId) : undefined;
+      const mappedToolCallId = snapshot ? useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId) : undefined;
 
       try {
         if (
@@ -495,7 +489,7 @@ export function useInteractionActions({
     const snapshot = pendingConfirmation;
     useInteractionStore.getState().submitConfirmationStart();
 
-    const mappedToolCallId = confirmationToolCallMapRef.current.get(snapshot.requestId);
+    const mappedToolCallId = useChatSessionStore.getState().confirmationToolCallMap.get(snapshot.requestId);
 
     const editorContext: RuleEditorContext = {
       requestId: snapshot.requestId,
@@ -614,7 +608,7 @@ export function useInteractionActions({
 
       useInteractionStore.getState().dismissConfirmationIfMatches(context.requestId);
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
-      confirmationToolCallMapRef.current.delete(context.requestId);
+      useChatSessionStore.getState().confirmationToolCallMap.delete(context.requestId);
       setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, context.requestId));
       setShowRuleEditor(false);
       setRuleEditorContext(null);
@@ -628,7 +622,7 @@ export function useInteractionActions({
 
   const handleSurfaceAction = useCallback(
     async (surfaceId: string, actionId: string, data?: Record<string, unknown>) => {
-      const exists = messagesRef.current.some((m) =>
+      const exists = useChatSessionStore.getState().messages.some((m) =>
         m.surfaces?.some((s) => s.surfaceId === surfaceId),
       );
       if (!exists) {

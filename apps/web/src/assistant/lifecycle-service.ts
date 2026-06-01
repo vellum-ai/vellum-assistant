@@ -143,6 +143,11 @@ class AssistantLifecycleService {
     if (this.state.kind !== "loading") {
       this.transition({ kind: "loading" });
     }
+    // Drop the auto-greet one-shot too — otherwise a stale `true` set
+    // by the outgoing user's hatch path (but never consumed by
+    // ChatPage before logout) would seed the incoming user's first
+    // mount with a spurious "Connecting..." gate.
+    this.clearExpectingFirstMessage();
   }
 
   /**
@@ -245,7 +250,29 @@ class AssistantLifecycleService {
   hatchVersion(version?: string): void {
     if (!this.ready) return;
     this.hatchRetryCount = 0;
+    this.markExpectingFirstMessage();
     void this.hatchAndCheck(version);
+  }
+
+  /**
+   * Mark the chat surface as expecting an auto-greet. Called from
+   * every hatch path (vanilla auto-hatch and `hatchVersion` inside
+   * this service; the onboarding hatching screen, pre-chat-flow,
+   * and the chat-page mount-time pre-chat sessionStorage detector
+   * externally). React consumers subscribe via the
+   * `useAssistantLifecycleStore.use.expectingFirstMessage()` selector,
+   * so a mark fired from inside the ChatPage tree (e.g. the
+   * version-selection screen) triggers a re-render without needing
+   * a remount.
+   */
+  markExpectingFirstMessage(): void {
+    if (useAssistantLifecycleStore.getState().expectingFirstMessage) return;
+    useAssistantLifecycleStore.setState({ expectingFirstMessage: true });
+  }
+
+  clearExpectingFirstMessage(): void {
+    if (!useAssistantLifecycleStore.getState().expectingFirstMessage) return;
+    useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
   }
 
   // ---------------------------------------------------------------------------
@@ -269,6 +296,22 @@ class AssistantLifecycleService {
       }
     } else if (prevKind !== "initializing") {
       this.armInitializingWatchdog();
+    }
+    // Drop the auto-greet one-shot on any transition to a state
+    // where a greeting is no longer forthcoming. The only two
+    // states where the expectation still holds are `initializing`
+    // (hatch in progress) and `active` (greeting may have just
+    // arrived or be arriving via SSE). Everything else — error,
+    // retired, loading (logout), maintenance_mode, cleaning_up,
+    // self_hosted (different greeting path), and crucially
+    // `awaiting_version_selection` (a recoverable nonprod hatch
+    // failure can land back here, and the chat surface renders
+    // the "Connecting..." gate ahead of the version picker until
+    // this flag clears) — must drop the flag so chat doesn't show
+    // a stale gate. A subsequent retry that re-enters `auto_hatch`
+    // or `hatchVersion` re-marks the flag.
+    if (next.kind !== "initializing" && next.kind !== "active") {
+      this.clearExpectingFirstMessage();
     }
   }
 
@@ -390,6 +433,11 @@ class AssistantLifecycleService {
         this.transition({ kind: "awaiting_version_selection" });
         return;
       }
+      // Vanilla auto-hatch: a new signup with no assistant lands
+      // here. Mark the auto-greet one-shot so the next `ChatPage`
+      // mount shows the loading gate until the server's greeting
+      // SSE arrives.
+      this.markExpectingFirstMessage();
       await this.hatchAndCheck();
       return;
     }
@@ -640,6 +688,7 @@ class AssistantLifecycleService {
     this.hatchingVersion = undefined;
     this.generation = 0;
     this.ready = false;
+    useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
     this.inputs = {
       isLoggedIn: false,
       isLoading: true,

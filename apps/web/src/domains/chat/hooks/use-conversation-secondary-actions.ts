@@ -10,7 +10,6 @@
 import * as Sentry from "@sentry/react";
 import {
   type Dispatch,
-  type MutableRefObject,
   type SetStateAction,
   useCallback,
   useState,
@@ -22,9 +21,9 @@ import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdAnalyzePost, conversationsForkPost } from "@/generated/daemon/sdk.gen";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import type { ChatError } from "@/domains/chat/types";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 // ---------------------------------------------------------------------------
 // Params
@@ -35,7 +34,6 @@ export interface UseConversationSecondaryActionsParams {
   activeConversationId: string | null;
   activeConversation: Conversation | null | undefined;
   assistantIdentityName: string | undefined;
-  messagesRef: MutableRefObject<DisplayMessage[]>;
   refreshConversations: () => void;
   switchConversation: (key: string) => void;
   setError: (error: ChatError | null) => void;
@@ -71,7 +69,6 @@ export function useConversationSecondaryActions({
   activeConversationId,
   activeConversation,
   assistantIdentityName,
-  messagesRef,
   refreshConversations,
   switchConversation,
   setError,
@@ -105,7 +102,7 @@ export function useConversationSecondaryActions({
   );
 
   const handleForkConversationFromMenu = useCallback(() => {
-    const latestPersisted = messagesRef.current.findLast(
+    const latestPersisted = useChatSessionStore.getState().messages.findLast(
       (m) => m.id != null,
     );
     const throughMessageId = latestPersisted?.id;
@@ -156,7 +153,7 @@ export function useConversationSecondaryActions({
       const isActiveConversation =
         conversation.conversationId === activeConversation?.conversationId;
       if (isActiveConversation) {
-        const latestAssistant = messagesRef.current.findLast(
+        const latestAssistant = useChatSessionStore.getState().messages.findLast(
           (m) => m.role === "assistant" && m.id != null,
         );
         const messageId = latestAssistant?.id;
@@ -193,7 +190,7 @@ export function useConversationSecondaryActions({
     if (activeConversation?.title) {
       parts.push(`# ${activeConversation.title}`);
     }
-    for (const msg of messagesRef.current) {
+    for (const msg of useChatSessionStore.getState().messages) {
       const text = segmentsToPlainText(msg.textSegments);
       if (!text.trim()) continue;
       const sender = msg.role === "user" ? "You" : name;

@@ -97,11 +97,10 @@ function handleConfirm({ body }: RouteHandlerArgs) {
   conversation.handleConfirmationResponse(
     requestId,
     effectiveDecision as UserDecision,
-    selectedPattern,
-    selectedScope,
-    undefined,
     {
-      source: "button",
+      selectedPattern,
+      selectedScope,
+      emissionContext: { source: "button" },
     },
   );
 

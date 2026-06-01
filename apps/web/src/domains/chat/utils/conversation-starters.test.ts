@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { client } from "@/generated/api/client.gen";
+import { client } from "@/generated/daemon/client.gen";
 import { ApiError } from "@/utils/api-errors";
 
 import { listConversationStarters } from "@/domains/chat/utils/conversation-starters";
@@ -21,7 +21,7 @@ import { listConversationStarters } from "@/domains/chat/utils/conversation-star
 interface CapturedOptions {
   url: string;
   path: Record<string, string>;
-  query: Record<string, string>;
+  query: Record<string, string | number>;
   throwOnError: boolean;
 }
 
@@ -57,18 +57,20 @@ beforeEach(() => {
   capturedOptions = [];
   nextResult = null;
 
-  (client as unknown as Record<string, unknown>).get = mock(async (options: Record<string, unknown>) => {
-    capturedOptions.push({
-      url: options.url as string,
-      path: options.path as Record<string, string>,
-      query: options.query as Record<string, string>,
-      throwOnError: options.throwOnError as boolean,
-    });
-    if (!nextResult) {
-      throw new Error("test setup forgot to set nextResult");
-    }
-    return nextResult;
-  });
+  (client as unknown as Record<string, unknown>).get = mock(
+    async (options: Record<string, unknown>) => {
+      capturedOptions.push({
+        url: options.url as string,
+        path: options.path as Record<string, string>,
+        query: options.query as Record<string, string | number>,
+        throwOnError: options.throwOnError as boolean,
+      });
+      if (!nextResult) {
+        throw new Error("test setup forgot to set nextResult");
+      }
+      return nextResult;
+    },
+  );
 });
 
 afterEach(() => {
@@ -143,8 +145,8 @@ describe("listConversationStarters request parameters", () => {
     );
     expect(capturedOptions[0]!.path).toEqual({ assistant_id: "asst-1" });
     expect(capturedOptions[0]!.query).toEqual({
-      limit: "4",
-      offset: "0",
+      limit: 4,
+      offset: 0,
       scope_id: "default",
     });
     expect(capturedOptions[0]!.throwOnError).toBe(false);
@@ -164,8 +166,8 @@ describe("listConversationStarters request parameters", () => {
     });
 
     expect(capturedOptions[0]!.query).toEqual({
-      limit: "8",
-      offset: "12",
+      limit: 8,
+      offset: 12,
       scope_id: "thread-42",
     });
   });

@@ -22,7 +22,6 @@ function renderEventStream(
     ({ key }: { key: string }) => {
       const streamRef = useRef<ChatEventStream | null>(null);
       const streamEpochRef = useRef(0);
-      const reconcileAfterNextStreamOpenRef = useRef(false);
       const streamContextRef = useRef<StreamContext | null>(null);
       const syncRouterRef = useRef(null) as MutableRefObject<
         null
@@ -35,7 +34,6 @@ function renderEventStream(
         conversationExistsOnServer: true,
         streamRef,
         streamEpochRef,
-        reconcileAfterNextStreamOpenRef,
         streamContextRef,
         handleStreamEvent,
         reconcileActiveConversation: async () =>
@@ -49,7 +47,6 @@ function renderEventStream(
         reachabilityProbe: () => {},
         reachabilityPhase: "ready",
         reachabilityReset: () => {},
-        setError: () => {},
         syncRouterRef,
         conversationListInvalidatedTimerRef: timerRef,
       });

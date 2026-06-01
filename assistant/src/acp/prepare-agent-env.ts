@@ -13,14 +13,53 @@
  *
  * The fix: have this single helper own injection + preflight, and have
  * every caller route through it before calling `manager.spawn`.
+ *
+ * Credential reads go through the credential broker (`serverUse`) so they
+ * are policy-gated (tool allowlist) and audit-logged. This keeps
+ * `prepare-agent-env.ts` off the secure-keys import allowlist — the broker
+ * owns the plaintext read boundary.
  */
 
 import { basename } from "node:path";
 
 import { FailedDependencyError } from "../runtime/routes/errors.js";
-import { credentialKey } from "../security/credential-key.js";
-import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { credentialBroker } from "../tools/credentials/broker.js";
+import {
+  getCredentialMetadata,
+  upsertCredentialMetadata,
+} from "../tools/credentials/metadata-store.js";
 import type { AcpAgentConfig } from "./types.js";
+
+const ACP_SPAWN_TOOL = "acp_spawn";
+
+/**
+ * Ensure the `acp/claude_oauth_token` credential has metadata that allows
+ * the `acp_spawn` tool to read it, but only for legacy/unmanaged cases:
+ *
+ * - No metadata at all → create with `allowedTools: ["acp_spawn"]`.
+ * - Metadata exists with an empty `allowedTools` → default provisioning
+ *   path (user ran `credentials set` without `--allowed-tools`), add it.
+ * - Metadata exists with a non-empty `allowedTools` → explicit policy set
+ *   by the user/admin. Respect it even if `acp_spawn` is absent — the
+ *   broker will deny the read and the preflight will throw.
+ */
+function ensureAcpTokenPolicy(): void {
+  const meta = getCredentialMetadata("acp", "claude_oauth_token");
+  if (!meta) {
+    upsertCredentialMetadata("acp", "claude_oauth_token", {
+      allowedTools: [ACP_SPAWN_TOOL],
+      usageDescription:
+        "Claude OAuth token for ACP agent authentication",
+    });
+    return;
+  }
+  const tools = meta.allowedTools ?? [];
+  if (tools.length === 0) {
+    upsertCredentialMetadata("acp", "claude_oauth_token", {
+      allowedTools: [ACP_SPAWN_TOOL],
+    });
+  }
+}
 
 /**
  * Returns a NEW config with any required credentials merged into `env`.
@@ -39,9 +78,8 @@ import type { AcpAgentConfig } from "./types.js";
  *   1. `acp.agents.<id>.env.CLAUDE_CODE_OAUTH_TOKEN` in `config.json` —
  *      the user-supplied env override on the resolved agent config.
  *   2. Secure store via CLI: `assistant credentials set --service acp \
- *        --field claude_oauth_token <token>` — written to the canonical
- *      `credential/{service}/{field}` key built by `credentialKey()`,
- *      used as fallback when (1) is unset.
+ *        --field claude_oauth_token <token>` — read through the
+ *      credential broker for policy enforcement and audit logging.
  * After resolution, this asserts the token is present (from either route)
  * before spawning. The "fail-fast" throw is symmetric with the existing
  * `binary_not_found` preflight in `resolveAcpAgent` and strictly better
@@ -58,12 +96,15 @@ export async function prepareAgentEnv(
 
   if (commandBasename === "claude-agent-acp") {
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
-      const claudeToken = await getSecureKeyAsync(
-        credentialKey("acp", "claude_oauth_token"),
-      );
-      if (claudeToken) {
-        env.CLAUDE_CODE_OAUTH_TOKEN = claudeToken;
-      }
+      ensureAcpTokenPolicy();
+      await credentialBroker.serverUse<void>({
+        service: "acp",
+        field: "claude_oauth_token",
+        toolName: ACP_SPAWN_TOOL,
+        execute: async (token) => {
+          env.CLAUDE_CODE_OAUTH_TOKEN = token;
+        },
+      });
     }
     if (!env.CLAUDE_CODE_OAUTH_TOKEN) {
       throw new FailedDependencyError(

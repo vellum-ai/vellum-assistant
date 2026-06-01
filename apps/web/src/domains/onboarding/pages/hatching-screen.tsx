@@ -18,8 +18,10 @@ import { composeSvg } from "@/utils/avatar-svg-compositor";
 import type { CharacterTraits } from "@/types/avatar";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { extractErrorMessage } from "@/utils/api-errors";
-import { isLocalMode, hatchLocalAssistant, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection, getLocalGatewayUrl } from "@/lib/local-mode";
+import { isLocalMode, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection, getLocalGatewayUrl } from "@/lib/local-mode";
+import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
+import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import {
   readAiDataConsent,
@@ -44,7 +46,7 @@ const MAX_HATCH_WAIT_MS = 300_000;
 
 // Module-level promises so HMR remounts and StrictMode double-mounts
 // can await the same in-flight hatch instead of spawning duplicates.
-let localHatchPromise: Promise<import("@/lib/local-mode").LocalHatchResult> | null = null;
+let localHatchPromise: Promise<import("@/runtime/local-mode-host").LocalHatchResult> | null = null;
 let platformHatchPromise: Promise<import("@/assistant/api").HatchResult> | null = null;
 
 type HatchPhase = "initializing" | "provisioning" | "connecting" | "ready";
@@ -84,7 +86,6 @@ export type HatchGateDecision =
 export function decideHatchGate(input: {
   isAuthLoading: boolean;
   isLoggedIn: boolean;
-  isLocalMode: boolean;
   isReplay: boolean;
   onboardingCompleted: boolean;
   tosAccepted: boolean;
@@ -96,7 +97,9 @@ export function decideHatchGate(input: {
   if (input.onboardingCompleted && !input.isReplay) {
     return { kind: "redirect", to: routes.assistant };
   }
-  if (input.isLocalMode) return { kind: "proceed" };
+  // Consent (incl. local mode): the privacy screen is now shown for every
+  // hosting option, so require it for local hatches too. The privacy screen
+  // persists tosAccepted/aiDataConsent and marks the in-memory consent signal.
   const persistedConsent = input.tosAccepted && input.aiDataConsentAccepted;
   if (!input.cameFromPrivacyScreen && !persistedConsent) {
     return { kind: "redirect", to: getOnboardingEntrypoint() };
@@ -153,7 +156,6 @@ export function HatchingScreen() {
     const decision = decideHatchGate({
       isAuthLoading,
       isLoggedIn,
-      isLocalMode: isLocalMode(),
       isReplay,
       onboardingCompleted: readOnboardingCompleted(),
       tosAccepted: readTosAccepted(),
@@ -204,6 +206,11 @@ export function HatchingScreen() {
               });
             }
             clearPrivacyConsent();
+            // Native flow skips the pre-chat screen, so there's no
+            // typed message to drive the auto-greet gate. Mark the
+            // lifecycle one-shot so the destination chat mount shows
+            // the loading gate until the server greeting arrives.
+            lifecycleService.markExpectingFirstMessage();
             void navigate(`${routes.assistant}?onboarding=1`, {
               replace: true,
             });
@@ -227,13 +234,11 @@ export function HatchingScreen() {
       }
 
       // Local/Docker hatch lifecycle:
-      // 1. POST /assistant/__local/hatch → CLI spawns daemon + gateway
-      // 2. Reload lockfile to discover new assistant
+      // 1. hatchLocalAssistant() runs the CLI (Vite middleware on web/dev,
+      //    main process over IPC in Electron) to spawn the daemon + gateway
+      // 2. Reload lockfile to discover the new assistant
       // 3. Acquire gateway token + set self-hosted connection
       // 4. Navigate to pre-chat flow
-      //
-      // Transport: fetch to Vite dev middleware.
-      // In Electron: window.electronAPI.hatchAssistant() → direct IPC to main process. (LUM-1997)
       if (useLocalHatch) {
         try {
           if (!localHatchPromise) {
@@ -286,6 +291,19 @@ export function HatchingScreen() {
             readyPollTimer = null;
           }
           if (cancelled) return;
+
+          // Apply the model-provider key collected on the API-key step to the
+          // freshly hatched assistant. Non-blocking on failure — onboarding
+          // proceeds and the user can fix it in Settings.
+          if (result.assistantId) {
+            try {
+              await applyPendingProviderKey(result.assistantId);
+            } catch (err) {
+              Sentry.captureException(err, {
+                tags: { context: "onboarding_apply_provider_key" },
+              });
+            }
+          }
 
           handleHatchReady();
         } catch {

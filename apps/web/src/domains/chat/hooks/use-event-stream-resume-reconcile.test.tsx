@@ -25,7 +25,6 @@ function renderEventStream(params: {
   return renderHook(() => {
     const streamRef = useRef<ChatEventStream | null>(null);
     const streamEpochRef = useRef(0);
-    const reconcileAfterNextStreamOpenRef = useRef(false);
     const streamContextRef = useRef<StreamContext | null>(null);
     const syncRouterRef = useRef(null) as MutableRefObject<null> as never;
     const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -36,7 +35,6 @@ function renderEventStream(params: {
       conversationExistsOnServer: true,
       streamRef,
       streamEpochRef,
-      reconcileAfterNextStreamOpenRef,
       streamContextRef,
       handleStreamEvent: params.handleStreamEvent ?? (() => {}),
       reconcileActiveConversation:
@@ -52,7 +50,6 @@ function renderEventStream(params: {
       reachabilityProbe: () => {},
       reachabilityPhase: "ready",
       reachabilityReset: () => {},
-      setError: () => {},
       syncRouterRef,
       conversationListInvalidatedTimerRef: timerRef,
     });

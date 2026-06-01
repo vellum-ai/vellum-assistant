@@ -196,9 +196,11 @@ export interface ProcessConversationContext {
       | "error_terminal"
       | "preview_start"
       | "context_compacting",
-    anchor?: "assistant_turn" | "user_turn" | "global",
-    requestId?: string,
-    statusText?: string,
+    options?: {
+      anchor?: "assistant_turn" | "user_turn" | "global";
+      requestId?: string;
+      statusText?: string;
+    },
   ): void;
   /** Force context compaction regardless of threshold/cooldown. */
   forceCompact(options?: {
@@ -512,12 +514,9 @@ async function drainSingleMessage(
     conversationId: conversation.conversationId,
     requestId: next.requestId,
   });
-  conversation.emitActivityState(
-    "thinking",
-    "message_dequeued",
-    "assistant_turn",
-    next.requestId,
-  );
+  conversation.emitActivityState("thinking", "message_dequeued", {
+    requestId: next.requestId,
+  });
 
   const queuedTurnCtx = resolveQueuedTurnContext(
     next,
@@ -743,12 +742,9 @@ async function drainSingleMessage(
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
 
-      conversation.emitActivityState(
-        "thinking",
-        "context_compacting",
-        "assistant_turn",
-        next.requestId,
-      );
+      conversation.emitActivityState("thinking", "context_compacting", {
+        requestId: next.requestId,
+      });
       const result = await conversation.forceCompact({
         targetInputTokensOverride: slashResult.targetInputTokensOverride,
       });
@@ -1123,12 +1119,9 @@ async function drainBatch(
   // connected SSE client (via activityVersion increments), whipsawing the
   // client-side thinking indicator. The single-message path emits exactly
   // one such event per turn; match it here.
-  conversation.emitActivityState(
-    "thinking",
-    "message_dequeued",
-    "assistant_turn",
-    head.requestId,
-  );
+  conversation.emitActivityState("thinking", "message_dequeued", {
+    requestId: head.requestId,
+  });
 
   // Per-message dequeue events and persistence loop. Track the last
   // SUCCESSFUL persist separately from the batch tail — a failed tail
@@ -1756,12 +1749,9 @@ export async function processMessage(
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
 
-      conversation.emitActivityState(
-        "thinking",
-        "context_compacting",
-        "assistant_turn",
+      conversation.emitActivityState("thinking", "context_compacting", {
         requestId,
-      );
+      });
       const result = await conversation.forceCompact({
         targetInputTokensOverride: slashResult.targetInputTokensOverride,
       });

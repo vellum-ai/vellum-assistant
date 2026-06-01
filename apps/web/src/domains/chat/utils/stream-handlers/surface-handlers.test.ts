@@ -61,7 +61,7 @@ describe("handleUISurfaceDismiss", () => {
       ctx,
     );
     expect(ctx.turnActions.dismissSurface).toHaveBeenCalled();
-    expect(ctx.dismissedSurfaceIdsRef.current.has("s-1")).toBe(true);
+    expect(ctx.dismissedSurfaceIds.has("s-1")).toBe(true);
     expect(ctx.setMessages).toHaveBeenCalled();
   });
 });
@@ -77,7 +77,7 @@ describe("handleUISurfaceComplete", () => {
         { surfaceId: "s-1", surfaceType: "dynamic_page", data: {} },
       ],
     };
-    const ctx = makeCtx({ messagesRef: { current: [msg] } });
+    const ctx = makeCtx({ messages: [msg] });
     handleUISurfaceComplete(
       { type: "ui_surface_complete", conversationId: "c-1", surfaceId: "s-1", summary: "Done" },
       ctx,
@@ -96,7 +96,7 @@ describe("handleUISurfaceComplete", () => {
         { surfaceId: "s-1", surfaceType: "form", data: {} },
       ],
     };
-    const ctx = makeCtx({ messagesRef: { current: [msg] } });
+    const ctx = makeCtx({ messages: [msg] });
     handleUISurfaceComplete(
       { type: "ui_surface_complete", conversationId: "c-1", surfaceId: "s-1", summary: "Done" },
       ctx,

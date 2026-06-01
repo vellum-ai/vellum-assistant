@@ -35,7 +35,8 @@ import {
 } from "./composer-focus";
 import {
   useConversationListQuery,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
+import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -46,11 +47,11 @@ import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import type { ChatError } from "@/domains/chat/types";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
 import { type UIContext } from "@/domains/chat/turn-selectors";
 import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
@@ -68,9 +69,8 @@ import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
-import { useConversationLoader } from "@/domains/conversations/use-conversation-loader";
+import { useConversationLoader } from "@/domains/chat/hooks/use-conversation-loader";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
-import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
@@ -98,7 +98,7 @@ import { useGhostTextSuggestion } from "@/domains/chat/hooks/use-ghost-text-sugg
 import { createWebSyncRouter } from "@/lib/sync/web-sync-router";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
 import { useQueryClient } from "@tanstack/react-query";
-import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
+
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
 import { useTurnStore } from "@/domains/chat/turn-store";
@@ -185,35 +185,49 @@ export function ChatPage() {
   const selfHostedChatEnabled = useClientFeatureFlagStore.use.selfHostedAssistant();
 
   // -------------------------------------------------------------------------
-  // Local state
+  // Chat session store — reactive selectors for per-conversation state
   // -------------------------------------------------------------------------
-  const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  const [error, setError] = useState<ChatError | null>(null);
-  // Seed with `true` so the chat scroll area renders the skeleton on the very
-  // first frame. The conversation loader bootstrap (conversation list query →
-  // `SET_ACTIVE_KEY` → `use-conversation-history`) is asynchronous, and
-  // without this seed the brief window between mount and the history effect
-  // dispatching `setIsLoadingHistory(true)` leaves the user staring at a
-  // blank pane — none of `ChatScrollArea`'s four branches match
-  // (`isLoadingHistory` false, `activeConversationId` null, no messages).
-  // Set to true means "we're bootstrapping" until the history hook resolves
-  // and flips it false (for both real conversations and empty drafts).
-  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
-  const [compactionCircuitOpenUntil, setCompactionCircuitOpenUntil] = useState<Date | null>(null);
+  const messages = useChatSessionStore.use.messages();
+  const error = useChatSessionStore.use.error();
+  const isLoadingHistory = useChatSessionStore.use.isLoadingHistory();
+  const contextWindowUsage = useChatSessionStore.use.contextWindowUsage();
+  const compactionCircuitOpenUntil = useChatSessionStore.use.compactionCircuitOpenUntil();
+  const transcriptPagination = useChatSessionStore.use.transcriptPagination();
+  const setMessages = useChatSessionStore.use.setMessages();
+  const setError = useChatSessionStore.use.setError();
+  const setCompactionCircuitOpenUntil = useChatSessionStore.use.setCompactionCircuitOpenUntil();
+  const setTranscriptPagination = useChatSessionStore.use.setTranscriptPagination();
+
+  // -------------------------------------------------------------------------
+  // Local state (not store-backed)
+  // -------------------------------------------------------------------------
   const [showAddCreditsModal, setShowAddCreditsModal] = useState(false);
 
   const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  const [autoGreetPending, setAutoGreetPending] = useState(
-    () => peekPendingPreChatContext()?.initialMessage != null,
-  );
-  const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
-  const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
-    hasMore: false,
-    oldestTimestamp: null,
-    isLoadingOlder: false,
-    isPinnedToLatest: true,
-  });
+  // Auto-greet loading gate — single source of truth lives in
+  // `useAssistantLifecycleStore.expectingFirstMessage`. Set by every
+  // hatch path (vanilla auto-hatch, nonprod `hatchVersion`, onboarding
+  // hatching-screen, pre-chat-flow) and by the mount-time pre-chat
+  // detector below. Cleared on the exit conditions below (messages
+  // arrived, 10s safety, conversation switch) or on terminal lifecycle
+  // transitions (error / retired / logout). React-reactive: a mark
+  // fired from inside this ChatPage's tree (e.g. the version-selection
+  // screen) re-renders us via the atomic selector, no mirror needed.
+  const autoGreetPending =
+    useAssistantLifecycleStore.use.expectingFirstMessage();
+
+  // Pre-chat sessionStorage detector. Load-bearing on the *reload*
+  // path: sessionStorage survives a refresh / iOS webview restore,
+  // the lifecycle store does not. If the user reloads after the
+  // pre-chat context is staged but before the first message arrives,
+  // the auto-send hook below still fires from the persisted context,
+  // so the gate has to show. Mark is idempotent.
+  useEffect(() => {
+    if (peekPendingPreChatContext()?.initialMessage != null) {
+      lifecycleService.markExpectingFirstMessage();
+    }
+  }, []);
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
 
   // Hydrate per-conversation seq cursors from localStorage once so gap
@@ -282,8 +296,6 @@ export function ChatPage() {
   // Shared refs — owned here, read/written by hooks
   // -------------------------------------------------------------------------
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const messagesRef = useRef<DisplayMessage[]>(messages);
-  messagesRef.current = messages;
   const sanitizedMessagesRef = useRef<DisplayMessage[]>([]);
   const transcriptItemsRef = useRef<TranscriptItem[]>([]);
   // Owned here so `useChatDebugApi` (also called from this component) can
@@ -322,34 +334,15 @@ export function ChatPage() {
   const streamRef = useRef<ChatEventStream | null>(null);
   const streamEpochRef = useRef(0);
   const streamContextRef = useRef<{ assistantId: string; conversationId: string } | null>(null);
-  const reconcileAfterNextStreamOpenRef = useRef(false);
-  const dismissedSurfaceIdsRef = useRef<Set<string>>(new Set());
   const pendingOnboardingContextRef = useRef<PreChatOnboardingContext | null>(null);
   const onboardingDraftConversationIdRef = useRef<string | null>(null);
   const [didOnboarding, setDidOnboarding] = useState(false);
   const [onboardingTasksEmpty, setOnboardingTasksEmpty] = useState(false);
   const [onboardingConversationId, setOnboardingConversationId] = useState<string | null>(null);
-  const draftConversationIdResolutionRef = useRef(false);
-  const previousConversationIdRef = useRef<string | null>(null);
-  const pendingQueuedMessageIdsRef = useRef<string[]>([]);
-  const requestIdToMessageIdRef = useRef<Map<string, string>>(new Map());
-  const pendingLocalDeletionsRef = useRef<Set<string>>(new Set());
-  const confirmationToolCallMapRef = useRef<Map<string, string>>(new Map());
-  const streamingMessageIdsRef = useRef<Set<string>>(new Set());
-  const autoGreetRef = useRef(false);
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInitialMessageRef = useRef<{ conversationId: string; content: string } | null>(null);
-  const expandedToolCallIdsRef = useRef<Set<string>>(new Set());
-  const contextWindowUsageByConversationRef = useRef<Map<string, ContextWindowUsage>>(new Map());
   const syncRouterRef = useRef<WebSyncRouter | null>(null);
-
-  useContextWindowUsageHydration({
-    assistantId,
-    activeConversationId,
-    contextWindowUsageByConversationRef,
-    setContextWindowUsage,
-  });
 
   // -------------------------------------------------------------------------
   // Routing
@@ -392,7 +385,6 @@ export function ChatPage() {
   const { input, setInput, saveDraft, clearDraft } = useDraftInput({
     assistantId,
     activeConversationId,
-    draftConversationIdResolutionRef,
     onDraftRestored: setRestoredDraftConversationId,
   });
 
@@ -489,16 +481,20 @@ export function ChatPage() {
   const nudges = useAppNudges(
     messages,
     conversations.length,
-    streamingMessageIdsRef,
     liveAssistantMessageId,
   );
 
   // -------------------------------------------------------------------------
   // Derived state
   // -------------------------------------------------------------------------
-  const activeConversation = useMemo(
-    () => conversations.find((c) => c.conversationId === activeConversationId),
-    [conversations, activeConversationId],
+  // Resolve the active row from either list cache, fetching the single row
+  // when an open background/scheduled thread is in neither — so the header,
+  // action menu, read-state, and SSE subscription have metadata without
+  // pulling the whole background backlog onto the initial-render path.
+  const activeConversation = useActiveConversation(
+    assistantId,
+    activeConversationId,
+    shouldRenderChat,
   );
   const isChannelReadonly = isChannelConversation(activeConversation);
 
@@ -519,33 +515,16 @@ export function ChatPage() {
     urlConversationId: urlConversationId ?? null,
     searchParams,
     navigate,
-    conversations,
+    activeConversation,
     conversationGroupsUI,
     refreshEpoch,
     reachabilityReadyEpoch,
     assistantIdRef,
-    draftConversationIdResolutionRef,
-    previousConversationIdRef,
     onboardingDraftConversationIdRef,
-    contextWindowUsageByConversationRef,
-    dismissedSurfaceIdsRef,
-    streamingMessageIdsRef,
-    pendingQueuedMessageIdsRef,
-    requestIdToMessageIdRef,
-    pendingLocalDeletionsRef,
-    confirmationToolCallMapRef,
-    autoGreetRef,
     conversationListInvalidatedTimerRef,
     pendingInitialMessageRef,
-    setMessages,
-    setTranscriptPagination: setTranscriptPagination as Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>,
-    setIsLoadingHistory,
-    setError,
-    setAutoGreetPending,
-    setContextWindowUsage,
-    setCompactionCircuitOpenUntil,
-    resetChatAttachments,
     shouldSuppressGenericChatErrorNotice,
+    resetChatAttachments,
   });
 
   // Keep initialPageOldestTsRef in sync with TQ pagination data — used by
@@ -575,15 +554,14 @@ export function ChatPage() {
   // Onboarding signal consumption
   // -------------------------------------------------------------------------
   // Consume the `?onboarding=1` signal left by `/onboarding/hatching` when
-  // it forwards the user after a successful hatch. Flipping `autoGreetRef`
-  // mirrors the existing auto-greet paths so the first assistant message
-  // fires once the chat history loads. The flag is stripped from the URL
-  // immediately so a page refresh doesn't re-trigger the greet.
+  // it forwards the user after a successful hatch. Owns the post-hatch
+  // draft conversation creation + redirect; the auto-greet gate itself
+  // is driven by `lifecycleService.expectingFirstMessage` (set by the
+  // hatching screens before they navigate). The flag is stripped from
+  // the URL immediately so a page refresh doesn't re-trigger the greet.
   useEffect(() => {
     if (searchParams.get("onboarding") !== "1") return;
-    autoGreetRef.current = true;
     setDidOnboarding(true);
-    setAutoGreetPending(true);
     const onboardingDraftConversationId =
       onboardingDraftConversationIdRef.current ?? createDraftConversationId();
     onboardingDraftConversationIdRef.current = onboardingDraftConversationId;
@@ -596,6 +574,7 @@ export function ChatPage() {
     void navigate(routes.conversation(onboardingDraftConversationId), { replace: true });
   }, [searchParams, navigate]);
 
+
   // -------------------------------------------------------------------------
   // Message reconciliation
   // -------------------------------------------------------------------------
@@ -604,7 +583,6 @@ export function ChatPage() {
     cancelReconciliation,
     reconcileActiveConversation,
   } = useMessageReconciliation({
-    setMessages,
     streamContextRef,
     streamEpochRef,
     initialPageOldestTsRef,
@@ -679,23 +657,12 @@ export function ChatPage() {
     streamEpochRef,
     streamContextRef,
     assistantIdRef,
-    setMessages,
-    messagesRef,
-    setError,
     streamRef,
     cancelReconciliation,
     startReconciliationLoop,
-    confirmationToolCallMapRef,
     setAssetsRefreshKey,
-    dismissedSurfaceIdsRef,
-    contextWindowUsageByConversationRef,
-    setContextWindowUsage,
     scheduleConversationListRefetch,
-    setCompactionCircuitOpenUntil,
     dispatchSyncChanged,
-    pendingQueuedMessageIdsRef,
-    requestIdToMessageIdRef,
-    pendingLocalDeletionsRef,
   });
 
   // -------------------------------------------------------------------------
@@ -715,26 +682,15 @@ export function ChatPage() {
     diskPressureChatBlockReason,
     messages,
     assistantIdRef,
-    messagesRef,
     streamRef,
     streamContextRef,
     streamEpochRef,
-    dismissedSurfaceIdsRef,
     pendingOnboardingContextRef,
     onboardingDraftConversationIdRef,
-    draftConversationIdResolutionRef,
-    previousConversationIdRef,
-    pendingQueuedMessageIdsRef,
-    requestIdToMessageIdRef,
-    pendingLocalDeletionsRef,
-    confirmationToolCallMapRef,
-    setMessages,
-    setError,
     setInput,
     startReconciliationLoop,
     cancelReconciliation,
     refreshConversations,
-
     navigate,
   });
 
@@ -775,26 +731,40 @@ export function ChatPage() {
     void sendMessage(message);
   }, [activeConversationId, assistantId, reachability.state.phase, sendMessage]);
 
-  // Clear the post-onboarding loading gate once the first message appears.
+  // Clear the post-hatch loading gate once the first message appears.
   useEffect(() => {
     if (!autoGreetPending) return;
-    if (messages.length > 0) {
-      setAutoGreetPending(false);
-    }
+    if (messages.length > 0) lifecycleService.clearExpectingFirstMessage();
   }, [autoGreetPending, messages.length]);
 
-  // The onboarding redirect remounts ChatPage after leaving
-  // `/assistant?onboarding=1`; a timeout armed on the first mount is cancelled
-  // during that remount. Arm the safety timer from the actual mounted page
-  // that is rendering the loading gate so a failed auto-send cannot strand
-  // the user on "Connecting..." until refresh.
+  // Safety timer: a failed auto-send / never-arriving greeting can't
+  // strand the user on "Connecting..." until refresh.
   useEffect(() => {
     if (!autoGreetPending) return;
-    const timeout = setTimeout(() => {
-      setAutoGreetPending(false);
-    }, 10_000);
+    const timeout = setTimeout(
+      () => lifecycleService.clearExpectingFirstMessage(),
+      10_000,
+    );
     return () => clearTimeout(timeout);
   }, [autoGreetPending]);
+
+  // Clear the gate when `activeConversationId` changes after first
+  // mount. Auto-greet isn't per-conversation state — it's a
+  // system-wide "we just hatched" signal that happens to surface in
+  // the chat UI, so it doesn't belong in the conversation-switch
+  // reset. Draft → real ID handoff also trips this, but by then
+  // the messages-arrived effect has already dismissed the gate (sending
+  // the first message is what resolves the draft), so the second
+  // dismiss is a no-op.
+  const lastSeenConvIdForGateRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (activeConversationId == null) return;
+    const previous = lastSeenConvIdForGateRef.current;
+    lastSeenConvIdForGateRef.current = activeConversationId;
+    if (previous != null && previous !== activeConversationId) {
+      lifecycleService.clearExpectingFirstMessage();
+    }
+  }, [activeConversationId]);
 
   // Derive onboardingTasksEmpty from the pending context in sessionStorage.
   // Runs once on mount — if initial message key is present, this is an
@@ -879,11 +849,7 @@ export function ChatPage() {
   // Interaction actions
   // -------------------------------------------------------------------------
   const interactionActions = useInteractionActions({
-    setMessages,
-    setError,
-    messagesRef,
     streamContextRef,
-    confirmationToolCallMapRef,
   });
 
   // -------------------------------------------------------------------------
@@ -896,7 +862,6 @@ export function ChatPage() {
     conversationExistsOnServer,
     streamRef,
     streamEpochRef,
-    reconcileAfterNextStreamOpenRef,
     streamContextRef,
     handleStreamEvent,
     reconcileActiveConversation,
@@ -905,7 +870,6 @@ export function ChatPage() {
     reachabilityProbe: reachability.probe,
     reachabilityPhase: reachability.state.phase,
     reachabilityReset: reachability.reset,
-    setError,
     syncRouterRef,
     conversationListInvalidatedTimerRef,
   });
@@ -915,9 +879,6 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   const refreshLatestMessages = useRefreshLatestMessages({
     assistantId,
-    messagesRef,
-    setMessages,
-    dismissedSurfaceIdsRef,
   });
 
   // Debug API — dev-facing surface for in-the-moment chat inspection.
@@ -930,7 +891,6 @@ export function ChatPage() {
   // asynchronously (from `window._vellumDebug.chat.thinkingIndicator()`),
   // by which point initialization is complete.
   useChatDebugApi({
-    messagesRef,
     sanitizedMessagesRef,
     transcriptItemsRef,
     transcriptRef,
@@ -987,7 +947,6 @@ export function ChatPage() {
     activeConversationId,
     activeConversation: activeConversation ?? null,
     assistantIdentityName: assistantName ?? undefined,
-    messagesRef,
     refreshConversations,
     switchConversation,
     setError,
@@ -1472,21 +1431,12 @@ export function ChatPage() {
     historyPagination: historyResult.pagination,
     refs: {
       inputRef,
-      messagesRef,
       sanitizedMessagesRef,
       transcriptItemsRef,
       assistantIdRef,
       streamContextRef,
-      expandedToolCallIdsRef,
-      dismissedSurfaceIdsRef,
-      contextWindowUsageByConversationRef,
       streamRef,
       streamEpochRef,
-      pendingQueuedMessageIdsRef,
-      requestIdToMessageIdRef,
-      pendingLocalDeletionsRef,
-      confirmationToolCallMapRef,
-      reconcileAfterNextStreamOpenRef,
       transcriptRef,
     },
     isChannelReadonly,

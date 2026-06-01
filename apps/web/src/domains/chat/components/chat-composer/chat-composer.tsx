@@ -27,8 +27,8 @@ import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { isPointerCoarse } from "@/utils/pointer";
-import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude";
-import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store";
+import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
+import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 
 import { EMOJI_MIN_FILTER_LENGTH, EMOJI_TRIGGER_RE, useEmojiSearch, type EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog";

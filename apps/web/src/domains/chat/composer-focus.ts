@@ -67,7 +67,10 @@ export function shouldFocusComposerForTyping(
   if (event.defaultPrevented) return false;
   if (event.metaKey || event.ctrlKey || event.altKey) return false;
   if (event.isComposing || event.keyCode === 229) return false;
-  if (event.key.length !== 1) return false;
+  // `event.key` is typed as `string` but synthetic / extension-dispatched
+  // KeyboardEvents observed in production have arrived with no `key`
+  // property at all. Guard before reading `.length`.
+  if (typeof event.key !== "string" || event.key.length !== 1) return false;
   if (isTextEntryElement(activeElement)) return false;
   if (event.key === " " && isKeyboardActivationElement(activeElement)) {
     return false;

@@ -77,6 +77,24 @@ describe("applyRuntimeInjections — workspace top-level context", () => {
     );
     expect((result[0].content[2] as { text: string }).text).toBe("Hello");
   });
+
+  test("app-backed active surface tells the model to load app-builder with the right argument", async () => {
+    const messages: Message[] = [userMsg("Edit this app")];
+    const { messages: result } = await applyRuntimeInjections(messages, {
+      activeSurface: {
+        surfaceId: "sf_1",
+        html: "<div>test</div>",
+        appId: "app-1",
+        appName: "Example App",
+        appFiles: [],
+      },
+      workspaceTopLevelContext: null,
+    });
+
+    const activeWorkspaceText = (result[0].content[0] as { text: string }).text;
+    expect(activeWorkspaceText).toContain('skill: "app-builder"');
+    expect(activeWorkspaceText).not.toContain('id: "app-builder"');
+  });
 });
 
 describe("applyRuntimeInjections — minimal mode skips workspace blocks", () => {

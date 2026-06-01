@@ -1,6 +1,6 @@
 import { redirect, type MiddlewareFunction } from "react-router";
 
-import { isLocalMode, hasAssistants } from "@/lib/local-mode";
+import { isLocalMode } from "@/lib/local-mode";
 import { readOnboardingCompleted } from "@/domains/onboarding/prefs";
 import { routes } from "@/utils/routes";
 
@@ -23,7 +23,7 @@ export const onboardingCompletedMiddleware: MiddlewareFunction = async (
     return next();
   }
 
-  if (readOnboardingCompleted() || (isLocalMode() && hasAssistants())) {
+  if (readOnboardingCompleted()) {
     throw redirect(routes.assistant);
   }
 

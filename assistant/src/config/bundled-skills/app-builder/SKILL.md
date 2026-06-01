@@ -135,13 +135,24 @@ assistant config get llm.activeProfile
 
 If the profile is already `quality-optimized`, skip the rest of this step and proceed to Step 1.
 
-**If the active profile is `balanced`, `cost-optimized`, or any non-quality profile, you MUST ask the user for permission before switching. Do NOT open an inference session without explicit user confirmation.** Use `assistant ui confirm`:
+**If the active profile is `balanced`, `cost-optimized`, or any non-quality profile, you MUST ask the user for permission before switching. Do NOT open an inference session without explicit user confirmation.** Use the `ui_show` tool to present an inline `confirmation` surface and wait for the action. Do not call the shell command `assistant ui confirm`; that CLI-mediated confirmation can block the build flow before the app work starts.
 
 ```
-assistant ui confirm --message "App building works best with a high-quality model — it makes better design decisions, writes cleaner components, and produces more visually polished results. Switch to the quality profile for this build? (You can switch back after.)"
+ui_show({
+  surface_type: "confirmation",
+  title: "Use quality model for this app?",
+  data: {
+    message: "The current model profile is `<profile>`. App building works best with `quality-optimized` because it makes better design decisions, writes cleaner components, and produces more visually polished results.",
+    detail: "Choose whether to switch for this build or keep the current profile and build now.",
+    confirmLabel: "Switch for this build",
+    cancelLabel: "Keep current profile"
+  },
+  display: "inline",
+  await_action: true
+})
 ```
 
-If `assistant ui confirm` isn't available on this binary, ask the user directly in conversation instead. **Either way, wait for the user's answer before proceeding.**
+If `ui_show` is unavailable or the current channel cannot render confirmation surfaces, ask the user directly in conversation as a fallback. Wait for the user's answer before proceeding.
 
 **Only if the user confirms**, open an inference session:
 

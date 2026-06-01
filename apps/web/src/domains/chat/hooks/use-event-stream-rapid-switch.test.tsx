@@ -35,7 +35,6 @@ function renderEventStreamWithCapture(
       observeKeyRef.current = key;
       const streamRef = useRef<ChatEventStream | null>(null);
       const streamEpochRef = useRef(0);
-      const reconcileAfterNextStreamOpenRef = useRef(false);
       const streamContextRef = useRef<StreamContext | null>(null);
       const syncRouterRef = useRef(null) as MutableRefObject<
         null
@@ -48,7 +47,6 @@ function renderEventStreamWithCapture(
         conversationExistsOnServer: true,
         streamRef,
         streamEpochRef,
-        reconcileAfterNextStreamOpenRef,
         streamContextRef,
         handleStreamEvent: (event, epoch) => {
           captured.push({
@@ -64,7 +62,6 @@ function renderEventStreamWithCapture(
         reachabilityProbe: () => {},
         reachabilityPhase: "ready",
         reachabilityReset: () => {},
-        setError: () => {},
         syncRouterRef,
         conversationListInvalidatedTimerRef: timerRef,
       });

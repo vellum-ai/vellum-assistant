@@ -63,9 +63,6 @@ export interface LatestTurnRowProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
-  /** Id of the live, not-yet-finalized assistant row of the active turn,
-   *  or `null` when nothing is streaming. */
-  liveAssistantRowId?: string | null;
 }
 
 export const LatestTurnRow = memo(function LatestTurnRow({
@@ -96,7 +93,6 @@ export const LatestTurnRow = memo(function LatestTurnRow({
   assistantId,
   onSubagentClick,
   onStopSubagent,
-  liveAssistantRowId,
 }: LatestTurnRowProps) {
   return (
     <div className="flex flex-col" data-latest-turn="true">
@@ -127,7 +123,6 @@ export const LatestTurnRow = memo(function LatestTurnRow({
         assistantId={assistantId}
         onSubagentClick={onSubagentClick}
         onStopSubagent={onStopSubagent}
-        liveAssistantRowId={liveAssistantRowId}
       />
       {responseItems.map((response) => (
         <Fragment key={response.key}>
@@ -158,7 +153,6 @@ export const LatestTurnRow = memo(function LatestTurnRow({
             assistantId={assistantId}
             onSubagentClick={onSubagentClick}
             onStopSubagent={onStopSubagent}
-            liveAssistantRowId={liveAssistantRowId}
           />
         </Fragment>
       ))}

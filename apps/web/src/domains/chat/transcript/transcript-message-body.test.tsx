@@ -7,8 +7,19 @@ mock.module("@/domains/chat/components/chat-attachments/message-attachments", ()
 }));
 
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
-  ChatMarkdownMessage: ({ content }: { content: string }) => (
-    <div data-testid="markdown">{content}</div>
+  ChatMarkdownMessage: ({
+    content,
+    hardLineBreaks,
+  }: {
+    content: string;
+    hardLineBreaks?: boolean;
+  }) => (
+    <div
+      data-testid="markdown"
+      data-hard-line-breaks={hardLineBreaks ? "true" : "false"}
+    >
+      {content}
+    </div>
   ),
 }));
 
@@ -71,6 +82,28 @@ function renderMessage(
 }
 
 describe("TranscriptMessageBody", () => {
+  test("enables hard line breaks for assistant messages (JARVIS-1007)", () => {
+    const html = renderMessage({
+      id: "m1",
+      role: "assistant",
+      ...textBody("line one\nline two"),
+      timestamp: 1_000,
+    });
+
+    expect(html).toContain('data-hard-line-breaks="true"');
+  });
+
+  test("enables hard line breaks for user messages too", () => {
+    const html = renderMessage({
+      id: "m1",
+      role: "user",
+      ...textBody("line one\nline two"),
+      timestamp: 1_000,
+    });
+
+    expect(html).toContain('data-hard-line-breaks="true"');
+  });
+
   test("uses the latest tool completion as the message activity timestamp", () => {
     const html = renderMessage({
       id: "m1",
@@ -261,7 +294,34 @@ describe("TranscriptMessageBody", () => {
     expect(inspectedIds).toEqual(["message-1"]);
   });
 
-  test("auto-expands the latest interleaved tool-call group while the row is streaming", () => {
+  test("auto-expands the latest interleaved tool-call group while a tool is running", () => {
+    const { getByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          contentOrder: [{ type: "tool", id: "tc-1" }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "running",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
+    ).toBe("true");
+  });
+
+  test("does not auto-expand a latest interleaved tool-call group whose tools have all completed", () => {
     const { getByTestId } = render(
       <TranscriptMessageBody
         message={{
@@ -278,7 +338,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isStreaming
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -287,7 +346,7 @@ describe("TranscriptMessageBody", () => {
 
     expect(
       getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("true");
+    ).toBe("false");
   });
 
   test("collapses an interleaved tool-call group once response text follows", () => {
@@ -310,7 +369,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isStreaming
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -349,7 +407,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isStreaming
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -635,7 +692,7 @@ describe("TranscriptMessageBody", () => {
     ).not.toBeNull();
   });
 
-  test("auto-expands legacy tool-only streaming messages until content appears", () => {
+  test("auto-expands legacy tool-only messages while a tool runs, until content appears", () => {
     const { getByTestId, rerender } = render(
       <TranscriptMessageBody
         message={{
@@ -647,11 +704,10 @@ describe("TranscriptMessageBody", () => {
               id: "tc-1",
               toolName: "bash",
               input: {},
-              status: "completed",
+              status: "running",
             },
           ],
         }}
-        isStreaming
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -676,7 +732,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isStreaming
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}

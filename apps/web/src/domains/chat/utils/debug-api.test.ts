@@ -24,6 +24,7 @@ import {
   type TurnState,
 } from "@/domains/chat/turn-store";
 import type { UIContext } from "@/domains/chat/turn-selectors";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
 import { textBody } from "@/domains/chat/utils/message-test-helpers";
@@ -98,7 +99,6 @@ function makeRefs(
     ...(pendingInteractions ?? {}),
   };
   return {
-    messagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
     sanitizedMessagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
     transcriptItemsRef: { current: [] } as MutableRefObject<TranscriptItem[]>,
     transcriptRef: { current: null as TranscriptHandle | null },
@@ -198,15 +198,13 @@ describe("createChatDebugApi.getClientMessages", () => {
     expect(api.getClientMessages(Infinity)).toHaveLength(20);
   });
 
-  test("reads from sanitizedMessagesRef, NOT raw messagesRef", () => {
+  test("reads from sanitizedMessagesRef, NOT store messages", () => {
     // getClientMessages() is logic-free — it surfaces whatever the render path
-    // already wrote to `sanitizedMessagesRef`. Raw `messagesRef` is
+    // already wrote to `sanitizedMessagesRef`. Store `messages` is
     // intentionally ignored so DevTools always mirrors the UI.
-    const rawOnly = fakeDisplayMessage({ id: "raw-only" });
     const sanitizedOnly = fakeDisplayMessage({ id: "sanitized-only" });
     const api = createChatDebugApi(
       makeRefs({
-        messagesRef: { current: [rawOnly] } as MutableRefObject<DisplayMessage[]>,
         sanitizedMessagesRef: {
           current: [sanitizedOnly],
         } as MutableRefObject<DisplayMessage[]>,
@@ -947,12 +945,9 @@ describe("createChatDebugApi.getScrollState", () => {
     });
     // Non-empty conversation so classifyScrollPosition treats the
     // near-top position as load-older-eligible.
-    const messagesRef = {
-      current: [fakeDisplayMessage()],
-    } as MutableRefObject<DisplayMessage[]>;
+    useChatSessionStore.setState({ messages: [fakeDisplayMessage()] });
     const api = createChatDebugApi(
       makeRefs({
-        messagesRef,
         transcriptRef: { current: makeTranscriptHandle(el) },
         getScrollPagination: () => ({ hasMore: true, isLoadingOlder: false }),
       }),
@@ -1001,22 +996,21 @@ describe("createChatDebugApi.getScrollState", () => {
     expect(state.diagnosis).toContain("Already loading older");
   });
 
-  test("itemCount comes from messagesRef on the base API", () => {
+  test("itemCount comes from chat session store messages", () => {
     const el = makeScrollElement({
       scrollTop: 500,
       scrollHeight: 1000,
       clientHeight: 100,
     });
-    const messagesRef = {
-      current: [
+    useChatSessionStore.setState({
+      messages: [
         fakeDisplayMessage({ id: "a" }),
         fakeDisplayMessage({ id: "b" }),
         fakeDisplayMessage({ id: "c" }),
       ],
-    } as MutableRefObject<DisplayMessage[]>;
+    });
     const api = createChatDebugApi(
       makeRefs({
-        messagesRef,
         transcriptRef: { current: makeTranscriptHandle(el) },
         getScrollPagination: () => ({ hasMore: true, isLoadingOlder: false }),
       }),

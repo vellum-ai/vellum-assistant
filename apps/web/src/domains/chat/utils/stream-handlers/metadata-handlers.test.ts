@@ -32,7 +32,7 @@ describe("handleUsageUpdate", () => {
     );
     expect(ctx.setContextWindowUsage).toHaveBeenCalled();
     expect(
-      ctx.contextWindowUsageByConversationRef.current.get("conv-1"),
+      ctx.contextWindowUsageByConversation.get("conv-1"),
     ).toEqual({
       tokens: 5000,
       maxTokens: 10000,
@@ -50,7 +50,7 @@ describe("handleUsageUpdate", () => {
     const ctx = makeCtx();
     handleUsageUpdate({ ...baseUsage, contextWindowTokens: 5000 }, ctx);
     expect(
-      ctx.contextWindowUsageByConversationRef.current.get("conv-1"),
+      ctx.contextWindowUsageByConversation.get("conv-1"),
     ).toEqual({
       tokens: 5000,
       maxTokens: null,
@@ -69,7 +69,7 @@ describe("handleUsageUpdate", () => {
       ctx,
     );
     expect(
-      ctx.contextWindowUsageByConversationRef.current.get("conv-1")?.fillRatio,
+      ctx.contextWindowUsageByConversation.get("conv-1")?.fillRatio,
     ).toBe(1);
   });
 });

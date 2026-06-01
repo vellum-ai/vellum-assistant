@@ -14,6 +14,7 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type {
   AgentEvent,
   AgentLoopRunOptions,
@@ -320,9 +321,6 @@ mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
       consecutiveSameRoleMerged: 0,
     },
   }),
-}));
-
-mock.module("../daemon/history-repair.js", () => ({
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
 }));
 
@@ -611,6 +609,7 @@ function makeCtx(
       // undefined is fine — the estimator falls back to the per-provider
       // aggregate key.
       getActiveModel: () => undefined,
+      compactionCircuit: new CompactionCircuit("test-conv"),
     } as unknown as AgentLoopConversationContext["agentLoop"],
     provider: {
       name: "mock-provider",

@@ -30,6 +30,7 @@ import {
 import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope";
 import { resolveEditChatDraftConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
@@ -37,11 +38,11 @@ import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
-  findConversation,
   prependConversation,
   removeConversation,
   resolveDraftKey,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
+import { findConversation } from "@/utils/conversation-cache";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import {
   consumePendingPreChatContext,
@@ -117,29 +118,20 @@ interface UseSendMessageParams {
   diskPressureChatBlockReason: DiskPressureChatBlockReason | null;
   messages: DisplayMessage[];
 
-  // Refs
+  // Infrastructure refs (not per-conversation state)
   assistantIdRef: MutableRefObject<string | null>;
-
-  messagesRef: MutableRefObject<DisplayMessage[]>;
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamContextRef: MutableRefObject<{
     assistantId: string;
     conversationId: string;
   } | null>;
   streamEpochRef: MutableRefObject<number>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
+
+  // Onboarding refs (ChatPage-local, not per-conversation)
   pendingOnboardingContextRef: MutableRefObject<PreChatOnboardingContext | null>;
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
-  draftConversationIdResolutionRef: MutableRefObject<boolean>;
-  previousConversationIdRef: MutableRefObject<string | null>;
-  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
-  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
-  pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
-  confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
 
-  // State setters
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  setError: Dispatch<SetStateAction<ChatError | null>>;
+  // State setters (non-store)
   setInput: Dispatch<SetStateAction<string>>;
 
   // Callbacks
@@ -161,21 +153,11 @@ export function useSendMessage({
   diskPressureChatBlockReason,
   messages,
   assistantIdRef,
-  messagesRef,
   streamRef,
   streamContextRef,
   streamEpochRef,
-  dismissedSurfaceIdsRef,
   pendingOnboardingContextRef,
   onboardingDraftConversationIdRef,
-  draftConversationIdResolutionRef,
-  previousConversationIdRef,
-  pendingQueuedMessageIdsRef,
-  requestIdToMessageIdRef,
-  pendingLocalDeletionsRef,
-  confirmationToolCallMapRef,
-  setMessages,
-  setError,
   setInput,
   startReconciliationLoop,
   cancelReconciliation,
@@ -183,6 +165,8 @@ export function useSendMessage({
   navigate,
 }: UseSendMessageParams) {
   const queryClient = useQueryClient();
+  const setMessages = useChatSessionStore.use.setMessages();
+  const setError = useChatSessionStore.use.setError();
 
   // -------------------------------------------------------------------------
   // Server-mint in-flight gate
@@ -216,10 +200,6 @@ export function useSendMessage({
     assistantId,
     activeConversationId,
     messages,
-    pendingQueuedMessageIdsRef,
-    requestIdToMessageIdRef,
-    pendingLocalDeletionsRef,
-    setMessages,
     setInput,
   });
 
@@ -233,15 +213,16 @@ export function useSendMessage({
    */
   const persistDismissedSurfaces = useCallback(
     (dismissedIds: Set<string>) => {
+      const store = useChatSessionStore.getState();
       for (const id of dismissedIds) {
-        dismissedSurfaceIdsRef.current.add(id);
+        store.dismissedSurfaceIds.add(id);
       }
       const streamCtx = streamContextRef.current;
       if (streamCtx) {
         saveDismissedSurfaceIds(
           streamCtx.assistantId,
           streamCtx.conversationId,
-          dismissedSurfaceIdsRef.current,
+          store.dismissedSurfaceIds,
         );
       }
     },
@@ -463,7 +444,7 @@ export function useSendMessage({
               const result = attachConfirmationToToolCall(prev, capturedConfData);
               if (result.attachedToolCallId) {
                 useInteractionStore.getState().setInlineConfirmationToolCallId(result.attachedToolCallId);
-                confirmationToolCallMapRef.current.set(capturedConfData.requestId, result.attachedToolCallId);
+                useChatSessionStore.getState().confirmationToolCallMap.set(capturedConfData.requestId, result.attachedToolCallId);
               } else {
                 useInteractionStore.getState().setInlineConfirmationToolCallId(null);
               }
@@ -526,12 +507,12 @@ export function useSendMessage({
       }
       setError(null);
       useInteractionStore.getState().resetSecretAndConfirmation();
-      confirmationToolCallMapRef.current.clear();
+      useChatSessionStore.getState().confirmationToolCallMap.clear();
       // Clear pending confirmations and dismiss interactive surfaces in a
       // single functional updater so the two transforms compose correctly
       // within React 18's batched state updates. Side effects (ref mutation,
       // localStorage persist) are kept outside the updater to stay pure.
-      const messagesForScan = messagesRef.current;
+      const messagesForScan = useChatSessionStore.getState().messages;
       setMessages((prev) => {
         const cleared = clearPendingConfirmationsFromMessages(prev);
         const { updatedMessages, dismissedIds } =
@@ -541,7 +522,7 @@ export function useSendMessage({
 
       // Persist dismissed surfaces outside the updater (side effect).
       const { dismissedIds } = dismissInteractiveSurfaces(
-        messagesRef.current,
+        useChatSessionStore.getState().messages,
         messagesForScan,
       );
       if (dismissedIds.size > 0) {
@@ -566,7 +547,7 @@ export function useSendMessage({
       // Queue path: POST to assistant (it queues internally) but don't
       // disrupt the active turn.
       if (willQueue) {
-        pendingQueuedMessageIdsRef.current.push(userMessage.id);
+        useChatSessionStore.getState().pendingQueuedMessageIds.push(userMessage.id);
         const attachmentIds = attachments.map((att) => att.id);
         try {
           const postResult = await postChatMessage(
@@ -590,10 +571,9 @@ export function useSendMessage({
             // between the client-side isSending check and the POST
             // arriving). Clear the optimistic queue status and let the
             // existing SSE stream deliver the response.
-            pendingQueuedMessageIdsRef.current =
-              pendingQueuedMessageIdsRef.current.filter(
-                (id) => id !== userMessage.id,
-              );
+            const queueIds = useChatSessionStore.getState().pendingQueuedMessageIds;
+            const idx = queueIds.indexOf(userMessage.id);
+            if (idx !== -1) queueIds.splice(idx, 1);
             setMessages((prev) =>
               clearQueueStatus(prev, userMessage.id),
             );
@@ -616,7 +596,7 @@ export function useSendMessage({
             return;
           }
           if (postResult.requestId) {
-            requestIdToMessageIdRef.current.set(postResult.requestId, userMessage.id);
+            useChatSessionStore.getState().requestIdToMessageId.set(postResult.requestId, userMessage.id);
           }
         } catch {
           revertQueuedMessage(userMessage.id);
@@ -720,8 +700,8 @@ export function useSendMessage({
 
           // Only update active view state if the user is still on this conversation.
           if (useConversationStore.getState().activeConversationId === activeConversationId) {
-            draftConversationIdResolutionRef.current = true;
-            previousConversationIdRef.current = newConversationId;
+            useChatSessionStore.getState().markDraftResolution();
+            useChatSessionStore.setState({ previousConversationId: newConversationId });
             useConversationStore.getState().setActiveConversationId(newConversationId);
             void navigate(routes.conversation(newConversationId), { replace: true });
           }
@@ -770,7 +750,7 @@ export function useSendMessage({
     setMessages(clearPendingConfirmationsFromMessages);
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
-    confirmationToolCallMapRef.current.clear();
+    useChatSessionStore.getState().confirmationToolCallMap.clear();
     try {
       await conversationsByIdCancelPost({
         path: { assistant_id: assistantId, id: activeConversationId },

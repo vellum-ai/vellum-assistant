@@ -1,6 +1,10 @@
 import { beforeEach, describe, it, expect } from "bun:test";
 
-import { useViewerStore, type ToolDetailPayload } from "@/stores/viewer-store";
+import {
+  isAppNotFoundError,
+  useViewerStore,
+  type ToolDetailPayload,
+} from "@/stores/viewer-store";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -369,5 +373,78 @@ describe("reset", () => {
     expect(state.mainView).toBe("chat");
     expect(state.activeAppId).toBeNull();
     expect(state.openedAppState).toBeNull();
+  });
+});
+
+describe("isAppNotFoundError", () => {
+  // These tests lock in the contract: we match the daemon's `{ error: { code,
+  // message } }` envelope shape that `httpError(...)` produces and that
+  // HeyAPI's `throwOnError: true` throws verbatim. If a future HeyAPI upgrade
+  // wraps errors differently (e.g., on a `.data` property of an Error
+  // subclass), the matchers below stay correct for the documented contract
+  // — production behavior would silently revert to capturing NOT_FOUND noise
+  // in Sentry. The Sentry reopen is the signal to come back here.
+
+  it("matches the daemon's nested envelope shape with the appId-suffixed message", () => {
+    expect(
+      isAppNotFoundError({
+        error: { code: "NOT_FOUND", message: "App not found: abc-123" },
+      }),
+    ).toBe(true);
+  });
+
+  it("matches the bare `App not found` message variant", () => {
+    expect(
+      isAppNotFoundError({
+        error: { code: "NOT_FOUND", message: "App not found" },
+      }),
+    ).toBe(true);
+  });
+
+  it("does NOT match a generic route-mismatch 404 (would silently swallow routing regressions)", () => {
+    // The daemon's catch-all returns this for unmatched / version-skewed
+    // routes. Those are real telemetry — keep them visible in Sentry.
+    expect(
+      isAppNotFoundError({
+        error: { code: "NOT_FOUND", message: "Not found" },
+      }),
+    ).toBe(false);
+  });
+
+  it("does NOT match a flat top-level shape (the wrong assumption the first revision made)", () => {
+    expect(isAppNotFoundError({ code: "NOT_FOUND" })).toBe(false);
+  });
+
+  it("does NOT match other error codes in the envelope", () => {
+    expect(isAppNotFoundError({ error: { code: "FORBIDDEN" } })).toBe(false);
+    expect(isAppNotFoundError({ error: { code: "INTERNAL_ERROR" } })).toBe(
+      false,
+    );
+  });
+
+  it("does NOT match an envelope with no inner object", () => {
+    expect(isAppNotFoundError({ error: "NOT_FOUND" })).toBe(false);
+    expect(isAppNotFoundError({ error: null })).toBe(false);
+    expect(isAppNotFoundError({ error: undefined })).toBe(false);
+  });
+
+  it("does NOT match non-object catch values", () => {
+    expect(isAppNotFoundError(null)).toBe(false);
+    expect(isAppNotFoundError(undefined)).toBe(false);
+    expect(isAppNotFoundError("NOT_FOUND")).toBe(false);
+    expect(isAppNotFoundError(404)).toBe(false);
+  });
+
+  it("does NOT match an Error instance carrying the body on `.data` (would catch a HeyAPI shape change)", () => {
+    // If HeyAPI upgrades to wrap the body in an Error subclass with the body
+    // on `.data`, the helper would silently stop matching real NOT_FOUNDs.
+    // This test pins that current behavior so the regression is obvious if
+    // someone changes the helper without updating the docstring's stated
+    // assumption.
+    const wrapped = new Error("App not found");
+    (wrapped as Error & { data?: unknown }).data = {
+      error: { code: "NOT_FOUND" },
+    };
+    expect(isAppNotFoundError(wrapped)).toBe(false);
   });
 });
