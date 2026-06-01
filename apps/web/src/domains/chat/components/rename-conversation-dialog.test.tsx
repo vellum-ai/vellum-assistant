@@ -17,7 +17,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import { RenameConversationDialog } from "@/domains/conversations/rename-conversation-dialog.js";
+import { RenameConversationDialog } from "@/domains/chat/components/rename-conversation-dialog.js";
 
 afterEach(() => {
   cleanup();

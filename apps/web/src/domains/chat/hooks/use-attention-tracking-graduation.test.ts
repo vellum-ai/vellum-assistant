@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { decideGraduationDispatches } from "@/domains/conversations/use-attention-tracking";
+import { decideGraduationDispatches } from "@/domains/chat/hooks/use-attention-tracking";
 
 // ---------------------------------------------------------------------------
 // Tests for the graduation-decision helper used by `useAttentionTracking`.
