@@ -65,9 +65,12 @@ context provider mounted in `<App />`.
 
 `ChatLayout` owns a shared `ChatLayoutHeader` that renders on every
 child route (home, chat, library, identity, etc.). Child routes
-populate the header's center and right sections via the
-`useChatLayoutSlotsStore` setters. Register content in a `useEffect`
-and clear it on unmount:
+populate the header via `useChatLayoutSlotsStore`. The store exposes
+two categories of slots:
+
+**Display slots** (`topBarCenter`, `topBarRightSlot`) — accept
+`ReactNode` for simple route titles and right-side controls. Register
+in a `useEffect` and clear on unmount:
 
 ```ts
 const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
@@ -76,6 +79,14 @@ useEffect(() => {
   return () => { setTopBarCenter(null); };
 }, [setTopBarCenter]);
 ```
+
+**Data slots** (`headerSupplements`) — `ChatPage` contributes
+structured data (`ChatHeaderSupplements`) that `ChatLayout` renders
+directly. This keeps conversation-action callbacks in `ChatLayout`
+(which owns `useConversationActions`) instead of duplicating them in
+`ChatPage`. The supplements carry only the few ChatPage-specific values
+the header menu needs (fork, analyze, inspect callbacks, slack label,
+`hasPersistedMessage`).
 
 A Zustand store rather than outlet context because `ActiveAssistantGate`
 sits between `ChatLayout` and gated routes — outlet context value

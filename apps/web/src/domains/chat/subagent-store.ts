@@ -15,8 +15,8 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 import type { SubagentStatus, SubagentInnerEvent } from "@vellumai/assistant-api";
 import { isActiveStatus } from "@/utils/subagent-status";
-import { fetchSubagentDetail } from "@/utils/fetch-subagent-detail";
-import { mapDetailEvents } from "@/domains/chat/map-detail-events";
+import { fetchSubagentDetail } from "./fetch-subagent-detail";
+import { mapDetailEvents } from "./map-detail-events";
 
 // ---------------------------------------------------------------------------
 // State
@@ -573,11 +573,15 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     set({ fetchedAt: nextFetchedAt });
 
     const detail = await fetchSubagentDetail(assistantId, subagentId, entry.conversationId);
+
+    const clearMarker = () => {
+      const next = new Map(get().fetchedAt);
+      next.delete(subagentId);
+      set({ fetchedAt: next });
+    };
+
     if (!detail) {
-      // Clear the marker so a subsequent open/remount can retry.
-      const rollback = new Map(get().fetchedAt);
-      rollback.delete(subagentId);
-      set({ fetchedAt: rollback });
+      clearMarker();
       return;
     }
 
@@ -593,12 +597,9 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
       events,
     });
 
-    // If the detail had no usable events, clear the marker so the panel
-    // can retry once the subagent has produced events on the server.
+    // Allow retry once the subagent has produced events on the server.
     if (events.length === 0) {
-      const rollback = new Map(get().fetchedAt);
-      rollback.delete(subagentId);
-      set({ fetchedAt: rollback });
+      clearMarker();
     }
   },
 
