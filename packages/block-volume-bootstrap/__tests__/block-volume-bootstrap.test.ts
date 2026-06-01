@@ -88,6 +88,38 @@ describe("block volume bootstrap scripts", () => {
     );
   });
 
+  test("mount helper rejects uid-only privilege drops", () => {
+    const result = runScript(mountScript, {
+      args: ["--", "true"],
+      env: {
+        VELLUM_BLOCK_BIND_SPECS: "ces-data:/ces-data:rw",
+        VELLUM_BLOCK_EXEC_UID: "1001",
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "VELLUM_BLOCK_EXEC_UID and VELLUM_BLOCK_EXEC_GID must be set together",
+    );
+    expect(result.stderr).not.toContain("wait for block device");
+  });
+
+  test("mount helper rejects gid-only privilege drops", () => {
+    const result = runScript(mountScript, {
+      args: ["--", "true"],
+      env: {
+        VELLUM_BLOCK_BIND_SPECS: "ces-data:/ces-data:rw",
+        VELLUM_BLOCK_EXEC_GID: "1001",
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "VELLUM_BLOCK_EXEC_UID and VELLUM_BLOCK_EXEC_GID must be set together",
+    );
+    expect(result.stderr).not.toContain("wait for block device");
+  });
+
   test("mount helper rejects invalid bind specs", () => {
     const result = runScript(mountScript, {
       args: ["--", "true"],
@@ -109,6 +141,8 @@ describe("block volume bootstrap scripts", () => {
     expect(result.stderr).toContain("DRY-RUN: mount /dev/test-block /mnt/test-root");
     expect(result.stderr).toContain("DRY-RUN: mkdir -p /mnt/test-root/assistant-data");
     expect(result.stderr).toContain("DRY-RUN: chown 1001:1001 /mnt/test-root/workspace");
+    expect(result.stderr).not.toContain("/mnt/test-root/gateway-security");
+    expect(result.stderr).not.toContain("/mnt/test-root/ces-security");
     expect(result.stderr).toContain("DRY-RUN: chown 0:0 /mnt/test-root/dockerd-data");
   });
 

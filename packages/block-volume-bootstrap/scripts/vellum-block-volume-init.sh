@@ -43,7 +43,5 @@ block_mount_root
 
 block_prepare_top_level_dir "assistant-data" "1001:1001"
 block_prepare_top_level_dir "workspace" "1001:1001"
-block_prepare_top_level_dir "gateway-security" "1001:1001"
 block_prepare_top_level_dir "ces-data" "1001:1001"
-block_prepare_top_level_dir "ces-security" "1001:1001"
 block_prepare_top_level_dir "dockerd-data" "0:0"
