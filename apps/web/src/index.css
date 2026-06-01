@@ -60,27 +60,31 @@ body {
   animation: busy-pulse 1s ease-in-out infinite;
 }
 
-/* Avatar progress badge — gradient variant. A glistening highlight band
-   sweeps left to right across a pill tinted with --primary-base, echoing
-   the "working" shimmer used elsewhere. background-position decreases so
-   the highlight travels left → right (a larger position aligns the
-   highlight with the right edge). */
-@keyframes progress-badge-shimmer {
-  0% { background-position: 150% 0; }
-  100% { background-position: -50% 0; }
+/* Avatar progress — gradient variant. A translucent highlight band sweeps
+   diagonally across the whole avatar (clipped to its circular frame) as a
+   "glistening" loading state, echoing the "working" shimmer used elsewhere.
+   The band is taller than the avatar and tilted so the leading/trailing edges
+   never reveal a gap as it travels left → right. */
+@keyframes avatar-glisten-sweep {
+  0% { transform: translateX(-220%) rotate(12deg); }
+  100% { transform: translateX(220%) rotate(12deg); }
 }
 
-.progress-badge-shimmer {
+.avatar-glisten::before {
+  content: "";
+  position: absolute;
+  top: -30%;
+  bottom: -30%;
+  left: 0;
+  width: 45%;
   background-image: linear-gradient(
     90deg,
-    var(--primary-base) 0%,
-    var(--primary-base) 35%,
-    color-mix(in srgb, var(--primary-base) 35%, #fff) 50%,
-    var(--primary-base) 65%,
-    var(--primary-base) 100%
+    transparent 0%,
+    color-mix(in srgb, #fff 75%, transparent) 50%,
+    transparent 100%
   );
-  background-size: 200% 100%;
-  animation: progress-badge-shimmer 1.2s linear infinite;
+  transform: translateX(-220%) rotate(12deg);
+  animation: avatar-glisten-sweep 1.6s ease-in-out infinite;
 }
 
 /* Onboarding hatching avatar pulse. Mirrors the macOS HatchingStepView
@@ -243,9 +247,9 @@ body {
     animation: none !important;
     opacity: 0.7 !important;
   }
-  .progress-badge-shimmer {
+  .avatar-glisten::before {
     animation: none;
-    background-position: 50% 0;
-    opacity: 0.6;
+    transform: translateX(0) rotate(12deg);
+    opacity: 0.5;
   }
 }
