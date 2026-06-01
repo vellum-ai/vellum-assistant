@@ -116,4 +116,19 @@ describe("vellum:localMode:hatch handler", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("ENOENT");
   });
+
+  test("a zero exit whose stdout has no parseable id fails instead of returning a blank id", async () => {
+    const pending = hatch("vellum");
+    lastChild.stdout.emit("data", Buffer.from("done, but no id line\n"));
+    lastChild.emit("close", 0);
+
+    const result = (await pending) as {
+      ok: boolean;
+      assistantId?: string;
+      error: string;
+    };
+    expect(result.ok).toBe(false);
+    expect(result.assistantId).toBeUndefined();
+    expect(result.error).toContain("no assistant id");
+  });
 });
