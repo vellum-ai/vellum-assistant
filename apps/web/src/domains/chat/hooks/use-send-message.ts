@@ -37,11 +37,11 @@ import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
-  findConversation,
   prependConversation,
   removeConversation,
   resolveDraftKey,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
+import { findConversation } from "@/utils/conversation-cache";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import {
   consumePendingPreChatContext,

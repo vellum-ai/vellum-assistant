@@ -72,7 +72,7 @@ mock.module("@sentry/react", () => ({
 }));
 
 const { useConversationActions } = await import(
-  "@/domains/conversations/use-conversation-actions"
+  "@/domains/chat/hooks/use-conversation-actions"
 );
 
 // ---------------------------------------------------------------------------

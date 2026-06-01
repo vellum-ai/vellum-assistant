@@ -5,17 +5,17 @@ import { QueryClient } from "@tanstack/react-query";
 import {
   appendGroup,
   conversationGroupsQueryKey,
-  conversationsQueryKey,
   deleteGroupAndResetConversations,
   markConversationSeenLocal,
-  patchConversation,
   patchGroup,
   prependConversation,
   removeConversation,
   removeGroup,
   replaceOptimisticGroup,
   resolveDraftKey,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
+import { conversationsQueryKey } from "@/lib/sync/query-tags";
+import { patchConversation } from "@/utils/conversation-cache";
 import type {
   Conversation,
   ConversationGroup,

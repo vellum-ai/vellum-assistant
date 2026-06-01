@@ -508,7 +508,6 @@ export interface AgentLoopConversationContext {
   onConfirmationOutcome?: (
     requestId: string,
     state: string,
-    toolName?: string,
     toolUseId?: string,
   ) => void;
 
@@ -1178,12 +1177,7 @@ export async function runAgentLoopImpl(
 
     // Register confirmation outcome tracker so the agent loop can link
     // confirmation decisions to tool_use_ids for persistence.
-    ctx.onConfirmationOutcome = (
-      requestId,
-      confirmationState,
-      toolName,
-      toolUseId,
-    ) => {
+    ctx.onConfirmationOutcome = (requestId, confirmationState, toolUseId) => {
       if (confirmationState === "pending") {
         // Use the toolUseId passed from the prompter (which knows which tool
         // requested confirmation) instead of the ambient state.currentToolUseId,
@@ -1200,7 +1194,7 @@ export async function runAgentLoopImpl(
         const resolvedId =
           state.requestIdToToolUseId.get(requestId) ?? toolUseId;
         if (resolvedId) {
-          const name = state.toolUseIdToName.get(resolvedId) ?? toolName ?? "";
+          const name = state.toolUseIdToName.get(resolvedId) ?? "";
           // Build a friendly label from the tool name
           const label =
             TOOL_FRIENDLY_LABEL[name] ??

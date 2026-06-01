@@ -13,9 +13,9 @@ import { Button, cn } from "@vellum/design-library";
 import {
   postSttTranscribe,
   type SttFailureReason,
-} from "@/domains/voice/stt-api";
+} from "@/domains/chat/voice/stt-api";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store";
+import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 
 // ---------------------------------------------------------------------------
 // MIME type selection

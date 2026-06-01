@@ -1,5 +1,5 @@
 /**
- * TanStack Query hooks and cache helpers for the conversations domain.
+ * TanStack Query hooks and cache helpers for conversations.
  *
  * Conversations and conversation groups are server-derived data and live
  * in TanStack Query per `apps/web/docs/STATE_MANAGEMENT.md`. The
@@ -50,38 +50,17 @@ import {
   extractErrorMessage,
 } from "@/utils/api-errors";
 import {
-  ARCHIVED_CONVERSATIONS_QUERY_KEY,
-  CONVERSATIONS_QUERY_KEY,
   archivedConversationsQueryKey,
   conversationsQueryKey,
 } from "@/lib/sync/query-tags";
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
-import {
-  findConversation,
-  getConversations,
-  patchConversation,
-  updateConversationsCache,
-} from "@/utils/conversation-cache";
+import { updateConversationsCache } from "@/utils/conversation-cache";
 
 import {
   CONVERSATION_NOT_FOUND,
   fetchConversationDetail,
-  type FetchConversationDetailResult,
-} from "./fetch-conversation-detail";
-import { toConversation } from "./conversation-transforms";
-
-export { CONVERSATION_NOT_FOUND, type FetchConversationDetailResult };
-
-// ---------------------------------------------------------------------------
-// Query keys
-// ---------------------------------------------------------------------------
-
-export {
-  ARCHIVED_CONVERSATIONS_QUERY_KEY,
-  CONVERSATIONS_QUERY_KEY,
-  archivedConversationsQueryKey,
-  conversationsQueryKey,
-};
+} from "@/utils/fetch-conversation-detail";
+import { toConversation } from "@/utils/conversation-transforms";
 
 /**
  * Build the generated query key for conversation groups. Exported so that
@@ -151,25 +130,27 @@ async function fetchConversationList(
 }
 
 /**
- * Fetch all active (non-archived) conversations — foreground + background —
- * for a given assistant. Both buckets are fetched in parallel and merged so
- * the sidebar can display every conversation type. Returns sorted
- * newest-first.
- *
- * Archived conversations are filtered out on the daemon (the
- * `archiveStatus` query param defaults to `"active"`), so the sidebar no
- * longer paginates past stale archived rows. The Archive page reads from
- * `listArchivedConversations` instead.
+ * Fetch all conversations (foreground + background) for an assistant,
+ * filtered by archive status. Both conversation-type buckets are fetched
+ * in parallel, deduplicated by `conversationId`, and sorted.
  *
  * The background fetch is best-effort: if it fails the foreground list is
- * still returned so the sidebar remains usable.
+ * still returned so the calling surface remains usable.
+ *
+ * @param archiveStatus — `"active"` (sidebar, default) or `"archived"` (archive page)
+ * @param sortKey — which timestamp to sort descending by (default: `lastMessageAt`)
  */
-export async function listConversations(
+async function fetchMergedConversationList(
   assistantId: string,
+  archiveStatus: "active" | "archived" = "active",
+  sortKey: "lastMessageAt" | "archivedAt" = "lastMessageAt",
 ): Promise<Conversation[]> {
+  const opts: FetchConversationListOptions = archiveStatus === "active" ? {} : { archiveStatus };
+  const bgOpts: FetchConversationListOptions = { ...opts, conversationType: "background" };
+
   const [foregroundResult, backgroundResult] = await Promise.allSettled([
-    fetchConversationList(assistantId),
-    fetchConversationList(assistantId, { conversationType: "background" }),
+    fetchConversationList(assistantId, opts),
+    fetchConversationList(assistantId, bgOpts),
   ]);
 
   if (foregroundResult.status === "rejected") {
@@ -183,7 +164,7 @@ export async function listConversations(
   } else {
     Sentry.captureException(backgroundResult.reason, {
       level: "warning",
-      tags: { context: "listConversations.backgroundFetch" },
+      tags: { context: `fetchMergedConversationList.background(${archiveStatus})` },
       extra: { assistantId },
     });
   }
@@ -191,67 +172,33 @@ export async function listConversations(
   const seen = new Set<string>();
   const conversations: Conversation[] = [];
   for (const conversation of [...foreground, ...background]) {
-    if (seen.has(conversation.conversationId)) {
-      continue;
-    }
+    if (seen.has(conversation.conversationId)) continue;
     seen.add(conversation.conversationId);
     conversations.push(conversation);
   }
 
-  conversations.sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
-
+  conversations.sort((a, b) => (b[sortKey] ?? 0) - (a[sortKey] ?? 0));
   return conversations;
 }
 
 /**
- * Fetch all archived conversations — foreground + background — for a given
- * assistant. Mirrors `listConversations` but passes `archiveStatus:
- * "archived"` so the daemon returns only archived rows. Sorted by
- * `archivedAt` descending so the most recently archived row is first.
- *
- * The background fetch is best-effort: if it fails the foreground list is
- * still returned so the archive page remains usable.
+ * Fetch all active (non-archived) conversations for the sidebar.
+ * Sorted newest-first by `lastMessageAt`.
+ */
+export async function listConversations(
+  assistantId: string,
+): Promise<Conversation[]> {
+  return fetchMergedConversationList(assistantId, "active", "lastMessageAt");
+}
+
+/**
+ * Fetch all archived conversations for the archive page.
+ * Sorted by `archivedAt` descending (most recently archived first).
  */
 export async function listArchivedConversations(
   assistantId: string,
 ): Promise<Conversation[]> {
-  const [foregroundResult, backgroundResult] = await Promise.allSettled([
-    fetchConversationList(assistantId, { archiveStatus: "archived" }),
-    fetchConversationList(assistantId, {
-      conversationType: "background",
-      archiveStatus: "archived",
-    }),
-  ]);
-
-  if (foregroundResult.status === "rejected") {
-    throw foregroundResult.reason;
-  }
-
-  const foreground = foregroundResult.value;
-  let background: Conversation[] = [];
-  if (backgroundResult.status === "fulfilled") {
-    background = backgroundResult.value;
-  } else {
-    Sentry.captureException(backgroundResult.reason, {
-      level: "warning",
-      tags: { context: "listArchivedConversations.backgroundFetch" },
-      extra: { assistantId },
-    });
-  }
-
-  const seen = new Set<string>();
-  const conversations: Conversation[] = [];
-  for (const conversation of [...foreground, ...background]) {
-    if (seen.has(conversation.conversationId)) {
-      continue;
-    }
-    seen.add(conversation.conversationId);
-    conversations.push(conversation);
-  }
-
-  conversations.sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
-
-  return conversations;
+  return fetchMergedConversationList(assistantId, "archived", "archivedAt");
 }
 
 // ---------------------------------------------------------------------------
@@ -375,15 +322,11 @@ const EMPTY_GROUPS: ConversationGroup[] = [];
 // ---------------------------------------------------------------------------
 // Cache helpers — conversations
 //
-// The low-level `Conversation[]` cache primitives (`updateConversationsCache`,
-// `findConversation`, `getConversations`, `patchConversation`) live in
-// `@/utils/conversation-cache` so the chat stream handlers can share them
-// without a cross-domain import. They're re-exported here so existing
-// conversations-domain consumers keep their import site. The domain-level
-// mutations below build on `updateConversationsCache`.
+// Low-level cache primitives (`updateConversationsCache`, `findConversation`,
+// `getConversations`, `patchConversation`) live in `@/utils/conversation-cache`.
+// Import them from source. The domain-level mutations below build on
+// `updateConversationsCache`.
 // ---------------------------------------------------------------------------
-
-export { findConversation, getConversations, patchConversation };
 
 /**
  * Mark the conversation as seen in the local cache. The matching server

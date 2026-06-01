@@ -6,7 +6,7 @@ import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { requestComposerFocus } from "@/domains/chat/composer-focus";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
-import { useConversationListQuery } from "@/domains/conversations/conversation-queries";
+import { useConversationListQuery } from "@/hooks/conversation-queries";
 import { useConversationStore } from "@/stores/conversation-store";
 import { HomePage } from "@/domains/home/home-page";
 import { useIsMobile } from "@/hooks/use-is-mobile";

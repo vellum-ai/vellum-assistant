@@ -4,10 +4,10 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
 import {
-  getConversations,
   markConversationSeenLocal,
   useConversationListQuery,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
+import { getConversations } from "@/utils/conversation-cache";
 import { conversationsSeenPost } from "@/generated/daemon/sdk.gen";
 import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/interactions";
 import { USER_FACING_INTERACTION_KINDS } from "@/types/event-types";
