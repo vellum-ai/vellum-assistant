@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AssistantEvent } from "@/types/event-types";
-import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 let seqGapEnabled = true;
 mock.module("@/lib/feature-flags/seq-gap-detection-flag", () => ({
@@ -24,16 +23,16 @@ const { createSseEventConsumer } = await import(
   "@/domains/chat/streaming/sse-event-consumer"
 );
 
-const makeEnvelope = (
-  override: Partial<Omit<AssistantEventEnvelope, "message">> & {
-    message: unknown;
-  },
-): AssistantEventEnvelope =>
-  ({
-    id: "evt-1",
-    emittedAt: new Date().toISOString(),
-    ...override,
-  }) as unknown as AssistantEventEnvelope;
+// Test fixture builds a `ConsumableEnvelope` — the narrow input type
+// the consumer actually reads. The runtime envelope from the bus
+// carries more fields (id, emittedAt, etc.) but the consumer only
+// touches the three below, so the fixture matches that surface
+// exactly without lying about the wider shape.
+const makeEnvelope = (override: {
+  message: AssistantEvent;
+  conversationId?: string;
+  seq?: number;
+}) => override;
 
 const makeDeps = (override: {
   activeConversationId?: string | null;
@@ -90,7 +89,7 @@ describe("sse-event-consumer — cross-conversation filter", () => {
         conversationId: "conv-1",
         message: {
           type: "assistant_text_delta",
-          delta: "hi",
+          text: "hi",
         },
       }),
     );
@@ -107,7 +106,7 @@ describe("sse-event-consumer — cross-conversation filter", () => {
         conversationId: "conv-OTHER",
         message: {
           type: "assistant_text_delta",
-          delta: "hi",
+          text: "hi",
         },
       }),
     );
@@ -127,7 +126,7 @@ describe("sse-event-consumer — cross-conversation filter", () => {
       makeEnvelope({
         message: {
           type: "assistant_text_delta",
-          delta: "hi",
+          text: "hi",
         },
       }),
     );
@@ -149,7 +148,7 @@ describe("sse-event-consumer — cross-conversation filter", () => {
         conversationId: "conv-1",
         message: {
           type: "assistant_text_delta",
-          delta: "hi",
+          text: "hi",
         },
       }),
     );
@@ -169,7 +168,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         seq: 100,
         message: {
           type: "assistant_text_delta",
-          delta: "x",
+          text: "x",
         },
       }),
     );
@@ -188,7 +187,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         seq: 5,
         message: {
           type: "assistant_text_delta",
-          delta: "a",
+          text: "a",
         },
       }),
     );
@@ -198,7 +197,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         seq: 6,
         message: {
           type: "assistant_text_delta",
-          delta: "b",
+          text: "b",
         },
       }),
     );
@@ -219,7 +218,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         seq: 5,
         message: {
           type: "assistant_text_delta",
-          delta: "a",
+          text: "a",
         },
       }),
     );
@@ -230,7 +229,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         seq: 10,
         message: {
           type: "assistant_text_delta",
-          delta: "b",
+          text: "b",
         },
       }),
     );
@@ -251,7 +250,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         seq: 500,
         message: {
           type: "assistant_text_delta",
-          delta: "a",
+          text: "a",
         },
       }),
     );
@@ -262,7 +261,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         seq: 3,
         message: {
           type: "assistant_text_delta",
-          delta: "b",
+          text: "b",
         },
       }),
     );
@@ -282,7 +281,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         seq: 5,
         message: {
           type: "assistant_text_delta",
-          delta: "a",
+          text: "a",
         },
       }),
     );
@@ -292,7 +291,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         seq: 50,
         message: {
           type: "assistant_text_delta",
-          delta: "b",
+          text: "b",
         },
       }),
     );
@@ -311,7 +310,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         conversationId: "conv-1",
         message: {
           type: "assistant_text_delta",
-          delta: "first",
+          text: "first",
         },
       }),
     );
@@ -327,7 +326,7 @@ describe("sse-event-consumer — seq-gap detection", () => {
         conversationId: "conv-1",
         message: {
           type: "assistant_text_delta",
-          delta: "stale",
+          text: "stale",
         },
       }),
     );

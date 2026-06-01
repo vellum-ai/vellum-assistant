@@ -253,7 +253,6 @@ export interface ChatRouteRefs {
   requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
   /**
    * Imperative handle to the mounted `<Transcript />`. Owned by ChatPage
    * so `useChatDebugApi` (installed there) can read scroll geometry
@@ -532,8 +531,6 @@ export function ChatRouteContent({
     requestIdToMessageIdRef: _requestIdToMessageIdRef,
     pendingLocalDeletionsRef: _pendingLocalDeletionsRef,
     confirmationToolCallMapRef: _confirmationToolCallMapRef,
-
-    reconcileAfterNextStreamOpenRef: _reconcileAfterNextStreamOpenRef,
   } = refs;
 
   // -------------------------------------------------------------------------

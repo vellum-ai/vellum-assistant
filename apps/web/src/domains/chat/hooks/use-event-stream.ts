@@ -13,9 +13,6 @@
  *    10s window retry budget; on success publishes
  *    `reachability.retry-requested` so the bus bounces its SSE).
  *
- * `app.resume` arms `reconcileAfterNextStreamOpenRef`, which is the
- * rendezvous for `reconcileOnReopen`'s standalone-reconcile branch.
- *
  * Visibility / app-state are owned by `useEventBusInit`. This hook
  * does not register any `visibilitychange` listener of its own.
  */
@@ -26,11 +23,13 @@ import {
   type SetStateAction,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
 } from "react";
 
-import { createReachabilityBurstLimiter } from "@/domains/chat/streaming/reachability-burst-limiter";
+import {
+  createReachabilityBurstLimiter,
+  type ReachabilityBurstLimiter,
+} from "@/domains/chat/streaming/reachability-burst-limiter";
 import { createReconcileOnReopen } from "@/domains/chat/streaming/reconcile-on-reopen";
 import { createSseEventConsumer } from "@/domains/chat/streaming/sse-event-consumer";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -64,7 +63,6 @@ export interface UseEventStreamParams {
   // polling is needed.
   streamRef: MutableRefObject<ChatEventStream | null>;
   streamEpochRef: MutableRefObject<number>;
-  reconcileAfterNextStreamOpenRef: MutableRefObject<boolean>;
   streamContextRef: MutableRefObject<{
     assistantId: string;
     conversationId: string;
@@ -100,7 +98,6 @@ export function useEventStream({
   conversationExistsOnServer,
   streamRef,
   streamEpochRef,
-  reconcileAfterNextStreamOpenRef,
   streamContextRef,
   handleStreamEvent,
   reconcileActiveConversation,
@@ -163,23 +160,19 @@ export function useEventStream({
   }, [activeConversationId]);
 
   // Stable burst-limiter — its internal counter / window state must
-  // survive `reachabilityPhase` ticks. `useMemo` with an empty dep
-  // is the right tool: a fresh limiter on every render would reset
-  // the burst counter and let the user retry forever.
-  const burstLimiter = useMemo(
-    () =>
-      createReachabilityBurstLimiter({
-        pendingReconcileRef: reconcileAfterNextStreamOpenRef,
-        onReady: () => useTurnStore.getState().resetTurn(),
-        onClearError: () => setErrorRef.current(null),
-        onExhausted: (err) => setErrorRef.current(err),
-        onReset: () => reachabilityResetRef.current(),
-      }),
-    // The deps are all refs / module-level; the limiter only needs
-    // to be constructed once per hook instance. Other React patterns
-    // would re-create on every render and lose burst state.
-    [reconcileAfterNextStreamOpenRef],
-  );
+  // survive `reachabilityPhase` ticks. Lazy-init pattern via `useRef`:
+  // a fresh limiter on every render would reset the burst counter and
+  // let the user retry forever. `useMemo` would also work but is
+  // misleading here — there's no dep that could legitimately change.
+  const burstLimiterRef = useRef<ReachabilityBurstLimiter | null>(null);
+  if (!burstLimiterRef.current) {
+    burstLimiterRef.current = createReachabilityBurstLimiter({
+      onReady: () => useTurnStore.getState().resetTurn(),
+      onClearError: () => setErrorRef.current(null),
+      onExhausted: (err) => setErrorRef.current(err),
+      onReset: () => reachabilityResetRef.current(),
+    });
+  }
 
   // --------------------------------------------------------------------------
   // Effect 1: Subscribe to the bus-owned SSE for the active conversation.
@@ -359,42 +352,17 @@ export function useEventStream({
   }, [assistantStateKind, assistantId, activeConversationId]);
 
   // --------------------------------------------------------------------------
-  // Effect 5: Schedule a post-resume reconcile.
-  //
-  // The bus tears down + reopens its SSE around app.resume; we listen
-  // here so the next `sse.opened` runs the reconcile pass for the
-  // active conversation. `reconcileOnReopen`'s standalone-reconcile
-  // branch is the rendezvous point via
-  // `reconcileAfterNextStreamOpenRef`.
+  // Effect 5: Reachability retry — drive the burst-limiter from the
+  // probe's phase. The limiter publishes `reachability.retry-requested`
+  // on success so the bus bounces its SSE; `reconcileOnReopen` runs
+  // the post-reconnect reconcile on the resulting `sse.opened`.
   // --------------------------------------------------------------------------
   useEffect(() => {
-    if (
-      assistantStateKind !== "active" ||
-      !assistantId ||
-      !activeConversationId
-    ) {
-      return;
-    }
-    return subscribe("app.resume", () => {
-      reconcileAfterNextStreamOpenRef.current = true;
-    });
-  }, [
-    assistantStateKind,
-    assistantId,
-    activeConversationId,
-    reconcileAfterNextStreamOpenRef,
-  ]);
+    burstLimiterRef.current!.handleReachabilityPhase(reachabilityPhase);
+  }, [reachabilityPhase]);
 
   // --------------------------------------------------------------------------
-  // Effect 6: Reachability retry — drive the burst-limiter from the
-  // probe's phase.
-  // --------------------------------------------------------------------------
-  useEffect(() => {
-    burstLimiter.handleReachabilityPhase(reachabilityPhase);
-  }, [reachabilityPhase, burstLimiter]);
-
-  // --------------------------------------------------------------------------
-  // Effect 7: Unmount cleanup.
+  // Effect 6: Unmount cleanup.
   // --------------------------------------------------------------------------
   useEffect(() => {
     return () => {

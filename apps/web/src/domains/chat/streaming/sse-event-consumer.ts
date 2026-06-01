@@ -49,7 +49,20 @@ import {
   setLastSeenSeq,
 } from "@/lib/streaming/last-seen-seq";
 import type { AssistantEvent } from "@/types/event-types";
-import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+
+/**
+ * Narrow input shape — only the three envelope fields the consumer
+ * actually reads. The bus delivers `AssistantEventEnvelope` (from
+ * `@vellumai/assistant-api`), which is covariant with this shape, so
+ * the hook can pass the full envelope through unchanged. Keeping the
+ * input type narrow here means test fixtures can build partial
+ * envelopes without lying about full-shape with a double-cast.
+ */
+export interface ConsumableEnvelope {
+  message: AssistantEvent;
+  conversationId?: string;
+  seq?: number;
+}
 
 export interface SseEventConsumerDeps {
   /**
@@ -67,7 +80,7 @@ export interface SseEventConsumerDeps {
 }
 
 export interface SseEventConsumer {
-  handleSseEvent(envelope: AssistantEventEnvelope): void;
+  handleSseEvent(envelope: ConsumableEnvelope): void;
 }
 
 export function createSseEventConsumer(

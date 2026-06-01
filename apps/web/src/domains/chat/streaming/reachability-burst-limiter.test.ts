@@ -16,25 +16,21 @@ const makeDeps = (
   override: Partial<ReachabilityBurstLimiterDeps> = {},
 ): {
   deps: ReachabilityBurstLimiterDeps;
-  pendingReconcileRef: { current: boolean };
   onReady: ReturnType<typeof mock>;
   onClearError: ReturnType<typeof mock>;
   onExhausted: ReturnType<typeof mock>;
   onReset: ReturnType<typeof mock>;
 } => {
-  const pendingReconcileRef = { current: false };
   const onReady = mock(() => {});
   const onClearError = mock(() => {});
   const onExhausted = mock((_e: { message: string }) => {});
   const onReset = mock(() => {});
   return {
-    pendingReconcileRef,
     onReady,
     onClearError,
     onExhausted,
     onReset,
     deps: {
-      pendingReconcileRef,
       onReady,
       onClearError,
       onExhausted,
@@ -58,16 +54,14 @@ describe("reachability burst-limiter", () => {
     expect(onExhausted).not.toHaveBeenCalled();
   });
 
-  test("ready success: clears turn + error, marks pending reconcile, publishes retry-requested", () => {
-    const { deps, pendingReconcileRef, onReady, onClearError, onReset } =
-      makeDeps();
+  test("ready success: clears turn + error, publishes retry-requested", () => {
+    const { deps, onReady, onClearError, onReset } = makeDeps();
     const limiter = createReachabilityBurstLimiter(deps);
 
     limiter.handleReachabilityPhase("ready");
 
     expect(onReady).toHaveBeenCalledTimes(1);
     expect(onClearError).toHaveBeenCalledTimes(1);
-    expect(pendingReconcileRef.current).toBe(true);
     expect(publishSpy).toHaveBeenCalledWith(
       "reachability.retry-requested",
       {},
@@ -76,15 +70,13 @@ describe("reachability burst-limiter", () => {
   });
 
   test("retrying success: does NOT clear turn / error, but resets the probe", () => {
-    const { deps, pendingReconcileRef, onReady, onClearError, onReset } =
-      makeDeps();
+    const { deps, onReady, onClearError, onReset } = makeDeps();
     const limiter = createReachabilityBurstLimiter(deps);
 
     limiter.handleReachabilityPhase("retrying");
 
     expect(onReady).not.toHaveBeenCalled();
     expect(onClearError).not.toHaveBeenCalled();
-    expect(pendingReconcileRef.current).toBe(true);
     expect(publishSpy).toHaveBeenCalledWith(
       "reachability.retry-requested",
       {},

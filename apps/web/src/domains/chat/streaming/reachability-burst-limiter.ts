@@ -14,12 +14,12 @@
  * Side effects:
  *   - on success (within budget, `"ready"` phase): clears turn state
  *     via `onReady()` so the composer stops showing "thinking", clears
- *     the visible error via `onClearError()`, marks the next
- *     `sse.opened` as a reconcile point via `pendingReconcileRef`,
- *     and publishes `reachability.retry-requested` on the bus.
+ *     the visible error via `onClearError()`, and publishes
+ *     `reachability.retry-requested` on the bus.
  *   - on success (within budget, `"retrying"` phase): same except no
  *     turn reset / error clear — the user can still see the
- *     in-progress state.
+ *     in-progress state. Also calls `onReset()` so the probe stops
+ *     re-triggering this handler until the next "ready" flip.
  *   - on exhaustion (3 retries inside the window): calls
  *     `onExhausted({ message })` so the caller can surface the error
  *     state, then `onReset()` so the reachability probe stops
@@ -32,8 +32,6 @@ const STREAM_RETRY_BURST_WINDOW_MS = 10_000;
 const STREAM_RETRY_BURST_LIMIT = 3;
 
 export interface ReachabilityBurstLimiterDeps {
-  /** Mutable flag the caller passes; set true to ask the next `sse.opened` to reconcile. */
-  pendingReconcileRef: { current: boolean };
   /** Called on `"ready"` success to clear turn state. */
   onReady: () => void;
   /** Called on `"ready"` success to clear the visible error. */
@@ -83,7 +81,6 @@ export function createReachabilityBurstLimiter(
         deps.onReady();
         deps.onClearError();
       }
-      deps.pendingReconcileRef.current = true;
       publish("reachability.retry-requested", {});
       if (phase === "retrying") {
         deps.onReset();
