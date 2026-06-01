@@ -70,8 +70,8 @@ export interface BusEventMap {
    * The bus-owned SSE connection closed for a non-cancel reason
    * (network error, etc). Carries a short reason tag for diagnostics.
    * The bus will attempt to reopen on its own; consumers use this to
-   * recover conversation-scoped turn state (e.g. clear `isStreaming`
-   * flags, kick reachability probes).
+   * recover conversation-scoped turn state (e.g. settle processing
+   * state, kick reachability probes).
    */
   "sse.closed": { reason: string };
   /**

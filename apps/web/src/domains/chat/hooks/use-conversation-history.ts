@@ -210,6 +210,9 @@ export function useConversationHistory({
               : reconcileDisplayMessagesWithLatestHistory(
                   prev,
                   filteredMessages,
+                  useConversationStore
+                    .getState()
+                    .processingConversationIds.has(activeConversationId),
                 );
           return nextMessages;
         });

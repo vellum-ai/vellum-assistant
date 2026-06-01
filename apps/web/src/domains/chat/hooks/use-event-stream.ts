@@ -9,9 +9,9 @@
  * and is covered by the regular history-load path. On `"watchdog"` /
  * `"error"` causes the reconcile additionally records its result to
  * Sentry so stalled-turn rescues are observable. Subscribes to
- * `bus.sse.closed` to clear any in-flight `isStreaming` flag, drop
- * the matching processing key, and bump reachability so the
- * burst-limited retry below can take over.
+ * `bus.sse.closed` to end the in-flight turn, drop the matching
+ * processing key, and bump reachability so the burst-limited retry
+ * below can take over.
  *
  * Reachability retry lives here because the 3-burst limiter is
  * conversation-scoped. On success it publishes
@@ -46,7 +46,6 @@ import type {
 } from "@/lib/sync/web-sync-router";
 
 import { endTurn } from "@/domains/chat/turn-coordinator";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   isSending,
   useTurnStore,
@@ -95,9 +94,6 @@ export interface UseEventStreamParams {
   reachabilityPhase: string;
   reachabilityReset: () => void;
 
-  // Messages
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-
   // Error
   setError: Dispatch<SetStateAction<{ message: string; code?: string } | null>>;
 
@@ -130,7 +126,6 @@ export function useEventStream({
   reachabilityProbe,
   reachabilityPhase,
   reachabilityReset,
-  setMessages,
   setError,
   syncRouterRef,
   conversationListInvalidatedTimerRef,
@@ -151,9 +146,6 @@ export function useEventStream({
 
   const reachabilityProbeRef = useRef(reachabilityProbe);
   reachabilityProbeRef.current = reachabilityProbe;
-
-  const setMessagesRef = useRef(setMessages);
-  setMessagesRef.current = setMessages;
 
   const setErrorRef = useRef(setError);
   setErrorRef.current = setError;
@@ -460,13 +452,6 @@ export function useEventStream({
           backgroundReachabilityProbeRef.current = true;
           reachabilityProbeRef.current({ mode: "background" });
         }
-        setMessagesRef.current((prev) => {
-          const last = prev[prev.length - 1];
-          if (last?.role === "assistant" && last.isStreaming) {
-            return [...prev.slice(0, -1), { ...last, isStreaming: false }];
-          }
-          return prev;
-        });
       });
 
     return () => unsub();

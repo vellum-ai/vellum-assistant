@@ -4,7 +4,6 @@ import {
   applyUserMessageEcho,
   finalizeMessageComplete,
   finalizeOnIdle,
-  stopStreaming,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import {
@@ -44,21 +43,10 @@ function resolveConversationId(
  *
  * The daemon emits this from event zero of each LLM call in a turn,
  * carrying the `messageId` of the row it `reserveMessage`'d in SQLite.
- * The handler does two things:
- *
- * 1. Stamps `currentAssistantMessageIdRef` with the anchor id. Downstream
- *    deltas in this LLM call carry the same `messageId` and
- *    `appendTextDelta` matches by id — but subagent attribution and any
- *    other consumer that reads the ref before a delta lands sees the
- *    correct anchor immediately.
- *
- * 2. If a row with this id already exists in `messages` — e.g. the
- *    reserved row was pulled in by an in-flight reconcile poll before the
- *    SSE wire delivered this event — flips it to `isStreaming: true`.
- *    That ensures `appendTextDelta` doesn't see a non-streaming assistant
- *    tail and open a duplicate bubble with the same id. No-op when the
- *    row doesn't exist yet (the common case: SSE strictly precedes
- *    reconcile).
+ * The handler stamps `currentAssistantMessageIdRef` with the anchor id so
+ * subagent attribution and any other consumer that reads the ref before a
+ * delta lands sees the correct anchor immediately, and marks the
+ * conversation as processing.
  */
 export function handleAssistantTurnStart(
   event: AssistantTurnStartEvent,
@@ -89,17 +77,6 @@ export function handleAssistantTurnStart(
       .getState()
       .markConversationProcessing(convId, cached?.latestAssistantMessageAt);
   }
-
-  ctx.setMessages((prev) => {
-    let touched = false;
-    const next = prev.map((m) => {
-      if (m.role !== "assistant" || m.id !== event.messageId) return m;
-      if (m.isStreaming) return m;
-      touched = true;
-      return { ...m, isStreaming: true };
-    });
-    return touched ? next : prev;
-  });
 }
 
 export function handleAssistantTextDelta(
@@ -130,10 +107,10 @@ export function handleAssistantTextDelta(
   ctx.setMessages((prev) => {
     const next = appendTextDelta(prev, event.text, event.messageId);
     const tail = next[next.length - 1];
-    // Stamp the current-assistant ref to the streaming tail. Subagent
+    // Stamp the current-assistant ref to the assistant tail. Subagent
     // handlers read this to attribute nested notifications to the right
     // parent bubble.
-    if (tail?.role === "assistant" && tail.isStreaming) {
+    if (tail?.role === "assistant") {
       ctx.currentAssistantMessageIdRef.current = tail.id;
     }
     return next;
@@ -268,7 +245,6 @@ export function handleGenerationHandoff(
 ): void {
   ctx.cancelReconciliation();
   ctx.turnActions.handoffGeneration();
-  ctx.setMessages((prev) => stopStreaming(prev));
 }
 
 export function handleGenerationCancelled(
@@ -284,5 +260,4 @@ export function handleGenerationCancelled(
     });
   }
   ctx.endTurn({ conversationId: convId, reason: "cancelled" });
-  ctx.setMessages((prev) => stopStreaming(prev));
 }

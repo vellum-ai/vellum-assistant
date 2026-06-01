@@ -102,6 +102,11 @@ export interface TranscriptProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /** Id of the live, not-yet-finalized assistant row of the active turn,
+   *  or `null` when nothing is streaming. Derived once by the caller from
+   *  the conversation's processing state and message position; each row
+   *  compares its own id to decide whether it renders as streaming. */
+  liveAssistantRowId?: string | null;
   /** Optional render-prop that produces the chat avatar element to mount
    *  at the bottom of the conversation. Rendered inside the latest-edge
    *  region so the avatar pins to the bottom of the viewport while the
@@ -249,6 +254,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(
       assistantId: rest.assistantId,
       onSubagentClick: rest.onSubagentClick,
       onStopSubagent: rest.onStopSubagent,
+      liveAssistantRowId: rest.liveAssistantRowId,
     };
 
     return (

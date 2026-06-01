@@ -169,9 +169,13 @@ export function useRefreshLatestMessages({
     // its own `prev` to stay consistent with any SSE deltas that landed
     // between the fetch resolving and React applying the update; the merge
     // helper is pure so running it twice is safe.
+    const isProcessing = useConversationStore
+      .getState()
+      .processingConversationIds.has(conversationId);
     const snapshotNext = reconcileDisplayMessagesWithLatestHistory(
       messagesRef.current,
       filteredMessages,
+      isProcessing,
     );
     const outcome = classifyRefreshLatestOutcome(
       messagesRef.current,
@@ -180,7 +184,11 @@ export function useRefreshLatestMessages({
 
     setMessages((prev) => {
       if (isStale()) return prev;
-      return reconcileDisplayMessagesWithLatestHistory(prev, filteredMessages);
+      return reconcileDisplayMessagesWithLatestHistory(
+        prev,
+        filteredMessages,
+        isProcessing,
+      );
     });
 
     // Surfaces can change server-side independently of message content

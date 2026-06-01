@@ -71,6 +71,10 @@ export interface TranscriptRowProps {
   onSubagentClick?: (subagentId: string) => void;
   /** Callback to abort/stop a running subagent from an inline card. */
   onStopSubagent?: (subagentId: string) => void;
+  /** Id of the live, not-yet-finalized assistant row of the active turn,
+   *  or `null` when nothing is streaming. A message row renders as
+   *  streaming when its id matches. */
+  liveAssistantRowId?: string | null;
 }
 
 export const TranscriptRow = memo(function TranscriptRow({
@@ -100,12 +104,17 @@ export const TranscriptRow = memo(function TranscriptRow({
   assistantId,
   onSubagentClick,
   onStopSubagent,
+  liveAssistantRowId,
 }: TranscriptRowProps) {
   switch (item.kind) {
     case "message":
       return (
         <TranscriptMessageBody
           message={item.message}
+          isStreaming={
+            liveAssistantRowId != null &&
+            item.message.id === liveAssistantRowId
+          }
           assistantDisplayName={assistantDisplayName}
           expandedToolCallIds={expandedToolCallIds}
           expandedCardIds={expandedCardIds}

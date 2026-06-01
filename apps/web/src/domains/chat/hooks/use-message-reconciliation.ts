@@ -8,6 +8,7 @@ import {
   summarizeRuntimeMessages,
 } from "@/domains/chat/utils/diagnostics";
 import { type DisplayMessage, reconcileMessages } from "@/domains/chat/utils/reconcile";
+import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -27,7 +28,7 @@ interface UseMessageReconciliationArgs {
 /** Result of reconciling the active conversation against the server. */
 export interface ReconcileActiveConversationResult {
   /** Any field on any message changed (added, content edit, id assignment,
-   *  isStreaming flip, etc.). */
+   *  etc.). */
   changed: boolean;
   /** Number of messages added relative to the local state, computed as
    *  `next.length - prev.length`. Used to distinguish "watchdog-triggered
@@ -53,7 +54,9 @@ interface UseMessageReconciliationReturn {
 function serverHasAssistantProgress(
   localMessages: DisplayMessage[],
   serverMessages: RuntimeMessage[],
+  isProcessing: boolean,
 ): boolean {
+  const liveRowId = liveAssistantRowId(localMessages, isProcessing);
   const lastLocalUserIndex = localMessages.findLastIndex(
     (message) => message.role === "user",
   );
@@ -91,7 +94,7 @@ function serverHasAssistantProgress(
     const localById = localAssistantById.get(serverMessage.id);
     if (localById) {
       claimedLocal.add(localById);
-      if (localById.isStreaming) return true;
+      if (localById.id === liveRowId) return true;
       if (localById.content !== serverMessage.content) return true;
       continue;
     }
@@ -103,7 +106,7 @@ function serverHasAssistantProgress(
     );
     if (localByContent) {
       claimedLocal.add(localByContent);
-      if (localByContent.isStreaming) return true;
+      if (localByContent.id === liveRowId) return true;
       continue;
     }
 
@@ -149,7 +152,11 @@ export function useMessageReconciliation({
       let localAfter: Record<string, unknown> | null = null;
       setMessages((prev) => {
         localBefore = summarizeDisplayMessages(prev);
-        assistantProgress = serverHasAssistantProgress(prev, serverMessages);
+        assistantProgress = serverHasAssistantProgress(
+          prev,
+          serverMessages,
+          isSending(useTurnStore.getState()),
+        );
         const next = reconcileMessages(prev, serverMessages, {
           oldestPageTimestamp: initialPageOldestTsRef.current,
         });
@@ -266,38 +273,31 @@ export function useMessageReconciliation({
         });
       }
 
-      // Clear stale isStreaming flags and force-complete stale running
-      // tool calls. After onPollReconciled the turn is idle. With Zustand,
-      // getState() reflects the update immediately.
+      // Force-complete stale running tool calls. After onPollReconciled the
+      // turn is idle. With Zustand, getState() reflects the update
+      // immediately.
       if (wasStuck || !isSending(useTurnStore.getState())) {
         setMessages((prev) => {
-          const hasStaleStreaming = prev.some((m) => m.isStreaming);
           const hasStaleToolCalls = prev.some((m) =>
             m.toolCalls?.some((tc) => tc.status === "running"),
           );
-          if (!hasStaleStreaming && !hasStaleToolCalls) return prev;
+          if (!hasStaleToolCalls) return prev;
           return prev.map((m) => {
-            const needsClearStreaming = m.isStreaming;
             const needsClearToolCalls = m.toolCalls?.some(
               (tc) => tc.status === "running",
             );
-            if (!needsClearStreaming && !needsClearToolCalls) return m;
+            if (!needsClearToolCalls) return m;
             return {
               ...m,
-              ...(needsClearStreaming ? { isStreaming: false } : {}),
-              ...(needsClearToolCalls
-                ? {
-                    toolCalls: m.toolCalls!.map((tc) =>
-                      tc.status === "running"
-                        ? {
-                            ...tc,
-                            status: "completed" as const,
-                            completedAt: Date.now(),
-                          }
-                        : tc,
-                    ),
-                  }
-                : {}),
+              toolCalls: m.toolCalls!.map((tc) =>
+                tc.status === "running"
+                  ? {
+                      ...tc,
+                      status: "completed" as const,
+                      completedAt: Date.now(),
+                    }
+                  : tc,
+              ),
             };
           });
         });

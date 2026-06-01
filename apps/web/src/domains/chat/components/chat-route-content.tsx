@@ -35,6 +35,7 @@ import { SecretPromptCard } from "@/domains/chat/components/secret-prompt-card";
 import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import { useRefreshLatestMessages as _useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
 import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-starters";
+import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
@@ -647,7 +648,11 @@ export function ChatRouteContent({
     [messages],
   );
 
-  const hasStreamingAssistantMessage = messages.some((m) => m.isStreaming);
+  const liveAssistantMessageId = useMemo(
+    () => liveAssistantRowId(messages, activeConversationIsProcessing),
+    [messages, activeConversationIsProcessing],
+  );
+  const hasStreamingAssistantMessage = liveAssistantMessageId != null;
 
   const uiContext: UIContext = {
     hasStreamingAssistantMessage,
@@ -1199,6 +1204,7 @@ export function ChatRouteContent({
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
     conversationId: activeConversationId,
+    liveAssistantRowId: liveAssistantMessageId,
     assistantDisplayName: assistantName?.trim() || undefined,
     expandedToolCallIds: expandedToolCallIdsRef.current,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,

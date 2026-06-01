@@ -10,7 +10,7 @@
  * - `reconcileFromServer`: delegates to `reconcileMessages`,
  *   reports changed vs unchanged.
  * - `reconcileActiveConversation`: orchestrates fetch, reconciliation,
- *   turn-state dispatch (`POLL_RECONCILED`), and stale-`isStreaming` cleanup.
+ *   turn-state dispatch (`POLL_RECONCILED`), and stale tool-call cleanup.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -431,7 +431,6 @@ describe("reconcileActiveConversation", () => {
       id: "m2",
       role: "assistant",
       content: "Working on it...",
-      isStreaming: true,
     });
     messages = [msg, assistantMsg];
     mockFetchResult = [
@@ -547,17 +546,16 @@ describe("reconcileActiveConversation", () => {
     // → changed = true → assistantProgress = true → rescue fires.
     //
     // Note: this test deliberately uses a CONTENT MISMATCH between local
-    // and server, not just a stale `isStreaming: true` flag. With the
-    // fix that preserves client-owned `isStreaming` across reconcile,
-    // matching-content + isStreaming alone is no longer a stuckness
-    // signal (it's indistinguishable from a healthy mid-stream sync
-    // reconcile). The rescue requires positive structural evidence.
+    // and server. A live row that merely trails the latest user message is
+    // not a stuckness signal on its own (it's indistinguishable from a
+    // healthy mid-stream sync reconcile). The rescue requires positive
+    // structural evidence — the server holding longer assistant content
+    // than the client ever rendered.
     const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
     const assistantMsg = makeMessage({
       id: "m2",
       role: "assistant",
       content: "Response in",
-      isStreaming: true,
     });
     messages = [msg, assistantMsg];
     mockFetchResult = [
@@ -587,17 +585,15 @@ describe("reconcileActiveConversation", () => {
   test("does NOT call onPollReconciled during a healthy mid-stream sync reconcile", async () => {
     // Regression guard for the bubble-split fix (PR #31866 / codex P1):
     // when a sync-tag reconcile lands during a healthy live stream, the
-    // local row is `isStreaming: true` and the server snapshot matches
-    // what local already has (server has caught up to the latest delta,
-    // no newer content yet). This must NOT fire the silent-stall rescue
-    // — doing so would force-idle the turn, clear isStreaming, and
+    // live row's content matches what local already has (server has caught
+    // up to the latest delta, no newer content yet). This must NOT fire
+    // the silent-stall rescue — doing so would force-idle the turn and
     // force-complete every running tool call, mid-stream.
     const msg = makeMessage({ id: "m1", role: "user", content: "Hello" });
     const assistantMsg = makeMessage({
       id: "m2",
       role: "assistant",
       content: "Working on it...",
-      isStreaming: true,
     });
     messages = [msg, assistantMsg];
     mockFetchResult = [
@@ -794,46 +790,14 @@ describe("reconcileActiveConversation", () => {
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 
-  test("clears stale isStreaming flags when turn is idle and fetch returns empty", async () => {
-    // When the server returns no messages, reconcileFromServer bails early
-    // (returns false) and does NOT update the messages array. The local
-    // messages — including their isStreaming flags — survive unchanged.
-    // The stale-cleanup branch then detects and clears those flags.
+  test("does NOT fire the silent-stall rescue when the turn is sending and the server returns empty", async () => {
+    // Empty server response + active turn → no POLL_RECONCILED, because we
+    // treat empty responses as "server hasn't caught up yet."
+    // reconcileFromServer bails early (returns false), so there is no
+    // assistant progress to rescue on.
     messages = [
       makeMessage({ id: "m1", role: "user", content: "Hello" }),
-      makeMessage({ id: "m2", role: "assistant", content: "Response", isStreaming: true }),
-    ];
-    mockFetchResult = [];
-    const idleTurnState: TurnState = {
-      phase: "idle",
-      pendingQueuedCount: 0,
-      activeToolCallCount: 0,
-      activeTurnId: null,
-      lastTerminalReason: null,
-      statusText: null,
-      liveWebActivity: {},
-      autoRoutedProfileLabel: null,
-    };
-    const { reconcileActiveConversation } = createHarness({
-      streamContext: { assistantId: "asst-1", conversationId: "conv-1" },
-      activeConversationId: "conv-1",
-      turnState: idleTurnState,
-    });
-    const result = await reconcileActiveConversation();
-    expect(result.changed).toBe(false);
-    // The cleanup branch should have cleared the stale isStreaming flag
-    const streamingMessages = messages.filter((m) => m.isStreaming);
-    expect(streamingMessages).toHaveLength(0);
-    expect(messages[1]!.isStreaming).toBe(false);
-  });
-
-  test("does NOT clear isStreaming when turn is sending and server returns empty", async () => {
-    // Empty server response + active turn → neither POLL_RECONCILED nor
-    // isStreaming cleanup fires, because we treat empty responses as
-    // "server hasn't caught up yet."
-    messages = [
-      makeMessage({ id: "m1", role: "user", content: "Hello" }),
-      makeMessage({ id: "m2", role: "assistant", content: "Response", isStreaming: true }),
+      makeMessage({ id: "m2", role: "assistant", content: "Response" }),
     ];
     mockFetchResult = [];
     const streamingTurnState: TurnState = {
@@ -852,7 +816,6 @@ describe("reconcileActiveConversation", () => {
       turnState: streamingTurnState,
     });
     await reconcileActiveConversation();
-    expect(messages[1]!.isStreaming).toBe(true);
     expect(onPollReconciledSpy).not.toHaveBeenCalled();
   });
 
@@ -1080,7 +1043,6 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
         id: "m2",
         role: "assistant",
         content: "",
-        isStreaming: true,
         toolCalls: [
           { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
         ],
@@ -1104,20 +1066,18 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     });
     await reconcileActiveConversation();
 
-    // Both isStreaming and running tool calls should be cleared
-    expect(messages[1]!.isStreaming).toBe(false);
+    // The running tool call should be force-completed once the turn is idle.
     expect(messages[1]!.toolCalls![0]!.status).toBe("completed");
     expect(messages[1]!.toolCalls![0]!.completedAt).toBeDefined();
   });
 
-  test("force-completes stale tool calls even when isStreaming is already false", async () => {
+  test("force-completes stale tool calls on a non-live assistant row", async () => {
     messages = [
       makeMessage({ id: "m1", role: "user", content: "Hello" }),
       makeMessage({
         id: "m2",
         role: "assistant",
         content: "partial",
-        isStreaming: false,
         toolCalls: [
           { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
           { id: "tc-2", toolName: "bash", input: {}, status: "completed" as const },
@@ -1156,7 +1116,6 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
         id: "m2",
         role: "assistant",
         content: "",
-        isStreaming: true,
         toolCalls: [
           { id: "tc-1", toolName: "web_search", input: {}, status: "running" as const },
         ],
@@ -1181,7 +1140,6 @@ describe("reconcileActiveConversation — stale tool call cleanup", () => {
     await reconcileActiveConversation();
 
     // Tool call should remain running since the turn is still active
-    expect(messages[1]!.isStreaming).toBe(true);
     expect(messages[1]!.toolCalls![0]!.status).toBe("running");
   });
 });

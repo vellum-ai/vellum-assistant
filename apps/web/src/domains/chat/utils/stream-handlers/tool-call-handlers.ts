@@ -27,9 +27,9 @@ export function handleToolUseStart(
   ctx.setMessages((prev) => {
     const next = upsertToolCall(prev, newToolCall, event.messageId);
     const tail = next[next.length - 1];
-    // Stamp the current-assistant ref to the streaming tail. See parallel
+    // Stamp the current-assistant ref to the assistant tail. See parallel
     // logic in handleAssistantTextDelta.
-    if (tail?.role === "assistant" && tail.isStreaming) {
+    if (tail?.role === "assistant") {
       ctx.currentAssistantMessageIdRef.current = tail.id;
     }
     return next;

@@ -101,6 +101,7 @@ import {
   type RefreshLatestOutcome,
   useRefreshLatestMessages,
 } from "@/domains/chat/hooks/use-refresh-latest-messages";
+import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { useConversationStore } from "@/stores/conversation-store";
 
 // ---------------------------------------------------------------------------
@@ -134,7 +135,10 @@ function makeHost(
   conversationId: string | null,
   dismissed: Set<string> = new Set(),
 ): HostState {
-  useConversationStore.setState({ activeConversationId: conversationId });
+  useConversationStore.setState({
+    activeConversationId: conversationId,
+    processingConversationIds: new Set(),
+  });
   const host: HostState = {
     messages: initial,
     messagesRef: { current: initial },
@@ -289,14 +293,13 @@ describe("useRefreshLatestMessages", () => {
       content: "Tell me a story",
       timestamp: 1000,
     });
-    // Streaming assistant — no server id yet, isStreaming flag set. The
-    // latest history page below intentionally omits this row to simulate
-    // a refresh that fires while the stream hasn't completed server-side.
+    // Streaming assistant — no server id yet. The latest history page below
+    // intentionally omits this row to simulate a refresh that fires while
+    // the stream hasn't completed server-side.
     const streamingAssistant = makeMsg({
       id: "a-streaming",
       role: "assistant",
       content: "Once upon a time, there was a",
-      isStreaming: true,
       timestamp: 1010,
     });
 
@@ -304,6 +307,10 @@ describe("useRefreshLatestMessages", () => {
       [completedUser, streamingAssistant],
       "conv-1",
     );
+    // The row's liveness is derived from the conversation processing state,
+    // not a stored flag — mark the conversation processing so the merge
+    // treats the trailing assistant as the live row.
+    useConversationStore.getState().markConversationProcessing("conv-1");
     fetchLatestImpl = async () => ({
       messages: [completedUser],
       hasMore: false,
@@ -329,7 +336,7 @@ describe("useRefreshLatestMessages", () => {
     const ids = host.messages.map((m) => m.id);
     expect(ids).toContain("a-streaming");
     const survivor = host.messages.find((m) => m.id === "a-streaming");
-    expect(survivor?.isStreaming).toBe(true);
+    expect(liveAssistantRowId(host.messages, true)).toBe("a-streaming");
     expect(survivor?.content).toBe("Once upon a time, there was a");
   });
 
@@ -715,7 +722,6 @@ describe("classifyRefreshLatestOutcome", () => {
         id: "a1",
         role: "assistant",
         content: "Streaming...",
-        isStreaming: true,
         timestamp: 1000,
       }),
     ];

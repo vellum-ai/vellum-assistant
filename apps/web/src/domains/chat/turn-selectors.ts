@@ -36,7 +36,7 @@ export interface UIContext {
  * Whether the "Thinking..." indicator should be visible.
  *
  * Mirrors macOS TranscriptProjector.wouldShowThinking:
- *   isSending && (isThinking || !lastVisible.isStreaming) && !hasActiveToolCall
+ *   isSending && (isThinking || !hasStreamingAssistantMessage) && !hasActiveToolCall
  *
  * Show the dots whenever the turn is actively processing, no assistant
  * text is streaming yet, and no tool call is in-flight. The fallback

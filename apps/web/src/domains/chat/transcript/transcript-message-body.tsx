@@ -52,6 +52,11 @@ export interface OpenRuleEditorContext {
  */
 export interface TranscriptMessageBodyProps {
   message: DisplayMessage;
+  /** Whether this row is the live, not-yet-finalized assistant bubble of
+   *  the active turn. Derived by the transcript from the conversation's
+   *  processing state and message position — drives streaming animations
+   *  and gates hover actions while the turn is in flight. */
+  isStreaming?: boolean;
   assistantDisplayName?: string | null;
   /**
    * Persistent set of expanded tool-call ids. Passed straight through to
@@ -216,10 +221,6 @@ function resolveSpawnedSubagentIds(
   return ids;
 }
 
-function isSurfaceToolCallComplete(message: DisplayMessage): boolean {
-  return message.isStreaming !== true;
-}
-
 function latestMessageActivityTimestamp(
   message: DisplayMessage,
 ): number | undefined {
@@ -310,6 +311,7 @@ function SlackMessageAttribution({
 
 export function TranscriptMessageBody({
   message,
+  isStreaming = false,
   assistantDisplayName,
   expandedToolCallIds,
   expandedCardIds,
@@ -359,7 +361,7 @@ export function TranscriptMessageBody({
   const inspectHandler = inspectMessageId && onInspectMessage
     ? () => onInspectMessage(inspectMessageId)
     : undefined;
-  const isToolCallComplete = isSurfaceToolCallComplete(message);
+  const isToolCallComplete = !isStreaming;
 
   // Touch-only tap-to-reveal for the hover actions row. Desktop uses
   // group-hover (unchanged); on coarse pointers a tap on the bubble toggles
@@ -599,7 +601,7 @@ export function TranscriptMessageBody({
                       pendingConfirmationToolCallId={pendingConfirmationToolCallId}
                       unknownNudgeToolCallIds={unknownNudgeToolCallIds}
                       onDismissUnknownNudge={onDismissUnknownNudge}
-                      isStreaming={message.isStreaming ?? false}
+                      isStreaming={isStreaming}
                       leadingThinkingText={getLeadingThinkingText(message, gi)}
                     />
                   )}
@@ -662,7 +664,7 @@ export function TranscriptMessageBody({
               content={message.content}
               timestamp={messageTimestamp}
               role={message.role}
-              isStreaming={message.isStreaming}
+              isStreaming={isStreaming}
               openInSlackUrl={slackMessageUrl}
               onFork={forkHandler}
               onInspect={inspectHandler}
@@ -745,7 +747,7 @@ export function TranscriptMessageBody({
               pendingConfirmationToolCallId={pendingConfirmationToolCallId}
               unknownNudgeToolCallIds={unknownNudgeToolCallIds}
               onDismissUnknownNudge={onDismissUnknownNudge}
-              isStreaming={message.isStreaming ?? false}
+              isStreaming={isStreaming}
               leadingThinkingText={getLegacyLeadingThinkingText(message)}
             />
             {renderInlineSubagentCards(
@@ -806,7 +808,7 @@ export function TranscriptMessageBody({
             content={message.content}
             timestamp={messageTimestamp}
             role={message.role}
-            isStreaming={message.isStreaming}
+            isStreaming={isStreaming}
             openInSlackUrl={slackMessageUrl}
             onFork={forkHandler}
             onInspect={inspectHandler}

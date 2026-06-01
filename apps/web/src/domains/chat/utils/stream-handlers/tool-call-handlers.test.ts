@@ -33,7 +33,7 @@ describe("handleToolUseStart", () => {
     expect(ctx.toolCallIdCounterRef.current).toBe(0);
   });
 
-  it("creates a new bubble when the tail is not a streaming assistant", () => {
+  it("creates a new bubble when there is no assistant tail to fold into", () => {
     const ctx = makeCtx();
     handleToolUseStart(
       { type: "tool_use_start", toolName: "web_search", input: {}, toolUseId: "tc-1" },
@@ -42,11 +42,10 @@ describe("handleToolUseStart", () => {
     expect(ctx.setMessages).toHaveBeenCalled();
     const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>).mock.calls[0][0] as (
       prev: never[],
-    ) => Array<{ role: string; isStreaming: boolean; toolCalls: Array<{ id: string }> }>;
+    ) => Array<{ role: string; toolCalls: Array<{ id: string }> }>;
     const next = updater([]);
     expect(next).toHaveLength(1);
     expect(next[0]?.role).toBe("assistant");
-    expect(next[0]?.isStreaming).toBe(true);
     expect(next[0]?.toolCalls).toHaveLength(1);
     expect(next[0]?.toolCalls[0]?.id).toBe("tc-1");
   });

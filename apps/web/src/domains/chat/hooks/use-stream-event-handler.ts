@@ -10,7 +10,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useConversationStore } from "@/stores/conversation-store";
 import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import { tailIsStreamingAssistant } from "@/domains/chat/hooks/stream-message-updaters";
+import { tailIsAssistant } from "@/domains/chat/hooks/stream-message-updaters";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 
@@ -244,7 +244,7 @@ export function useStreamEventHandler(
       // reflected here.
       if (
         event.type !== "assistant_text_delta" ||
-        !tailIsStreamingAssistant(messagesRef.current)
+        !tailIsAssistant(messagesRef.current)
       ) {
         recordDiagnostic(
           event.type === "assistant_text_delta"

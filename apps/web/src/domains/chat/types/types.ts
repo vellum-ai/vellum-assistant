@@ -60,7 +60,6 @@ export interface DisplayMessage {
   mergedMessageIds?: string[];
   role: "user" | "assistant";
   content: string;
-  isStreaming?: boolean;
   surfaces?: Surface[];
   textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
   contentOrder?: Array<{ type: string; id: string }>;

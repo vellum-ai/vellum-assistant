@@ -35,7 +35,6 @@ function fakeDisplayMessage(overrides: Partial<DisplayMessage> = {}): DisplayMes
     id: "msg-1",
     role: "assistant",
     content: "hello",
-    isStreaming: false,
     timestamp: Date.now(),
     ...overrides,
   };

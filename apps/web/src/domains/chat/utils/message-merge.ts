@@ -10,7 +10,6 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       am.id !== bm.id ||
       am.role !== bm.role ||
       am.content !== bm.content ||
-      !!am.isStreaming !== !!bm.isStreaming ||
       am.timestamp !== bm.timestamp ||
       JSON.stringify(am.mergedMessageIds) !== JSON.stringify(bm.mergedMessageIds) ||
       JSON.stringify(am.surfaces) !== JSON.stringify(bm.surfaces) ||
@@ -30,7 +29,6 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       "mergedMessageIds",
       "role",
       "content",
-      "isStreaming",
       "surfaces",
       "textSegments",
       "contentOrder",
@@ -180,8 +178,10 @@ function mergeStringArrays(
 }
 
 function messageScore(message: DisplayMessage): number {
-  let score = message.isStreaming ? 0 : 1_000_000;
-  score += message.content.length;
+  // Rank duplicate rows by how much rendered content they carry so the
+  // more-complete version wins the merge — whether that's a live row with
+  // the latest streamed deltas or a server snapshot with finalized state.
+  let score = message.content.length;
   score += (message.textSegments?.length ?? 0) * 100;
   score += (message.contentOrder?.length ?? 0) * 100;
   score += (message.toolCalls?.length ?? 0) * 100;
@@ -202,10 +202,6 @@ export function mergeDuplicateMessages(
     ...secondary,
     ...preferred,
   };
-
-  if (current.isStreaming || incoming.isStreaming) {
-    merged.isStreaming = Boolean(current.isStreaming && incoming.isStreaming);
-  }
 
   if (merged.timestamp == null) {
     merged.timestamp = current.timestamp ?? incoming.timestamp;
@@ -276,14 +272,6 @@ export function mergeLatestHistoryMessage(
     content: preferredText.content,
   };
 
-  // `isStreaming` is a client-owned, live-only flag. Server snapshots
-  // (history pages, reconcile fetches) never carry it, so we must never
-  // let the merge clear it based on `incoming.isStreaming` being absent.
-  // The previous `else if (!incoming.isStreaming)` branch caused the
-  // live assistant bubble to flip to "completed" mid-turn when a sync
-  // tag fired a history merge during the stream — splitting the bubble
-  // on the next `tool_use_start`. Always preserve the current value.
-  merged.isStreaming = current.isStreaming;
   if (currentHasMoreText) {
     merged.textSegments = current.textSegments ?? incoming.textSegments;
   }
@@ -440,10 +428,6 @@ function canFoldAdjacentAssistant(
   donor: DisplayMessage,
 ): boolean {
   if (survivor.role !== "assistant" || donor.role !== "assistant") return false;
-  // The streaming bubble owns its own identity until message_complete
-  // lands — folding it onto an older sibling would lose the SSE-event
-  // accumulation slot keyed by id.
-  if (survivor.isStreaming || donor.isStreaming) return false;
   // Optimistic ids are client UUIDs not yet echoed by the server; the
   // tail content-match swap in `reconcileMessages` needs them to stay
   // standalone until the server snapshot lands.
@@ -538,8 +522,8 @@ function foldAdjacentAssistant(
  * gap: identical to what the backend would have produced if it had all
  * the rows in one query.
  *
- * Skipped (conservatively) for streaming / optimistic / subagent-
- * notification rows — see `canFoldAdjacentAssistant` for why.
+ * Skipped (conservatively) for optimistic / subagent-notification rows —
+ * see `canFoldAdjacentAssistant` for why.
  *
  * Returns the input array unchanged when no run exists, so referential
  * equality short-circuits downstream memos.

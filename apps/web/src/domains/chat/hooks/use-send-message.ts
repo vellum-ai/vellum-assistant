@@ -59,7 +59,6 @@ import {
   parsePendingConfirmationData,
   parsePendingSecretState,
   resolvePostError,
-  stopStreamingAndClearConfirmations,
 } from "@/domains/chat/hooks/send-message-utils";
 import { useMessageQueue } from "@/domains/chat/hooks/use-message-queue";
 import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
@@ -74,7 +73,6 @@ export {
   clearPendingConfirmationsFromMessages,
   dismissInteractiveSurfaces,
   resolvePostError,
-  stopStreamingAndClearConfirmations,
   parsePendingSecretState,
   parsePendingConfirmationData,
 } from "@/domains/chat/hooks/send-message-utils";
@@ -773,7 +771,7 @@ export function useSendMessage({
     if (!assistantId || !activeConversationId) return;
     streamEpochRef.current++;
     endTurn({ conversationId: activeConversationId, reason: "cancelled" });
-    setMessages(stopStreamingAndClearConfirmations);
+    setMessages(clearPendingConfirmationsFromMessages);
     useInteractionStore.getState().resetAll();
     useSubagentStore.getState().reset();
     confirmationToolCallMapRef.current.clear();
