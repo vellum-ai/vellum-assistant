@@ -1,8 +1,8 @@
 import * as Sentry from "@sentry/browser";
 import type { PluginListenerHandle } from "@capacitor/core";
 
+import { publish } from "@/lib/event-bus";
 import { isNativePlatform } from "@/runtime/native-auth";
-import type { EventBusPublisher } from "@/stores/event-bus-store";
 
 /**
  * Capacitor iOS shell's `App.appStateChange` →
@@ -23,9 +23,7 @@ import type { EventBusPublisher } from "@/stores/event-bus-store";
  * cancelled, the import-resolution path checks it and removes the
  * just-registered listener.
  */
-export function publishCapacitorAppStateSource(
-  bus: EventBusPublisher,
-): () => void {
+export function publishCapacitorAppStateSource(): () => void {
   if (!isNativePlatform()) return () => undefined;
 
   let handle: PluginListenerHandle | null = null;
@@ -35,9 +33,9 @@ export function publishCapacitorAppStateSource(
     .then(({ App }) =>
       App.addListener("appStateChange", ({ isActive }) => {
         if (isActive) {
-          bus.publish("app.resume", { signal: "app_state" });
+          publish("app.resume", { signal: "app_state" });
         } else {
-          bus.publish("app.hidden", { signal: "app_state" });
+          publish("app.hidden", { signal: "app_state" });
         }
       }),
     )

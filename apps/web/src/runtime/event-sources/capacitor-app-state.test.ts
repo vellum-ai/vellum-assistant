@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 type AppStatePayload = { isActive: boolean };
 type AppStateHandler = (payload: AppStatePayload) => void;
@@ -36,23 +36,24 @@ mock.module("@capacitor/app", () => ({
 }));
 
 const captureExceptionMock = mock(() => {});
+// Full Sentry surface — `mock.module` is process-global in bun, so a
+// partial shape would shadow `addBreadcrumb` (used by other modules
+// transitively loaded in this run) for every later test file. Both
+// methods are kept here so the mock can satisfy any consumer that
+// happens to load Sentry through our module under test.
 mock.module("@sentry/browser", () => ({
   captureException: captureExceptionMock,
+  addBreadcrumb: () => {},
 }));
+
+import * as eventBus from "@/lib/event-bus";
+
+const publishSpy = spyOn(eventBus, "publish");
 
 const { publishCapacitorAppStateSource } = await import(
   "@/runtime/event-sources/capacitor-app-state"
 );
-import type {
-  BusEventName,
-  BusEventPayload,
-} from "@/stores/event-bus-store";
 
-const makePublisher = () => ({
-  publish: mock(
-    <K extends BusEventName>(_event: K, _payload: BusEventPayload<K>) => {},
-  ),
-});
 const flushMicrotasks = async (rounds = 4) => {
   for (let i = 0; i < rounds; i++) await Promise.resolve();
 };
@@ -76,46 +77,44 @@ beforeEach(() => {
   addListenerMock.mockClear();
   handleRemoveMock.mockClear();
   captureExceptionMock.mockClear();
+  publishSpy.mockClear();
 });
 
 describe("publishCapacitorAppStateSource", () => {
   test("is a no-op off Capacitor iOS (returns a no-op unsubscribe, never imports the plugin)", () => {
     isNative = false;
-    const bus = makePublisher();
 
-    const unsubscribe = publishCapacitorAppStateSource(bus);
+    const unsubscribe = publishCapacitorAppStateSource();
     unsubscribe();
 
     expect(addListenerMock).not.toHaveBeenCalled();
-    expect(bus.publish).not.toHaveBeenCalled();
+    expect(publishSpy).not.toHaveBeenCalled();
   });
 
   test("publishes app.resume(signal:'app_state') when isActive flips true", async () => {
-    const bus = makePublisher();
-    publishCapacitorAppStateSource(bus);
+    publishCapacitorAppStateSource();
 
     await resolveAddListener();
     activeHandler!({ isActive: true });
 
-    expect(bus.publish).toHaveBeenCalledWith("app.resume", {
+    expect(publishSpy).toHaveBeenCalledWith("app.resume", {
       signal: "app_state",
     });
   });
 
   test("publishes app.hidden(signal:'app_state') when isActive flips false", async () => {
-    const bus = makePublisher();
-    publishCapacitorAppStateSource(bus);
+    publishCapacitorAppStateSource();
 
     await resolveAddListener();
     activeHandler!({ isActive: false });
 
-    expect(bus.publish).toHaveBeenCalledWith("app.hidden", {
+    expect(publishSpy).toHaveBeenCalledWith("app.hidden", {
       signal: "app_state",
     });
   });
 
   test("returned unsubscribe removes the listener once it resolves", async () => {
-    const unsubscribe = publishCapacitorAppStateSource(makePublisher());
+    const unsubscribe = publishCapacitorAppStateSource();
 
     await resolveAddListener();
     expect(handleRemoveMock).not.toHaveBeenCalled();
@@ -125,7 +124,7 @@ describe("publishCapacitorAppStateSource", () => {
   });
 
   test("unsubscribe BEFORE the lazy import resolves still removes the just-registered listener", async () => {
-    const unsubscribe = publishCapacitorAppStateSource(makePublisher());
+    const unsubscribe = publishCapacitorAppStateSource();
 
     // Unsubscribe is called first — internal `cancelled` flag must
     // catch the late `.then` and remove the listener.
@@ -136,7 +135,7 @@ describe("publishCapacitorAppStateSource", () => {
   });
 
   test("reports a lazy-import failure to Sentry instead of throwing", async () => {
-    publishCapacitorAppStateSource(makePublisher());
+    publishCapacitorAppStateSource();
 
     await flushMicrotasks();
     const err = new Error("plugin missing");

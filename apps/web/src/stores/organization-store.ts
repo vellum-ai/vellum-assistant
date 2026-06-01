@@ -20,8 +20,8 @@ import { create } from "zustand";
 import { createSelectors } from "@/utils/create-selectors";
 import { organizationsList } from "@/generated/api/sdk.gen";
 import type { OrganizationRead } from "@/generated/api/types.gen";
+import { subscribe } from "@/lib/event-bus";
 import { useAuthStore } from "@/stores/auth-store";
-import { useEventBusStore } from "@/stores/event-bus-store";
 
 const ACTIVE_ORGANIZATION_STORAGE_KEY = "vellum_active_organization_id";
 
@@ -216,9 +216,7 @@ export function setupOrganizationStore(): () => void {
     }
   };
 
-  const unsubResume = useEventBusStore
-    .getState()
-    .subscribe("app.resume", () => {
+  const unsubResume = subscribe("app.resume", () => {
       refetchIfStale();
     });
 

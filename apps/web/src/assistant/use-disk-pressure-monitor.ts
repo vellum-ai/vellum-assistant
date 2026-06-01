@@ -13,8 +13,8 @@ import {
   getDiskPressureMonitorMode,
   type DiskPressureMonitorMode,
 } from "@/assistant/disk-pressure";
+import { subscribe } from "@/lib/event-bus";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { useEventBusStore } from "@/stores/event-bus-store";
 
 export interface UseDiskPressureMonitorOptions {
   assistantId: string | null;
@@ -173,9 +173,7 @@ export function useDiskPressureMonitor({
     // The bus's `"app.resume"` channel fans in browser visibility,
     // Capacitor foreground, and `window.online`, so a single
     // subscription drives the focus-style refetch.
-    const unsubResume = useEventBusStore
-      .getState()
-      .subscribe("app.resume", () => {
+    const unsubResume = subscribe("app.resume", () => {
         void refresh();
       });
 

@@ -38,7 +38,7 @@ import {
 } from "@/domains/conversations/conversation-queries";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
-import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/chat/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -128,7 +128,6 @@ const CommandPalette = lazy(() =>
 );
 import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
 import { subagentsByIdAbortPost } from "@/generated/daemon/sdk.gen";
-import { fetchSubagentDetail } from "@/utils/fetch-subagent-detail";
 import { MobileAppOverlay } from "@/domains/chat/components/mobile-app-overlay";
 import { MobileDocumentOverlay } from "@/domains/chat/components/mobile-document-overlay";
 import { MobileSubagentDetailOverlay } from "@/domains/chat/components/mobile-subagent-detail-overlay";
@@ -845,94 +844,36 @@ export function ChatPage() {
   // Subagent detail fetching
   // -------------------------------------------------------------------------
   const handleRequestSubagentDetail = useCallback(
-    async (subagentId: string) => {
+    (subagentId: string) => {
       if (!assistantId) return;
-      const entry = useSubagentStore.getState().byId[subagentId];
-      if (!entry?.conversationId) return;
-
-      const detail = await fetchSubagentDetail(assistantId, subagentId, entry.conversationId);
-      if (!detail) return;
-
-      let eventCounter = 0;
-      const events: SubagentTimelineEvent[] = [];
-
-      for (const evt of detail.events) {
-        let type: SubagentTimelineEvent["type"];
-        switch (evt.type) {
-          case "text":
-          case "assistant_text_delta":
-            type = "text";
-            break;
-          case "tool_use":
-          case "tool_use_start":
-            type = "tool_call";
-            break;
-          case "tool_result":
-            type = "tool_result";
-            break;
-          case "error":
-            type = "error";
-            break;
-          default:
-            continue;
-        }
-
-        const content = evt.content;
-
-        if (type === "text" && content === "") continue;
-
-        // Coalesce consecutive text events
-        const prev = events[events.length - 1];
-        if (type === "text" && prev && prev.type === "text") {
-          prev.content += "\n\n" + content;
-          continue;
-        }
-
-        events.push({
-          id: `detail-${++eventCounter}`,
-          type,
-          content,
-          toolName: evt.toolName,
-          isError: evt.isError,
-          timestamp: Date.now(),
-        });
-      }
-
-      useSubagentStore.getState().loadDetail({
-        subagentId,
-        status: detail.status,
-        objective: detail.objective,
-        inputTokens: detail.usage?.inputTokens,
-        outputTokens: detail.usage?.outputTokens,
-        totalCost: detail.usage?.estimatedCost,
-        events,
-      });
+      void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, subagentId);
     },
     [assistantId],
   );
 
-  // Auto-fetch details for subagents reconstructed from history (mirrors macOS
-  // behavior of calling the detail endpoint on reload to get correct status,
-  // metrics, and events).
-  // Keyed by subagentId → spawnedAt at fetch time so that store rebuilds
-  // (e.g. background TanStack Query refetches that reset + respawn entries)
-  // produce a new spawnedAt and allow re-fetching.
-  const fetchedSubagentsRef = useRef<Map<string, number>>(new Map());
-  useEffect(() => {
-    fetchedSubagentsRef.current.clear();
-  }, [activeConversationId]);
-  useEffect(() => {
-    if (!assistantId) return;
-    const entries = Object.values(subagentById);
-    for (const entry of entries) {
+  // Stable signal: changes only when the set of subagent IDs that need a
+  // detail fetch changes (entry appears with conversationId + no events,
+  // or an entry receives events). Immune to loadDetail calls that update
+  // status/objective without changing events, preventing retrigger loops.
+  const unfetchedSubagentKey = useSubagentStore((s) => {
+    const ids: string[] = [];
+    for (const entry of Object.values(s.byId)) {
       if (entry.conversationId && entry.events.length === 0) {
-        const fetchedAt = fetchedSubagentsRef.current.get(entry.subagentId);
-        if (fetchedAt !== undefined && fetchedAt >= entry.spawnedAt) continue;
-        fetchedSubagentsRef.current.set(entry.subagentId, entry.spawnedAt);
-        handleRequestSubagentDetail(entry.subagentId);
+        ids.push(entry.subagentId);
       }
     }
-  }, [assistantId, subagentById, handleRequestSubagentDetail]);
+    return ids.sort().join(',');
+  });
+
+  // Auto-fetch details for subagents reconstructed from history.
+  useEffect(() => {
+    if (!assistantId || !unfetchedSubagentKey) return;
+    for (const entry of Object.values(useSubagentStore.getState().byId)) {
+      if (entry.conversationId && entry.events.length === 0) {
+        void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, entry.subagentId);
+      }
+    }
+  }, [assistantId, unfetchedSubagentKey]);
 
   // -------------------------------------------------------------------------
   // Interaction actions

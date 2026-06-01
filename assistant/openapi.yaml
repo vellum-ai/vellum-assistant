@@ -5179,7 +5179,10 @@ paths:
             type: string
             enum:
               - background
-          description: Filter by conversation type. Pass "background" to list only background/scheduled conversations.
+              - scheduled
+          description:
+            Filter by conversation type. Pass "background" to list background and scheduled conversations together (the
+            back-compat umbrella), or "scheduled" to list only scheduled conversations.
         - name: archiveStatus
           in: query
           required: false
