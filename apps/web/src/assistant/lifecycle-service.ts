@@ -160,6 +160,11 @@ class AssistantLifecycleService {
     if (this.state.kind !== "loading") {
       this.transition({ kind: "loading" });
     }
+    // Drop the auto-greet one-shot too — otherwise a stale `true` set
+    // by the outgoing user's hatch path (but never consumed by
+    // ChatPage before logout) would seed the incoming user's first
+    // mount with a spurious "Connecting..." gate.
+    this.expectingFirstMessage = false;
   }
 
   /**

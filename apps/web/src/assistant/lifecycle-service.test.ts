@@ -262,6 +262,15 @@ describe("lifecycleService — bootstrap branches", () => {
     });
   });
 
+  test("resetForLogout drops the auto-greet one-shot so the next login doesn't inherit it", () => {
+    lifecycleService.markExpectingFirstMessage();
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
+
+    lifecycleService.resetForLogout();
+
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
+  });
+
   test("gateway-auth short-circuit writes active state without calling the server", async () => {
     isGatewayAuthModeMock.mockImplementation(() => true);
 
