@@ -44,13 +44,23 @@ export function runHatch(
     });
 
     child.on("close", (code) => {
-      if (code === 0) {
-        const match = stdout.match(/Hatching local assistant:\s+(.+)/);
-        const assistantId = match?.[1]?.trim() ?? "";
-        finish({ ok: true, assistantId });
-      } else {
+      if (code !== 0) {
         finish({ ok: false, status: 500, error: stderr || stdout });
+        return;
       }
+      const assistantId = stdout
+        .match(/Hatching local assistant:\s+(.+)/)?.[1]
+        ?.trim();
+      if (!assistantId) {
+        finish({
+          ok: false,
+          status: 500,
+          error:
+            "Hatch reported success but no assistant id was found in the CLI output.",
+        });
+        return;
+      }
+      finish({ ok: true, assistantId });
     });
 
     child.on("error", (err) => {
