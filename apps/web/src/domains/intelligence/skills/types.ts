@@ -62,9 +62,7 @@ export interface SkillFileEntry {
 }
 
 export interface SkillFilesResponse {
-  id: string;
-  name: string;
-  description?: string;
+  skill: SkillInfo;
   files: SkillFileEntry[];
 }
 
@@ -79,8 +77,8 @@ export function isSkillFilesResponse(data: unknown): data is SkillFilesResponse 
   if (data == null || typeof data !== "object") return false;
   const obj = data as Record<string, unknown>;
   return (
-    typeof obj.id === "string" &&
-    typeof obj.name === "string" &&
+    obj.skill != null &&
+    typeof obj.skill === "object" &&
     Array.isArray(obj.files)
   );
 }
