@@ -484,7 +484,7 @@ describe("onboarding lifecycle sync", () => {
       userName: "Alice",
       googleConnected: false,
       cohort: recipe.cohort,
-      initialMessage: "Hi, I'm Alice. Nice to meet you.",
+      initialMessage: recipe.initialMessage,
       bootstrapTemplate: recipe.bootstrapTemplate,
       skills: recipe.skills,
     });

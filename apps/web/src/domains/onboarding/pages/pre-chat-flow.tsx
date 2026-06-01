@@ -336,7 +336,8 @@ export function PreChatFlow() {
         ...selectedPriorAssistantsForContext,
       ]);
     }
-    context.initialMessage = buildPreChatInitialMessage(context);
+    context.initialMessage =
+      recipe?.initialMessage ?? buildPreChatInitialMessage(context);
 
     setPendingPreChatContext(context);
     if (trimmedAssistant) setPendingAssistantName(trimmedAssistant);

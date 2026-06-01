@@ -65,6 +65,38 @@ final class PreChatOnboardingTests: XCTestCase {
         XCTAssertNil(dict["assistantName"])
     }
 
+    func testContextOmitsDefaultInitialMessageFromJSON() throws {
+        let context = PreChatOnboardingContext(
+            tools: [],
+            tasks: [],
+            tone: "grounded",
+            userName: nil,
+            assistantName: nil,
+            initialMessage: PreChatOnboardingContext.defaultInitialMessage
+        )
+
+        let data = try JSONEncoder().encode(context)
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        XCTAssertNil(dict["initialMessage"])
+    }
+
+    func testContextEncodesNonDefaultInitialMessage() throws {
+        let context = PreChatOnboardingContext(
+            tools: [],
+            tasks: [],
+            tone: "grounded",
+            userName: "Alice",
+            assistantName: "Nova",
+            initialMessage: "Hi Nova, I'm Alice. Nice to meet you."
+        )
+
+        let data = try JSONEncoder().encode(context)
+        let dict = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+
+        XCTAssertEqual(dict["initialMessage"] as? String, "Hi Nova, I'm Alice. Nice to meet you.")
+    }
+
     func testContextRoundTrip() throws {
         let original = PreChatOnboardingContext(
             tools: ["notion", "slack"],
