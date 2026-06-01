@@ -227,7 +227,10 @@ export interface ProcessConversationContext {
    * without a proxy). Called from drain paths before preactivation so skills
    * are only activated when the proxy that services them is present.
    */
-  ensureHostProxiesForTurn(sourceInterface: InterfaceId | undefined): void;
+  ensureHostProxiesForTurn(
+    sourceInterface: InterfaceId | undefined,
+    sourceActorPrincipalId?: string,
+  ): void;
 }
 
 function resolveQueuedTurnContext(
@@ -560,8 +563,17 @@ async function drainSingleMessage(
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
-    conversation.ensureHostProxiesForTurn(sourceInterface);
-    preactivateHostProxySkills(conversation, sourceInterface);
+    const sourceActorPrincipalId =
+      conversation.trustContext?.guardianPrincipalId;
+    conversation.ensureHostProxiesForTurn(
+      sourceInterface,
+      sourceActorPrincipalId,
+    );
+    preactivateHostProxySkills(
+      conversation,
+      sourceInterface,
+      sourceActorPrincipalId,
+    );
   }
 
   // Snapshot persona context at turn start so later tool turns can't pick up
@@ -1110,8 +1122,17 @@ async function drainBatch(
     const interfaceCtx =
       queuedInterfaceCtx ?? conversation.getTurnInterfaceContext();
     const sourceInterface = interfaceCtx?.userMessageInterface;
-    conversation.ensureHostProxiesForTurn(sourceInterface);
-    preactivateHostProxySkills(conversation, sourceInterface);
+    const sourceActorPrincipalId =
+      conversation.trustContext?.guardianPrincipalId;
+    conversation.ensureHostProxiesForTurn(
+      sourceInterface,
+      sourceActorPrincipalId,
+    );
+    preactivateHostProxySkills(
+      conversation,
+      sourceInterface,
+      sourceActorPrincipalId,
+    );
   }
 
   // Snapshot persona context at turn start so later tool turns can't pick up

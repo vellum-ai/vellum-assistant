@@ -1338,10 +1338,17 @@ export async function handleSendMessage(
   }
 
   const isInteractive = isInteractiveInterface(sourceInterface);
+  const sourceActorPrincipalId = conversation.trustContext?.guardianPrincipalId;
   // Bash/File/Transfer singletons are globally available via isAvailable() —
   // no per-conversation gating needed. CU is per-conversation (owns step
   // count, AX tree history, loop detection).
-  if (shouldAttachHostProxyForCapability("host_cu", sourceInterface)) {
+  if (
+    shouldAttachHostProxyForCapability(
+      "host_cu",
+      sourceInterface,
+      sourceActorPrincipalId,
+    )
+  ) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
@@ -1354,7 +1361,13 @@ export async function handleSendMessage(
   // lives in the skill-projection layer (which reads the `feature-flag:
   // app-control` declaration in SKILL.md frontmatter), so an attached proxy
   // is harmless when the flag resolves to off.
-  if (shouldAttachHostProxyForCapability("host_app_control", sourceInterface)) {
+  if (
+    shouldAttachHostProxyForCapability(
+      "host_app_control",
+      sourceInterface,
+      sourceActorPrincipalId,
+    )
+  ) {
     if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
       conversation.setHostAppControlProxy(
         new HostAppControlProxy(mapping.conversationId),
@@ -1367,7 +1380,11 @@ export async function handleSendMessage(
   // this message will be queued and preactivation is deferred to dequeue
   // time in drainQueueImpl to avoid mutating in-flight turn state.
   if (!conversation.isProcessing()) {
-    preactivateHostProxySkills(conversation, sourceInterface);
+    preactivateHostProxySkills(
+      conversation,
+      sourceInterface,
+      sourceActorPrincipalId,
+    );
   }
   // Wire sendToClient to the SSE hub so all subsystems can reach the HTTP client.
   // hasNoClient must remain `!isInteractive` so downstream tool gating

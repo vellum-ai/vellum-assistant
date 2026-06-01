@@ -191,8 +191,15 @@ async function prepareConversationForMessage(
         "wiring in conversation-routes.ts into a shared helper.",
     );
   }
+  const sourceActorPrincipalId = conversation.trustContext?.guardianPrincipalId;
   // CU is per-conversation (owns step count, AX tree history, loop detection).
-  if (shouldAttachHostProxyForCapability("host_cu", resolvedInterface)) {
+  if (
+    shouldAttachHostProxyForCapability(
+      "host_cu",
+      resolvedInterface,
+      sourceActorPrincipalId,
+    )
+  ) {
     if (!conversation.isProcessing() || !conversation.hostCuProxy) {
       conversation.setHostCuProxy(new HostCuProxy());
     }
@@ -204,7 +211,11 @@ async function prepareConversationForMessage(
   // is enforced by the skill-projection layer via SKILL.md frontmatter, so
   // an attached proxy is harmless when the flag is off.
   if (
-    shouldAttachHostProxyForCapability("host_app_control", resolvedInterface)
+    shouldAttachHostProxyForCapability(
+      "host_app_control",
+      resolvedInterface,
+      sourceActorPrincipalId,
+    )
   ) {
     if (!conversation.isProcessing() || !conversation.hostAppControlProxy) {
       conversation.setHostAppControlProxy(
@@ -216,7 +227,11 @@ async function prepareConversationForMessage(
   }
   // The early `isProcessing()` throw above guarantees the conversation is
   // idle here, so preactivation is unconditional once the proxies are wired.
-  preactivateHostProxySkills(conversation, resolvedInterface);
+  preactivateHostProxySkills(
+    conversation,
+    resolvedInterface,
+    sourceActorPrincipalId,
+  );
   conversation.setCommandIntent(options?.commandIntent ?? null);
   conversation.setTurnChannelContext({
     userMessageChannel: resolvedChannel,
