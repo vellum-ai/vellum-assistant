@@ -59,14 +59,6 @@ export interface ToolCallProgressCardProps {
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
   /**
-   * Whether the parent assistant message is currently streaming a response.
-   * Tools can finish before the assistant's final reply is complete; the
-   * card keeps itself expanded while either `isStreaming` is true or the
-   * tool group is still loading, so the user keeps seeing the steps next to
-   * the streaming reply instead of a prematurely-collapsed card.
-   */
-  isStreaming?: boolean;
-  /**
    * Optional leading "thinking" text segment that immediately preceded this
    * tool-call group in the message's `contentOrder`. When supplied the
    * unified card prepends a `thinking` step to the expanded body so the
@@ -213,7 +205,6 @@ function UnifiedToolCallProgressCard({
   onOpenRuleEditor,
   unknownNudgeToolCallIds,
   onDismissUnknownNudge,
-  isStreaming,
 }: ToolCallProgressCardProps & { cardData: ToolCallCardData }) {
   const openToolDetail = useViewerStore.use.openToolDetail();
   // Drives the pill's active state — the pill whose detail drawer is currently
@@ -223,9 +214,7 @@ function UnifiedToolCallProgressCard({
   const cardId = toolCalls[0]?.id ?? null;
   const expanded = useCardExpanded(
     cardId,
-    cardData.state,
     expandedCardIds,
-    isStreaming ?? false,
   );
 
   const shellState: ToolProgressCardState = cardData.state;
@@ -308,21 +297,17 @@ function UnifiedToolCallProgressCard({
 }
 
 /**
- * Drives the unified card's expand/collapse state. Mirrors legacy behavior:
- * auto-expand while loading or while the parent message is still streaming
- * (tools can finish before the assistant's final response is complete),
- * auto-collapse on terminal state, but a user toggle (now or in a previous
- * mount, recorded in `expandedCardIds`) wins across state transitions and
- * remounts.
+ * Drives the unified card's expand/collapse state. Tool progress cards default
+ * collapsed in chat so ongoing tool activity stays compact; a user toggle (now
+ * or in a previous mount, recorded in `expandedCardIds`) wins across state
+ * transitions and remounts.
  *
  * `localToggle` mirrors the map mutation so React re-renders on click —
  * mutating the map alone wouldn't trigger one.
  */
 function useCardExpanded(
   cardId: string | null,
-  state: ToolCallCardData["state"],
   expandedCardIds: Map<string, boolean>,
-  isStreaming: boolean,
 ): { value: boolean; onChange: (next: boolean) => void } {
   const [localToggle, setLocalToggle] = useState<boolean | undefined>(
     undefined,
@@ -330,7 +315,7 @@ function useCardExpanded(
   const persisted =
     cardId != null ? expandedCardIds.get(cardId) : undefined;
   const userChoice = localToggle ?? persisted;
-  const value = userChoice ?? (state === "loading" || isStreaming);
+  const value = userChoice ?? false;
 
   const onChange = (next: boolean) => {
     setLocalToggle(next);
@@ -471,4 +456,3 @@ function ConfirmationView({
     </div>
   );
 }
-

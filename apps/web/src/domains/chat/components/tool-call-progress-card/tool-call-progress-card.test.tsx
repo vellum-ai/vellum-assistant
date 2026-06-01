@@ -77,7 +77,7 @@ function renderCard(
 }
 
 describe("ToolCallProgressCard — non-web tool group", () => {
-  test("renders the unified shell with the bash carousel header + step pill", () => {
+  test("renders the unified shell with the bash carousel header collapsed by default", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -86,22 +86,22 @@ describe("ToolCallProgressCard — non-web tool group", () => {
         input: { command: "git status" },
       }),
     ];
-    const { getAllByText, getByTestId, queryByText } = renderCard(toolCalls);
+    const { getByRole, getByText, getByTestId, queryByTestId, queryByText } = renderCard(toolCalls);
     // The unified card mounts the shared shell wrapper.
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
     // Title comes from `deriveStepLabel("bash")`, info from the `command`
-    // input. Title appears twice — once in the carousel header, once in
-    // the auto-expanded phase header (the body's phase-grouped layout
-    // collapses the single bash step into a "Working (bash)" phase
-    // section).
-    expect(getAllByText("Working (bash)").length).toBe(2);
-    expect(getAllByText("git status").length).toBeGreaterThanOrEqual(1);
+    // input. The expanded body is hidden by default, so only the header
+    // content is present on mount.
+    expect(getByText("Working (bash)")).toBeTruthy();
+    expect(getByText("git status")).toBeTruthy();
+    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
+    expect(queryByTestId("tool-step-pill")).toBeNull();
     // Single-step cards suppress the count pill — it would just duplicate
     // the carousel title. Pill returns at 2+ steps.
     expect(queryByText("1 step")).toBeNull();
   });
 
-  test("auto-expands while loading so step rows are visible without a click", () => {
+  test("keeps loading step rows hidden until the user expands the card", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -110,9 +110,10 @@ describe("ToolCallProgressCard — non-web tool group", () => {
         input: { command: "git status" },
       }),
     ];
-    const { getAllByText } = renderCard(toolCalls);
-    // Title appears once in the header and once in the expanded body row.
-    expect(getAllByText("Working (bash)").length).toBeGreaterThanOrEqual(1);
+    const { getByRole, getByTestId, queryByTestId } = renderCard(toolCalls);
+    expect(queryByTestId("tool-step-pill")).toBeNull();
+    fireEvent.click(getByRole("button", { name: /expand steps/i }));
+    expect(getByTestId("tool-step-pill")).toBeTruthy();
   });
 
   test("uses the loading indicator while any tool is running", () => {
@@ -146,7 +147,9 @@ describe("ToolCallProgressCard — tool step pill", () => {
         riskLevel: "high",
       }),
     ];
-    const { getByTestId } = renderCard(toolCalls);
+    const { getByTestId } = renderCard(toolCalls, {
+      expandedCardIds: new Map([["tc-1", true]]),
+    });
     const pill = getByTestId("tool-step-pill");
     expect(pill).toBeTruthy();
     // Activity sentence wins over the terse command info (it also surfaces in
@@ -325,7 +328,9 @@ describe("ToolCallProgressCard — subagent_spawn filtering", () => {
         input: { command: "ls" },
       }),
     ];
-    const { getByTestId, queryByText } = renderCard(toolCalls);
+    const { getByTestId, queryByText } = renderCard(toolCalls, {
+      expandedCardIds: new Map([["tc-1", true]]),
+    });
     expect(getByTestId("tool-progress-card-shell")).toBeTruthy();
     // Single non-spawn tool call → step pill suppressed (only fires at 2+).
     expect(queryByText(/^\d+ steps?$/)).toBeNull();
@@ -349,7 +354,7 @@ describe("ToolCallProgressCard — unknown-command nudge", () => {
       onOpenRuleEditor: () => {},
       onDismissUnknownNudge: () => {},
       // Force the body open so the nudge inside the expanded region is in
-      // the DOM regardless of the auto-collapse-on-completion behavior.
+      // the DOM regardless of the collapsed-by-default behavior.
       expandedCardIds: new Map([["tc-1", true]]),
     });
     expect(getByText("This command wasn't recognized.")).toBeTruthy();
@@ -426,7 +431,7 @@ describe("ToolCallProgressCard — unknown-command nudge", () => {
 });
 
 describe("ToolCallProgressCard — expansion derived from state", () => {
-  test("mounts expanded while loading", () => {
+  test("mounts collapsed while loading", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -436,10 +441,10 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
       }),
     ];
     const { getByRole } = renderCard(toolCalls);
-    expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
+    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
   });
 
-  test("collapses automatically once the card reaches a terminal state", () => {
+  test("mounts collapsed once the card reaches a terminal state", () => {
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
@@ -454,7 +459,7 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
     expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
   });
 
-  test("auto-collapses on the loading → complete transition without a user toggle", () => {
+  test("stays collapsed on the loading → complete transition without a user toggle", () => {
     const expandedCardIds = new Map<string, boolean>();
     const running = [
       makeToolCall({
@@ -472,7 +477,7 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
         expandedCardIds={expandedCardIds}
       />,
     );
-    expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
+    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
 
     const completed = [
       makeToolCall({
@@ -513,10 +518,7 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
         expandedCardIds={expandedCardIds}
       />,
     );
-    // Card mounts expanded; user collapses it manually.
-    fireEvent.click(getByRole("button", { name: /collapse steps/i }));
-    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
-    // User expands it back.
+    // Card mounts collapsed; user expands it manually.
     fireEvent.click(getByRole("button", { name: /expand steps/i }));
     expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
 
@@ -568,7 +570,7 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
     expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
   });
 
-  test("persisted expanded=true overrides the auto-collapse on completion", () => {
+  test("persisted expanded=true overrides the collapsed default on completion", () => {
     const expandedCardIds = new Map<string, boolean>([["tc-1", true]]);
     const toolCalls = [
       makeToolCall({
@@ -591,37 +593,18 @@ describe("ToolCallProgressCard — expansion derived from state", () => {
     expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
   });
 
-  test("isStreaming=true keeps the card expanded after tools complete", () => {
-    // Tools finish before the assistant's final response — the card should
-    // stay expanded while `isStreaming` is true so the user sees the steps
-    // beside the streaming reply, not a prematurely-collapsed card.
+  test("persisted expanded=true overrides the collapsed default while loading", () => {
+    const expandedCardIds = new Map<string, boolean>([["tc-1", true]]);
     const toolCalls = [
       makeToolCall({
         id: "tc-1",
         toolName: "bash",
-        status: "completed",
+        status: "running",
         input: { command: "ls" },
-        startedAt: 0,
-        completedAt: 1000,
       }),
     ];
-    const { getByRole } = renderCard(toolCalls, { isStreaming: true });
+    const { getByRole } = renderCard(toolCalls, { expandedCardIds });
     expect(getByRole("button", { name: /collapse steps/i })).toBeTruthy();
-  });
-
-  test("isStreaming=false collapses the completed card (regression vs the previous case)", () => {
-    const toolCalls = [
-      makeToolCall({
-        id: "tc-1",
-        toolName: "bash",
-        status: "completed",
-        input: { command: "ls" },
-        startedAt: 0,
-        completedAt: 1000,
-      }),
-    ];
-    const { getByRole } = renderCard(toolCalls, { isStreaming: false });
-    expect(getByRole("button", { name: /expand steps/i })).toBeTruthy();
   });
 });
 
@@ -701,6 +684,7 @@ describe("ToolCallProgressCard — leadingThinkingText", () => {
     ];
     const { getByText, getByText: getByText2 } = renderCard(toolCalls, {
       leadingThinkingText: "Let me check the directory first.",
+      expandedCardIds: new Map([["tc-1", true]]),
     });
     // The thinking text appears as a separate step row in the expanded body.
     expect(getByText("Let me check the directory first.")).toBeTruthy();

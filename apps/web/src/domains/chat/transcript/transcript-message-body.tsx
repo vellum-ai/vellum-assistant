@@ -601,7 +601,6 @@ export function TranscriptMessageBody({
                       pendingConfirmationToolCallId={pendingConfirmationToolCallId}
                       unknownNudgeToolCallIds={unknownNudgeToolCallIds}
                       onDismissUnknownNudge={onDismissUnknownNudge}
-                      isStreaming={isStreaming}
                       leadingThinkingText={getLeadingThinkingText(message, gi)}
                     />
                   )}
@@ -747,7 +746,6 @@ export function TranscriptMessageBody({
               pendingConfirmationToolCallId={pendingConfirmationToolCallId}
               unknownNudgeToolCallIds={unknownNudgeToolCallIds}
               onDismissUnknownNudge={onDismissUnknownNudge}
-              isStreaming={isStreaming}
               leadingThinkingText={getLegacyLeadingThinkingText(message)}
             />
             {renderInlineSubagentCards(
