@@ -353,9 +353,12 @@ export function TranscriptMessageBody({
   );
   const isSlackMessage = Boolean(message.slackMessage);
   const isUser = message.role === "user";
+  const hasAttachments = Boolean(message.attachments?.length);
 
-  // Assistant text bubble class (unchanged). User text no longer carries the
-  // bubble — the bubble is applied once at the wrapper (`userBubbleClass`).
+  // `textBubbleClass` applies only to the assistant text path: it carries the
+  // text bubble per segment inside `segmentClass`'s assistant branch. User
+  // messages get their bubble once at the wrapper via `userBubbleClass`, so the
+  // user `segmentClass` carries no bubble background.
   const textBubbleClass = isSlackMessage
     ? "max-w-[80%] text-[var(--content-default)] sm:max-w-[640px]"
     : "w-full text-[var(--content-default)]";
@@ -586,7 +589,15 @@ export function TranscriptMessageBody({
       return undefined;
     };
 
-    const interleavedGroupElements = groups.map((group, gi) => {
+    // Each entry carries its group `type` alongside the rendered node so the
+    // user branch can place text inside the bubble and tool-call/surface
+    // elements outside it (only text/markdown belongs in the user bubble). For
+    // assistants the order is preserved by rendering all nodes in sequence.
+    const interleavedGroupEntries = groups.map((group, gi): {
+      type: ContentGroup["type"];
+      node: ReactNode;
+    } => {
+      const node = ((): ReactNode => {
             if (group.type === "toolCalls") {
               const toolCalls = group.ids
                 .map(resolveToolCall)
@@ -663,11 +674,21 @@ export function TranscriptMessageBody({
               );
             }
             return null;
-          });
+      })();
+      return { type: group.type, node };
+    });
 
-    const hasAttachments = Boolean(
-      message.attachments && message.attachments.length > 0,
-    );
+    // Order-preserving flat list for the assistant branch.
+    const interleavedGroupElements = interleavedGroupEntries.map((e) => e.node);
+    // For the user branch: text belongs in the bubble; tool-call/surface
+    // elements render outside it (after the bubble).
+    const interleavedTextElements = interleavedGroupEntries
+      .filter((e) => e.type === "text")
+      .map((e) => e.node);
+    const interleavedNonTextElements = interleavedGroupEntries
+      .filter((e) => e.type !== "text")
+      .map((e) => e.node);
+
     // Fallback: if message.content exists but no text groups rendered
     // (e.g. tool_use_start before any assistant_text_delta), show the content.
     const interleavedFallback =
@@ -690,16 +711,22 @@ export function TranscriptMessageBody({
           className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
         >
           {isUser ? (
-            <div className={userBubbleClass}>
-              {interleavedGroupElements}
-              {interleavedFallback}
-              {hasAttachments && message.attachments ? (
-                <BubbleAttachments
-                  attachments={message.attachments}
-                  assistantId={assistantId}
-                />
-              ) : null}
-            </div>
+            <>
+              <div className={userBubbleClass}>
+                {interleavedTextElements}
+                {interleavedFallback}
+                {hasAttachments && message.attachments ? (
+                  <BubbleAttachments
+                    attachments={message.attachments}
+                    assistantId={assistantId}
+                  />
+                ) : null}
+              </div>
+              {/* Tool-call cards and surfaces stay outside the user bubble
+                  (low-reachability for user messages, but kept for parity with
+                  the assistant path). */}
+              {interleavedNonTextElements}
+            </>
           ) : (
             <>
               {interleavedGroupElements}
@@ -733,8 +760,10 @@ export function TranscriptMessageBody({
   }
 
   // Legacy path: no interleaved tool calls in contentOrder. Render all tool
-  // calls first, then text content.
-  const contentElements: ReactNode[] = [];
+  // calls first, then text content. Each element is tagged "text" or
+  // "surface" so the user branch can keep text in the bubble and render
+  // surfaces outside it.
+  const contentEntries: Array<{ type: "text" | "surface"; node: ReactNode }> = [];
   if (message.contentOrder && message.contentOrder.length > 0) {
     const textSegmentsArr = message.textSegments ?? [];
     for (const entry of message.contentOrder) {
@@ -746,43 +775,58 @@ export function TranscriptMessageBody({
               (s) => (s as Record<string, unknown>).id === entry.id,
             );
         const segText = seg?.content ?? entry.id;
-        contentElements.push(
-          renderTextWithInlineSurfaces(segText, `text-${entry.id}`, message.role === "user"),
-        );
+        contentEntries.push({
+          type: "text",
+          node: renderTextWithInlineSurfaces(segText, `text-${entry.id}`, message.role === "user"),
+        });
       } else if (entry.type === "surface") {
         const surface = resolveSurface(entry.id);
         if (surface) {
-          contentElements.push(
-            <div key={`surface-${entry.id}`} className="w-full">
-              <SurfaceRouter
-                surface={surface}
-                onAction={onSurfaceAction}
-                onOpenApp={onOpenApp}
-                onOpenDocument={onOpenDocument}
-                assistantId={assistantId}
-                isToolCallComplete={isToolCallComplete}
-              />
-            </div>,
-          );
+          contentEntries.push({
+            type: "surface",
+            node: (
+              <div key={`surface-${entry.id}`} className="w-full">
+                <SurfaceRouter
+                  surface={surface}
+                  onAction={onSurfaceAction}
+                  onOpenApp={onOpenApp}
+                  onOpenDocument={onOpenDocument}
+                  assistantId={assistantId}
+                  isToolCallComplete={isToolCallComplete}
+                />
+              </div>
+            ),
+          });
         }
       }
     }
-    if (contentElements.length === 0 && message.content) {
-      contentElements.push(
-        renderTextWithInlineSurfaces(message.content, "fallback", message.role === "user"),
-      );
+    if (contentEntries.length === 0 && message.content) {
+      contentEntries.push({
+        type: "text",
+        node: renderTextWithInlineSurfaces(message.content, "fallback", message.role === "user"),
+      });
     }
   } else {
-    contentElements.push(
-      message.content
+    contentEntries.push({
+      type: "text",
+      node: message.content
         ? renderTextWithInlineSurfaces(message.content, "content", message.role === "user")
         : null,
-    );
+    });
   }
+  // Order-preserving flat list for the assistant branch.
+  const contentElements = contentEntries.map((e) => e.node);
+  // For the user branch: text in the bubble, surfaces outside it.
+  const legacyTextElements = contentEntries
+    .filter((e) => e.type === "text")
+    .map((e) => e.node);
+  const legacyNonTextElements = contentEntries
+    .filter((e) => e.type !== "text")
+    .map((e) => e.node);
   const legacyToolCalls =
     message.toolCalls?.filter((tc) => !isSuppressedUiTool(tc)) ?? [];
   const hasVisibleLegacyContent = contentElements.some((el) => !!el);
-  const hasLegacyAttachments = Boolean(message.attachments?.length);
+  const hasVisibleLegacyText = legacyTextElements.some((el) => !!el);
 
   return (
     <div
@@ -823,21 +867,25 @@ export function TranscriptMessageBody({
           // bubble background/padding live here (userBubbleClass) instead of
           // per text segment. Rendered whenever there is any text content OR
           // any attachments, so attachment-only messages still get a bubble.
-          (hasVisibleLegacyContent || hasLegacyAttachments) && (
-            <div className={userBubbleClass}>
-              {contentElements}
-              {hasLegacyAttachments && message.attachments ? (
-                <BubbleAttachments
-                  attachments={message.attachments}
-                  assistantId={assistantId}
-                />
-              ) : null}
-            </div>
-          )
+          // Surfaces (rare for user messages) render outside the bubble.
+          <>
+            {(hasVisibleLegacyText || hasAttachments) && (
+              <div className={userBubbleClass}>
+                {legacyTextElements}
+                {hasAttachments && message.attachments ? (
+                  <BubbleAttachments
+                    attachments={message.attachments}
+                    assistantId={assistantId}
+                  />
+                ) : null}
+              </div>
+            )}
+            {legacyNonTextElements}
+          </>
         ) : (
           <>
             {(hasVisibleLegacyContent ||
-              (!message.toolCalls?.length && !hasLegacyAttachments)) && (
+              (!message.toolCalls?.length && !hasAttachments)) && (
               // Layout-only column: the bubble styling (textBubbleClass) is applied
               // per text segment inside renderTextWithInlineSurfaces, mirroring the
               // interleaved path above. Applying textBubbleClass here too would
@@ -848,7 +896,7 @@ export function TranscriptMessageBody({
                 {contentElements}
               </div>
             )}
-            {hasLegacyAttachments && message.attachments && (
+            {hasAttachments && message.attachments && (
               <MessageAttachments
                 attachments={message.attachments}
                 assistantId={assistantId}
