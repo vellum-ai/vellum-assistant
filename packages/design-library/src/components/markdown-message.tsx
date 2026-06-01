@@ -192,6 +192,25 @@ function buildMarkdownComponents(
     ol: ({ children }) => (
       <ol className="mb-2 list-decimal pl-5 last:mb-0">{children}</ol>
     ),
+    // h4-h6 are rare in assistant output but must not fall through to
+    // unstyled browser defaults (a Tailwind reset strips their size/weight,
+    // leaving them indistinguishable from body text). Keep them bold on a
+    // descending body scale.
+    h4: ({ children }) => (
+      // typography: off-scale — bold weight override on canonical size
+
+      <h4 className="mb-1 mt-2 text-body-medium-default !font-bold first:mt-0">{children}</h4>
+    ),
+    h5: ({ children }) => (
+      // typography: off-scale — bold weight override on canonical size
+
+      <h5 className="mb-1 mt-2 text-body-small-default !font-bold first:mt-0">{children}</h5>
+    ),
+    h6: ({ children }) => (
+      // typography: off-scale — bold weight override on canonical size
+
+      <h6 className="mb-1 mt-2 text-body-small-default !font-bold text-[var(--content-secondary)] first:mt-0">{children}</h6>
+    ),
     li: ({ children }) => <li className="mb-0.5">{children}</li>,
     a: ({ href, children }) => <LinkComponent href={href}>{children}</LinkComponent>,
     code: ({ className, children, ...props }) => {
@@ -291,13 +310,15 @@ const CURRENCY_AMOUNT =
  */
 const structureParser = unified().use(remarkParse).use(remarkGfm);
 
-function escapeCurrencyDollars(content: string): string {
-  // Fast path: nothing that looks like `$<digit>` means no work to do.
-  if (!/\$\d/.test(content)) return content;
-
+/**
+ * Source offset ranges of every `text` node in `content`, in document order.
+ * Verbatim regions — inline code, fenced code, link/image destinations,
+ * autolinks — are non-`text` nodes, so they are excluded: a rewrite scoped to
+ * these ranges leaves them byte-for-byte intact. Shared by currency escaping
+ * and soft-break conversion so both stay confined to prose.
+ */
+function collectTextRanges(content: string): Array<[number, number]> {
   const tree = structureParser.parse(content);
-
-  // Source offset ranges of every text node, in document order.
   const ranges: Array<[number, number]> = [];
   const collect = (node: { type: string; position?: { start: { offset?: number }; end: { offset?: number } }; children?: unknown[] }) => {
     if (node.type === "text") {
@@ -315,35 +336,63 @@ function escapeCurrencyDollars(content: string): string {
     }
   };
   collect(tree as Parameters<typeof collect>[0]);
-  if (ranges.length === 0) return content;
+  return ranges;
+}
 
+/**
+ * Rebuild `content`, applying `rewrite` to each text-node slice while copying
+ * the verbatim gaps between them (code, links, …) untouched. `rewrite`
+ * receives the slice and its source start offset (for cross-boundary lookups).
+ */
+function rewriteTextSlices(
+  content: string,
+  ranges: Array<[number, number]>,
+  rewrite: (slice: string, start: number) => string,
+): string {
   let result = "";
   let cursor = 0;
   for (const [start, end] of ranges) {
     if (start < cursor) continue; // defensive: never reprocess overlapping spans
     result += content.slice(cursor, start); // verbatim gap (code, links, …)
-    const slice = content.slice(start, end);
-    result += slice.replace(CURRENCY_AMOUNT, (match, amount: string, offset: number) => {
-      const prev = offset > 0 ? slice[offset - 1] : start > 0 ? content[start - 1] : "";
-      if (prev === "$" || prev === "\\") return match;
-      return `\\$${amount}`;
-    });
+    result += rewrite(content.slice(start, end), start);
     cursor = end;
   }
   result += content.slice(cursor);
   return result;
 }
 
+function escapeCurrencyDollars(content: string): string {
+  // Fast path: nothing that looks like `$<digit>` means no work to do.
+  if (!/\$\d/.test(content)) return content;
+  const ranges = collectTextRanges(content);
+  if (ranges.length === 0) return content;
+  return rewriteTextSlices(content, ranges, (slice, start) =>
+    slice.replace(CURRENCY_AMOUNT, (match, amount: string, offset: number) => {
+      const prev = offset > 0 ? slice[offset - 1] : start > 0 ? content[start - 1] : "";
+      if (prev === "$" || prev === "\\") return match;
+      return `\\$${amount}`;
+    }),
+  );
+}
+
 /**
- * Convert lone newlines to CommonMark hard line breaks (two trailing
- * spaces before `\n`) so user-typed Shift+Enter breaks render as `<br>`.
- * Double-newlines (paragraph breaks) are left untouched.
+ * Convert lone newlines to CommonMark hard line breaks (two trailing spaces
+ * before `\n`) so single-`\n` breaks — common in both user-typed Shift+Enter
+ * input and assistant output — render as `<br>` instead of collapsing to a
+ * space.
+ *
+ * Like currency escaping, the rewrite is scoped to `text` nodes. A blind
+ * string replace would also append trailing spaces *inside fenced code blocks*
+ * (corrupting code) and to table-row source; confining it to prose avoids
+ * both. Paragraph breaks (`\n\n`) never appear within a single text node — a
+ * blank line terminates the block — so every `\n` reached here is a soft break
+ * safe to harden.
  */
-function preserveNewlines(text: string): string {
-  // Match runs of consecutive newlines. Single newlines become hard
-  // breaks; runs of 2+ are paragraph separators and stay untouched.
-  // Avoids lookbehind so it works on Safari/WKWebView < 16.4 (iOS 15+).
-  return text.replace(/\n+/g, (m) => (m.length === 1 ? "  \n" : m));
+function hardBreakNewlines(content: string): string {
+  if (!content.includes("\n")) return content;
+  const ranges = collectTextRanges(content);
+  if (ranges.length === 0) return content;
+  return rewriteTextSlices(content, ranges, (slice) => slice.replace(/\n/g, "  \n"));
 }
 
 export interface MarkdownMessageProps {
@@ -370,7 +419,7 @@ export function MarkdownMessage({
 }: MarkdownMessageProps) {
   const processed = useMemo(() => {
     const escaped = escapeCurrencyDollars(content);
-    return hardLineBreaks ? preserveNewlines(escaped) : escaped;
+    return hardLineBreaks ? hardBreakNewlines(escaped) : escaped;
   }, [content, hardLineBreaks]);
   const Link = linkComponent ?? DefaultLink;
   const components = useMemo(() => buildMarkdownComponents(Link), [Link]);
