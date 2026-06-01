@@ -846,7 +846,7 @@ export function ChatPage() {
   const handleRequestSubagentDetail = useCallback(
     (subagentId: string) => {
       if (!assistantId) return;
-      void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, subagentId);
+      void useSubagentStore.getState().fetchDetailIfNeeded(assistantId, subagentId, { skipDedup: true });
     },
     [assistantId],
   );
