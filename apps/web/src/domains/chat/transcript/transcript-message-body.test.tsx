@@ -260,7 +260,35 @@ describe("TranscriptMessageBody", () => {
     expect(inspectedIds).toEqual(["message-1"]);
   });
 
-  test("auto-expands the latest interleaved tool-call group while the row is streaming", () => {
+  test("auto-expands the latest interleaved tool-call group while a tool is running", () => {
+    const { getByTestId } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "m1",
+          role: "assistant",
+          content: "",
+          contentOrder: [{ type: "tool", id: "tc-1" }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "running",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    expect(
+      getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
+    ).toBe("true");
+  });
+
+  test("does not auto-expand a latest interleaved tool-call group whose tools have all completed", () => {
     const { getByTestId } = render(
       <TranscriptMessageBody
         message={{
@@ -277,7 +305,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isLive
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -286,7 +313,7 @@ describe("TranscriptMessageBody", () => {
 
     expect(
       getByTestId("tool-progress-card").getAttribute("data-auto-expand"),
-    ).toBe("true");
+    ).toBe("false");
   });
 
   test("collapses an interleaved tool-call group once response text follows", () => {
@@ -310,7 +337,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isLive
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -350,7 +376,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isLive
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -639,7 +664,7 @@ describe("TranscriptMessageBody", () => {
     ).not.toBeNull();
   });
 
-  test("auto-expands legacy tool-only streaming messages until content appears", () => {
+  test("auto-expands legacy tool-only messages while a tool runs, until content appears", () => {
     const { getByTestId, rerender } = render(
       <TranscriptMessageBody
         message={{
@@ -651,11 +676,10 @@ describe("TranscriptMessageBody", () => {
               id: "tc-1",
               toolName: "bash",
               input: {},
-              status: "completed",
+              status: "running",
             },
           ],
         }}
-        isLive
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}
@@ -680,7 +704,6 @@ describe("TranscriptMessageBody", () => {
             },
           ],
         }}
-        isLive
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
         onSurfaceAction={noop}

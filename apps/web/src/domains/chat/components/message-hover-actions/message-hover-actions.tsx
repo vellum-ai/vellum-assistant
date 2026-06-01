@@ -10,9 +10,6 @@ type MessageHoverActionsProps = {
   timestamp?: number;
   /** The role of the message sender. */
   role: "user" | "assistant";
-  /** Whether this is the live, not-yet-finalized assistant row of the active
-   *  turn. Hover actions are hidden while the row is live. */
-  isLive?: boolean;
   /** Slack permalink for the message, shown as a hover action when present. */
   openInSlackUrl?: string;
   /** Callback when "Fork from here" is clicked. */
@@ -57,7 +54,6 @@ export function MessageHoverActions({
   content,
   timestamp,
   role,
-  isLive,
   openInSlackUrl,
   onFork,
   onInspect,
@@ -93,10 +89,6 @@ export function MessageHoverActions({
       // Clipboard write denied — silently ignore
     });
   }, [content]);
-
-  if (isLive) {
-    return null;
-  }
 
   return (
     <div

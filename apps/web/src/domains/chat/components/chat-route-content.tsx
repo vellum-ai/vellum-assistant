@@ -1204,7 +1204,6 @@ export function ChatRouteContent({
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
     conversationId: activeConversationId,
-    liveAssistantRowId: liveAssistantMessageId,
     assistantDisplayName: assistantName?.trim() || undefined,
     expandedToolCallIds: expandedToolCallIdsRef.current,
     onOpenRuleEditor: handleOpenRuleEditorForToolCall,
