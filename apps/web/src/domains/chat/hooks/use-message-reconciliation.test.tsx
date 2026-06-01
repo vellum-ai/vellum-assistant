@@ -15,7 +15,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
-import { createElement, type RefObject, type SetStateAction } from "react";
+import { createElement, type RefObject } from "react";
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -151,7 +151,13 @@ function HookHarness(props: HarnessProps): null {
 // Shared state + helpers
 // ---------------------------------------------------------------------------
 
+/** Read/write proxy for the store's `messages` field. Tests assign to
+ *  `messages` before creating the harness (seeding), then read it after
+ *  reconciliation to check the result. Under the hood everything flows
+ *  through the store's real `setMessages` action — no custom override.
+ *  A store subscription keeps this variable in sync automatically. */
 let messages: DisplayMessage[] = [];
+let unsubscribeMessages: (() => void) | null = null;
 let onPollReconciledSpy: ReturnType<typeof mock>;
 
 function makeRef<T>(value: T): RefObject<T> {
@@ -186,11 +192,17 @@ function createHarness(overrides?: {
   });
 
   let captured: HookReturn | null = null;
-  // Seed the chat session store with a setMessages that updates our local variable
-  useChatSessionStore.setState({
-    setMessages: ((updater: SetStateAction<DisplayMessage[]>) => {
-      messages = typeof updater === "function" ? updater(messages) : updater;
-    }) as never,
+  // Seed the store's messages field with the current test messages so the
+  // hook's `setMessages` updater reads the correct `prev` value.
+  useChatSessionStore.setState({ messages });
+
+  // Subscribe to keep the local `messages` variable in sync with the store.
+  // This allows existing test assertions (`expect(messages).toHaveLength(...)`)
+  // to work without changes — the store's `setMessages` action updates
+  // `state.messages`, and the subscription propagates it here.
+  if (unsubscribeMessages) unsubscribeMessages();
+  unsubscribeMessages = useChatSessionStore.subscribe((state) => {
+    messages = state.messages;
   });
 
   renderToStaticMarkup(
@@ -213,6 +225,11 @@ beforeEach(async () => {
   if (!hookModule) {
     hookModule = await import("./use-message-reconciliation");
   }
+  // Clean up any previous store subscription.
+  if (unsubscribeMessages) {
+    unsubscribeMessages();
+    unsubscribeMessages = null;
+  }
   messages = [];
   mockFetchResult = [];
   mockFetchError = null;
@@ -226,6 +243,18 @@ beforeEach(async () => {
     attentionConversationIds: new Set(),
     activeConversationId: null,
     editingConversationId: null,
+  });
+  // Reset the chat session store to initial state.
+  useChatSessionStore.setState({
+    messages: [],
+    error: null,
+    isLoadingHistory: true,
+    streamingMessageIds: new Set(),
+    pendingQueuedMessageIds: [],
+    requestIdToMessageId: new Map(),
+    pendingLocalDeletions: new Set(),
+    confirmationToolCallMap: new Map(),
+    expandedToolCallIds: new Set(),
   });
 });
 

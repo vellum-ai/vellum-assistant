@@ -66,6 +66,7 @@ export interface ChatSessionState {
 
   // --- Conversation switch coordination ---
   previousConversationId: string | null;
+  previousAssistantId: string | null;
   draftConversationIdResolution: boolean;
 
   // --- History data-apply coordination ---
@@ -160,6 +161,7 @@ function initialState(): ChatSessionState {
     expandedToolCallIds: new Set(),
     contextWindowUsageByConversation: new Map(),
     previousConversationId: null,
+    previousAssistantId: null,
     draftConversationIdResolution: false,
     switchResetPending: false,
     lastAppliedDataTimestamp: 0,
@@ -233,6 +235,11 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       }
     }
 
+    // Clear the cross-conversation cache when the assistant changes so
+    // stale usage data from a previous assistant doesn't accumulate.
+    const isAssistantSwitch = state.previousAssistantId !== null
+      && state.previousAssistantId !== assistantId;
+
     recordDiagnostic("conversation_switch_reset", {
       assistantId,
       conversationId: activeConversationId,
@@ -244,13 +251,17 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
     useInteractionStore.getState().resetAll();
     resetChatAttachments();
 
+    const usageByConversation = isAssistantSwitch
+      ? new Map<string, ContextWindowUsage>()
+      : state.contextWindowUsageByConversation;
+
     set({
       messages: [],
       error: shouldSuppressGenericChatErrorNotice(state.error) ? state.error : null,
       isLoadingHistory: true,
       transcriptPagination: { ...INITIAL_PAGINATION },
       contextWindowUsage:
-        state.contextWindowUsageByConversation.get(activeConversationId) ?? null,
+        usageByConversation.get(activeConversationId) ?? null,
       compactionCircuitOpenUntil: null,
       dismissedSurfaceIds: loadDismissedSurfaceIds(assistantId, activeConversationId),
       streamingMessageIds: new Set(),
@@ -259,7 +270,9 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       pendingLocalDeletions: new Set(),
       confirmationToolCallMap: new Map(),
       expandedToolCallIds: new Set(),
+      contextWindowUsageByConversation: usageByConversation,
       previousConversationId: activeConversationId,
+      previousAssistantId: assistantId,
       draftConversationIdResolution: false,
       switchResetPending: true,
       lastAppliedDataTimestamp: 0,

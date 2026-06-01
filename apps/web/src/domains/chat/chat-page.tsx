@@ -525,6 +525,7 @@ export function ChatPage() {
     conversationListInvalidatedTimerRef,
     pendingInitialMessageRef,
     shouldSuppressGenericChatErrorNotice,
+    resetChatAttachments,
   });
 
   // Keep initialPageOldestTsRef in sync with TQ pagination data — used by

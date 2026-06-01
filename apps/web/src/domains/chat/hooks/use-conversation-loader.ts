@@ -79,6 +79,9 @@ interface UseConversationLoaderParams {
 
   // Error classification
   shouldSuppressGenericChatErrorNotice: (prev: ChatError | null) => boolean;
+
+  // Attachment reset (lives outside the session store)
+  resetChatAttachments: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +122,7 @@ export function useConversationLoader({
   conversationListInvalidatedTimerRef,
   pendingInitialMessageRef,
   shouldSuppressGenericChatErrorNotice,
+  resetChatAttachments,
 }: UseConversationLoaderParams) {
   // -------------------------------------------------------------------------
   // Internal refs
@@ -403,6 +407,7 @@ export function useConversationLoader({
     assistantId,
     assistantStateKind,
     activeConversationId,
+    resetChatAttachments,
   });
 
   // -------------------------------------------------------------------------

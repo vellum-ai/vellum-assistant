@@ -51,6 +51,8 @@ interface UseConversationHistoryParams {
   assistantId: string | null;
   assistantStateKind: AssistantStateKind;
   activeConversationId: string | null;
+  /** Reset callback for attachment state (lives outside the session store). */
+  resetChatAttachments: () => void;
 }
 
 export interface ConversationHistoryResult {
@@ -65,6 +67,7 @@ export function useConversationHistory({
   assistantId,
   assistantStateKind,
   activeConversationId,
+  resetChatAttachments,
 }: UseConversationHistoryParams): ConversationHistoryResult {
   // -------------------------------------------------------------------------
   // TanStack Query for history fetching + caching + pagination
@@ -82,6 +85,21 @@ export function useConversationHistory({
   const setTranscriptPagination = useChatSessionStore.use.setTranscriptPagination();
   const setIsLoadingHistory = useChatSessionStore.use.setIsLoadingHistory();
   const setError = useChatSessionStore.use.setError();
+
+  // -------------------------------------------------------------------------
+  // Conversation-switch reset — calls the store action when the active
+  // conversation changes. This replaces the old `useConversationSwitch` hook.
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (assistantStateKind !== "active" || !assistantId || !activeConversationId) {
+      return;
+    }
+    useChatSessionStore.getState().switchToConversation({
+      assistantId,
+      activeConversationId,
+      resetChatAttachments,
+    });
+  }, [assistantStateKind, assistantId, activeConversationId, resetChatAttachments]);
 
   // -------------------------------------------------------------------------
   // Apply TanStack Query data to messages state
