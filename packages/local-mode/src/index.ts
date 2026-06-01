@@ -1,4 +1,17 @@
-export { stripSensitiveFields, isLoopbackAddr, resolveCliPath, resetCliPathCache } from "./util";
+/**
+ * @vellumai/local-mode — shared host library for serving the local-assistant
+ * surface (lockfile reads, guardian-token issuance, gateway proxying, and the
+ * hatch/retire lifecycle ops) over a loopback HTTP boundary. Consumed by the
+ * CLI `client` server and the web app's dev-server middleware so the local
+ * endpoint behaviour is defined exactly once instead of one host reaching into
+ * another's source tree. Depends only on `@vellumai/environments`.
+ */
+export {
+  stripSensitiveFields,
+  isLoopbackAddr,
+  resolveDevCliInvocation,
+} from "./util";
+export type { CliInvocation } from "./util";
 export { resolveLocalConfigFromEnv, resolveLockfilePaths, resolveConfigDir } from "./config";
 export type { LocalEndpointConfig } from "./config";
 export { getLockfileData, upsertLockfileAssistant, replacePlatformAssistants } from "./lockfile";

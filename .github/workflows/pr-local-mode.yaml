@@ -1,26 +1,24 @@
-name: PR CLI Checks
+name: PR Local Mode Checks
 
 on:
   pull_request:
     types: [synchronize, opened, reopened]
     paths:
-      - 'cli/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
-      - 'clients/shared/App/VellumEnvironment.swift'
-      - '.github/workflows/pr-cli.yaml'
+      - '.github/workflows/pr-local-mode.yaml'
 
 concurrency:
-  group: pr-cli-${{ github.event.pull_request.number }}
+  group: pr-local-mode-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
   checks:
-    name: Lint, Type Check & Test
+    name: Type Check & Test
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: cli
+        working-directory: packages/local-mode
 
     steps:
       - name: Checkout
@@ -34,17 +32,8 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Lint
-        run: bun run lint
-
-      - name: Lint unused code
-        run: bun run lint:unused
-
       - name: Type check
         run: bun run typecheck
-
-      - name: Compile check
-        run: bun build --compile src/index.ts --outfile /dev/null
 
       - name: Test
         run: bun run test

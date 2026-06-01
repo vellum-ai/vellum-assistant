@@ -6,6 +6,8 @@ on:
     paths:
       - 'apps/web/**'
       - 'packages/design-library/**'
+      - 'packages/local-mode/**'
+      - 'packages/environments/**'
       - '.github/workflows/pr-web.yaml'
 
 concurrency:

@@ -1,16 +1,23 @@
 import { spawn } from "node:child_process";
 
+import type { CliInvocation } from "./util";
+
 const RETIRE_TIMEOUT_MS = 60_000;
 
 export type RetireResult =
   | { ok: true }
   | { ok: false; status: number; error: string };
 
-export function runRetire(assistantId: string, cliPath: string): Promise<RetireResult> {
+export function runRetire(
+  invocation: CliInvocation,
+  assistantId: string,
+): Promise<RetireResult> {
   return new Promise((resolve) => {
-    const child = spawn("bun", ["run", cliPath, "retire", assistantId, "--yes"], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const child = spawn(
+      invocation.command,
+      [...invocation.baseArgs, "retire", assistantId, "--yes"],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
 
     let stdout = "";
     let stderr = "";

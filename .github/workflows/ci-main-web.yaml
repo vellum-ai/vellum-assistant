@@ -7,6 +7,8 @@ on:
     paths:
       - 'apps/web/**'
       - 'packages/design-library/**'
+      - 'packages/local-mode/**'
+      - 'packages/environments/**'
       - '.github/workflows/ci-main-web.yaml'
       # The deploy/publish logic lives in this reusable workflow, so a change to
       # it alone must still exercise the full web CI/CD pipeline.

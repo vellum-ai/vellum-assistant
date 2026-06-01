@@ -1,16 +1,23 @@
 import { spawn } from "node:child_process";
 
+import type { CliInvocation } from "./util";
+
 const HATCH_TIMEOUT_MS = 120_000;
 
 export type HatchResult =
   | { ok: true; assistantId: string }
   | { ok: false; status: number; error: string };
 
-export function runHatch(species: string, cliPath: string): Promise<HatchResult> {
+export function runHatch(
+  invocation: CliInvocation,
+  species: string,
+): Promise<HatchResult> {
   return new Promise((resolve) => {
-    const child = spawn("bun", ["run", cliPath, "hatch", species], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const child = spawn(
+      invocation.command,
+      [...invocation.baseArgs, "hatch", species],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
 
     let stdout = "";
     let stderr = "";
