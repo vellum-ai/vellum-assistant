@@ -1,4 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
@@ -7,7 +8,10 @@ import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
 import { DetailCard } from "@/components/detail-card";
 import { userDeletionRequestCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
@@ -18,6 +22,14 @@ export function DeleteAccountSection() {
   // disruptive — the user can switch to a platform-hosted assistant to
   // access this action. The standard gate would still expose it.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // Settings routes are NOT mounted under `<ActiveAssistantGate>`, so a
+  // fresh deep-link to the privacy page renders with lifecycle still in
+  // `{ kind: "loading" }`. The gate above returns `"full"` during that
+  // window (intentional — prevents chrome flicker), but a click on the
+  // delete button during the race would fire `userDeletionRequestCreate`
+  // against a possibly self-hosted assistant. The button MUST stay
+  // disabled until lifecycle resolves positively as platform-hosted.
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const logout = useAuthStore.use.logout();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -41,6 +53,8 @@ export function DeleteAccountSection() {
   // API resolves) never skip a hook and trigger a hook-order violation.
   if (platformGate === "gated") return null;
 
+  const isResolving = platformGate === "full" && !isPlatformHosted;
+
   return (
     <>
       <DetailCard
@@ -53,14 +67,19 @@ export function DeleteAccountSection() {
             Log in to the Vellum platform to delete your account.
           </Notice>
         ) : (
-          <Button
-            variant="dangerOutline"
-            onClick={() => setConfirmOpen(true)}
-            disabled={deleteMutation.isPending}
-            className="self-start"
-          >
-            Delete My Account
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="dangerOutline"
+              onClick={() => setConfirmOpen(true)}
+              disabled={deleteMutation.isPending || isResolving}
+              className="self-start"
+            >
+              Delete My Account
+            </Button>
+            {isResolving && (
+              <Loader2 className="h-4 w-4 animate-spin text-[var(--content-tertiary)]" />
+            )}
+          </div>
         )}
       </DetailCard>
       <ConfirmDialog
