@@ -24,7 +24,7 @@ import {
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
-import { useLiveVoice } from "@/domains/voice/live-voice/use-live-voice";
+import { useLiveVoiceStore } from "@/domains/voice/live-voice/live-voice-store";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsNativePlatform } from "@/runtime/native-auth";
@@ -299,12 +299,16 @@ export function ChatComposer({
   // dictation button (same `showVoiceInput` precondition + a non-null id).
   const voiceMode = useAssistantFeatureFlagStore.use.voiceMode();
   const liveVoiceEligible = voiceMode && showVoiceInput && !!assistantId;
-  const {
-    state: liveVoiceState,
-    partialTranscript: liveVoicePartial,
-    finalTranscript: liveVoiceFinal,
-    assistantTranscript: liveVoiceAssistant,
-  } = useLiveVoice();
+  // Read session state via the store's per-field selectors rather than mounting
+  // a second `useLiveVoice()` controller. The single controller instance lives
+  // in `LiveVoiceButton` (which drives start/stop + owns the unmount-teardown
+  // effect); the composer only ever *reads* the projected state, so two
+  // controllers with competing teardown effects on the same store would be a
+  // footgun. These atomic selectors re-render only on the fields they read.
+  const liveVoiceState = useLiveVoiceStore.use.state();
+  const liveVoicePartial = useLiveVoiceStore.use.partialTranscript();
+  const liveVoiceFinal = useLiveVoiceStore.use.finalTranscript();
+  const liveVoiceAssistant = useLiveVoiceStore.use.assistantTranscript();
   // Anything but idle/failed counts as an active session; while active the
   // dictation mic is disabled so the two capture flows never run at once.
   // `failed` is a retryable/inactive state in `useLiveVoice`/`LiveVoiceButton`,
