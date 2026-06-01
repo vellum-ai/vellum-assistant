@@ -4,13 +4,14 @@ import { useNavigate } from "react-router";
 import { Button } from "@vellum/design-library/components/button";
 import { ConfirmDialog } from "@vellum/design-library/components/confirm-dialog";
 import { toast } from "@vellum/design-library/components/toast";
-import { retireAssistantById } from "@/assistant/api";
+import { listAssistants, retireAssistantById } from "@/assistant/api";
 import { clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import {
   isLocalMode,
   getSelectedAssistant,
   isLocalAssistant,
   retireLocalAssistant,
+  syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { useAuthStore } from "@/stores/auth-store";
@@ -55,6 +56,16 @@ export function RetireAssistant({ assistantId }: RetireAssistantProps) {
       } else {
         const result = await retireAssistantById(assistantId);
         if (result.ok || result.status === 404) {
+          if (isLocalMode()) {
+            try {
+              const remaining = await listAssistants();
+              if (remaining.ok) {
+                await syncPlatformAssistantsToLockfile(remaining.data);
+              }
+            } catch {
+              // Best-effort sync
+            }
+          }
           clearOnboardingFlags();
           setConfirmOpen(false);
           toast.success("Assistant retired.");
