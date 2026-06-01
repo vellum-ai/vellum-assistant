@@ -59,7 +59,7 @@ Every event name in `BusEventMap` has a typed payload. Producers:
 
 | Event | Payload | Produced when |
 |---|---|---|
-| `sse.event` | `AssistantEvent` | Every event the bus-owned SSE connection sees. Consumers narrow on `payload.type` and filter on `payload.conversationId` themselves. |
+| `sse.event` | `AssistantEventEnvelope` | Every event the bus-owned SSE connection sees. The envelope carries transport metadata (`seq`, `conversationId`, `emittedAt`); subscribers narrow on `envelope.message.type` and filter on `envelope.conversationId` themselves. |
 | `sse.opened` | `{ assistantId; cause: "fresh" \| "error" \| "watchdog" \| "resume" }` | After each successful (re)open. `cause` lets consumers distinguish a fresh connection from a watchdog-driven recovery. |
 | `sse.closed` | `{ reason }` | Transport error on the SSE connection. Not published for intentional teardowns (hidden tab, reachability bounce). |
 | `app.resume` | `{ signal: "visibility" \| "app_state" \| "online" }` | Page visible, app foregrounded, or network came back online. |
@@ -79,8 +79,8 @@ Every event name in `BusEventMap` has a typed payload. Producers:
 ## Subscribing
 
 In a React hook or component, use `useBusSubscription` from
-`@/hooks/use-bus-subscription.js`. It wraps `useEffect` + `subscribe`
-+ cleanup and stabilises the handler ref so inline arrows don't
+`@/hooks/use-bus-subscription`. It wraps `useEffect` + `subscribe` +
+cleanup and stabilises the handler ref so inline arrows don't
 re-register on every render.
 
 ```ts
@@ -92,9 +92,9 @@ useBusSubscription("app.resume", ({ signal }) => {
 ```
 
 In code outside the React tree (Zustand store bootstraps, route
-loaders, middleware), import `subscribe` from `@/lib/event-bus`
-directly and store the returned unsubscribe handle alongside the
-bootstrap's other teardown:
+loaders, middleware, services), import `subscribe` from
+`@/lib/event-bus` directly and store the returned unsubscribe
+handle alongside the bootstrap's other teardown:
 
 ```ts
 import { subscribe } from "@/lib/event-bus";
@@ -103,18 +103,6 @@ const unsubscribeResume = subscribe("app.resume", () => {
   refetchIfStale();
 });
 // Add unsubscribeResume() to the existing teardown closure.
-```
-
-For imperative call sites outside the React tree (Zustand store
-bootstraps, middleware, services), import `subscribe` from
-`@/lib/event-bus` directly:
-
-```ts
-import { subscribe } from "@/lib/event-bus";
-
-const unsubscribe = subscribe("app.resume", () => {
-  // ...
-});
 ```
 
 ## Publishing

@@ -321,8 +321,8 @@ export function setupAuthListeners(): () => void {
     );
 
   const unsubResume = subscribe("app.resume", () => {
-      void safeRefresh();
-    });
+    void safeRefresh();
+  });
   cleanups.push(unsubResume);
 
   if (typeof BroadcastChannel !== "undefined") {
