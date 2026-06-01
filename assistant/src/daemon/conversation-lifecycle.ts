@@ -21,6 +21,7 @@ import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospect
 import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import {
   isUntrustedTrustClass,
@@ -34,7 +35,6 @@ import type { MessageQueue } from "./conversation-queue-manager.js";
 import { stripInjectionsForCompaction } from "./conversation-runtime-assembly.js";
 import { resetSkillToolProjection } from "./conversation-skill-tools.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
-import { repairHistory } from "./history-repair.js";
 import type {
   SurfaceData,
   SurfaceType,
