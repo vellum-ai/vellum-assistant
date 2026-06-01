@@ -1,3 +1,4 @@
+import { Loader2 } from "lucide-react";
 import { Suspense, useCallback, useEffect, useState } from "react";
 
 import { Navigate, useSearchParams, useNavigate } from "react-router";
@@ -6,7 +7,10 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { BillingOnboardingModal } from "@/domains/settings/billing/pro-onboarding/billing-onboarding-modal";
 import { AdjustPlanModal } from "@/domains/settings/components/adjust-plan-modal";
 import { BillingPanel } from "@/domains/settings/components/billing-panel";
@@ -62,6 +66,18 @@ export function BillingPage() {
   // true`) regardless of platform session, and to `"disabled"` when there's
   // no platform session at all.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // Strict hosting predicate. The page-level `platformGate` is the
+  // *Render*-tier predicate — intentionally permissive during the
+  // lifecycle-loading window so the page chrome / Navigate decision
+  // doesn't flash. But every subcomponent below this page mounts unguarded
+  // `useQuery` hooks against org-scoped billing endpoints (PlanCard,
+  // PaymentMethodsCard, AdjustPlanModal, BillingPanel, BillingUsagePanel,
+  // GracePeriodBanner, ReferralPanel — none have their own `enabled`
+  // predicates). Hold the subcomponent mount until lifecycle resolves
+  // positively to platform-hosted so a logged-in self-hosted user
+  // deep-linking here can't fire billing requests during the race window
+  // before `<Navigate />` takes over below.
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
 
   const [searchParams, setSearchParams] = useSearchParams();
   const [planModalOpen, setPlanModalOpen] = useState(false);
@@ -106,6 +122,25 @@ export function BillingPage() {
         <Notice tone="info">
           Log in to the Vellum platform to manage billing and usage.
         </Notice>
+      </div>
+    );
+  }
+
+  // Lifecycle-loading race: `platformGate === "full"` is permissive during
+  // the loading window, so without this guard a logged-in user deep-linking
+  // here while the assistant is still resolving would mount every
+  // subcomponent and fire their org-scoped billing queries before we know
+  // whether the assistant is platform-hosted. Wait for positive resolution:
+  // either `isPlatformHosted` flips true (body mounts, queries fire safely)
+  // or `platformGate` flips to `"gated"` (the `<Navigate />` above takes
+  // over and this branch never runs).
+  if (!isPlatformHosted) {
+    return (
+      <div className="max-w-5xl space-y-4">
+        <div className="flex items-center gap-2 py-6 text-body-medium-lighter text-[var(--content-secondary)]">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading billing…
+        </div>
       </div>
     );
   }
