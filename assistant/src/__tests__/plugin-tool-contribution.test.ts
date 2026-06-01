@@ -39,11 +39,7 @@ mock.module("../security/secure-keys.js", () => ({
   getSecureKeyAsync: getSecureKeyAsyncMock,
 }));
 
-import type { AssistantConfig } from "../config/schema.js";
-import {
-  bootstrapPlugins,
-  type DaemonContext,
-} from "../daemon/external-plugins-bootstrap.js";
+import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
 import { runShutdownHooks } from "../daemon/shutdown-registry.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
@@ -71,11 +67,6 @@ const TEST_WORKSPACE_DIR = join(
   `vellum-plugin-tool-contrib-test-${process.pid}`,
 );
 process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
-
-const fakeConfig = {} as unknown as AssistantConfig;
-const fakeCtx: DaemonContext = {
-  config: fakeConfig,
-};
 
 function makeFakeTool(name: string, extras: Partial<Tool> = {}): Tool {
   return {
@@ -156,7 +147,7 @@ describe("plugin tool contributions", () => {
     });
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
 
     const retrieved = getTool("plugin-contrib-tool");
     expect(retrieved).toBeDefined();
@@ -185,7 +176,7 @@ describe("plugin tool contributions", () => {
     });
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
     expect(getTool("bravo-tool")).toBeDefined();
 
     await runShutdownHooks("test-shutdown");
@@ -198,7 +189,7 @@ describe("plugin tool contributions", () => {
     const plugin = buildPlugin("no-tools", { async init() {} });
     registerPlugin(plugin);
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
     // No tool should have been registered.
     expect(getAllTools()).toHaveLength(0);
 
@@ -222,7 +213,7 @@ describe("plugin tool contributions", () => {
 
     expect(getTool("charlie-tool")).toBeUndefined();
 
-    await bootstrapPlugins(fakeCtx);
+    await bootstrapPlugins();
     expect(getTool("charlie-tool")).toBeDefined();
   });
 
@@ -238,7 +229,7 @@ describe("plugin tool contributions", () => {
     });
     registerPlugin(plugin);
 
-    await expect(bootstrapPlugins(fakeCtx)).rejects.toThrow(/delta-broken/);
+    await expect(bootstrapPlugins()).rejects.toThrow(/delta-broken/);
     expect(getTool("delta-tool")).toBeUndefined();
   });
 });

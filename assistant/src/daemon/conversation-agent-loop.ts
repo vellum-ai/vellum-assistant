@@ -97,7 +97,10 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
-import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair/terminal.js";
+import {
+  deepRepairHistory,
+  defaultHistoryRepairTerminal,
+} from "../plugins/defaults/history-repair/terminal.js";
 import {
   asDefaultGraphPayload,
   type DefaultMemoryRetrievalDeps,
@@ -211,7 +214,6 @@ import {
 } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
-import { deepRepairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
   ServerMessage,

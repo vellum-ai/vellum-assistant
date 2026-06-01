@@ -255,9 +255,6 @@ mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
       consecutiveSameRoleMerged: 0,
     },
   }),
-}));
-
-mock.module("../daemon/history-repair.js", () => ({
   deepRepairHistory: (msgs: Message[]) => ({ messages: msgs, stats: {} }),
 }));
 
