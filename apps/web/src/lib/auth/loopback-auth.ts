@@ -9,8 +9,6 @@
  * session cookie.
  */
 
-import { useState, useEffect } from "react";
-
 const FALLBACK_WEB_URL = "https://www.vellum.ai";
 const LOOPBACK_STATE_KEY = "vellum:loopback:state";
 const LOOPBACK_RETURN_TO_KEY = "vellum:loopback:returnTo";
