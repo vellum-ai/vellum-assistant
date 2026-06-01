@@ -530,7 +530,7 @@ export const ROUTES: RouteDefinition[] = [
       emoji: z.string(),
       home: z.string(),
       version: z.string(),
-      createdAt: z.string(),
+      createdAt: z.string().optional(),
     }),
   },
   {

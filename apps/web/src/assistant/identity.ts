@@ -7,32 +7,18 @@
  * initializing, the runtime is unreachable, etc.) so the caller can
  * fall back to a stub.
  */
-import { client } from "@/generated/api/client.gen";
-import { assertHasResponse } from "@/utils/api-errors";
+import { identityGet } from "@/generated/daemon/sdk.gen";
+import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
+import { assertHasResponse, SDK_BASE_OPTIONS } from "@/utils/api-errors";
 
-// `client.get` needs a baseUrl when there's no `window` (SSR / unit tests).
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
-
-export interface AssistantIdentity {
-  name: string;
-  role: string;
-  personality: string;
-  emoji: string;
-  home: string;
-  version: string;
-  createdAt?: string;
-}
+export type AssistantIdentity = IdentityGetResponse;
 
 export async function fetchAssistantIdentity(
   assistantId: string,
 ): Promise<AssistantIdentity | null> {
   try {
-    const { data, error, response } = await client.get<AssistantIdentity, unknown>({
+    const { data, error, response } = await identityGet({
       ...SDK_BASE_OPTIONS,
-      url: "/v1/assistants/{assistant_id}/identity/",
       path: { assistant_id: assistantId },
       throwOnError: false,
     });

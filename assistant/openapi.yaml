@@ -11194,7 +11194,6 @@ paths:
                   - emoji
                   - home
                   - version
-                  - createdAt
                 additionalProperties: false
   /v1/identity/intro:
     get:
