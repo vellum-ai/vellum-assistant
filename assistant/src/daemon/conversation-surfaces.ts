@@ -2499,6 +2499,7 @@ export async function surfaceProxyResolver(
         title: app.name,
         data: surfaceData,
         display: "inline",
+        ...(toolUseId ? { toolCallId: toolUseId } : {}),
       } as UiSurfaceShow);
 
       // Track for message persistence so the inline card survives history reload.
@@ -2508,6 +2509,7 @@ export async function surfaceProxyResolver(
         title: app.name,
         data: surfaceData,
         display: "inline",
+        ...(toolUseId ? { toolCallId: toolUseId } : {}),
       });
 
       return { content: JSON.stringify({ surfaceId, appId }), isError: false };
@@ -2526,6 +2528,7 @@ export async function surfaceProxyResolver(
       surfaceType: "dynamic_page",
       title: app.name,
       data: surfaceData,
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     } as UiSurfaceShow);
 
     // Track surface for persistence
@@ -2534,6 +2537,7 @@ export async function surfaceProxyResolver(
       surfaceType: "dynamic_page",
       title: app.name,
       data: surfaceData,
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     });
 
     ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "dynamic_page" });
