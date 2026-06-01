@@ -29,6 +29,7 @@ import {
   type LiveVoiceAssistantTextDeltaServerFrame,
   type LiveVoiceBusyServerFrame,
   type LiveVoiceClientStartFrame,
+  LIVE_VOICE_AUDIO_FORMAT,
   type LiveVoiceMetricsServerFrame,
   type LiveVoiceReadyServerFrame,
   type LiveVoiceSttFinalServerFrame,
@@ -38,13 +39,6 @@ import {
   type LiveVoiceTtsDoneServerFrame,
   parseServerFrame,
 } from "@/domains/voice/live-voice/protocol";
-
-/** Audio shape sent in the `start` frame — matches the runtime contract. */
-const START_AUDIO_CONFIG: LiveVoiceClientStartFrame["audio"] = {
-  mimeType: "audio/pcm",
-  sampleRate: 16000,
-  channels: 1,
-};
 
 /** Fail the session if no `ready` frame arrives within this window. */
 const CONNECT_TIMEOUT_MS = 10_000;
@@ -254,7 +248,7 @@ export class LiveVoiceChannelClient {
     if (this.state !== "connecting" || !this.ws) return;
     const startFrame: LiveVoiceClientStartFrame = {
       type: "start",
-      audio: START_AUDIO_CONFIG,
+      audio: LIVE_VOICE_AUDIO_FORMAT,
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
     };
     this.trySend(JSON.stringify(startFrame));

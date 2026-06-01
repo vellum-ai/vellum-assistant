@@ -34,6 +34,8 @@
  * owns its own `AudioContext` lifecycle.
  */
 
+import { createAudioContext } from "@/domains/voice/audio-context";
+
 /** A single TTS audio frame as delivered by the live-voice channel. */
 export interface TtsAudioChunk {
   /**
@@ -78,12 +80,6 @@ function base64ToArrayBuffer(dataBase64: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-/** Observer notified whenever `isPlaying` or `queuedCount` changes. */
-export type PlaybackObserver = (state: {
-  isPlaying: boolean;
-  queuedCount: number;
-}) => void;
-
 /**
  * Minimal structural type for the `AudioContext` surface this player uses.
  * Declared locally so tests can supply a lightweight mock without depending on
@@ -110,15 +106,8 @@ export interface AudioContextLike {
 /** Factory for the `AudioContext`. Overridable in tests. */
 export type AudioContextFactory = () => AudioContextLike;
 
-const defaultAudioContextFactory: AudioContextFactory = () => {
-  // Safari only exposes the prefixed constructor, matching the fallback used
-  // by SoundManager and use-push-to-talk elsewhere in the voice domain.
-  const Ctor =
-    window.AudioContext ||
-    (window as unknown as { webkitAudioContext?: typeof AudioContext })
-      .webkitAudioContext;
-  return new Ctor() as unknown as AudioContextLike;
-};
+const defaultAudioContextFactory: AudioContextFactory = () =>
+  createAudioContext() as unknown as AudioContextLike;
 
 /**
  * Decode base64-encoded little-endian 16-bit PCM into normalized Float32
@@ -158,10 +147,7 @@ export class LiveVoiceAudioPlayer {
    */
   private playheadTime = 0;
 
-  private observers = new Set<PlaybackObserver>();
-
   private playingState = false;
-  private queuedCountState = 0;
 
   /** Resolvers for in-flight `waitUntilDrained()` promises. */
   private drainResolvers: Array<() => void> = [];
@@ -181,23 +167,6 @@ export class LiveVoiceAudioPlayer {
   /** Whether any audio is currently scheduled or playing. */
   get isPlaying(): boolean {
     return this.playingState;
-  }
-
-  /** Number of buffers currently scheduled (playing or pending). */
-  get queuedCount(): number {
-    return this.queuedCountState;
-  }
-
-  /**
-   * Subscribe to playback-state changes. Returns an unsubscribe function.
-   * The observer is invoked immediately with the current state.
-   */
-  subscribe(observer: PlaybackObserver): () => void {
-    this.observers.add(observer);
-    observer({ isPlaying: this.playingState, queuedCount: this.queuedCountState });
-    return () => {
-      this.observers.delete(observer);
-    };
   }
 
   /**
@@ -298,7 +267,7 @@ export class LiveVoiceAudioPlayer {
       this.handleSourceEnded(source);
     };
 
-    this.setState(true, this.activeSources.size);
+    this.playingState = true;
   }
 
   /**
@@ -321,7 +290,7 @@ export class LiveVoiceAudioPlayer {
     }
     this.activeSources.clear();
     this.playheadTime = 0;
-    this.setState(false, 0);
+    this.playingState = false;
     this.resolveDrain();
   }
 
@@ -364,10 +333,8 @@ export class LiveVoiceAudioPlayer {
     source.disconnect();
     if (this.activeSources.size === 0) {
       this.playheadTime = 0;
-      this.setState(false, 0);
+      this.playingState = false;
       this.resolveDrain();
-    } else {
-      this.setState(true, this.activeSources.size);
     }
   }
 
@@ -375,16 +342,5 @@ export class LiveVoiceAudioPlayer {
     const resolvers = this.drainResolvers;
     this.drainResolvers = [];
     for (const resolve of resolvers) resolve();
-  }
-
-  private setState(isPlaying: boolean, queuedCount: number): void {
-    if (isPlaying === this.playingState && queuedCount === this.queuedCountState) {
-      return;
-    }
-    this.playingState = isPlaying;
-    this.queuedCountState = queuedCount;
-    for (const observer of this.observers) {
-      observer({ isPlaying, queuedCount });
-    }
   }
 }

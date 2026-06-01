@@ -27,6 +27,22 @@ export interface LiveVoiceAudioConfig {
   readonly channels: 1;
 }
 
+/**
+ * Canonical client capture/upload audio contract — the single source of truth
+ * shared by the capture pipeline (`pcm-capture.ts`) and the `start` frame's
+ * `audio` config (`live-voice-client.ts`). Mirrors the runtime contract in
+ * `assistant/src/live-voice/protocol.ts`.
+ *
+ * The AudioWorklet (`pcm-downsample-worklet.ts`) cannot import app modules
+ * (audio-thread isolation), so it hardcodes the same `16000` — keep its
+ * `TARGET_SAMPLE_RATE` in sync with this.
+ */
+export const LIVE_VOICE_AUDIO_FORMAT: LiveVoiceAudioConfig = {
+  mimeType: "audio/pcm",
+  sampleRate: 16000,
+  channels: 1,
+};
+
 export interface LiveVoiceClientStartFrame {
   readonly type: "start";
   readonly conversationId?: string;

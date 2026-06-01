@@ -205,7 +205,6 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(ctx.sources[0]!.buffer!.sampleRate).toBe(24000);
 
     expect(player.isPlaying).toBe(true);
-    expect(player.queuedCount).toBe(2);
   });
 
   test("never schedules in the past after the queue lags currentTime", () => {
@@ -217,17 +216,17 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(ctx.sources[1]!.startedAt).toBe(5);
   });
 
-  test("queuedCount decrements as sources finish and isPlaying clears", () => {
+  test("isPlaying stays true until the last source finishes", () => {
     player.enqueue(chunk(new Array(12000).fill(1)));
     player.enqueue(chunk(new Array(12000).fill(1)));
-    expect(player.queuedCount).toBe(2);
-
-    ctx.sources[0]!.finish();
-    expect(player.queuedCount).toBe(1);
     expect(player.isPlaying).toBe(true);
 
+    // First of two buffers finishing leaves playback active.
+    ctx.sources[0]!.finish();
+    expect(player.isPlaying).toBe(true);
+
+    // The last buffer finishing clears playback.
     ctx.sources[1]!.finish();
-    expect(player.queuedCount).toBe(0);
     expect(player.isPlaying).toBe(false);
   });
 
@@ -239,7 +238,6 @@ describe("LiveVoiceAudioPlayer", () => {
 
     expect(ctx.sources.every((s) => s.stopped)).toBe(true);
     expect(ctx.sources.every((s) => s.disconnected)).toBe(true);
-    expect(player.queuedCount).toBe(0);
     expect(player.isPlaying).toBe(false);
   });
 
@@ -279,20 +277,6 @@ describe("LiveVoiceAudioPlayer", () => {
     const promise = player.waitUntilDrained();
     player.stop();
     await expect(promise).resolves.toBeUndefined();
-  });
-
-  test("subscribe() reports state transitions", () => {
-    const seen: Array<{ isPlaying: boolean; queuedCount: number }> = [];
-    player.subscribe((s) => seen.push({ ...s }));
-
-    // Immediate emit on subscribe.
-    expect(seen[0]).toEqual({ isPlaying: false, queuedCount: 0 });
-
-    player.enqueue(chunk(new Array(24000).fill(1)));
-    expect(seen.at(-1)).toEqual({ isPlaying: true, queuedCount: 1 });
-
-    player.stop();
-    expect(seen.at(-1)).toEqual({ isPlaying: false, queuedCount: 0 });
   });
 
   test("drops empty/malformed chunks without scheduling", () => {
@@ -380,7 +364,6 @@ describe("LiveVoiceAudioPlayer", () => {
     expect(ctx.sources.every((s) => s.stopped)).toBe(true);
     expect(ctx.closed).toBe(true);
     expect(player.isPlaying).toBe(false);
-    expect(player.queuedCount).toBe(0);
   });
 
   test("dispose() is a no-op when no context was ever created", async () => {
@@ -407,6 +390,5 @@ describe("LiveVoiceAudioPlayer", () => {
     // A fresh enqueue lazily rebuilds a context and schedules normally.
     player.enqueue(chunk(new Array(24000).fill(1)));
     expect(player.isPlaying).toBe(true);
-    expect(player.queuedCount).toBe(1);
   });
 });
