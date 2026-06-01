@@ -102,7 +102,7 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
         </span>
       </div>
       {onRemove ? (
-        <>
+        <div className="flex shrink-0 items-center gap-2">
           <div className="h-8 w-px shrink-0 bg-[var(--border-disabled)]" />
           <Button
             variant="ghost"
@@ -114,7 +114,7 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
             }}
             aria-label={`Remove ${filename}`}
           />
-        </>
+        </div>
       ) : null}
     </div>
   );
