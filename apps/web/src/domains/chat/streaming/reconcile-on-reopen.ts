@@ -80,8 +80,32 @@ export function createReconcileOnReopen(
         void runTransportRecoveryReconcile(deps, epoch, cause);
         return;
       }
-      // `"resume"` and any future non-fresh cause.
-      void deps.reconcileActive();
+      // `"resume"` and any future non-fresh cause. Reconcile and
+      // loop-start fire in parallel: the loop's polling is the
+      // primary catch-up mechanism, so we don't gate it on the
+      // best-effort one-shot reconcile. A rejected reconcile gets
+      // logged + dropped — without the `.catch` it would surface
+      // as an unhandled promise rejection (same shape as the
+      // transport-recovery hardening in this module, just with
+      // parallel-fire instead of sequential).
+      void deps.reconcileActive().catch((err) => {
+        recordDiagnostic("sse_post_reconnect_reconcile_failed", {
+          assistantId,
+          conversationId,
+          epoch,
+          cause,
+          message: err instanceof Error ? err.message : String(err),
+        });
+        Sentry.captureException(err, {
+          level: "warning",
+          tags: {
+            context: "sse_resume_reconcile",
+            cause,
+            platform: resolvePlatformTag(),
+          },
+          extra: { assistantId, conversationId, epoch },
+        });
+      });
       deps.startReconciliationLoop(epoch);
     },
   };
