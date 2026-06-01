@@ -103,6 +103,23 @@ class AssistantLifecycleService {
    * parents' in the same render cycle.
    */
   private ready = false;
+  /**
+   * One-shot signal that the next `ChatPage` mount should hold the
+   * auto-greet loading gate until the first message arrives. Set on
+   * every hatch path (vanilla auto-hatch and `hatchVersion` here;
+   * onboarding hatching-screen and pre-chat-flow externally) and
+   * drained by the chat surface on exit conditions (messages arrived,
+   * 10s safety, conversation switch).
+   *
+   * Lives on the service rather than in `useAssistantLifecycleStore`
+   * because the only React consumer (ChatPage) merges this with a
+   * separate sessionStorage signal at mount, so the field is read
+   * once via `peek` rather than via store subscription. Lives outside
+   * the React tree because `useConversationLoader`'s post-hatch
+   * redirect remounts ChatPage — the singleton service survives
+   * the redirect.
+   */
+  private expectingFirstMessage = false;
   private inputs: LifecycleServiceInputs = {
     isLoggedIn: false,
     isLoading: true,
@@ -249,22 +266,22 @@ class AssistantLifecycleService {
     void this.hatchAndCheck(version);
   }
 
-  /**
-   * Mark the next chat mount as expecting an auto-greet. Called from
-   * every hatch path (vanilla auto-hatch and `hatchVersion` inside
-   * this service; the onboarding hatching screen and pre-chat-flow
-   * externally — both bypass `hatchVersion` because they own their
-   * own progress UI). Drained by the chat surface on exit conditions
-   * (messages arrived, safety timer, conversation switch).
-   */
   markExpectingFirstMessage(): void {
-    if (useAssistantLifecycleStore.getState().expectingFirstMessage) return;
-    useAssistantLifecycleStore.setState({ expectingFirstMessage: true });
+    this.expectingFirstMessage = true;
+  }
+
+  /**
+   * Pure read — safe to call from a `useState` lazy initializer
+   * (which React invokes twice under `StrictMode` to surface
+   * impurities). The chat surface peeks once at mount and drains via
+   * `clearExpectingFirstMessage` from its exit-condition effects.
+   */
+  peekExpectingFirstMessage(): boolean {
+    return this.expectingFirstMessage;
   }
 
   clearExpectingFirstMessage(): void {
-    if (!useAssistantLifecycleStore.getState().expectingFirstMessage) return;
-    useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
+    this.expectingFirstMessage = false;
   }
 
   // ---------------------------------------------------------------------------
@@ -664,7 +681,7 @@ class AssistantLifecycleService {
     this.hatchingVersion = undefined;
     this.generation = 0;
     this.ready = false;
-    useAssistantLifecycleStore.setState({ expectingFirstMessage: false });
+    this.expectingFirstMessage = false;
     this.inputs = {
       isLoggedIn: false,
       isLoading: true,

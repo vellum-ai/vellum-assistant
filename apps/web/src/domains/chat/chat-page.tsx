@@ -211,15 +211,34 @@ export function ChatPage() {
 
   const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
-  // The loading-gate signal lives in `useAssistantLifecycleStore` —
-  // every hatch path (vanilla auto-hatch, nonprod `hatchVersion`,
-  // onboarding hatching-screen, pre-chat-flow) calls
-  // `lifecycleService.markExpectingFirstMessage()` before navigating
-  // here. Drained on exit conditions below (messages arrived, safety
-  // timer, conversation switch). Lives in the store rather than as
-  // local state because `useConversationLoader`'s post-hatch redirect
-  // remounts ChatPage — store state survives the remount.
-  const autoGreetPending = useAssistantLifecycleStore.use.expectingFirstMessage();
+  // Two signal sources, OR'd into a single mount-time seed:
+  //   1. `lifecycleService.expectingFirstMessage` — set by every
+  //      hatch path (vanilla auto-hatch, nonprod `hatchVersion`,
+  //      onboarding hatching-screen, pre-chat-flow). Lives on the
+  //      service (not in the store) because the singleton survives
+  //      the `/assistant` → `/assistant/conversations/:id` remount
+  //      that `useConversationLoader` performs after hatch.
+  //   2. `peekPendingPreChatContext()?.initialMessage` —
+  //      sessionStorage handoff from the onboarding pre-chat screen.
+  //      Load-bearing on the *reload* path: sessionStorage survives
+  //      a refresh / iOS webview restore, the lifecycle singleton
+  //      does not. The auto-send hook below still fires from the
+  //      persisted context after reload, so the gate has to show.
+  // Peeks are pure (`StrictMode` invokes lazy initializers twice).
+  // The lifecycle one-shot is drained by `dismissAutoGreetGate` on
+  // exit conditions below (messages arrived, safety timer,
+  // conversation switch), not on mount, so an intermediate
+  // `/assistant` mount that immediately redirects doesn't strand the
+  // destination mount with the flag already cleared.
+  const [autoGreetPending, setAutoGreetPending] = useState(
+    () =>
+      lifecycleService.peekExpectingFirstMessage() ||
+      peekPendingPreChatContext()?.initialMessage != null,
+  );
+  const dismissAutoGreetGate = useCallback(() => {
+    setAutoGreetPending(false);
+    lifecycleService.clearExpectingFirstMessage();
+  }, []);
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
     hasMore: false,
@@ -793,8 +812,8 @@ export function ChatPage() {
   // Clear the post-hatch loading gate once the first message appears.
   useEffect(() => {
     if (!autoGreetPending) return;
-    if (messages.length > 0) lifecycleService.clearExpectingFirstMessage();
-  }, [autoGreetPending, messages.length]);
+    if (messages.length > 0) dismissAutoGreetGate();
+  }, [autoGreetPending, messages.length, dismissAutoGreetGate]);
 
   // The post-hatch redirect remounts ChatPage; a timeout armed on the
   // first mount is cancelled during that remount. Arm the safety timer
@@ -802,12 +821,9 @@ export function ChatPage() {
   // auto-send cannot strand the user on "Connecting..." until refresh.
   useEffect(() => {
     if (!autoGreetPending) return;
-    const timeout = setTimeout(
-      () => lifecycleService.clearExpectingFirstMessage(),
-      10_000,
-    );
+    const timeout = setTimeout(dismissAutoGreetGate, 10_000);
     return () => clearTimeout(timeout);
-  }, [autoGreetPending]);
+  }, [autoGreetPending, dismissAutoGreetGate]);
 
   // Clear the gate when `activeConversationId` changes after first
   // mount. Auto-greet isn't per-conversation state — it's a
@@ -823,9 +839,9 @@ export function ChatPage() {
     const previous = lastSeenConvIdForGateRef.current;
     lastSeenConvIdForGateRef.current = activeConversationId;
     if (previous != null && previous !== activeConversationId) {
-      lifecycleService.clearExpectingFirstMessage();
+      dismissAutoGreetGate();
     }
-  }, [activeConversationId]);
+  }, [activeConversationId, dismissAutoGreetGate]);
 
   // Derive onboardingTasksEmpty from the pending context in sessionStorage.
   // Runs once on mount — if initial message key is present, this is an

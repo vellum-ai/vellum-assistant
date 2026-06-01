@@ -362,7 +362,7 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
   });
 
   test("auto_hatch + nonprod does NOT mark expecting-first-message — user has to pick a version first", async () => {
@@ -381,7 +381,7 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
   });
 
   test("auto_hatch + isRetired does NOT mark expecting-first-message", async () => {
@@ -397,7 +397,7 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
   });
 
   test("hatchVersion marks expecting-first-message — the nonprod version-selection greet", () => {
@@ -407,22 +407,22 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     lifecycleService.hatchVersion("v1");
 
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
   });
 
   test("clearExpectingFirstMessage flips the store back to false; subsequent reads stay false", () => {
     lifecycleService.markExpectingFirstMessage();
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
     lifecycleService.clearExpectingFirstMessage();
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
     lifecycleService.clearExpectingFirstMessage();
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
   });
 
   test("markExpectingFirstMessage is the public seam onboarding uses (bypasses hatchVersion / auto-hatch)", () => {
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(false);
     lifecycleService.markExpectingFirstMessage();
-    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
+    expect(lifecycleService.peekExpectingFirstMessage()).toBe(true);
   });
 });
 
