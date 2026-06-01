@@ -56,9 +56,7 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
-import { isLocalMode } from "@/lib/local-mode";
-import { useAuthStore } from "@/stores/auth-store";
-import { useOrganizationStore } from "@/stores/organization-store";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import {
   archivedConversationsQueryKey,
   backgroundConversationsQueryKey,
@@ -284,26 +282,6 @@ export async function listArchivedConversations(
 // ---------------------------------------------------------------------------
 
 const QUERY_STALE_TIME_MS = 30_000;
-
-/**
- * Platform-mode daemon requests require the `Vellum-Organization-Id`
- * header, which the HeyAPI request interceptor reads from the org store
- * (with a sessionStorage fallback). On a fresh session neither source
- * has a value until `fetchOrganizations()` completes — firing the query
- * before that produces a headerless request that Django rejects with 400.
- *
- * Returns `true` when:
- *   - local mode (gateway auth, no org header needed), or
- *   - no platform session (self-hosted/gateway-auth assistant — the
- *     interceptor rewrites to the user's gateway with Bearer auth and
- *     the org store intentionally stays empty), or
- *   - the org store has been populated.
- */
-function useIsOrgReady(): boolean {
-  const currentOrgId = useOrganizationStore.use.currentOrganizationId();
-  const hasPlatformSession = useAuthStore.use.hasPlatformSession();
-  return isLocalMode() || !hasPlatformSession || currentOrgId != null;
-}
 
 /**
  * Subscribe to the foreground conversation list for the given assistant.
