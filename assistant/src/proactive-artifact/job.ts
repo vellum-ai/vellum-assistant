@@ -31,6 +31,7 @@ import {
   extractText,
   getConfiguredProvider,
 } from "../providers/provider-send-message.js";
+import { publishAppsChanged } from "../runtime/sync/resource-sync-events.js";
 import { getLogger } from "../util/logger.js";
 import { injectAuxAssistantMessage } from "./aux-message-injector.js";
 import {
@@ -160,6 +161,7 @@ export async function runProactiveArtifactJob(params: {
 
     if (artifactType === "app") {
       params.broadcastMessage({ type: "app_files_changed", appId: artifactId });
+      publishAppsChanged();
     }
 
     // ── Post-build message copy ─────────────────────────────────────
