@@ -79,8 +79,8 @@ import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   applyCompactionResult,
   runAgentLoopImpl,
-  trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
+import { trackCompactionOutcome } from "./conversation-agent-loop-handlers.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
 import { undo as undoImpl } from "./conversation-history.js";
 import {
