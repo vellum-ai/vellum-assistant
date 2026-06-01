@@ -573,7 +573,13 @@ const useSubagentStoreBase = create<SubagentStore>()((set, get) => ({
     set({ fetchedAt: nextFetchedAt });
 
     const detail = await fetchSubagentDetail(assistantId, subagentId, entry.conversationId);
-    if (!detail) return;
+    if (!detail) {
+      // Clear the marker so a subsequent open/remount can retry.
+      const rollback = new Map(get().fetchedAt);
+      rollback.delete(subagentId);
+      set({ fetchedAt: rollback });
+      return;
+    }
 
     get().loadDetail({
       subagentId,
