@@ -22,11 +22,12 @@ export function ApiKeyScreen() {
   const [searchParams] = useSearchParams();
   const hosting = searchParams.get("hosting");
 
-  const pending = peekPendingProviderKey();
   const [provider, setProvider] = useState<OnboardingProviderId>(
-    pending?.provider ?? DEFAULT_ONBOARDING_PROVIDER.id,
+    () => peekPendingProviderKey()?.provider ?? DEFAULT_ONBOARDING_PROVIDER.id,
   );
-  const [apiKey, setApiKey] = useState(pending?.key ?? "");
+  const [apiKey, setApiKey] = useState(
+    () => peekPendingProviderKey()?.key ?? "",
+  );
 
   const entry = onboardingProvider(provider) ?? DEFAULT_ONBOARDING_PROVIDER;
   const requiresKey = entry.requiresKey;
