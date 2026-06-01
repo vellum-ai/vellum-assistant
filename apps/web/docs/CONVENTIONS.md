@@ -511,7 +511,9 @@ Signs a hook needs decomposition:
 - A single `useCallback` with a switch/if-else over many cases
   -> extract cases into domain handler functions
 - Multiple unrelated `useEffect` blocks -> split into focused hooks
-- The file exceeds ~300 lines of non-test code
+- Inline business logic that could be a pure handler function
+  taking a context object (see "Pure handler functions over inline
+  logic" below)
 
 Reference: [React — Reusing Logic with Custom Hooks](https://react.dev/learn/reusing-logic-with-custom-hooks)
 
