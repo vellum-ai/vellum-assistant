@@ -2,6 +2,13 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { AssistantEvent } from "@/types/event-types";
 
+let mockStreamEpoch = 7;
+mock.module("@/domains/chat/stream-store", () => ({
+  useStreamStore: {
+    getState: () => ({ streamEpoch: mockStreamEpoch }),
+  },
+}));
+
 let seqGapEnabled = true;
 mock.module("@/lib/feature-flags/seq-gap-detection-flag", () => ({
   isSeqGapDetectionEnabled: () => seqGapEnabled,
@@ -42,17 +49,14 @@ const makeDeps = (override: {
   const activeConversationIdRef = {
     current: override.activeConversationId ?? "conv-1",
   };
-  const streamEpochRef = { current: 7 };
   const reconcileActive = override.reconcileActive ?? mock(() => {});
   const handleStreamEvent = override.handleStreamEvent ?? mock(() => {});
   return {
     activeConversationIdRef,
-    streamEpochRef,
     reconcileActive,
     handleStreamEvent,
     deps: {
       activeConversationIdRef,
-      streamEpochRef,
       reconcileActive,
       handleStreamEvent,
     },
@@ -61,6 +65,7 @@ const makeDeps = (override: {
 
 beforeEach(() => {
   seqGapEnabled = true;
+  mockStreamEpoch = 7;
   seqStore.clear();
   recordDiagnosticMock.mockClear();
 });
@@ -139,8 +144,8 @@ describe("sse-event-consumer — cross-conversation filter", () => {
   });
 
   test("event dispatch passes the current epoch", () => {
-    const { deps, streamEpochRef, handleStreamEvent } = makeDeps();
-    streamEpochRef.current = 42;
+    const { deps, handleStreamEvent } = makeDeps();
+    mockStreamEpoch = 42;
     const consumer = createSseEventConsumer(deps);
 
     consumer.handleSseEvent(

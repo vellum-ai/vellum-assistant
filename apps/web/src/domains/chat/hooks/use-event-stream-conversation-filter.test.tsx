@@ -4,7 +4,6 @@ import { useRef, type MutableRefObject } from "react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
   __resetForTesting,
   publish,
@@ -12,17 +11,12 @@ import {
 
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 
-type StreamContext = { assistantId: string; conversationId: string };
-
 function renderEventStream(
   activeConversationId: string,
   handleStreamEvent: (event: AssistantEvent, epoch: number) => void,
 ) {
   return renderHook(
     ({ key }: { key: string }) => {
-      const streamRef = useRef<ChatEventStream | null>(null);
-      const streamEpochRef = useRef(0);
-      const streamContextRef = useRef<StreamContext | null>(null);
       const syncRouterRef = useRef(null) as MutableRefObject<
         null
       > as never;
@@ -32,9 +26,6 @@ function renderEventStream(
         assistantId: "asst-1",
         activeConversationId: key,
         conversationExistsOnServer: true,
-        streamRef,
-        streamEpochRef,
-        streamContextRef,
         handleStreamEvent,
         reconcileActiveConversation: async () =>
           ({

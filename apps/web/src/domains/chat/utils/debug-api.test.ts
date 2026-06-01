@@ -5,7 +5,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import type { TranscriptHandle } from "@/domains/chat/transcript/use-transcript-scroll";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
@@ -101,12 +100,7 @@ function makeRefs(
     sanitizedMessagesRef: { current: [] } as MutableRefObject<DisplayMessage[]>,
     transcriptItemsRef: { current: [] } as MutableRefObject<TranscriptItem[]>,
     transcriptRef: { current: null as TranscriptHandle | null },
-    streamContextRef: { current: null } as MutableRefObject<{
-      assistantId: string;
-      conversationId: string;
-    } | null>,
-    streamRef: { current: null } as MutableRefObject<ChatEventStream | null>,
-    streamEpochRef: { current: 0 } as MutableRefObject<number>,
+
     getAssistantId: () => "asst-1",
     getTurnState: () => turnState,
     getUIContext: () => resolvedUIContext,
@@ -609,11 +603,13 @@ describe("createChatDebugApi.serverMessages", () => {
     expect(result[0]!.id).toBe("srv-1");
   });
 
-  test("prefers streamContextRef over conversation store + getAssistantId", async () => {
+  test("prefers stream store context over conversation store + getAssistantId", async () => {
     useConversationStore.setState({ activeConversationId: "conv-fallback" });
-    const streamContextRef = {
-      current: { assistantId: "asst-stream", conversationId: "conv-stream" },
-    } as MutableRefObject<{ assistantId: string; conversationId: string } | null>;
+    // Set stream context via the stream store.
+    const { useStreamStore } = await import("@/domains/chat/stream-store");
+    useStreamStore.setState({
+      streamContext: { assistantId: "asst-stream", conversationId: "conv-stream" },
+    });
     const seen: Array<{ assistantId: string; conversationId: string }> = [];
     const historyFetcher = async (assistantId: string, conversationId: string) => {
       seen.push({ assistantId, conversationId });
@@ -622,12 +618,13 @@ describe("createChatDebugApi.serverMessages", () => {
     const api = createChatDebugApi(
       makeRefs({
         getAssistantId: () => "asst-fallback",
-        streamContextRef,
         historyFetcher,
       }),
     );
     await api.serverMessages();
     expect(seen).toEqual([{ assistantId: "asst-stream", conversationId: "conv-stream" }]);
+    // Clean up.
+    useStreamStore.setState({ streamContext: null });
   });
 });
 

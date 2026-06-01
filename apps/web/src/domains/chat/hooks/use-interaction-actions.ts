@@ -12,12 +12,13 @@
  */
 
 import * as Sentry from "@sentry/react";
-import { type Dispatch, type MutableRefObject, type SetStateAction, useCallback, useState } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useState } from "react";
 
 import { addTrustRule } from "@/lib/trust-rules-api";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
@@ -64,14 +65,6 @@ export interface ToolCallRuleContext {
 }
 
 // ---------------------------------------------------------------------------
-// Hook params
-// ---------------------------------------------------------------------------
-
-export interface UseInteractionActionsParams {
-  streamContextRef: MutableRefObject<StreamContext | null>;
-}
-
-// ---------------------------------------------------------------------------
 // Hook return
 // ---------------------------------------------------------------------------
 
@@ -99,9 +92,7 @@ export interface UseInteractionActionsReturn {
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useInteractionActions({
-  streamContextRef,
-}: UseInteractionActionsParams): UseInteractionActionsReturn {
+export function useInteractionActions(): UseInteractionActionsReturn {
   const setMessages = useChatSessionStore.use.setMessages();
   const setError = useChatSessionStore.use.setError();
   const pendingSecret = useInteractionStore.use.pendingSecret();
@@ -128,7 +119,7 @@ export function useInteractionActions({
       useInteractionStore.getState().submitSecretStart();
       setError(null);
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitSecretEnd();
@@ -170,7 +161,7 @@ export function useInteractionActions({
   );
 
   const handleSecretCancel = useCallback(() => {
-    const ctx = streamContextRef.current;
+    const ctx = useStreamStore.getState().streamContext;
     const requestId = useInteractionStore.getState().pendingSecret?.requestId;
     if (ctx && requestId) {
       submitSecretResponse(ctx.assistantId, requestId, "", "none").catch(() => {});
@@ -193,7 +184,7 @@ export function useInteractionActions({
       useInteractionStore.getState().submitContactRequestStart();
       setError(null);
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitContactRequestEnd();
@@ -228,7 +219,7 @@ export function useInteractionActions({
         useInteractionStore.getState().submitContactRequestEnd();
       }
     },
-    [pendingContactRequest, isSubmittingContactRequest, streamContextRef],
+    [pendingContactRequest, isSubmittingContactRequest],
   );
 
   const handleContactPromptCancel = useCallback(() => {
@@ -370,7 +361,7 @@ export function useInteractionActions({
       useInteractionStore.getState().submitConfirmationStart();
       setError(null);
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitConfirmationEnd();
@@ -439,7 +430,7 @@ export function useInteractionActions({
       useInteractionStore.getState().submitQuestionStart();
       setError(null);
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         useInteractionStore.getState().submitQuestionEnd();
@@ -480,7 +471,7 @@ export function useInteractionActions({
 
   const handleAllowAndCreateRule = useCallback(async () => {
     if (!pendingConfirmation || isSubmittingConfirmation) return;
-    const ctx = streamContextRef.current;
+    const ctx = useStreamStore.getState().streamContext;
     if (!ctx) {
       setError({ message: "No active session. Please try again." });
       return;
@@ -553,7 +544,7 @@ export function useInteractionActions({
 
   const handleSaveRule = useCallback(
     async (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => {
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       const context = ruleEditorContext;
       if (!ctx || !context) return;
       if (isSavingRule) return;
@@ -630,7 +621,7 @@ export function useInteractionActions({
         return;
       }
 
-      const ctx = streamContextRef.current;
+      const ctx = useStreamStore.getState().streamContext;
       if (!ctx) {
         setError({ message: "No active session. Please try again." });
         throw new Error("No active session");
