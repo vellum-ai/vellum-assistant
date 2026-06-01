@@ -6,8 +6,8 @@
  * `clients/shared/Network/LiveVoiceChannelClient.swift`.
  *
  * Owns a single `WebSocket` to `/v1/live-voice`, authenticated via the
- * gateway edge JWT (`getGatewayToken()` from
- * `apps/web/src/lib/auth/gateway-session.ts`). Sends the JSON `start`
+ * gateway edge JWT (acquired/refreshed through `ensureGatewayToken()`
+ * from `apps/web/src/lib/auth/gateway-session.ts`). Sends the JSON `start`
  * frame after `open`, arms a 10 s ready-handshake timeout, normalizes
  * incoming text/binary frames into a `LiveVoiceChannelEvent`
  * discriminated union, and surfaces failures via
@@ -28,7 +28,7 @@ import {
   type LiveVoiceMetricsServerFrame,
   type LiveVoiceServerFrame,
 } from "@/domains/voice/live-voice/protocol";
-import { getGatewayToken } from "@/lib/auth/gateway-session";
+import { ensureGatewayToken, getLocalTokenUrl } from "@/lib/auth/gateway-session";
 import { getLocalGatewayUrl, isLocalMode } from "@/lib/local-mode";
 
 // ---------------------------------------------------------------------------
@@ -115,6 +115,15 @@ const CONNECTION_TIMEOUT_MS = 10_000;
 const END_GRACE_MS = 1_000;
 const NORMAL_CLOSURE = 1000;
 
+/**
+ * User-facing message when the gateway edge JWT can't be acquired or
+ * refreshed (e.g. the session lapsed and re-acquisition failed). Shown
+ * under the overlay's "Connection failed" heading — actionable, unlike
+ * the previous raw internal "missing gateway token".
+ */
+const GATEWAY_AUTH_FAILED_MESSAGE =
+  "Couldn't authenticate the voice session — refresh the page and try again.";
+
 // ---------------------------------------------------------------------------
 // LiveVoiceChannelClient
 // ---------------------------------------------------------------------------
@@ -154,11 +163,30 @@ export class LiveVoiceChannelClient {
     this.onFailure = options.onFailure;
     this.state = "connecting";
 
-    const token = getGatewayToken();
+    // Acquire (or refresh) the gateway edge JWT on demand. Mirrors the
+    // rest of the app's auth path (`ensureGatewayToken` in auth-store /
+    // `primeLocalGatewayConnection`): a valid cached token is returned
+    // as-is, otherwise a fresh one is fetched from the gateway. Voice
+    // previously only *read* the cached token via `getGatewayToken()`
+    // and hard-failed with "missing gateway token" when it was expired
+    // or not yet primed — the one surface that didn't self-heal.
+    let token: string;
+    try {
+      token = await ensureGatewayToken(getLocalTokenUrl());
+    } catch {
+      this.fail({
+        type: "connectionFailed",
+        message: GATEWAY_AUTH_FAILED_MESSAGE,
+      });
+      return;
+    }
+    // `end()`/`close()` may have torn the session down while awaiting
+    // token acquisition — don't open a socket for a dead session.
+    if (this.state !== "connecting") return;
     if (!token) {
       this.fail({
         type: "connectionFailed",
-        message: "missing gateway token",
+        message: GATEWAY_AUTH_FAILED_MESSAGE,
       });
       return;
     }

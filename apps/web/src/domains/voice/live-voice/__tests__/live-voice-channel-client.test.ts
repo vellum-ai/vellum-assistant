@@ -23,6 +23,9 @@ import {
 // tests. Lint rule `no-restricted-syntax` blocks writing tokens to
 // localStorage, and mocking lets us drive `getGatewayToken()` directly.
 let mockToken: string | null = "test-token";
+// Indirection so individual tests can override token acquisition (e.g.
+// simulate a refresh failure) without re-mocking the whole module.
+let ensureGatewayTokenImpl: () => Promise<string> = async () => mockToken ?? "";
 mock.module("@/lib/auth/gateway-session", () => ({
   getGatewayToken: () => mockToken,
   clearGatewayToken: () => {
@@ -30,7 +33,7 @@ mock.module("@/lib/auth/gateway-session", () => ({
   },
   isGatewayAuthEnabled: () => true,
   isGatewayAuthMode: () => mockToken !== null,
-  ensureGatewayToken: async () => mockToken ?? "",
+  ensureGatewayToken: () => ensureGatewayTokenImpl(),
   getLocalTokenUrl: () => undefined,
 }));
 
@@ -115,6 +118,7 @@ beforeEach(() => {
   originalWebSocket = (globalThis as { WebSocket?: unknown }).WebSocket;
   (globalThis as { WebSocket?: unknown }).WebSocket = MockWebSocket;
   mockToken = "test-token";
+  ensureGatewayTokenImpl = async () => mockToken ?? "";
 });
 
 afterEach(() => {
@@ -418,23 +422,34 @@ describe("LiveVoiceChannelClient", () => {
     client.close();
   });
 
-  test("missing gateway token fails fast", async () => {
-    mockToken = null;
-    const client = new LiveVoiceChannelClient();
-    const failures: LiveVoiceChannelFailure[] = [];
+  test("gateway token acquisition failure fails fast", async () => {
+    // `ensureGatewayToken` rejecting models an expired/unprimed session
+    // that couldn't be refreshed — voice no longer reads a bare cached
+    // token, it acquires on demand like the rest of the app.
+    const restore = ensureGatewayTokenImpl;
+    ensureGatewayTokenImpl = async () => {
+      throw new Error("token request failed");
+    };
+    try {
+      const client = new LiveVoiceChannelClient();
+      const failures: LiveVoiceChannelFailure[] = [];
 
-    await client.start({
-      onEvent: () => {},
-      onFailure: (f) => failures.push(f),
-    });
+      await client.start({
+        onEvent: () => {},
+        onFailure: (f) => failures.push(f),
+      });
 
-    expect(failures.length).toBe(1);
-    expect(failures[0]).toEqual({
-      type: "connectionFailed",
-      message: "missing gateway token",
-    });
-    expect(client.getState()).toBe("closed");
-    expect(MockWebSocket.instances.length).toBe(0);
+      expect(failures.length).toBe(1);
+      expect(failures[0]).toEqual({
+        type: "connectionFailed",
+        message:
+          "Couldn't authenticate the voice session — refresh the page and try again.",
+      });
+      expect(client.getState()).toBe("closed");
+      expect(MockWebSocket.instances.length).toBe(0);
+    } finally {
+      ensureGatewayTokenImpl = restore;
+    }
   });
 
   test("end() resolves even when teardown clears the grace timer first", async () => {
