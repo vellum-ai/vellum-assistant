@@ -111,6 +111,21 @@ describe("formatSseFrame", () => {
     const frame = formatSseFrame(baseEvent);
     expect(frame.endsWith("\n\n")).toBe(true);
   });
+
+  test("seq lands in the JSON payload (envelope) when set, never in SSE id", () => {
+    const event: AssistantEvent = {
+      ...baseEvent,
+      id: "uuid-event-id",
+      seq: 42,
+    };
+    const frame = formatSseFrame(event);
+    // SSE wire id is always the UUID -- replay cursor is decoupled from
+    // the SSE protocol and lives on the envelope only.
+    const idLine = frame.split("\n").find((l) => l.startsWith("id: "))!;
+    expect(idLine).toBe("id: uuid-event-id");
+    // seq is on the envelope; consumers read it from the JSON payload.
+    expect(frame).toContain('"seq":42');
+  });
 });
 
 // ── Heartbeat tests ───────────────────────────────────────────────────────────

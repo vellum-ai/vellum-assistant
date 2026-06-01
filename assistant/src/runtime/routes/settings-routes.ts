@@ -51,6 +51,7 @@ import { getLogger } from "../../util/logger.js";
 import { getAvatarImagePath, getWorkspaceDir } from "../../util/platform.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishAvatarChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -638,10 +639,13 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "settings_voice_put",
     endpoint: "settings/voice",
     method: "PUT",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Update voice activation key",
     description: "Validate and normalize a voice activation key.",
     tags: ["settings"],
-    requirePolicyEnforcement: true,
     requestBody: z.object({
       activationKey: z.string(),
     }),
@@ -651,10 +655,13 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "settings_avatar_generate_post",
     endpoint: "settings/avatar/generate",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Generate avatar",
     description: "Generate an AI avatar image from a text description.",
     tags: ["settings"],
-    requirePolicyEnforcement: true,
     requestBody: z.object({
       description: z.string(),
     }),
@@ -664,10 +671,13 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "settings_client_put",
     endpoint: "settings/client",
     method: "PUT",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Update client setting",
     description: "Set a single client-side setting key/value pair.",
     tags: ["settings"],
-    requirePolicyEnforcement: true,
     requestBody: z.object({
       key: z.string(),
       value: z.string(),
@@ -678,11 +688,14 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "oauth_start_post",
     endpoint: "oauth/start",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Start OAuth flow",
     description:
       "Initiate an OAuth authorization flow for a third-party service.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     requestBody: z.object({
       service: z.string(),
       requestedScopes: z.array(z.unknown()),
@@ -693,10 +706,13 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "integrations_oauth_start_post",
     endpoint: "integrations/oauth/start",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Start OAuth flow (legacy)",
     description: "Legacy alias for oauth/start.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     requestBody: z.object({
       service: z.string(),
       requestedScopes: z.array(z.unknown()),
@@ -707,20 +723,26 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "workspacefiles_get",
     endpoint: "workspace-files",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List workspace files",
     description: "Return an array of files in the workspace directory.",
     tags: ["workspace"],
-    requirePolicyEnforcement: true,
     handler: () => handleWorkspaceFilesList(),
   },
   {
     operationId: "workspacefiles_read_get",
     endpoint: "workspace-files/read",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Read a workspace file",
     description: "Return the contents of a single file by path.",
     tags: ["workspace"],
-    requirePolicyEnforcement: true,
     queryParams: [
       {
         name: "path",
@@ -735,22 +757,28 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "tools_get",
     endpoint: "tools",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List tools",
     description:
       "Return available tool names with their descriptions, risk levels, and categories.",
     tags: ["tools"],
-    requirePolicyEnforcement: true,
     handler: () => handleToolNamesList(),
   },
   {
     operationId: "tools_simulate_permission_post",
     endpoint: "tools/simulate-permission",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Simulate tool permission check",
     description:
       "Dry-run a permission check for a tool invocation without executing it.",
     tags: ["tools"],
-    requirePolicyEnforcement: true,
     requestBody: z.object({
       toolName: z.string(),
       input: z.object({}).passthrough(),
@@ -763,22 +791,27 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "diagnostics_envvars_get",
     endpoint: "diagnostics/env-vars",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List safe environment variables",
     description:
       "Return environment variable names and values that are safe to expose (no secrets).",
     tags: ["diagnostics"],
-    requirePolicyEnforcement: true,
     handler: () => handleEnvVars(),
   },
   {
     operationId: "config_platform_get",
     endpoint: "config/platform",
     method: "GET",
-    policyKey: "config/platform:GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get platform config",
     description: "Return the platform base URL configuration.",
     tags: ["config"],
-    requirePolicyEnforcement: true,
     responseBody: z.object({
       baseUrl: z.string(),
       success: z.boolean(),
@@ -789,10 +822,13 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "config_platform_put",
     endpoint: "config/platform",
     method: "PUT",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Update platform config",
     description: "Set the platform base URL.",
     tags: ["config"],
-    requirePolicyEnforcement: true,
     requestBody: z.object({
       baseUrl: z.string(),
     }),
@@ -802,21 +838,26 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "integrations_ingress_config_get",
     endpoint: "integrations/ingress/config",
     method: "GET",
-    policyKey: "integrations/ingress/config:GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get ingress config",
     description: "Return the current ingress tunnel configuration.",
     tags: ["config"],
-    requirePolicyEnforcement: true,
     handler: () => getIngressConfigResult(),
   },
   {
     operationId: "integrations_ingress_config_put",
     endpoint: "integrations/ingress/config",
     method: "PUT",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Update ingress config",
     description: "Set the ingress public base URL and enabled state.",
     tags: ["config"],
-    requirePolicyEnforcement: true,
     requestBody: z.object({
       publicBaseUrl: z.string(),
       enabled: z.boolean(),

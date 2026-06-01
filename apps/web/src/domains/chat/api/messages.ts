@@ -13,12 +13,12 @@ import type {
   SlackRuntimeMessage,
   Surface,
 } from "@/domains/chat/types/types";
+import { client } from "@/generated/api/client.gen";
 import {
   assertHasResponse,
-  client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
-} from "@/domains/chat/api/client";
+} from "@/utils/api-errors";
 import {
   normalizePreChatOnboardingContext,
   type PreChatOnboardingContext,
@@ -86,6 +86,8 @@ export interface RuntimeSubagentNotification {
 
 export interface RuntimeMessage {
   id: string;
+  /** Server message ids folded into this canonical history row. */
+  mergedMessageIds?: string[];
   role: "user" | "assistant";
   content: string;
   surfaces?: Surface[];

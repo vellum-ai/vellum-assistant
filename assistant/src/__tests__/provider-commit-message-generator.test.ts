@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { DEFAULT_CONFIG } from "../config/defaults.js";
 import type { AssistantConfig } from "../config/types.js";
-import type { Provider, ProviderResponse } from "../providers/types.js";
+import type {
+  Message,
+  Provider,
+  ProviderResponse,
+  SendMessageOptions,
+} from "../providers/types.js";
 import type { CommitContext } from "../workspace/commit-message-provider.js";
 
 // ---------------------------------------------------------------------------
@@ -219,24 +224,24 @@ describe("ProviderCommitMessageGenerator", () => {
     // Verify the callSite was passed so the provider's RetryProvider routes
     // through `resolveCallSiteConfig` for model/max_tokens/temperature.
     const callArgs = mockSendMessage.mock.calls[0];
-    const options = callArgs[3] as {
-      config: { callSite: string };
-    };
-    expect(options.config.callSite).toBe("commitMessage");
+    const options = callArgs[1] as SendMessageOptions | undefined;
+    expect(options?.config?.callSite).toBe("commitMessage");
   });
 
   // 8. LLM timeout
   test('LLM timeout → returns deterministic, reason "timeout"', async () => {
     // Set a very short timeout and make sendMessage take too long
     currentConfig.workspaceGit.commitMessageLLM.timeoutMs = 1;
-    mockSendMessage.mockImplementationOnce((_msgs, _tools, _sys, options) => {
-      // Wait until the abort signal fires
-      return new Promise<ProviderResponse>((_resolve, reject) => {
-        options?.signal?.addEventListener("abort", () => {
-          reject(new Error("aborted"));
+    mockSendMessage.mockImplementationOnce(
+      (_msgs: Message[], options?: SendMessageOptions) => {
+        // Wait until the abort signal fires
+        return new Promise<ProviderResponse>((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => {
+            reject(new Error("aborted"));
+          });
         });
-      });
-    });
+      },
+    );
     const gen = getCommitMessageGenerator();
     const result = await gen.generateCommitMessage(baseContext, {
       changedFiles: baseContext.changedFiles,
@@ -317,7 +322,7 @@ describe("ProviderCommitMessageGenerator", () => {
     expect(result.source).toBe("llm");
     expect(result.message).toBe(commitMsg);
     const callArgs = mockSendMessage.mock.calls[0];
-    const options = callArgs[3] as { config: { callSite: string } };
-    expect(options.config.callSite).toBe("commitMessage");
+    const options = callArgs[1] as SendMessageOptions | undefined;
+    expect(options?.config?.callSite).toBe("commitMessage");
   });
 });

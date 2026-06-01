@@ -19,6 +19,7 @@ import {
   getRelationshipStatePath,
 } from "../../home/relationship-state-writer.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { InternalError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -126,6 +127,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "home_state_get",
     endpoint: "home/state",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleGetHomeState,
     summary: "Get relationship state",
     description:

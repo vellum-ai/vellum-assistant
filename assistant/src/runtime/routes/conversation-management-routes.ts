@@ -49,6 +49,7 @@ import { enqueueMemoryJob } from "../../memory/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import {
   publishConversationListAndMetadataChanged,
@@ -432,7 +433,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "createConversation",
     endpoint: "conversations",
     method: "POST",
-    policyKey: "conversations",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Create a conversation",
     description: "Create or get an existing conversation by key.",
     tags: ["conversations"],
@@ -466,7 +470,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "forkConversation",
     endpoint: "conversations/fork",
     method: "POST",
-    policyKey: "conversations/fork",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Fork a conversation",
     description:
       "Create a copy of a conversation, optionally truncated at a specific message.",
@@ -487,7 +494,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "switchConversation",
     endpoint: "conversations/switch",
     method: "POST",
-    policyKey: "conversations/switch",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Switch active conversation",
     description: "Set the active conversation for the current session.",
     tags: ["conversations"],
@@ -510,7 +520,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "setConversationInferenceProfile",
     endpoint: "conversations/:id/inference-profile",
     method: "PUT",
-    policyKey: "conversations/inference-profile",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Set conversation inference profile",
     description:
       "Override the LLM inference profile for a single conversation. " +
@@ -542,7 +555,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "renameConversation",
     endpoint: "conversations/:id/name",
     method: "PATCH",
-    policyKey: "conversations/name",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Rename a conversation",
     description: "Update the display name of a conversation.",
     tags: ["conversations"],
@@ -557,7 +573,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "clearAllConversations",
     endpoint: "conversations",
     method: "DELETE",
-    policyKey: "conversations/clear-all",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Clear all conversations",
     description: "Permanently delete ALL conversations, messages, and memory.",
     tags: ["conversations"],
@@ -568,7 +587,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "wipeConversation",
     endpoint: "conversations/:id/wipe",
     method: "POST",
-    policyKey: "conversations/wipe",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Wipe a conversation",
     description:
       "Delete all messages in a conversation and revert associated memory changes.",
@@ -586,7 +608,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "deleteConversation",
     endpoint: "conversations/:id",
     method: "DELETE",
-    policyKey: "conversations",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete a conversation",
     description: "Permanently delete a single conversation and its messages.",
     tags: ["conversations"],
@@ -598,7 +623,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "archiveConversation",
     endpoint: "conversations/:id/archive",
     method: "POST",
-    policyKey: "conversations",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Archive a conversation",
     description: "Move a conversation to the archived state.",
     tags: ["conversations"],
@@ -613,7 +641,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "unarchiveConversation",
     endpoint: "conversations/:id/unarchive",
     method: "POST",
-    policyKey: "conversations",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Unarchive a conversation",
     description:
       "Restore an archived conversation back to the default sidebar.",
@@ -629,7 +660,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "cancelConversationGeneration",
     endpoint: "conversations/:id/cancel",
     method: "POST",
-    policyKey: "conversations/cancel",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Cancel generation",
     description: "Abort the in-progress assistant response for a conversation.",
     tags: ["conversations"],
@@ -646,7 +680,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "undoLastMessage",
     endpoint: "conversations/:id/undo",
     method: "POST",
-    policyKey: "conversations/undo",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Undo last message",
     description:
       "Remove the most recent user+assistant message pair from the conversation.",
@@ -662,7 +699,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "regenerateResponse",
     endpoint: "conversations/:id/regenerate",
     method: "POST",
-    policyKey: "conversations/regenerate",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Regenerate response",
     description:
       "Re-run the assistant for the last user message in a conversation.",
@@ -675,7 +715,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "reorderConversations",
     endpoint: "conversations/reorder",
     method: "POST",
-    policyKey: "conversations/reorder",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Reorder conversations",
     description: "Batch-update display order and pin state for conversations.",
     tags: ["conversations"],

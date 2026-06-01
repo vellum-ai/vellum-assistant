@@ -28,7 +28,7 @@ import { applyEdit } from "./shared/filesystem/edit-engine.js";
 import { sandboxPolicy } from "./shared/filesystem/path-policy.js";
 import { MAX_FILE_SIZE_BYTES } from "./shared/filesystem/size-guard.js";
 import { ToolApprovalHandler } from "./tool-approval-handler.js";
-import { resolveToolNameAlias } from "./tool-name-aliases.js";
+import { resolveToolInvocationAlias } from "./tool-name-aliases.js";
 import type {
   ToolContext,
   ToolExecutionResult,
@@ -78,10 +78,11 @@ export class ToolExecutor {
     };
 
     const middlewares = getMiddlewaresFor("toolExecute");
-    const executionName = resolveToolNameAlias(name, context.allowedToolNames);
+    const { name: executionName, input: executionInput } =
+      resolveToolInvocationAlias(name, input, context.allowedToolNames);
     const pipelineArgs: ToolExecuteArgs = {
       name: executionName,
-      input,
+      input: executionInput,
       context,
     };
 

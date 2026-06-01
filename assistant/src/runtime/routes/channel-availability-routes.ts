@@ -26,6 +26,7 @@ import {
 } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
 import { VellumPlatformClient } from "../../platform/client.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // Base list every assistant currently surfaces. Order is the display
@@ -108,6 +109,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "channels_available_get",
     endpoint: "channels/available",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get available channels",
     description:
       "Return the channels this assistant can surface to clients, with " +
@@ -115,7 +120,6 @@ export const ROUTES: RouteDefinition[] = [
       "copy). Today this is a fixed base list plus `email` when an inbox " +
       "is registered; will become plugin/skill-driven in future.",
     tags: ["channels"],
-    requirePolicyEnforcement: true,
     handler: handleGetChannelAvailability,
     responseBody: z.object({
       channels: z

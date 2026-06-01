@@ -113,7 +113,8 @@ describe("reset-circuit route — metadata", () => {
       "conversations/:id/playground/reset-compaction-circuit",
     );
     expect(route.method).toBe("POST");
-    expect(route.policyKey).toBe("conversations/playground/reset-circuit");
+    // Intentionally unprotected — handler gates on assertPlaygroundEnabled()
+    expect(route.policy).toBeNull();
     expect(route.tags).toContain("playground");
   });
 });

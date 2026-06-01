@@ -1,20 +1,106 @@
-import { recordChatDiagnostic } from "@/domains/chat/utils/diagnostics";
+import { recordDiagnostic } from "@/lib/diagnostics";
 import {
   appendTextDelta,
+  applyUserMessageEcho,
   finalizeMessageComplete,
   finalizeOnIdle,
   stopStreaming,
 } from "@/domains/chat/hooks/stream-message-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { AssistantActivityStateEvent } from "@/domains/chat/api/event-types";
+import {
+  findConversation,
+  patchConversation,
+} from "@/utils/conversation-cache";
+import { useConversationStore } from "@/stores/conversation-store";
 import type {
+  AssistantActivityStateEvent,
   AssistantTextDeltaEvent,
+  AssistantTurnStartEvent,
   GenerationCancelledEvent,
   GenerationHandoffEvent,
   MessageCompleteEvent,
+  UserMessageEchoEvent,
 } from "@vellumai/assistant-api";
-import { useSubagentStore } from "@/domains/subagents/subagent-store";
+import { useSubagentStore } from "@/domains/chat/subagent-store";
 
+/**
+ * Resolve the conversation id for SSE handlers — events that carry it on
+ * the wire win, otherwise we fall back to the stream's anchor.
+ *
+ * Both `assistant_turn_start` and `assistant_text_delta` reliably carry a
+ * `conversationId`, but the resolver matches the same fallback chain used
+ * by the terminal handlers (`handleMessageComplete`,
+ * `handleGenerationCancelled`) for symmetry.
+ */
+function resolveConversationId(
+  event: { conversationId?: string },
+  ctx: StreamHandlerContext,
+): string | undefined {
+  return event.conversationId ?? ctx.streamContextRef.current?.conversationId;
+}
+
+/**
+ * Apply an `assistant_turn_start` event.
+ *
+ * The daemon emits this from event zero of each LLM call in a turn,
+ * carrying the `messageId` of the row it `reserveMessage`'d in SQLite.
+ * The handler does two things:
+ *
+ * 1. Stamps `currentAssistantMessageIdRef` with the anchor id. Downstream
+ *    deltas in this LLM call carry the same `messageId` and
+ *    `appendTextDelta` matches by id — but subagent attribution and any
+ *    other consumer that reads the ref before a delta lands sees the
+ *    correct anchor immediately.
+ *
+ * 2. If a row with this id already exists in `messages` — e.g. the
+ *    reserved row was pulled in by an in-flight reconcile poll before the
+ *    SSE wire delivered this event — flips it to `isStreaming: true`.
+ *    That ensures `appendTextDelta` doesn't see a non-streaming assistant
+ *    tail and open a duplicate bubble with the same id. No-op when the
+ *    row doesn't exist yet (the common case: SSE strictly precedes
+ *    reconcile).
+ */
+export function handleAssistantTurnStart(
+  event: AssistantTurnStartEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.currentAssistantMessageIdRef.current = event.messageId;
+
+  // Mark the conversation as processing the moment the daemon emits its
+  // first start signal. Covers external-channel turns (Slack/Telegram)
+  // where the local `useSendMessage` flow never ran, and serves as a
+  // belt-and-suspenders fallback against pre-0.8.7 daemons that don't
+  // surface `conversation.isProcessing` on the wire.
+  //
+  // Seed `processingSnapshots` with the cached conversation's
+  // `latestAssistantMessageAt` so attention tracking has a baseline to
+  // graduate against. Without this seed, switching away from an
+  // SSE-only turn would immediately graduate (comparing `number !==
+  // undefined`) and drop the sidebar processing affordance while the
+  // assistant is still running.
+  const convId = resolveConversationId(event, ctx);
+  if (convId) {
+    const cached = findConversation(
+      ctx.queryClient,
+      ctx.assistantIdRef.current,
+      convId,
+    );
+    useConversationStore
+      .getState()
+      .markConversationProcessing(convId, cached?.latestAssistantMessageAt);
+  }
+
+  ctx.setMessages((prev) => {
+    let touched = false;
+    const next = prev.map((m) => {
+      if (m.role !== "assistant" || m.id !== event.messageId) return m;
+      if (m.isStreaming) return m;
+      touched = true;
+      return { ...m, isStreaming: true };
+    });
+    return touched ? next : prev;
+  });
+}
 
 export function handleAssistantTextDelta(
   event: AssistantTextDeltaEvent,
@@ -22,6 +108,25 @@ export function handleAssistantTextDelta(
 ): void {
   ctx.cancelReconciliation();
   ctx.turnActions.onTextDelta();
+
+  // First delta on a conversation that never saw `assistant_turn_start`
+  // (e.g. pre-B3 daemons, or the start event being dropped on a
+  // reconnect) still needs to flip the badge on. Idempotent — no-op
+  // when the conversation is already marked processing AND the snapshot
+  // is already seeded. See `handleAssistantTurnStart` for the snapshot
+  // rationale.
+  const convId = resolveConversationId(event, ctx);
+  if (convId) {
+    const cached = findConversation(
+      ctx.queryClient,
+      ctx.assistantIdRef.current,
+      convId,
+    );
+    useConversationStore
+      .getState()
+      .markConversationProcessing(convId, cached?.latestAssistantMessageAt);
+  }
+
   ctx.setMessages((prev) => {
     const next = appendTextDelta(prev, event.text, event.messageId);
     const tail = next[next.length - 1];
@@ -39,14 +144,12 @@ export function handleAssistantActivityState(
   event: AssistantActivityStateEvent,
   ctx: StreamHandlerContext,
 ): void {
-  const convId =
-    event.conversationId ?? ctx.streamContextRef.current?.conversationId;
+  const convId = resolveConversationId(event, ctx);
 
   if (convId) {
-    const lastSeen =
-      ctx.lastActivityVersionRef.current.get(convId) ?? 0;
+    const lastSeen = ctx.lastActivityVersionRef.current.get(convId) ?? 0;
     if (event.activityVersion <= lastSeen) {
-      recordChatDiagnostic("sse_activity_state_version_skipped", {
+      recordDiagnostic("sse_activity_state_version_skipped", {
         convId,
         phase: event.phase,
         eventVersion: event.activityVersion,
@@ -59,7 +162,7 @@ export function handleAssistantActivityState(
 
   if (event.phase === "thinking") {
     ctx.turnActions.onActivityThinking(event.statusText);
-    recordChatDiagnostic("sse_activity_state_thinking_handled", {
+    recordDiagnostic("sse_activity_state_thinking_handled", {
       convId,
       reason: event.reason,
       activityVersion: event.activityVersion,
@@ -68,7 +171,7 @@ export function handleAssistantActivityState(
   }
 
   if (event.phase !== "idle") {
-    recordChatDiagnostic("sse_activity_state_non_idle", {
+    recordDiagnostic("sse_activity_state_non_idle", {
       convId,
       phase: event.phase,
       reason: event.reason,
@@ -78,9 +181,17 @@ export function handleAssistantActivityState(
   }
 
   ctx.setMessages(finalizeOnIdle);
+  if (convId) {
+    // Mirrors the cache patch in `handleMessageComplete` /
+    // `handleGenerationCancelled` — see those handlers for the
+    // stale-snapshot rationale.
+    patchConversation(ctx.queryClient, ctx.assistantIdRef.current, convId, {
+      isProcessing: false,
+    });
+  }
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.endTurn({ conversationId: convId, reason: "complete" });
-  recordChatDiagnostic("sse_activity_state_idle_handled", {
+  recordDiagnostic("sse_activity_state_idle_handled", {
     convId,
     reason: event.reason,
     activityVersion: event.activityVersion,
@@ -114,17 +225,41 @@ export function handleMessageComplete(
   // `handleMessageComplete`, `handleGenerationCancelled`) use this same
   // fallback chain so the processing-key clear stays reliable across
   // reconnects.
-  const convId =
-    event.conversationId ?? ctx.streamContextRef.current?.conversationId;
+  const convId = resolveConversationId(event, ctx);
+  if (convId) {
+    // Patch the cached conversation row so the server-snapshot half of
+    // the processing OR (`activeConversation?.isProcessing`) can't stay
+    // latched on a stale `true` after the local set is cleared. Without
+    // this, conversations opened or refreshed mid-turn would keep the
+    // badge / Stop / streaming state lit until an unrelated refetch.
+    patchConversation(ctx.queryClient, ctx.assistantIdRef.current, convId, {
+      isProcessing: false,
+    });
+  }
   const turnPhaseBefore = ctx.getTurnState().phase;
   ctx.endTurn({ conversationId: convId, reason: "complete" });
-  recordChatDiagnostic("sse_message_complete_handled", {
+  recordDiagnostic("sse_message_complete_handled", {
     convId,
     turnPhaseBefore,
     messageId: event.messageId,
     hasAttachments: !!event.attachments?.length,
     reanchored: !!(event.messageId && stableId),
   });
+}
+
+/**
+ * Apply a `user_message_echo` event.
+ *
+ * Renders the user turn on every client — including passive viewers and
+ * synthetic surface-action prompts that never issued the originating POST
+ * — and dedupes the originating client's optimistic row. The id/optimistic
+ * reconciliation lives in the pure `applyUserMessageEcho` updater.
+ */
+export function handleUserMessageEcho(
+  event: UserMessageEchoEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.setMessages((prev) => applyUserMessageEcho(prev, event));
 }
 
 export function handleGenerationHandoff(
@@ -141,9 +276,13 @@ export function handleGenerationCancelled(
   ctx: StreamHandlerContext,
 ): void {
   // See `handleMessageComplete` for the rationale on the event-first
-  // fallback chain.
-  const convId =
-    event.conversationId ?? ctx.streamContextRef.current?.conversationId;
+  // fallback chain and the cache-patch.
+  const convId = resolveConversationId(event, ctx);
+  if (convId) {
+    patchConversation(ctx.queryClient, ctx.assistantIdRef.current, convId, {
+      isProcessing: false,
+    });
+  }
   ctx.endTurn({ conversationId: convId, reason: "cancelled" });
   ctx.setMessages((prev) => stopStreaming(prev));
 }

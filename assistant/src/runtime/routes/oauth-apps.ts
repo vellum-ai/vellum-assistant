@@ -21,6 +21,7 @@ import {
   upsertApp,
 } from "../../oauth/oauth-store.js";
 import { serializeProviderSummary } from "../../oauth/provider-serializer.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   InternalError,
@@ -305,10 +306,13 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "oauth_apps_get",
     endpoint: "oauth/apps",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List OAuth apps",
     description: "List OAuth apps filtered by provider_key.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     queryParams: [
       {
         name: "provider_key",
@@ -323,11 +327,14 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "oauth_apps_by_query_get",
     endpoint: "oauth/apps/lookup",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get OAuth app",
     description:
       "Look up a single OAuth app by ID, provider + client_id, or provider (most recent).",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     queryParams: [
       {
         name: "id",
@@ -351,23 +358,27 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "oauth_apps_upsert",
     endpoint: "oauth/apps/upsert",
     method: "POST",
-    policyKey: "oauth/apps.upsert",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Upsert OAuth app",
     description:
       "Create or return an existing OAuth app registration. Updates client secret if provided.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleUpsertApp,
   },
   {
     operationId: "oauth_apps_post",
     endpoint: "oauth/apps",
     method: "POST",
-    policyKey: "oauth/apps.create",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Create OAuth app",
     description: "Register a new OAuth app with client credentials.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     responseStatus: "201",
     handler: handleCreateApp,
   },
@@ -375,42 +386,53 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "oauth_apps_delete",
     endpoint: "oauth/apps/:id",
     method: "DELETE",
-    policyKey: "oauth/apps.delete",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete OAuth app",
     description:
       "Delete an OAuth app and disconnect all its connections.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleDeleteApp,
   },
   {
     operationId: "oauth_apps_connections_get",
     endpoint: "oauth/apps/:appId/connections",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List OAuth connections",
     description: "List connections for an OAuth app.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleListConnections,
   },
   {
     operationId: "oauth_connections_delete",
     endpoint: "oauth/connections/:id",
     method: "DELETE",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Disconnect OAuth connection",
     description: "Disconnect a single OAuth connection.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleDeleteConnection,
   },
   {
     operationId: "oauth_apps_connect_post",
     endpoint: "oauth/apps/:appId/connect",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Start OAuth connect",
     description: "Start an OAuth connect flow for an app.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleConnectApp,
   },
 ];

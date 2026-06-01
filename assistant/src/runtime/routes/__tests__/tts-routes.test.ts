@@ -169,15 +169,15 @@ describe("tts-routes", () => {
 
     const msgTts = getRoute("messages/:messageId/tts");
     expect(msgTts.method).toBe("POST");
-    expect(msgTts.policyKey).toBe("messages/tts");
+    expect(msgTts.policy?.requiredScopes).toContain("chat.read");
 
     const synthesize = getRoute("tts/synthesize");
     expect(synthesize.method).toBe("POST");
-    expect(synthesize.policyKey).toBe("tts/synthesize");
+    expect(synthesize.policy?.requiredScopes).toContain("chat.read");
 
     const synthesizeCli = getRoute("tts/synthesize-cli");
     expect(synthesizeCli.method).toBe("POST");
-    expect(synthesizeCli.policyKey).toBe("tts/synthesize-cli");
+    expect(synthesizeCli.policy?.requiredScopes).toContain("chat.read");
   });
 
   // -- Feature flag gating --------------------------------------------------

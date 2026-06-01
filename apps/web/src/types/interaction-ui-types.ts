@@ -4,51 +4,20 @@
  * SSR dependencies.
  */
 
-// ---------------------------------------------------------------------------
-// Confirmation / secret / contact / question request shapes
-// ---------------------------------------------------------------------------
+export type {
+  AllowlistOption,
+  DirectoryScopeOption,
+  QuestionEntry,
+  QuestionOption,
+  ScopeOption,
+} from "@vellumai/assistant-api";
 
-export interface AllowlistOption {
-  /** Short display label for the radio row in the rule editor. */
-  label: string;
-  /**
-   * Optional longer-form description shown beneath/alongside the label.
-   * Daemon includes this on `riskAllowlistOptions` (shared with macOS); the
-   * web modal renders the label today and may surface description later.
-   */
-  description?: string;
-  /**
-   * Minimatch-glob compatible pattern saved as the trust rule's `pattern`
-   * field. The gateway matches incoming tool calls against this string —
-   * it is NOT a regex despite some legacy emit sites prefixing with `^`.
-   * See `gateway/src/risk/bash-risk-classifier.ts` for the matching contract.
-   */
-  pattern: string;
-}
-
-export interface ScopeOption {
-  label: string;
-  scope: string;
-}
-
-export interface DirectoryScopeOption {
-  label: string;
-  scope: string;
-}
-
-export interface QuestionOption {
-  id: string;
-  label: string;
-  description?: string;
-}
-
-export interface QuestionEntry {
-  id: string;
-  question: string;
-  description?: string;
-  options: QuestionOption[];
-  freeTextPlaceholder?: string;
-}
+import type {
+  AllowlistOption,
+  DirectoryScopeOption,
+  QuestionEntry,
+  ScopeOption,
+} from "@vellumai/assistant-api";
 
 // ---------------------------------------------------------------------------
 // Chat UI state types — used by interaction store and chat domain
@@ -98,28 +67,7 @@ export interface PendingQuestionState {
 }
 
 // ---------------------------------------------------------------------------
-// Subagent event types — used by subagent domain and chat SSE stream
-// ---------------------------------------------------------------------------
-
-export type SubagentStatus = "pending" | "running" | "awaiting_input" | "completed" | "failed" | "aborted";
-
-export interface SubagentInnerEvent {
-  type: string;
-  content?: string;
-  /** `assistant_text_delta` events carry text in `text`, not `content`. */
-  text?: string;
-  /** `tool_result` events carry output in `result`, not `content`. */
-  result?: string;
-  /** `tool_use_start` events carry a JSON object with tool arguments. */
-  input?: Record<string, unknown>;
-  toolName?: string;
-  isError?: boolean;
-  /**
-   * Tool-use block ID for client-side correlation. Present on
-   * `tool_use_start` and `tool_result` envelopes; used to pair a result
-   * with its originating call when a subagent emits parallel calls to
-   * the same tool (e.g. two `bash` calls) which `toolName` alone cannot
-   * disambiguate.
-   */
-  toolUseId?: string;
-}
+// Subagent event types — canonical types now live in
+// `@vellumai/assistant-api` (see `subagent-event.ts` /
+// `subagent-status-changed.ts`). Re-imported by consumers from
+// that package directly.

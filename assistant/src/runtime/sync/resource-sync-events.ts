@@ -1,5 +1,5 @@
+import type { ConversationListInvalidatedReason } from "../../api/events/conversation-list-invalidated.js";
 import type { IdentityFields } from "../../daemon/handlers/identity.js";
-import type { ConversationListInvalidatedReason } from "../../daemon/message-types/conversations.js";
 import {
   conversationMessagesSyncTag,
   conversationMetadataSyncTag,

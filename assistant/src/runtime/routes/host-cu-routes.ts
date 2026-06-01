@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { findConversation } from "../../daemon/conversation-store.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
@@ -142,6 +143,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "host_cu_result",
     endpoint: "host-cu-result",
     method: "POST",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     requireGuardian: true,
     summary: "Submit host CU result",
     description: "Resolve a pending host computer-use request by requestId.",

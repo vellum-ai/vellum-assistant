@@ -348,7 +348,7 @@ function maxNullableSlackTs(a: string | null, b: string | null): string | null {
 function renderMessage(msg: RenderableSlackMessage): string {
   const meta = msg.metadata;
 
-  if (msg.role === "assistant" && !hasTimestampTimezone(meta)) {
+  if (msg.role === "assistant") {
     if (msg.metadata?.deletedAt !== undefined) return "[deleted]";
     return appendSlackFileMarkers(msg.content, msg.metadata?.slackFiles);
   }
@@ -704,7 +704,7 @@ export function renderSlackTranscriptWithProvenance(
       },
       sourceChannelTs: meta?.channelTs ?? null,
       tagLineProvenance:
-        hasRenderedText && hasTimestampTimezone(meta)
+        m.role !== "assistant" && hasRenderedText && hasTimestampTimezone(meta)
           ? "slack-timezone-message"
           : "none",
     });

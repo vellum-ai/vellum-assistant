@@ -21,6 +21,7 @@ import {
   incrementDownloadCount,
 } from "../../memory/shared-app-links-store.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError, RouteError } from "./errors.js";
 import type {
   ResponseHeaderArgs,
@@ -328,7 +329,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "pages_serve",
     endpoint: "pages/:appId",
     method: "GET",
-    policyKey: "pages",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Serve app page",
     description: "Render and serve a shareable app page as HTML.",
     tags: ["apps"],
@@ -339,7 +343,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_dist_file",
     endpoint: "apps/:appId/dist/:filename",
     method: "GET",
-    policyKey: "apps/dist",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Serve app dist file",
     description:
       "Serve a static asset from an app's compiled dist/ directory.",
@@ -356,6 +363,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_share",
     endpoint: "apps/share",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Share an app",
     description: "Upload a zip app bundle and create a shareable link.",
     tags: ["apps"],
@@ -370,7 +381,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_shared_metadata",
     endpoint: "apps/shared/:token/metadata",
     method: "GET",
-    policyKey: "apps/shared/metadata",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get shared app metadata",
     description: "Return metadata for a shared app bundle.",
     tags: ["apps"],
@@ -386,7 +400,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_shared_download",
     endpoint: "apps/shared/:token",
     method: "GET",
-    policyKey: "apps/shared",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Download shared app",
     description: "Download a shared app bundle as a zip file.",
     tags: ["apps"],
@@ -400,7 +417,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_shared_delete",
     endpoint: "apps/shared/:token",
     method: "DELETE",
-    policyKey: "apps/shared",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete shared app",
     description: "Remove a shared app link.",
     tags: ["apps"],

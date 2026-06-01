@@ -1,9 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  SecretRequest,
-  ServerMessage,
-} from "../daemon/message-protocol.js";
+import type { SecretRequestEvent } from "../api/events/secret-request.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 
 // Use a tiny timeout so the setTimeout branch fires quickly in tests
 const mockConfig = {
@@ -42,7 +40,11 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 const _piStore = new Map<string, object>();
 mock.module("../runtime/pending-interactions.js", () => ({
   register: (id: string, entry: object) => _piStore.set(id, entry),
-  resolve: (id: string) => { const e = _piStore.get(id); _piStore.delete(id); return e; },
+  resolve: (id: string) => {
+    const e = _piStore.get(id);
+    _piStore.delete(id);
+    return e;
+  },
   get: (id: string) => _piStore.get(id),
   getAll: () => [..._piStore.values()],
   getByConversation: () => [],
@@ -70,7 +72,7 @@ describe("secret prompter channel fallback", () => {
     expect(broadcastMessages).toHaveLength(1);
     expect(broadcastMessages[0]!.type).toBe("secret_request");
 
-    const requestId = (broadcastMessages[0] as SecretRequest).requestId;
+    const requestId = (broadcastMessages[0] as SecretRequestEvent).requestId;
     prompter.resolveSecret(requestId, "test-secret", "store");
     const result = await promise;
     expect(result.value).toBe("test-secret");
@@ -88,7 +90,7 @@ describe("secret prompter channel fallback", () => {
     expect(broadcastMessages).toHaveLength(1);
     expect(broadcastMessages[0]!.type).toBe("secret_request");
 
-    const requestId = (broadcastMessages[0] as SecretRequest).requestId;
+    const requestId = (broadcastMessages[0] as SecretRequestEvent).requestId;
     prompter.resolveSecret(requestId, "test-secret", "store");
     await promise;
   });
@@ -101,7 +103,7 @@ describe("secret prompter channel fallback", () => {
     expect(broadcastMessages).toHaveLength(1);
     expect(broadcastMessages[0]!.type).toBe("secret_request");
 
-    const requestId = (broadcastMessages[0] as SecretRequest).requestId;
+    const requestId = (broadcastMessages[0] as SecretRequestEvent).requestId;
     prompter.resolveSecret(requestId, "val", "store");
     await promise;
   });
@@ -110,7 +112,7 @@ describe("secret prompter channel fallback", () => {
     const prompter = new SecretPrompter();
 
     const promise = prompter.prompt("myservice", "apikey", "API Key");
-    const requestId = (broadcastMessages[0] as SecretRequest).requestId;
+    const requestId = (broadcastMessages[0] as SecretRequestEvent).requestId;
 
     expect(prompter.hasPendingRequest(requestId)).toBe(true);
 

@@ -29,6 +29,7 @@ import { isPlainObject } from "../util/object.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
 import { launchConversation } from "./conversation-launch.js";
 import type { EnqueueMessageOptions } from "./conversation-messaging.js";
+import type { ProcessMessageOptions } from "./conversation-process.js";
 import type { HostAppControlProxy } from "./host-app-control-proxy.js";
 import type { HostCuProxy } from "./host-cu-proxy.js";
 import type {
@@ -524,16 +525,7 @@ export interface SurfaceConversationContext {
     rejected?: boolean;
   };
   getQueueDepth(): number;
-  processMessage(
-    content: string,
-    attachments: UserMessageAttachment[],
-    onEvent?: (msg: ServerMessage) => void,
-    requestId?: string,
-    activeSurfaceId?: string,
-    currentPage?: string,
-    options?: { isInteractive?: boolean },
-    displayContent?: string,
-  ): Promise<string>;
+  processMessage(options: ProcessMessageOptions): Promise<string>;
   /** Serialize operations on a given surface to prevent read-modify-write races. */
   withSurface<T>(surfaceId: string, fn: () => T | Promise<T>): Promise<T>;
 }
@@ -1492,16 +1484,14 @@ export async function handleSurfaceAction(
       "Processing surface action immediately (history-restored) with attachments",
     );
     ctx
-      .processMessage(
+      .processMessage({
         content,
         attachments,
         onEvent,
         requestId,
-        surfaceId,
-        undefined,
-        undefined,
+        activeSurfaceId: surfaceId,
         displayContent,
-      )
+      })
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
         log.error(
@@ -1779,16 +1769,14 @@ export async function handleSurfaceAction(
     "Processing surface action as follow-up with attachments",
   );
   ctx
-    .processMessage(
+    .processMessage({
       content,
-      pendingAttachments,
+      attachments: pendingAttachments,
       onEvent,
       requestId,
-      surfaceId,
-      undefined,
-      undefined,
+      activeSurfaceId: surfaceId,
       displayContent,
-    )
+    })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
       log.error(

@@ -26,6 +26,7 @@ import type {
   ContactType,
 } from "../../contacts/types.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   createIngressInvite,
   listIngressInvites,
@@ -251,6 +252,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "listContacts",
     endpoint: "contacts",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List contacts",
     description:
       "Return all contacts, optionally filtered by type or channel status.",
@@ -302,6 +307,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "invites_list",
     endpoint: "contacts/invites",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleListInvites,
     summary: "List invites",
     description:
@@ -326,6 +335,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "invites_create",
     endpoint: "contacts/invites",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleCreateInvite,
     responseStatus: "201",
     summary: "Create an invite",
@@ -363,6 +376,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "invites_redeem",
     endpoint: "contacts/invites/redeem",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleRedeemInvite,
     summary: "Redeem an invite",
     description: "Redeem an invite by token or voice code.",
@@ -397,7 +414,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "invites_revoke",
     endpoint: "contacts/invites/:id",
     method: "DELETE",
-    policyKey: "contacts/invites",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleRevokeInvite,
     summary: "Revoke an invite",
     description: "Revoke an invite by ID.",
@@ -412,7 +432,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "invites_trigger_call",
     endpoint: "contacts/invites/:id/call",
     method: "POST",
-    policyKey: "contacts/invites",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleTriggerInviteCall,
     summary: "Trigger invite call",
     description: "Trigger an outbound call for a phone invite.",
@@ -433,6 +456,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "search_contacts",
     endpoint: "contacts/search",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Search contacts",
     description: "Search contacts by query, channel address, or channel type.",
     tags: ["contacts"],
@@ -461,7 +488,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getContact",
     endpoint: "contacts/:id",
     method: "GET",
-    policyKey: "contacts",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get a contact",
     description:
       "Return a single contact with its channels and assistant metadata.",
@@ -481,6 +511,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "merge_contacts",
     endpoint: "contacts/merge",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Merge two contacts",
     description: "Merge two contacts, keeping one and absorbing the other.",
     tags: ["contacts"],
@@ -500,7 +534,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "updateContactChannel",
     endpoint: "contact-channels/:contactChannelId",
     method: "PATCH",
-    policyKey: "contact-channels",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Update a contact channel",
     description: "Update status, policy, or reason on a contact's channel.",
     tags: ["contacts"],

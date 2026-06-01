@@ -27,8 +27,8 @@ import { registerTool } from "../registry.js";
 import { formatShellOutput } from "../shared/shell-output.js";
 import type {
   ProxyEnvVars,
-  Tool,
   ToolContext,
+  ToolDefinition,
   ToolExecutionResult,
 } from "../types.js";
 import { buildSanitizedEnv } from "./safe-env.js";
@@ -44,50 +44,50 @@ function buildCredentialRefTrace(
 
 const log = getLogger("shell-tool");
 
-class ShellTool implements Tool {
-  name = "bash";
-  description = "Execute a shell command on the local machine";
-  category = "terminal";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Medium;
+export const shellTool = {
+  name: "bash",
+  description: "Execute a shell command on the local machine",
+  category: "terminal",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          command: {
-            type: "string",
-            description: "The shell command to execute",
-          },
-          activity: {
-            type: "string",
-            description:
-              'Brief non-technical explanation of what this command does and why, shown to a non-technical user in the permission prompt. Avoid jargon and technical terms. Good: "to check if a required program is installed on your computer". Bad: "to check if gcloud CLI is installed". Good: "to download a helper program". Bad: "to run npm install".',
-          },
-          timeout_seconds: {
-            type: "number",
-            description:
-              "Optional timeout in seconds. Defaults to the configured default (120s). Cannot exceed the configured maximum.",
-          },
-          network_mode: {
-            type: "string",
-            enum: ["off", "proxied"],
-            description:
-              'Network access mode for the command. "off" (default) blocks network access; "proxied" routes traffic through the credential proxy.',
-          },
-          credential_ids: {
-            type: "array",
-            items: { type: "string" },
-            description:
-              'Optional list of credential IDs to inject via the proxy when network_mode is "proxied".',
-          },
-          background: {
-            type: "boolean",
-            description:
-              "Run the command in the background. The tool returns immediately with a background tool ID. When the process exits, its output is delivered to the conversation as a wake.",
-          },
-        },
-        required: ["command", "activity"],
-      };
+  input_schema: {
+    type: "object",
+    properties: {
+      command: {
+        type: "string",
+        description: "The shell command to execute",
+      },
+      activity: {
+        type: "string",
+        description:
+          'Brief non-technical explanation of what this command does and why, shown to a non-technical user in the permission prompt. Avoid jargon and technical terms. Good: "to check if a required program is installed on your computer". Bad: "to check if gcloud CLI is installed". Good: "to download a helper program". Bad: "to run npm install".',
+      },
+      timeout_seconds: {
+        type: "number",
+        description:
+          "Optional timeout in seconds. Defaults to the configured default (120s). Cannot exceed the configured maximum.",
+      },
+      network_mode: {
+        type: "string",
+        enum: ["off", "proxied"],
+        description:
+          'Network access mode for the command. "off" (default) blocks network access; "proxied" routes traffic through the credential proxy.',
+      },
+      credential_ids: {
+        type: "array",
+        items: { type: "string" },
+        description:
+          'Optional list of credential IDs to inject via the proxy when network_mode is "proxied".',
+      },
+      background: {
+        type: "boolean",
+        description:
+          "Run the command in the background. The tool returns immediately with a background tool ID. When the process exits, its output is delivered to the conversation as a wake.",
+      },
+    },
+    required: ["command", "activity"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -337,6 +337,7 @@ class ShellTool implements Tool {
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
+      const startedAt = Date.now();
 
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,
@@ -345,11 +346,17 @@ class ShellTool implements Tool {
         detached: true,
       });
 
-      const killTree = buildKillTree(child);
+      const killTree = buildKillTree(child, {
+        toolName: "bash",
+        conversationId: context.conversationId,
+        command,
+        startedAt,
+        invocationId: bgId,
+      });
 
       const timer = setTimeout(() => {
         timedOut = true;
-        killTree();
+        killTree("timeout");
       }, timeoutMs);
 
       child.stdout.on("data", (data: Buffer) => {
@@ -365,11 +372,23 @@ class ShellTool implements Tool {
       // Only the first handler to fire should wake the agent.
       let completed = false;
 
-      child.on("close", (code) => {
+      child.on("close", (code, signal) => {
         if (completed) return;
         completed = true;
         clearTimeout(timer);
         removeBackgroundTool(bgId);
+
+        logShellExit({
+          toolName: "bash",
+          mode: "background",
+          invocationId: bgId,
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+          exitCode: code,
+          signal,
+          timedOut,
+        });
 
         const stdout = Buffer.concat(stdoutChunks).toString();
         const stderr = Buffer.concat(stderrChunks).toString();
@@ -395,6 +414,19 @@ class ShellTool implements Tool {
         clearTimeout(timer);
         removeBackgroundTool(bgId);
 
+        logShellExit({
+          toolName: "bash",
+          mode: "background",
+          invocationId: bgId,
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+          exitCode: null,
+          signal: null,
+          timedOut,
+          spawnError: err.message,
+        });
+
         const hint = `Background command failed (id=${bgId}): ${err.message}`;
         void wakeAgentForOpportunity({
           conversationId: context.conversationId,
@@ -408,8 +440,8 @@ class ShellTool implements Tool {
         toolName: "bash",
         conversationId: context.conversationId,
         command,
-        startedAt: Date.now(),
-        cancel: killTree,
+        startedAt,
+        cancel: () => killTree("abort"),
       });
 
       return {
@@ -425,6 +457,7 @@ class ShellTool implements Tool {
       const stdoutChunks: Buffer[] = [];
       const stderrChunks: Buffer[] = [];
       let timedOut = false;
+      const startedAt = Date.now();
 
       const child = spawn(wrapped.command, wrapped.args, {
         cwd: context.workingDir,
@@ -433,18 +466,23 @@ class ShellTool implements Tool {
         detached: true,
       });
 
-      const killTree = buildKillTree(child);
+      const killTree = buildKillTree(child, {
+        toolName: "bash",
+        conversationId: context.conversationId,
+        command,
+        startedAt,
+      });
 
       const timer = setTimeout(() => {
         timedOut = true;
-        killTree();
+        killTree("timeout");
       }, timeoutMs);
 
       // Cooperative cancellation via AbortSignal
-      const onAbort = () => killTree();
+      const onAbort = () => killTree("abort");
       if (context.signal) {
         if (context.signal.aborted) {
-          killTree();
+          killTree("abort");
         } else {
           context.signal.addEventListener("abort", onAbort, { once: true });
         }
@@ -460,9 +498,20 @@ class ShellTool implements Tool {
         context.onOutput?.(data.toString());
       });
 
-      child.on("close", (code) => {
+      child.on("close", (code, signal) => {
         clearTimeout(timer);
         context.signal?.removeEventListener("abort", onAbort);
+
+        logShellExit({
+          toolName: "bash",
+          mode: "foreground",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+          exitCode: code,
+          signal,
+          timedOut,
+        });
 
         const stdout = Buffer.concat(stdoutChunks).toString();
         const stderr = Buffer.concat(stderrChunks).toString();
@@ -484,6 +533,19 @@ class ShellTool implements Tool {
       child.on("error", (err) => {
         clearTimeout(timer);
         context.signal?.removeEventListener("abort", onAbort);
+
+        logShellExit({
+          toolName: "bash",
+          mode: "foreground",
+          conversationId: context.conversationId,
+          command,
+          startedAt,
+          exitCode: null,
+          signal: null,
+          timedOut,
+          spawnError: err.message,
+        });
+
         resolve({
           content: `Error spawning command: ${err.message}${
             (err as NodeJS.ErrnoException).code === "ENOENT"
@@ -496,19 +558,87 @@ class ShellTool implements Tool {
     });
 
     return result;
-  }
+  },
+} satisfies ToolDefinition;
+
+/**
+ * Structured teardown log. Pairs with the `"Executing shell command"`
+ * start log: every shell invocation now produces a start/exit pair so
+ * orphan-leak post-mortems can correlate command + exitCode + signal +
+ * timedOut + duration without spelunking through prose hints. The
+ * `signal === "SIGKILL"` + `timedOut === true` combination is the
+ * fingerprint left by the timeout watcher SIGKILLing the process group
+ * — i.e. the moment that creates the orphans.
+ */
+function logShellExit(args: {
+  toolName: string;
+  mode: "foreground" | "background";
+  conversationId: string;
+  command: string;
+  startedAt: number;
+  exitCode: number | null;
+  signal: NodeJS.Signals | null;
+  timedOut: boolean;
+  invocationId?: string;
+  spawnError?: string;
+}): void {
+  log.info(
+    {
+      toolName: args.toolName,
+      mode: args.mode,
+      invocationId: args.invocationId,
+      conversationId: args.conversationId,
+      command: redactSecrets(args.command),
+      durationMs: Date.now() - args.startedAt,
+      exitCode: args.exitCode,
+      signal: args.signal,
+      timedOut: args.timedOut,
+      spawnError: args.spawnError,
+    },
+    "Shell command exited",
+  );
 }
 
 /**
  * Kill the entire process tree of a child process. Tries the process group
  * first (negative PID), then falls back to killing the direct child if the
  * PID is unavailable or the group kill fails.
+ *
+ * Emits a structured `warn` log on every invocation: this is the
+ * ground-truth event that creates orphaned subprocesses (the SIGKILL hits
+ * the entire group, so the immediate bash child has no chance to reap its
+ * grandchildren; under bun-as-PID-1 they accumulate as `<defunct>`).
+ * `reason` lets the next zombie report point at a specific call site (the
+ * timeout watcher in the foreground/background branches, or an abort).
  */
-function buildKillTree(child: ChildProcess): () => void {
-  return () => {
-    if (child.pid != null) {
+function buildKillTree(
+  child: ChildProcess,
+  context: {
+    toolName: string;
+    conversationId: string;
+    command: string;
+    startedAt: number;
+    /** Stable id for this invocation — bgId for background tools. */
+    invocationId?: string;
+  },
+): (reason: "timeout" | "abort" | "spawn_error") => void {
+  return (reason) => {
+    const groupPid = child.pid ?? null;
+    log.warn(
+      {
+        toolName: context.toolName,
+        conversationId: context.conversationId,
+        command: redactSecrets(context.command),
+        durationMs: Date.now() - context.startedAt,
+        reason,
+        groupPid,
+        invocationId: context.invocationId,
+      },
+      "Shell process group SIGKILL'd — orphans expected to reparent to PID 1",
+    );
+    if (groupPid != null) {
       try {
-        process.kill(-child.pid, "SIGKILL");
+        process.kill(-groupPid, "SIGKILL");
         return;
       } catch {
         // Process group may have already exited — fall through.
@@ -522,5 +652,4 @@ function buildKillTree(child: ChildProcess): () => void {
   };
 }
 
-export const shellTool: Tool = new ShellTool();
 registerTool(shellTool);

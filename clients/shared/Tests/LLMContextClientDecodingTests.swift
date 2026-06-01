@@ -304,6 +304,52 @@ final class LLMContextClientDecodingTests: XCTestCase {
         XCTAssertEqual(responseSection.data, AnyCodable([1, 2, 3]))
     }
 
+    func testMemoryV3SelectionDecodes() throws {
+        let response = try decodeResponse(
+            #"""
+            {
+              "messageId": "msg-v3",
+              "logs": [],
+              "memoryV3Selection": {
+                "turn": 7,
+                "live": false,
+                "shadow": true,
+                "selections": [
+                  { "slug": "domain-a/page-1", "source": "core+l2", "pinned": true },
+                  { "slug": "domain-b/page-2", "source": "carry-forward", "pinned": false }
+                ],
+                "injectedText": "<memory>\nbody\n</memory>"
+              }
+            }
+            """#
+        )
+
+        let v3 = try XCTUnwrap(response.memoryV3Selection)
+        XCTAssertEqual(v3.turn, 7)
+        XCTAssertFalse(v3.live)
+        XCTAssertTrue(v3.shadow)
+        XCTAssertEqual(v3.injectedText, "<memory>\nbody\n</memory>")
+        XCTAssertEqual(v3.selections.count, 2)
+        XCTAssertEqual(v3.selections[0].slug, "domain-a/page-1")
+        XCTAssertEqual(v3.selections[0].source, "core+l2")
+        XCTAssertTrue(v3.selections[0].pinned)
+        XCTAssertEqual(v3.selections[1].source, "carry-forward")
+        XCTAssertFalse(v3.selections[1].pinned)
+    }
+
+    func testMemoryV3SelectionAbsentDecodesAsNil() throws {
+        let response = try decodeResponse(
+            #"""
+            {
+              "messageId": "msg-no-v3",
+              "logs": []
+            }
+            """#
+        )
+
+        XCTAssertNil(response.memoryV3Selection)
+    }
+
     private func decodeResponse(_ json: String) throws -> LLMContextResponse {
         try JSONDecoder().decode(LLMContextResponse.self, from: Data(json.utf8))
     }

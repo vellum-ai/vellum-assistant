@@ -264,17 +264,17 @@ describe("sanity_connect", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Policy key verification
+// Route policy verification
 // ---------------------------------------------------------------------------
 
-describe("route policy keys", () => {
-  test("sanity_discover uses policyKey: secrets", () => {
+describe("route policies", () => {
+  test("sanity_discover requires settings.write (secrets-grade)", () => {
     const route = ROUTES.find((r) => r.operationId === "sanity_discover");
-    expect(route?.policyKey).toBe("secrets");
+    expect(route?.policy?.requiredScopes).toContain("settings.write");
   });
 
-  test("sanity_connect uses policyKey: secrets", () => {
+  test("sanity_connect requires settings.write (secrets-grade)", () => {
     const route = ROUTES.find((r) => r.operationId === "sanity_connect");
-    expect(route?.policyKey).toBe("secrets");
+    expect(route?.policy?.requiredScopes).toContain("settings.write");
   });
 });

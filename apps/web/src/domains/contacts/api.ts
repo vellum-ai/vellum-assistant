@@ -3,7 +3,7 @@ import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors";
+} from "@/utils/api-errors";
 import type { A2AInviteParams } from "@/domains/contacts/a2a-invite";
 import type {
   ChannelInfo,

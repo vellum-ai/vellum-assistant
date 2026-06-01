@@ -197,7 +197,8 @@ final class InferenceProfileEditorTests: XCTestCase {
                 speed: false,
                 verbosity: true,
                 temperature: false,
-                thinking: false
+                thinking: false,
+                thinkingLevel: false
             )
         )
     }
@@ -223,7 +224,8 @@ final class InferenceProfileEditorTests: XCTestCase {
                 speed: true,
                 verbosity: false,
                 temperature: true,
-                thinking: true
+                thinking: true,
+                thinkingLevel: false
             )
         )
     }
@@ -249,12 +251,13 @@ final class InferenceProfileEditorTests: XCTestCase {
                 speed: false,
                 verbosity: false,
                 temperature: true,
-                thinking: true
+                thinking: true,
+                thinkingLevel: false
             )
         )
     }
 
-    func testGeminiShowsOnlyMaxTokensWithCurrentProviderSupport() {
+    func testGemini25ShowsThinkingLevelSelector() {
         let visibility = InferenceProfileParameterVisibility.resolve(
             provider: "gemini",
             model: "gemini-2.5-flash",
@@ -275,12 +278,13 @@ final class InferenceProfileEditorTests: XCTestCase {
                 speed: false,
                 verbosity: false,
                 temperature: false,
-                thinking: false
+                thinking: false,
+                thinkingLevel: true
             )
         )
     }
 
-    func testGemini3ShowsOnlyMaxTokensWithCurrentProviderSupport() {
+    func testGemini3ProShowsThinkingLevelSelector() {
         let visibility = InferenceProfileParameterVisibility.resolve(
             provider: "gemini",
             model: "gemini-3.1-pro-preview",
@@ -301,7 +305,8 @@ final class InferenceProfileEditorTests: XCTestCase {
                 speed: false,
                 verbosity: false,
                 temperature: false,
-                thinking: false
+                thinking: false,
+                thinkingLevel: true
             )
         )
     }
@@ -365,7 +370,8 @@ final class InferenceProfileEditorTests: XCTestCase {
                 speed: false,
                 verbosity: false,
                 temperature: false,
-                thinking: true
+                thinking: true,
+                thinkingLevel: false
             )
         )
     }
@@ -391,7 +397,8 @@ final class InferenceProfileEditorTests: XCTestCase {
                 speed: false,
                 verbosity: false,
                 temperature: false,
-                thinking: false
+                thinking: false,
+                thinkingLevel: false
             )
         )
     }

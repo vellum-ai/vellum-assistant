@@ -33,7 +33,7 @@ import { skillLoadTool } from "./skills/load.js";
 import { notifyParentTool } from "./subagent/notify-parent.js";
 import { requestSystemPermissionTool } from "./system/request-permission.js";
 import { shellTool } from "./terminal/shell.js";
-import type { Tool } from "./types.js";
+import type { ToolDefinition } from "./types.js";
 
 // ── Eager side-effect modules ───────────────────────────────────────
 // These static imports trigger top-level `registerTool()` side effects on
@@ -78,7 +78,7 @@ export const eagerModuleToolNames: string[] = [
 // This includes both previously-eager tools (referenced here so they survive
 // a test registry reset) and tools that have always been explicit.
 
-export const explicitTools: Tool[] = [
+export const explicitTools: ToolDefinition[] = [
   // Previously-eager tools - kept here so initializeTools() can re-register
   // them after __resetRegistryForTesting() clears the registry (ESM caching
   // prevents their side-effect registrations from re-running).
@@ -115,7 +115,7 @@ export const explicitTools: Tool[] = [
 // initializeTools() in registry.ts can conditionally include them.
 
 /** All CES tools - stable references for the manifest snapshot. */
-export const cesTools: Tool[] = [
+export const cesTools: ToolDefinition[] = [
   makeAuthenticatedRequestTool,
   runAuthenticatedCommandTool,
   manageSecureCommandTool,
@@ -126,7 +126,7 @@ export const cesTools: Tool[] = [
  * Returns an empty array when the flag is disabled so callers can
  * unconditionally iterate the result.
  */
-export function getCesToolsIfEnabled(): Tool[] {
+export function getCesToolsIfEnabled(): ToolDefinition[] {
   try {
     const config = getConfig();
     if (isCesToolsEnabled(config)) {

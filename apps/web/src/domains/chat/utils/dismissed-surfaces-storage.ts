@@ -8,61 +8,27 @@
 // (a) reappear as active on reload and wedge the composer, or (b) disappear
 // entirely even if still pending. We persist resolved IDs here so rehydration
 // can filter them out safely.
-//
-// Shape on disk: { [conversationId]: string[] }, keyed per assistant.
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import { isStringArray } from "@/domains/chat/utils/storage-validators";
+import { createRecordStorageAccessor } from "@/utils/typed-storage";
 
-const STORAGE_KEY_PREFIX = "vellum:dismissed-surfaces:";
-const MAX_ENTRIES_PER_ASSISTANT = 200;
 const MAX_IDS_PER_CONVERSATION = 500;
 
-type StoredMap = Record<string, string[]>;
-
-function storageKey(assistantId: string): string {
-  return `${STORAGE_KEY_PREFIX}${assistantId}`;
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((v) => typeof v === "string");
-}
-
-function safeParse(raw: string | null): StoredMap {
-  if (!raw) {
-    return {};
-  }
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object") {
-      return {};
-    }
-    const result: StoredMap = {};
-    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-      if (isStringArray(value)) {
-        result[key] = value;
-      }
-    }
-    return result;
-  } catch {
-    return {};
-  }
-}
+const storage = createRecordStorageAccessor<string[]>({
+  keyFn: (assistantId) => `vellum:dismissed-surfaces:${assistantId}`,
+  scope: "user",
+  parseValue: (value) => (isStringArray(value) ? value : null),
+  fallback: {},
+  maxEntries: 200,
+});
 
 export function loadDismissedSurfaceIds(
   assistantId: string,
   conversationId: string,
 ): Set<string> {
-  if (typeof window === "undefined") {
-    return new Set();
-  }
-  try {
-    const raw = window.localStorage.getItem(storageKey(assistantId));
-    const map = safeParse(raw);
-    const ids = map[conversationId];
-    return ids ? new Set(ids) : new Set();
-  } catch {
-    return new Set();
-  }
+  const ids = storage.get(assistantId, conversationId);
+  return ids ? new Set(ids) : new Set();
 }
 
 export function saveDismissedSurfaceIds(
@@ -70,36 +36,11 @@ export function saveDismissedSurfaceIds(
   conversationId: string,
   ids: Set<string>,
 ): void {
-  if (typeof window === "undefined") {
-    return;
+  let idArray = Array.from(ids);
+  if (idArray.length > MAX_IDS_PER_CONVERSATION) {
+    idArray = idArray.slice(idArray.length - MAX_IDS_PER_CONVERSATION);
   }
-  try {
-    const key = storageKey(assistantId);
-    const existing = safeParse(window.localStorage.getItem(key));
-
-    // Cap per-conversation list size; drop oldest on overflow (insertion order).
-    let idArray = Array.from(ids);
-    if (idArray.length > MAX_IDS_PER_CONVERSATION) {
-      idArray = idArray.slice(idArray.length - MAX_IDS_PER_CONVERSATION);
-    }
-    existing[conversationId] = idArray;
-
-    const entries = Object.entries(existing);
-    if (entries.length > MAX_ENTRIES_PER_ASSISTANT) {
-      const trimmed = entries.slice(entries.length - MAX_ENTRIES_PER_ASSISTANT);
-      const trimmedMap: StoredMap = {};
-      for (const [k, v] of trimmed) {
-        trimmedMap[k] = v;
-      }
-      window.localStorage.setItem(key, JSON.stringify(trimmedMap));
-      return;
-    }
-
-    window.localStorage.setItem(key, JSON.stringify(existing));
-  } catch {
-    // Storage can fail in private browsing / quota-exceeded cases. Silently
-    // drop; in-memory state still works for the current session.
-  }
+  storage.set(assistantId, conversationId, idArray);
 }
 
 // Strip any surfaces (and matching contentOrder entries) whose IDs the user

@@ -25,6 +25,7 @@ import {
   fetchOlderHistoryPage,
 } from "@/domains/chat/api/history";
 import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 
 // ---------------------------------------------------------------------------
@@ -146,15 +147,31 @@ export function useHistoryPagination({
   // pages[0] = latest page (newest messages), pages[1] = older, etc.
   // Within each page, messages are already oldest-first.
   // Result: [...oldest-page.messages, ..., ...latest-page.messages]
+  //
+  // After flattening, fold any adjacent `role: "assistant"` rows that
+  // landed on opposite sides of a page boundary back into a single
+  // display message. The backend already merges consecutive assistants
+  // within a single page (`mergeConsecutiveAssistantMessages` at query
+  // time in conversation-routes.ts) — but each page runs that merge in
+  // isolation, anchoring on its own oldest row. A long agent loop that
+  // straddles N pages comes back as N split client objects, each with a
+  // distinct anchor id, which dedupe-by-id can't reconcile. The fold
+  // here closes that gap on the read path so a long turn renders as one
+  // bubble regardless of how scroll-to-load chunked it.
   const messages = useMemo(() => {
     if (!query.data?.pages?.length) return EMPTY_MESSAGES;
     const { pages } = query.data;
-    if (pages.length === 1) return pages[0]!.messages;
-    const result: DisplayMessage[] = [];
-    for (let i = pages.length - 1; i >= 0; i--) {
-      result.push(...pages[i]!.messages);
-    }
-    return result;
+    const flattened: DisplayMessage[] =
+      pages.length === 1
+        ? pages[0]!.messages
+        : (() => {
+            const acc: DisplayMessage[] = [];
+            for (let i = pages.length - 1; i >= 0; i--) {
+              acc.push(...pages[i]!.messages);
+            }
+            return acc;
+          })();
+    return mergeAdjacentAssistantMessages(flattened);
   }, [query.data]);
 
   const latestPage = query.data?.pages[0];

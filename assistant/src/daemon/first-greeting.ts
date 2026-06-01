@@ -14,12 +14,6 @@ export interface OnboardingGreetingContext {
   googleConnected?: boolean;
 }
 
-export const CANNED_FIRST_GREETING = [
-  "Hey,",
-  "",
-  "We can get into whatever you've got, or just talk first — that tends to go better. Up to you. If you have context or workflows from another assistant or harness, bring them over early and I'll help port them.",
-].join("\n");
-
 /**
  * Returns `true` when all of the following are true:
  * - `conversationMessageCount === 0` (no prior messages in this conversation)
@@ -49,6 +43,28 @@ export function getCannedFirstGreeting(
   return CANNED_FIRST_GREETING;
 }
 
+/**
+ * Builds a natural self-introduction to send *on behalf of the user* in place
+ * of the wake-up greeting, so the assistant generates a real response instead
+ * of replaying canned copy. Names come from the onboarding context; missing
+ * names are dropped so the line stays natural:
+ *   - both:           "Hi Vela, I'm alex. Nice to meet you."
+ *   - assistant only: "Hi Vela. Nice to meet you."
+ *   - user only:      "Hi, I'm alex. Nice to meet you."
+ * When neither name is known there is nothing personal to say, so this returns
+ * `undefined` and the caller falls back to the canned greeting.
+ */
+export function buildSelfIntroMessage(
+  onboarding?: OnboardingGreetingContext,
+): string | undefined {
+  const assistant = onboarding?.assistantName?.trim();
+  const user = onboarding?.userName?.trim();
+  if (!assistant && !user) return undefined;
+  const hi = assistant ? `Hi ${assistant}` : "Hi";
+  const intro = user ? `, I'm ${user}` : "";
+  return `${hi}${intro}. Nice to meet you.`;
+}
+
 const TONE_INTRO_CLOSE: Record<Tone, string> = {
   grounded: "",
   warm: "Good to meet you.",
@@ -67,14 +83,30 @@ function buildIntroLine(
   return [greeting, who, close].filter(Boolean).join(" ");
 }
 
-const TONE_INVITE: Record<Tone, string> = {
+// Every greeting variant — the no-onboarding CANNED greeting and all four
+// personalized tones — ends with a migration offer. The opener (task-vs-talk)
+// and the migration offer are kept as separate per-tone maps and composed in
+// `buildInvite`, rather than inlined as one full sentence per variant, so the
+// offer cannot be silently dropped from a variant when the opener copy is
+// edited. The first-greeting test asserts every variant still includes it.
+const TONE_INVITE_OPENER: Record<Tone, string> = {
   grounded:
-    "We can get into whatever you've got, or just talk first — that tends to go better. Up to you. If you have context or workflows from another assistant or harness, bring them over early and I'll help port them.",
-  warm: "We can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here. If you have context or workflows from another assistant or harness, bring them over early and I can help port them.",
+    "We can get into whatever you've got, or just talk first — that tends to go better. Up to you.",
+  warm: "We can start on something specific, or just talk for a bit first — honestly that tends to work out better. Either way, I'm here.",
   energetic:
-    "We can jump straight into whatever you've got, or take a few minutes to just talk first. If you've got context or workflows from another assistant or harness, bring them over early and I'll port them with you. What sounds right?",
+    "We can jump straight into whatever you've got, or take a few minutes to just talk first.",
   poetic:
-    "We can start with whatever's in front of you, or just talk for a bit first. Either way. If there's old context or workflows from another assistant or harness, bring them over early and I'll help port them.",
+    "We can start with whatever's in front of you, or just talk for a bit first. Either way.",
+};
+
+const TONE_MIGRATION_OFFER: Record<Tone, string> = {
+  grounded:
+    "And you don't have to start me from scratch — if you've built up a ChatGPT or Claude, bring it over and I'll learn from it fast. Best head start you can give me.",
+  warm: "And you don't have to start me from scratch — if there's a ChatGPT or Claude that already knows you, bring it over and I'll get up to speed fast. Honestly, it's the best head start you could give me.",
+  energetic:
+    "And you don't have to start me from scratch — if you've built up a ChatGPT or Claude, bring it over and I'll get up to speed fast. Best head start you can give me — want to start there?",
+  poetic:
+    "And you don't have to start me from nothing — if there's a ChatGPT or Claude that already knows you, bring it over and I'll learn from it. The best head start you could give me.",
 };
 
 const TONE_GOOGLE_SCAN: Record<Tone, string> = {
@@ -88,8 +120,16 @@ const TONE_GOOGLE_SCAN: Record<Tone, string> = {
 };
 
 function buildInvite(tone: Tone = "grounded"): string {
-  return TONE_INVITE[tone];
+  return `${TONE_INVITE_OPENER[tone]} ${TONE_MIGRATION_OFFER[tone]}`;
 }
+
+// Composed from the grounded opener + migration offer so the no-onboarding
+// greeting reuses the same source as the personalized grounded greeting rather
+// than duplicating the copy. Defined after the tone maps so they are
+// initialized before this module-level evaluation runs.
+export const CANNED_FIRST_GREETING = ["Hey,", "", buildInvite("grounded")].join(
+  "\n",
+);
 
 const VALID_TONES = new Set<string>([
   "grounded",

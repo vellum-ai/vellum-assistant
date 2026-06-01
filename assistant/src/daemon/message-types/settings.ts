@@ -1,5 +1,7 @@
 // Client settings: daemon-pushed configuration updates to connected clients.
 
+import type { AvatarUpdatedEvent } from "../../api/events/avatar-updated.js";
+
 // === Client → Server ===
 
 /** Request from a conversation or client to change the voice activation key. */
@@ -25,13 +27,6 @@ export interface ClientSettingsUpdate {
   key: string;
   /** The new value for the setting. */
   value: string;
-}
-
-/** Sent by the daemon after the avatar image has been regenerated and saved to disk. */
-export interface AvatarUpdated {
-  type: "avatar_updated";
-  /** Absolute path to the updated avatar image file. */
-  avatarPath: string;
 }
 
 /** Sent by the daemon when workspace config.json changes on disk. */
@@ -60,7 +55,7 @@ export type _SettingsClientMessages =
   | GenerateAvatarRequest;
 export type _SettingsServerMessages =
   | ClientSettingsUpdate
-  | AvatarUpdated
+  | AvatarUpdatedEvent
   | ConfigChanged
   | SoundsConfigUpdated
   | GenerateAvatarResponse;

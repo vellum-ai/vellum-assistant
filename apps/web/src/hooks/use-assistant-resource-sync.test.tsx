@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+import type { AssistantEvent } from "@/types/event-types";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import {
   assistantDaemonConfigQueryKey,
@@ -12,6 +13,7 @@ import {
   assistantSoundsConfigQueryKey,
   avatarQueryKey,
   HOME_FEED_QUERY_KEY_PREFIX,
+  HOME_STATE_QUERY_KEY_PREFIX,
 } from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
@@ -38,7 +40,11 @@ function syncEvent(tags: string[]): SyncChangedEvent {
 }
 
 function emit(event: AssistantEvent): void {
-  useEventBusStore.getState().publish("sse.event", event);
+  useEventBusStore.getState().publish("sse.event", {
+    id: "evt-1",
+    emittedAt: new Date().toISOString(),
+    message: event,
+  } as AssistantEventEnvelope);
 }
 
 beforeEach(() => {
@@ -136,7 +142,7 @@ describe("useAssistantResourceSync", () => {
     });
   });
 
-  test("invalidates home-feed queries on home_feed_updated and relationship_state_updated", async () => {
+  test("invalidates home-feed query on home_feed_updated", async () => {
     const queryClient = freshQueryClient();
     const spy = mock(() => Promise.resolve());
     queryClient.invalidateQueries = spy as never;
@@ -148,18 +154,67 @@ describe("useAssistantResourceSync", () => {
       updatedAt: "2026-05-21T00:00:00Z",
       newItemCount: 1,
     } as unknown as AssistantEvent);
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: [HOME_FEED_QUERY_KEY_PREFIX],
+      });
+    });
+  });
+
+  test("invalidates both home-feed and home-state on relationship_state_updated", async () => {
+    const queryClient = freshQueryClient();
+    const calls: unknown[][] = [];
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      calls.push([arg]);
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
     emit({
       type: "relationship_state_updated",
       updatedAt: "2026-05-21T00:00:00Z",
     } as unknown as AssistantEvent);
     await waitFor(() => {
-      const homeCalls = (spy.mock.calls as unknown as Array<[unknown]>).filter(
-        (call) => {
-          const arg = call[0] as { queryKey: readonly unknown[] } | undefined;
-          return arg?.queryKey?.[0] === HOME_FEED_QUERY_KEY_PREFIX;
-        },
+      const queryKeys = calls.map(
+        ([arg]) => (arg as { queryKey: readonly unknown[] }).queryKey,
       );
-      expect(homeCalls.length).toBe(2);
+      expect(queryKeys).toEqual(
+        expect.arrayContaining([
+          [HOME_FEED_QUERY_KEY_PREFIX],
+          [HOME_STATE_QUERY_KEY_PREFIX],
+        ]) as never,
+      );
+    });
+  });
+
+  test("invalidates identity query on identity_changed event", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit({ type: "identity_changed" } as unknown as AssistantEvent);
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: assistantIdentityQueryKey("asst-1"),
+      });
+    });
+  });
+
+  test("invalidates avatar query on avatar_updated event", async () => {
+    const queryClient = freshQueryClient();
+    const spy = mock(() => Promise.resolve());
+    queryClient.invalidateQueries = spy as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    emit({ type: "avatar_updated" } as unknown as AssistantEvent);
+    await waitFor(() => {
+      expect(spy).toHaveBeenCalledWith({
+        queryKey: avatarQueryKey("asst-1"),
+      });
     });
   });
 

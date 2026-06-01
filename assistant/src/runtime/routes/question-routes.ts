@@ -29,6 +29,7 @@ import {
   type QuestionPromptResult,
 } from "../../permissions/question-prompter.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -248,6 +249,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "question_response",
     endpoint: "question-response",
     method: "POST",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleQuestionResponse,
     requireGuardian: true,
     summary: "Resolve a pending ask-question prompt",

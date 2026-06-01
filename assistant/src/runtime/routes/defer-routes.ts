@@ -14,6 +14,7 @@ import {
   getSchedule,
   listSchedules,
 } from "../../schedule/schedule-store.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -185,6 +186,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "defer_create",
     endpoint: "defer/create",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleDeferCreate,
     summary: "Create a deferred wake",
     description:
@@ -202,6 +207,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "defer_list",
     endpoint: "defer/list",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleDeferList,
     summary: "List active deferred wakes",
     description:
@@ -216,6 +225,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "defer_cancel",
     endpoint: "defer/cancel",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleDeferCancel,
     summary: "Cancel deferred wakes",
     description:

@@ -33,7 +33,10 @@ import {
 import { generateInstanceName } from "./random-name.js";
 import { leaseGuardianToken } from "./guardian-token.js";
 import { archiveLogFile, resetLogFile } from "./xdg-log.js";
-import { emitProgress } from "./desktop-progress.js";
+import {
+  consoleLifecycleReporter,
+  type LifecycleReporter,
+} from "./lifecycle-reporter.js";
 import {
   configureHatchProviderApiKey,
   formatProviderName,
@@ -134,6 +137,25 @@ function installCLISymlink(): void {
 
 export interface HatchLocalOptions {
   setupProviderCredentials?: boolean;
+  /**
+   * Sink for progress and log output. Defaults to the console reporter so CLI
+   * callers keep their existing terminal output; in-process callers can inject
+   * their own reporter to consume progress without writing to stdout.
+   */
+  reporter?: LifecycleReporter;
+}
+
+export interface HatchLocalResult {
+  assistantId: string;
+  runtimeUrl: string;
+  localUrl: string;
+  species: Species;
+  /**
+   * Guardian access token leased during hatch, when the lease succeeded. The
+   * full token pair is persisted to disk regardless; this is surfaced so an
+   * in-process caller can prime a connection without re-reading the file.
+   */
+  guardianAccessToken?: string;
 }
 
 export async function hatchLocal(
@@ -143,7 +165,8 @@ export async function hatchLocal(
   keepAlive: boolean = false,
   configValues: Record<string, string> = {},
   options: HatchLocalOptions = {},
-): Promise<void> {
+): Promise<HatchLocalResult> {
+  const reporter = options.reporter ?? consoleLifecycleReporter;
   const provider =
     options.setupProviderCredentials === false
       ? undefined
@@ -153,7 +176,7 @@ export async function hatchLocal(
     name ?? process.env.VELLUM_ASSISTANT_NAME,
   );
 
-  emitProgress(1, 6, "Allocating resources...");
+  reporter.progress(1, 6, "Allocating resources...");
 
   const existing = findAssistantByName(instanceName);
   if (existing && (!existing.cloud || existing.cloud === "local")) {
@@ -175,29 +198,29 @@ export async function hatchLocal(
   archiveLogFile("hatch.log", logsDir);
   resetLogFile("hatch.log");
 
-  console.log(`🥚 Hatching local assistant: ${instanceName}`);
-  console.log(`   Species: ${species}`);
-  console.log("");
+  reporter.log(`🥚 Hatching local assistant: ${instanceName}`);
+  reporter.log(`   Species: ${species}`);
+  reporter.log("");
 
   const apiKeyCheck = checkProviderApiKey();
   if (!apiKeyCheck.hasKey) {
-    console.warn(
+    reporter.warn(
       "Warning: No LLM provider API key is configured. The assistant will fail when you try to send a message.",
     );
-    console.warn("  To fix, export your key before running vellum hatch:");
-    console.warn("  export ANTHROPIC_API_KEY=<your-key>");
-    console.warn("");
+    reporter.warn("  To fix, export your key before running vellum hatch:");
+    reporter.warn("  export ANTHROPIC_API_KEY=<your-key>");
+    reporter.warn("");
   }
 
   if (!process.env.APP_VERSION) {
     process.env.APP_VERSION = cliPkg.version;
   }
 
-  emitProgress(2, 6, "Writing configuration...");
+  reporter.progress(2, 6, "Writing configuration...");
   const hatchConfigValues = buildHatchConfigValues(configValues, provider);
   const defaultWorkspaceConfigPath = writeInitialConfig(hatchConfigValues);
 
-  emitProgress(3, 6, "Starting assistant...");
+  reporter.progress(3, 6, "Starting assistant...");
   const signingKey = generateLocalSigningKey();
   const bootstrapSecret = generateLocalSigningKey();
   await startLocalDaemon(watch, resources, {
@@ -205,14 +228,17 @@ export async function hatchLocal(
     signingKey,
   });
 
-  emitProgress(4, 6, "Starting gateway...");
+  reporter.progress(4, 6, "Starting gateway...");
   let runtimeUrl = `http://127.0.0.1:${resources.gatewayPort}`;
   try {
-    runtimeUrl = await startGateway(watch, resources, { signingKey, bootstrapSecret });
+    runtimeUrl = await startGateway(watch, resources, {
+      signingKey,
+      bootstrapSecret,
+    });
   } catch (error) {
     // Gateway failed — stop the daemon we just started so we don't leave
     // orphaned processes with no lock file entry.
-    console.error(
+    reporter.error(
       `\n❌ Gateway startup failed — stopping assistant to avoid orphaned processes.`,
     );
     await stopLocalProcesses(resources);
@@ -223,24 +249,28 @@ export async function hatchLocal(
   // instead of hitting /v1/guardian/init itself. Use loopback to satisfy
   // the daemon's local-only check — the mDNS runtimeUrl resolves to a LAN
   // IP which the daemon rejects as non-loopback.
-  emitProgress(5, 6, "Securing connection...");
+  reporter.progress(5, 6, "Securing connection...");
   const loopbackUrl = `http://127.0.0.1:${resources.gatewayPort}`;
   const maxLeaseAttempts = 3;
   let guardianAccessToken: string | undefined;
   for (let attempt = 1; attempt <= maxLeaseAttempts; attempt++) {
     try {
-      const tokenData = await leaseGuardianToken(loopbackUrl, instanceName, bootstrapSecret);
+      const tokenData = await leaseGuardianToken(
+        loopbackUrl,
+        instanceName,
+        bootstrapSecret,
+      );
       guardianAccessToken = tokenData.accessToken;
       break;
     } catch (err) {
       if (attempt < maxLeaseAttempts) {
         const delayMs = 2000 * 2 ** (attempt - 1);
-        console.error(
+        reporter.error(
           `⚠️  Guardian token lease attempt ${attempt}/${maxLeaseAttempts} failed — retrying in ${delayMs / 1000}s: ${err}`,
         );
         await new Promise((r) => setTimeout(r, delayMs));
       } else {
-        console.error(
+        reporter.error(
           `⚠️  Guardian token lease failed after ${maxLeaseAttempts} attempts: ${err}\n` +
             `   The assistant is running but guardian-token.json was not written.\n` +
             `   If the desktop app loses its stored credentials, re-hatch to recover.`,
@@ -261,7 +291,7 @@ export async function hatchLocal(
     guardianBootstrapSecret: bootstrapSecret,
   };
 
-  emitProgress(6, 6, "Saving configuration...");
+  reporter.progress(6, 6, "Saving configuration...");
   saveAssistantEntry(localEntry);
   setActiveAssistant(instanceName);
 
@@ -270,13 +300,13 @@ export async function hatchLocal(
   }
 
   if (provider !== undefined && provider !== null && !guardianAccessToken) {
-    console.error(
+    reporter.error(
       `⚠️  Provider credential setup skipped because the guardian token was not leased.\n` +
         `   The assistant is still hatched. Run \`vellum setup --provider ${provider}\` after fixing the connection.`,
     );
   } else if (provider !== undefined) {
-    console.log("");
-    console.log(
+    reporter.log("");
+    reporter.log(
       provider === null
         ? "Checking provider credentials..."
         : `Checking ${formatProviderName(provider)} credentials...`,
@@ -289,14 +319,22 @@ export async function hatchLocal(
     });
   }
 
-  console.log("");
-  console.log(`✅ Local assistant hatched!`);
-  console.log("");
-  console.log("Instance details:");
-  console.log(`  Name: ${instanceName}`);
-  console.log(`  Runtime: ${runtimeUrl}`);
-  console.log("");
-  logHatchNextSteps(console.log, instanceName);
+  reporter.log("");
+  reporter.log(`✅ Local assistant hatched!`);
+  reporter.log("");
+  reporter.log("Instance details:");
+  reporter.log(`  Name: ${instanceName}`);
+  reporter.log(`  Runtime: ${runtimeUrl}`);
+  reporter.log("");
+  logHatchNextSteps((message) => reporter.log(message), instanceName);
+
+  const result: HatchLocalResult = {
+    assistantId: instanceName,
+    runtimeUrl,
+    localUrl: `http://127.0.0.1:${resources.gatewayPort}`,
+    species,
+    guardianAccessToken,
+  };
 
   if (keepAlive) {
     const healthUrl = `http://127.0.0.1:${resources.gatewayPort}/healthz`;
@@ -306,7 +344,7 @@ export async function hatchLocal(
     let consecutiveFailures = 0;
 
     const shutdown = async (): Promise<void> => {
-      console.log("\nShutting down local processes...");
+      reporter.log("\nShutting down local processes...");
       await stopLocalProcesses(resources);
       process.exit(0);
     };
@@ -330,7 +368,7 @@ export async function hatchLocal(
         consecutiveFailures++;
       }
       if (consecutiveFailures >= MAX_FAILURES) {
-        console.log(
+        reporter.log(
           `\n⚠️  ${healthTarget} stopped responding — shutting down.`,
         );
         await stopLocalProcesses(resources);
@@ -338,4 +376,6 @@ export async function hatchLocal(
       }
     }
   }
+
+  return result;
 }

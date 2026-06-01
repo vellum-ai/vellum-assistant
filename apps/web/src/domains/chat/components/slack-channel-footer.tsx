@@ -1,24 +1,14 @@
-import { useEffect, useState } from "react";
+import { ExternalLink, Hash, Info, MessageCircle } from "lucide-react";
 
-import { ExternalLink, Hash, MessageCircle } from "lucide-react";
-
-import { resolveSlackChannelName } from "@/domains/chat/api/slack-channel-name";
-import type {
-  Conversation,
-  ConversationChannelBinding,
-} from "@/types/conversation-types";
-import {
-  getSlackLinkUrl,
-  type DisplayMessage,
-  type SlackMessageLink,
-} from "@/domains/chat/types/types";
+import type { Conversation } from "@/types/conversation-types";
+import { type DisplayMessage } from "@/domains/chat/types/types";
+import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conversation-display";
 
 type SlackFooterConversation = Pick<
   Conversation,
   "channelBinding" | "originChannel"
 > &
   Partial<Pick<Conversation, "conversationId">>;
-type SlackMessageChannel = NonNullable<DisplayMessage["slackMessage"]>;
 
 export interface SlackChannelFooterProps {
   assistantId?: string;
@@ -26,290 +16,44 @@ export interface SlackChannelFooterProps {
   messages?: DisplayMessage[];
 }
 
-const slackChannelNameRequests = new Map<string, Promise<string | null>>();
-
-function getSlackChannelLink(
-  slackChannel: ConversationChannelBinding["slackChannel"],
-  messageLink?: SlackMessageLink,
-  channelId?: string,
-): string | undefined {
-  if (slackChannel?.link) {
-    return getSlackLinkUrl(slackChannel.link);
-  }
-  return getSlackChannelLinkFromMessageLink(messageLink, channelId);
-}
-
-function getSlackChannelLinkFromMessageLink(
-  messageLink: SlackMessageLink | undefined,
-  channelId: string | undefined,
-): string | undefined {
-  if (!messageLink || !channelId) return undefined;
-
-  if (messageLink.webUrl) {
-    try {
-      const url = new URL(messageLink.webUrl);
-      const channelPath = `/archives/${channelId}`;
-      if (url.pathname.startsWith(`${channelPath}/`)) {
-        url.pathname = channelPath;
-        url.search = "";
-        url.hash = "";
-        return url.toString();
-      }
-    } catch {
-      // Fall through to app URL parsing.
-    }
-  }
-
-  if (!messageLink.appUrl) return undefined;
-  try {
-    const url = new URL(messageLink.appUrl);
-    if (url.protocol !== "slack:" || url.hostname !== "channel") {
-      return undefined;
-    }
-    const team = url.searchParams.get("team");
-    if (!team || url.searchParams.get("id") !== channelId) {
-      return undefined;
-    }
-    return `slack://channel?${new URLSearchParams({
-      team,
-      id: channelId,
-    }).toString()}`;
-  } catch {
-    return undefined;
-  }
-}
-
-function getSlackMessageChannel(
-  messages: DisplayMessage[] | undefined,
-  channelId: string | undefined,
-) {
-  if (!messages || messages.length === 0) return undefined;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const slackMessage = messages[i]?.slackMessage;
-    if (!slackMessage) continue;
-    if (channelId && slackMessage.channelId !== channelId) continue;
-    return slackMessage;
-  }
-  return undefined;
-}
-
-function isChannelIdFallback(
-  value: string | undefined,
-  channelBinding: ConversationChannelBinding,
-): boolean {
-  return (
-    value === undefined ||
-    value === channelBinding.externalChatId ||
-    value === channelBinding.slackChannel?.channelId
-  );
-}
-
-function getSlackChannelDisplayText(
-  channelBinding: ConversationChannelBinding,
-  fallbackChannelName?: string,
-): string | undefined {
-  const slackChannel = channelBinding.slackChannel;
-  const primaryName = slackChannel?.name ?? channelBinding.externalChatName;
-
-  if (!isChannelIdFallback(primaryName, channelBinding)) {
-    return primaryName;
-  }
-  if (
-    fallbackChannelName &&
-    !isChannelIdFallback(fallbackChannelName, channelBinding)
-  ) {
-    return fallbackChannelName;
-  }
-
-  return (
-    slackChannel?.channelId ?? channelBinding.externalChatId
-  );
-}
-
-function isSlackDmChannelId(channelId: string | undefined): boolean {
-  return channelId?.startsWith("D") === true;
-}
-
-function cleanLabel(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
-}
-
-function getSlackDmParticipantName(
-  channelBinding: ConversationChannelBinding,
-  messageChannel: SlackMessageChannel | undefined,
-  friendlyChannelName: string | undefined,
-): string | undefined {
-  const sender = messageChannel?.sender;
-  return (
-    cleanLabel(channelBinding.displayName) ??
-    cleanLabel(channelBinding.username) ??
-    cleanLabel(sender?.displayName) ??
-    cleanLabel(sender?.name) ??
-    cleanLabel(sender?.username) ??
-    friendlyChannelName
-  );
-}
-
-function getSlackDmDisplayText(
-  channelBinding: ConversationChannelBinding,
-  channelId: string | undefined,
-  messageChannel: SlackMessageChannel | undefined,
-  friendlyChannelName: string | undefined,
-): string | undefined {
-  if (!isSlackDmChannelId(channelId)) return undefined;
-  const participantName = getSlackDmParticipantName(
-    channelBinding,
-    messageChannel,
-    friendlyChannelName,
-  );
-  return participantName ? `DM with ${participantName}` : "Slack DM";
-}
-
 export function SlackChannelFooter({
   assistantId,
   conversation,
   messages,
 }: SlackChannelFooterProps) {
-  const [resolvedChannelName, setResolvedChannelName] = useState<{
-    key: string;
-    channelName: string;
-  } | null>(null);
-
-  const channelBinding =
-    conversation?.originChannel === "slack"
-      ? conversation.channelBinding
-      : undefined;
-  const slackChannel = channelBinding?.slackChannel;
-  const channelId =
-    slackChannel?.channelId ?? channelBinding?.externalChatId;
-  const messageChannel = getSlackMessageChannel(messages, channelId);
-  const isDmChannel = isSlackDmChannelId(channelId);
-  const channelDisplayText = channelBinding
-    ? getSlackChannelDisplayText(channelBinding, messageChannel?.channelName)
-    : undefined;
-  const friendlyChannelName =
-    channelBinding &&
-    channelDisplayText &&
-    !isChannelIdFallback(channelDisplayText, channelBinding)
-      ? channelDisplayText
-      : undefined;
-  const fallbackDisplayText = channelBinding
-    ? (getSlackDmDisplayText(
-        channelBinding,
-        channelId,
-        messageChannel,
-        friendlyChannelName,
-      ) ?? channelDisplayText)
-    : undefined;
-  const conversationId = conversation?.conversationId;
-  const resolutionKey =
-    assistantId && conversationId && channelId
-      ? `${assistantId}:${conversationId}:${channelId}`
-      : undefined;
-  const shouldResolveChannelName =
-    Boolean(assistantId && conversationId && channelId && channelBinding) &&
-    !isSlackDmChannelId(channelId) &&
-    channelBinding !== undefined &&
-    isChannelIdFallback(fallbackDisplayText, channelBinding);
-
-  useEffect(() => {
-    if (
-      !shouldResolveChannelName ||
-      !assistantId ||
-      !conversationId ||
-      !channelId ||
-      !resolutionKey
-    ) {
-      return;
-    }
-
-    let cancelled = false;
-    let request = slackChannelNameRequests.get(resolutionKey);
-
-    if (!request) {
-      request = resolveSlackChannelName(assistantId, conversationId).then(
-        (result) => {
-          if (
-            !result?.resolved ||
-            result.channelId !== channelId ||
-            !result.channelName
-          ) {
-            return null;
-          }
-          return result.channelName;
-        },
-      );
-      slackChannelNameRequests.set(resolutionKey, request);
-      request.finally(() => {
-        if (slackChannelNameRequests.get(resolutionKey) === request) {
-          slackChannelNameRequests.delete(resolutionKey);
-        }
-      });
-    }
-
-    request.then((channelName) => {
-      if (!cancelled && channelName) {
-        setResolvedChannelName({ key: resolutionKey, channelName });
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
+  const display = useSlackConversationDisplay({
     assistantId,
-    channelId,
-    conversationId,
-    resolutionKey,
-    shouldResolveChannelName,
-  ]);
+    conversation,
+    messages,
+  });
+  if (!display) return null;
 
-  if (!channelBinding) {
-    return null;
-  }
-
-  const resolvedDisplayText =
-    resolutionKey && resolvedChannelName?.key === resolutionKey
-      ? resolvedChannelName.channelName
-      : undefined;
-  const displayText = !isChannelIdFallback(fallbackDisplayText, channelBinding)
-    ? fallbackDisplayText
-    : (resolvedDisplayText ?? fallbackDisplayText);
-  if (!displayText) return null;
-
-  const href = getSlackChannelLink(
-    slackChannel,
-    messageChannel?.messageLink,
-    channelId,
-  );
-  const LabelIcon = isDmChannel ? MessageCircle : Hash;
-  const content = (
-    <>
-      <LabelIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-      <span className="truncate">{displayText}</span>
-      {href ? (
-        <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
-      ) : null}
-    </>
-  );
+  const LabelIcon = display.isDm ? MessageCircle : Hash;
 
   return (
-    <div className="mb-2 flex justify-center text-body-small-default text-[var(--content-tertiary)]">
-      {href ? (
+    <div className="mb-2 flex min-h-9 items-center overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--surface-sunken)] text-body-small-default text-[var(--content-tertiary)]">
+      <div className="flex min-w-0 flex-1 items-center gap-2 px-3 py-2">
+        <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <span className="truncate leading-5">
+          This Slack conversation is read-only. You can reply in Slack.
+        </span>
+        <span className="hidden min-w-0 shrink items-center gap-1.5 text-[var(--content-secondary)] sm:inline-flex">
+          <LabelIcon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <span className="truncate leading-5">{display.displayText}</span>
+        </span>
+      </div>
+      {display.href ? (
         <a
-          href={href}
+          href={display.href}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex max-w-full items-center gap-1.5 truncate rounded px-1.5 py-1 text-[var(--content-secondary)] underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)]"
+          aria-label="Open in Slack"
+          className="flex h-9 shrink-0 items-center gap-1.5 border-l border-[var(--border-subtle)] px-3 text-[10px] font-semibold uppercase tracking-normal text-[var(--content-secondary)] transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--ring)]"
         >
-          {content}
+          <span className="hidden sm:inline">Open in Slack</span>
+          <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
         </a>
-      ) : (
-        <div className="inline-flex max-w-full items-center gap-1.5 truncate px-1.5 py-1">
-          {content}
-        </div>
-      )}
+      ) : null}
     </div>
   );
 }

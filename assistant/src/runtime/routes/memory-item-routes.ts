@@ -52,6 +52,7 @@ import { withQdrantBreaker } from "../../memory/qdrant-circuit-breaker.js";
 import { getQdrantClient } from "../../memory/qdrant-client.js";
 import { memoryGraphNodes } from "../../memory/schema.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -658,8 +659,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "listMemoryItems",
     endpoint: "memory-items",
     method: "GET",
-    policyKey: "memory-items",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List memory items",
     description:
       "Return memory items with filtering, search, sorting, and pagination.",
@@ -712,8 +715,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getMemoryItem",
     endpoint: "memory-items/:id",
     method: "GET",
-    policyKey: "memory-items",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get a memory item",
     description: "Return a single memory item by ID with graph metadata.",
     tags: ["memory"],
@@ -730,8 +735,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "createMemoryItem",
     endpoint: "memory-items",
     method: "POST",
-    policyKey: "memory-items",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     responseStatus: "201",
     summary: "Create a memory item",
     description: "Create a new memory graph node and enqueue embedding.",
@@ -765,8 +772,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "updateMemoryItem",
     endpoint: "memory-items/:id",
     method: "PATCH",
-    policyKey: "memory-items",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Update a memory item",
     description: "Partially update fields on an existing memory graph node.",
     tags: ["memory"],
@@ -793,8 +802,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "deleteMemoryItem",
     endpoint: "memory-items/:id",
     method: "DELETE",
-    policyKey: "memory-items",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     responseStatus: "204",
     summary: "Delete a memory item",
     description: "Delete a memory graph node and its embeddings.",

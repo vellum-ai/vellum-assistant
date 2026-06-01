@@ -217,7 +217,10 @@ public final class ChatAttachmentManager {
     /// All blocking work runs off the main actor; platform image construction
     /// happens back on @MainActor where it is safe.
     private func loadAttachment(url: URL) async -> Result<ChatAttachment, AttachmentError> {
-        let attachmentId = UUID().uuidString
+        // Lowercase to match the daemon's canonical (lowercase) attachment IDs —
+        // Swift's UUID().uuidString is uppercase, and the daemon looks up IDs
+        // case-sensitively.
+        let attachmentId = UUID().uuidString.lowercased()
         let filename = url.lastPathComponent
         log.debug("[Attachment] readStart id=\(attachmentId) source=fileURL filename=\(filename)")
         let acquired = await loadSemaphore.wait()
@@ -377,7 +380,8 @@ public final class ChatAttachmentManager {
     /// All blocking work (ImageIO decode/encode, compression) runs off the main actor;
     /// platform image construction happens back on @MainActor where it is safe.
     private func loadAttachment(imageData: Data, filename: String) async -> Result<ChatAttachment, AttachmentError> {
-        let attachmentId = UUID().uuidString
+        // Lowercase to match the daemon's canonical (lowercase) attachment IDs.
+        let attachmentId = UUID().uuidString.lowercased()
         log.debug("[Attachment] readStart id=\(attachmentId) source=imageData filename=\(filename) rawBytes=\(imageData.count)")
         let acquired = await loadSemaphore.wait()
         guard acquired else { return .failure(.message("Attachment load cancelled.")) }

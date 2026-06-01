@@ -630,10 +630,10 @@ describe("handleMigrationValidate", () => {
 describe("route policy registration", () => {
   test("migrations/validate policy requires settings.read scope", async () => {
     // Import route-policy to verify the registration exists
-    const { getPolicy } = await import("../runtime/auth/route-policy.js");
-    const policy = getPolicy("migrations/validate");
+    const { ROUTES } = await import("../runtime/routes/index.js");
+    const policy = (ROUTES.find((r) => r.endpoint === "migrations/validate")?.policy ?? null);
 
-    expect(policy).toBeDefined();
+    expect(policy).not.toBeNull();
     expect(policy?.requiredScopes).toContain("settings.read");
     expect(policy?.allowedPrincipalTypes).toContain("actor");
     expect(policy?.allowedPrincipalTypes).toContain("svc_gateway");

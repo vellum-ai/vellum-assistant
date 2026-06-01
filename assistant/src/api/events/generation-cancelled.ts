@@ -12,12 +12,10 @@
 
 import { z } from "zod";
 
-export const GenerationCancelledEventSchema = z
-  .object({
-    type: z.literal("generation_cancelled"),
-    conversationId: z.string().optional(),
-  })
-  .strict();
+export const GenerationCancelledEventSchema = z.object({
+  type: z.literal("generation_cancelled"),
+  conversationId: z.string().optional(),
+});
 
 export type GenerationCancelledEvent = z.infer<
   typeof GenerationCancelledEventSchema

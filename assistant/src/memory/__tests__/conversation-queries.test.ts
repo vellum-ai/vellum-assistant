@@ -193,6 +193,47 @@ describe("countConversations", () => {
     // THEN the heartbeat is excluded
     expect(countConversations(false)).toBe(2);
   });
+
+  describe("archiveStatus", () => {
+    test("defaults to active — archived rows are excluded from the count", () => {
+      // GIVEN one live and one archived foreground conversation
+      createConversation("live-1");
+      const archived = createConversation("archived-1");
+      rawRun(
+        "UPDATE conversations SET archived_at = ? WHERE id = ?",
+        Date.now(),
+        archived.id,
+      );
+
+      expect(countConversations()).toBe(1);
+    });
+
+    test('archiveStatus "archived" returns the archived count only', () => {
+      createConversation("live-1");
+      const a1 = createConversation("archived-1");
+      const a2 = createConversation("archived-2");
+      rawRun(
+        "UPDATE conversations SET archived_at = ? WHERE id IN (?, ?)",
+        Date.now(),
+        a1.id,
+        a2.id,
+      );
+
+      expect(countConversations(false, "archived")).toBe(2);
+    });
+
+    test('archiveStatus "all" returns both', () => {
+      createConversation("live-1");
+      const archived = createConversation("archived-1");
+      rawRun(
+        "UPDATE conversations SET archived_at = ? WHERE id = ?",
+        Date.now(),
+        archived.id,
+      );
+
+      expect(countConversations(false, "all")).toBe(2);
+    });
+  });
 });
 
 describe("listConversations", () => {
@@ -261,6 +302,86 @@ describe("listConversations", () => {
     // AND not in the foreground list
     const fgList = listConversations(100, false);
     expect(fgList).toHaveLength(0);
+  });
+
+  describe("archiveStatus", () => {
+    test("defaults to active — archived rows are excluded", () => {
+      // GIVEN a live conversation and an archived one
+      createConversation("live-1");
+      const archived = createConversation("archived-1");
+      rawRun(
+        "UPDATE conversations SET archived_at = ? WHERE id = ?",
+        Date.now(),
+        archived.id,
+      );
+
+      // WHEN listing without an explicit archiveStatus
+      const rows = listConversations(100, false);
+
+      // THEN only the live conversation appears
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.title).toBe("live-1");
+    });
+
+    test('archiveStatus "archived" returns only archived rows', () => {
+      // GIVEN a live conversation and an archived one
+      createConversation("live-1");
+      const archived = createConversation("archived-1");
+      rawRun(
+        "UPDATE conversations SET archived_at = ? WHERE id = ?",
+        Date.now(),
+        archived.id,
+      );
+
+      // WHEN listing with archiveStatus "archived"
+      const rows = listConversations(100, false, 0, "archived");
+
+      // THEN only the archived conversation appears
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.title).toBe("archived-1");
+    });
+
+    test('archiveStatus "all" returns both active and archived rows', () => {
+      // GIVEN a live conversation and an archived one
+      createConversation("live-1");
+      const archived = createConversation("archived-1");
+      rawRun(
+        "UPDATE conversations SET archived_at = ? WHERE id = ?",
+        Date.now(),
+        archived.id,
+      );
+
+      // WHEN listing with archiveStatus "all"
+      const rows = listConversations(100, false, 0, "all");
+
+      // THEN both conversations appear
+      expect(rows).toHaveLength(2);
+      const titles = rows.map((c) => c.title);
+      expect(titles).toContain("live-1");
+      expect(titles).toContain("archived-1");
+    });
+
+    test('archiveStatus "archived" composes with background-only', () => {
+      // GIVEN an archived background conversation and an archived foreground one
+      const archivedBg = createConversation({
+        title: "archived-bg",
+        conversationType: "background",
+      });
+      const archivedFg = createConversation("archived-fg");
+      rawRun(
+        "UPDATE conversations SET archived_at = ? WHERE id IN (?, ?)",
+        Date.now(),
+        archivedBg.id,
+        archivedFg.id,
+      );
+
+      // WHEN listing archived background conversations
+      const rows = listConversations(100, true, 0, "archived");
+
+      // THEN only the archived background row appears
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.title).toBe("archived-bg");
+    });
   });
 });
 

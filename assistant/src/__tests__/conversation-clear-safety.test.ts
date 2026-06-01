@@ -44,9 +44,17 @@ import {
 } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import { enforcePolicy, getPolicy } from "../runtime/auth/route-policy.js";
+import { enforcePolicy } from "../runtime/auth/route-policy.js";
 import type { AuthContext, Scope } from "../runtime/auth/types.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
+
+/** Look up a route's policy by endpoint+method on the route module's ROUTES. */
+function routePolicy(endpoint: string, method?: string) {
+  const route = ROUTES.find(
+    (r) => r.endpoint === endpoint && (!method || r.method === method),
+  );
+  return route?.policy ?? null;
+}
 import { BadRequestError } from "../runtime/routes/errors.js";
 
 initializeDb();
@@ -79,43 +87,45 @@ function buildAuthContext(overrides?: {
 // ---------------------------------------------------------------------------
 
 describe("DELETE /v1/conversations — route policy", () => {
-  test("conversations/clear-all requires settings.write scope", () => {
+  test("DELETE /conversations requires settings.write scope", () => {
     authDisabled = false;
-    const policy = getPolicy("conversations/clear-all");
-    expect(policy).toBeDefined();
+    const policy = routePolicy("conversations", "DELETE");
+    expect(policy).not.toBeNull();
     expect(policy!.requiredScopes).toContain("settings.write");
   });
 
   test("chat.write-only token is rejected with 403 for clear-all", () => {
     authDisabled = false;
+    const policy = routePolicy("conversations", "DELETE");
     const ctx = buildAuthContext({
       scopes: ["chat.read", "chat.write"],
     });
-    const result = enforcePolicy("conversations/clear-all", ctx);
+    const result = enforcePolicy("conversations", policy, ctx);
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
   });
 
   test("settings.write token is allowed through clear-all policy", () => {
     authDisabled = false;
+    const policy = routePolicy("conversations", "DELETE");
     const ctx = buildAuthContext({
       scopes: ["settings.write"],
     });
-    const result = enforcePolicy("conversations/clear-all", ctx);
+    const result = enforcePolicy("conversations", policy, ctx);
     expect(result).toBeNull();
   });
 
-  test("single-conversation DELETE (conversations:DELETE) only requires chat.write", () => {
+  test("single-conversation DELETE only requires chat.write", () => {
     authDisabled = false;
-    const policy = getPolicy("conversations:DELETE");
-    expect(policy).toBeDefined();
+    const policy = routePolicy("conversations/:id", "DELETE");
+    expect(policy).not.toBeNull();
     expect(policy!.requiredScopes).toContain("chat.write");
     expect(policy!.requiredScopes).not.toContain("settings.write");
 
     const ctx = buildAuthContext({
       scopes: ["chat.read", "chat.write"],
     });
-    const result = enforcePolicy("conversations:DELETE", ctx);
+    const result = enforcePolicy("conversations/:id", policy, ctx);
     expect(result).toBeNull();
   });
 });

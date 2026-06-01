@@ -17,15 +17,14 @@
 import {
   ApiError,
   assertHasResponse,
-  client,
   extractErrorMessage,
   SDK_BASE_OPTIONS,
 } from "@/domains/intelligence/client";
-
+import { pluginsGet, pluginsSearchGet } from "@/generated/daemon/sdk.gen";
 import type {
-  PluginCatalogResponse,
-  PluginsListResponse,
-} from "./types";
+  PluginsGetResponse,
+  PluginsSearchGetResponse,
+} from "@/generated/daemon/types.gen";
 
 export { ApiError };
 
@@ -50,10 +49,9 @@ function buildQuery(params: FetchPluginsParams): Record<string, string> {
 export async function fetchPlugins(
   assistantId: string,
   params: FetchPluginsParams = {},
-): Promise<PluginsListResponse> {
-  const { data, error, response } = await client.get<PluginsListResponse, unknown>({
+): Promise<PluginsGetResponse> {
+  const { data, error, response } = await pluginsGet({
     ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/plugins/",
     path: { assistant_id: assistantId },
     query: buildQuery(params),
     throwOnError: false,
@@ -115,13 +113,9 @@ function buildCatalogQuery(
 export async function fetchPluginCatalog(
   assistantId: string,
   params: FetchPluginCatalogParams = {},
-): Promise<PluginCatalogResponse> {
-  const { data, error, response } = await client.get<
-    PluginCatalogResponse,
-    unknown
-  >({
+): Promise<PluginsSearchGetResponse> {
+  const { data, error, response } = await pluginsSearchGet({
     ...SDK_BASE_OPTIONS,
-    url: "/v1/assistants/{assistant_id}/plugins/search/",
     path: { assistant_id: assistantId },
     query: buildCatalogQuery(params),
     throwOnError: false,

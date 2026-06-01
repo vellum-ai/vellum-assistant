@@ -32,7 +32,10 @@ import { createElement, type ReactNode } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
-import { conversationsQueryKey } from "@/lib/sync/query-tags";
+import {
+  archivedConversationsQueryKey,
+  conversationsQueryKey,
+} from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Module mocks. Archive/unarchive impls are pulled from module-level holders
@@ -254,6 +257,28 @@ describe("handleArchiveConversation — optimistic update", () => {
 
     expect(getRefreshCalls()).toBe(0);
   });
+
+  test("invalidates the archived list cache on success", async () => {
+    const conv = makeConversation({ conversationId: "conv-1" });
+    const { result, client } = setupHook({ conversations: [conv] });
+
+    // Seed the archived cache with a stale entry — invalidation should
+    // mark it for refetch (`isInvalidated: true`) without removing it.
+    client.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), []);
+    const beforeState = client.getQueryState(
+      archivedConversationsQueryKey(ASSISTANT_ID),
+    );
+    expect(beforeState?.isInvalidated).toBe(false);
+
+    await act(async () => {
+      await result.current.handleArchiveConversation(conv);
+    });
+
+    const afterState = client.getQueryState(
+      archivedConversationsQueryKey(ASSISTANT_ID),
+    );
+    expect(afterState?.isInvalidated).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -303,5 +328,63 @@ describe("handleUnarchiveConversation — optimistic update", () => {
 
     // The original timestamp is restored — the row re-archives in the UI.
     expect(readArchived(client, "conv-1")).toBe(1234);
+  });
+
+  test("refreshes the active list on success", async () => {
+    const conv = makeConversation({
+      conversationId: "conv-1",
+      archivedAt: 1234,
+    });
+    const { result, getRefreshCalls } = setupHook({ conversations: [conv] });
+
+    await act(async () => {
+      await result.current.handleUnarchiveConversation(conv);
+    });
+
+    // The active list refresh is necessary because archived rows aren't
+    // in the active cache anymore — without it the unarchived row would
+    // be missing from the sidebar until the next manual refetch.
+    expect(getRefreshCalls()).toBe(1);
+  });
+
+  test("invalidates the archived list cache on success", async () => {
+    const conv = makeConversation({
+      conversationId: "conv-1",
+      archivedAt: 1234,
+    });
+    const { result, client } = setupHook({ conversations: [conv] });
+
+    client.setQueryData(archivedConversationsQueryKey(ASSISTANT_ID), [conv]);
+    const beforeState = client.getQueryState(
+      archivedConversationsQueryKey(ASSISTANT_ID),
+    );
+    expect(beforeState?.isInvalidated).toBe(false);
+
+    await act(async () => {
+      await result.current.handleUnarchiveConversation(conv);
+    });
+
+    const afterState = client.getQueryState(
+      archivedConversationsQueryKey(ASSISTANT_ID),
+    );
+    expect(afterState?.isInvalidated).toBe(true);
+  });
+
+  test("does not refresh when the unarchive API fails", async () => {
+    const conv = makeConversation({
+      conversationId: "conv-1",
+      archivedAt: 1234,
+    });
+    const { result, getRefreshCalls } = setupHook({ conversations: [conv] });
+
+    unarchiveImpl = async () => {
+      throw new Error("network failure");
+    };
+
+    await act(async () => {
+      await result.current.handleUnarchiveConversation(conv);
+    });
+
+    expect(getRefreshCalls()).toBe(0);
   });
 });

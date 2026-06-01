@@ -20,6 +20,7 @@ import {
 import { getConfig } from "../../config/loader.js";
 import { VALID_CALLER_IDENTITY_MODES } from "../../config/schema.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, ForbiddenError, RouteError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -238,8 +239,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "calls_start",
     endpoint: "calls/start",
     method: "POST",
-    policyKey: "calls/start",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["calls.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Start a call",
     description:
       "Initiate a new outbound phone call. Supports idempotency keys to prevent duplicate calls.",
@@ -276,8 +279,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "calls_cancel",
     endpoint: "calls/:callSessionId/cancel",
     method: "POST",
-    policyKey: "calls/cancel",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["calls.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Cancel a call",
     description: "Cancel an active or pending call.",
     tags: ["calls"],
@@ -294,8 +299,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "calls_answer",
     endpoint: "calls/:callSessionId/answer",
     method: "POST",
-    policyKey: "calls/answer",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["calls.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Answer a pending call question",
     description:
       "Provide an answer to a pending question during an active call.",
@@ -317,8 +324,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "calls_instruction",
     endpoint: "calls/:callSessionId/instruction",
     method: "POST",
-    policyKey: "calls/instruction",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["calls.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Relay instruction to active call",
     description: "Send a real-time instruction to an active call.",
     tags: ["calls"],
@@ -334,8 +343,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "calls_get",
     endpoint: "calls/:callSessionId",
     method: "GET",
-    policyKey: "calls",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["calls.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get call status",
     description: "Return the current status and details of a call session.",
     tags: ["calls"],

@@ -21,6 +21,7 @@ import {
   type UsageGranularity,
 } from "../../memory/llm-usage-store.js";
 import { validateTimezone } from "../../memory/usage-buckets.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -148,6 +149,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "usage_totals",
     endpoint: "usage/totals",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get usage totals",
     description: "Return aggregate usage totals for a time range.",
     tags: ["usage"],
@@ -169,6 +174,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "usage_daily",
     endpoint: "usage/daily",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get daily usage",
     description: "Return per-day usage buckets for a time range.",
     tags: ["usage"],
@@ -203,6 +212,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "usage_breakdown",
     endpoint: "usage/breakdown",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get usage breakdown",
     description:
       "Return grouped usage breakdown. Prefer call_site for user-facing task breakdowns; actor is a legacy/internal dimension.",
@@ -232,6 +245,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "usage_series",
     endpoint: "usage/series",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get grouped usage series",
     description:
       "Return usage buckets with per-group values for stacked charts. Prefer call_site for user-facing task stacks.",

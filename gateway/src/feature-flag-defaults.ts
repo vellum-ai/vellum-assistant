@@ -71,7 +71,7 @@ function getRegistryCandidates(): string[] {
 
 /**
  * Parse the unified registry JSON into a flat key -> default map,
- * filtering to assistant-scope flags only.
+ * filtering to flags the backend consumes (`assistant`- and `both`-scope).
  */
 function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -83,7 +83,7 @@ function parseRegistryToDefaults(parsed: unknown): FeatureFlagDefaultsRegistry {
   for (const flag of registry.flags) {
     if (!flag || typeof flag !== "object" || Array.isArray(flag)) continue;
     const entry = flag as Record<string, unknown>;
-    if (entry.scope !== "assistant") continue;
+    if (entry.scope !== "assistant" && entry.scope !== "both") continue;
     if (typeof entry.key !== "string") continue;
     if (typeof entry.defaultEnabled !== "boolean") continue;
     if (typeof entry.description !== "string") {

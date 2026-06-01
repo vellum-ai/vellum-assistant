@@ -180,9 +180,8 @@ async function summarizeWithLLM(
     try {
       const response = await provider.sendMessage(
         [userMessage(userParts.join("\n"))],
-        undefined,
-        systemPrompt,
         {
+          systemPrompt,
           config: {
             callSite: "conversationSummarization" as const,
             max_tokens: SUMMARY_MAX_TOKENS,

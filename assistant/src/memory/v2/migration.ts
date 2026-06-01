@@ -337,9 +337,11 @@ export async function synthesizeConceptPage(
         `Synthesize a single concept page from these v1 sources. Slug hint: \`${cluster.slugHint}\`.\n\n${sourceListing}`,
       ),
     ],
-    [],
-    systemPrompt,
-    { config: { callSite: "memoryV2Migration" as const } },
+    {
+      tools: [],
+      systemPrompt,
+      config: { callSite: "memoryV2Migration" as const },
+    },
   );
   const body = extractText(response);
 

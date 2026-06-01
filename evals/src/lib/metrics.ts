@@ -85,6 +85,14 @@ export interface RunArtifacts {
   metadataPath: string;
   transcriptPath: string;
   assistantEventsPath: string;
+  /**
+   * Per-event log of the *ingest-turn* AgentEvents — the memory-formation
+   * work the agent does while consuming the haystack sessions, separate
+   * from the question-turn events in `assistant-events.json`. V2-only:
+   * V1 runs have no ingest phase and leave this file as `[]` (the empty
+   * default written by `ensureRunArtifacts`).
+   */
+  ingestAssistantEventsPath: string;
   simulatorMessagesPath: string;
   usagePath: string;
   metricsPath: string;
@@ -108,6 +116,22 @@ export interface RunMetadata {
    * Same value is copied onto every execution belonging to the session.
    */
   sessionLabel?: string;
+  /**
+   * `process.argv` captured at the top of the originating `evals run`
+   * invocation. Same value copied onto every execution belonging to the
+   * session — the report UI surfaces a friendly `evals run …` line so an
+   * operator opening a run page can read (and copy) the exact command
+   * that produced it.
+   *
+   * Stored as the raw argv array, not a pre-joined string, so the
+   * display layer owns formatting choices (shell-escaping rules, which
+   * argv prefix to strip, etc.) and a future consumer that needs the
+   * original tokenization isn't forced to re-split a string.
+   *
+   * Optional because legacy run.json files predate this field; the UI
+   * renders "command unavailable" in that case and moves on.
+   */
+  cliArgv?: string[];
   profileId: string;
   testId: string;
   status: "running" | "completed" | "failed" | "abandoned" | "unknown";
@@ -205,6 +229,7 @@ export function runArtifacts(runId: string): RunArtifacts {
     metadataPath: join(runDir, "run.json"),
     transcriptPath: join(runDir, "transcript.json"),
     assistantEventsPath: join(runDir, "assistant-events.json"),
+    ingestAssistantEventsPath: join(runDir, "ingest-assistant-events.json"),
     simulatorMessagesPath: join(runDir, "simulator-messages.json"),
     usagePath: join(runDir, "usage.json"),
     metricsPath: join(runDir, "metrics.json"),
@@ -218,6 +243,7 @@ export async function ensureRunArtifacts(runId: string): Promise<RunArtifacts> {
   await Promise.all([
     writeJson(artifacts.transcriptPath, []),
     writeJson(artifacts.assistantEventsPath, []),
+    writeJson(artifacts.ingestAssistantEventsPath, []),
     writeJson(artifacts.simulatorMessagesPath, []),
     writeJson(artifacts.usagePath, { requests: [] } satisfies UsageSummary),
     writeJson(artifacts.metricsPath, []),
@@ -335,6 +361,28 @@ export async function appendAssistantEvents(
   const existing = await readAssistantEvents(runId);
   existing.push(...events);
   await writeJson(runArtifacts(runId).assistantEventsPath, existing);
+}
+
+export async function readIngestAssistantEvents(
+  runId: string,
+): Promise<AgentEvent[]> {
+  return readJson<AgentEvent[]>(
+    runArtifacts(runId).ingestAssistantEventsPath,
+    [],
+  );
+}
+
+/**
+ * Overwrite the V2 ingest-turn event log for `runId`. Symmetric with the
+ * V2 question-turn write in `runner.ts`: `runIngestAsk` exposes the full
+ * `ingestEvents` array up front, so we write the complete log in one pass
+ * rather than appending per-turn the way V1 does for `assistant-events.json`.
+ */
+export async function writeIngestAssistantEvents(
+  runId: string,
+  events: AgentEvent[],
+): Promise<void> {
+  await writeJson(runArtifacts(runId).ingestAssistantEventsPath, events);
 }
 
 export async function readSimulatorMessages(

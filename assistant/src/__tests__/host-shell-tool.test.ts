@@ -56,7 +56,13 @@ mock.module("../util/logger.js", () => ({
 // Mock the host-bash-proxy singleton so proxy delegation tests can control it.
 let mockProxyAvailable = false;
 let mockProxyRequestFn: (
-  input: { command: string; working_dir?: string; timeout_seconds?: number; env?: Record<string, string>; targetClientId?: string },
+  input: {
+    command: string;
+    working_dir?: string;
+    timeout_seconds?: number;
+    env?: Record<string, string>;
+    targetClientId?: string;
+  },
   conversationId: string,
   signal?: AbortSignal,
 ) => Promise<ToolExecutionResult> = () =>
@@ -863,9 +869,8 @@ describe("host_bash — proxy delegation", () => {
 
   test("propagates VELLUM_UNTRUSTED_SHELL env to proxy under CES lockdown", async () => {
     // Enable CES shell lockdown via the override cache
-    const { setOverridesForTesting } = await import(
-  "./feature-flag-test-helpers.js"
-);
+    const { setOverridesForTesting } =
+      await import("./feature-flag-test-helpers.js");
     setOverridesForTesting({
       "ces-shell-lockdown": true,
     });

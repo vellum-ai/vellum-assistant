@@ -1,18 +1,27 @@
-# Plugin authoring guide
+# Plugins
 
-Plugins let you extend the assistant by hooking middleware into named
-runtime pipelines, contributing tools/routes/skills, and injecting
-system-prompt content. This guide is the authoritative reference for how
-plugins are structured, registered, and executed — everything the code
-actually enforces.
+> **Note:** This guide documents the **legacy** plugin architecture — the
+> in-tree `register.ts` + middleware-pipeline system. We are converging on
+> the schema at
+> [`experimental/plugins/README.md`](../../experimental/plugins/README.md)
+> (file-based discovery, a `package.json` manifest, the
+> `@vellumai/plugin-api` public contract). The plan is to reshape this guide
+> section by section until it matches that one; wherever the two still
+> differ is the next piece of consolidation work. New plugins should target
+> the modern schema.
 
-For a worked minimal example, see
-[`assistant/examples/plugins/echo/`](../examples/plugins/echo/README.md).
-That plugin observes every pipeline and logs to stderr, and is the fastest
-way to see the system in action.
+Plugins extend the assistant's default capabilities using hooks, tools,
+skills, and more.
+
+If you're authoring a plugin against the current convention, this file is
+your map. Read [`examples/plugins/echo/`](../examples/plugins/echo/README.md)
+alongside, it's the canonical reference implementation and exercises every
+wired surface.
 
 ## Table of contents
 
+- [TL;DR](#tldr)
+- [What a plugin can contribute today](#what-a-plugin-can-contribute-today)
 - [Anatomy of a plugin](#anatomy-of-a-plugin)
 - [Where plugins live](#where-plugins-live)
 - [Manifest](#manifest)
@@ -26,6 +35,34 @@ way to see the system in action.
 - [Cross-plugin communication](#cross-plugin-communication)
 - [Hot reload](#hot-reload)
 - [Troubleshooting](#troubleshooting)
+
+---
+
+## TL;DR
+
+1. Create a directory `<workspaceDir>/plugins/my-plugin/`.
+2. Drop a `package.json` with a `name` and a `peerDependencies["@vellumai/plugin-api"]` semver range.
+3. Add a `register.ts` that builds a `Plugin` object and passes it to
+   `registerPlugin()` as an import-time side effect.
+4. Hang middleware, tools, routes, skills, or injectors off the `Plugin`
+   object.
+5. Restart the assistant — the loader scans `<workspaceDir>/plugins/*` and
+   registers the plugin on startup.
+
+## What a plugin can contribute today
+
+| Surface                 | Where                     | Discovery                                         |
+| ----------------------- | ------------------------- | ------------------------------------------------- |
+| Pipeline middleware     | `plugin.middleware`       | keyed by pipeline name in `PipelineMiddlewareMap` |
+| Model-visible tools     | `plugin.tools`            | each `PluginToolRegistration`                     |
+| HTTP routes             | `plugin.routes`           | each `PluginRouteRegistration`                    |
+| Skills                  | `plugin.skills`           | each `PluginSkillRegistration`                    |
+| System-prompt injectors | `plugin.injectors`        | each `Injector`                                   |
+| Lifecycle               | `init()` / `onShutdown()` | methods on the `Plugin` object                    |
+
+The modern schema wires only **hooks** and **tools**; the middleware
+pipelines, routes, skills, and injectors above are the surfaces that still
+have no modern equivalent.
 
 ---
 
@@ -380,22 +417,22 @@ plugin.pipeline pipeline=llmCall chain=["observeLlm","addHeader","defaultLlmCall
 Every pipeline slot and its purpose. Type details live in
 [`types.ts`](../src/plugins/types.ts).
 
-| Pipeline             | Purpose                                                                                                       |
-| -------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `turn`               | The outermost wrapper around a single assistant turn. Middleware here sees everything a turn does end-to-end. |
-| `llmCall`            | Every call to `Provider.sendMessage`. Input carries `messages`, `tools`, `systemPrompt`, `options`.           |
-| `toolExecute`        | Every `ToolExecutor.execute` call. Input carries `name`, `input`, and the full `ToolContext`.                 |
-| `memoryRetrieval`    | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                        |
-| `historyRepair`      | The pre-run repair pass on the message history. Wraps `repairHistory`.                                        |
-| `tokenEstimate`      | The token-count estimate used for budgeting. Wraps `estimatePromptTokensRaw`.                                 |
-| `compaction`         | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                                  |
-| `overflowReduce`     | The reducer tier loop invoked when a turn blows the context budget.                                           |
-| `persistence`        | Every message CRUD op (`add` / `update` / `delete`). Discriminated by `args.op`.                              |
-| `titleGenerate`      | Conversation title generation. Fire-and-forget by default.                                                    |
-| `toolResultTruncate` | The per-tool-result truncation step that fits a tool's output into the context window.                        |
-| `emptyResponse`      | The decision about what to do when the model returns an empty turn (nudge / accept / error).                  |
-| `toolError`          | The decision about what to do when one or more tool calls errored on a turn.                                  |
-| `circuitBreaker`     | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit.        |
+| Pipeline             | Purpose                                                                                                                                            |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `turn`               | The outermost wrapper around a single assistant turn. Middleware here sees everything a turn does end-to-end.                                      |
+| `llmCall`            | Every call to `Provider.sendMessage`. Input carries `messages` and `options` (with `tools`, `systemPrompt`, `config`, `onEvent`, `signal` inside). |
+| `toolExecute`        | Every `ToolExecutor.execute` call. Input carries `name`, `input`, and the full `ToolContext`.                                                      |
+| `memoryRetrieval`    | PKB, NOW.md, and memory-graph retrieval for a turn. Output is a merged `MemoryResult`.                                                             |
+| `historyRepair`      | The pre-run repair pass on the message history. Wraps `repairHistory`.                                                                             |
+| `tokenEstimate`      | The token-count estimate used for budgeting. Wraps `estimatePromptTokensRaw`.                                                                      |
+| `compaction`         | The conversation-compaction step. Wraps `ContextWindowManager.maybeCompact`.                                                                       |
+| `overflowReduce`     | The reducer tier loop invoked when a turn blows the context budget.                                                                                |
+| `persistence`        | Every message CRUD op (`add` / `update` / `delete`). Discriminated by `args.op`.                                                                   |
+| `titleGenerate`      | Conversation title generation. Fire-and-forget by default.                                                                                         |
+| `toolResultTruncate` | The per-tool-result truncation step that fits a tool's output into the context window.                                                             |
+| `emptyResponse`      | The decision about what to do when the model returns an empty turn (nudge / accept / error).                                                       |
+| `toolError`          | The decision about what to do when one or more tool calls errored on a turn.                                                                       |
+| `circuitBreaker`     | The compaction circuit breaker. Tracks consecutive-failure state, decides whether to open the circuit.                                             |
 
 ## Timeouts
 

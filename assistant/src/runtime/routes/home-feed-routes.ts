@@ -36,6 +36,7 @@ import {
   createConversation,
 } from "../../memory/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -346,6 +347,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "get_home_feed",
     endpoint: "home/feed",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleGetHomeFeed,
     summary: "Get home activity feed",
     description:
@@ -366,6 +371,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "patch_home_feed_item",
     endpoint: "home/feed/:id",
     method: "PATCH",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handlePatchFeedItem,
     summary: "Patch home feed item status",
     description:
@@ -382,6 +391,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "list_home_feed",
     endpoint: "home/feed/query",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleListHomeFeed,
     summary: "List home feed items with filters",
     description:
@@ -394,6 +407,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "trigger_home_feed_action",
     endpoint: "home/feed/:id/actions/:actionId",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handlePostFeedAction,
     summary: "Trigger home feed action",
     description:

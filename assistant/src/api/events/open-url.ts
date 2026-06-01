@@ -18,13 +18,11 @@
 
 import { z } from "zod";
 
-export const OpenUrlEventSchema = z
-  .object({
-    type: z.literal("open_url"),
-    url: z.string().min(1),
-    title: z.string().optional(),
-    conversationId: z.string().optional(),
-  })
-  .strict();
+export const OpenUrlEventSchema = z.object({
+  type: z.literal("open_url"),
+  url: z.string().min(1),
+  title: z.string().optional(),
+  conversationId: z.string().optional(),
+});
 
 export type OpenUrlEvent = z.infer<typeof OpenUrlEventSchema>;

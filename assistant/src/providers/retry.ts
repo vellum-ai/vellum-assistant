@@ -23,7 +23,6 @@ import {
   type Provider,
   type ProviderResponse,
   type SendMessageOptions,
-  type ToolDefinition,
 } from "./types.js";
 
 const log = getLogger("retry");
@@ -525,8 +524,6 @@ export class RetryProvider implements Provider {
 
   async sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     let lastError: unknown;
@@ -541,8 +538,6 @@ export class RetryProvider implements Provider {
       try {
         const result = await this.inner.sendMessage(
           messages,
-          tools,
-          systemPrompt,
           normalizedOptions,
         );
         return result;

@@ -8,7 +8,7 @@ import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors";
+} from "@/utils/api-errors";
 
 import type {
   ConsolidationConfigResponse,
@@ -48,6 +48,34 @@ export async function createSchedule(
     throw new ApiError(
       response.status,
       extractErrorMessage(error, response, "Failed to create schedule."),
+    );
+  }
+}
+
+export interface UpdateSchedulePayload {
+  timeoutMs?: number | null;
+}
+
+export async function updateSchedule(
+  assistantId: string,
+  scheduleId: string,
+  payload: UpdateSchedulePayload,
+): Promise<void> {
+  const { error, response } = await client.patch<
+    SchedulesListResponse,
+    unknown
+  >({
+    url: "/v1/assistants/{assistant_id}/schedules/{schedule_id}/",
+    path: { assistant_id: assistantId, schedule_id: scheduleId },
+    body: payload,
+    headers: { "Content-Type": "application/json" },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to update schedule.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to update schedule."),
     );
   }
 }

@@ -17,10 +17,10 @@ import { randomCharacterTraits } from "@/utils/avatar-random";
 import { composeSvg } from "@/utils/avatar-svg-compositor";
 import type { CharacterTraits } from "@/types/avatar";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
-import { extractErrorMessage } from "@/lib/api-errors";
-import { isLocalMode, hatchLocalAssistant, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection } from "@/lib/local-mode";
+import { extractErrorMessage } from "@/utils/api-errors";
+import { isLocalMode, hatchLocalAssistant, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection, getLocalGatewayUrl } from "@/lib/local-mode";
 import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
-import { useRootOutletContext } from "@/root-layout";
+import { lifecycleService } from "@/assistant/lifecycle-service";
 import {
   readAiDataConsent,
   readOnboardingCompleted,
@@ -112,9 +112,6 @@ export function HatchingScreen() {
   const userId = useAuthStore.use.user()?.id ?? null;
   const isLoggedIn = useAuthStore.use.isLoggedIn();
   const isAuthLoading = useAuthStore.use.isLoading();
-  const {
-    lifecycle: { checkAssistant },
-  } = useRootOutletContext();
   const [, setOnboardingCompleted] = useOnboardingCompleted();
   const [hatchTraits] = useState<CharacterTraits>(() =>
     randomCharacterTraits(BUNDLED_COMPONENTS),
@@ -173,6 +170,7 @@ export function HatchingScreen() {
     let cancelled = false;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
     let navigateTimer: ReturnType<typeof setTimeout> | null = null;
+    let readyPollTimer: ReturnType<typeof setTimeout> | null = null;
     const pollStartMs = Date.now();
 
     const pinnedVersion = readSelectedVersion();
@@ -194,9 +192,7 @@ export function HatchingScreen() {
       navigateTimer = setTimeout(() => {
         if (cancelled) return;
         void (async () => {
-          if (!useLocalHatch) {
-            await checkAssistant();
-          }
+          await lifecycleService.checkAssistant();
           if (cancelled) return;
           if (isNativePlatform()) {
             try {
@@ -253,7 +249,43 @@ export function HatchingScreen() {
           if (result.assistantId) {
             setSelectedAssistantId(result.assistantId);
           }
-          await primeLocalGatewayConnection();
+
+          // Wait for the gateway + daemon to be fully ready before proceeding.
+          // The CLI's hatch command spawns them as background processes and exits
+          // before they finish starting up. We poll /readyz (gateway + upstream
+          // daemon) and then attempt to acquire the gateway auth token. Both must
+          // succeed before we navigate away — the guardian token file may not
+          // exist on disk until after /readyz passes.
+          transitionPhase("connecting");
+          let gatewayReady = false;
+          while (!cancelled && !gatewayReady) {
+            const gatewayUrl = getLocalGatewayUrl();
+            if (gatewayUrl) {
+              try {
+                const res = await fetch(`${gatewayUrl}/readyz`);
+                if (res.ok) {
+                  const body = await res.json() as { status: string };
+                  if (body.status === "ok") {
+                    await primeLocalGatewayConnection();
+                    gatewayReady = true;
+                    break;
+                  }
+                }
+              } catch {
+                // Gateway not ready yet
+              }
+            }
+            if (Date.now() - pollStartMs >= MAX_HATCH_WAIT_MS) {
+              setError("Your assistant is taking longer than expected. Please try again.");
+              return;
+            }
+            await new Promise<void>(resolve => {
+              readyPollTimer = setTimeout(resolve, POLL_INTERVAL_MS);
+            });
+            readyPollTimer = null;
+          }
+          if (cancelled) return;
+
           handleHatchReady();
         } catch {
           localHatchPromise = null;
@@ -369,6 +401,7 @@ export function HatchingScreen() {
       cancelled = true;
       if (pollTimer) clearTimeout(pollTimer);
       if (navigateTimer) clearTimeout(navigateTimer);
+      if (readyPollTimer) clearTimeout(readyPollTimer);
     };
   }, [
     attempt,
@@ -376,7 +409,6 @@ export function HatchingScreen() {
     isAuthLoading,
     isLoggedIn,
     isReplay,
-    checkAssistant,
     navigate,
     setOnboardingCompleted,
     transitionPhase,

@@ -1,5 +1,4 @@
 
-import { Loader2 } from "lucide-react";
 import { memo, type ReactNode } from "react";
 
 import { Notice } from "@vellum/design-library";
@@ -7,7 +6,7 @@ import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
 import { TranscriptMessageBody } from "@/domains/chat/transcript/transcript-message-body";
-import type { ConfirmationDecision } from "@/domains/chat/api/event-types";
+import type { ConfirmationDecision } from "@/types/event-types";
 
 /**
  * Thin dispatcher: render one `TranscriptItem` using the matching existing
@@ -49,9 +48,9 @@ export interface TranscriptRowProps {
     riskLevel?: string;
     riskReason?: string;
     input?: Record<string, unknown>;
-    allowlistOptions: import("@/domains/chat/api/event-types").AllowlistOption[];
-    scopeOptions: import("@/domains/chat/api/event-types").ScopeOption[];
-    directoryScopeOptions: import("@/domains/chat/api/event-types").DirectoryScopeOption[];
+    allowlistOptions: import("@/types/interaction-ui-types").AllowlistOption[];
+    scopeOptions: import("@/types/interaction-ui-types").ScopeOption[];
+    directoryScopeOptions: import("@/types/interaction-ui-types").DirectoryScopeOption[];
   }) => void;
   unknownNudgeToolCallIds?: Set<string>;
   onDismissUnknownNudge?: (toolCallId: string) => void;
@@ -207,16 +206,6 @@ export const TranscriptRow = memo(function TranscriptRow({
          
         <div className="rounded-lg border border-[var(--border-primary)] bg-[var(--surface-secondary)] p-4 text-sm text-[var(--content-secondary)]">
           {item.label ?? "Enter contact info"}
-        </div>
-      );
-
-    case "queuedMarker":
-      return (
-        <div className="flex items-center gap-2 rounded-lg border border-[var(--border-default)] bg-[var(--surface-sunken)] px-3 py-2 text-body-small-default text-[var(--content-tertiary)]">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          {item.count === 1
-            ? "1 message queued"
-            : `${item.count} messages queued`}
         </div>
       );
 

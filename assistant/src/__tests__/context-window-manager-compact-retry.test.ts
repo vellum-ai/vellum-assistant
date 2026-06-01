@@ -1,0 +1,291 @@
+/**
+ * Coverage for the retry budget that lives inside
+ * `ContextWindowManager.maybeCompact`. The orchestrator (agent loop)
+ * relies on the binary `exhausted` signal — these tests pin down when
+ * the manager flips it.
+ */
+import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+function makeLoggerStub(): Record<string, unknown> {
+  const stub: Record<string, unknown> = {};
+  for (const m of [
+    "info",
+    "warn",
+    "error",
+    "debug",
+    "trace",
+    "fatal",
+    "silent",
+    "child",
+  ]) {
+    stub[m] = m === "child" ? () => makeLoggerStub() : () => {};
+  }
+  return stub;
+}
+
+mock.module("../util/logger.js", () => ({
+  getLogger: () => makeLoggerStub(),
+}));
+
+// ── Module-level mock state ───────────────────────────────────────────
+// Per-test mocks key off these — keeps closures simple and avoids the
+// "declared after mockImplementation references it" TDZ trap.
+
+interface CompactionRunResult {
+  messages: unknown;
+  compacted: boolean;
+  previousEstimatedInputTokens: number;
+  estimatedInputTokens: number;
+  maxInputTokens: number;
+  thresholdTokens: number;
+  compactedMessages: number;
+  compactedPersistedMessages: number;
+  summaryCalls: number;
+  summaryInputTokens: number;
+  summaryOutputTokens: number;
+  summaryModel: string;
+  summaryText: string;
+  reason?: string;
+  summaryFailed?: boolean;
+}
+
+let runCalls: Array<{
+  messages: unknown;
+  previousEstimatedInputTokens: number;
+}> = [];
+let runResults: CompactionRunResult[] = [];
+const estimateReturns: number[] = [];
+
+mock.module("../context/token-estimator.js", () => ({
+  estimatePromptTokens: (): number => {
+    const next = estimateReturns.shift();
+    if (next === undefined) {
+      throw new Error(
+        "estimatePromptTokens called more times than estimateReturns seeded",
+      );
+    }
+    return next;
+  },
+}));
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    compaction: { enabled: true, autoThreshold: 0.7, prompt: null },
+  }),
+}));
+
+mock.module("../context/compactor.js", () => ({
+  runAssistantDrivenCompaction: async (args: {
+    messages: unknown;
+    previousEstimatedInputTokens: number;
+  }): Promise<CompactionRunResult> => {
+    runCalls.push({
+      messages: args.messages,
+      previousEstimatedInputTokens: args.previousEstimatedInputTokens,
+    });
+    const idx = runCalls.length - 1;
+    const result = runResults[idx];
+    if (!result) {
+      throw new Error(
+        `Mock compactor called ${runCalls.length} time(s) but only ${runResults.length} result(s) seeded`,
+      );
+    }
+    return result;
+  },
+}));
+
+import { ContextWindowManager } from "../context/window-manager.js";
+import type { Message, Provider } from "../providers/types.js";
+
+function makeProvider(): Provider {
+  return {
+    name: "mock-provider",
+    sendMessage: async () => ({
+      content: [],
+      model: "mock-model",
+      usage: { inputTokens: 0, outputTokens: 0 },
+      stopReason: "end_turn",
+    }),
+  };
+}
+
+function makeMessages(count: number): Message[] {
+  const messages: Message[] = [];
+  for (let i = 0; i < count; i++) {
+    messages.push({
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: [{ type: "text", text: `msg ${i}` }],
+    });
+  }
+  return messages;
+}
+
+function compactResult(
+  overrides: Partial<CompactionRunResult> = {},
+): CompactionRunResult {
+  return {
+    messages: makeMessages(2),
+    compacted: true,
+    previousEstimatedInputTokens: 150_000,
+    estimatedInputTokens: 50_000,
+    maxInputTokens: 200_000,
+    thresholdTokens: 140_000,
+    compactedMessages: 5,
+    compactedPersistedMessages: 5,
+    summaryCalls: 1,
+    summaryInputTokens: 1000,
+    summaryOutputTokens: 200,
+    summaryModel: "mock-model",
+    summaryText: "summary",
+    summaryFailed: false,
+    ...overrides,
+  };
+}
+
+function buildManager(maxAttempts: number = 3): ContextWindowManager {
+  return new ContextWindowManager({
+    provider: makeProvider(),
+    systemPrompt: "you are a test assistant",
+    config: {
+      enabled: true,
+      maxInputTokens: 200_000,
+      targetBudgetRatio: 0.3,
+      compactThreshold: 0.8,
+      summaryBudgetRatio: 0.05,
+      overflowRecovery: {
+        enabled: true,
+        safetyMarginRatio: 0.05,
+        maxAttempts,
+        interactiveLatestTurnCompression: "summarize",
+        nonInteractiveLatestTurnCompression: "summarize",
+      },
+    },
+    conversationId: "conv-test",
+  });
+}
+
+describe("ContextWindowManager.maybeCompact retry budget", () => {
+  beforeEach(() => {
+    runCalls = [];
+    runResults = [];
+    estimateReturns.length = 0;
+  });
+
+  test("single productive pass under threshold returns without retry", async () => {
+    // Estimate sequence: (1) pre-compaction = 160k forces compaction,
+    // (2) post-attempt-1 recompute = 50k clears threshold.
+    estimateReturns.push(160_000, 50_000);
+    runResults = [compactResult({ estimatedInputTokens: 50_000 })];
+
+    const manager = buildManager();
+    const result = await manager.maybeCompact(makeMessages(10));
+
+    expect(runCalls.length).toBe(1);
+    expect(result.compacted).toBe(true);
+    expect(result.exhausted).toBeUndefined();
+    expect(result.estimatedInputTokens).toBe(50_000);
+  });
+
+  test("compacted but still above threshold retries until under", async () => {
+    // Pre-compaction 180k → attempt-1 recompute 150k (still above
+    // 140k threshold) → attempt-2 recompute 80k (under). 2 attempts
+    // consumed; counters accumulate.
+    estimateReturns.push(180_000, 150_000, 80_000);
+    runResults = [
+      compactResult({
+        estimatedInputTokens: 150_000,
+        compactedMessages: 6,
+        summaryInputTokens: 1000,
+      }),
+      compactResult({
+        estimatedInputTokens: 80_000,
+        compactedMessages: 2,
+        summaryInputTokens: 500,
+      }),
+    ];
+
+    const manager = buildManager();
+    const result = await manager.maybeCompact(makeMessages(10));
+
+    expect(runCalls.length).toBe(2);
+    expect(result.compactedMessages).toBe(8);
+    expect(result.summaryCalls).toBe(2);
+    expect(result.summaryInputTokens).toBe(1500);
+    expect(result.estimatedInputTokens).toBe(80_000);
+    expect(result.exhausted).toBeUndefined();
+  });
+
+  test("compacted but stuck (no shrinkage) breaks early with exhausted", async () => {
+    // Pre-compaction 180k → attempt-1 165k → attempt-2 165k (didn't
+    // shrink). Must break before attempt 3 even though maxAttempts=3.
+    estimateReturns.push(180_000, 165_000, 165_000);
+    runResults = [
+      compactResult({ estimatedInputTokens: 165_000 }),
+      compactResult({ estimatedInputTokens: 165_000 }),
+      // Never consumed:
+      compactResult({ estimatedInputTokens: 50_000 }),
+    ];
+
+    const manager = buildManager();
+    const result = await manager.maybeCompact(makeMessages(10));
+
+    expect(runCalls.length).toBe(2);
+    expect(result.exhausted).toBe(true);
+    expect(result.estimatedInputTokens).toBe(165_000);
+  });
+
+  test("compacted but still above threshold after maxAttempts marks exhausted", async () => {
+    // Progressive shrink that never quite clears: 170k → 160k → 150k,
+    // all above 140k threshold. Consumes all 3 attempts; exhausted.
+    estimateReturns.push(180_000, 170_000, 160_000, 150_000);
+    runResults = [
+      compactResult({ estimatedInputTokens: 170_000, compactedMessages: 3 }),
+      compactResult({ estimatedInputTokens: 160_000, compactedMessages: 2 }),
+      compactResult({ estimatedInputTokens: 150_000, compactedMessages: 1 }),
+    ];
+
+    const manager = buildManager(3);
+    const result = await manager.maybeCompact(makeMessages(10));
+
+    expect(runCalls.length).toBe(3);
+    expect(result.exhausted).toBe(true);
+    expect(result.estimatedInputTokens).toBe(150_000);
+    expect(result.compactedMessages).toBe(6);
+  });
+
+  test("compactor early-returns (compacted=false) → pass-through, no exhausted", async () => {
+    estimateReturns.push(180_000);
+    runResults = [
+      compactResult({
+        compacted: false,
+        estimatedInputTokens: 180_000,
+        compactedMessages: 0,
+        summaryCalls: 0,
+        reason: "no eligible messages",
+      }),
+    ];
+
+    const manager = buildManager();
+    const result = await manager.maybeCompact(makeMessages(10));
+
+    expect(runCalls.length).toBe(1);
+    expect(result.compacted).toBe(false);
+    expect(result.exhausted).toBeUndefined();
+  });
+
+  test("maxAttempts=1 → never retries even when above threshold", async () => {
+    estimateReturns.push(180_000, 165_000);
+    runResults = [
+      compactResult({ estimatedInputTokens: 165_000 }),
+      // Never consumed:
+      compactResult({ estimatedInputTokens: 100_000 }),
+    ];
+
+    const manager = buildManager(1);
+    const result = await manager.maybeCompact(makeMessages(10));
+
+    expect(runCalls.length).toBe(1);
+    expect(result.exhausted).toBe(true);
+    expect(result.estimatedInputTokens).toBe(165_000);
+  });
+});

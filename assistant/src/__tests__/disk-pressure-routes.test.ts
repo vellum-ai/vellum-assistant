@@ -42,9 +42,6 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
   },
 }));
 
-const { setOverridesForTesting } = await import(
-  "./feature-flag-test-helpers.js"
-);
 const {
   DISK_PRESSURE_OVERRIDE_CONFIRMATION,
   DISK_PRESSURE_THRESHOLD_PERCENT,
@@ -52,9 +49,16 @@ const {
   evaluateDiskPressureNow,
 } = await import("../daemon/disk-pressure-guard.js");
 const { assistantEventHub } = await import("../runtime/assistant-event-hub.js");
-const { getPolicy } = await import("../runtime/auth/route-policy.js");
 const { RouteError } = await import("../runtime/routes/errors.js");
 const { ROUTES } = await import("../runtime/routes/disk-pressure-routes.js");
+
+/** Look up a route's policy by endpoint+method on the module's ROUTES. */
+function routePolicy(endpoint: string, method?: string) {
+  const route = ROUTES.find(
+    (r) => r.endpoint === endpoint && (!method || r.method === method),
+  );
+  return route?.policy ?? null;
+}
 
 type DiskPressureRouteResult = {
   status: {
@@ -73,10 +77,6 @@ type DiskPressureRouteResult = {
     error: string | null;
   };
 };
-
-function setFeatureFlag(enabled: boolean): void {
-  setOverridesForTesting({ "safe-storage-limits": enabled });
-}
 
 function setDiskUsage(usedMb: number, totalMb = 100): void {
   diskSample = {
@@ -138,13 +138,11 @@ async function flushPublishedEvents(): Promise<void> {
 
 beforeEach(() => {
   __resetDiskPressureGuardForTests();
-  setFeatureFlag(true);
   setDiskUsage(10);
 });
 
 afterEach(() => {
   __resetDiskPressureGuardForTests();
-  setOverridesForTesting({});
   diskSample = null;
   eventSubscribers.clear();
 });
@@ -161,33 +159,8 @@ describe("disk pressure routes", () => {
           (route) => route.endpoint === endpoint && route.method === method,
         ),
       ).toBe(true);
-      expect(getPolicy(endpoint)).toBeDefined();
+      expect(routePolicy(endpoint)).not.toBeNull();
     }
-  });
-
-  test("returns disabled status without error when the feature flag is off", async () => {
-    setFeatureFlag(false);
-    setDiskUsage(99);
-
-    const result = await callRoute("disk-pressure/status", "GET");
-
-    expect(result.status).toMatchObject({
-      enabled: false,
-      state: "disabled",
-      locked: false,
-      acknowledged: false,
-      overrideActive: false,
-      effectivelyLocked: false,
-      lockId: null,
-      usagePercent: null,
-      path: null,
-      lastCheckedAt: null,
-      blockedCapabilities: [],
-      error: null,
-    });
-    expect(result.status.thresholdPercent).toBe(
-      DISK_PRESSURE_THRESHOLD_PERCENT,
-    );
   });
 
   test("returns the full status shape for an active lock", async () => {

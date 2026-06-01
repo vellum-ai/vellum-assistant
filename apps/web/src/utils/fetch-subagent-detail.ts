@@ -1,15 +1,18 @@
 /**
  * Fetch subagent execution detail from the daemon.
  *
- * The daemon route schema declares `events: z.array(z.unknown())` so the
- * generated SDK types events as `Array<unknown>`. This wrapper casts to
- * the known runtime shape (`SubagentDetailResponse`).
+ * The response is validated at the network boundary against the canonical
+ * `SubagentDetailResponseSchema`, so consumers receive a typed, trusted
+ * shape instead of the SDK's pre-schema `unknown` events.
  */
 
 import * as Sentry from "@sentry/browser";
+import {
+  SubagentDetailResponseSchema,
+  type SubagentDetailResponse,
+} from "@vellumai/assistant-api";
 
 import { subagentsByIdGet } from "@/generated/daemon/sdk.gen";
-import type { SubagentDetailResponse } from "@/types/subagent-types";
 
 export async function fetchSubagentDetail(
   assistantId: string,
@@ -25,7 +28,14 @@ export async function fetchSubagentDetail(
     if (!response || !response.ok || !data) {
       return null;
     }
-    return data as unknown as SubagentDetailResponse;
+    const parsed = SubagentDetailResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      Sentry.captureException(parsed.error, {
+        tags: { operation: "fetchSubagentDetail" },
+      });
+      return null;
+    }
+    return parsed.data;
   } catch (err) {
     Sentry.captureException(err, { tags: { operation: "fetchSubagentDetail" } });
     return null;

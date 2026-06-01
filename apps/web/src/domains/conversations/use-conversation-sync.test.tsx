@@ -6,6 +6,8 @@ import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import {
   conversationGroupsQueryKey,
 } from "@/domains/conversations/conversation-queries";
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+import type { Conversation } from "@/types/conversation-types";
 import { conversationsQueryKey } from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
@@ -66,10 +68,11 @@ function syncEvent(tags: string[]): SyncChangedEvent {
 }
 
 function emit(event: SyncChangedEvent): void {
-  // SyncChangedEvent is structurally assignable to AssistantSyncChangedEvent
-  // (which only adds an optional conversationId field), so this cast is safe.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  useEventBusStore.getState().publish("sse.event", event as any);
+  useEventBusStore.getState().publish("sse.event", {
+    id: "evt-1",
+    emittedAt: new Date().toISOString(),
+    message: event,
+  } as AssistantEventEnvelope);
 }
 
 function emitOpened(
@@ -290,5 +293,33 @@ describe("useConversationSync", () => {
     emitOpened("fresh");
     await Promise.resolve();
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  test("patches conversation title in cache on conversation_title_updated", async () => {
+    const queryClient = freshQueryClient();
+    queryClient.setQueryData<Conversation[]>(
+      conversationsQueryKey("asst-1"),
+      [{ conversationId: "conv-1", title: "Old Title" } as Conversation],
+    );
+    renderHook(() => useConversationSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+    useEventBusStore.getState().publish("sse.event", {
+      id: "evt-title",
+      conversationId: "conv-1",
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "conversation_title_updated",
+        conversationId: "conv-1",
+        title: "New Title",
+      },
+    } as AssistantEventEnvelope);
+    await waitFor(() => {
+      const cached = queryClient.getQueryData<Conversation[]>(
+        conversationsQueryKey("asst-1"),
+      );
+      const conv = cached?.find((c) => c.conversationId === "conv-1");
+      expect(conv?.title).toBe("New Title");
+    });
   });
 });

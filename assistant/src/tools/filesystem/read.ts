@@ -2,46 +2,54 @@ import { extname } from "node:path";
 
 import { RiskLevel } from "../../permissions/types.js";
 import { registerTool } from "../registry.js";
+import {
+  AUDIO_EXTENSIONS,
+  readAudioFile,
+} from "../shared/filesystem/audio-read.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import {
   IMAGE_EXTENSIONS,
   readImageFile,
 } from "../shared/filesystem/image-read.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
-class FileReadTool implements Tool {
-  name = "file_read";
-  description =
-    "Read the contents of a file on your own machine. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. Use host_file_read for files on your guardian's device instead.";
-  category = "filesystem";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
+export const fileReadTool = {
+  name: "file_read",
+  description:
+    "Read the contents of a file on your own machine. For image files (JPEG, PNG, GIF, WebP), returns the image for visual analysis. For audio files (MP3, WAV, OGG, FLAC, AAC, M4A), returns the audio for listening. Use host_file_read for files on your guardian's device instead.",
+  category: "filesystem",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-            description:
-              "The path to the file to read (absolute or relative to working directory)",
-          },
-          offset: {
-            type: "number",
-            description: "Line number to start reading from (1-indexed)",
-          },
-          limit: {
-            type: "number",
-            description: "Maximum number of lines to read",
-          },
-          activity: {
-            type: "string",
-            description:
-              "Brief non-technical explanation of what you are doing and why, shown as a status update.",
-          },
-        },
-        required: ["path", "activity"],
-      };
+  input_schema: {
+    type: "object",
+    properties: {
+      path: {
+        type: "string",
+        description:
+          "The path to the file to read (absolute or relative to working directory)",
+      },
+      offset: {
+        type: "number",
+        description: "Line number to start reading from (1-indexed)",
+      },
+      limit: {
+        type: "number",
+        description: "Maximum number of lines to read",
+      },
+      activity: {
+        type: "string",
+        description:
+          "Brief non-technical explanation of what you are doing and why, shown as a status update.",
+      },
+    },
+    required: ["path", "activity"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -66,6 +74,18 @@ class FileReadTool implements Tool {
         };
       }
       return readImageFile(pathCheck.resolved);
+    }
+
+    // For audio files, delegate to the shared audio reader.
+    if (AUDIO_EXTENSIONS.has(ext)) {
+      const pathCheck = sandboxPolicy(rawPath, context.workingDir);
+      if (!pathCheck.ok) {
+        return {
+          content: `Error: ${pathCheck.error}. To read files outside the workspace, use the host_file_read tool instead.`,
+          isError: true,
+        };
+      }
+      return readAudioFile(pathCheck.resolved);
     }
 
     const ops = new FileSystemOps((path, opts) =>
@@ -105,8 +125,7 @@ class FileReadTool implements Tool {
     }
 
     return { content: result.value.content, isError: false };
-  }
-}
+  },
+} satisfies ToolDefinition;
 
-export const fileReadTool = new FileReadTool();
 registerTool(fileReadTool);

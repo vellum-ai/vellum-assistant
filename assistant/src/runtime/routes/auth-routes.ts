@@ -13,6 +13,7 @@ import {
   getPlatformUserId,
 } from "../../config/env.js";
 import { resolveManagedProxyContext } from "../../providers/platform-proxy/context.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 interface AuthInfoResult {
@@ -55,6 +56,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "auth_info",
     endpoint: "auth/info",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get authentication status",
     description:
       "Returns platform identity and authentication status for this assistant.",

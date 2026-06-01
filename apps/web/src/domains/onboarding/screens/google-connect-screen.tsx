@@ -16,7 +16,7 @@ import {
   oauthCompletionStorageKey,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
-import { publicAsset } from "@/lib/public-asset";
+import { publicAsset } from "@/utils/public-asset";
 import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";

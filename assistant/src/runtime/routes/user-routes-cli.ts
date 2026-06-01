@@ -14,6 +14,7 @@ import { z } from "zod";
 import { getConfig } from "../../config/loader.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { getWorkspaceRoutesDir } from "../../util/platform.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -222,6 +223,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "user_routes_list",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     endpoint: "user-routes/list",
     handler: handleUserRoutesList,
     summary: "List user-defined route handlers",
@@ -232,6 +237,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "user_routes_inspect",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     endpoint: "user-routes/inspect",
     handler: handleUserRoutesInspect,
     summary: "Inspect a user-defined route handler",

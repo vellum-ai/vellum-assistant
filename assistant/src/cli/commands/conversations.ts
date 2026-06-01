@@ -162,6 +162,10 @@ Examples:
           `
 Shows conversations with their ID, title, and a relative timestamp (e.g.
 "3 hours ago"). Conversations are listed in order of most recently updated.
+Rows currently mid-turn — i.e. the agent loop is actively running on the
+in-memory conversation — are prefixed with "●"; idle rows are prefixed
+with " " (two spaces) so columns stay aligned.
+
 Archived conversations are excluded by default; pass --include-archived to
 include them.
 
@@ -175,6 +179,7 @@ Examples:
               id: string;
               title: string | null;
               updatedAt: number;
+              isProcessing: boolean;
             }>;
           }>("conversation_list_cli", {
             body: { includeArchived: opts?.includeArchived ?? false },
@@ -187,8 +192,12 @@ Examples:
             log.info("No conversations");
           } else {
             for (const s of all) {
+              // "●" marks a conversation whose agent loop is mid-turn;
+              // a single space keeps idle rows aligned without padding
+              // every line with the marker glyph.
+              const marker = s.isProcessing ? "●" : " ";
               log.info(
-                `  ${s.id}  ${s.title ?? "Untitled"}  ${timeAgo(s.updatedAt)}`,
+                `  ${marker} ${s.id}  ${s.title ?? "Untitled"}  ${timeAgo(s.updatedAt)}`,
               );
             }
           }

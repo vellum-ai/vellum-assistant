@@ -35,7 +35,7 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "playgroundResetCompactionCircuit",
     endpoint: "conversations/:id/playground/reset-compaction-circuit",
     method: "POST",
-    policyKey: "conversations/playground/reset-circuit",
+    policy: null,
     summary: "Clear compaction circuit-breaker state (dev-only playground)",
     tags: ["playground"],
     pathParams: [{ name: "id", type: "uuid" }],

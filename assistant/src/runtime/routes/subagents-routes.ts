@@ -7,6 +7,7 @@
  */
 import { z } from "zod";
 
+import { SubagentDetailResponseSchema } from "../../api/responses/subagent-detail.js";
 import {
   getMessages,
   type MessageRow,
@@ -14,6 +15,7 @@ import {
 import { getConversationUsageTotals } from "../../memory/llm-usage-store.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -192,7 +194,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "reconcileSubagents",
     endpoint: "subagents/reconcile",
     method: "GET",
-    policyKey: "subagents",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Reconcile subagent live status",
     description:
       "Returns the live in-memory status of all subagents known to the daemon for a given parent conversation. Subagents not in the response are orphaned.",
@@ -233,7 +238,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getSubagentDetail",
     endpoint: "subagents/:id",
     method: "GET",
-    policyKey: "subagents",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get subagent detail",
     description: "Return subagent objective and event history.",
     tags: ["subagents"],
@@ -244,18 +252,7 @@ export const ROUTES: RouteDefinition[] = [
         description: "Parent conversation ID (required)",
       },
     ],
-    responseBody: z.object({
-      subagentId: z.string(),
-      objective: z.string(),
-      usage: z
-        .object({
-          inputTokens: z.number(),
-          outputTokens: z.number(),
-          estimatedCost: z.number(),
-        })
-        .optional(),
-      events: z.array(z.unknown()).describe("Subagent event objects"),
-    }),
+    responseBody: SubagentDetailResponseSchema,
     handler: ({ pathParams, queryParams }) => {
       const conversationId = queryParams?.conversationId;
       if (!conversationId) {
@@ -263,9 +260,12 @@ export const ROUTES: RouteDefinition[] = [
       }
 
       const manager = getSubagentManager();
-      manager.getState(pathParams!.id);
+      const state = manager.getState(pathParams!.id);
 
-      return getSubagentDetail(pathParams!.id, conversationId);
+      return {
+        ...getSubagentDetail(pathParams!.id, conversationId),
+        status: state?.status,
+      };
     },
   },
 
@@ -273,7 +273,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "abortSubagent",
     endpoint: "subagents/:id/abort",
     method: "POST",
-    policyKey: "subagents/abort",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Abort subagent",
     description: "Abort a running subagent.",
     tags: ["subagents"],
@@ -313,7 +316,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "sendSubagentMessage",
     endpoint: "subagents/:id/message",
     method: "POST",
-    policyKey: "subagents/message",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Send message to subagent",
     description: "Send a text message to a running subagent.",
     tags: ["subagents"],

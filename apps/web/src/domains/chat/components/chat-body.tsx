@@ -121,6 +121,12 @@ export interface ChatBodyProps {
   channelFooterSlot?: ReactNode;
 
   /**
+   * Optional replacement for the generic read-only banner. Used by channel
+   * surfaces that can provide a native "open there" action.
+   */
+  readonlyBannerSlot?: ReactNode;
+
+  /**
    * Optional conversation-starter chip grid rendered inside the max-width
    * wrapper directly below the composer. Visible only on the empty state;
    * the parent passes `undefined` once messages arrive. Rendered as a
@@ -180,6 +186,7 @@ export function ChatBody({
   queuedDrawerSlot,
   questionPromptSlot,
   channelFooterSlot,
+  readonlyBannerSlot,
   startersSlot,
 }: ChatBodyProps) {
   const isEmptyState = scrollAreaProps.showEmptyState;
@@ -256,10 +263,25 @@ export function ChatBody({
           {questionPromptSlot}
           {channelFooterSlot}
           {isChannelReadonly ? (
-            <ChatReadonlyBanner
-              canStopGenerating={canStopGenerating}
-              onStopGenerating={composerProps.onStopGenerating}
-            />
+            readonlyBannerSlot ? (
+              <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">{readonlyBannerSlot}</div>
+                {canStopGenerating ? (
+                  <Button
+                    variant="primary"
+                    iconOnly={<Square className="h-3 w-3" fill="currentColor" />}
+                    onClick={composerProps.onStopGenerating}
+                    aria-label="Stop generating"
+                    title="Stop generation"
+                  />
+                ) : null}
+              </div>
+            ) : (
+              <ChatReadonlyBanner
+                canStopGenerating={canStopGenerating}
+                onStopGenerating={composerProps.onStopGenerating}
+              />
+            )
           ) : (
             <ChatComposer {...composerProps} />
           )}

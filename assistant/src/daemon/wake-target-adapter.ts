@@ -139,6 +139,15 @@ function translateAgentEventToServerMessage(
     case "max_tokens_reached":
     case "agent_loop_exit":
       return null;
+    case "llm_call_started":
+      // The wake path persists its assistant tail via `persistTailMessage`
+      // (an `addMessage`-shaped call below) rather than via the main
+      // event-handler's `reserve` → `updateContent` pipeline, so there is
+      // no row to reserve here. Translation returns null and the wake
+      // path's existing end-of-turn persist continues to mint the row.
+      // Following up with full wake-path pre-allocation parity is tracked
+      // as a B3 follow-up.
+      return null;
   }
 }
 
@@ -199,7 +208,7 @@ export function conversationToWakeTarget(
         conversation.conversationId,
         message.role,
         JSON.stringify(message.content),
-        metadata,
+        { metadata },
       );
       if (message.role === "assistant") {
         try {

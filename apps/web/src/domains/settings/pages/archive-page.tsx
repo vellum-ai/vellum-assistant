@@ -1,14 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Archive, Loader2, RotateCcw } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
+import { useArchivedConversationListQuery } from "@/domains/conversations/conversation-queries";
 import {
+  archivedConversationsQueryKey,
   conversationsQueryKey,
-  useConversationListQuery,
-} from "@/lib/conversations";
+} from "@/lib/sync/query-tags";
 import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdUnarchivePost } from "@/generated/daemon/sdk.gen";
 import { reportError } from "@/utils/error-report";
@@ -105,22 +106,14 @@ export function ArchivePage() {
   const assistantId = assistantList?.results?.[0]?.id ?? null;
 
   const {
-    conversations,
+    conversations: archived,
     isLoading: isLoadingConversations,
     isError,
     refetch,
-  } = useConversationListQuery(assistantId);
+  } = useArchivedConversationListQuery(assistantId);
 
   const [pendingUnarchiveId, setPendingUnarchiveId] = useState<string | null>(
     null,
-  );
-
-  const archived = useMemo(
-    () =>
-      conversations
-        .filter((c) => c.archivedAt != null)
-        .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0)),
-    [conversations],
   );
 
   const handleUnarchive = useCallback(
@@ -132,8 +125,13 @@ export function ArchivePage() {
           path: { assistant_id: assistantId, id: conversationId },
           throwOnError: true,
         });
+        // Unarchiving moves a row from the archived list back into the active
+        // sidebar list, so invalidate both caches.
         void queryClient.invalidateQueries({
           queryKey: conversationsQueryKey(assistantId),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: archivedConversationsQueryKey(assistantId),
         });
       } catch (error) {
         reportError(error, {

@@ -7,7 +7,7 @@ import { Button, Notice } from "@vellum/design-library";
 import {
   formatVoiceError,
   isMicPermissionError,
-} from "@/domains/chat/utils/chat-utils";
+} from "@/domains/chat/utils/chat";
 
 /**
  * Banner/notice stack rendered immediately above the chat composer's form

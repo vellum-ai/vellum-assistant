@@ -37,6 +37,7 @@ import {
 } from "../../util/platform.js";
 import { APP_VERSION, COMMIT_SHA } from "../../version.js";
 import { assistantEventHub } from "../assistant-event-hub.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { createTarGz } from "./archive-utils.js";
 import { InternalError } from "./errors.js";
 import { collectWorkspaceData } from "./log-export/workspace-allowlist.js";
@@ -486,7 +487,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "export_logs",
     endpoint: "export",
     method: "POST",
-    policyKey: "export",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleExport,
     summary: "Export logs and audit data",
     description:
@@ -507,7 +511,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "export_logs_alias",
     endpoint: "logs/export",
     method: "POST",
-    policyKey: "export",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleExport,
     summary: "Export logs and audit data (alias)",
     description:

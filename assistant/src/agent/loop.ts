@@ -8,14 +8,20 @@ import {
 } from "../context/token-estimator.js";
 import { calculateMaxToolResultChars } from "../context/tool-result-truncation.js";
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
-import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response.js";
-import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error.js";
-import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate.js";
+import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
+import { defaultEmptyResponseTerminal } from "../plugins/defaults/empty-response/terminal.js";
+import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate/terminal.js";
+import { defaultToolErrorTerminal } from "../plugins/defaults/tool-error/terminal.js";
+import { defaultToolResultTruncateTerminal } from "../plugins/defaults/tool-result-truncate/terminal.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
+  CompactionArgs,
+  CompactionResult,
   EmptyResponseArgs,
   EmptyResponseDecision,
+  EstimateArgs,
+  EstimateResult,
   LLMCallArgs,
   LLMCallResult,
   ToolErrorArgs,
@@ -24,6 +30,7 @@ import type {
   ToolResultTruncateResult,
   TurnContext,
 } from "../plugins/types.js";
+import { PluginTimeoutError } from "../plugins/types.js";
 import { normalizeThinkingConfigForWire } from "../providers/thinking-config.js";
 import type {
   ContentBlock,
@@ -42,6 +49,13 @@ import { getLogger } from "../util/logger.js";
 import { isRetryableNetworkError } from "../util/retry.js";
 
 const log = getLogger("agent-loop");
+
+/** Fraction of the preflight budget at which a checkpoint triggers mid-loop compaction. */
+const MID_LOOP_YIELD_THRESHOLD_RATIO = 0.85;
+
+/** In-context message count above which the budget gate raises the safety-margin floor. */
+const LONG_HISTORY_MESSAGE_THRESHOLD = 50;
+const LONG_HISTORY_SAFETY_MARGIN_FLOOR = 0.15;
 
 export interface AgentLoopConfig {
   maxTokens: number;
@@ -66,7 +80,28 @@ export interface CheckpointInfo {
   history: Message[]; // current history snapshot for token estimation
 }
 
-export type CheckpointDecision = "continue" | "yield";
+/**
+ * Why a checkpoint paused the loop. Surfaced back to the caller via
+ * {@link AgentLoopRunResult.exitReason} so the orchestrator reacts to
+ * the loop's own signal (hand off to a queued message vs. compact and
+ * re-enter) instead of the checkpoint callback mutating orchestrator state.
+ */
+export type ExitReason = "handoff" | "budget";
+
+export type CheckpointDecision = "continue" | ExitReason;
+
+/**
+ * Result of {@link AgentLoop.run}.
+ *
+ * `exitReason` carries the reason the loop paused at a checkpoint so the
+ * orchestrator reads the loop's own signal instead of inferring it from
+ * callback side-effects. It is `null` whenever the loop reached a terminal
+ * stop (completion, error, abort, or a tool-requested yield-to-user).
+ */
+export interface AgentLoopRunResult {
+  history: Message[];
+  exitReason: ExitReason | null;
+}
 
 /**
  * Why an agent turn reached a terminal state.
@@ -121,6 +156,15 @@ export type AgentLoopExitReason =
   | "error";
 
 export type AgentEvent =
+  /**
+   * Emitted once per LLM call inside the loop, immediately before the
+   * `provider.sendMessage` invocation. Carries the optional `callSite` tag so
+   * downstream handlers (the daemon's persistence pipeline) can decide
+   * whether to reserve a row for this call. One `llm_call_started` precedes
+   * every `message_complete` for the same call; multi-call agent turns emit
+   * one pair per call.
+   */
+  | { type: "llm_call_started"; callSite?: LLMCallSite }
   | { type: "text_delta"; text: string }
   | { type: "thinking_delta"; thinking: string }
   | { type: "message_complete"; message: Message }
@@ -370,6 +414,95 @@ export interface ResolvedSystemPrompt {
 }
 
 /**
+ * Orchestrator-supplied hooks the loop invokes when the mid-loop budget gate
+ * trips and inline compaction runs. The loop owns the trigger, the
+ * `compaction` pipeline call, and the inline continue; these hooks bridge the
+ * durable / injection state the loop is intentionally blind to. Persistence
+ * ({@link persist}, {@link onTimeout}) and re-injection ({@link reinject})
+ * remain orchestrator-supplied for now and are expected to move into the loop
+ * in a future change.
+ */
+export interface MidLoopCompaction {
+  /** Emit the "compacting context" activity state, when the caller surfaces one. */
+  onCompacting?: () => void;
+  /**
+   * Strip runtime injections from `history`, commit the stripped messages to
+   * durable state, and resolve the pipeline options for this attempt.
+   */
+  prepare: (history: Message[]) => {
+    rawHistory: Message[];
+    options: CompactionArgs["options"];
+  };
+  /** Record a compaction-pipeline timeout for the circuit breaker. */
+  onTimeout: () => Promise<void>;
+  /**
+   * Persist a compaction result (summary, watermark, circuit-breaker outcome)
+   * and report whether the compactor exhausted its retry budget.
+   */
+  persist: (
+    result: CompactionResult,
+    rawHistory: Message[],
+  ) => Promise<{ exhausted: boolean }>;
+  /** Re-apply runtime injections and return the history to continue from. */
+  reinject: () => Promise<Message[]>;
+}
+
+export interface AgentLoopRunOptions {
+  signal?: AbortSignal;
+  requestId?: string;
+  onCheckpoint?: (
+    checkpoint: CheckpointInfo,
+  ) => CheckpointDecision | Promise<CheckpointDecision>;
+  callSite?: LLMCallSite;
+  /**
+   * Per-turn context supplied by the orchestrator. Every pipeline
+   * invocation inside the loop clones from this value (overwriting only
+   * `turnIndex`/`requestId`) so middleware sees the real conversation
+   * identity, trust class, and `contextWindowManager` rather than the
+   * `"agent-loop"` sentinel used when the loop is instantiated standalone
+   * in unit tests.
+   */
+  turnContext?: TurnContext;
+  /**
+   * Ad-hoc inference-profile override applied to every LLM call the loop
+   * issues. When set, each `SendMessageOptions.config` carries
+   * `overrideProfile = <name>` so the provider's resolver layers
+   * `llm.profiles[<name>]` between the workspace `activeProfile` and any
+   * call-site named profile. Missing profile names silently fall through.
+   */
+  overrideProfile?: string;
+  resolveOverrideProfile?: () => string | undefined;
+  /**
+   * Resolves the orchestrator's effective context window for this turn: the
+   * provider max-input-token ceiling (read by tool-result truncation) plus the
+   * `overflowRecovery` config that drives the mid-loop budget gate. Resolved
+   * fresh per checkpoint so a mid-turn profile change is reflected. Absent →
+   * truncation falls back to `this.config.maxInputTokens` and the budget gate
+   * is skipped (agent wakes pass `overflowRecovery.enabled = false`).
+   */
+  resolveContextWindow?: () => {
+    maxInputTokens: number;
+    overflowRecovery: { enabled: boolean; safetyMarginRatio: number };
+  };
+  /**
+   * Hooks for inline mid-loop compaction. When supplied and the budget gate
+   * trips, the loop compacts in place and continues instead of yielding
+   * `exitReason = "budget"`. Callers without a compaction path (agent wakes,
+   * convergence/auto-compress reruns) omit this and keep yielding for budget.
+   */
+  compaction?: MidLoopCompaction;
+  /**
+   * When true, the latest user message carries a volatile per-turn block
+   * (e.g. a memory-v3 `<memory>` injection) that varies across otherwise
+   * identical turns. Forwarded to each `SendMessageOptions.config` so the
+   * provider anchors its long-TTL cache breakpoint on the most recent STABLE
+   * user message instead of the volatile latest one, keeping the cached
+   * prefix reusable. Default unset → existing behavior.
+   */
+  mutableLatestUserMessage?: boolean;
+}
+
+/**
  * Callback shape the loop uses to execute a tool invocation.
  *
  * The trailing `turnContext` is optional so in-process tests that wire the
@@ -472,44 +605,97 @@ export class AgentLoop {
     return estimateToolsTokens(this.getResolvedTools(history));
   }
 
+  /**
+   * Estimate total prompt tokens for `history` via the `tokenEstimate`
+   * pipeline. Args are shallow-frozen so a mutating middleware cannot strip
+   * context from the loop's live `history`.
+   */
+  private estimateTokens(
+    history: Message[],
+    turnContext: TurnContext,
+  ): Promise<EstimateResult> {
+    return runPipeline<EstimateArgs, EstimateResult>(
+      "tokenEstimate",
+      getMiddlewaresFor("tokenEstimate"),
+      defaultTokenEstimateTerminal,
+      {
+        history: Object.freeze([...history]) as Message[],
+        systemPrompt: this.systemPrompt,
+        tools: Object.freeze([
+          ...this.getResolvedTools(history),
+        ]) as ToolDefinition[],
+        providerName: getCalibrationProviderKey(this.provider),
+      },
+      turnContext,
+      DEFAULT_TIMEOUTS.tokenEstimate,
+    );
+  }
+
+  /**
+   * Compact the running history in place when the mid-loop budget gate trips.
+   *
+   * Runs the `compaction` pipeline natively (like {@link estimateTokens}) on
+   * the stripped history, then re-applies injections via the supplied hooks.
+   * Returns the history to continue from, or `null` when the compactor timed
+   * out or exhausted its retry budget so the caller yields
+   * `exitReason = "budget"` and the orchestrator escalates.
+   */
+  private async compact(
+    history: Message[],
+    turnContext: TurnContext,
+    compaction: MidLoopCompaction,
+    signal: AbortSignal | undefined,
+  ): Promise<Message[] | null> {
+    compaction.onCompacting?.();
+    const { rawHistory, options } = compaction.prepare(history);
+    let result: CompactionResult;
+    try {
+      result = await runPipeline<CompactionArgs, CompactionResult>(
+        "compaction",
+        getMiddlewaresFor("compaction"),
+        (args) => defaultCompactionTerminal(args, turnContext),
+        { messages: rawHistory, signal, options },
+        turnContext,
+        DEFAULT_TIMEOUTS.compaction,
+      );
+    } catch (error) {
+      if (error instanceof PluginTimeoutError) {
+        await compaction.onTimeout();
+        return null;
+      }
+      throw error;
+    }
+    const { exhausted } = await compaction.persist(result, rawHistory);
+    if (exhausted) {
+      return null;
+    }
+    return compaction.reinject();
+  }
+
   async run(
     messages: Message[],
     onEvent: (event: AgentEvent) => void | Promise<void>,
-    signal?: AbortSignal,
-    requestId?: string,
-    onCheckpoint?: (
-      checkpoint: CheckpointInfo,
-    ) => CheckpointDecision | Promise<CheckpointDecision>,
-    callSite?: LLMCallSite,
-    /**
-     * Optional per-turn context supplied by the orchestrator. Every pipeline
-     * invocation inside the loop clones from this value (overwriting only
-     * `turnIndex`/`requestId`) so middleware sees the real conversation
-     * identity, trust class, and `contextWindowManager` rather than the
-     * `"agent-loop"` sentinel used when the loop is instantiated standalone
-     * in unit tests.
-     */
-    turnContext?: TurnContext,
-    /**
-     * Optional ad-hoc inference-profile override applied to every LLM call
-     * the loop issues. When set, each `SendMessageOptions.config` carries
-     * `overrideProfile = <name>` so the provider's resolver layers
-     * `llm.profiles[<name>]` between the workspace `activeProfile` and any
-     * call-site named profile. Missing profile names silently fall through.
-     * Used by per-conversation pinned profiles to override the workspace
-     * default for the lifetime of an agent loop run.
-     */
-    overrideProfile?: string,
-    effectiveMaxInputTokens?: number,
-    resolveOverrideProfile?: () => string | undefined,
-    resolveEffectiveMaxInputTokens?: () => number | undefined,
-  ): Promise<Message[]> {
-    const history = [...messages];
-    const initialHistoryLength = messages.length;
+    options?: AgentLoopRunOptions,
+  ): Promise<AgentLoopRunResult> {
+    const {
+      signal,
+      requestId,
+      onCheckpoint,
+      callSite,
+      turnContext,
+      overrideProfile,
+      resolveOverrideProfile,
+      resolveContextWindow,
+      compaction,
+      mutableLatestUserMessage,
+    } = options ?? {};
+    let history = [...messages];
+    let producedVisibleTextThisRun = false;
     let toolUseTurns = 0;
     let consecutiveErrorTurns = 0;
     let emptyResponseRetries = 0;
     let lastLlmCallTime = 0;
+    let exitReason: ExitReason | null = null;
     const rlog = requestId ? log.child({ requestId }) : log;
 
     // Per-run substitution map for sensitive output placeholders.
@@ -608,6 +794,15 @@ export class AgentLoop {
           providerConfig.cacheTtl = this.config.cacheTtl;
         }
 
+        // Cache-anchor signal for volatile latest-user-message turns (e.g.
+        // memory-v3 injects its `<memory>` block into the latest user
+        // message). Not part of the call-site schema, so it is always sourced
+        // from the per-run option regardless of `callSite`. Only set when true
+        // so the wire/config stays byte-identical when off.
+        if (mutableLatestUserMessage) {
+          providerConfig.mutableLatestUserMessage = true;
+        }
+
         // Per-call LLM call-site identifier. Surfaces on the per-call
         // `config.callSite` so `RetryProvider.normalizeSendMessageOptions`
         // can route through `resolveCallSiteConfig` against
@@ -683,7 +878,7 @@ export class AgentLoop {
         // Also strip old AX tree snapshots to keep TTFT from growing
         // linearly with step count in computer-use sessions.
         const providerHistory = compactAxTreeHistory(
-          stripOldImageBlocks(history),
+          stripOldMediaBlocks(history),
         );
 
         // Wrap the provider call in the `llmCall` pipeline so middleware
@@ -702,9 +897,9 @@ export class AgentLoop {
         const llmCallArgs: LLMCallArgs = {
           provider: this.provider,
           messages: providerHistory,
-          tools: currentTools.length > 0 ? currentTools : undefined,
-          systemPrompt: turnSystemPrompt,
           options: {
+            tools: currentTools.length > 0 ? currentTools : undefined,
+            systemPrompt: turnSystemPrompt,
             config: providerConfig,
             onEvent: (event) => {
               if (event.type === "text_delta") {
@@ -776,6 +971,18 @@ export class AgentLoop {
           toolUseTurns,
         );
 
+        // Announce the LLM-call boundary so downstream handlers (the
+        // daemon's persistence pipeline) can reserve an empty assistant row
+        // and stamp the resulting `messageId` onto every streaming event the
+        // call emits. Emit as late as possible — after history stripping,
+        // arg construction, and turn-context resolution — so the gap
+        // between "we said the call started" and the actual provider HTTP
+        // call is minimized. Awaited so the row is created and the
+        // `assistant_turn_start` wire event reaches the client BEFORE the
+        // provider starts streaming deltas — the deltas downstream will
+        // carry the freshly-reserved id.
+        await onEvent({ type: "llm_call_started", callSite });
+
         // Inner try/catch narrows error-recording scope to the provider
         // call itself. The outer agent-loop catch (below) wraps the entire
         // turn body (tool execution, plugin pipelines, checkpoints), so
@@ -790,13 +997,7 @@ export class AgentLoop {
           response = await runPipeline<LLMCallArgs, LLMCallResult>(
             "llmCall",
             getMiddlewaresFor("llmCall"),
-            (args) =>
-              args.provider.sendMessage(
-                args.messages,
-                args.tools,
-                args.systemPrompt,
-                args.options,
-              ),
+            (args) => args.provider.sendMessage(args.messages, args.options),
             llmCallArgs,
             turnCtx,
             DEFAULT_TIMEOUTS.llmCall,
@@ -818,8 +1019,8 @@ export class AgentLoop {
             const rawRequest = {
               provider: this.provider.name,
               messages: llmCallArgs.messages,
-              tools: llmCallArgs.tools,
-              systemPrompt: llmCallArgs.systemPrompt,
+              tools: llmCallArgs.options?.tools,
+              systemPrompt: llmCallArgs.options?.systemPrompt,
               config: llmCallArgs.options?.config,
             };
             onEvent({
@@ -951,25 +1152,20 @@ export class AgentLoop {
         // The actual decision (nudge vs. accept vs. error) is delegated to
         // the `emptyResponse` plugin pipeline. The pipeline returns a
         // decision; the loop carries out the side-effect (pushing the nudge
-        // or surfacing the error). See `plugins/defaults/empty-response.ts`
+        // or surfacing the error). See `plugins/defaults/empty-response/register.ts`
         // for the default decision logic.
         const hasVisibleText = response.content.some(
           (block) => block.type === "text" && block.text.trim().length > 0,
         );
-        const priorAssistantHadVisibleText = (() => {
-          for (let i = history.length - 1; i >= initialHistoryLength; i--) {
-            const msg = history[i];
-            if (msg.role !== "assistant") continue;
-            const hasText = msg.content.some(
-              (block) =>
-                block.type === "text" &&
-                typeof (block as { text?: unknown }).text === "string" &&
-                (block as { text: string }).text.trim().length > 0,
-            );
-            if (hasText) return true;
-          }
-          return false;
-        })();
+        // Track whether the model produced visible text earlier in this
+        // run() invocation. Run-scoped rather than derived from `history` so
+        // it survives inline compaction rewriting the message array: an empty
+        // completion after a compaction must not be nudged into re-sending
+        // text the user already saw.
+        const priorAssistantHadVisibleText = producedVisibleTextThisRun;
+        if (hasVisibleText) {
+          producedVisibleTextThisRun = true;
+        }
 
         const emptyResponseArgs: EmptyResponseArgs = {
           responseContent: response.content,
@@ -978,6 +1174,7 @@ export class AgentLoop {
           emptyResponseRetries,
           maxEmptyResponseRetries: MAX_EMPTY_RESPONSE_RETRIES,
           priorAssistantHadVisibleText,
+          stopReason: response.stopReason,
         };
         const emptyResponseCtx = resolveLoopTurnContext(
           turnContext,
@@ -1180,8 +1377,7 @@ export class AgentLoop {
         // truncation strategy (e.g. a summariser) while the default
         // middleware preserves the historical tail-drop behaviour.
         const contextWindowTokens =
-          resolveEffectiveMaxInputTokens?.() ??
-          effectiveMaxInputTokens ??
+          resolveContextWindow?.().maxInputTokens ??
           this.config.maxInputTokens ??
           180_000;
         const maxChars = calculateMaxToolResultChars(contextWindowTokens);
@@ -1331,8 +1527,8 @@ export class AgentLoop {
         history.push({ role: "user", content: resultBlocks });
 
         // Invoke checkpoint callback after tool results are in history.
-        // The callback may be async — the mid-loop budget check delegates
-        // to the `tokenEstimate` plugin pipeline, which is asynchronous.
+        // Handoff is offered first so a queued message takes precedence over
+        // the mid-loop budget yield below.
         if (onCheckpoint) {
           const decision = await onCheckpoint({
             turnIndex: toolUseTurns - 1, // 0-based (toolUseTurns was already incremented)
@@ -1340,7 +1536,59 @@ export class AgentLoop {
             hasToolUse: true,
             history,
           });
-          if (decision === "yield") {
+          if (decision !== "continue") {
+            exitReason = decision;
+            break;
+          }
+        }
+
+        // Mid-loop budget gate: when overflow recovery is enabled, estimate
+        // the running context size as it approaches the preflight budget.
+        // With a `compaction` hook the loop compacts in place and continues;
+        // without one it yields (`exitReason = "budget"`) so the orchestrator
+        // can recover before the next provider call risks a hard
+        // context-too-large rejection. Keyed off the loop's own
+        // `history.length` (the messages actually in context this turn,
+        // including tool iterations) rather than the durable conversation
+        // count.
+        const contextWindow = resolveContextWindow?.();
+        if (contextWindow?.overflowRecovery.enabled) {
+          const { maxInputTokens, overflowRecovery } = contextWindow;
+          const safetyMargin =
+            history.length > LONG_HISTORY_MESSAGE_THRESHOLD
+              ? Math.max(
+                  overflowRecovery.safetyMarginRatio,
+                  LONG_HISTORY_SAFETY_MARGIN_FLOOR,
+                )
+              : overflowRecovery.safetyMarginRatio;
+          const preflightBudget = Math.floor(
+            maxInputTokens * (1 - safetyMargin),
+          );
+          const midLoopThreshold =
+            preflightBudget * MID_LOOP_YIELD_THRESHOLD_RATIO;
+          const estimated = await this.estimateTokens(history, turnCtx);
+          if (estimated > midLoopThreshold) {
+            if (compaction) {
+              rlog.info(
+                { phase: "mid-loop", estimated, threshold: midLoopThreshold },
+                "Token estimate approaching budget — compacting in place",
+              );
+              const compacted = await this.compact(
+                history,
+                turnCtx,
+                compaction,
+                signal,
+              );
+              if (compacted) {
+                history = compacted;
+                continue;
+              }
+            }
+            rlog.warn(
+              { phase: "mid-loop", estimated, threshold: midLoopThreshold },
+              "Token estimate approaching budget — yielding for compaction",
+            );
+            exitReason = "budget";
             break;
           }
         }
@@ -1391,7 +1639,7 @@ export class AgentLoop {
       "Agent loop exited",
     );
 
-    return history;
+    return { history, exitReason };
   }
 }
 
@@ -1492,7 +1740,7 @@ export function compactAxTreeHistory(messages: Message[]): Message[] {
  * turn. Using the last user message unconditionally would leave the most
  * recent tool screenshots unprotected from stripping.
  */
-function stripOldImageBlocks(history: Message[]): Message[] {
+function stripOldMediaBlocks(history: Message[]): Message[] {
   // Find the last user message that contains tool_result blocks.
   let lastToolResultUserIdx = -1;
   for (let i = history.length - 1; i >= 0; i--) {
@@ -1509,29 +1757,32 @@ function stripOldImageBlocks(history: Message[]): Message[] {
     // Keep the most recent tool-result user message intact (current turn)
     if (idx === lastToolResultUserIdx || msg.role !== "user") return msg;
 
-    // Check if any tool_result blocks have image contentBlocks
-    const hasImages = msg.content.some(
+    // Check if any tool_result blocks carry embedded media (image or audio).
+    const isMedia = (cb: ContentBlock) =>
+      cb.type === "image" || cb.type === "file";
+    const hasMedia = msg.content.some(
       (b) =>
         b.type === "tool_result" &&
-        (b as ToolResultContent).contentBlocks?.some(
-          (cb) => cb.type === "image",
-        ),
+        (b as ToolResultContent).contentBlocks?.some(isMedia),
     );
-    if (!hasImages) return msg;
+    if (!hasMedia) return msg;
 
-    // Strip images from tool_result blocks, replacing with text marker
+    // Strip media from tool_result blocks, replacing with a text marker. The
+    // model already saw/heard the media in the turn it was captured; resending
+    // the bytes every turn (a 12 MB audio clip isn't optimized like images)
+    // bloats the request until compaction.
     return {
       ...msg,
       content: msg.content.map((b) => {
         if (b.type !== "tool_result") return b;
         const tr = b as ToolResultContent;
-        if (!tr.contentBlocks?.some((cb) => cb.type === "image")) return b;
+        if (!tr.contentBlocks?.some(isMedia)) return b;
         return {
           ...tr,
           contentBlocks: undefined,
           content:
             (tr.content || "") +
-            "\n[Screenshot was captured and shown previously — image data removed to save context.]",
+            "\n[Media (image/audio) was captured and shown previously — binary data removed to save context.]",
         };
       }),
     };

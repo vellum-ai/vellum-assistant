@@ -9,6 +9,7 @@
 import { v4 as uuid } from "uuid";
 import { z } from "zod";
 
+import { findConversation } from "../../daemon/conversation-store.js";
 import { clearAllConversations as clearAllActive } from "../../daemon/handlers/conversations.js";
 import { formatJson, formatMarkdown } from "../../export/formatter.js";
 import { ipcCall as ipcCallGateway } from "../../ipc/gateway-client.js";
@@ -23,6 +24,7 @@ import { listConversations } from "../../memory/conversation-queries.js";
 import { getBindingByConversation } from "../../memory/external-conversation-store.js";
 import { sendSlackReply } from "../../messaging/providers/slack/send.js";
 import { getLogger } from "../../util/logger.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadGatewayError, BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -35,14 +37,26 @@ const log = getLogger("conversation-cli-routes");
 function handleListCli({ body = {} }: RouteHandlerArgs) {
   const limit =
     body.limit != null ? Number(body.limit) : Number.MAX_SAFE_INTEGER;
+  // CLI flag historically named `includeArchived`. Map onto the new
+  // `archiveStatus` enum: when set, fetch active + archived together so the
+  // user sees archived rows alongside live ones in the picker.
   const includeArchived = (body.includeArchived as boolean) ?? false;
 
-  const rows = listConversations(limit, false, 0, includeArchived);
+  const rows = listConversations(
+    limit,
+    false,
+    0,
+    includeArchived ? "all" : "active",
+  );
   return {
     conversations: rows.map((c) => ({
       id: c.id,
       title: c.title,
       updatedAt: c.updatedAt,
+      // `isProcessing` mirrors `Conversation.isProcessing()` from the
+      // in-memory daemon store — true when the agent loop is mid-turn.
+      // Rows not currently in memory (cold / evicted) report `false`.
+      isProcessing: findConversation(c.id)?.isProcessing() ?? false,
     })),
   };
 }
@@ -78,7 +92,6 @@ async function handleCreateCli({ body = {} }: RouteHandlerArgs) {
       conversation.id,
       message.role,
       textContentJson(message.content),
-      undefined,
       { skipIndexing: true },
     );
   }
@@ -111,10 +124,11 @@ function handleExportCli({ body = {} }: RouteHandlerArgs) {
     conversationId = all[0].id;
   }
 
-  // Support prefix matching
+  // Support prefix matching. `archiveStatus: "all"` preserves the pre-default
+  // behavior of letting `vellum export <prefix>` resolve an archived row.
   let conversation = getConversation(conversationId);
   if (!conversation) {
-    const all = listConversations(Number.MAX_SAFE_INTEGER);
+    const all = listConversations(Number.MAX_SAFE_INTEGER, false, 0, "all");
     const match = all.find((c) => c.id.startsWith(conversationId!));
     if (match) {
       conversation = match;
@@ -292,6 +306,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversation_list_cli",
     endpoint: "conversations/cli/list",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "List conversations (CLI)",
     description:
       "Simplified conversation list for CLI output — returns id, title, updatedAt.",
@@ -306,6 +324,7 @@ export const ROUTES: RouteDefinition[] = [
           id: z.string(),
           title: z.string().nullable(),
           updatedAt: z.number(),
+          isProcessing: z.boolean(),
         }),
       ),
     }),
@@ -315,6 +334,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversation_create_cli",
     endpoint: "conversations/cli/create",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Create a conversation (CLI)",
     description:
       "Create a new conversation with an optional title and seeded messages.",
@@ -335,6 +358,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversation_export_cli",
     endpoint: "conversations/cli/export",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Export a conversation (CLI)",
     description:
       "Export a conversation as markdown or JSON. Returns the formatted output string.",
@@ -353,6 +380,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversations_clear_cli",
     endpoint: "conversations/cli/clear",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Clear all conversations (CLI)",
     description:
       "Tear down all active conversations and clear the database. " +
@@ -367,6 +398,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversation_slack_detach_cli",
     endpoint: "conversations/cli/slack/detach",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Detach the assistant from a Slack thread (CLI)",
     description:
       "Stops Slack active-thread listening for a Slack thread. The CLI resolves current conversation defaults.",

@@ -22,6 +22,7 @@ import {
   userMessage,
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -266,35 +267,35 @@ async function handleDictation(body: DictationBody): Promise<DictationResult> {
     try {
       const response = await provider.sendMessage(
         [userMessage(`Transcription: "${transcription}"`)],
-        [
-          {
-            name: "process_dictation",
-            description: "Classify the voice input and return cleaned text",
-            input_schema: {
-              type: "object" as const,
-              properties: {
-                mode: {
-                  type: "string",
-                  enum: ["dictation", "action"],
-                  description:
-                    "dictation = user wants text inserted/cleaned up for typing. action = user wants the assistant to perform a task.",
-                },
-                text: {
-                  type: "string",
-                  description:
-                    "If dictation: the cleaned/formatted text ready for insertion. If action: the raw transcription unchanged.",
-                },
-                reasoning: {
-                  type: "string",
-                  description: "Brief reasoning for the classification",
-                },
-              },
-              required: ["mode", "text", "reasoning"],
-            },
-          },
-        ],
-        systemPrompt,
         {
+          tools: [
+            {
+              name: "process_dictation",
+              description: "Classify the voice input and return cleaned text",
+              input_schema: {
+                type: "object" as const,
+                properties: {
+                  mode: {
+                    type: "string",
+                    enum: ["dictation", "action"],
+                    description:
+                      "dictation = user wants text inserted/cleaned up for typing. action = user wants the assistant to perform a task.",
+                  },
+                  text: {
+                    type: "string",
+                    description:
+                      "If dictation: the cleaned/formatted text ready for insertion. If action: the raw transcription unchanged.",
+                  },
+                  reasoning: {
+                    type: "string",
+                    description: "Brief reasoning for the classification",
+                  },
+                },
+                required: ["mode", "text", "reasoning"],
+              },
+            },
+          ],
+          systemPrompt,
           config: {
             callSite: "interactionClassifier",
             max_tokens: maxTokens,
@@ -405,9 +406,9 @@ async function handleCommandMode(
 
     const response = await provider.sendMessage(
       [userMessage(body.transcription)],
-      [],
-      systemPrompt,
       {
+        tools: [],
+        systemPrompt,
         config: { callSite: "interactionClassifier", max_tokens: maxTokens },
       },
     );
@@ -446,16 +447,25 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "dictation_post",
     endpoint: "dictation",
     method: "POST",
-    policyKey: "dictation",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Process dictation",
     description:
       "Classify voice input as dictation or action, clean up text, and apply user style preferences.",
     tags: ["diagnostics"],
-    requirePolicyEnforcement: true,
     requestBody: z.object({
       transcription: z.string().describe("Raw speech transcription"),
       context: z
-        .object({})
+        .object({
+          cursorInTextField: z
+            .boolean()
+            .optional()
+            .describe(
+              "Whether the cursor is in an editable text field when dictation started",
+            ),
+        })
         .passthrough()
         .describe(
           "Dictation context (app name, window title, bundle ID, cursor state, selected text)",
@@ -467,11 +477,10 @@ export const ROUTES: RouteDefinition[] = [
     }),
     responseBody: z.object({
       text: z.string().describe("Processed text output"),
-      mode: z
-        .string()
-        .describe("Detected mode: dictation, command, or action"),
+      mode: z.string().describe("Detected mode: dictation, command, or action"),
       actionPlan: z
         .string()
+        .optional()
         .describe("Action plan (only when mode is action)"),
       resolvedProfileId: z.string().describe("Resolved dictation profile ID"),
       profileSource: z.string().describe("How the profile was resolved"),

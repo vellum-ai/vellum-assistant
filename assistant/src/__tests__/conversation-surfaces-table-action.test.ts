@@ -75,22 +75,13 @@ function makeContext(): SurfaceConversationContext & {
       return { queued: false, requestId: options.requestId ?? "enq-req" };
     },
     getQueueDepth: () => 0,
-    processMessage: async (
-      content,
-      attachments,
-      _onEvent,
-      requestId,
-      surfaceId,
-      _currentPage,
-      _options,
-      displayContent,
-    ) => {
+    processMessage: async (options) => {
       processCalls.push({
-        content,
-        requestId,
-        attachments,
-        surfaceId,
-        displayContent,
+        content: options.content,
+        requestId: options.requestId,
+        attachments: options.attachments,
+        surfaceId: options.activeSurfaceId,
+        displayContent: options.displayContent,
       });
       return "ok";
     },

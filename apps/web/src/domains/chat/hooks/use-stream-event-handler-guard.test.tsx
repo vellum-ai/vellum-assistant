@@ -4,7 +4,7 @@ import type { MutableRefObject } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { AssistantEvent } from "@/types/event-types";
 
 const handlerCalls: Array<{ kind: string; conversationId?: string }> = [];
 
@@ -14,11 +14,17 @@ mock.module(
     handleAssistantTextDelta: (event: { conversationId?: string }) => {
       handlerCalls.push({ kind: "assistant_text_delta", conversationId: event.conversationId });
     },
+    handleAssistantTurnStart: (event: { conversationId?: string }) => {
+      handlerCalls.push({ kind: "assistant_turn_start", conversationId: event.conversationId });
+    },
     handleAssistantActivityState: () => {
       handlerCalls.push({ kind: "assistant_activity_state" });
     },
     handleMessageComplete: (event: { conversationId?: string }) => {
       handlerCalls.push({ kind: "message_complete", conversationId: event.conversationId });
+    },
+    handleUserMessageEcho: (event: { conversationId?: string }) => {
+      handlerCalls.push({ kind: "user_message_echo", conversationId: event.conversationId });
     },
     handleGenerationHandoff: () => {
       handlerCalls.push({ kind: "generation_handoff" });
@@ -28,18 +34,6 @@ mock.module(
     },
   }),
 );
-mock.module(
-  "@/domains/chat/utils/stream-handlers/home-handlers",
-  () => ({
-    handleHomeFeedUpdated: () => {
-      handlerCalls.push({ kind: "home_feed_updated" });
-    },
-    handleRelationshipStateUpdated: () => {
-      handlerCalls.push({ kind: "relationship_state_updated" });
-    },
-  }),
-);
-
 const { useStreamEventHandler } = await import(
   "@/domains/chat/hooks/use-stream-event-handler"
 );
@@ -116,9 +110,6 @@ function renderHandler(
         setContextWindowUsage: () => {},
         scheduleConversationListRefetch: () => {},
         setCompactionCircuitOpenUntil: () => {},
-        applyDiskPressureStatusEvent: () => {},
-        refreshAssistantIdentity: async () => {},
-        invalidateAvatar: () => {},
         dispatchSyncChanged: () => {},
       } as never),
     { wrapper },
@@ -218,7 +209,7 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
     expect(true).toBe(true);
   });
 
-  test("forwards a global event (home_feed_updated) regardless of conversation context", () => {
+  test("no-ops a cross-domain event (home_feed_updated) handled by bus subscribers", () => {
     const refs = noopRefs();
     const { handleStreamEvent } = renderHandler(refs, {
       streamConversationId: null,
@@ -230,7 +221,10 @@ describe("handleStreamEvent — defense-in-depth conversation routing guard", ()
       } as unknown as AssistantEvent,
       0,
     );
-    expect(handlerCalls).toContainEqual({ kind: "home_feed_updated" });
+    // home_feed_updated is now handled by useAssistantResourceSync (bus
+    // subscriber), not the monolithic handler. The switch case is a no-op.
+    const homeFeedCalls = handlerCalls.filter((c) => c.kind === "home_feed_updated");
+    expect(homeFeedCalls).toHaveLength(0);
   });
 
   test("rejects events whose epoch is stale (regardless of conversation key)", () => {

@@ -115,6 +115,7 @@ import {
   type Provider,
   type ProviderEvent,
   type ProviderResponse,
+  type SendMessageOptions,
 } from "../providers/types.js";
 import { ProviderError } from "../util/errors.js";
 import { DEFAULT_MAX_RETRIES } from "../util/retry.js";
@@ -696,7 +697,7 @@ describe("RetryProvider — streaming response handling", () => {
     const events: ProviderEvent[] = [];
     const inner: Provider = {
       name: "streaming-mock",
-      async sendMessage(_m, _t, _s, options) {
+      async sendMessage(_m: Message[], options?: SendMessageOptions) {
         options?.onEvent?.({ type: "text_delta", text: "hello " });
         options?.onEvent?.({ type: "text_delta", text: "world" });
         return successResponse();
@@ -704,7 +705,7 @@ describe("RetryProvider — streaming response handling", () => {
     };
     const provider = new RetryProvider(inner);
 
-    await provider.sendMessage(MESSAGES, undefined, undefined, {
+    await provider.sendMessage(MESSAGES, {
       onEvent: (e) => events.push(e),
     });
 
@@ -717,7 +718,7 @@ describe("RetryProvider — streaming response handling", () => {
     let receivedSignal: AbortSignal | undefined;
     const inner: Provider = {
       name: "signal-mock",
-      async sendMessage(_m, _t, _s, options) {
+      async sendMessage(_m: Message[], options?: SendMessageOptions) {
         receivedSignal = options?.signal;
         return successResponse();
       },
@@ -725,7 +726,7 @@ describe("RetryProvider — streaming response handling", () => {
     const provider = new RetryProvider(inner);
     const controller = new AbortController();
 
-    await provider.sendMessage(MESSAGES, undefined, undefined, {
+    await provider.sendMessage(MESSAGES, {
       signal: controller.signal,
     });
 
@@ -868,7 +869,7 @@ describe("RetryProvider — streaming response handling", () => {
     let callCount = 0;
     const inner: Provider = {
       name: "retry-stream",
-      async sendMessage(_m, _t, _s, options) {
+      async sendMessage(_m: Message[], options?: SendMessageOptions) {
         callCount++;
         options?.onEvent?.({
           type: "text_delta",
@@ -883,7 +884,7 @@ describe("RetryProvider — streaming response handling", () => {
     const provider = new RetryProvider(inner);
     const events: ProviderEvent[] = [];
 
-    await provider.sendMessage(MESSAGES, undefined, undefined, {
+    await provider.sendMessage(MESSAGES, {
       onEvent: (e) => events.push(e),
     });
 

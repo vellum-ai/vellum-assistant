@@ -33,10 +33,18 @@ struct InferenceServiceCard: View {
             }
         }
         .sheet(isPresented: $showOverridesSheet) {
-            CallSiteOverridesSheet(store: store, isPresented: $showOverridesSheet)
+            CallSiteOverridesSheet(
+                store: store,
+                isPresented: $showOverridesSheet,
+                assistantFeatureFlagStore: assistantFeatureFlagStore
+            )
         }
         .sheet(isPresented: $showProfilesSheet) {
-            InferenceProfilesSheet(store: store, isPresented: $showProfilesSheet)
+            InferenceProfilesSheet(
+                store: store,
+                isPresented: $showProfilesSheet,
+                assistantFeatureFlagStore: assistantFeatureFlagStore
+            )
         }
         .sheet(isPresented: $showProvidersSheet) {
             ProvidersSheet(store: store, isPresented: $showProvidersSheet, assistantFeatureFlagStore: assistantFeatureFlagStore)
@@ -76,6 +84,18 @@ struct InferenceServiceCard: View {
         )
     }
 
+    /// Profiles surfaced in the Default Profile dropdown, with the
+    /// meta-"auto" profile filtered out when `query-complexity-routing`
+    /// is disabled. The auto profile is a routing meta-target, not a
+    /// real default, so it must never be picked as the workspace's
+    /// active profile while the flag is off.
+    private var visibleProfiles: [InferenceProfile] {
+        InferenceProfile.gateAutoProfile(
+            store.profiles,
+            queryComplexityRoutingEnabled: assistantFeatureFlagStore.isEnabled("query-complexity-routing")
+        )
+    }
+
     private var activeProfilePicker: some View {
         VStack(alignment: .leading, spacing: VSpacing.sm) {
             Text("Default Profile")
@@ -84,7 +104,7 @@ struct InferenceServiceCard: View {
             VDropdown(
                 placeholder: "Select a profile\u{2026}",
                 selection: activeProfileBinding,
-                options: store.profiles.map { (label: $0.displayName, value: $0.name) }
+                options: visibleProfiles.map { (label: $0.displayName, value: $0.name) }
             )
         }
     }

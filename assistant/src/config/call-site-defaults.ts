@@ -26,6 +26,8 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
     profile: "cost-optimized",
     contextWindow: { maxInputTokens: 1000000 },
   },
+  memoryV3RouteL1: { profile: "balanced", temperature: 0 },
+  memoryV3SelectL2: { profile: "balanced", temperature: 0 },
   recall: {
     profile: "balanced",
     maxTokens: 4096,
@@ -47,13 +49,6 @@ export const CALL_SITE_DEFAULTS: Record<LLMCallSite, CallSiteDefaultConfig> = {
   memoryV2Migration: { profile: "cost-optimized" },
   memoryV2Sweep: { profile: "cost-optimized" },
   memoryV2Consolidation: { profile: "balanced" },
-  // memory v3: cheap filter + descent, capable gate. All three are
-  // selection/classification calls, not generation — pin temperature to 0 so
-  // the same candidate set yields the same keep/descend/select decision instead
-  // of sampling-driven variance.
-  memoryV3Filter: { profile: "cost-optimized", temperature: 0 },
-  memoryV3Descent: { profile: "cost-optimized", temperature: 0 },
-  memoryV3Gate: { profile: "balanced", temperature: 0 },
   conversationSummarization: { profile: "cost-optimized" },
   conversationTitle: { profile: "cost-optimized" },
   approvalCopy: { profile: "cost-optimized" },

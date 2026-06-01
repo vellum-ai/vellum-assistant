@@ -20,6 +20,7 @@ import { orchestrateMcpOAuthConnect } from "../../mcp/mcp-auth-orchestrator.js";
 import { getMcpAuthState } from "../../mcp/mcp-auth-state.js";
 import { deleteMcpOAuthCredentials } from "../../mcp/mcp-oauth-provider.js";
 import { getLogger } from "../../util/logger.js";
+import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -332,6 +333,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "internal_mcp_auth_start",
     endpoint: "internal/mcp/auth/start",
     method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Start MCP OAuth flow",
     description:
       "Starts a daemon-owned MCP OAuth flow and returns the authorization URL for the CLI to open in the browser.",
@@ -343,6 +348,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "internal_mcp_auth_status",
     endpoint: "internal/mcp/auth/status/:serverId",
     method: "GET",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Poll MCP OAuth flow status",
     description:
       "Returns the current status of an in-flight MCP OAuth flow (pending/complete/error).",
@@ -357,6 +366,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "internal_mcp_reload",
     endpoint: "internal/mcp/reload",
     method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Trigger MCP server reload",
     description:
       "Kicks off reloadMcpServers() async on the daemon. Returns immediately.",
@@ -367,6 +380,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "internal_mcp_list",
     endpoint: "internal/mcp/list",
     method: "GET",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "List MCP servers with health status",
     description:
       "Returns configured MCP servers with live health-check results (connected, needs auth, error, disabled).",
@@ -377,6 +394,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "internal_mcp_add",
     endpoint: "internal/mcp/add",
     method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Add an MCP server configuration",
     description:
       "Writes a new MCP server entry to config.json and triggers a reload.",
@@ -396,6 +417,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "internal_mcp_remove",
     endpoint: "internal/mcp/remove",
     method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Remove an MCP server configuration",
     description:
       "Removes an MCP server from config.json, cleans up OAuth credentials, and triggers a reload.",

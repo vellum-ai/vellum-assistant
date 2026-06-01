@@ -26,6 +26,7 @@ import {
   isMemoryEnabled,
 } from "../../memory/jobs-store.js";
 import { conversationStarters, memoryJobs } from "../../memory/schema.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -276,6 +277,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversation_starters_list",
     endpoint: "conversation-starters",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleListConversationStarters,
     summary: "List conversation starters",
     description:
@@ -309,7 +314,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversation_starters_delete",
     endpoint: "conversation-starters/:id",
     method: "DELETE",
-    policyKey: "conversation-starters",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleDeleteConversationStarter,
     summary: "Delete conversation starter",
     description:

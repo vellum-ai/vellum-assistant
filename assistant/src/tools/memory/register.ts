@@ -17,17 +17,21 @@ import {
 } from "../../memory/graph/tools.js";
 import { RiskLevel } from "../../permissions/types.js";
 import { isUntrustedTrustClass } from "../../runtime/actor-trust-resolver.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
 // ── remember ────────────────────────────────────────────────────────
 
-class RememberTool implements Tool {
-  name = "remember";
-  description = graphRememberDefinition.description;
-  category = "memory";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
-  input_schema = graphRememberDefinition.input_schema;
+export const rememberTool = {
+  name: "remember",
+  description: graphRememberDefinition.description,
+  category: "memory",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
+  input_schema: graphRememberDefinition.input_schema,
 
   async execute(
     input: Record<string, unknown>,
@@ -45,18 +49,18 @@ class RememberTool implements Tool {
       isError: !result.success,
       ...(typedInput.finish_turn === true ? { yieldToUser: true } : {}),
     };
-  }
-}
+  },
+} satisfies ToolDefinition;
 
 // ── recall ──────────────────────────────────────────────────────────
 
-class RecallTool implements Tool {
-  name = "recall";
-  description = graphRecallDefinition.description;
-  category = "memory";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
-  input_schema = graphRecallDefinition.input_schema;
+export const recallTool = {
+  name: "recall",
+  description: graphRecallDefinition.description,
+  category: "memory",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
+  input_schema: graphRecallDefinition.input_schema,
 
   async execute(
     input: Record<string, unknown>,
@@ -79,18 +83,18 @@ class RecallTool implements Tool {
     });
 
     return { content: result.content, isError: false };
-  }
-}
+  },
+} satisfies ToolDefinition;
 
 // ── delete_memory ────────────────────────────────────────────────────
 
-class DeleteMemoryTool implements Tool {
-  name = "delete_memory";
-  description = graphDeleteMemoryDefinition.description;
-  category = "memory";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
-  input_schema = graphDeleteMemoryDefinition.input_schema;
+export const deleteMemoryTool = {
+  name: "delete_memory",
+  description: graphDeleteMemoryDefinition.description,
+  category: "memory",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
+  input_schema: graphDeleteMemoryDefinition.input_schema,
 
   async execute(
     input: Record<string, unknown>,
@@ -110,18 +114,18 @@ class DeleteMemoryTool implements Tool {
       isError: !result.success,
       ...(typedInput.finish_turn === true ? { yieldToUser: true } : {}),
     };
-  }
-}
+  },
+} satisfies ToolDefinition;
 
 // ── update_memory ────────────────────────────────────────────────────
 
-class UpdateMemoryTool implements Tool {
-  name = "update_memory";
-  description = graphUpdateMemoryDefinition.description;
-  category = "memory";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
-  input_schema = graphUpdateMemoryDefinition.input_schema;
+export const updateMemoryTool = {
+  name: "update_memory",
+  description: graphUpdateMemoryDefinition.description,
+  category: "memory",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
+  input_schema: graphUpdateMemoryDefinition.input_schema,
 
   async execute(
     input: Record<string, unknown>,
@@ -145,12 +149,5 @@ class UpdateMemoryTool implements Tool {
       isError: !result.success,
       ...(typedInput.finish_turn === true ? { yieldToUser: true } : {}),
     };
-  }
-}
-
-// ── Exported tool instances ──────────────────────────────────────────
-
-export const rememberTool = new RememberTool();
-export const recallTool = new RecallTool();
-export const deleteMemoryTool = new DeleteMemoryTool();
-export const updateMemoryTool = new UpdateMemoryTool();
+  },
+} satisfies ToolDefinition;

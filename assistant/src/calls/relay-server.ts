@@ -769,10 +769,12 @@ export class RelayConnection {
         "assistant",
         JSON.stringify([{ type: "text", text: codeMsg }]),
         {
-          userMessageChannel: "phone",
-          assistantMessageChannel: "phone",
-          userMessageInterface: "phone",
-          assistantMessageInterface: "phone",
+          metadata: {
+            userMessageChannel: "phone",
+            assistantMessageChannel: "phone",
+            userMessageInterface: "phone",
+            assistantMessageInterface: "phone",
+          },
         },
       );
     }
@@ -1977,10 +1979,12 @@ export class RelayConnection {
             "user",
             JSON.stringify([{ type: "text", text: msg.voicePrompt }]),
             {
-              userMessageChannel: "phone",
-              assistantMessageChannel: "phone",
-              userMessageInterface: "phone",
-              assistantMessageInterface: "phone",
+              metadata: {
+                userMessageChannel: "phone",
+                assistantMessageChannel: "phone",
+                userMessageInterface: "phone",
+                assistantMessageInterface: "phone",
+              },
             },
           );
         } catch (err) {

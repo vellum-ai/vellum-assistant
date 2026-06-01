@@ -9,6 +9,7 @@ import { z } from "zod";
 import { recordLifecycleEvent } from "../../memory/lifecycle-events-store.js";
 import { getUsageTelemetryReporter } from "../../telemetry/usage-telemetry-reporter.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -47,6 +48,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "telemetry_lifecycle",
     endpoint: "telemetry/lifecycle",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Record lifecycle event",
     description: "Record a telemetry lifecycle event (app_open, hatch).",
     tags: ["telemetry"],
@@ -72,6 +77,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "telemetry_flush",
     endpoint: "telemetry/flush",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Flush pending telemetry events",
     description:
       "Force-flush all pending usage, turn, and lifecycle telemetry events to the platform.",

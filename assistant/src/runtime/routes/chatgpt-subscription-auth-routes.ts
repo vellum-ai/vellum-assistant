@@ -28,6 +28,7 @@ import {
 } from "../../security/oauth2.js";
 import { setSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -214,7 +215,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "inference_chatgpt_subscription_auth",
     endpoint: "inference/chatgpt-subscription/auth",
     method: "POST",
-    policyKey: "inference/provider-connections",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Start ChatGPT subscription OAuth PKCE flow",
     description:
       "Generate a PKCE authorize URL for ChatGPT subscription auth. Returns the URL and state for the client to open in a browser.",
@@ -229,7 +233,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "inference_chatgpt_subscription_auth_exchange",
     endpoint: "inference/chatgpt-subscription/auth/exchange",
     method: "POST",
-    policyKey: "inference/provider-connections",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Exchange ChatGPT subscription OAuth authorization code",
     description:
       "Accept an authorization code and state from the OAuth redirect, exchange it for tokens, store them in CES, and upsert the provider connection.",

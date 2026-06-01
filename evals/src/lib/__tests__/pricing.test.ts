@@ -125,6 +125,56 @@ describe("priceUsageRecord", () => {
     expect(result.diagnostic?.reason).toBe("missing_provider");
   });
 
+  test("prices OpenAI gpt-5.x rows at the catalog base-tier rate", () => {
+    // Mirrors the gpt-5.x rows in `assistant/src/providers/model-catalog.ts`.
+    // Evals doesn't model OpenAI's long-context tier multiplier yet
+    // (see the pricing.ts file-level docstring) — these assertions
+    // lock in the base-tier prices the table is meant to reflect.
+    const cases: Array<{
+      model: string;
+      input: number;
+      output: number;
+      expected: number;
+    }> = [
+      {
+        model: "gpt-5.5-pro",
+        input: 1_000_000,
+        output: 1_000_000,
+        expected: 210,
+      },
+      { model: "gpt-5.5", input: 1_000_000, output: 1_000_000, expected: 35 },
+      { model: "gpt-5.4", input: 1_000_000, output: 1_000_000, expected: 17.5 },
+      {
+        model: "gpt-5.4-mini",
+        input: 1_000_000,
+        output: 1_000_000,
+        expected: 5.25,
+      },
+      {
+        model: "gpt-5.4-nano",
+        input: 1_000_000,
+        output: 1_000_000,
+        expected: 1.45,
+      },
+      {
+        model: "gpt-5.2",
+        input: 1_000_000,
+        output: 1_000_000,
+        expected: 15.75,
+      },
+    ];
+    for (const { model, input, output, expected } of cases) {
+      const result = priceUsageRecord({
+        provider: "openai",
+        model,
+        input_tokens: input,
+        output_tokens: output,
+      });
+      expect(result.costUsd).toBeCloseTo(expected, 4);
+      expect(result.diagnostic).toBeUndefined();
+    }
+  });
+
   test("prices Opus 4.5/4.6/4.7 at the catalog $5/$25 rate", () => {
     // The assistant catalog lists Opus 4.5+ at $5/$25. Older Anthropic
     // Opus generations carried $15/$75 but are out-of-scope for evals

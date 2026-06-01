@@ -39,6 +39,12 @@ import {
 } from "@/domains/settings/api/oauth-apps";
 
 import { IntegrationIcon } from "@/domains/settings/components/integration-icon";
+import {
+  type OAuthCompletePayload,
+  oauthCompletionStorageKey,
+  getOAuthCompleteMessagePayload,
+  getOAuthCompleteStoragePayload,
+} from "@/lib/auth/oauth-popup";
 
 function extractErrorDetail(error: unknown, fallback: string): string {
   if (typeof error === "object" && error !== null && "detail" in error) {
@@ -51,67 +57,6 @@ function extractErrorDetail(error: unknown, fallback: string): string {
     return error.message;
   }
   return fallback;
-}
-
-export interface OAuthCompletePayload {
-  type: "vellum:oauth-complete";
-  requestId?: string | null;
-  oauthStatus?: string | null;
-  oauthProvider?: string | null;
-  oauthCode?: string | null;
-}
-
-export function oauthCompletionStorageKey(requestId: string): string {
-  return `vellum:oauth-complete:${requestId}`;
-}
-
-export function isOAuthCompletePayloadForRequest(
-  payload: unknown,
-  requestId: string,
-): payload is OAuthCompletePayload {
-  return (
-    typeof payload === "object" &&
-    payload !== null &&
-    (payload as OAuthCompletePayload).type === "vellum:oauth-complete" &&
-    (payload as OAuthCompletePayload).requestId === requestId
-  );
-}
-
-export function getOAuthCompleteMessagePayload(
-  event: MessageEvent,
-  expectedOrigin: string,
-  requestId: string,
-): OAuthCompletePayload | null {
-  if (event.origin !== expectedOrigin) {
-    return null;
-  }
-
-  if (!isOAuthCompletePayloadForRequest(event.data, requestId)) {
-    return null;
-  }
-
-  return event.data;
-}
-
-export function getOAuthCompleteStoragePayload(
-  event: StorageEvent,
-  requestId: string,
-): OAuthCompletePayload | null {
-  if (
-    event.key !== oauthCompletionStorageKey(requestId) ||
-    event.newValue === null
-  ) {
-    return null;
-  }
-
-  try {
-    const payload = JSON.parse(event.newValue);
-    return isOAuthCompletePayloadForRequest(payload, requestId)
-      ? payload
-      : null;
-  } catch {
-    return null;
-  }
 }
 
 function wait(ms: number): Promise<void> {

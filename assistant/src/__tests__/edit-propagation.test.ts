@@ -76,8 +76,7 @@ async function seedSlackMessage(opts: {
     inboundResult.conversationId,
     "user",
     initialContent,
-    { userMessageChannel: "slack" },
-    { skipIndexing: true },
+    { metadata: { userMessageChannel: "slack" }, skipIndexing: true },
   );
 
   linkMessage(inboundResult.eventId, inserted.id);

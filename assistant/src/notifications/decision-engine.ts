@@ -957,22 +957,19 @@ async function classifyWithLLM(
   const tool = buildDecisionTool(availableChannels);
 
   try {
-    const response = await provider.sendMessage(
-      [userMessage(prompt)],
-      [tool],
+    const response = await provider.sendMessage([userMessage(prompt)], {
+      tools: [tool],
       systemPrompt,
-      {
-        config: {
-          callSite: "notificationDecision",
-          max_tokens: 2048,
-          tool_choice: {
-            type: "tool" as const,
-            name: "record_notification_decision",
-          },
+      config: {
+        callSite: "notificationDecision",
+        max_tokens: 2048,
+        tool_choice: {
+          type: "tool" as const,
+          name: "record_notification_decision",
         },
-        signal: abortSignal,
       },
-    );
+      signal: abortSignal,
+    });
     cleanup();
 
     const toolBlock = extractToolUse(response);
