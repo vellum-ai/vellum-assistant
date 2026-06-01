@@ -381,6 +381,108 @@ export function useConversationActions({
     [assistantId],
   );
 
+  const handleMarkAllReadInGroup = useCallback(
+    async (groupConversations: Conversation[]) => {
+      if (!assistantId) return;
+      const unread = groupConversations.filter(
+        (c) => c.hasUnseenLatestAssistantMessage,
+      );
+      if (unread.length === 0) return;
+
+      await Promise.allSettled(
+        unread.map(async (c) => {
+          try {
+            await conversationsSeenPost({
+              path: { assistant_id: assistantId },
+              body: { conversationId: c.conversationId },
+              throwOnError: true,
+            });
+            patchConversation(queryClient, assistantId, c.conversationId, {
+              hasUnseenLatestAssistantMessage: false,
+            });
+          } catch (err) {
+            Sentry.captureException(err, {
+              tags: { context: "markAllReadInGroup" },
+            });
+          }
+        }),
+      );
+    },
+    [assistantId, queryClient],
+  );
+
+  const handleArchiveAllInGroup = useCallback(
+    async (_groupName: string, groupConversations: Conversation[]) => {
+      if (!assistantId) return;
+      if (groupConversations.length === 0) return;
+
+      const activeId = activeConversationId;
+      const archivingActive = groupConversations.some(
+        (c) => c.conversationId === activeId,
+      );
+
+      for (const c of groupConversations) {
+        patchConversation(queryClient, assistantId, c.conversationId, {
+          archivedAt: Date.now(),
+        });
+      }
+
+      if (archivingActive) {
+        const nonGroupIds = new Set(
+          groupConversations.map((c) => c.conversationId),
+        );
+        const nextKey = findNextConversationId(
+          conversations.filter((c) => !nonGroupIds.has(c.conversationId)),
+          activeId!,
+        );
+        if (nextKey) {
+          switchConversation(nextKey);
+        } else {
+          startNewConversation({ silent: true });
+        }
+      }
+
+      const results = await Promise.allSettled(
+        groupConversations.map(async (c) => {
+          try {
+            await conversationsByIdArchivePost({
+              path: {
+                assistant_id: assistantId,
+                id: c.conversationId,
+              },
+              throwOnError: true,
+            });
+          } catch (err) {
+            patchConversation(queryClient, assistantId, c.conversationId, {
+              archivedAt: c.archivedAt,
+            });
+            Sentry.captureException(err, {
+              tags: { context: "archiveAllInGroup" },
+            });
+            throw err;
+          }
+        }),
+      );
+
+      const anySucceeded = results.some((r) => r.status === "fulfilled");
+      if (anySucceeded) {
+        await refreshConversations();
+        void queryClient.invalidateQueries({
+          queryKey: archivedConversationsQueryKey(assistantId),
+        });
+      }
+    },
+    [
+      activeConversationId,
+      assistantId,
+      conversations,
+      queryClient,
+      refreshConversations,
+      startNewConversation,
+      switchConversation,
+    ],
+  );
+
   return {
     handleArchiveConversation,
     handleUnarchiveConversation,
@@ -390,5 +492,7 @@ export function useConversationActions({
     handleMoveToGroup,
     handleRemoveFromGroup,
     handleRenameConversation,
+    handleMarkAllReadInGroup,
+    handleArchiveAllInGroup,
   };
 }

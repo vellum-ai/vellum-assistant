@@ -486,6 +486,8 @@ export function ChatLayout() {
     handleMoveToGroup,
     handleRemoveFromGroup,
     handleRenameConversation,
+    handleMarkAllReadInGroup,
+    handleArchiveAllInGroup,
   } = useConversationActions({
     assistantId: assistantId,
     activeConversationId,
@@ -599,6 +601,8 @@ export function ChatLayout() {
         onRemoveFromGroup={handleRemoveFromGroup}
         onRenameGroup={handleRenameGroup}
         onDeleteGroup={handleDeleteGroup}
+        onMarkAllReadInGroup={handleMarkAllReadInGroup}
+        onArchiveAllInGroup={handleArchiveAllInGroup}
         onInspect={showLlmInspector ? handleInspectConversation : undefined}
         footerAction={
           <PreferencesMenu
@@ -632,6 +636,8 @@ export function ChatLayout() {
       handleRemoveFromGroup,
       handleRenameGroup,
       handleDeleteGroup,
+      handleMarkAllReadInGroup,
+      handleArchiveAllInGroup,
       isIdentityActive,
       handleOpenIdentity,
       isLibraryActive,
