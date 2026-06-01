@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { homeStateQueryKey } from "@/lib/sync/query-tags";
 import { fetchRelationshipState } from "../api";
-import type { RelationshipState } from "../types";
+import type { RelationshipState } from "@vellumai/assistant-api";
 
 /**
  * React Query hook for the assistant relationship state (tier, facts,

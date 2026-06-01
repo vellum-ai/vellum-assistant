@@ -14,7 +14,7 @@ import type {
   FeedItemStatus,
   HomeFeedResponse,
   RelationshipState,
-} from "./types";
+} from "@vellumai/assistant-api";
 
 export async function fetchHomeFeed(
   assistantId: string,
