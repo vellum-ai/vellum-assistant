@@ -83,8 +83,8 @@ mock.module("@/assistant/lifecycle", () => ({
 const { lifecycleService } = await import("./lifecycle-service");
 const { useAssistantLifecycleStore } = await import("./lifecycle-store");
 const { useAssistantSelectionStore } = await import("./selection-store");
-const { __resetEventBusForTesting, useEventBusStore } = await import(
-  "@/stores/event-bus-store"
+const { __resetAutoGreetSignalForTesting, peekAutoGreetPending } = await import(
+  "./auto-greet-signal"
 );
 
 // --- fake query client --- //
@@ -127,12 +127,12 @@ beforeEach(() => {
   }));
   getAssistantMock.mockImplementation(async () => ({ ok: false, status: 404 }));
   lifecycleService.__resetForTesting();
-  __resetEventBusForTesting();
+  __resetAutoGreetSignalForTesting();
 });
 
 afterEach(() => {
   lifecycleService.__resetForTesting();
-  __resetEventBusForTesting();
+  __resetAutoGreetSignalForTesting();
 });
 
 describe("lifecycleService — server state projection", () => {
@@ -350,12 +350,7 @@ describe("lifecycleService — auto-hatch cascade", () => {
     );
   });
 
-  test("vanilla auto_hatch publishes lifecycle.autoGreetRequested — the signal chat-page subscribes to", async () => {
-    const greetHandler = mock(() => {});
-    useEventBusStore
-      .getState()
-      .subscribe("lifecycle.autoGreetRequested", greetHandler);
-
+  test("vanilla auto_hatch marks the auto-greet sticky signal — chat-page consumes it on mount", async () => {
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
       status: 404,
@@ -372,18 +367,13 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(greetHandler).toHaveBeenCalledTimes(1);
+    expect(peekAutoGreetPending()).toBe(true);
   });
 
-  test("auto_hatch + nonprod does NOT publish auto-greet — user has to pick a version first", async () => {
+  test("auto_hatch + nonprod does NOT mark auto-greet — user has to pick a version first", async () => {
     // The user clicking the version button is what fires the
     // auto-greet, via `hatchVersion`. Auto-hatch alone in nonprod
-    // doesn't hatch, so it shouldn't fire the signal.
-    const greetHandler = mock(() => {});
-    useEventBusStore
-      .getState()
-      .subscribe("lifecycle.autoGreetRequested", greetHandler);
-
+    // doesn't hatch, so it shouldn't set the signal.
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
       status: 404,
@@ -396,15 +386,10 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(greetHandler).not.toHaveBeenCalled();
+    expect(peekAutoGreetPending()).toBe(false);
   });
 
-  test("auto_hatch + isRetired does NOT publish auto-greet", async () => {
-    const greetHandler = mock(() => {});
-    useEventBusStore
-      .getState()
-      .subscribe("lifecycle.autoGreetRequested", greetHandler);
-
+  test("auto_hatch + isRetired does NOT mark auto-greet", async () => {
     getAssistantMock.mockImplementationOnce(async () => ({
       ok: false,
       status: 404,
@@ -417,22 +402,17 @@ describe("lifecycleService — auto-hatch cascade", () => {
     });
     await lifecycleService.checkAssistant();
 
-    expect(greetHandler).not.toHaveBeenCalled();
+    expect(peekAutoGreetPending()).toBe(false);
   });
 
-  test("hatchVersion publishes auto-greet — the nonprod version-selection greet", () => {
-    const greetHandler = mock(() => {});
-    useEventBusStore
-      .getState()
-      .subscribe("lifecycle.autoGreetRequested", greetHandler);
-
+  test("hatchVersion marks the auto-greet sticky signal — the nonprod version-selection greet", () => {
     lifecycleService.setInputs({
       ...baseInputs,
       queryClient: makeQueryClient(),
     });
     lifecycleService.hatchVersion("v1");
 
-    expect(greetHandler).toHaveBeenCalledTimes(1);
+    expect(peekAutoGreetPending()).toBe(true);
   });
 });
 

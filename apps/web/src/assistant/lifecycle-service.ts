@@ -38,10 +38,10 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
+import { setAutoGreetPending } from "@/assistant/auto-greet-signal";
 import { ASSISTANT_QUERY_KEY, POLL_INTERVAL_MS } from "@/assistant/queries";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import type { AssistantState } from "@/assistant/types";
-import { useEventBusStore } from "@/stores/event-bus-store";
 import { extractErrorMessage } from "@/utils/api-errors";
 import { isGatewayAuthMode, getGatewayToken } from "@/lib/auth/gateway-session";
 import {
@@ -247,9 +247,11 @@ class AssistantLifecycleService {
     if (!this.ready) return;
     this.hatchRetryCount = 0;
     // Version selection in nonprod is a user-initiated fresh start —
-    // signal the chat surface to auto-greet once the next conversation
-    // is ready. Fire-and-forget on the bus; chat-page subscribes.
-    useEventBusStore.getState().publish("lifecycle.autoGreetRequested", {});
+    // signal the chat surface that the next conversation should
+    // auto-greet. Sticky one-shot via sessionStorage so the signal
+    // survives the `/assistant` → `/assistant/conversations/:id`
+    // redirect that `useConversationLoader` performs after hatch.
+    setAutoGreetPending();
     void this.hatchAndCheck(version);
   }
 
@@ -396,10 +398,11 @@ class AssistantLifecycleService {
         return;
       }
       // Vanilla auto-hatch path: a new signup with no assistant lands
-      // here. Signal the chat surface to auto-greet once the next
-      // conversation is ready. Fire-and-forget on the bus; chat-page
-      // subscribes.
-      useEventBusStore.getState().publish("lifecycle.autoGreetRequested", {});
+      // here. Signal the chat surface that the next conversation
+      // should auto-greet. Sticky one-shot via sessionStorage so the
+      // signal survives the `/assistant` → `/assistant/conversations/:id`
+      // redirect that `useConversationLoader` performs after hatch.
+      setAutoGreetPending();
       await this.hatchAndCheck();
       return;
     }

@@ -20,7 +20,6 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 import { ChevronDown } from "lucide-react";
 import * as Sentry from "@sentry/react";
 
-import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAuthStore } from "@/stores/auth-store";
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
@@ -56,6 +55,7 @@ import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
 import { type UIContext } from "@/domains/chat/turn-selectors";
 import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
+import { consumeAutoGreetPending } from "@/assistant/auto-greet-signal";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
 import type { SyncChangedEvent } from "@/lib/sync/types";
@@ -212,8 +212,30 @@ export function ChatPage() {
 
   const [restoredDraftConversationId, setRestoredDraftConversationId] = useState<string | null>(null);
   const [refreshEpoch, setRefreshEpoch] = useState(0);
+  // Two sticky-one-shot signal sources, either of which means "the next
+  // conversation that loads should auto-greet":
+  //   1. The onboarding-screen flow staged a pre-chat context with an
+  //      initial message (via `setPendingPreChatContext`). The composer
+  //      auto-send hook below consumes it.
+  //   2. The lifecycle service marked auto-greet pending after a vanilla
+  //      auto-hatch or `hatchVersion` (via `setAutoGreetPending` in
+  //      `auto-greet-signal.ts`). The server emits the greeting via SSE;
+  //      `autoGreetRef` keeps the loading gate up across the
+  //      `use-conversation-switch` reset that fires on first mount.
+  // sessionStorage survives the route redirect that
+  // `useConversationLoader` performs after a fresh hatch, which is why
+  // neither signal can live in component state or on the bus.
+  const initialAutoGreetSignal = useState(() => {
+    if (peekPendingPreChatContext()?.initialMessage != null) {
+      return { pending: true, autoGreet: false };
+    }
+    if (consumeAutoGreetPending()) {
+      return { pending: true, autoGreet: true };
+    }
+    return { pending: false, autoGreet: false };
+  })[0];
   const [autoGreetPending, setAutoGreetPending] = useState(
-    () => peekPendingPreChatContext()?.initialMessage != null,
+    initialAutoGreetSignal.pending,
   );
   const [contextWindowUsage, setContextWindowUsage] = useState<ContextWindowUsage | null>(null);
   const [transcriptPagination, setTranscriptPagination] = useState<Omit<TranscriptPaginationState, "items">>({
@@ -349,7 +371,7 @@ export function ChatPage() {
   const pendingLocalDeletionsRef = useRef<Set<string>>(new Set());
   const confirmationToolCallMapRef = useRef<Map<string, string>>(new Map());
   const streamingMessageIdsRef = useRef<Set<string>>(new Set());
-  const autoGreetRef = useRef(false);
+  const autoGreetRef = useRef(initialAutoGreetSignal.autoGreet);
   const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInitialMessageRef = useRef<{ conversationId: string; content: string } | null>(null);
@@ -609,18 +631,6 @@ export function ChatPage() {
     void navigate(routes.conversation(onboardingDraftConversationId), { replace: true });
   }, [searchParams, navigate]);
 
-  // Auto-greet signal from the lifecycle service. Fired on two
-  // paths the onboarding-screen `?onboarding=1` URL flow can't
-  // cover: a vanilla auto-hatch for a new signup who never visited
-  // `/onboarding/hatching`, and the nonprod version-selection
-  // hatch. Lives on the bus rather than the lifecycle store
-  // because the semantics are event-shaped (one-time signal,
-  // dropped if no listener) — and ChatPage is always mounted on
-  // the chat surface, so the only legitimate listener is here.
-  useBusSubscription("lifecycle.autoGreetRequested", () => {
-    autoGreetRef.current = true;
-    setAutoGreetPending(true);
-  });
 
   // -------------------------------------------------------------------------
   // Message reconciliation
