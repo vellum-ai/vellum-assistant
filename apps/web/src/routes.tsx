@@ -129,6 +129,10 @@ export const router = createBrowserRouter(
                   path: "onboarding/hosting",
                   lazy: { Component: () => import("@/domains/onboarding/pages/hosting-screen").then((m) => m.HostingScreen) },
                 },
+                {
+                  path: "onboarding/api-key",
+                  lazy: { Component: () => import("@/domains/onboarding/pages/api-key-screen").then((m) => m.ApiKeyScreen) },
+                },
               ],
             },
             {

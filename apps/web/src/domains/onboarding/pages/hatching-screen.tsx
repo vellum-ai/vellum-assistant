@@ -21,6 +21,7 @@ import { extractErrorMessage } from "@/utils/api-errors";
 import { isLocalMode, loadLockfile, setSelectedAssistantId, saveLockfileAssistant, primeLocalGatewayConnection, getLocalGatewayUrl } from "@/lib/local-mode";
 import { hatchLocalAssistant } from "@/runtime/local-mode-host";
 import { getOnboardingEntrypoint } from "@/domains/onboarding/gate";
+import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import {
   readAiDataConsent,
@@ -85,7 +86,6 @@ export type HatchGateDecision =
 export function decideHatchGate(input: {
   isAuthLoading: boolean;
   isLoggedIn: boolean;
-  isLocalMode: boolean;
   isReplay: boolean;
   onboardingCompleted: boolean;
   tosAccepted: boolean;
@@ -97,7 +97,9 @@ export function decideHatchGate(input: {
   if (input.onboardingCompleted && !input.isReplay) {
     return { kind: "redirect", to: routes.assistant };
   }
-  if (input.isLocalMode) return { kind: "proceed" };
+  // Consent (incl. local mode): the privacy screen is now shown for every
+  // hosting option, so require it for local hatches too. The privacy screen
+  // persists tosAccepted/aiDataConsent and marks the in-memory consent signal.
   const persistedConsent = input.tosAccepted && input.aiDataConsentAccepted;
   if (!input.cameFromPrivacyScreen && !persistedConsent) {
     return { kind: "redirect", to: getOnboardingEntrypoint() };
@@ -154,7 +156,6 @@ export function HatchingScreen() {
     const decision = decideHatchGate({
       isAuthLoading,
       isLoggedIn,
-      isLocalMode: isLocalMode(),
       isReplay,
       onboardingCompleted: readOnboardingCompleted(),
       tosAccepted: readTosAccepted(),
@@ -290,6 +291,19 @@ export function HatchingScreen() {
             readyPollTimer = null;
           }
           if (cancelled) return;
+
+          // Apply the model-provider key collected on the API-key step to the
+          // freshly hatched assistant. Non-blocking on failure — onboarding
+          // proceeds and the user can fix it in Settings.
+          if (result.assistantId) {
+            try {
+              await applyPendingProviderKey(result.assistantId);
+            } catch (err) {
+              Sentry.captureException(err, {
+                tags: { context: "onboarding_apply_provider_key" },
+              });
+            }
+          }
 
           handleHatchReady();
         } catch {

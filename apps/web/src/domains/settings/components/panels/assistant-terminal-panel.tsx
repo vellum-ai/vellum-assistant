@@ -100,7 +100,7 @@ export function AssistantTerminalPanel() {
           Loading terminal...
         </div>
       ) : !assistantId ? (
-        <div className="rounded-lg border border-[var(--border-default)] px-4 py-3 text-body-medium-lighter text-[var(--content-tertiary)]">
+        <div className="rounded-lg border border-[var(--border-base)] px-4 py-3 text-body-medium-lighter text-[var(--content-tertiary)]">
           <div className="flex items-center gap-2 px-1 py-0.5">
             <Terminal className="h-4 w-4 shrink-0" />
             <span>
