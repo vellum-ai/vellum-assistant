@@ -8,6 +8,16 @@ import {
 } from "bun:test";
 import { cleanup, renderHook } from "@testing-library/react";
 
+// `mock.module` is safe for `use-is-mobile` because it's a pure
+// derived-value hook (no module-local state). The mobile case is
+// controlled per-test via the mutable `mobileRef.current` below; tests
+// that don't touch it default to `false` (wide viewport).
+const mobileRef = { current: false };
+mock.module("@/hooks/use-is-mobile", () => ({
+  useIsMobile: () => mobileRef.current,
+  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+}));
+
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
@@ -41,6 +51,7 @@ beforeEach(() => {
   conversationSnapshot = useConversationStore.getState();
   selectionSnapshot = useAssistantSelectionStore.getState();
 
+  mobileRef.current = false;
   loadAppMock.mockReset();
   enterAppEditingMock.mockReset();
   setEditingConversationIdMock.mockReset();
@@ -101,6 +112,24 @@ describe("useOpenAppFromChat", () => {
     expect(loadAppMock).toHaveBeenCalledWith("asst-1", "app-42");
     expect(setEditingConversationIdMock).toHaveBeenCalledWith("conv-7");
     expect(enterAppEditingMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("on a mobile viewport, loads + binds editing conversation but stays full-screen (no app-editing upgrade)", async () => {
+    // Split chat+app doesn't fit on a phone — `loadApp` already left
+    // `mainView` at `"app"` (full-screen), and we expect no upgrade to
+    // `"app-editing"` even with an active conversation.
+    mobileRef.current = true;
+    useConversationStore.setState({ activeConversationId: "conv-7" });
+    const { result } = renderHook(() => useOpenAppFromChat());
+
+    await result.current("app-42");
+
+    expect(loadAppMock).toHaveBeenCalledWith("asst-1", "app-42");
+    // The editing-conversation binding still happens — any later
+    // "edit this app" affordance from mobile threads back to the right
+    // conversation.
+    expect(setEditingConversationIdMock).toHaveBeenCalledWith("conv-7");
+    expect(enterAppEditingMock).not.toHaveBeenCalled();
   });
 
   test("loads the app but skips app-editing when no conversation is active", async () => {
