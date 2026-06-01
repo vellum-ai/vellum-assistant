@@ -7,8 +7,19 @@ mock.module("@/domains/chat/components/chat-attachments/message-attachments", ()
 }));
 
 mock.module("@/domains/chat/components/chat-markdown-message", () => ({
-  ChatMarkdownMessage: ({ content }: { content: string }) => (
-    <div data-testid="markdown">{content}</div>
+  ChatMarkdownMessage: ({
+    content,
+    hardLineBreaks,
+  }: {
+    content: string;
+    hardLineBreaks?: boolean;
+  }) => (
+    <div
+      data-testid="markdown"
+      data-hard-line-breaks={hardLineBreaks ? "true" : "false"}
+    >
+      {content}
+    </div>
   ),
 }));
 
@@ -70,6 +81,28 @@ function renderMessage(
 }
 
 describe("TranscriptMessageBody", () => {
+  test("enables hard line breaks for assistant messages (JARVIS-1007)", () => {
+    const html = renderMessage({
+      id: "m1",
+      role: "assistant",
+      content: "line one\nline two",
+      timestamp: 1_000,
+    });
+
+    expect(html).toContain('data-hard-line-breaks="true"');
+  });
+
+  test("enables hard line breaks for user messages too", () => {
+    const html = renderMessage({
+      id: "m1",
+      role: "user",
+      content: "line one\nline two",
+      timestamp: 1_000,
+    });
+
+    expect(html).toContain('data-hard-line-breaks="true"');
+  });
+
   test("uses the latest tool completion as the message activity timestamp", () => {
     const html = renderMessage({
       id: "m1",
