@@ -362,7 +362,7 @@ export function TranscriptMessageBody({
 
   // User messages render text + attachments inside a single bubble; the bubble
   // background/padding live here at the wrapper rather than per text segment.
-  const userBubbleClass = `max-w-[80%] rounded-lg bg-[var(--surface-lift)] px-4 py-3 text-[var(--content-default)] flex w-full flex-col gap-2 ${
+  const userBubbleClass = `max-w-[80%] rounded-lg bg-[var(--surface-lift)] px-4 py-3 text-[var(--content-default)] flex flex-col gap-2 ${
     isSlackMessage ? "sm:max-w-[420px]" : ""
   }`;
 
