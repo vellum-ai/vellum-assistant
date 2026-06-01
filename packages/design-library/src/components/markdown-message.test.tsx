@@ -142,6 +142,56 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("$5");
   });
 
+  test("currency inside inline code stays verbatim (no escape leaks)", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: 'Set `price="$5"` in the config.',
+      }),
+    );
+
+    // The code span must be byte-exact — no stray backslash from escaping.
+    // (Static markup HTML-encodes the quotes as &quot;.)
+    expect(html).toContain("price=&quot;$5&quot;");
+    expect(html).not.toContain("\\$");
+  });
+
+  test("currency inside a fenced code block stays verbatim", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: '```sh\necho "$5"\necho "$1,000"\n```',
+      }),
+    );
+
+    expect(html).toContain("$5");
+    expect(html).toContain("$1,000");
+    expect(html).not.toContain("\\$");
+  });
+
+  test("currency inside a link destination is not rewritten", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "[pay](https://example.com/checkout?amount=$5)",
+      }),
+    );
+
+    expect(html).toContain("amount=$5");
+    expect(html).not.toContain("\\$");
+  });
+
+  test("currency in prose is still escaped even when code is present", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: 'It cost $65B total — run `echo "$5"` to verify.',
+      }),
+    );
+
+    // Prose currency renders as plain text (no math), code stays exact.
+    expect(html).not.toContain("katex");
+    expect(html).toContain("$65B");
+    expect(html).toContain("echo &quot;$5&quot;");
+    expect(html).not.toContain("\\$");
+  });
+
   test("custom linkComponent replaces the default link renderer", () => {
     function CustomLink({ href, children }: { href?: string; children?: React.ReactNode }) {
       return <a href={href} data-custom="true">{children}</a>;

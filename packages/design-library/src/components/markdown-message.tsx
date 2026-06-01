@@ -15,6 +15,8 @@ import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import remarkParse from "remark-parse";
+import { unified } from "unified";
 import type { Components } from "react-markdown";
 import "katex/dist/katex.min.css";
 
@@ -260,34 +262,76 @@ function buildMarkdownComponents(
 }
 
 /**
+ * A currency amount: `$` immediately followed by a digit, with optional
+ * thousands separators, a decimal, and a K/M/B/T(/bn/tn/trn) scale suffix,
+ * ending at a word/punctuation boundary. Intentionally narrow so real math is
+ * preserved — `$E = mc^2$`, `$x^2$`, `$\frac12$` have no digit after `$`, and
+ * `$2x + 1$` has the digit followed by a variable rather than a boundary.
+ */
+const CURRENCY_AMOUNT =
+  /\$(\d[\d,]*(?:\.\d+)?(?:bn|tn|trn|[KMBT])?)(?=$|[\s).,;:!?%"'’\]}/-]|&)/gi;
+
+/**
  * remark-math treats `$…$` as inline LaTeX, so monetary text like
  * "$65B series H at $965B post-money" gets greedily paired into a math span
- * and mangled into italic math typography. Escape the leading `$` of anything
- * that looks like a currency amount so the math parser leaves it as literal
- * text.
+ * and mangled into italic math typography. We defuse this by escaping the
+ * leading `$` of currency amounts (`\$`) so the math tokenizer skips them.
  *
- * A currency amount is `$` immediately followed by a digit, with optional
- * thousands separators, a decimal, and a K/M/B/T(/bn/tn/trn) scale suffix,
- * ending at a word/punctuation boundary. The match is intentionally narrow so
- * real inline/block math is preserved:
- *   - `$E = mc^2$`, `$x^2$`, `$\frac12$` — no digit after `$`, never matched.
- *   - `$2x + 1$` — the digit is followed by a variable, not a boundary; the
- *     whole expression stays math.
- *   - `$$…$$` block math — the inner `$` is preceded by `$`, so it is skipped.
- * The rare degenerate case `$3.14$` (a bare numeric "equation") renders as
- * literal text rather than math, which is the safer default. Dollars already
- * escaped as `\$` are left untouched.
+ * The escape MUST happen on the source string before react-markdown parses
+ * (once `$…$` is paired into a math node it is too late, and reverting the
+ * node would also swallow the `$` that opens any adjacent real equation). But
+ * a blind string replace would also rewrite verbatim regions — inline code,
+ * fenced code, link destinations, autolinks — leaking a stray backslash into
+ * text that must stay exact.
+ *
+ * So we first parse the markdown *structure* (GFM, but no math) and rewrite
+ * currency only inside `text` nodes. Code spans, code blocks, and link/image
+ * destinations are non-text nodes, so they are left byte-for-byte intact. A
+ * `$` preceded by `$` (a `$$…$$` fence) or `\` (already escaped) is skipped.
  */
-function escapeCurrencyDollars(text: string): string {
-  return text.replace(
-    /\$(\d[\d,]*(?:\.\d+)?(?:bn|tn|trn|[KMBT])?)(?=$|[\s).,;:!?%"'’\]}/-]|&)/gi,
-    (match, amount: string, offset: number, full: string) => {
-      const prev = offset > 0 ? full[offset - 1] : "";
-      // `\$` is already escaped; a preceding `$` means this is a `$$…$$` fence.
-      if (prev === "\\" || prev === "$") return match;
+const structureParser = unified().use(remarkParse).use(remarkGfm);
+
+function escapeCurrencyDollars(content: string): string {
+  // Fast path: nothing that looks like `$<digit>` means no work to do.
+  if (!/\$\d/.test(content)) return content;
+
+  const tree = structureParser.parse(content);
+
+  // Source offset ranges of every text node, in document order.
+  const ranges: Array<[number, number]> = [];
+  const collect = (node: { type: string; position?: { start: { offset?: number }; end: { offset?: number } }; children?: unknown[] }) => {
+    if (node.type === "text") {
+      const start = node.position?.start.offset;
+      const end = node.position?.end.offset;
+      if (typeof start === "number" && typeof end === "number") {
+        ranges.push([start, end]);
+      }
+      return;
+    }
+    if (Array.isArray(node.children)) {
+      for (const child of node.children) {
+        collect(child as Parameters<typeof collect>[0]);
+      }
+    }
+  };
+  collect(tree as Parameters<typeof collect>[0]);
+  if (ranges.length === 0) return content;
+
+  let result = "";
+  let cursor = 0;
+  for (const [start, end] of ranges) {
+    if (start < cursor) continue; // defensive: never reprocess overlapping spans
+    result += content.slice(cursor, start); // verbatim gap (code, links, …)
+    const slice = content.slice(start, end);
+    result += slice.replace(CURRENCY_AMOUNT, (match, amount: string, offset: number) => {
+      const prev = offset > 0 ? slice[offset - 1] : start > 0 ? content[start - 1] : "";
+      if (prev === "$" || prev === "\\") return match;
       return `\\$${amount}`;
-    },
-  );
+    });
+    cursor = end;
+  }
+  result += content.slice(cursor);
+  return result;
 }
 
 /**
@@ -324,8 +368,10 @@ export function MarkdownMessage({
   hardLineBreaks,
   linkComponent,
 }: MarkdownMessageProps) {
-  const escaped = escapeCurrencyDollars(content);
-  const processed = hardLineBreaks ? preserveNewlines(escaped) : escaped;
+  const processed = useMemo(() => {
+    const escaped = escapeCurrencyDollars(content);
+    return hardLineBreaks ? preserveNewlines(escaped) : escaped;
+  }, [content, hardLineBreaks]);
   const Link = linkComponent ?? DefaultLink;
   const components = useMemo(() => buildMarkdownComponents(Link), [Link]);
   return (

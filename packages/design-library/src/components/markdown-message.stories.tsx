@@ -51,3 +51,22 @@ export const CurrencyAndMath: Story = {
       "A widget costs $5 and the markup is $20M across the fleet, but the area formula $A = \\pi r^2$ still applies.",
   },
 };
+
+/**
+ * Currency escaping must skip verbatim regions: the `$5` inside inline code,
+ * the fenced block, and the link destination stay byte-exact, while the `$65B`
+ * in prose is still rendered as plain text rather than math.
+ */
+export const CurrencyInCodeAndLinks: Story = {
+  args: {
+    content: [
+      "Anthropic raised $65B — set `price=\"$5\"` in the config.",
+      "",
+      "```sh",
+      'echo "$5 and $1,000"',
+      "```",
+      "",
+      "See the [pricing page](https://example.com/p?amount=$5).",
+    ].join("\n"),
+  },
+};
