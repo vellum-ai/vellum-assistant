@@ -109,6 +109,29 @@ describe("reconcile-on-reopen — resume cause", () => {
     expect(reconcileActive).toHaveBeenCalledTimes(1);
     expect(startReconciliationLoop).toHaveBeenCalledWith(1);
   });
+
+  test("reconcile rejection: logs to Sentry, does NOT block the loop start, does not propagate", async () => {
+    // Resume path is parallel-fire by design — the loop is the
+    // primary catch-up mechanism, so a one-shot reconcile failure
+    // shouldn't stop it from running. The catch just logs the
+    // rejection instead of letting it surface as an unhandled
+    // promise rejection.
+    const reconcileActive = mock(async () => {
+      throw new Error("daemon timeout");
+    });
+    const { deps, startReconciliationLoop } = makeDeps({ reconcileActive });
+    const handler = createReconcileOnReopen(deps);
+
+    handler.handleSseOpened({ assistantId: "asst-1", cause: "resume" });
+
+    // Loop start is synchronous and unconditional.
+    expect(startReconciliationLoop).toHaveBeenCalledWith(1);
+
+    // Let the rejected promise settle so the .catch fires.
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(captureExceptionMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => {
