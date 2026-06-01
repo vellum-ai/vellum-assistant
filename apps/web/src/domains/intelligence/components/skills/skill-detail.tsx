@@ -16,13 +16,15 @@ import {
   isMarkdown,
 } from "@/components/file-markdown";
 import {
-  fetchSkillFileContent,
-  fetchSkillFiles,
-} from "@/domains/intelligence/skills/api";
+  skillsByIdFilesGetOptions,
+  skillsByIdFilesContentGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type { SkillsByIdFilesContentGetResponse } from "@/generated/daemon/types.gen";
 import {
   isAvailableSkill,
   isRemovableSkill,
   type SkillFileEntry,
+  type SkillFilesResponse,
   type SkillInfo,
 } from "@/domains/intelligence/skills/types";
 
@@ -51,8 +53,10 @@ export function SkillDetail({
   const removable = isRemovableSkill(skill);
 
   const filesQuery = useQuery({
-    queryKey: ["skillFiles", assistantId, skill.id],
-    queryFn: () => fetchSkillFiles(assistantId, skill.id),
+    ...skillsByIdFilesGetOptions({
+      path: { assistant_id: assistantId, id: skill.id },
+    }),
+    select: (data) => data as SkillFilesResponse | null,
   });
 
   const fileEntries = useMemo<SkillFileEntry[]>(
@@ -68,11 +72,11 @@ export function SkillDetail({
   const activePath = selectedPath ?? skillMd?.path ?? null;
 
   const fileContentQuery = useQuery({
-    queryKey: ["skillFileContent", assistantId, skill.id, activePath],
-    queryFn: () =>
-      activePath
-        ? fetchSkillFileContent(assistantId, skill.id, activePath)
-        : Promise.resolve(null),
+    ...skillsByIdFilesContentGetOptions({
+      path: { assistant_id: assistantId, id: skill.id },
+      query: { path: activePath ?? "" },
+    }),
+    select: (data): SkillsByIdFilesContentGetResponse | null => data ?? null,
     enabled: Boolean(activePath),
   });
 
