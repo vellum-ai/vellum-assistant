@@ -4,6 +4,7 @@ import VellumAssistantShared
 import os
 
 private let log = Logger(subsystem: Bundle.appBundleIdentifier, category: "AppDelegate")
+private let selfIntroGreetingFeatureFlag = "self-intro-greeting"
 
 /// Tracks the first-launch bootstrap sequence so the app can resume
 /// from the correct phase after a restart mid-bootstrap.
@@ -131,7 +132,12 @@ extension AppDelegate {
             }
         }
 
-        let greeting = wakeUpGreeting()
+        let greeting: String
+        if featureFlagStore.isEnabled(selfIntroGreetingFeatureFlag) {
+            greeting = pendingPreChatContext?.initialMessage ?? wakeUpGreeting()
+        } else {
+            greeting = wakeUpGreeting()
+        }
         showMainWindow(initialMessage: greeting, isFirstLaunch: true)
 
         // showMainWindow always creates mainWindow, but guard defensively.

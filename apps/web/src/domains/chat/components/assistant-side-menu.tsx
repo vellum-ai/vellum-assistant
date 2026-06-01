@@ -359,12 +359,13 @@ export function AssistantSideMenu({
 
   // --- Collapsed-rail popover content renderer ---
 
-  const renderCollapsedGroupContent = (title: string, conversations: Conversation[], closePopover?: () => void): ReactNode => (
+  const renderCollapsedGroupContent = (title: string, conversations: Conversation[], closePopover?: () => void, emptyState?: ReactNode): ReactNode => (
     <div className="pb-1">
       <div className="flex items-center justify-between px-4 py-1">
         <span className="text-body-small-default text-[var(--content-tertiary)]">{title}</span>
       </div>
       <div className="px-2">
+        {conversations.length === 0 ? emptyState : null}
         {conversations.map((c) => (
           <PanelItem
             key={c.conversationId}
@@ -480,29 +481,33 @@ export function AssistantSideMenu({
             <CollapsedGroupIcon
               icon={Calendar}
               label="Scheduled"
-              disabled={sidebar.scheduled.length === 0}
+              onOpenChange={(open) => {
+                if (open) {
+                  sidebar.activateScheduled();
+                }
+              }}
               indicatorState={getGroupIndicatorState(sidebar.scheduled, processingConversationIds, attentionConversationIds)}
             >
-              {(close) => renderCollapsedGroupContent("Scheduled", sidebar.scheduled, close)}
+              {(close) =>
+                renderCollapsedGroupContent(
+                  "Scheduled",
+                  sidebar.scheduled,
+                  close,
+                  <CollapsedGroupEmptyState loading={sidebar.scheduledLoading} />,
+                )
+              }
             </CollapsedGroupIcon>
-            {sidebar.background.length > 0 ? (
-              <CollapsedBackgroundGroup
-                conversations={sidebar.background}
-                activeConversationId={activeConversationId}
-                onSelectConversation={selectAndClose}
-                renderActions={renderThreadActions}
-                renderPinToggle={renderThreadPinToggle}
-                processingConversationIds={processingConversationIds}
-                attentionConversationIds={attentionConversationIds}
-              />
-            ) : (
-              <CollapsedGroupIcon
-                icon={Layers}
-                label="Background"
-                disabled
-                indicatorState={null}
-              />
-            )}
+            <CollapsedBackgroundGroup
+              conversations={sidebar.background}
+              loading={sidebar.backgroundLoading}
+              onReveal={sidebar.activateBackground}
+              activeConversationId={activeConversationId}
+              onSelectConversation={selectAndClose}
+              renderActions={renderThreadActions}
+              renderPinToggle={renderThreadPinToggle}
+              processingConversationIds={processingConversationIds}
+              attentionConversationIds={attentionConversationIds}
+            />
           </div>
         ) : (
           <>
@@ -557,6 +562,7 @@ export function AssistantSideMenu({
                 >
                   <ScheduledSubGroups
                     subGroups={sidebar.scheduledSubGroups}
+                    loading={sidebar.scheduledLoading}
                     {...subGroupProps}
                   />
                 </CollapsibleNavSection.Section>
@@ -569,6 +575,7 @@ export function AssistantSideMenu({
                 >
                   <BackgroundSubGroups
                     subGroups={sidebar.backgroundSubGroups}
+                    loading={sidebar.backgroundLoading}
                     {...subGroupProps}
                   />
                 </CollapsibleNavSection.Section>
@@ -647,11 +654,31 @@ export function AssistantSideMenu({
 }
 
 // ---------------------------------------------------------------------------
+// Collapsed-rail lazy-section placeholder
+// ---------------------------------------------------------------------------
+
+/**
+ * Placeholder shown inside a collapsed-rail flyout for the Background and
+ * Scheduled sections, which are openable before their lazy fetch resolves.
+ */
+function CollapsedGroupEmptyState({ loading }: { loading: boolean }) {
+  return (
+    <div className="px-4 py-2 text-body-small-default text-[var(--content-tertiary)]">
+      {loading ? "Loading…" : "No conversations"}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Collapsed background group — extracted so it can own sub-group expand state
 // ---------------------------------------------------------------------------
 
 interface CollapsedBackgroundGroupProps {
   conversations: Conversation[];
+  /** True while the lazy background fetch is in flight after a reveal. */
+  loading?: boolean;
+  /** Called when the flyout opens, to enable the lazy background fetch. */
+  onReveal?: () => void;
   activeConversationId?: string;
   onSelectConversation: (conversationId: string) => void;
   renderActions: (conversation: Conversation) => ReactNode;
@@ -662,6 +689,8 @@ interface CollapsedBackgroundGroupProps {
 
 function CollapsedBackgroundGroup({
   conversations,
+  loading = false,
+  onReveal,
   activeConversationId,
   onSelectConversation,
   renderActions,
@@ -707,6 +736,11 @@ function CollapsedBackgroundGroup({
     <CollapsedGroupIcon
       icon={Layers}
       label="Background"
+      onOpenChange={(open) => {
+        if (open) {
+          onReveal?.();
+        }
+      }}
       indicatorState={getGroupIndicatorState(conversations, processingConversationIds, attentionConversationIds)}
     >
       {(closePopover) => (
@@ -715,6 +749,9 @@ function CollapsedBackgroundGroup({
             <span className="text-body-small-default text-[var(--content-tertiary)]">Background</span>
           </div>
           <div className="px-2">
+            {conversations.length === 0 ? (
+              <CollapsedGroupEmptyState loading={loading} />
+            ) : null}
             {subGroups.map((group) => {
               const isSingle = group.key.startsWith("__single__:");
               if (isSingle) {

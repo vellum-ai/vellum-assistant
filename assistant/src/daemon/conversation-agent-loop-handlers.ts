@@ -1875,6 +1875,14 @@ export async function dispatchAgentEvent(
           deps.onEvent,
         );
         break;
+      case "compaction_circuit_open":
+      case "compaction_circuit_closed":
+        // Circuit-breaker transitions are already in wire-contract shape
+        // (a subset of ServerMessage), so forward them to the client sink
+        // unchanged. They drive the client's "auto-compaction paused"
+        // banner.
+        deps.onEvent(event);
+        break;
       case "error":
         handleError(state, deps, event);
         break;

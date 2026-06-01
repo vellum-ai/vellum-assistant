@@ -171,7 +171,7 @@ References:
 
 ### Organize by domain, not technical layer
 
-Group code by what it does (messages, conversations, voice,
+Group code by what it does (chat, messages, onboarding,
 interactions), not by what it is (hooks, utils, components). The
 top-level folder for domain modules is called **`domains/`**.
 
@@ -318,7 +318,7 @@ codebase's convention is in the same spirit as.
 Examples of correct splits:
 - `messages/` vs `chat/`: messages are created, streamed,
   delta-updated, and compacted — different lifecycle from conversation
-  routing, sidebar state, and voice input.
+  routing, sidebar state, and session coordination.
 - `lib/streaming/` vs `messages/`: SSE transport and reconnection logic
   changes for different reasons than message state management.
 - `chat/interaction-store` vs `chat/turn-store`: user-facing prompts

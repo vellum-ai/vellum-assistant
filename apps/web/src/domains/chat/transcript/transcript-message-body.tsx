@@ -56,11 +56,6 @@ export interface OpenRuleEditorContext {
  */
 export interface TranscriptMessageBodyProps {
   message: DisplayMessage;
-  /** Whether this row is the live, not-yet-finalized assistant bubble of
-   *  the active turn. Derived by the transcript from the conversation's
-   *  processing state and message position — drives streaming animations
-   *  and gates hover actions while the turn is in flight. */
-  isStreaming?: boolean;
   assistantDisplayName?: string | null;
   /**
    * Persistent set of expanded tool-call ids. Passed straight through to
@@ -227,18 +222,15 @@ function resolveSpawnedSubagentIds(
 
 function shouldAutoExpandToolCallGroup({
   isCurrentGroup,
-  isStreaming,
   toolCalls,
 }: {
   isCurrentGroup: boolean;
-  isStreaming: boolean;
   toolCalls: ChatMessageToolCall[];
 }): boolean {
-  if (!isCurrentGroup) return false;
-  return (
-    isStreaming ||
-    toolCalls.some((toolCall) => toolCall.status === "running")
-  );
+  if (!isCurrentGroup) {
+    return false;
+  }
+  return toolCalls.some((toolCall) => toolCall.status === "running");
 }
 
 function latestMessageActivityTimestamp(
@@ -331,7 +323,6 @@ function SlackMessageAttribution({
 
 export function TranscriptMessageBody({
   message,
-  isStreaming = false,
   assistantDisplayName,
   expandedToolCallIds,
   expandedCardIds,
@@ -691,7 +682,6 @@ export function TranscriptMessageBody({
                       expandedCardIds={expandedCardIds}
                       autoExpand={shouldAutoExpandToolCallGroup({
                         isCurrentGroup: gi === groups.length - 1,
-                        isStreaming,
                         toolCalls,
                       })}
                       onOpenRuleEditor={onOpenRuleEditor}
@@ -810,7 +800,6 @@ export function TranscriptMessageBody({
               content={message.content}
               timestamp={messageTimestamp}
               role={message.role}
-              isStreaming={isStreaming}
               openInSlackUrl={slackMessageUrl}
               onFork={forkHandler}
               onInspect={inspectHandler}
@@ -911,7 +900,6 @@ export function TranscriptMessageBody({
               expandedCardIds={expandedCardIds}
               autoExpand={shouldAutoExpandToolCallGroup({
                 isCurrentGroup: !hasVisibleLegacyContent,
-                isStreaming,
                 toolCalls: legacyToolCalls,
               })}
               onOpenRuleEditor={onOpenRuleEditor}
@@ -988,7 +976,6 @@ export function TranscriptMessageBody({
             content={message.content}
             timestamp={messageTimestamp}
             role={message.role}
-            isStreaming={isStreaming}
             openInSlackUrl={slackMessageUrl}
             onFork={forkHandler}
             onInspect={inspectHandler}

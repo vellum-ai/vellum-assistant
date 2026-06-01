@@ -6,14 +6,21 @@
  * companion `conversation-store.ts` keeps only the client-side slice —
  * active/editing key, processing/attention sets, and snapshots.
  *
- * Two queries cover the surface:
+ * Queries covering the surface:
  *
- * - **`useConversationListQuery`** — fetches all conversations
- *   (foreground + background) for a given assistant via the generated
- *   `conversationsGet()` SDK with pagination and deduplication. The
- *   cache stores a flat `Conversation[]` under
- *   `conversationsQueryKey(assistantId)`. All sidebar, loader, and
- *   mutation cache-helper consumers read from this single entry.
+ * - **`useConversationListQuery`** — fetches the foreground conversations
+ *   for a given assistant via the generated `conversationsGet()` SDK with
+ *   pagination and deduplication. The cache stores a flat `Conversation[]`
+ *   under `conversationsQueryKey(assistantId)`.
+ *
+ * - **`useBackgroundConversationListQuery`** — fetches background jobs into
+ *   a separate cache under `backgroundConversationsQueryKey(assistantId)`.
+ *   Enabled lazily so the backlog never blocks the initial chat render.
+ *
+ * - **`useScheduledConversationListQuery`** — fetches scheduled jobs into
+ *   their own cache under `scheduledConversationsQueryKey(assistantId)`,
+ *   enabled lazily and independently of the background list so revealing
+ *   the Scheduled section never pulls in the heavier background backlog.
  *
  * - **`useConversationGroupsQuery`** — wraps the generated
  *   `groupsGetOptions()`. Mounted conditionally behind the
@@ -54,10 +61,22 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import {
   archivedConversationsQueryKey,
+  backgroundConversationsQueryKey,
   conversationsQueryKey,
+  scheduledConversationsQueryKey,
 } from "@/lib/sync/query-tags";
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
-import { updateConversationsCache } from "@/utils/conversation-cache";
+import {
+  isBackgroundConversation,
+  isScheduledConversation,
+} from "@/utils/conversation-predicates";
+import {
+  findConversation,
+  updateAllConversationCaches,
+  updateBackgroundConversationsCache,
+  updateConversationsCache,
+  updateScheduledConversationsCache,
+} from "@/utils/conversation-cache";
 
 import {
   CONVERSATION_NOT_FOUND,
@@ -86,7 +105,7 @@ const CONVERSATION_LIST_PAGE_SIZE = 50;
 const CONVERSATION_LIST_MAX_PAGES = 200;
 
 type FetchConversationListOptions = {
-  conversationType?: "background";
+  conversationType?: "background" | "scheduled";
   /**
    * Filter by archive state. Defaults to `"active"` on the daemon side, so
    * omitting this returns non-archived rows only — matching how the sidebar
@@ -133,14 +152,15 @@ async function fetchConversationList(
 }
 
 /**
- * Fetch all conversations (foreground + background) for an assistant,
- * filtered by archive status. Both conversation-type buckets are fetched
- * in parallel, deduplicated by `conversationId`, and sorted.
+ * Fetch active or archived conversations for an assistant — foreground and
+ * background buckets fetched in parallel, deduplicated by `conversationId`,
+ * and sorted. Used by the Archive page, which lists every conversation type
+ * together.
  *
  * The background fetch is best-effort: if it fails the foreground list is
  * still returned so the calling surface remains usable.
  *
- * @param archiveStatus — `"active"` (sidebar, default) or `"archived"` (archive page)
+ * @param archiveStatus — `"active"` or `"archived"` (archive page)
  * @param sortKey — which timestamp to sort descending by (default: `lastMessageAt`)
  */
 async function fetchMergedConversationList(
@@ -185,13 +205,68 @@ async function fetchMergedConversationList(
 }
 
 /**
- * Fetch all active (non-archived) conversations for the sidebar.
- * Sorted newest-first by `lastMessageAt`.
+ * Fetch all active (non-archived) foreground conversations for a given
+ * assistant, sorted newest-first.
+ *
+ * Background and scheduled jobs are intentionally excluded — they load
+ * through `listBackgroundConversations` / `listScheduledConversations` only
+ * once the user expands the Background/Scheduled sidebar sections, so a large
+ * background backlog never blocks the initial chat render (the conversation
+ * the user actually opened).
  */
 export async function listConversations(
   assistantId: string,
 ): Promise<Conversation[]> {
-  return fetchMergedConversationList(assistantId, "active", "lastMessageAt");
+  const foreground = await fetchConversationList(assistantId);
+  return [...foreground].sort(
+    (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
+  );
+}
+
+/**
+ * Fetch all active (non-archived) background conversations for a given
+ * assistant, sorted newest-first.
+ *
+ * The daemon's `conversationType=background` filter is the back-compat
+ * umbrella that also returns scheduled rows, so those are filtered out here
+ * to keep the background cache disjoint from the scheduled cache (one
+ * conversation, one cache). Scheduled jobs load through
+ * `listScheduledConversations` instead.
+ *
+ * Mounted lazily by the sidebar — only enabled once the user reveals the
+ * Background section — so this never runs on the initial load path. Cached
+ * separately from the foreground list under `backgroundConversationsQueryKey`.
+ */
+export async function listBackgroundConversations(
+  assistantId: string,
+): Promise<Conversation[]> {
+  const background = await fetchConversationList(assistantId, {
+    conversationType: "background",
+  });
+  return background
+    .filter((c) => !isScheduledConversation(c))
+    .sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
+}
+
+/**
+ * Fetch all active (non-archived) scheduled conversations for a given
+ * assistant, sorted newest-first.
+ *
+ * Uses the daemon's dedicated `conversationType=scheduled` filter so the
+ * Scheduled sidebar section can load independently of the background
+ * backlog. Mounted lazily — only enabled once the user reveals the
+ * Scheduled section — so this never runs on the initial load path. Cached
+ * separately under `scheduledConversationsQueryKey`.
+ */
+export async function listScheduledConversations(
+  assistantId: string,
+): Promise<Conversation[]> {
+  const scheduled = await fetchConversationList(assistantId, {
+    conversationType: "scheduled",
+  });
+  return [...scheduled].sort(
+    (a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0),
+  );
 }
 
 /**
@@ -231,12 +306,13 @@ function useHasOrgContext(): boolean {
 }
 
 /**
- * Subscribe to the conversation list for the given assistant.
+ * Subscribe to the foreground conversation list for the given assistant.
  *
- * Fetches all conversations (foreground + background) via
- * `listConversations()`, which paginates both lists in parallel,
- * deduplicates, and sorts newest-first. The cache stores a flat
- * `Conversation[]`.
+ * Fetches foreground conversations via `listConversations()` and stores a
+ * flat `Conversation[]` under `conversationsQueryKey`. Background and
+ * scheduled jobs are deliberately excluded — they load through
+ * `useBackgroundConversationListQuery` only when the user reveals them — so
+ * the initial chat render is never blocked on a large background backlog.
  *
  * Returns an empty array until the query resolves so consumers can render
  * an empty sidebar without null-checking. Cache writes from mutations and
@@ -275,6 +351,71 @@ export function useConversationListQuery(
     refetch: () => {
       void query.refetch();
     },
+  };
+}
+
+/**
+ * Subscribe to the background conversation list for the given assistant.
+ * Cached separately from the foreground list under
+ * `backgroundConversationsQueryKey`.
+ *
+ * `enabled` gates the network fetch on whether the user has revealed the
+ * Background sidebar section. Passing `enabled: false` keeps the observer
+ * subscribed to cache updates without firing a request — used by attention
+ * tracking so it reflects background rows once the sidebar has loaded them,
+ * but never triggers the fetch itself.
+ */
+export function useBackgroundConversationListQuery(
+  assistantId: string | null,
+  enabled: boolean = true,
+): {
+  conversations: Conversation[];
+  isLoading: boolean;
+  isPending: boolean;
+} {
+  const query = useQuery({
+    queryKey: backgroundConversationsQueryKey(assistantId),
+    queryFn: () => listBackgroundConversations(assistantId!),
+    enabled: enabled && Boolean(assistantId),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+  return {
+    conversations: query.data ?? EMPTY_CONVERSATIONS,
+    isLoading: query.isLoading,
+    isPending: query.isPending,
+  };
+}
+
+/**
+ * Subscribe to the scheduled conversation list for the given assistant.
+ * Cached separately under `scheduledConversationsQueryKey` so revealing the
+ * Scheduled section fetches only scheduled jobs, independently of the
+ * background backlog.
+ *
+ * `enabled` gates the network fetch on whether the user has revealed the
+ * Scheduled sidebar section. Passing `enabled: false` keeps the observer
+ * subscribed to cache updates without firing a request — mirroring the
+ * background hook so attention tracking reflects scheduled rows once loaded
+ * without triggering the fetch itself.
+ */
+export function useScheduledConversationListQuery(
+  assistantId: string | null,
+  enabled: boolean = true,
+): {
+  conversations: Conversation[];
+  isLoading: boolean;
+  isPending: boolean;
+} {
+  const query = useQuery({
+    queryKey: scheduledConversationsQueryKey(assistantId),
+    queryFn: () => listScheduledConversations(assistantId!),
+    enabled: enabled && Boolean(assistantId),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+  return {
+    conversations: query.data ?? EMPTY_CONVERSATIONS,
+    isLoading: query.isLoading,
+    isPending: query.isPending,
   };
 }
 
@@ -366,10 +507,12 @@ export function markConversationSeenLocal(
   key: string,
   lastSeenAssistantMessageAt?: number,
 ): void {
-  updateConversationsCache(queryClient, assistantId, (conversations) => {
+  const markSeen = (conversations: Conversation[]) => {
     let changed = false;
     const next = conversations.map((c) => {
-      if (c.conversationId !== key) return c;
+      if (c.conversationId !== key) {
+        return c;
+      }
       changed = true;
       return {
         ...c,
@@ -381,7 +524,8 @@ export function markConversationSeenLocal(
       };
     });
     return changed ? next : conversations;
-  });
+  };
+  updateAllConversationCaches(queryClient, assistantId, markSeen);
 }
 
 export function prependConversation(
@@ -400,10 +544,11 @@ export function removeConversation(
   assistantId: string | null,
   key: string,
 ): void {
-  updateConversationsCache(queryClient, assistantId, (conversations) => {
+  const drop = (conversations: Conversation[]) => {
     const filtered = conversations.filter((c) => c.conversationId !== key);
     return filtered.length === conversations.length ? conversations : filtered;
-  });
+  };
+  updateAllConversationCaches(queryClient, assistantId, drop);
 }
 
 /**
@@ -441,16 +586,46 @@ export async function refreshConversationRow(
     removeConversation(queryClient, assistantId, conversationId);
     return;
   }
-  updateConversationsCache(queryClient, assistantId, (conversations) => {
+
+  // Replace the row in whichever cache already holds it. Only when it lives
+  // in neither do we append, routing the new row to the cache that matches
+  // its type so a background job never lands in the foreground list.
+  const replaceMatching = (conversations: Conversation[]) => {
     let replaced = false;
     const next = conversations.map((c) => {
-      if (c.conversationId !== result.conversationId) return c;
+      if (c.conversationId !== result.conversationId) {
+        return c;
+      }
       replaced = true;
       return result;
     });
-    if (replaced) return next;
-    return [...conversations, result];
-  });
+    return replaced ? next : conversations;
+  };
+
+  const existing = findConversation(queryClient, assistantId, conversationId);
+  if (existing) {
+    updateAllConversationCaches(queryClient, assistantId, replaceMatching);
+    return;
+  }
+
+  if (isScheduledConversation(result)) {
+    updateScheduledConversationsCache(queryClient, assistantId, (conversations) => [
+      ...conversations,
+      result,
+    ]);
+    return;
+  }
+  if (isBackgroundConversation(result)) {
+    updateBackgroundConversationsCache(queryClient, assistantId, (conversations) => [
+      ...conversations,
+      result,
+    ]);
+    return;
+  }
+  updateConversationsCache(queryClient, assistantId, (conversations) => [
+    ...conversations,
+    result,
+  ]);
 }
 
 export function resolveDraftKey(
@@ -559,13 +734,16 @@ export function deleteGroupAndResetConversations(
   groupId: string,
 ): void {
   removeGroup(queryClient, assistantId, groupId);
-  updateConversationsCache(queryClient, assistantId, (conversations) => {
+  const clearGroupId = (conversations: Conversation[]) => {
     let changed = false;
     const next = conversations.map((c) => {
-      if (c.groupId !== groupId) return c;
+      if (c.groupId !== groupId) {
+        return c;
+      }
       changed = true;
       return { ...c, groupId: undefined };
     });
     return changed ? next : conversations;
-  });
+  };
+  updateAllConversationCaches(queryClient, assistantId, clearGroupId);
 }

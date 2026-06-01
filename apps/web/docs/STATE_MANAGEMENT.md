@@ -387,13 +387,6 @@ via the atomic selector `useTheStore.use.field()`; non-React callers
 read via `useTheStore.getState().field`. No mirror, no `peek`, no
 two-state invariant.
 
-**Known exceptions** (slated for migration):
-
-- `apps/web/src/domains/terminal/use-terminal-state.ts` and
-  `apps/web/src/domains/terminal/use-terminal-session.ts` still use
-  `useReducer` + dispatch. These will be migrated to Zustand stores
-  in a future change. Do not pattern-match new code on these files.
-
 References:
 - [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors)
 - [Zustand — TypeScript guide](https://zustand.docs.pmnd.rs/guides/typescript)

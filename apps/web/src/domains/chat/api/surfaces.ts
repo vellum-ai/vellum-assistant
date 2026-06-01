@@ -3,6 +3,11 @@
  */
 
 import { client } from "@/generated/api/client.gen";
+import {
+  surfaceactionsPost,
+  surfacesBySurfaceIdGet,
+} from "@/generated/daemon/sdk.gen";
+import type { SurfacesBySurfaceIdGetResponse } from "@/generated/daemon/types.gen";
 import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 
 export async function submitSurfaceAction(
@@ -21,14 +26,12 @@ export async function submitSurfaceAction(
   }
 
   try {
-    const { error, response } = await client.post<unknown, unknown>({
-      url: "/v1/assistants/{assistant_id}/surface-actions/",
+    const { response } = await surfaceactionsPost({
       path: { assistant_id: assistantId },
       body: { surfaceId, actionId, data },
       throwOnError: false,
     });
-    assertHasResponse(response, error, "Failed to submit surface action");
-    if (!response.ok) {
+    if (!response?.ok) {
       return { ok: false };
     }
     return { ok: true };
@@ -41,30 +44,20 @@ export async function submitSurfaceAction(
 // Surface content re-fetch (matches macOS SurfaceClient.fetchSurfaceContent)
 // ---------------------------------------------------------------------------
 
-export interface SurfaceContentResponse {
-  surfaceId: string;
-  surfaceType: string;
-  title?: string | null;
-  data: Record<string, unknown>;
-}
-
 export async function fetchSurfaceContent(
   assistantId: string,
   surfaceId: string,
   conversationId: string,
-): Promise<SurfaceContentResponse | null> {
+): Promise<SurfacesBySurfaceIdGetResponse | null> {
   try {
-    const { data, error, response } = await client.get<
-      SurfaceContentResponse,
-      unknown
-    >({
-      url: "/v1/assistants/{assistant_id}/surfaces/{surface_id}",
-      path: { assistant_id: assistantId, surface_id: surfaceId },
+    const { data, response } = await surfacesBySurfaceIdGet({
+      path: { assistant_id: assistantId, surfaceId },
       query: { conversationId },
       throwOnError: false,
     });
-    assertHasResponse(response, error, "Failed to fetch surface content");
-    if (!response.ok || !data) return null;
+    if (!response?.ok || !data) {
+      return null;
+    }
     return data;
   } catch {
     return null;

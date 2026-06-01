@@ -21,6 +21,11 @@ import type {
   ConversationGroup,
 } from "@/types/conversation-types";
 import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
+import {
+  backgroundConversationsQueryKey,
+  scheduledConversationsQueryKey,
+} from "@/lib/sync/query-tags";
+import { getConversations as getMergedConversations } from "@/utils/conversation-cache";
 
 const ASSISTANT_ID = "ast-1";
 
@@ -61,6 +66,42 @@ function getConversations(qc: QueryClient): Conversation[] {
   );
 }
 
+function seedBackgroundConversations(
+  qc: QueryClient,
+  conversations: Conversation[],
+): void {
+  qc.setQueryData<Conversation[]>(
+    backgroundConversationsQueryKey(ASSISTANT_ID),
+    conversations,
+  );
+}
+
+function getBackgroundConversations(qc: QueryClient): Conversation[] {
+  return (
+    qc.getQueryData<Conversation[]>(
+      backgroundConversationsQueryKey(ASSISTANT_ID),
+    ) ?? []
+  );
+}
+
+function seedScheduledConversations(
+  qc: QueryClient,
+  conversations: Conversation[],
+): void {
+  qc.setQueryData<Conversation[]>(
+    scheduledConversationsQueryKey(ASSISTANT_ID),
+    conversations,
+  );
+}
+
+function getScheduledConversations(qc: QueryClient): Conversation[] {
+  return (
+    qc.getQueryData<Conversation[]>(
+      scheduledConversationsQueryKey(ASSISTANT_ID),
+    ) ?? []
+  );
+}
+
 function getGroups(qc: QueryClient): ConversationGroup[] {
   return (
     qc.getQueryData<GroupsGetResponse>(
@@ -97,6 +138,151 @@ describe("patchConversation", () => {
     expect(
       qc.getQueryData<Conversation[]>(conversationsQueryKey(ASSISTANT_ID)),
     ).toBeUndefined();
+  });
+});
+
+describe("foreground/background/scheduled cache split", () => {
+  it("patches a row that lives only in the background cache", () => {
+    /**
+     * A mutation keyed by conversationId must reach background rows even
+     * though they live in a separate cache from the foreground list.
+     */
+
+    // GIVEN a foreground list and a separate background list
+    const qc = new QueryClient();
+    seedConversations(qc, [makeConversation("fg")]);
+    seedBackgroundConversations(qc, [
+      makeConversation("bg", { title: "old" }),
+    ]);
+
+    // WHEN we patch a conversation that only exists in the background cache
+    patchConversation(qc, ASSISTANT_ID, "bg", { title: "new" });
+
+    // THEN the background row is updated
+    expect(getBackgroundConversations(qc)[0]!.title).toBe("new");
+    // AND the foreground list is left untouched
+    expect(getConversations(qc)).toHaveLength(1);
+    expect(getConversations(qc)[0]!.conversationId).toBe("fg");
+  });
+
+  it("removes a row from whichever cache holds it", () => {
+    /**
+     * Deleting a conversation by id should drop it regardless of which
+     * cache it belongs to.
+     */
+
+    // GIVEN one foreground and one background conversation
+    const qc = new QueryClient();
+    seedConversations(qc, [makeConversation("fg")]);
+    seedBackgroundConversations(qc, [makeConversation("bg")]);
+
+    // WHEN we remove the background conversation
+    removeConversation(qc, ASSISTANT_ID, "bg");
+
+    // THEN it is gone from the background cache
+    expect(getBackgroundConversations(qc)).toHaveLength(0);
+    // AND the foreground conversation remains
+    expect(getConversations(qc).map((c) => c.conversationId)).toEqual(["fg"]);
+  });
+
+  it("merges both caches and de-duplicates with foreground winning", () => {
+    /**
+     * Consumers that need every conversation read the merged view, which
+     * unions the two caches and prefers the foreground copy on collision.
+     */
+
+    // GIVEN the same id present in both caches with different titles
+    const qc = new QueryClient();
+    seedConversations(qc, [makeConversation("shared", { title: "fg" })]);
+    seedBackgroundConversations(qc, [
+      makeConversation("shared", { title: "bg" }),
+      makeConversation("bg-only"),
+    ]);
+
+    // WHEN we read the merged conversation view
+    const merged = getMergedConversations(qc, ASSISTANT_ID);
+
+    // THEN the shared id appears once, keeping the foreground copy
+    expect(merged.map((c) => c.conversationId)).toEqual(["shared", "bg-only"]);
+    expect(merged[0]!.title).toBe("fg");
+  });
+
+  it("patches a row that lives only in the scheduled cache", () => {
+    /**
+     * The scheduled list is its own cache, independent of background; a
+     * mutation keyed by conversationId must still reach it.
+     */
+
+    // GIVEN a row that only exists in the scheduled cache
+    const qc = new QueryClient();
+    seedConversations(qc, [makeConversation("fg")]);
+    seedScheduledConversations(qc, [
+      makeConversation("sched", { title: "old" }),
+    ]);
+
+    // WHEN we patch that scheduled-only conversation
+    patchConversation(qc, ASSISTANT_ID, "sched", { title: "new" });
+
+    // THEN the scheduled row is updated
+    expect(getScheduledConversations(qc)[0]!.title).toBe("new");
+    // AND the foreground list is left untouched
+    expect(getConversations(qc).map((c) => c.conversationId)).toEqual(["fg"]);
+  });
+
+  it("removes a scheduled row without touching the other caches", () => {
+    /**
+     * Deleting by id drops the row from the scheduled cache while leaving
+     * the foreground and background caches intact.
+     */
+
+    // GIVEN one row in each of the three caches
+    const qc = new QueryClient();
+    seedConversations(qc, [makeConversation("fg")]);
+    seedBackgroundConversations(qc, [makeConversation("bg")]);
+    seedScheduledConversations(qc, [makeConversation("sched")]);
+
+    // WHEN we remove the scheduled conversation
+    removeConversation(qc, ASSISTANT_ID, "sched");
+
+    // THEN it is gone from the scheduled cache
+    expect(getScheduledConversations(qc)).toHaveLength(0);
+    // AND the foreground and background caches are untouched
+    expect(getConversations(qc).map((c) => c.conversationId)).toEqual(["fg"]);
+    expect(getBackgroundConversations(qc).map((c) => c.conversationId)).toEqual(
+      ["bg"],
+    );
+  });
+
+  it("merges all three caches with foreground winning on collision", () => {
+    /**
+     * Consumers that need every conversation read the merged view, which
+     * unions the foreground, background, and scheduled caches and prefers
+     * the foreground copy when the same id appears more than once.
+     */
+
+    // GIVEN the same id in all three caches plus a scheduled-only row
+    const qc = new QueryClient();
+    seedConversations(qc, [makeConversation("shared", { title: "fg" })]);
+    seedBackgroundConversations(qc, [
+      makeConversation("shared", { title: "bg" }),
+      makeConversation("bg-only"),
+    ]);
+    seedScheduledConversations(qc, [
+      makeConversation("shared", { title: "sched" }),
+      makeConversation("sched-only"),
+    ]);
+
+    // WHEN we read the merged conversation view
+    const merged = getMergedConversations(qc, ASSISTANT_ID);
+
+    // THEN the shared id appears once (foreground copy) alongside both
+    // cache-only rows
+    expect(merged.map((c) => c.conversationId)).toEqual([
+      "shared",
+      "bg-only",
+      "sched-only",
+    ]);
+    expect(merged[0]!.title).toBe("fg");
   });
 });
 

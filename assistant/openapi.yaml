@@ -18325,7 +18325,9 @@ paths:
                   surfaceType:
                     type: string
                   title:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   data:
                     type: object
                     properties: {}

@@ -10,8 +10,13 @@ import { createElement, useCallback, useMemo, useState } from "react";
 
 import { Dropdown } from "@vellum/design-library";
 
-import { useConversationListQuery } from "@/hooks/conversation-queries";
+import {
+  useBackgroundConversationListQuery,
+  useConversationListQuery,
+  useScheduledConversationListQuery,
+} from "@/hooks/conversation-queries";
 import type { Conversation } from "@/types/conversation-types";
+import { mergeConversationLists } from "@/utils/conversation-cache";
 import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
@@ -47,15 +52,29 @@ export function LogsTab({ assistantId }: LogsTabProps) {
   >(null);
 
   const {
-    conversations: allConversations,
+    conversations: foregroundConversations,
     isLoading: isLoadingConversations,
     isError: isConversationsError,
     error: conversationsError,
   } = useConversationListQuery(assistantId);
 
+  // The logs picker lists every conversation, so it eagerly mounts the
+  // background and scheduled lists rather than waiting for a sidebar reveal —
+  // unlike the chat sidebar, there is no collapse affordance to gate the
+  // fetches on.
+  const { conversations: backgroundConversations } =
+    useBackgroundConversationListQuery(assistantId, true);
+  const { conversations: scheduledConversations } =
+    useScheduledConversationListQuery(assistantId, true);
+
   const conversations = useMemo<Conversation[]>(
-    () => allConversations.filter((c) => c.archivedAt == null),
-    [allConversations],
+    () =>
+      mergeConversationLists(
+        foregroundConversations,
+        backgroundConversations,
+        scheduledConversations,
+      ).filter((c) => c.archivedAt == null),
+    [foregroundConversations, backgroundConversations, scheduledConversations],
   );
 
   const activeConversationId = useMemo(() => {

@@ -3,9 +3,7 @@ import * as Sentry from "@sentry/react";
 import { useViewerStore } from "@/stores/viewer-store";
 
 import {
-  type Dispatch,
   type MutableRefObject,
-  type SetStateAction,
   useCallback,
   useEffect,
   useMemo,
@@ -13,7 +11,6 @@ import {
 } from "react";
 
 import { toast } from "@vellum/design-library";
-import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import {
   createDraftConversationId,
   resolveBootstrappedConversationId,
@@ -22,10 +19,8 @@ import {
   loadLastViewedConversationId,
   saveLastViewedConversationId,
 } from "@/utils/last-viewed-conversation-storage";
-import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
-import type { ContextWindowUsage } from "@/domains/chat/components/context-window-indicator";
 
-
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { haptic } from "@/utils/haptics";
 import { routes } from "@/utils/routes";
@@ -42,7 +37,11 @@ import {
   conversationGroupsQueryKey,
   useConversationListQuery,
 } from "@/hooks/conversation-queries";
-import { conversationsQueryKey } from "@/lib/sync/query-tags";
+import {
+  backgroundConversationsQueryKey,
+  conversationsQueryKey,
+  scheduledConversationsQueryKey,
+} from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Module constants
@@ -68,42 +67,27 @@ interface UseConversationLoaderParams {
   /** React Router navigate function for path-based routing. */
   navigate: NavigateFunction;
 
-  // Collections
-  conversations: Conversation[];
+  // The resolved row for the currently-open conversation, drawn from either
+  // list cache (or fetched on demand). Used to decide whether the active
+  // thread exists server-side; null while loading or for local-only drafts.
+  activeConversation: Conversation | undefined;
 
   // Feature flags / epochs
   conversationGroupsUI: boolean;
   refreshEpoch: number;
   reachabilityReadyEpoch: number;
 
-  // Refs (owned by parent, read/written by this hook)
+  // Infrastructure refs (not per-conversation state)
   assistantIdRef: MutableRefObject<string | null>;
-  draftConversationIdResolutionRef: MutableRefObject<boolean>;
-  previousConversationIdRef: MutableRefObject<string | null>;
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
-  contextWindowUsageByConversationRef: MutableRefObject<Map<string, ContextWindowUsage>>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
-  streamingMessageIdsRef: MutableRefObject<Set<string>>;
-  pendingQueuedMessageIdsRef: MutableRefObject<string[]>;
-  requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
-  pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
-  confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
   conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   pendingInitialMessageRef: MutableRefObject<{ conversationId: string; content: string } | null>;
 
-  // State setters
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
-  setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
-  setError: Dispatch<SetStateAction<ChatError | null>>;
-  setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
-  setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
-
-  // Callbacks
-  resetChatAttachments: () => void;
-
   // Error classification
   shouldSuppressGenericChatErrorNotice: (prev: ChatError | null) => boolean;
+
+  // Attachment reset (lives outside the session store)
+  resetChatAttachments: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,31 +119,16 @@ export function useConversationLoader({
   urlConversationId,
   searchParams,
   navigate,
-  conversations,
+  activeConversation,
   conversationGroupsUI,
   refreshEpoch,
   reachabilityReadyEpoch,
   assistantIdRef,
-  draftConversationIdResolutionRef,
-  previousConversationIdRef,
   onboardingDraftConversationIdRef,
-  contextWindowUsageByConversationRef,
-  dismissedSurfaceIdsRef,
-  streamingMessageIdsRef,
-  pendingQueuedMessageIdsRef,
-  requestIdToMessageIdRef,
-  pendingLocalDeletionsRef,
-  confirmationToolCallMapRef,
   conversationListInvalidatedTimerRef,
   pendingInitialMessageRef,
-  setMessages,
-  setTranscriptPagination,
-  setIsLoadingHistory,
-  setError,
-  setContextWindowUsage,
-  setCompactionCircuitOpenUntil,
-  resetChatAttachments,
   shouldSuppressGenericChatErrorNotice,
+  resetChatAttachments,
 }: UseConversationLoaderParams) {
   // -------------------------------------------------------------------------
   // Internal refs
@@ -178,6 +147,15 @@ export function useConversationLoader({
     try {
       await queryClient.invalidateQueries({
         queryKey: conversationsQueryKey(assistantId),
+      });
+      // The background and scheduled lists are sibling lazily-enabled
+      // queries; invalidating them is a no-op while collapsed and refreshes
+      // each once its section is revealed.
+      await queryClient.invalidateQueries({
+        queryKey: backgroundConversationsQueryKey(assistantId),
+      });
+      await queryClient.invalidateQueries({
+        queryKey: scheduledConversationsQueryKey(assistantId),
       });
     } catch (err) {
       Sentry.captureException(err, {
@@ -220,9 +198,12 @@ export function useConversationLoader({
   // Conversation list query subscription
   //
   // The conversation list is owned by `useConversationListQuery`, which
-  // fetches all conversations (foreground + background) for the given
-  // `assistantId`. Sibling consumers in `ChatLayout` and `ChatPage` mount
-  // the same query — they all share one cache entry under
+  // fetches the foreground conversations for the given `assistantId`.
+  // Background and scheduled jobs load separately via
+  // `useBackgroundConversationListQuery`, gated on the sidebar revealing
+  // those sections, so a large background backlog never blocks the initial
+  // render. Sibling consumers in `ChatLayout` and `ChatPage` mount the same
+  // foreground query — they all share one cache entry under
   // `conversationsQueryKey(assistantId)`, so dedupe and structural-sharing
   // are automatic.
   //
@@ -266,6 +247,12 @@ export function useConversationLoader({
     if (assistantStateKind !== "active" || !assistantId) return;
     void queryClient.invalidateQueries({
       queryKey: conversationsQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: backgroundConversationsQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: scheduledConversationsQueryKey(assistantId),
     });
   }, [
     refreshEpoch,
@@ -311,7 +298,7 @@ export function useConversationLoader({
         level: "warning",
         tags: { context: "conversationList.bootstrap" },
       });
-      setError((prev) => {
+      useChatSessionStore.getState().setError((prev) => {
         if (shouldSuppressGenericChatErrorNotice(prev)) return prev;
         const status =
           conversationListError instanceof ApiError ? conversationListError.status : 0;
@@ -326,7 +313,7 @@ export function useConversationLoader({
       return;
     }
     if (hasUsableData) {
-      setError((prev) =>
+      useChatSessionStore.getState().setError((prev) =>
         prev?.code === CONVERSATION_LIST_LOAD_FAILED_CODE ? null : prev,
       );
     }
@@ -335,7 +322,6 @@ export function useConversationLoader({
     queryConversations,
     conversationListError,
     conversationListIsError,
-    setError,
     shouldSuppressGenericChatErrorNotice,
   ]);
 
@@ -359,9 +345,23 @@ export function useConversationLoader({
   useEffect(() => {
     if (assistantStateKind !== "active") return;
     if (!assistantId) return;
-    if (conversationListIsPending) return;
 
     const explicitConversationId = urlConversationId;
+
+    // Only the "resume last-viewed" / "land on latest foreground" fallbacks
+    // read the fetched list. An explicit URL key, an onboarding draft, or the
+    // existing in-memory selection all resolve without it — so the chat
+    // transcript the user opened renders immediately instead of blocking on
+    // the sidebar's conversation-list API.
+    const needsConversationList = !(
+      explicitConversationId != null ||
+      searchParams.get("onboarding") === "1" ||
+      (assistantIdRef.current === assistantId &&
+        useConversationStore.getState().activeConversationId != null)
+    );
+    if (needsConversationList && conversationListIsPending) {
+      return;
+    }
 
     // When only the conversation list changed (e.g. from resolveDraftKey's
     // setQueryData) but the URL hasn't changed, the URL key is stale —
@@ -422,12 +422,8 @@ export function useConversationLoader({
   // conversationExistsOnServer
   // -------------------------------------------------------------------------
   const conversationExistsOnServer = useMemo(
-    () =>
-      activeConversationId != null &&
-      conversations.some(
-        (c) => c.conversationId === activeConversationId && !c.draft,
-      ),
-    [activeConversationId, conversations],
+    () => activeConversation != null && !activeConversation.draft,
+    [activeConversation],
   );
 
   // -------------------------------------------------------------------------
@@ -445,23 +441,7 @@ export function useConversationLoader({
     assistantId,
     assistantStateKind,
     activeConversationId,
-    draftConversationIdResolutionRef,
-    previousConversationIdRef,
-    contextWindowUsageByConversationRef,
-    dismissedSurfaceIdsRef,
-    streamingMessageIdsRef,
-    pendingQueuedMessageIdsRef,
-    requestIdToMessageIdRef,
-    pendingLocalDeletionsRef,
-    confirmationToolCallMapRef,
-    setMessages,
-    setTranscriptPagination,
-    setIsLoadingHistory,
-    setError,
-    setContextWindowUsage,
-    setCompactionCircuitOpenUntil,
     resetChatAttachments,
-    shouldSuppressGenericChatErrorNotice,
   });
 
   // -------------------------------------------------------------------------
