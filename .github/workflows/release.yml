@@ -1371,8 +1371,74 @@ jobs:
             --field version="${{ needs.extract-version.outputs.version }}" \
             --field run_id="${{ github.run_id }}"
 
+  publish-web:
+    needs: [extract-version, ci-cli, ci-gateway, ci-playwright, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+          registry-url: https://registry.npmjs.org
+
+      - name: Install design-library dependencies
+        working-directory: packages/design-library
+        run: bun install --frozen-lockfile
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: |
+          if ! bun install --frozen-lockfile; then
+            echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
+            rm -f bun.lock
+            rm -rf node_modules
+            bun install
+          fi
+
+      - name: Generate API clients
+        working-directory: apps/web
+        run: bun run openapi-ts
+
+      - name: Build
+        working-directory: apps/web
+        env:
+          VITE_PLATFORM_MODE: "false"
+        run: bun run build
+
+      - name: Rewrite package.json for publish
+        working-directory: apps/web
+        run: |
+          jq '{name, version, license, type, description, files}' package.json > tmp && mv tmp package.json
+
+      - name: Publish
+        working-directory: apps/web
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          E2E_BLOCKS_RELEASE: ${{ inputs.playwright_blocks_release }}
+        run: |
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          if npm view "$PKG_NAME@$PKG_VERSION" version >/dev/null 2>&1; then
+            if [ "$E2E_BLOCKS_RELEASE" = "true" ]; then
+              echo "::error::$PKG_NAME@$PKG_VERSION is already published, but e2e tests are gating this release. Bump the version — refusing to silently retry."
+              exit 1
+            fi
+            echo "::notice::$PKG_NAME@$PKG_VERSION already published; skipping (e2e is non-blocking, treating as retry)."
+            exit 0
+          fi
+          npm publish --access public --no-provenance
+
   publish-meta:
-    needs: [extract-version, publish-npm]
+    needs: [extract-version, publish-npm, publish-web]
     if: ${{ needs.extract-version.outputs.is_staging != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -2400,8 +2466,8 @@ jobs:
           rm -rf ~/.private_keys 2>/dev/null || true
 
   release:
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
+    needs: [extract-version, publish-npm, publish-web, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, ci-playwright, build-chrome-extension]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm.result == 'success' && needs.publish-web.result == 'success' && needs.publish-meta.result == 'success' && needs.build-macos-arm64.result == 'success' && (needs.ci-playwright.result == 'success' || inputs.playwright_blocks_release != true) && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -2651,7 +2717,7 @@ jobs:
   # ── iOS release (same-repo reusable workflow) ────────────────────────
 
   release-ios:
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension]
+    needs: [extract-version, publish-npm, publish-web, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension]
     if: >-
       ${{
         always() && !cancelled()
@@ -2663,6 +2729,7 @@ jobs:
         && needs.push-credential-executor-manifest.result == 'success'
         && (needs.build-chrome-extension.result == 'success' || needs.build-chrome-extension.result == 'skipped')
         && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped')
+        && (needs.publish-web.result == 'success' || needs.publish-web.result == 'skipped')
         && (needs.publish-meta.result == 'success' || needs.publish-meta.result == 'skipped')
         && (needs.push-dockerhub-image.result == 'success' || needs.push-dockerhub-image.result == 'skipped')
       }}
@@ -3033,7 +3100,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
+    needs: [extract-version, publish-npm, publish-web, publish-meta, build-macos-arm64, build-macos-x64, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-playwright, build-chrome-extension, publish-chrome-extension]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true

@@ -23,8 +23,9 @@ import {
   VoiceInputButton,
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
-import { type TurnPhase, useTurnStore } from "@/stores/turn-store";
+import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude";
 import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store";
@@ -212,6 +213,11 @@ export interface ChatComposerProps {
   // notices and the live voice-interim preview. The app-editing variant omits it.
   noticesAboveFormSlot?: ReactNode;
 
+  // When true, the form's top border-radius is removed so the billing banner
+  // (which has only top corners rounded) sits flush against the form,
+  // forming a single continuous card.
+  hasBillingBanner?: boolean;
+
   // Cap for the textarea's auto-grow height in pixels. The empty state passes a
   // larger value so the user can compose long first messages without the box
   // clipping.
@@ -254,6 +260,7 @@ export function ChatComposer({
   thresholdPickerSlot,
   contextWindowIndicatorSlot,
   noticesAboveFormSlot,
+  hasBillingBanner = false,
   textareaMaxHeightPx = 240,
   cmdEnterMode = false,
   suggestion,
@@ -275,6 +282,7 @@ export function ChatComposer({
     voiceInputRef !== undefined && onVoiceTranscript !== undefined;
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   const isMobile = useIsMobile();
+  const isNative = useIsNativePlatform();
 
   // Stable ref so handleSlashCommandSelect's autoSend path always calls the
   // latest onSubmit even after flushSync triggers a synchronous re-render.
@@ -345,6 +353,7 @@ export function ChatComposer({
   const phase: TurnPhase = useTurnStore.use.phase();
   const isGenerating =
     phase === "queued" || phase === "thinking" || phase === "streaming";
+  const hideTextareaForVoice = isNative && isVoiceActive && !isGenerating;
 
   const ghostSuffix = useMemo(
     () =>
@@ -364,7 +373,9 @@ export function ChatComposer({
         <Popover.Anchor asChild>
           <form
             onSubmit={onSubmit}
-            className="overflow-hidden rounded-[10px] bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)]"
+            className={`overflow-hidden bg-[var(--surface-lift)] shadow-[0px_2px_2px_rgba(0,0,0,0.05)] ${
+              hasBillingBanner ? "rounded-b-[10px]" : "rounded-[10px]"
+            }`}
           >
             <ChatAttachmentsStrip
               attachments={chatAttachments}
@@ -377,7 +388,7 @@ export function ChatComposer({
             This avoids the iOS WKWebView re-dispatch bug entirely: no DOM
             geometry mutation means no re-fired input events.
             Reference: https://css-tricks.com/the-cleanest-trick-for-autogrowing-textareas/ */}
-            <div className="grid">
+            <div className={hideTextareaForVoice ? "hidden" : "grid"}>
               <div
                 aria-hidden
                 className="pointer-events-none col-start-1 row-start-1 overflow-hidden whitespace-pre-wrap break-words px-4 pt-3 pb-2 text-chat"
@@ -562,7 +573,7 @@ export function ChatComposer({
               // dictation cleanup are in flight — the visual signal that the
               // recording was captured and the transcript is on its way.
               <div
-                className="px-2"
+                className={hideTextareaForVoice ? "px-2 pt-3" : "px-2"}
                 aria-label={voicePhase === "processing" ? "Transcribing" : "Recording"}
                 aria-live="polite"
               >

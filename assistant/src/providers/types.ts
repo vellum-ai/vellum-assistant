@@ -207,10 +207,21 @@ export interface SendMessageConfig {
   effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   speed?: "standard" | "fast";
   verbosity?: "low" | "medium" | "high";
+  /**
+   * When true, the most recent user message's content varies across
+   * otherwise-identical turns (e.g. a per-turn memory block was injected into
+   * it). The provider places the primary long-TTL cache breakpoint on the most
+   * recent *stable* user message instead of the volatile latest one, so the
+   * cached prefix stays reusable across turns. Default false — existing
+   * behavior.
+   */
+  mutableLatestUserMessage?: boolean;
   [key: string]: unknown;
 }
 
 export interface SendMessageOptions {
+  tools?: ToolDefinition[];
+  systemPrompt?: string;
   config?: SendMessageConfig;
   onEvent?: (event: ProviderEvent) => void;
   signal?: AbortSignal;
@@ -229,8 +240,6 @@ export interface Provider {
   tokenEstimationProvider?: string;
   sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse>;
 }

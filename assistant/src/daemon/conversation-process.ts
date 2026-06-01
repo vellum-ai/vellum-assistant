@@ -625,12 +625,9 @@ async function drainSingleMessage(
         next.attachments,
         next.displayContent,
       );
-      await addMessage(
-        conversation.conversationId,
-        "user",
-        contentToPersist,
-        drainChannelMeta,
-      );
+      await addMessage(conversation.conversationId, "user", contentToPersist, {
+        metadata: drainChannelMeta,
+      });
       conversation.messages.push(llmUserMsg);
 
       const assistantMsg = createAssistantMessage(slashResult.message);
@@ -638,7 +635,7 @@ async function drainSingleMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        { ...drainChannelMeta, sentAt: Date.now() },
+        { metadata: { ...drainChannelMeta, sentAt: Date.now() } },
       );
       conversation.messages.push(assistantMsg);
 
@@ -741,7 +738,7 @@ async function drainSingleMessage(
           next.attachments,
           next.displayContent,
         ),
-        drainChannelMeta,
+        { metadata: drainChannelMeta },
       );
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -762,7 +759,7 @@ async function drainSingleMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        { ...drainChannelMeta, sentAt: Date.now() },
+        { metadata: { ...drainChannelMeta, sentAt: Date.now() } },
       );
       conversation.messages.push(assistantMsg);
 
@@ -837,7 +834,7 @@ async function drainSingleMessage(
           next.attachments,
           next.displayContent,
         ),
-        drainChannelMeta,
+        { metadata: drainChannelMeta },
       );
       persistedCleanMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -850,7 +847,7 @@ async function drainSingleMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        { ...drainChannelMeta, sentAt: Date.now() },
+        { metadata: { ...drainChannelMeta, sentAt: Date.now() } },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1463,6 +1460,22 @@ async function drainBatch(
     });
 }
 
+// ── ProcessMessageOptions ────────────────────────────────────────────
+
+/** Options for `processMessage`. Only `content` and `attachments` are
+ *  required; everything else has a sensible default or is genuinely optional. */
+export interface ProcessMessageOptions {
+  content: string;
+  attachments: UserMessageAttachment[];
+  onEvent?: (msg: ServerMessage) => void;
+  requestId?: string;
+  activeSurfaceId?: string;
+  currentPage?: string;
+  isInteractive?: boolean;
+  callSite?: LLMCallSite;
+  displayContent?: string;
+}
+
 // ── processMessage ───────────────────────────────────────────────────
 
 /**
@@ -1471,15 +1484,19 @@ async function drainBatch(
  */
 export async function processMessage(
   conversation: ProcessConversationContext,
-  content: string,
-  attachments: UserMessageAttachment[],
-  onEvent: (msg: ServerMessage) => void,
-  requestId?: string,
-  activeSurfaceId?: string,
-  currentPage?: string,
-  options?: { isInteractive?: boolean; callSite?: LLMCallSite },
-  displayContent?: string,
+  options: ProcessMessageOptions,
 ): Promise<string> {
+  const {
+    content,
+    attachments,
+    onEvent = () => {},
+    requestId,
+    activeSurfaceId,
+    currentPage,
+    isInteractive,
+    callSite,
+    displayContent,
+  } = options;
   await conversation.ensureActorScopedHistory();
   // Snapshot persona context at turn start so later tool turns can't pick up
   // a different actor's context if a concurrent request mutates the live fields.
@@ -1558,7 +1575,7 @@ export async function processMessage(
           attachments,
           displayContent,
         ),
-        routerChannelMeta,
+        { metadata: routerChannelMeta },
       );
       conversation.messages.push(llmUserMsg);
 
@@ -1572,7 +1589,7 @@ export async function processMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        routerChannelMeta,
+        { metadata: routerChannelMeta },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1651,7 +1668,7 @@ export async function processMessage(
       conversation.conversationId,
       "user",
       contentToPersist,
-      pmChannelMeta,
+      { metadata: pmChannelMeta },
     );
     conversation.messages.push(llmUserMsg);
 
@@ -1660,7 +1677,7 @@ export async function processMessage(
       conversation.conversationId,
       "assistant",
       JSON.stringify(assistantMsg.content),
-      pmChannelMeta,
+      { metadata: pmChannelMeta },
     );
     conversation.messages.push(assistantMsg);
 
@@ -1738,7 +1755,7 @@ export async function processMessage(
           attachments,
           displayContent,
         ),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -1759,7 +1776,7 @@ export async function processMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1825,7 +1842,7 @@ export async function processMessage(
           attachments,
           displayContent,
         ),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       persistedCleanMessage = true;
       conversation.messages.push(cleanUserMsg);
@@ -1838,7 +1855,7 @@ export async function processMessage(
         conversation.conversationId,
         "assistant",
         JSON.stringify(assistantMsg.content),
-        pmChannelMeta,
+        { metadata: pmChannelMeta },
       );
       conversation.messages.push(assistantMsg);
 
@@ -1953,11 +1970,10 @@ export async function processMessage(
     titleText?: string;
     callSite?: LLMCallSite;
   } = { isUserMessage: true };
-  if (options?.isInteractive !== undefined)
-    loopOptions.isInteractive = options.isInteractive;
+  if (isInteractive !== undefined) loopOptions.isInteractive = isInteractive;
   if (agentLoopContent !== resolvedContent)
     loopOptions.titleText = resolvedContent;
-  if (options?.callSite !== undefined) loopOptions.callSite = options.callSite;
+  if (callSite !== undefined) loopOptions.callSite = callSite;
 
   await conversation.runAgentLoop(
     agentLoopContent,

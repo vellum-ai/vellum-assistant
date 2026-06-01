@@ -30,7 +30,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "../providers/types.js";
 
 function setLlmConfig(raw: unknown): void {
@@ -50,8 +49,6 @@ function makePipeline(providerName: string): {
     name: providerName,
     async sendMessage(
       _messages: Message[],
-      _tools?: ToolDefinition[],
-      _systemPrompt?: string,
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
       captured = options?.config as Record<string, unknown> | undefined;
@@ -84,7 +81,7 @@ describe("retry normalization: thinking + forced tool_choice", () => {
       },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: {
         callSite: "memoryExtraction",
         tool_choice: { type: "tool", name: "extract_graph_diff" },
@@ -108,7 +105,7 @@ describe("retry normalization: thinking + forced tool_choice", () => {
       },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: {
         callSite: "memoryExtraction",
         tool_choice: { type: "any" },
@@ -126,7 +123,7 @@ describe("retry normalization: thinking + forced tool_choice", () => {
       },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: {
         callSite: "memoryExtraction",
         tool_choice: { type: "auto" },
@@ -144,7 +141,7 @@ describe("retry normalization: thinking + forced tool_choice", () => {
       },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: { callSite: "memoryExtraction" },
     });
     expect(lastConfig()?.thinking).toEqual({ type: "adaptive" });
@@ -155,7 +152,7 @@ describe("retry normalization: thinking + forced tool_choice", () => {
     // alongside forced tool_choice. This should pass through unchanged since
     // disabled thinking is compatible with forced tool_choice.
     const { provider, lastConfig } = makePipeline("anthropic");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: {
         thinking: { type: "disabled" },
         tool_choice: { type: "tool", name: "select_memories" },
@@ -170,7 +167,7 @@ describe("retry normalization: thinking + forced tool_choice", () => {
     // convert it to Anthropic's wire shape `{ type: "disabled" }`, otherwise
     // Anthropic rejects the request with a 400 on malformed `thinking`.
     const { provider, lastConfig } = makePipeline("anthropic");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: {
         thinking: { enabled: false },
         tool_choice: { type: "tool", name: "select_memories" },
@@ -188,7 +185,7 @@ describe("retry normalization: thinking + forced tool_choice", () => {
       },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: {
         callSite: "memoryExtraction",
         tool_choice: { type: "tool", name: "extract_graph_diff" },
@@ -206,7 +203,7 @@ describe("retry normalization: thinking + forced tool_choice", () => {
       },
     });
     const { provider, lastConfig } = makePipeline("openrouter");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: {
         callSite: "memoryExtraction",
         tool_choice: { type: "tool", name: "extract_graph_diff" },
@@ -224,7 +221,7 @@ describe("retry normalization: thinking + forced tool_choice", () => {
       },
     });
     const { provider, lastConfig } = makePipeline("openrouter");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: {
         callSite: "memoryExtraction",
         tool_choice: { type: "tool", name: "extract_graph_diff" },
@@ -240,7 +237,7 @@ describe("retry normalization: thinking + forced tool_choice", () => {
     // earlier provider check — this test ensures the tool_choice check
     // doesn't interfere with that path.
     const { provider, lastConfig } = makePipeline("openai");
-    await provider.sendMessage([userMessage], undefined, undefined, {
+    await provider.sendMessage([userMessage], {
       config: {
         thinking: { type: "adaptive" },
         tool_choice: { type: "tool", name: "some_tool" },

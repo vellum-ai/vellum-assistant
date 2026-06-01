@@ -1034,6 +1034,73 @@ describe("routing and mode fields", () => {
   });
 });
 
+// ── Script timeout override ─────────────────────────────────────────
+
+describe("script timeout override", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run("DELETE FROM cron_runs");
+    db.run("DELETE FROM cron_jobs");
+  });
+
+  test("defaults timeoutMs to null when not provided", () => {
+    // GIVEN a schedule created without a timeout override
+    const job = createSchedule({
+      name: "No timeout",
+      cronExpression: "0 9 * * *",
+      message: "no timeout",
+      syntax: "cron",
+    });
+
+    // THEN the stored timeout is null (the runner falls back to the default)
+    expect(job.timeoutMs).toBeNull();
+    expect(getSchedule(job.id)!.timeoutMs).toBeNull();
+  });
+
+  test("persists a timeoutMs override through create/read", () => {
+    // GIVEN a script schedule created with a custom timeout
+    const job = createSchedule({
+      name: "Slow script",
+      cronExpression: "0 9 * * *",
+      message: "",
+      script: "sleep 5",
+      mode: "script",
+      syntax: "cron",
+      timeoutMs: 120_000,
+    });
+
+    // THEN the override round-trips through the store
+    expect(job.timeoutMs).toBe(120_000);
+    expect(getSchedule(job.id)!.timeoutMs).toBe(120_000);
+  });
+
+  test("updateSchedule sets and clears the timeout override", () => {
+    // GIVEN a schedule with a custom timeout
+    const job = createSchedule({
+      name: "Adjust timeout",
+      cronExpression: "0 9 * * *",
+      message: "",
+      script: "echo hi",
+      mode: "script",
+      syntax: "cron",
+      timeoutMs: 90_000,
+    });
+
+    // WHEN the timeout is changed
+    const updated = updateSchedule(job.id, { timeoutMs: 5_000 });
+
+    // THEN the new value is stored
+    expect(updated!.timeoutMs).toBe(5_000);
+
+    // AND WHEN the timeout is cleared back to the default
+    const cleared = updateSchedule(job.id, { timeoutMs: null });
+
+    // THEN it reverts to null
+    expect(cleared!.timeoutMs).toBeNull();
+    expect(getSchedule(job.id)!.timeoutMs).toBeNull();
+  });
+});
+
 // ── listSchedules filters ───────────────────────────────────────────
 
 describe("listSchedules filters", () => {

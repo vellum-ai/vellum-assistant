@@ -151,12 +151,12 @@ describe("content_source_set — sidecar contents", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Policy key verification
+// Route policy verification
 // ---------------------------------------------------------------------------
 
-describe("route policy key", () => {
-  test("content_source_set uses policyKey: secrets", () => {
+describe("route policy", () => {
+  test("content_source_set requires settings.write (secrets-grade)", () => {
     const route = ROUTES.find((r) => r.operationId === "content_source_set");
-    expect(route?.policyKey).toBe("secrets");
+    expect(route?.policy?.requiredScopes).toContain("settings.write");
   });
 });

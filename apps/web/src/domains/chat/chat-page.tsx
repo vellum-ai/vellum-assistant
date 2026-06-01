@@ -22,7 +22,10 @@ import * as Sentry from "@sentry/react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useAuthStore } from "@/stores/auth-store";
-import { useAssistantContext } from "@/components/layout/assistant-context";
+import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
+import { lifecycleService } from "@/assistant/lifecycle-service";
+import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import {
   COMPOSER_FOCUS_EVENT,
@@ -37,11 +40,10 @@ import {
 } from "@/domains/conversations/conversation-queries";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
-import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/subagents/subagent-store";
-import type { SubagentStatus } from "@/domains/chat/api/event-types";
-import { useInteractionStore } from "@/domains/interactions/interaction-store";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
-import { useAssistantFeatureFlagStore } from "@/lib/feature-flags/assistant-feature-flag-store";
+import { useSubagentStore, type SubagentTimelineEvent } from "@/domains/chat/subagent-store";
+import { useInteractionStore } from "@/domains/chat/interaction-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -51,7 +53,7 @@ import type { ContextWindowUsage } from "@/domains/chat/components/context-windo
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { TranscriptPaginationState } from "@/domains/chat/transcript/types";
-import { type UIContext } from "@/stores/turn-selectors";
+import { type UIContext } from "@/domains/chat/turn-selectors";
 import { peekPendingPreChatContext, type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import type { WebSyncRouter } from "@/lib/sync/web-sync-router";
@@ -59,7 +61,6 @@ import type { SyncChangedEvent } from "@/lib/sync/types";
 
 import { Button } from "@vellum/design-library";
 import { LazyBoundary } from "@/components/lazy-boundary";
-import { useSyncChatStore } from "@/domains/chat/chat-store";
 import { useChatAttachments } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import { useVoiceInput } from "@/domains/chat/hooks/use-voice-input";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
@@ -67,6 +68,7 @@ import { useAssistantReachability } from "@/assistant/use-assistant-reachability
 import { useDiskPressureMonitor } from "@/assistant/use-disk-pressure-monitor";
 import { getDiskPressureChatBlockReason } from "@/assistant/disk-pressure";
 import { useAppNudges } from "@/domains/chat/hooks/use-app-nudges";
+import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useConversationLoader } from "@/domains/conversations/use-conversation-loader";
 import { useMobileOverlayTarget } from "@/domains/chat/hooks/use-mobile-overlay-target";
 import { useContextWindowUsageHydration } from "@/domains/chat/hooks/use-context-window-usage-hydration";
@@ -80,8 +82,11 @@ import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-han
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
 import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
+import { hydrateLastSeenSeqFromStorage } from "@/lib/streaming/last-seen-seq";
+import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
 import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-sync";
 import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input";
+import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
 import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
 import { useChatDebugApi } from "@/domains/chat/utils/debug-api";
 
@@ -96,11 +101,15 @@ import { createWebSyncRouter } from "@/lib/sync/web-sync-router";
 import { assistantIdentityQueryKey } from "@/hooks/use-assistant-identity-init";
 import { useQueryClient } from "@tanstack/react-query";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
-import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat-utils";
+import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import { isSurfaceInteractive } from "@/domains/chat/types/types";
-import { useTurnStore } from "@/stores/turn-store";
+import { useTurnStore } from "@/domains/chat/turn-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { buildMoveToGroupTargets } from "@/domains/chat/utils/group-conversations";
+import {
+  formatSlackConversationDisplayLabel,
+} from "@/domains/chat/utils/slack-conversation-display";
+import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conversation-display";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
 const AddCreditsModal = lazy(() =>
@@ -135,7 +144,7 @@ import {
 import { getEditChatConversationId, setEditChatConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
-import type { ChatEventStream } from "@/domains/chat/api/stream";
+import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
   ChatRouteContent,
   type ChatRouteContentProps,
@@ -154,16 +163,27 @@ export function ChatPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { conversationId: urlConversationId } = useParams<{ conversationId?: string }>();
-  const {
-    assistantId,
-    assistantState,
-    checkAssistant,
-    retryAssistant,
-    hatchVersion,
-    setTopBarCenter,
-    setTopBarRightSlot,
-    setOnSearchClick,
-  } = useAssistantContext();
+  const setTopBarCenter = useChatLayoutSlotsStore.use.setTopBarCenter();
+  const setTopBarRightSlot =
+    useChatLayoutSlotsStore.use.setTopBarRightSlot();
+  const setOnSearchClick = useChatLayoutSlotsStore.use.setOnSearchClick();
+  const assistantId = useAssistantSelectionStore.use.activeAssistantId();
+  const assistantState = useAssistantLifecycleStore.use.assistantState();
+  // Wrap the service methods in stable `useCallback`s so they can flow
+  // through prop boundaries (downstream effects' dep arrays stay
+  // stable) and the `this` binding is preserved on call.
+  const checkAssistant = useCallback(
+    () => lifecycleService.checkAssistant(),
+    [],
+  );
+  const retryAssistant = useCallback(
+    () => lifecycleService.retryAssistant(),
+    [],
+  );
+  const hatchVersion = useCallback(
+    (version?: string) => lifecycleService.hatchVersion(version),
+    [],
+  );
   const chatPullToRefreshEnabled = useClientFeatureFlagStore.use.chatPullToRefreshEnabled();
   const deployToVercel = useAssistantFeatureFlagStore.use.deployToVercel();
   const doctor = useClientFeatureFlagStore.use.doctor();
@@ -202,6 +222,15 @@ export function ChatPage() {
   });
   const [assetsRefreshKey, setAssetsRefreshKey] = useState(0);
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
+
+  // Hydrate per-conversation seq cursors from localStorage once so gap
+  // detection in use-event-stream has a seeded cursor before the first
+  // bus event arrives. Gated behind the debug flag.
+  useEffect(() => {
+    if (isSeqGapDetectionEnabled()) {
+      hydrateLastSeenSeqFromStorage();
+    }
+  }, []);
 
   // -------------------------------------------------------------------------
   // Conversation list / groups (server state via TanStack Query)
@@ -377,6 +406,13 @@ export function ChatPage() {
     draftConversationIdResolutionRef,
     onDraftRestored: setRestoredDraftConversationId,
   });
+
+  // Inbound deep links: pre-fill composer with `deeplink.send` text,
+  // navigate to `/assistant/conversations/<id>` for `deeplink.openThread`,
+  // and ensure the main window is visible first. The hook gates the
+  // composer pre-fill on `input` being empty so it doesn't clobber
+  // in-progress typing. Off Electron the bus events never fire.
+  useDeepLinkConsumer({ composerInput: input, setComposerInput: setInput });
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -647,9 +683,6 @@ export function ChatPage() {
     setContextWindowUsage,
     scheduleConversationListRefetch,
     setCompactionCircuitOpenUntil,
-    applyDiskPressureStatusEvent: diskPressure.applyStatusEvent,
-    refreshAssistantIdentity,
-    invalidateAvatar,
     dispatchSyncChanged,
     pendingQueuedMessageIdsRef,
     requestIdToMessageIdRef,
@@ -813,10 +846,9 @@ export function ChatPage() {
       let eventCounter = 0;
       const events: SubagentTimelineEvent[] = [];
 
-      for (const evt of detail.events ?? []) {
-        const rawType = typeof evt.type === "string" ? evt.type : "unknown";
+      for (const evt of detail.events) {
         let type: SubagentTimelineEvent["type"];
-        switch (rawType) {
+        switch (evt.type) {
           case "text":
           case "assistant_text_delta":
             type = "text";
@@ -835,14 +867,7 @@ export function ChatPage() {
             continue;
         }
 
-        const content =
-          typeof evt.content === "string"
-            ? evt.content
-            : typeof evt.text === "string"
-              ? evt.text
-              : typeof evt.result === "string"
-                ? evt.result
-                : "";
+        const content = evt.content;
 
         if (type === "text" && content === "") continue;
 
@@ -857,15 +882,15 @@ export function ChatPage() {
           id: `detail-${++eventCounter}`,
           type,
           content,
-          toolName: typeof evt.toolName === "string" ? evt.toolName : undefined,
-          isError: typeof evt.isError === "boolean" ? evt.isError : undefined,
-          timestamp: typeof evt.timestamp === "number" ? evt.timestamp : Date.now(),
+          toolName: evt.toolName,
+          isError: evt.isError,
+          timestamp: Date.now(),
         });
       }
 
       useSubagentStore.getState().loadDetail({
         subagentId,
-        status: (detail.status as SubagentStatus) || undefined,
+        status: detail.status,
         objective: detail.objective,
         inputTokens: detail.usage?.inputTokens,
         outputTokens: detail.usage?.outputTokens,
@@ -995,21 +1020,6 @@ export function ChatPage() {
   });
 
   // -------------------------------------------------------------------------
-  // Sync chat store (for deeply-nested components that read via context)
-  // -------------------------------------------------------------------------
-  useSyncChatStore({
-    messages,
-    activeConversationId,
-    assistantId,
-    sendMessage,
-  });
-
-  // (Previously: a useEffect mirrored a local `useState<AssistantIdentity>`
-  // into `useAssistantIdentityStore`. That mirror is gone — chat-page now
-  // reads the store via atomic selectors above and `useAssistantIdentityInit`
-  // at the layout level owns the fetch + write. LUM-1959.)
-
-  // -------------------------------------------------------------------------
   // Conversation actions (archive, pin, rename, etc.)
   // -------------------------------------------------------------------------
   const {
@@ -1106,6 +1116,16 @@ export function ChatPage() {
     () => messages.some((m) => m.id != null),
     [messages],
   );
+  const slackConversationDisplay = useSlackConversationDisplay({
+    assistantId: assistantId ?? undefined,
+    conversation: activeConversation,
+    messages,
+  });
+  const slackHeaderLabel = useMemo(() => {
+    return slackConversationDisplay
+      ? formatSlackConversationDisplayLabel(slackConversationDisplay)
+      : null;
+  }, [slackConversationDisplay]);
 
   const topBarCenterContent = useMemo(() => {
     if (!activeConversation) {
@@ -1185,13 +1205,28 @@ export function ChatPage() {
             aria-haspopup="menu"
             className="min-w-0"
           >
-            <span className="min-w-0 max-w-[240px] truncate">
-              {isArchived && (
-                <span className="mr-1 text-[var(--content-tertiary)]">
-                  [Archived]
+            <span className="flex min-w-0 items-center gap-1.5">
+              {slackHeaderLabel ? (
+                <img
+                  src="/images/integrations/slack.svg"
+                  alt=""
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 shrink-0"
+                />
+              ) : null}
+              <span className="min-w-0 max-w-[220px] truncate leading-6">
+                {isArchived && (
+                  <span className="mr-1 text-[var(--content-tertiary)]">
+                    [Archived]
+                  </span>
+                )}
+                {activeConversation.title ?? "Untitled"}
+              </span>
+              {slackHeaderLabel ? (
+                <span className="hidden max-w-[160px] shrink truncate leading-6 text-[var(--content-tertiary)] sm:inline">
+                  ({slackHeaderLabel})
                 </span>
-              )}
-              {activeConversation.title ?? "Untitled"}
+              ) : null}
             </span>
           </Button>
         }
@@ -1201,6 +1236,7 @@ export function ChatPage() {
     activeConversation,
     assistantId,
     isChannelReadonly,
+    slackHeaderLabel,
     conversationGroups,
     handleTogglePinConversation,
     handleRenameConversation,
@@ -1226,24 +1262,10 @@ export function ChatPage() {
     return () => { setTopBarCenter(null); };
   }, [topBarCenterContent, setTopBarCenter]);
 
-  // Open an app from inside a chat (assets pill, "Open App" on a message).
-  // On macOS this enters side-by-side editing mode (chat + app preview);
-  // we mirror that here by transitioning the viewer to `app-editing` once
-  // the load lands, keeping the current conversation as the edit chat.
-  // Bail if the load failed or a newer open superseded this one.
-  const handleOpenAppFromChat = useCallback(
-    async (appId: string) => {
-      if (!assistantId) return;
-      haptic.light();
-      await useViewerStore.getState().loadApp(assistantId, appId);
-      const { activeAppId, openedAppState } = useViewerStore.getState();
-      if (activeConversationId && openedAppState && activeAppId === appId) {
-        useConversationStore.getState().setEditingConversationId(activeConversationId);
-        useViewerStore.getState().enterAppEditing();
-      }
-    },
-    [assistantId, activeConversationId],
-  );
+  // Open an app from inside a chat (assets pill, "Open App" on a message,
+  // sidebar pinned-app click). Shared with `chat-layout.tsx` — see
+  // `use-open-app-from-chat.ts` for the loadApp → enterAppEditing flow.
+  const handleOpenAppFromChat = useOpenAppFromChat();
 
   const handleOpenDocument = useCallback(
     (surfaceId: string) => {

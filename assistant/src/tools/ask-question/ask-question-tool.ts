@@ -2,8 +2,11 @@ import { z } from "zod";
 
 import { QuestionPrompter } from "../../permissions/question-prompter.js";
 import { RiskLevel } from "../../permissions/types.js";
-import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
 // ── Input schema ────────────────────────────────────────────────────
 // Runtime validation lives in Zod; the wire-level definition surfaced
@@ -132,92 +135,86 @@ const OPTION_ITEMS_SCHEMA = {
 
 // ── Tool ────────────────────────────────────────────────────────────
 
-export class AskQuestionTool implements Tool {
-  name = "ask_question";
-  description = DESCRIPTION;
-  category = "interaction";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.Low;
-  input_schema = {
-        type: "object",
-        properties: {
-          // ── Recommended shape ─────────────────────────────────────
-          questions: {
-            type: "array",
-            minItems: 1,
-            maxItems: MAX_QUESTIONS_PER_BATCH,
-            description: `Recommended shape. 1–${MAX_QUESTIONS_PER_BATCH} clarifying questions to ask in a single turn. Use a batch when several independent ambiguities block progress; ask one at a time when they're sequentially dependent. Past ${MAX_QUESTIONS_PER_BATCH} questions you should be implementing, not asking.`,
-            items: {
-              type: "object",
-              properties: {
-                question: {
-                  type: "string",
-                  description: "The clarifying question to display.",
-                },
-                description: {
-                  type: "string",
-                  description:
-                    "Optional one-line context shown beneath the question.",
-                },
-                options: {
-                  type: "array",
-                  minItems: 2,
-                  maxItems: 4,
-                  description:
-                    "2–4 structured options. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
-                  items: OPTION_ITEMS_SCHEMA,
-                },
-                freeTextPlaceholder: {
-                  type: "string",
-                  description:
-                    "Optional placeholder text shown inside the free-text fallback input.",
-                },
-              },
-              required: ["question", "options"],
+/**
+ * `ask_question` tool definition. Tests stub the prompter by mocking
+ * `../../permissions/question-prompter.js` via `bun:test`'s `mock.module`
+ * before importing this file — see `ask-question-tool.test.ts` for the
+ * pattern.
+ */
+export const askQuestionTool = {
+  name: "ask_question",
+  description: DESCRIPTION,
+  category: "interaction",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.Low,
+  input_schema: {
+    type: "object",
+    properties: {
+      // ── Recommended shape ─────────────────────────────────────
+      questions: {
+        type: "array",
+        minItems: 1,
+        maxItems: MAX_QUESTIONS_PER_BATCH,
+        description: `Recommended shape. 1–${MAX_QUESTIONS_PER_BATCH} clarifying questions to ask in a single turn. Use a batch when several independent ambiguities block progress; ask one at a time when they're sequentially dependent. Past ${MAX_QUESTIONS_PER_BATCH} questions you should be implementing, not asking.`,
+        items: {
+          type: "object",
+          properties: {
+            question: {
+              type: "string",
+              description: "The clarifying question to display.",
+            },
+            description: {
+              type: "string",
+              description:
+                "Optional one-line context shown beneath the question.",
+            },
+            options: {
+              type: "array",
+              minItems: 2,
+              maxItems: 4,
+              description:
+                "2–4 structured options. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
+              items: OPTION_ITEMS_SCHEMA,
+            },
+            freeTextPlaceholder: {
+              type: "string",
+              description:
+                "Optional placeholder text shown inside the free-text fallback input.",
             },
           },
-          // ── Legacy single-question fields ─────────────────────────
-          // Kept optional so existing prompt caches and any single-question
-          // callers continue to work. New callers should use `questions`.
-          question: {
-            type: "string",
-            description:
-              "Legacy: the single clarifying question. Prefer `questions[]` for new code.",
-          },
-          description: {
-            type: "string",
-            description:
-              "Legacy: optional one-line context shown beneath the question. Prefer `questions[].description`.",
-          },
-          options: {
-            type: "array",
-            minItems: 2,
-            maxItems: 4,
-            description:
-              "Legacy: 2–4 structured options. Prefer `questions[].options`. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
-            items: OPTION_ITEMS_SCHEMA,
-          },
-          freeTextPlaceholder: {
-            type: "string",
-            description:
-              "Legacy: optional placeholder text for the free-text fallback input. Prefer `questions[].freeTextPlaceholder`.",
-          },
+          required: ["question", "options"],
         },
-        // No top-level `required` — caller must supply either `questions`
-        // or the legacy flat trio (`question` + `options`). Enforced in Zod.
-    };
-
-  // Override hook for tests: lets a test replace the prompter factory
-  // without monkey-patching the module. Default factory wires the real
-  // broadcastMessage so the question reaches every connected client.
-  private prompterFactory: () => Pick<QuestionPrompter, "prompt">;
-
-  constructor(
-    prompterFactory: () => Pick<QuestionPrompter, "prompt"> = () =>
-      new QuestionPrompter({ broadcastMessage }),
-  ) {
-    this.prompterFactory = prompterFactory;
-  }
+      },
+      // ── Legacy single-question fields ─────────────────────────
+      // Kept optional so existing prompt caches and any single-question
+      // callers continue to work. New callers should use `questions`.
+      question: {
+        type: "string",
+        description:
+          "Legacy: the single clarifying question. Prefer `questions[]` for new code.",
+      },
+      description: {
+        type: "string",
+        description:
+          "Legacy: optional one-line context shown beneath the question. Prefer `questions[].description`.",
+      },
+      options: {
+        type: "array",
+        minItems: 2,
+        maxItems: 4,
+        description:
+          "Legacy: 2–4 structured options. Prefer `questions[].options`. The UI always appends a free-text fallback slot, so do not include a 'something else' option here.",
+        items: OPTION_ITEMS_SCHEMA,
+      },
+      freeTextPlaceholder: {
+        type: "string",
+        description:
+          "Legacy: optional placeholder text for the free-text fallback input. Prefer `questions[].freeTextPlaceholder`.",
+      },
+    },
+    // No top-level `required` — caller must supply either `questions`
+    // or the legacy flat trio (`question` + `options`). Enforced in Zod.
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -244,7 +241,7 @@ export class AskQuestionTool implements Tool {
       },
     ];
 
-    const prompter = this.prompterFactory();
+    const prompter = new QuestionPrompter();
     const result = await prompter.prompt({
       conversationId: context.conversationId,
       questions,
@@ -291,7 +288,5 @@ export class AskQuestionTool implements Tool {
           isError: true,
         };
     }
-  }
-}
-
-export const askQuestionTool = new AskQuestionTool();
+  },
+} satisfies ToolDefinition;

@@ -16,6 +16,7 @@ import { rawChanges } from "../../memory/raw-query.js";
 import { acpSessionHistory } from "../../memory/schema.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   ConflictError,
@@ -202,7 +203,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "acp_spawn",
     endpoint: "acp/spawn",
     method: "POST",
-    policyKey: "acp/spawn",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: spawnSession,
     summary: "Spawn ACP session",
     description: "Start a new Agent Communication Protocol session.",
@@ -223,7 +227,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "acp_steer",
     endpoint: "acp/:id/steer",
     method: "POST",
-    policyKey: "acp/steer",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: steerSession,
     summary: "Steer ACP session",
     description: "Send a steering instruction to an active ACP session.",
@@ -240,7 +247,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "acp_cancel",
     endpoint: "acp/:id/cancel",
     method: "POST",
-    policyKey: "acp/cancel",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: cancelSession,
     summary: "Cancel ACP session",
     description: "Cancel an active ACP session.",
@@ -254,7 +264,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "acp_close",
     endpoint: "acp/:id/close",
     method: "POST",
-    policyKey: "acp/close",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: closeSession,
     summary: "Close ACP session",
     description: "Close a completed ACP session.",
@@ -268,7 +281,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "acp_list_sessions",
     endpoint: "acp/sessions",
     method: "GET",
-    policyKey: "acp",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: listSessions,
     summary: "List ACP sessions",
     description:
@@ -300,6 +316,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "acp_bulk_delete_sessions",
     endpoint: "acp/sessions",
     method: "DELETE",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: bulkDeleteSessions,
     summary: "Bulk-clear terminal ACP sessions",
     description:
@@ -322,7 +342,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "acp_delete_session",
     endpoint: "acp/sessions/:id",
     method: "DELETE",
-    policyKey: "acp/sessions/delete",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: deleteSession,
     summary: "Delete ACP session from history",
     description:

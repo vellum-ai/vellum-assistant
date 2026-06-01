@@ -14,11 +14,7 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  AgentEvent,
-  CheckpointDecision,
-  CheckpointInfo,
-} from "../agent/loop.js";
+import type { AgentEvent, AgentLoopRunOptions } from "../agent/loop.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
@@ -354,15 +350,12 @@ import {
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
-// Captures every positional argument the loop passes to `agentLoop.run`.
-// The 8th positional argument is the per-turn `overrideProfile`, which is
-// what most tests assert on. The 10th and 11th positional arguments re-resolve
-// that profile and its max-token budget between provider calls.
+/** Captures the options the orchestrator passes to `agentLoop.run`. */
 interface CapturedAgentLoopRun {
   callSite: LLMCallSite | undefined;
   overrideProfile: string | undefined;
   resolvedOverrideProfile: string | undefined;
-  resolvedEffectiveMaxInputTokens: number | undefined;
+  resolvedMaxInputTokens: number | undefined;
 }
 
 let mutateBeforeResolveOverrideProfile: (() => void) | undefined;
@@ -374,24 +367,14 @@ function makeCtx(
   const agentLoopRun = async (
     messages: Message[],
     _onEvent: (event: AgentEvent) => void,
-    _signal?: AbortSignal,
-    _requestId?: string,
-    _onCheckpoint?: (
-      checkpoint: CheckpointInfo,
-    ) => CheckpointDecision | Promise<CheckpointDecision>,
-    callSite?: LLMCallSite,
-    _turnContext?: unknown,
-    overrideProfile?: string,
-    _effectiveMaxInputTokens?: number,
-    resolveOverrideProfile?: () => string | undefined,
-    resolveEffectiveMaxInputTokens?: () => number | undefined,
+    options?: AgentLoopRunOptions,
   ): Promise<Message[]> => {
     mutateBeforeResolveOverrideProfile?.();
     captured.push({
-      callSite,
-      overrideProfile,
-      resolvedOverrideProfile: resolveOverrideProfile?.(),
-      resolvedEffectiveMaxInputTokens: resolveEffectiveMaxInputTokens?.(),
+      callSite: options?.callSite,
+      overrideProfile: options?.overrideProfile,
+      resolvedOverrideProfile: options?.resolveOverrideProfile?.(),
+      resolvedMaxInputTokens: options?.resolveContextWindow?.().maxInputTokens,
     });
     return [
       ...messages,
@@ -680,7 +663,7 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     expect(captured.length).toBeGreaterThan(0);
     expect(captured[0].overrideProfile).toBeUndefined();
     expect(captured[0].resolvedOverrideProfile).toBe("quality-optimized");
-    expect(captured[0].resolvedEffectiveMaxInputTokens).toBe(50000);
+    expect(captured[0].resolvedMaxInputTokens).toBe(50000);
     expect(ctx.currentTurnOverrideProfile).toBeUndefined();
   });
 });

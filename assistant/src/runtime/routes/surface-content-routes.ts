@@ -10,6 +10,7 @@
 import { z } from "zod";
 
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import { resolveSurfaceConversation } from "./surface-conversation-resolver.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -91,6 +92,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "surfaces_get_content",
     endpoint: "surfaces/:surfaceId",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get surface content",
     description:
       "Return the full surface payload from the conversation's in-memory surface state.",

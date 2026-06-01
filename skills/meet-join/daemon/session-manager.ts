@@ -829,14 +829,8 @@ class MeetSessionManagerImpl {
   constructor(host: SkillHost, deps: MeetSessionManagerDeps = {}) {
     this.host = host;
     this.log = host.logger.get("meet-session-manager");
-    // The contract's `addMessage` returns `Promise<unknown>`; the bridge's
-    // `InsertMessageFn` expects the narrower `{ id: string }` shape.
-    // `DaemonSkillHost` wires the concrete `addMessage` (which returns the
-    // narrower shape) as-is, so the runtime values match — the narrowing
-    // cast just patches the contract's opaque return type back to the
-    // daemon shape at this boundary.
     const insertMessage: InsertMessageFn =
-      deps.insertMessage ?? (host.memory.addMessage as InsertMessageFn);
+      deps.insertMessage ?? host.memory.addMessage;
     const resolveWorkspaceDir =
       deps.getWorkspaceDir ?? (() => host.platform.workspaceDir());
     const dockerRunnerSubModule =
@@ -2738,7 +2732,7 @@ function buildSessionManagerTestHost(): SkillHost {
       secureKeys: { getProviderKey: async () => null },
     },
     memory: {
-      addMessage: (async () => ({ id: "msg-test" })) as InsertMessageFn,
+      addMessage: async () => ({ id: "msg-test" }),
       wakeAgentForOpportunity: async () => {},
     },
     events: {

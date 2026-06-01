@@ -1,6 +1,10 @@
 import type * as genai from "@google/genai";
 import { ApiError, GoogleGenAI, ThinkingLevel } from "@google/genai";
 
+import {
+  THINKING_LEVELS,
+  type ThinkingLevel as ThinkingLevelName,
+} from "../../config/schemas/llm.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -12,12 +16,16 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "../types.js";
 import {
   ContextOverflowError,
   extractOverflowTokensFromMessage,
 } from "../types.js";
+import {
+  base64ByteLength,
+  GEMINI_MAX_INLINE_AUDIO_BYTES,
+  normalizeGeminiAudioMime,
+} from "./inline-media.js";
 
 /**
  * Token/context-specific phrases that reliably indicate context-overflow
@@ -34,7 +42,7 @@ function isGemini3Model(model: string): boolean {
   return model.startsWith("gemini-3") || model.startsWith("models/gemini-3");
 }
 
-const THINKING_LEVEL_BY_NAME: Record<string, ThinkingLevel> = {
+const THINKING_LEVEL_BY_NAME: Record<ThinkingLevelName, ThinkingLevel> = {
   minimal: ThinkingLevel.MINIMAL,
   low: ThinkingLevel.LOW,
   medium: ThinkingLevel.MEDIUM,
@@ -42,32 +50,92 @@ const THINKING_LEVEL_BY_NAME: Record<string, ThinkingLevel> = {
 };
 
 /**
+ * Default thinking level for Gemini Pro models when the profile doesn't pin
+ * one. Pro rejects `"minimal"` and an absent level resolves to `"minimal"`
+ * upstream, so we pin Google's documented Pro default (`"high"`) — always a
+ * supported value.
+ */
+const GEMINI_PRO_DEFAULT_THINKING_LEVEL: ThinkingLevelName = "high";
+
+/**
+ * Gemini 3.x Pro family accepts only `low`/`medium`/`high` (no `"minimal"`) and
+ * cannot fully disable thinking. Matches `gemini-3.1-pro-preview`,
+ * `gemini-3.1-pro-preview-customtools`, and future `gemini-3*pro*`.
+ */
+function isGeminiProModel(model: string): boolean {
+  const normalized = model.startsWith("models/")
+    ? model.slice("models/".length)
+    : model;
+  return /^gemini-3.*pro/.test(normalized);
+}
+
+/**
+ * Lowest thinking level the model accepts. Pro's floor is `"low"`; every other
+ * thinking-capable Gemini model accepts `"minimal"`.
+ */
+function geminiThinkingFloor(model: string): ThinkingLevelName {
+  return isGeminiProModel(model) ? "low" : "minimal";
+}
+
+/**
+ * Raise `level` to `floor` when it sits below it, so we never send a level the
+ * model rejects (e.g. `"minimal"` to a Pro model).
+ */
+function clampThinkingLevelToFloor(
+  level: ThinkingLevelName,
+  floor: ThinkingLevelName,
+): ThinkingLevelName {
+  return THINKING_LEVELS.indexOf(level) < THINKING_LEVELS.indexOf(floor)
+    ? floor
+    : level;
+}
+
+/**
  * Translate the resolved wire-shape `thinking` config into Gemini's
- * `thinkingConfig`. Returns `undefined` when no thinking config was supplied,
- * which lets Google's per-model default apply (e.g. `gemini-3.5-flash`
- * defaults to dynamic medium-level thinking).
+ * `thinkingConfig`, guaranteeing the emitted `thinkingLevel` is one the model
+ * accepts. Returns `undefined` when nothing needs to be set, which lets
+ * Google's per-model default apply (e.g. `gemini-3.5-flash` defaults to
+ * dynamic medium-level thinking).
  *
- * `enabled: false` maps to `thinkingLevel: MINIMAL` because Gemini 3.x cannot
- * fully disable thinking — `"minimal"` is the floor. `includeThoughts` is
- * gated on `streamThinking` so callers that opted out of streaming thoughts
- * don't pay for thought tokens in the response.
+ * - `enabled: false` maps to the model's floor — the most "off" state it
+ *   allows (`"minimal"` for most models, `"low"` for Pro, which can't disable
+ *   thinking).
+ * - An explicit `level` below the floor is raised to the floor.
+ * - When no `level` is pinned, Pro models get the documented default (`"high"`)
+ *   because an absent level resolves to the unsupported `"minimal"` upstream;
+ *   other models keep Google's per-model default by leaving the level unset.
+ *
+ * `includeThoughts` is gated on `streamThinking` so callers that opted out of
+ * streaming thoughts don't pay for thought tokens in the response.
  */
 function buildThinkingConfig(
   thinking: Record<string, unknown> | undefined,
+  model: string,
 ): genai.ThinkingConfig | undefined {
   if (!thinking) return undefined;
+  const floor = geminiThinkingFloor(model);
+
   if (thinking.type === "disabled") {
     return {
-      thinkingLevel: ThinkingLevel.MINIMAL,
+      thinkingLevel: THINKING_LEVEL_BY_NAME[floor],
       includeThoughts: false,
     };
   }
   if (thinking.type !== "adaptive") return undefined;
 
   const result: genai.ThinkingConfig = {};
-  if (typeof thinking.level === "string") {
-    const mapped = THINKING_LEVEL_BY_NAME[thinking.level];
-    if (mapped) result.thinkingLevel = mapped;
+  if (
+    typeof thinking.level === "string" &&
+    thinking.level in THINKING_LEVEL_BY_NAME
+  ) {
+    const clamped = clampThinkingLevelToFloor(
+      thinking.level as ThinkingLevelName,
+      floor,
+    );
+    result.thinkingLevel = THINKING_LEVEL_BY_NAME[clamped];
+  } else if (isGeminiProModel(model)) {
+    result.thinkingLevel =
+      THINKING_LEVEL_BY_NAME[GEMINI_PRO_DEFAULT_THINKING_LEVEL];
   }
   if (typeof thinking.streamThinking === "boolean") {
     result.includeThoughts = thinking.streamThinking;
@@ -223,11 +291,9 @@ export class GeminiProvider implements Provider {
 
   async sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
-    const { config, onEvent, signal } = options ?? {};
+    const { tools, systemPrompt, config, onEvent, signal } = options ?? {};
     const configObj = config as Record<string, unknown> | undefined;
     const maxTokens = configObj?.max_tokens as number | undefined;
     const modelOverride = configObj?.model as string | undefined;
@@ -238,6 +304,7 @@ export class GeminiProvider implements Provider {
     const thinkingConfig = geminiModelSupportsThinking(activeModel)
       ? buildThinkingConfig(
           configObj?.thinking as Record<string, unknown> | undefined,
+          activeModel,
         )
       : undefined;
 
@@ -296,6 +363,7 @@ export class GeminiProvider implements Provider {
       let finishReason = "unknown";
       let promptTokens = 0;
       let outputTokens = 0;
+      let cachedTokens = 0;
       let responseModel = activeModel;
 
       try {
@@ -343,6 +411,11 @@ export class GeminiProvider implements Provider {
           if (chunk.usageMetadata) {
             promptTokens = chunk.usageMetadata.promptTokenCount ?? 0;
             outputTokens = chunk.usageMetadata.candidatesTokenCount ?? 0;
+            // Gemini 2.5+/3.x cache a stable request prefix implicitly (on by
+            // default). promptTokenCount already includes these cached tokens,
+            // so cachedContentTokenCount is the read subset — surface it so the
+            // pricing layer applies the discounted cache-read rate.
+            cachedTokens = chunk.usageMetadata.cachedContentTokenCount ?? 0;
           }
 
           if (chunk.modelVersion) {
@@ -386,13 +459,18 @@ export class GeminiProvider implements Provider {
         usageMetadata: {
           promptTokenCount: promptTokens,
           candidatesTokenCount: outputTokens,
+          cachedContentTokenCount: cachedTokens,
         },
       };
 
       return {
         content,
         model: responseModel,
-        usage: { inputTokens: promptTokens, outputTokens },
+        usage: {
+          inputTokens: promptTokens,
+          outputTokens,
+          ...(cachedTokens > 0 ? { cacheReadInputTokens: cachedTokens } : {}),
+        },
         stopReason: finishReason,
         rawRequest,
         rawResponse,
@@ -456,7 +534,7 @@ export class GeminiProvider implements Provider {
 
     for (const msg of messages) {
       const role = msg.role === "assistant" ? "model" : "user";
-      const { parts, toolResultImageParts } = this.toGeminiParts(
+      const { parts, toolResultMediaParts } = this.toGeminiParts(
         msg.content,
         toolCallNames,
         model,
@@ -468,8 +546,8 @@ export class GeminiProvider implements Provider {
       // Gemini requires that a Content with functionResponse parts must not
       // contain non-functionResponse parts. Emit tool-result images in a
       // separate user Content entry.
-      if (toolResultImageParts.length > 0) {
-        result.push({ role: "user", parts: toolResultImageParts });
+      if (toolResultMediaParts.length > 0) {
+        result.push({ role: "user", parts: toolResultMediaParts });
       }
     }
 
@@ -482,9 +560,9 @@ export class GeminiProvider implements Provider {
     toolCallNames: Map<string, string>,
     model: string,
     role: "model" | "user",
-  ): { parts: genai.Part[]; toolResultImageParts: genai.Part[] } {
+  ): { parts: genai.Part[]; toolResultMediaParts: genai.Part[] } {
     const parts: genai.Part[] = [];
-    const toolResultImageParts: genai.Part[] = [];
+    const toolResultMediaParts: genai.Part[] = [];
 
     for (const block of blocks) {
       switch (block.type) {
@@ -499,14 +577,27 @@ export class GeminiProvider implements Provider {
             },
           });
           break;
-        case "file":
+        case "file": {
           if (this.supportsGeminiInlineFile(block.source.media_type)) {
-            parts.push({
-              inlineData: {
-                mimeType: block.source.media_type,
-                data: block.source.data,
-              },
-            });
+            // Normalize audio MIME onto Gemini's spelling (e.g. audio/mpeg →
+            // audio/mp3); PDFs pass through unchanged. Guard the 20 MB inline
+            // request limit for audio so an oversize clip degrades to a text
+            // note rather than 400ing the whole request.
+            const audioMime = normalizeGeminiAudioMime(block.source.media_type);
+            const rawBytes = base64ByteLength(block.source.data);
+            if (audioMime && rawBytes > GEMINI_MAX_INLINE_AUDIO_BYTES) {
+              const approxMb = Math.round(rawBytes / (1024 * 1024));
+              parts.push({
+                text: `[Audio file too large to send inline: ${block.source.filename} (${block.source.media_type}, ~${approxMb}MB). Gemini's inline request limit is 20MB; this file was omitted. Ask the user for a shorter clip.]`,
+              });
+            } else {
+              parts.push({
+                inlineData: {
+                  mimeType: audioMime ?? block.source.media_type,
+                  data: block.source.data,
+                },
+              });
+            }
           } else {
             const fallback = block.extracted_text?.trim()
               ? `[Attached file: ${block.source.filename} (${block.source.media_type})]\n${block.extracted_text}`
@@ -514,6 +605,7 @@ export class GeminiProvider implements Provider {
             parts.push({ text: fallback });
           }
           break;
+        }
         case "tool_use":
           {
             const functionCallPart: genai.Part = {
@@ -542,16 +634,39 @@ export class GeminiProvider implements Provider {
             if (extraText.length > 0) {
               outputText = outputText + "\n" + extraText.join("\n");
             }
-            // Collect images separately — Gemini rejects mixing inlineData
-            // with functionResponse in the same Content entry.
+            // Collect images and inline-able audio separately — Gemini rejects
+            // mixing inlineData with functionResponse in the same Content entry.
             for (const cb of block.contentBlocks) {
               if (cb.type === "image") {
-                toolResultImageParts.push({
+                toolResultMediaParts.push({
                   inlineData: {
                     mimeType: cb.source.media_type,
                     data: cb.source.data,
                   },
                 });
+              } else if (cb.type === "file") {
+                const audioMime = normalizeGeminiAudioMime(
+                  cb.source.media_type,
+                );
+                if (
+                  audioMime &&
+                  base64ByteLength(cb.source.data) <=
+                    GEMINI_MAX_INLINE_AUDIO_BYTES
+                ) {
+                  toolResultMediaParts.push({
+                    inlineData: { mimeType: audioMime, data: cb.source.data },
+                  });
+                } else if (audioMime) {
+                  // Oversize audio: note it in the functionResponse output
+                  // rather than a media part (a text part can't ride the
+                  // separate media Content, and inline audio would blow
+                  // Gemini's request-size limit).
+                  outputText =
+                    outputText +
+                    `\n[Audio too large to send inline: ${cb.source.filename}. Ask for a shorter clip.]`;
+                }
+                // Non-inline-able file sub-blocks (m4a/opus/pdf) are skipped
+                // here; the tool's text output already conveys the file.
               }
             }
           }
@@ -577,7 +692,7 @@ export class GeminiProvider implements Provider {
       this.addGemini3UnsignedToolCallFallback(parts, model);
     }
 
-    return { parts, toolResultImageParts };
+    return { parts, toolResultMediaParts };
   }
 
   private addGemini3UnsignedToolCallFallback(
@@ -601,6 +716,9 @@ export class GeminiProvider implements Provider {
   }
 
   private supportsGeminiInlineFile(mimeType: string): boolean {
-    return mimeType === "application/pdf";
+    return (
+      mimeType === "application/pdf" ||
+      normalizeGeminiAudioMime(mimeType) !== null
+    );
   }
 }

@@ -215,7 +215,7 @@ describe("IPC feature flag routes", () => {
     expect(flags["email-channel"]).toBe(true); // remote overrides default
   });
 
-  test("get_feature_flags disables declared flags missing from a remote snapshot", async () => {
+  test("get_feature_flags falls back to registry defaults for flags missing from a remote snapshot", async () => {
     writeFileSync(
       remoteFeatureFlagStorePath,
       JSON.stringify({
@@ -236,7 +236,7 @@ describe("IPC feature flag routes", () => {
     expect(res.error).toBeUndefined();
     const flags = res.result as Record<string, boolean>;
     expect(flags["email-channel"]).toBe(true);
-    expect(flags["browser"]).toBe(false);
+    expect(flags["browser"]).toBe(true);
   });
 
   test("get_feature_flag returns value for a known flag", async () => {

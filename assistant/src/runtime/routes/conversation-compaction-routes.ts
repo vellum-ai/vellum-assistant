@@ -8,18 +8,31 @@
  *
  * # Scope
  *
- * Returns the set of `call_site = "compactionAgent"` rows in this
- * conversation that ran in the **window between the previous real LLM
- * call and the one identified by `callId`**, ordered chronologically.
- * This is the data the Inspector's "Compaction" tab shows when you
- * select a call in the rail: it answers "what did the compactor do to
- * my context before *this specific* call?" — not "what has the
- * compactor ever done in this conversation".
+ * Returns every `call_site = "compactionAgent"` row that ran in the
+ * **same agent turn** as the call identified by `callId`, ordered
+ * chronologically. This is the data the Inspector's "Compaction" tab
+ * shows when you select a call in the rail: it answers "what did the
+ * compactor do across this whole turn?" — regardless of where the
+ * selected call sits within the turn.
  *
- * The floor is resolved by walking back from the selected call to the
- * most recent non-`compactionAgent` row in the same conversation. When
- * the selected call is the *first* real call in the conversation,
- * there is no floor and every preceding compaction is in scope.
+ * Turn bounds are resolved by `getTurnTimeBounds` in
+ * `memory/conversation-crud.ts`, which walks the `messages` table to
+ * find the real user message that started the turn and the next real
+ * user message (or end-of-conversation) that ends it. Tool-result user
+ * messages are not turn boundaries. When the conversation has no other
+ * messages around the selected call, the window collapses to the
+ * call's own `createdAt` and every compaction strictly before it is
+ * returned — same as the legacy behavior.
+ *
+ * # Why turn-scoped, not call-scoped
+ *
+ * A single turn can run dozens of compactions (mid-loop proactive,
+ * convergence-reducer, and emergency cycles all flow through the same
+ * `compactionAgent` call site). Constraining the trail to the window
+ * between two adjacent calls hides most of that activity from the UI
+ * — especially for the call that *yields* on a budget-exhausted error,
+ * which has no compaction immediately before it but had several
+ * earlier in the same turn. The turn is the right unit of analysis.
  *
  * # Data model decision (in progress)
  *
@@ -39,9 +52,13 @@
 
 import { z } from "zod";
 
-import { getConversation } from "../../memory/conversation-crud.js";
+import {
+  getConversation,
+  getTurnTimeBounds,
+} from "../../memory/conversation-crud.js";
 import { getLlmRequestLogSource } from "../../memory/llm-request-log-source.js";
 import type { LogRow } from "../../memory/llm-request-log-store.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import {
   type LlmContextSummary,
@@ -196,20 +213,29 @@ async function handleGetCompactionTrail({
     );
   }
 
-  // Resolve the window floor — the most recent non-`compactionAgent`
-  // call before the selected one. `null` means the selected call is the
-  // first real call in the conversation, so every preceding compaction
-  // is in scope. The store function applies the strict-`>` predicate
-  // (or drops it entirely on null), so the selected call's own
-  // `createdAt` is the only ceiling we pass.
-  const afterCreatedAt = await source.getPreviousNonCompactionCallCreatedAt(
-    conversationId,
-    selectedCall.createdAt,
-  );
+  // Resolve the turn window from the `messages` table — every
+  // compaction between the user message that started this turn and the
+  // next real user message (or end-of-conversation) is in scope.
+  //
+  // `getCompactionLogsBetween` uses strict `>` / `<` predicates, so we
+  // shift the inclusive bounds by 1ms to capture rows landing on the
+  // boundaries themselves (e.g. an emergency compaction that fires the
+  // same millisecond as the assistant message terminating the turn).
+  //
+  // When `getTurnTimeBounds` returns `null` (the only-message case), the
+  // turn-bound contract isn't established. Fall back to the selected
+  // call's own `createdAt` as the ceiling and an open floor — the same
+  // shape the route exposed before turn-scoping, so callers don't see
+  // a regression on conversations with a single message.
+  const turnBounds = getTurnTimeBounds(conversationId, selectedCall.createdAt);
+  const afterCreatedAt: number | null =
+    turnBounds !== null ? turnBounds.startTime - 1 : null;
+  const beforeCreatedAt: number =
+    turnBounds !== null ? turnBounds.endTime + 1 : selectedCall.createdAt;
   const logs = await source.getCompactionLogsBetween(
     conversationId,
     afterCreatedAt,
-    selectedCall.createdAt,
+    beforeCreatedAt,
   );
 
   return {
@@ -227,10 +253,13 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversations_compaction_trail_get",
     endpoint: "conversations/:id/compaction",
     method: "GET",
-    policyKey: "conversations/compaction",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get the compaction trail leading up to an LLM call",
     description:
-      "Return the chronological list of compaction events that ran in this conversation in the open window between the previous non-`compactionAgent` LLM call and the call identified by `callId`. Projected from `llm_request_logs` rows where `call_site = \"compactionAgent\"`. When the selected call is the first real call in the conversation, every preceding compaction is in scope. Drives the Inspector's Compaction tab.",
+      "Return the chronological list of compaction events that ran in the same agent turn as the call identified by `callId`. Turn bounds are walked from the `messages` table (real user messages — tool-result user messages are not boundaries). Projected from `llm_request_logs` rows where `call_site = \"compactionAgent\"`. When the conversation has no other messages around the selected call, every compaction strictly before the call's `createdAt` is in scope. Drives the Inspector's Compaction tab.",
     tags: ["conversations"],
     pathParams: [
       {

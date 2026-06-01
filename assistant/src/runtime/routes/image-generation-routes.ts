@@ -5,6 +5,7 @@ import {
   mapImageGenError,
   providerForModel,
 } from "../../media/image-service.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, UnprocessableEntityError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -90,6 +91,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "image_generation_generate",
     endpoint: "image-generation/generate",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Generate or edit images using AI",
     description:
       "Calls the configured image-generation provider (Gemini or OpenAI) to produce one or more images.",

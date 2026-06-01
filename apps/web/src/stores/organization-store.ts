@@ -192,18 +192,21 @@ export function setupOrganizationStore(): () => void {
     }
   });
 
-  // 1. Auth transitions — login or user switch triggers org fetch.
+  // 1. Auth transitions — platform session triggers org fetch. Orgs are a
+  //    platform concept; skip the fetch when there's no platform session
+  //    (e.g. self-hosted/local mode with gateway-only auth).
   const unsubAuth = useAuthStore.subscribe((state, prevState) => {
     if (
-      state.isLoggedIn &&
-      (!prevState.isLoggedIn || state.user?.id !== prevState.user?.id)
+      state.hasPlatformSession &&
+      (!prevState.hasPlatformSession || state.user?.id !== prevState.user?.id)
     ) {
       useOrganizationStore.getState().fetchOrganizations();
     }
   });
 
-  // 2. App resume — refetch if stale.
+  // 2. App resume — refetch if stale and platform session is active.
   const refetchIfStale = () => {
+    if (!useAuthStore.getState().hasPlatformSession) return;
     const { status } = useOrganizationStore.getState();
     if (
       (status === "ready" || status === "error") &&

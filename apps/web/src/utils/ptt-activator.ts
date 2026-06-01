@@ -33,7 +33,7 @@ export interface PTTKey {
 
 export type PTTActivator = PTTOff | PTTModifierOnly | PTTKey;
 
-export const LS_PTT_ACTIVATION_KEY = "voice:activationKey";
+export const LS_PTT_ACTIVATION_KEY = "vellum:voice:activationKey";
 
 const MODIFIER_ORDER: PTTModifier[] = [
   "function",

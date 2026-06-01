@@ -126,6 +126,40 @@ describe("token estimator", () => {
     expect(largeFileTokens - smallFileTokens).toBeGreaterThan(1000);
   });
 
+  test("counts nested audio file blocks in a tool_result for Gemini", () => {
+    const audioBlock = {
+      type: "file" as const,
+      source: {
+        type: "base64" as const,
+        filename: "clip.mp3",
+        media_type: "audio/mpeg",
+        data: "a".repeat(400_000), // ~300 KB raw → ~18s → ~600 audio tokens
+      },
+    };
+    const base = {
+      type: "tool_result" as const,
+      tool_use_id: "t1",
+      content: "Audio loaded",
+      is_error: false,
+    };
+
+    const geminiDelta =
+      estimateContentBlockTokens(
+        { ...base, contentBlocks: [audioBlock] },
+        { providerName: "gemini" },
+      ) - estimateContentBlockTokens(base, { providerName: "gemini" });
+    const openaiDelta =
+      estimateContentBlockTokens(
+        { ...base, contentBlocks: [audioBlock] },
+        { providerName: "openai" },
+      ) - estimateContentBlockTokens(base, { providerName: "openai" });
+
+    // Gemini hears the audio (charged ~32 tok/sec); other providers drop it,
+    // so only Gemini accrues the payload-scaled cost.
+    expect(geminiDelta).toBeGreaterThan(500);
+    expect(geminiDelta).toBeGreaterThan(openaiDelta + 400);
+  });
+
   test("does not count file base64 payload for OpenAI-style file fallback", () => {
     const sharedSource = {
       type: "base64" as const,

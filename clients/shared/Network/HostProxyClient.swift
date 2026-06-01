@@ -42,9 +42,9 @@ public struct HostProxyClient: HostProxyClientProtocol {
     public func postFileResult(_ result: HostFileResultPayload) async -> Bool {
         do {
             let body = try JSONEncoder().encode(result)
-            // Scale the timeout for large payloads (e.g. base64-encoded images)
-            // to avoid triggering Foundation's URLSession cancellation race.
-            let timeout: TimeInterval = result.imageData != nil
+            // Scale the timeout for large payloads (e.g. base64-encoded images
+            // or audio) to avoid triggering Foundation's URLSession cancellation race.
+            let timeout: TimeInterval = result.imageData != nil || result.audioData != nil
                 ? max(30, TimeInterval(body.count) / (1024 * 1024) * 5 + 30)
                 : 30
             let response = try await GatewayHTTPClient.post(

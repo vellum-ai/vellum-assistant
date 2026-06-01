@@ -98,7 +98,12 @@ mock.module("../config/loader.js", () => ({
 }));
 
 const mockQueryUnreportedLifecycleEvents = mock(
-  () => [] as { id: string; eventName: string; createdAt: number }[],
+  () =>
+    [] as {
+      id: string;
+      eventName: string;
+      createdAt: number;
+    }[],
 );
 
 mock.module("../memory/lifecycle-events-store.js", () => ({
@@ -116,6 +121,7 @@ const mockQueryUnreportedOnboardingEvents = mock(
       tone: string | null;
       googleConnected: boolean | null;
       googleScopesJson: string | null;
+      priorAssistantsJson: string | null;
       abVariant: string | null;
     }[],
 );
@@ -169,6 +175,7 @@ function makeUsageEvent(
     requestId: null,
     estimatedCostUsd: 0.001,
     pricingStatus: "priced",
+    assistantVersion: "test-app-version",
     conversationType: "standard",
     turnIndex: 1,
     ...overrides,
@@ -937,5 +944,135 @@ describe("UsageTelemetryReporter", () => {
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
     expect(body.events[0].daemon_event_id).toBe("evt-after-reenable");
+  });
+
+  // -------------------------------------------------------------------------
+  // Per-event `assistant_version` on the wire
+  //
+  // The envelope's `assistant_version` is upload-time (always the current
+  // binary). The per-event field is record-time (the binary that was running
+  // when the event was persisted to SQLite). In this PR only `llm_usage`
+  // events carry a true record-time value; turn events (and lifecycle /
+  // onboarding events, not asserted here) stamp the running binary's
+  // `APP_VERSION` directly until their respective follow-ups land.
+  // Nullable llm_usage cases (legacy rows from before migration 267 ran)
+  // fall back to the running binary's `APP_VERSION` rather than emitting
+  // explicit `null` — under the platform contract a present-but-null
+  // per-event value would override the envelope, and we'd rather have a
+  // concrete version than no version.
+  // -------------------------------------------------------------------------
+
+  test("llm_usage event carries its recorded assistantVersion on the wire", async () => {
+    const event = makeUsageEvent({
+      id: "evt-version-llm",
+      assistantVersion: "0.8.4",
+    });
+    mockQueryUnreportedUsageEvents.mockReturnValue([event]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    // Envelope reflects current binary (upload-time).
+    expect(body.assistant_version).toBe("1.2.3-test");
+    // Per-event reflects record-time — a different value here is the
+    // whole point: backlogged events keep the binary they were stamped
+    // with when they were originally recorded.
+    expect(body.events[0].assistant_version).toBe("0.8.4");
+  });
+
+  test("llm_usage event with null assistantVersion falls back to APP_VERSION (pre-migration row)", async () => {
+    const event = makeUsageEvent({
+      id: "evt-version-llm-null",
+      assistantVersion: null,
+    });
+    mockQueryUnreportedUsageEvents.mockReturnValue([event]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    // No explicit null on the wire — the running binary's APP_VERSION is
+    // stamped instead so a present-but-null value can't override the
+    // envelope under the platform's per-event-wins contract.
+    expect(body.events[0].assistant_version).toBe("1.2.3-test");
+  });
+
+  test("turn event emits assistant_version: APP_VERSION (running binary)", async () => {
+    // Turn events are derived from `messages` + `conversations`, which
+    // don't yet carry a per-event version. Until the follow-up migration
+    // adds a column to `messages`, we stamp the running binary's
+    // APP_VERSION instead of explicit null — matches what the envelope
+    // would have provided but per-event so it survives the platform
+    // contract that treats present per-event values as winning over the
+    // envelope.
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      {
+        id: "evt-turn-version",
+        createdAt: 1700000300000,
+        conversationId: "conv-1",
+        conversationType: "standard",
+        turnIndex: 1,
+        interfaceId: null,
+        channelId: null,
+        clientMetadata: null,
+      },
+    ]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    const turn = body.events.find((e: { type: string }) => e.type === "turn");
+    expect(turn).toBeDefined();
+    expect(turn.assistant_version).toBe("1.2.3-test");
+  });
+
+  test("a single batch can carry mixed per-event versions", async () => {
+    // The whole point of this migration: an old backlogged event keeps
+    // its old version while a freshly recorded event in the same flush
+    // carries the current version. Pre-migration the entire batch would
+    // collapse to the envelope value.
+    const oldEvent = makeUsageEvent({
+      id: "evt-old",
+      assistantVersion: "0.8.3",
+    });
+    const newEvent = makeUsageEvent({
+      id: "evt-new",
+      assistantVersion: "0.8.5",
+    });
+    mockQueryUnreportedUsageEvents.mockReturnValue([oldEvent, newEvent]);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":2}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    const versions = body.events.map(
+      (e: { assistant_version: string | null }) => e.assistant_version,
+    );
+    expect(versions.sort()).toEqual(["0.8.3", "0.8.5"]);
+    // Envelope still reflects the running binary, not either event.
+    expect(body.assistant_version).toBe("1.2.3-test");
   });
 });

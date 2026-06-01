@@ -669,6 +669,47 @@ public struct MemoryV2Config: Codable, Sendable, Equatable {
     }
 }
 
+/// One page in the v3 selection set, tagged with the lane (`source`) that
+/// surfaced it. `pinned` marks a slug carried forward across turns.
+public struct MemoryV3SelectionRowData: Codable, Sendable, Equatable, Identifiable {
+    public var id: String { slug }
+    public let slug: String
+    public let source: String  // "l1+l2" | "core+l2" | "needle" | "carry-forward"
+    public let pinned: Bool
+
+    public init(slug: String, source: String, pinned: Bool) {
+        self.slug = slug
+        self.source = source
+        self.pinned = pinned
+    }
+}
+
+/// The memory v3 selection surfaced in the inspector. `live` / `shadow`
+/// reflect the current `memory-v3-live` / `memory-v3-shadow` flag state:
+/// when `live`, `injectedText` was actually injected this turn; when only
+/// `shadow`, it is the block v3 *would* have injected.
+public struct MemoryV3SelectionData: Codable, Sendable, Equatable {
+    public let turn: Int
+    public let live: Bool
+    public let shadow: Bool
+    public let selections: [MemoryV3SelectionRowData]
+    public let injectedText: String
+
+    public init(
+        turn: Int,
+        live: Bool,
+        shadow: Bool,
+        selections: [MemoryV3SelectionRowData],
+        injectedText: String
+    ) {
+        self.turn = turn
+        self.live = live
+        self.shadow = shadow
+        self.selections = selections
+        self.injectedText = injectedText
+    }
+}
+
 /// A single LLM request/response log entry returned by the context endpoint.
 /// `requestPayload` and `responsePayload` are nil in the initial response and
 /// fetched on demand via the dedicated payload endpoint.
@@ -710,19 +751,22 @@ public struct LLMContextResponse: Codable, Sendable {
     public let logs: [LLMRequestLogEntry]
     public let memoryRecall: MemoryRecallData?
     public let memoryV2Activation: MemoryV2ActivationData?
+    public let memoryV3Selection: MemoryV3SelectionData?
 
     public init(
         messageId: String,
         conversationKind: ConversationKind? = nil,
         logs: [LLMRequestLogEntry],
         memoryRecall: MemoryRecallData? = nil,
-        memoryV2Activation: MemoryV2ActivationData? = nil
+        memoryV2Activation: MemoryV2ActivationData? = nil,
+        memoryV3Selection: MemoryV3SelectionData? = nil
     ) {
         self.messageId = messageId
         self.conversationKind = conversationKind
         self.logs = logs
         self.memoryRecall = memoryRecall
         self.memoryV2Activation = memoryV2Activation
+        self.memoryV3Selection = memoryV3Selection
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -731,6 +775,7 @@ public struct LLMContextResponse: Codable, Sendable {
         case logs
         case memoryRecall
         case memoryV2Activation
+        case memoryV3Selection
     }
 
     public init(from decoder: Decoder) throws {
@@ -743,6 +788,7 @@ public struct LLMContextResponse: Codable, Sendable {
         self.logs = try container.decode([LLMRequestLogEntry].self, forKey: .logs)
         self.memoryRecall = try container.decodeIfPresent(MemoryRecallData.self, forKey: .memoryRecall)
         self.memoryV2Activation = try container.decodeIfPresent(MemoryV2ActivationData.self, forKey: .memoryV2Activation)
+        self.memoryV3Selection = try container.decodeIfPresent(MemoryV3SelectionData.self, forKey: .memoryV3Selection)
     }
 }
 

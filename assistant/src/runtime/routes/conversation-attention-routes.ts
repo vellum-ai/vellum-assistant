@@ -15,6 +15,7 @@ import {
   getMessageById,
 } from "../../memory/conversation-crud.js";
 import { truncate } from "../../util/truncate.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -128,6 +129,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "conversations_attention_list",
     endpoint: "conversations/attention",
     method: "GET",
+    policy: {
+      requiredScopes: ["chat.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleListConversationAttention,
     summary: "List conversation attention states",
     description:

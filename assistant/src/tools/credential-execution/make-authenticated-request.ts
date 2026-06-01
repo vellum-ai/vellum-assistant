@@ -10,61 +10,68 @@
  * straight through to the CES RPC call with no transformation.
  */
 
-import { GrantProposalSchema, renderProposal } from "@vellumai/service-contracts/credential-rpc";
+import {
+  GrantProposalSchema,
+  renderProposal,
+} from "@vellumai/service-contracts/credential-rpc";
 
 import { RiskLevel } from "../../permissions/types.js";
 import { getLogger } from "../../util/logger.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
 const log = getLogger("ces-tool:make-authenticated-request");
 
-class MakeAuthenticatedRequestTool implements Tool {
-  name = "make_authenticated_request";
-  description =
-    "Execute an authenticated HTTP request through CES. CES injects the credential and returns the response - the assistant never sees raw secrets.";
-  category = "credential-execution";
-  executionTarget = "sandbox" as const;
-  defaultRiskLevel = RiskLevel.High;
+export const makeAuthenticatedRequestTool = {
+  name: "make_authenticated_request",
+  description:
+    "Execute an authenticated HTTP request through CES. CES injects the credential and returns the response - the assistant never sees raw secrets.",
+  category: "credential-execution",
+  executionTarget: "sandbox",
+  defaultRiskLevel: RiskLevel.High,
 
-  input_schema = {
+  input_schema: {
+    type: "object",
+    properties: {
+      credentialHandle: {
+        type: "string",
+        description:
+          "CES credential handle to use for authentication (e.g. local_static:github/api_key).",
+      },
+      method: {
+        type: "string",
+        description: "HTTP method (GET, POST, PUT, DELETE, PATCH, etc.).",
+      },
+      url: {
+        type: "string",
+        description: "Target URL for the request.",
+      },
+      headers: {
         type: "object",
-        properties: {
-          credentialHandle: {
-            type: "string",
-            description:
-              "CES credential handle to use for authentication (e.g. local_static:github/api_key).",
-          },
-          method: {
-            type: "string",
-            description: "HTTP method (GET, POST, PUT, DELETE, PATCH, etc.).",
-          },
-          url: {
-            type: "string",
-            description: "Target URL for the request.",
-          },
-          headers: {
-            type: "object",
-            additionalProperties: { type: "string" },
-            description:
-              "Optional request headers. Credential headers are injected by CES - do not include secrets here.",
-          },
-          body: {
-            description:
-              "Optional request body (string or JSON-serialisable object).",
-          },
-          purpose: {
-            type: "string",
-            description:
-              "Human-readable purpose for this request, shown in audit logs and approval prompts.",
-          },
-          grantId: {
-            type: "string",
-            description:
-              "Existing grant ID to consume, if the caller holds one from a prior approval.",
-          },
-        },
-        required: ["credentialHandle", "method", "url", "purpose"],
-      };
+        additionalProperties: { type: "string" },
+        description:
+          "Optional request headers. Credential headers are injected by CES - do not include secrets here.",
+      },
+      body: {
+        description:
+          "Optional request body (string or JSON-serialisable object).",
+      },
+      purpose: {
+        type: "string",
+        description:
+          "Human-readable purpose for this request, shown in audit logs and approval prompts.",
+      },
+      grantId: {
+        type: "string",
+        description:
+          "Existing grant ID to consume, if the caller holds one from a prior approval.",
+      },
+    },
+    required: ["credentialHandle", "method", "url", "purpose"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -186,7 +193,5 @@ class MakeAuthenticatedRequestTool implements Tool {
         isError: true,
       };
     }
-  }
-}
-
-export const makeAuthenticatedRequestTool = new MakeAuthenticatedRequestTool();
+  },
+} satisfies ToolDefinition;

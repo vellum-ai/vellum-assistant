@@ -57,7 +57,7 @@ let addMessageCalls: Array<{
   conversationId: string;
   role: string;
   content: string;
-  metadata: unknown;
+  options: unknown;
 }> = [];
 
 // Per-conversation overrides for getConversation. Lets fork-path tests stage
@@ -137,9 +137,9 @@ mock.module("../conversation-crud.js", () => ({
     conversationId: string,
     role: string,
     content: string,
-    metadata: unknown,
+    options: unknown,
   ) => {
-    addMessageCalls.push({ conversationId, role, content, metadata });
+    addMessageCalls.push({ conversationId, role, content, options });
   },
   deleteConversation: (id: string) => {
     deletedConversationIds.push(id);
@@ -519,7 +519,9 @@ describe("memoryRetrospectiveJob", () => {
     expect(addMessageCalls).toHaveLength(1);
     expect(addMessageCalls[0]!.conversationId).toBe("fork-conv-1");
     expect(addMessageCalls[0]!.role).toBe("user");
-    expect(addMessageCalls[0]!.metadata).toEqual({
+    expect(
+      (addMessageCalls[0]!.options as Record<string, unknown>).metadata,
+    ).toEqual({
       kind: "memory_retrospective_instruction",
       hidden: true,
     });

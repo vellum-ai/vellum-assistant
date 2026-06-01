@@ -9,6 +9,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/r
 import {
   Check,
   Copy,
+  Download,
   FileIcon,
   FileText,
   FolderOpen,
@@ -300,11 +301,17 @@ function EditFooter({
 
 function ContentActionBar({
   content,
+  downloadContent,
+  fileName,
+  mimeType,
   showEdit,
   isEditing,
   onToggleEdit,
 }: {
   content: string;
+  downloadContent?: string;
+  fileName: string;
+  mimeType: string;
   showEdit: boolean;
   isEditing: boolean;
   onToggleEdit: () => void;
@@ -321,6 +328,17 @@ function ContentActionBar({
       timerRef.current = setTimeout(() => setCopied(false), 1500);
     });
   }, [content]);
+
+  const rawContent = downloadContent ?? content;
+  const handleDownload = useCallback(() => {
+    const blob = new Blob([rawContent], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [rawContent, fileName, mimeType]);
 
   useEffect(() => {
     return () => {
@@ -352,6 +370,14 @@ function ContentActionBar({
         iconOnly={copied ? <Check aria-hidden /> : <Copy aria-hidden />}
         onClick={handleCopy}
         aria-label={copied ? "Copied" : "Copy file contents"}
+        className="hover:bg-[var(--surface-base)]"
+      />
+      <Button
+        variant="ghost"
+        size="regular"
+        iconOnly={<Download aria-hidden />}
+        onClick={handleDownload}
+        aria-label="Download file"
         className="hover:bg-[var(--surface-base)]"
       />
     </div>
@@ -585,6 +611,8 @@ export function WorkspaceFileViewer({
         <div className="relative flex-1 overflow-hidden">
           <ContentActionBar
             content={sourceContent}
+            fileName={name}
+            mimeType={mimeType}
             showEdit={!readOnly && viewMode === "source"}
             isEditing={isEditing}
             onToggleEdit={() =>
@@ -639,6 +667,9 @@ export function WorkspaceFileViewer({
         <div className="relative flex-1 overflow-hidden">
           <ContentActionBar
             content={viewMode === "preview" ? previewContent : sourceContent}
+            downloadContent={sourceContent}
+            fileName={name}
+            mimeType={mimeType}
             showEdit={!readOnly && viewMode === "source"}
             isEditing={isEditing}
             onToggleEdit={() =>
@@ -674,6 +705,8 @@ export function WorkspaceFileViewer({
         <div className="relative flex-1 overflow-hidden">
           <ContentActionBar
             content={isEditing ? editableContent : (data.content ?? "")}
+            fileName={name}
+            mimeType={mimeType}
             showEdit={!readOnly}
             isEditing={isEditing}
             onToggleEdit={() =>

@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { getGatewayInternalBaseUrl } from "../../config/env.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Shared helper ───────────────────────────────────────────────────────
@@ -62,6 +63,10 @@ export const ROUTES: RouteDefinition[] = [
   {
     operationId: "trust_rules_list",
     method: "GET",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     endpoint: "trust-rules",
     handler: handleList,
     summary: "List trust rules",

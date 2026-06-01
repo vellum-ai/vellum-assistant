@@ -16,6 +16,7 @@ import { z } from "zod";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -139,7 +140,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "sanity_discover",
     endpoint: "sanity/discover",
     method: "POST",
-    policyKey: "secrets",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Discover Sanity projects and datasets using the stored API token",
     requestBody: z.object({ projectId: z.string().optional() }).optional(),
     handler: handleDiscover,
@@ -148,7 +152,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "sanity_connect",
     endpoint: "sanity/connect",
     method: "POST",
-    policyKey: "secrets",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Finalise Sanity connection and write sidecar file",
     requestBody: z.object({
       projectId: z.string(),

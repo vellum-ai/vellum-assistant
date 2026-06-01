@@ -21,6 +21,7 @@
 import type { ConversationStrategy } from "../channels/config.js";
 import { getConversationStrategy } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
+import { isHomePageEnabled } from "../home/feature-gate.js";
 import {
   addMessage,
   createConversation,
@@ -122,10 +123,16 @@ export async function pairDeliveryWithConversation(
     // seed message leaves a graveyard entry in the sidebar; skip it unless
     // the producer opted in via `requiresConversation` or the decision engine
     // requested explicit reuse of a target conversation.
+    //
+    // Gated on `home-page`: the home feed is the surface that hosts passive
+    // notifications, so when the flag is off there is nowhere for them to
+    // land — fall through and create a conversation (the pre-home-feed
+    // behavior) to preserve the notification's only surface.
     if (
       strategy === "start_new_conversation" &&
       !signal.requiresConversation &&
-      conversationAction?.action !== "reuse_existing"
+      conversationAction?.action !== "reuse_existing" &&
+      isHomePageEnabled()
     ) {
       return {
         conversationId: null,
@@ -166,7 +173,6 @@ export async function pairDeliveryWithConversation(
           existing.id,
           "assistant",
           messageContent,
-          undefined,
           { skipIndexing: true },
         );
 
@@ -225,7 +231,6 @@ export async function pairDeliveryWithConversation(
         conversation.id,
         "assistant",
         messageContent,
-        undefined,
         { skipIndexing: true },
       );
 
@@ -283,7 +288,6 @@ export async function pairDeliveryWithConversation(
             inboundConversation.id,
             "assistant",
             messageContent,
-            undefined,
             { skipIndexing: true },
           );
 
@@ -332,7 +336,6 @@ export async function pairDeliveryWithConversation(
             boundConversation.id,
             "assistant",
             messageContent,
-            undefined,
             { skipIndexing: true },
           );
 
@@ -396,7 +399,6 @@ export async function pairDeliveryWithConversation(
       conversation.id,
       "assistant",
       messageContent,
-      undefined,
       { skipIndexing: true },
     );
 

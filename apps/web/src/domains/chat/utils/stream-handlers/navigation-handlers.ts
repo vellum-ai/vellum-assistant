@@ -3,11 +3,13 @@ import {
   getSameOriginRoutePath,
   openOAuthUrlInPopup,
 } from "@/domains/chat/utils/oauth-popup-links";
-import { getSettingsRouteForClientTab } from "@/domains/settings/navigation";
+import { getSettingsRouteForClientTab } from "@/utils/settings-navigation";
 import { openUrl } from "@/runtime/browser";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { OpenUrlEvent } from "@vellumai/assistant-api";
-import type { NavigateSettingsEvent } from "@/domains/chat/api/event-types";
+import type {
+  NavigateSettingsEvent,
+  OpenUrlEvent,
+} from "@vellumai/assistant-api";
 
 export function handleOpenUrl(
   event: OpenUrlEvent,
@@ -39,8 +41,7 @@ export function handleOpenUrl(
   const popup = window.open(url, "_blank");
   if (popup === null) {
     ctx.setError({
-      message:
-        "Popup blocked. Please allow popups for Vellum and try again.",
+      message: "Popup blocked. Please allow popups for Vellum and try again.",
     });
     return;
   }

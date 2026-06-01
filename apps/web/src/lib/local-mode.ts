@@ -4,7 +4,7 @@ import {
   getLocalSetting,
   removeLocalSetting,
   setLocalSetting,
-} from "@/lib/local-settings";
+} from "@/utils/local-settings";
 import {
   clearGatewayToken,
   ensureGatewayToken,
@@ -45,8 +45,8 @@ let lockfile: Lockfile | null = null;
 
 const EMPTY_LOCKFILE: Lockfile = { assistants: [], activeAssistant: null };
 
-const LOCKFILE_STORAGE_KEY = "local:lockfile";
-const SELECTED_ASSISTANT_STORAGE_KEY = "local:selectedAssistantId";
+const LOCKFILE_STORAGE_KEY = "vellum:local:lockfile";
+const SELECTED_ASSISTANT_STORAGE_KEY = "vellum:local:selectedAssistantId";
 
 // ---------------------------------------------------------------------------
 // Core helpers

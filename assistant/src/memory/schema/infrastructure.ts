@@ -21,6 +21,7 @@ export const cronJobs = sqliteTable("cron_jobs", {
   retryCount: integer("retry_count").notNull().default(0),
   maxRetries: integer("max_retries").notNull().default(3),
   retryBackoffMs: integer("retry_backoff_ms").notNull().default(60000),
+  timeoutMs: integer("timeout_ms"), // script-mode execution timeout override (ms); null = use default
   createdBy: text("created_by").notNull(), // 'agent' | 'user'
   mode: text("mode").notNull().default("execute"), // 'notify' | 'execute'
   routingIntent: text("routing_intent").notNull().default("all_channels"), // 'single_channel' | 'multi_channel' | 'all_channels'
@@ -242,6 +243,16 @@ export const llmUsageEvents = sqliteTable(
     pricingStatus: text("pricing_status").notNull(),
     llmCallCount: integer("llm_call_count"),
     metadataJson: text("metadata_json"),
+    /**
+     * Version of the assistant binary at the moment THIS event was
+     * recorded (not when the batch was uploaded). Telemetry uploads
+     * batch events together and may flush days after the event fired
+     * (offline laptop, network outage, ingest clog — see May 2026
+     * incident). Stamping at record time keeps the version filter on
+     * `/admin/inference` truthful for delayed batches. Null for rows
+     * persisted before migration 267 ran.
+     */
+    assistantVersion: text("assistant_version"),
   },
   (table) => [
     index("idx_llm_usage_events_conversation_id").on(table.conversationId),

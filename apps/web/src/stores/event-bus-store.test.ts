@@ -1,13 +1,17 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AssistantEvent } from "@/domains/chat/api/event-types";
+import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import {
   __resetEventBusForTesting,
   useEventBusStore,
 } from "@/stores/event-bus-store";
 
-function avatarEvent(): AssistantEvent {
-  return { type: "avatar_updated" } as AssistantEvent;
+function avatarEnvelope(): AssistantEventEnvelope {
+  return {
+    id: "evt-1",
+    emittedAt: new Date().toISOString(),
+    message: { type: "avatar_updated", avatarPath: "/tmp/avatar.png" },
+  };
 }
 
 beforeEach(() => {
@@ -23,10 +27,10 @@ describe("event-bus-store", () => {
     const bus = useEventBusStore.getState();
     const handler = mock(() => {});
     bus.subscribe("sse.event", handler);
-    const event = avatarEvent();
-    bus.publish("sse.event", event);
+    const envelope = avatarEnvelope();
+    bus.publish("sse.event", envelope);
     expect(handler).toHaveBeenCalledTimes(1);
-    expect(handler).toHaveBeenCalledWith(event);
+    expect(handler).toHaveBeenCalledWith(envelope);
   });
 
   test("publish delivers to every active subscriber", () => {
@@ -44,10 +48,10 @@ describe("event-bus-store", () => {
     const bus = useEventBusStore.getState();
     const handler = mock(() => {});
     const unsubscribe = bus.subscribe("sse.event", handler);
-    bus.publish("sse.event", avatarEvent());
+    bus.publish("sse.event", avatarEnvelope());
     expect(handler).toHaveBeenCalledTimes(1);
     unsubscribe();
-    bus.publish("sse.event", avatarEvent());
+    bus.publish("sse.event", avatarEnvelope());
     expect(handler).toHaveBeenCalledTimes(1);
   });
 

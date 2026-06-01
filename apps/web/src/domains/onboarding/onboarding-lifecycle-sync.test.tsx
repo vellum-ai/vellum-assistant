@@ -61,12 +61,10 @@ mock.module("react-router", () => ({
   useSearchParams: () => [searchParams],
 }));
 
-mock.module("@/root-layout", () => ({
-  useRootOutletContext: () => ({
-    lifecycle: {
-      checkAssistant: checkAssistantMock,
-    },
-  }),
+mock.module("@/assistant/lifecycle-service", () => ({
+  lifecycleService: {
+    checkAssistant: checkAssistantMock,
+  },
 }));
 
 mock.module("@/assistant/api", () => ({
@@ -166,7 +164,7 @@ mock.module("@/lib/local-mode", () => ({
   getLocalGatewayUrl: () => undefined,
 }));
 
-mock.module("@/lib/feature-flags/client-feature-flag-store", () => ({
+mock.module("@/stores/client-feature-flag-store", () => ({
   useClientFeatureFlagStore: {
     use: {
       prechatOnboardingCondensedFlow: () => prechatOnboardingCondensedFlow,

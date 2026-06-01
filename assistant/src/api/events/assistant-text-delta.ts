@@ -18,14 +18,12 @@
 
 import { z } from "zod";
 
-export const AssistantTextDeltaEventSchema = z
-  .object({
-    type: z.literal("assistant_text_delta"),
-    text: z.string(),
-    messageId: z.string().optional(),
-    conversationId: z.string().optional(),
-  })
-  .strict();
+export const AssistantTextDeltaEventSchema = z.object({
+  type: z.literal("assistant_text_delta"),
+  text: z.string(),
+  messageId: z.string().optional(),
+  conversationId: z.string().optional(),
+});
 
 export type AssistantTextDeltaEvent = z.infer<
   typeof AssistantTextDeltaEventSchema

@@ -1,14 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type {
-  AgentEvent,
-  CheckpointDecision,
-  CheckpointInfo,
-} from "../agent/loop.js";
+import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
   conversationMessagesSyncTag,
-  type SyncChangedMessage,
+  type SyncChangedEvent,
 } from "../daemon/message-types/sync.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
 
@@ -226,15 +222,11 @@ mock.module("../agent/loop.js", () => ({
     async run(
       messages: Message[],
       onEvent: (event: AgentEvent) => void | Promise<void>,
-      _signal?: AbortSignal,
-      _requestId?: string,
-      _onCheckpoint?: (
-        checkpoint: CheckpointInfo,
-      ) => CheckpointDecision | Promise<CheckpointDecision>,
-    ): Promise<Message[]> {
-      return new Promise<Message[]>((resolve) => {
+    ): Promise<AgentLoopRunResult> {
+      const history = await new Promise<Message[]>((resolve) => {
         pendingRuns.push({ resolve, messages, onEvent });
       });
+      return { history, exitReason: null };
     }
   },
 }));
@@ -357,10 +349,10 @@ async function resolveRun(index: number) {
 }
 
 function syncChangedMessages(): {
-  messages: SyncChangedMessage[];
+  messages: SyncChangedEvent[];
   dispose: () => void;
 } {
-  const messages: SyncChangedMessage[] = [];
+  const messages: SyncChangedEvent[] = [];
   const subscription = assistantEventHub.subscribe({
     type: "process",
     callback: (event) => {
@@ -393,12 +385,12 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const events3: ServerMessage[] = [];
 
     // Start first message — blocks on agent loop
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue a slash-like passthrough and a normal passthrough after it.
@@ -438,7 +430,11 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const sharedEvents: ServerMessage[] = [];
     const sharedOnEvent = (event: ServerMessage) => sharedEvents.push(event);
 
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     conversation.enqueueMessage({
@@ -477,12 +473,12 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const eventsSlash: ServerMessage[] = [];
 
     // Start first message — blocks on agent loop
-    const p1 = conversation.processMessage(
-      "msg-1",
-      [],
-      (e) => events1.push(e),
-      "req-1",
-    );
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue a slash command that matches a skill name — still passes through
@@ -521,7 +517,11 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const eventsBye: ServerMessage[] = [];
 
     // Start in-flight message
-    const p1 = conversation.processMessage("msg-1", [], () => {}, "req-1");
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      requestId: "req-1",
+    });
     await waitForPendingRun(1);
 
     // Enqueue ["hi", "/compact", "bye"]. /compact is non-passthrough, so the
@@ -576,7 +576,11 @@ describe("Conversation queue — slash-like messages pass through to agent loop"
     const sync = syncChangedMessages();
     try {
       await expect(
-        conversation.processMessage("/compact", [], () => {}, "req-compact"),
+        conversation.processMessage({
+          content: "/compact",
+          attachments: [],
+          requestId: "req-compact",
+        }),
       ).rejects.toThrow("compaction failed");
 
       await waitFor(

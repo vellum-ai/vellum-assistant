@@ -13,6 +13,7 @@ import {
 } from "../../../../messaging/providers/slack/client.js";
 import type { SlackConversation } from "../../../../messaging/providers/slack/types.js";
 import { getLogger } from "../../../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../../../auth/route-policy.js";
 import {
   BadRequestError,
   InternalError,
@@ -197,20 +198,26 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "slack_channels_get",
     endpoint: "slack/channels",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List Slack channels",
     description: "List Slack channels, groups, and DMs for the channel picker.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: () => handleListSlackChannels(),
   },
   {
     operationId: "slack_share_post",
     endpoint: "slack/share",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Share to Slack channel",
     description: "Post an app link directly to a Slack channel.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: handleShareToSlackChannel,
   },
 ];

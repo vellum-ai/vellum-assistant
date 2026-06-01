@@ -38,14 +38,14 @@ mock.module("@/stores/auth-store", () => {
 
 const flagsRef = {};
 
-mock.module("@/lib/feature-flags/client-feature-flag-store", () => {
+mock.module("@/stores/client-feature-flag-store", () => {
   const store = () => null;
   store.use = {};
   store.getState = () => flagsRef;
   return { useClientFeatureFlagStore: store };
 });
 
-mock.module("@/lib/feature-flags/assistant-feature-flag-store", () => {
+mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
   store.use = {};
   store.getState = () => flagsRef;

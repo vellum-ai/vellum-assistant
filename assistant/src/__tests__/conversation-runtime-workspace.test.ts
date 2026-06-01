@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { applyRuntimeInjections } from "../daemon/conversation-runtime-assembly.js";
-import { defaultInjectorsPlugin } from "../plugins/defaults/injectors.js";
+import { defaultInjectorsPlugin } from "../plugins/defaults/injectors/register.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,

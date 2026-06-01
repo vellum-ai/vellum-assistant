@@ -200,3 +200,111 @@ describe("llmGotchasChecker", () => {
     expect(messages[1].content).toContain("insight A; insight B");
   });
 });
+
+/**
+ * PR-9: the LLM judge translates the OpenAI `usage` block on the chat
+ * response into the canonical evals usage shape and surfaces it as
+ * `LlmJudgeResult.usage`. The V2 runner folds that into `usage.json`
+ * alongside the agent's own usage so the report's cost cell stops being
+ * "—" on LLM-judged questions.
+ */
+describe("LLM judge usage propagation", () => {
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("surfaces a normalized usage record when the response carries usage", async () => {
+    mockOpenAIChatCompletions({
+      ...openAIChatBody('{"label": 1, "reason": "ok"}'),
+      usage: {
+        prompt_tokens: 123,
+        completion_tokens: 45,
+        total_tokens: 168,
+      },
+    });
+
+    const result = await llmAbstentionChecker("pred", "ans", {
+      evaluatorModel: "gpt-5.2",
+      evaluatorApiKey: "unit-test",
+    });
+
+    expect(result.usage).toBeDefined();
+    // Canonical evals fields the summarizer + pricing module read.
+    expect(result.usage!["provider"]).toBe("openai");
+    expect(result.usage!["model"]).toBe("gpt-5.2");
+    expect(result.usage!["input_tokens"]).toBe(123);
+    expect(result.usage!["output_tokens"]).toBe(45);
+    // Source tag so the report can group judge usage separately.
+    expect(result.usage!["source"]).toBe("longmemeval-v2-judge");
+    // Original OpenAI field names preserved for audit.
+    expect(result.usage!["prompt_tokens"]).toBe(123);
+    expect(result.usage!["completion_tokens"]).toBe(45);
+    expect(result.usage!["total_tokens"]).toBe(168);
+  });
+
+  test("omits usage when the response has no usage block", async () => {
+    // Some local non-OpenAI endpoints skip the usage block entirely.
+    mockOpenAIChatCompletions(openAIChatBody('{"label": 1, "reason": "ok"}'));
+
+    const result = await llmAbstentionChecker("pred", "ans", {
+      evaluatorModel: "gpt-5.2",
+      evaluatorApiKey: "unit-test",
+    });
+
+    expect(result.usage).toBeUndefined();
+  });
+
+  test("omits usage when the usage block has zero token fields", async () => {
+    // Defensive: if a provider returns `usage: {}` with no token
+    // fields we treat it as missing rather than fabricating zeros.
+    mockOpenAIChatCompletions({
+      ...openAIChatBody('{"label": 1, "reason": "ok"}'),
+      usage: {},
+    });
+
+    const result = await llmAbstentionChecker("pred", "ans", {
+      evaluatorModel: "gpt-5.2",
+      evaluatorApiKey: "unit-test",
+    });
+
+    expect(result.usage).toBeUndefined();
+  });
+
+  test("propagates partial usage (input only) without fabricating output_tokens", async () => {
+    mockOpenAIChatCompletions({
+      ...openAIChatBody('{"label": 1, "reason": "ok"}'),
+      usage: { prompt_tokens: 50 },
+    });
+
+    const result = await llmAbstentionChecker("pred", "ans", {
+      evaluatorModel: "gpt-5.2",
+      evaluatorApiKey: "unit-test",
+    });
+
+    expect(result.usage).toBeDefined();
+    expect(result.usage!["input_tokens"]).toBe(50);
+    expect(result.usage!["output_tokens"]).toBeUndefined();
+    expect(result.usage!["prompt_tokens"]).toBe(50);
+    expect(result.usage!["completion_tokens"]).toBeUndefined();
+  });
+
+  test("stamps the evaluator model id even when a custom base URL was used", async () => {
+    // A local endpoint that mimics OpenAI shape returns usage too.
+    // We still attribute the request to OpenAI for pricing-table
+    // purposes — the docstring on normalizeJudgeUsage covers the
+    // reasoning.
+    mockOpenAIChatCompletions({
+      ...openAIChatBody('{"label": 1, "reason": "ok"}'),
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    });
+
+    const result = await llmGotchasChecker("p", "a", {
+      evaluatorModel: "gpt-4.1",
+      evaluatorApiKey: "unit-test",
+      evaluatorBaseUrl: "http://localhost:8001/v1",
+    });
+
+    expect(result.usage!["provider"]).toBe("openai");
+    expect(result.usage!["model"]).toBe("gpt-4.1");
+  });
+});

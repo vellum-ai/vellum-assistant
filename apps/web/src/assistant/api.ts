@@ -1,3 +1,8 @@
+import {
+  type DiskPressureStatusResponse,
+  DiskPressureStatusResponseSchema,
+} from "@vellumai/assistant-api";
+
 import { client } from "@/generated/api/client.gen";
 import {
   assistantsActivateCreate,
@@ -15,7 +20,7 @@ import type {
   Assistant as GeneratedAssistant,
   HatchAssistantRequest,
 } from "@/generated/api/types.gen";
-import { assertHasResponse, toErrorObject } from "@/lib/api-errors";
+import { assertHasResponse, toErrorObject } from "@/utils/api-errors";
 import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { getSelectedAssistant } from "@/lib/local-mode";
 
@@ -68,33 +73,6 @@ export interface AssistantHealthz {
 export type GetHealthzResult =
   | { ok: true; status: number; data: AssistantHealthz }
   | { ok: false; status: number; error: Record<string, unknown> };
-
-export type DiskPressureState = "disabled" | "ok" | "warning" | "critical" | "unknown";
-
-export type DiskPressureBlockedCapability =
-  | "agent-turns"
-  | "background-work"
-  | "remote-ingress";
-
-export interface DiskPressureStatus {
-  enabled: boolean;
-  state: DiskPressureState;
-  locked: boolean;
-  acknowledged: boolean;
-  overrideActive: boolean;
-  effectivelyLocked: boolean;
-  lockId: string | null;
-  usagePercent: number | null;
-  thresholdPercent: number;
-  path: string | null;
-  lastCheckedAt: string | null;
-  blockedCapabilities: DiskPressureBlockedCapability[];
-  error: string | null;
-}
-
-export interface DiskPressureStatusResponse {
-  status: DiskPressureStatus;
-}
 
 export type GetAssistantDiskPressureStatusResult =
   | { ok: true; status: number; data: DiskPressureStatusResponse }
@@ -283,10 +261,19 @@ export async function getAssistantDiskPressureStatus(
   );
 
   if (response.ok) {
+    const parsed = DiskPressureStatusResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        status: response.status,
+        error: toErrorObject(parsed.error.message, response),
+      };
+    }
+
     return {
       ok: true,
       status: response.status,
-      data: data as unknown as DiskPressureStatusResponse,
+      data: parsed.data,
     };
   }
 
@@ -318,10 +305,19 @@ export async function acknowledgeAssistantDiskPressure(
   );
 
   if (response.ok) {
+    const parsed = DiskPressureStatusResponseSchema.safeParse(data);
+    if (!parsed.success) {
+      return {
+        ok: false,
+        status: response.status,
+        error: toErrorObject(parsed.error.message, response),
+      };
+    }
+
     return {
       ok: true,
       status: response.status,
-      data: data as unknown as DiskPressureStatusResponse,
+      data: parsed.data,
     };
   }
 

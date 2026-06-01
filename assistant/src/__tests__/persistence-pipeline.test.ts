@@ -31,10 +31,8 @@ import {
 } from "../memory/conversation-crud.js";
 import { getDb } from "../memory/db-connection.js";
 import { initializeDb } from "../memory/db-init.js";
-import {
-  defaultPersistencePlugin,
-  defaultPersistenceTerminal,
-} from "../plugins/defaults/persistence.js";
+import { defaultPersistencePlugin } from "../plugins/defaults/persistence/register.js";
+import { defaultPersistenceTerminal } from "../plugins/defaults/persistence/terminal.js";
 import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,
@@ -101,13 +99,10 @@ describe("persistence pipeline", () => {
     const conv = createConversation();
 
     // Baseline: what the direct call produces.
-    const direct = await addMessage(
-      conv.id,
-      "user",
-      "direct-content",
-      { role: "baseline" },
-      { skipIndexing: true },
-    );
+    const direct = await addMessage(conv.id, "user", "direct-content", {
+      metadata: { role: "baseline" },
+      skipIndexing: true,
+    });
     const directRow = getMessageById(direct.id, conv.id);
 
     // Through the pipeline: must produce a row with identical columns
@@ -146,13 +141,10 @@ describe("persistence pipeline", () => {
     registerPlugin(defaultPersistencePlugin);
 
     const conv = createConversation();
-    const msg = await addMessage(
-      conv.id,
-      "user",
-      "to-update",
-      { initial: true },
-      { skipIndexing: true },
-    );
+    const msg = await addMessage(conv.id, "user", "to-update", {
+      metadata: { initial: true },
+      skipIndexing: true,
+    });
 
     // Through the pipeline: result is the `update` envelope (no payload).
     const result = await runPipeline<PersistArgs, PersistResult>(
@@ -170,13 +162,10 @@ describe("persistence pipeline", () => {
     expect(result).toEqual({ op: "update" });
 
     // Direct equivalent call on a second message for parity comparison.
-    const baseline = await addMessage(
-      conv.id,
-      "user",
-      "to-update-direct",
-      { initial: true },
-      { skipIndexing: true },
-    );
+    const baseline = await addMessage(conv.id, "user", "to-update-direct", {
+      metadata: { initial: true },
+      skipIndexing: true,
+    });
     updateMessageMetadata(baseline.id, { extra: "added" });
 
     const pipelineRow = getMessageById(msg.id, conv.id);
@@ -196,7 +185,7 @@ describe("persistence pipeline", () => {
     registerPlugin(defaultPersistencePlugin);
 
     const conv = createConversation();
-    const msg = await addMessage(conv.id, "user", "to-delete", undefined, {
+    const msg = await addMessage(conv.id, "user", "to-delete", {
       skipIndexing: true,
     });
 

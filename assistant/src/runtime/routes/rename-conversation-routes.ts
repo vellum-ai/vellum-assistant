@@ -13,6 +13,7 @@ import {
   getConversation,
   updateConversationTitle,
 } from "../../memory/conversation-crud.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishConversationTitleChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
@@ -27,6 +28,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "rename_conversation",
     endpoint: "conversations/rename",
     method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Rename a conversation",
     description: "Update the display title of a conversation.",
     tags: ["conversations"],

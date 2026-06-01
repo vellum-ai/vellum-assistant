@@ -6,7 +6,6 @@ import type {
   Provider,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "../providers/types.js";
 
 /** Minimal mock provider that captures the config passed to sendMessage. */
@@ -20,8 +19,6 @@ function createMockProvider(): {
     name: "mock",
     async sendMessage(
       _messages: Message[],
-      _tools?: ToolDefinition[],
-      _systemPrompt?: string,
       options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
       capturedConfig = options?.config as Record<string, unknown> | undefined;

@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { markdownToEmailHtml } from "../../email/html-renderer.js";
 import { VellumPlatformClient } from "../../platform/client.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   NotFoundError,
@@ -419,6 +420,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "email_register",
     endpoint: "email/register",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleEmailRegister,
     summary: "Register an email address",
     description:
@@ -440,6 +445,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "email_unregister",
     endpoint: "email/unregister",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleEmailUnregister,
     summary: "Unregister the email address",
     description:
@@ -453,6 +462,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "email_status",
     endpoint: "email/status",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleEmailStatus,
     summary: "Get email address status and usage",
     description:
@@ -475,6 +488,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "email_list",
     endpoint: "email/list",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleEmailList,
     summary: "List email messages",
     description:
@@ -509,6 +526,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "email_download",
     endpoint: "email/download",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleEmailDownload,
     summary: "Download a specific email message",
     description: "Download a specific email message by ID.",
@@ -527,6 +548,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "email_send",
     endpoint: "email/send",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleEmailSend,
     summary: "Send an email",
     description:
@@ -553,6 +578,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "email_attachment_list",
     endpoint: "email/attachment-list",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleEmailAttachmentList,
     summary: "List attachments for an email message",
     description:
@@ -583,6 +612,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "email_attachment_get",
     endpoint: "email/attachment-get",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleEmailAttachmentGet,
     summary: "Stream-download an email attachment",
     description:

@@ -1071,17 +1071,14 @@ export async function runGraphExtraction(
         ),
       ];
 
-  const response = await provider.sendMessage(
-    extractionMessages,
-    [EXTRACT_TOOL_SCHEMA],
+  const response = await provider.sendMessage(extractionMessages, {
+    tools: [EXTRACT_TOOL_SCHEMA],
     systemPrompt,
-    {
-      config: {
-        callSite: "memoryExtraction" as const,
-        tool_choice: { type: "tool" as const, name: "extract_graph_diff" },
-      },
+    config: {
+      callSite: "memoryExtraction" as const,
+      tool_choice: { type: "tool" as const, name: "extract_graph_diff" },
     },
-  );
+  });
 
   const toolBlock = extractToolUse(response);
   if (!toolBlock) {

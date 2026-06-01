@@ -248,7 +248,7 @@ describe("oauth-commands-routes route registry", () => {
 
   test("every route enforces policy", () => {
     for (const route of ROUTES) {
-      expect(route.requirePolicyEnforcement).toBe(true);
+      expect(route.policy).not.toBeNull();
     }
   });
 });

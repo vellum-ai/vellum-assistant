@@ -1,5 +1,6 @@
 import { Menu, type MenuItemConstructorOptions, app, shell } from "electron";
 
+import { openAboutWindow } from "./about";
 import {
   dispatchToFocused,
   resolveAccelerator,
@@ -32,7 +33,17 @@ export const installApplicationMenu = (): void => {
       // macOS convention: the first submenu is always the app menu.
       label: app.name,
       submenu: [
-        { role: "about" },
+        // Branded About window — replaces `role: "about"` so we render
+        // version + commit SHA + copyright in our own UI instead of
+        // Electron's default panel. Native panel metadata is still
+        // populated by `installAbout()` so AppleScript / accessibility
+        // queries see the right values.
+        {
+          label: `About ${app.name}`,
+          click: () => {
+            openAboutWindow();
+          },
+        },
         { type: "separator" },
         { role: "services" },
         { type: "separator" },

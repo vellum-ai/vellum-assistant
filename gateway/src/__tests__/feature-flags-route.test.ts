@@ -398,7 +398,7 @@ describe("GET /v1/feature-flags handler", () => {
     expect(browserFlag.defaultEnabled).toBe(true);
   });
 
-  test("declared flags missing from a remote snapshot default to disabled", async () => {
+  test("declared flags missing from a remote snapshot use their registry defaults", async () => {
     // No local override
     if (existsSync(featureFlagStorePath)) {
       rmSync(featureFlagStorePath);
@@ -433,7 +433,7 @@ describe("GET /v1/feature-flags handler", () => {
       (f: { key: string }) => f.key === "browser",
     );
     expect(browserFlag).toBeDefined();
-    expect(browserFlag.enabled).toBe(false);
+    expect(browserFlag.enabled).toBe(true);
     expect(browserFlag.defaultEnabled).toBe(true);
   });
 

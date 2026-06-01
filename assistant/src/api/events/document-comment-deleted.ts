@@ -10,14 +10,12 @@
 
 import { z } from "zod";
 
-export const DocumentCommentDeletedEventSchema = z
-  .object({
-    type: z.literal("document_comment_deleted"),
-    conversationId: z.string(),
-    surfaceId: z.string(),
-    commentId: z.string(),
-  })
-  .strict();
+export const DocumentCommentDeletedEventSchema = z.object({
+  type: z.literal("document_comment_deleted"),
+  conversationId: z.string(),
+  surfaceId: z.string(),
+  commentId: z.string(),
+});
 
 export type DocumentCommentDeletedEvent = z.infer<
   typeof DocumentCommentDeletedEventSchema

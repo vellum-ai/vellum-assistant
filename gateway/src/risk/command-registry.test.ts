@@ -604,7 +604,7 @@ describe("command-registry", () => {
       expect(getAssistantPath("schedules disable").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules cancel").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules delete").baseRisk).toBe("medium");
-      expect(getAssistantPath("schedules execute").baseRisk).toBe("medium");
+      expect(getAssistantPath("schedules execute").baseRisk).toBe("high");
     });
   });
 

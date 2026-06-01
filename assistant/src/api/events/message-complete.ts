@@ -26,17 +26,15 @@ import { z } from "zod";
 
 import { AssistantOutboundAttachmentSchema } from "./assistant-outbound-attachment.js";
 
-export const MessageCompleteEventSchema = z
-  .object({
-    type: z.literal("message_complete"),
-    messageId: z.string().optional(),
-    conversationId: z.string().optional(),
-    source: z.enum(["main", "aux"]).optional(),
-    attachments: z.array(AssistantOutboundAttachmentSchema).optional(),
-    /** Soft warnings produced while resolving attachments (e.g. format
-     *  conversions, size truncations). Display-only — not blocking. */
-    attachmentWarnings: z.array(z.string()).optional(),
-  })
-  .strict();
+export const MessageCompleteEventSchema = z.object({
+  type: z.literal("message_complete"),
+  messageId: z.string().optional(),
+  conversationId: z.string().optional(),
+  source: z.enum(["main", "aux"]).optional(),
+  attachments: z.array(AssistantOutboundAttachmentSchema).optional(),
+  /** Soft warnings produced while resolving attachments (e.g. format
+   *  conversions, size truncations). Display-only — not blocking. */
+  attachmentWarnings: z.array(z.string()).optional(),
+});
 
 export type MessageCompleteEvent = z.infer<typeof MessageCompleteEventSchema>;

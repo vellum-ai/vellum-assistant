@@ -4,6 +4,8 @@
 
 import type { z } from "zod";
 
+import type { RoutePolicy } from "../auth/route-policy.js";
+
 export interface RouteQueryParam {
   name: string;
   type?: string;
@@ -79,8 +81,22 @@ export interface RouteDefinition {
   operationId: string;
   endpoint: string;
   method: string;
+  /**
+   * Scope + principal-type policy for this route.
+   *
+   * `null` means the route is intentionally unprotected — health
+   * probes, public capability-token endpoints, and the like.
+   *
+   * A `RoutePolicy` object declares the scopes a caller must hold
+   * and which principal types are allowed. Both the HTTP server
+   * (`enforcePolicy()`) and the gateway IPC proxy (via the route
+   * schema served from `get_route_schema`) read this field.
+   *
+   * Required so the type system catches every new route — there is
+   * no separate registry to forget to update.
+   */
+  policy: RoutePolicy | null;
   handler: (args: RouteHandlerArgs) => unknown | Promise<unknown>;
-  policyKey?: string;
   summary?: string;
   description?: string;
   tags?: string[];
@@ -112,13 +128,6 @@ export interface RouteDefinition {
    * will be served directly by the gateway (ATL-314).
    */
   isPublic?: boolean;
-  /**
-   * When true, the route requires scope-based policy enforcement.
-   * The HTTP server enforces via `enforcePolicy()`. The IPC adapter
-   * includes the resolved policy in the route schema so the gateway's
-   * IPC proxy enforces equivalent scope/principal checks.
-   */
-  requirePolicyEnforcement?: boolean;
   /**
    * Response headers for this route. Can be:
    * - A static map of header name → value

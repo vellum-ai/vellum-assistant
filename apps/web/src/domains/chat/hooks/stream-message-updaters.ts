@@ -11,8 +11,9 @@
 
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { Surface } from "@/domains/chat/types/types";
-import { toDisplayAttachments } from "@/domains/chat/api/event-parser";
-import type { AllowlistOption, ChatMessageToolCall, DirectoryScopeOption, ScopeOption } from "@/domains/chat/api/event-types";
+import { toDisplayAttachments } from "@/utils/display-attachments";
+import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { MessageCompleteEvent } from "@vellumai/assistant-api";
 import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 
@@ -44,6 +45,49 @@ export function finalizeRunningToolCalls(
 export function tailIsStreamingAssistant(prev: DisplayMessage[]): boolean {
   const last = prev[prev.length - 1];
   return !!last && last.role === "assistant" && !!last.isStreaming;
+}
+
+/** Whether the tail row is an assistant message, regardless of streaming. */
+export function tailIsAssistant(prev: DisplayMessage[]): boolean {
+  const last = prev[prev.length - 1];
+  return !!last && last.role === "assistant";
+}
+
+/**
+ * Find the assistant row that owns `messageId` — by its primary `id` or by
+ * a folded `mergedMessageIds` alias.
+ *
+ * The daemon reserves a fresh `messageId` per LLM call within a single
+ * agent turn, and the backend's `mergeConsecutiveAssistantMessages`
+ * collapses that run onto the first row's id, listing the later ids as
+ * aliases. Matching on aliases — not just the primary id — lets a later
+ * LLM call's deltas and tool calls fold into the same anchor instead of
+ * opening a duplicate streaming bubble for an id the run already owns.
+ */
+function findAssistantRowIndexByMessageId(
+  prev: DisplayMessage[],
+  messageId: string,
+): number {
+  return prev.findIndex(
+    (m) =>
+      m.role === "assistant" &&
+      (m.id === messageId || !!m.mergedMessageIds?.includes(messageId)),
+  );
+}
+
+/**
+ * Record `messageId` as a `mergedMessageIds` alias on `row` when it isn't
+ * already the row's primary id or a known alias. Mirrors the backend merge
+ * so a subsequent reconcile / SSE lookup by that id resolves to this row.
+ */
+function withMergedAlias(
+  row: DisplayMessage,
+  messageId: string | undefined,
+): DisplayMessage {
+  if (!messageId || row.id === messageId) return row;
+  const existing = row.mergedMessageIds ?? [];
+  if (existing.includes(messageId)) return row;
+  return { ...row, mergedMessageIds: [...existing, messageId] };
 }
 
 // ---------------------------------------------------------------------------
@@ -82,18 +126,22 @@ export function createStreamingBubble(
  * (or the tail is no longer an assistant row), so this updater branches
  * to `createStreamingBubble` without needing a shared latch.
  */
-export function appendTextDelta(
+/**
+ * Append `text` into the message at `prev[idx]`, extending its trailing
+ * text segment if the last `contentOrder` entry is text, otherwise opening
+ * a new text segment. Stamps `isStreaming: true` because every caller of
+ * this helper is mid-turn — including the reconcile-pulled reserved-row
+ * case where the existing row arrived without the streaming flag.
+ */
+function appendTextIntoRow(
   prev: DisplayMessage[],
+  idx: number,
   text: string,
   messageId?: string,
 ): DisplayMessage[] {
-  if (!tailIsStreamingAssistant(prev)) {
-    return createStreamingBubble(prev, text, messageId);
-  }
-
-  const last = prev[prev.length - 1]!;
-  const segments = [...(last.textSegments ?? [])];
-  const order = [...(last.contentOrder ?? [])];
+  const row = withMergedAlias(prev[idx]!, messageId);
+  const segments = [...(row.textSegments ?? [])];
+  const order = [...(row.contentOrder ?? [])];
   const lastOrderEntry = order[order.length - 1];
 
   if (lastOrderEntry?.type === "text" && segments.length > 0) {
@@ -110,17 +158,56 @@ export function appendTextDelta(
     order.push({ type: "text", id: String(newIndex) });
   }
 
-  // First-id-wins: keep the original anchor even if a later delta carries
-  // a different `messageId`. The id is locked from bubble creation.
-  return [
-    ...prev.slice(0, -1),
-    {
-      ...last,
-      content: last.content + text,
-      textSegments: segments,
-      contentOrder: order,
-    },
-  ];
+  const next = [...prev];
+  next[idx] = {
+    ...row,
+    content: row.content + text,
+    isStreaming: true,
+    textSegments: segments,
+    contentOrder: order,
+  };
+  return next;
+}
+
+/**
+ * Apply an `assistant_text_delta` to the message array.
+ *
+ * **Identity-keyed when `messageId` is present** (B2/B3 onward — stamped
+ * on every event from event zero of the turn). Looks up the assistant row
+ * that owns the id (primary id or merged alias) and appends into it
+ * regardless of position. Covers the case where reconcile (or
+ * `assistant_turn_start`) landed the reserved row in the array ahead of
+ * the first delta.
+ *
+ * When no row owns the id yet, the delta belongs to a later LLM call in
+ * the current agent turn (each call reserves a fresh messageId). A single
+ * turn renders as one bubble — the backend collapses the run of reserved
+ * rows onto the first row's id — so the delta folds into the current
+ * assistant tail (recording the id as an alias) rather than opening a
+ * duplicate bubble. Only a non-assistant tail (a new turn always begins
+ * with a user row) opens a fresh bubble.
+ *
+ * Falls back to tail-based decisioning when `messageId` is absent, for
+ * pre-B2 daemons not pinned by the B4 floor bump.
+ */
+export function appendTextDelta(
+  prev: DisplayMessage[],
+  text: string,
+  messageId?: string,
+): DisplayMessage[] {
+  if (messageId) {
+    const idx = findAssistantRowIndexByMessageId(prev, messageId);
+    if (idx >= 0) return appendTextIntoRow(prev, idx, text, messageId);
+    if (tailIsAssistant(prev)) {
+      return appendTextIntoRow(prev, prev.length - 1, text, messageId);
+    }
+    return createStreamingBubble(prev, text, messageId);
+  }
+
+  if (!tailIsStreamingAssistant(prev)) {
+    return createStreamingBubble(prev, text, messageId);
+  }
+  return appendTextIntoRow(prev, prev.length - 1, text);
 }
 
 // ---------------------------------------------------------------------------
@@ -226,6 +313,79 @@ export function finalizeMessageComplete(
 }
 
 // ---------------------------------------------------------------------------
+// user_message_echo
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply a `user_message_echo` to the message array.
+ *
+ * The daemon emits this whenever a user message is persisted — direct
+ * sends, slash/canned/compaction turns, and synthetic surface-action
+ * prompts. The originating client already shows an optimistic row (and
+ * swaps it to the server id on POST resolve); passive clients and
+ * synthetic prompts have no such row and need the user turn rendered
+ * before the assistant reply streams in.
+ *
+ * Three cases, in order:
+ *  1. A row already carries `messageId` (as `id` or a merged alias) — the
+ *     originating client whose POST already resolved, or a prior echo /
+ *     reconcile pulled the row in. No-op.
+ *  2. An optimistic user row matches by content — the originating client
+ *     whose POST hasn't resolved yet (the echo beat the 202). Swap its id
+ *     to the server `messageId` and clear `isOptimistic`, mirroring the
+ *     POST-resolve path so a later reconcile content-match can't double it.
+ *     With no `messageId` (synthetic echo) there is nothing to upgrade to,
+ *     so the optimistic row is left as-is.
+ *  3. Otherwise append a new user row — passive client or synthetic
+ *     prompt. Keyed by `messageId` when present so reconcile/refetch merges
+ *     by id; otherwise optimistic so reconcile content-matches it.
+ */
+export function applyUserMessageEcho(
+  prev: DisplayMessage[],
+  event: { text: string; messageId?: string },
+): DisplayMessage[] {
+  const serverId = event.messageId;
+
+  if (serverId !== undefined) {
+    const alreadyPresent = prev.some(
+      (m) =>
+        m.role === "user" &&
+        (m.id === serverId || m.mergedMessageIds?.includes(serverId)),
+    );
+    if (alreadyPresent) {
+      return prev;
+    }
+  }
+
+  const optimisticIdx = prev.findIndex(
+    (m) => m.role === "user" && m.isOptimistic && m.content === event.text,
+  );
+  if (optimisticIdx !== -1) {
+    if (serverId === undefined) {
+      return prev;
+    }
+    const next = [...prev];
+    next[optimisticIdx] = {
+      ...next[optimisticIdx]!,
+      id: serverId,
+      isOptimistic: false,
+    };
+    return next;
+  }
+
+  return [
+    ...prev,
+    {
+      id: serverId ?? crypto.randomUUID(),
+      ...(serverId === undefined ? { isOptimistic: true } : {}),
+      role: "user",
+      content: event.text,
+      timestamp: Date.now(),
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // generation_handoff / stream stop
 // ---------------------------------------------------------------------------
 
@@ -287,7 +447,10 @@ export function attachSurface(
   let targetIdx = -1;
 
   if (messageId) {
-    targetIdx = prev.findIndex((m) => m.id === messageId);
+    // Identity-keyed: resolve the row that owns this id by primary id or
+    // merged alias — a surface from a later LLM call carries an id the
+    // anchor may already list as an alias. See `appendTextDelta`.
+    targetIdx = findAssistantRowIndexByMessageId(prev, messageId);
   }
   if (targetIdx === -1) {
     for (let i = prev.length - 1; i >= 0; i--) {
@@ -308,12 +471,14 @@ export function attachSurface(
 
   const updated = [...prev];
   if (targetIdx === -1) {
-    // Surface-only assistant rows have no wire messageId — `ui_surface_*`
-    // events identify by surfaceId, not message. The row gets its server
-    // id when a later message_complete or history fetch lands.
+    // No anchor row to attach to — open a fresh bubble. When `messageId`
+    // is present we adopt it as the row id (the daemon has already
+    // committed to this assistant message). When absent — only possible
+    // against pre-anchor-protocol daemons — fall back to a client UUID
+    // and stamp `isOptimistic` so reconcile knows the id is a placeholder.
     updated.push({
-      id: crypto.randomUUID(),
-      isOptimistic: true,
+      id: messageId ?? crypto.randomUUID(),
+      ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant" as const,
       content: "",
       isStreaming: true,
@@ -322,7 +487,7 @@ export function attachSurface(
       timestamp: Date.now(),
     });
   } else {
-    const target = prev[targetIdx]!;
+    const target = withMergedAlias(prev[targetIdx]!, messageId);
     if (
       target.contentOrder?.some(
         (e) => e.type === "surface" && e.id === surface.surfaceId,
@@ -436,53 +601,46 @@ export function completeSurface(
 // ---------------------------------------------------------------------------
 
 /**
- * Insert or update a tool call on the streaming assistant tail bubble,
- * creating a new bubble if the tail isn't a streaming assistant row.
+ * Insert or update a tool call on the current assistant bubble, creating a
+ * new bubble only when the tail isn't an assistant row.
  *
- * The bubble-creation decision is derived from `prev` itself — no shared
- * latch passes through. Same finalization invariant as `appendTextDelta`:
- * boundary events leave the tail with `isStreaming: false` (or non-
- * assistant), so this updater opens a fresh bubble correctly.
+ * **Identity-keyed when `messageId` is present** — looks up the assistant
+ * row that owns the id (primary id or merged alias) and folds into it
+ * regardless of position. Mirrors `appendTextDelta`: when no row owns the
+ * id yet, the tool call belongs to a later LLM call in the current agent
+ * turn, so it folds into the assistant tail (recording the id as an alias)
+ * to keep the turn one bubble rather than splitting per call. Only a
+ * non-assistant tail opens a fresh bubble.
+ *
+ * Falls back to tail-based decisioning when `messageId` is absent, for
+ * pre-anchor-protocol daemons.
  */
 export function upsertToolCall(
   prev: DisplayMessage[],
   toolCall: ChatMessageToolCall,
+  messageId?: string,
 ): DisplayMessage[] {
-  if (tailIsStreamingAssistant(prev)) {
-    const lastIdx = prev.length - 1;
-    const last = prev[lastIdx]!;
-    const existingIdx =
-      last.toolCalls?.findIndex((tc) => tc.id === toolCall.id) ?? -1;
-    if (existingIdx !== -1) {
-      const updated = [...prev];
-      const updatedToolCalls = [...(last.toolCalls ?? [])];
-      updatedToolCalls[existingIdx] = {
-        ...updatedToolCalls[existingIdx]!,
-        ...toolCall,
-      };
-      updated[lastIdx] = { ...last, toolCalls: updatedToolCalls };
-      return updated;
+  if (messageId) {
+    const idx = findAssistantRowIndexByMessageId(prev, messageId);
+    if (idx >= 0) return upsertToolCallIntoRow(prev, idx, toolCall, messageId);
+    if (tailIsAssistant(prev)) {
+      return upsertToolCallIntoRow(prev, prev.length - 1, toolCall, messageId);
     }
-    const updated = [...prev];
-    updated[lastIdx] = {
-      ...last,
-      toolCalls: [...(last.toolCalls ?? []), toolCall],
-      contentOrder: [
-        ...(last.contentOrder ?? []),
-        { type: "toolCall", id: toolCall.id },
-      ],
-    };
-    return updated;
+  } else if (tailIsStreamingAssistant(prev)) {
+    return upsertToolCallIntoRow(prev, prev.length - 1, toolCall);
   }
 
-  // Tool-only assistant rows have no wire messageId — `tool_use_*` events
-  // identify by toolCall.id, not message. The row gets its server id when
-  // a later message_complete or history fetch lands.
+  // No anchor row to fold into — open a fresh bubble. When `messageId` is
+  // present we adopt it as the row id (the daemon has already committed to
+  // this assistant message; the row is mid-stream, not optimistic). When
+  // absent — only possible against pre-anchor-protocol daemons — fall back
+  // to a client UUID and stamp `isOptimistic` so reconcile knows the id is
+  // a placeholder.
   return [
     ...prev,
     {
-      id: crypto.randomUUID(),
-      isOptimistic: true,
+      id: messageId ?? crypto.randomUUID(),
+      ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant" as const,
       content: "",
       isStreaming: true,
@@ -491,6 +649,45 @@ export function upsertToolCall(
       timestamp: Date.now(),
     },
   ];
+}
+
+/**
+ * Fold a tool call into the assistant row at `idx`, either updating the
+ * existing entry (same `toolCall.id`) or appending a new one with a
+ * matching `contentOrder` entry. Stamps `isStreaming: true` so the row
+ * keeps streaming semantics — same invariant as `appendTextIntoRow`.
+ */
+function upsertToolCallIntoRow(
+  prev: DisplayMessage[],
+  idx: number,
+  toolCall: ChatMessageToolCall,
+  messageId?: string,
+): DisplayMessage[] {
+  const row = withMergedAlias(prev[idx]!, messageId);
+  const existingIdx =
+    row.toolCalls?.findIndex((tc) => tc.id === toolCall.id) ?? -1;
+  const updated = [...prev];
+
+  if (existingIdx !== -1) {
+    const updatedToolCalls = [...(row.toolCalls ?? [])];
+    updatedToolCalls[existingIdx] = {
+      ...updatedToolCalls[existingIdx]!,
+      ...toolCall,
+    };
+    updated[idx] = { ...row, isStreaming: true, toolCalls: updatedToolCalls };
+    return updated;
+  }
+
+  updated[idx] = {
+    ...row,
+    isStreaming: true,
+    toolCalls: [...(row.toolCalls ?? []), toolCall],
+    contentOrder: [
+      ...(row.contentOrder ?? []),
+      { type: "toolCall", id: toolCall.id },
+    ],
+  };
+  return updated;
 }
 
 // ---------------------------------------------------------------------------
@@ -579,51 +776,6 @@ export function applyToolResult(
       ? { activityMetadata: opts.activityMetadata }
       : {}),
     completedAt: Date.now(),
-  };
-
-  const updated = [...prev];
-  updated[msgIdx] = { ...msg, toolCalls: updatedToolCalls };
-  return updated;
-}
-
-// ---------------------------------------------------------------------------
-// tool_progress
-// ---------------------------------------------------------------------------
-
-/** Apply a tool_progress heartbeat to the matching running tool call. */
-export function applyToolProgress(
-  prev: DisplayMessage[],
-  opts: {
-    toolUseId?: string;
-    elapsedSec: number;
-    timeoutSec: number;
-  },
-): DisplayMessage[] {
-  const msgIdx = prev.findLastIndex(
-    (m) => m.role === "assistant" && m.toolCalls && m.toolCalls.length > 0,
-  );
-  if (msgIdx === -1) return prev;
-
-  const msg = prev[msgIdx];
-  if (!msg?.toolCalls) return prev;
-
-  let tcIdx = opts.toolUseId
-    ? msg.toolCalls.findIndex((tc) => tc.id === opts.toolUseId)
-    : -1;
-  if (tcIdx === -1) {
-    tcIdx = msg.toolCalls.findLastIndex((tc) => tc.status === "running");
-  }
-  if (tcIdx === -1) return prev;
-
-  const existingTc = msg.toolCalls[tcIdx];
-  if (!existingTc || existingTc.status !== "running") return prev;
-
-  const updatedToolCalls = [...msg.toolCalls];
-  updatedToolCalls[tcIdx] = {
-    ...existingTc,
-    progressElapsedSec: opts.elapsedSec,
-    progressTimeoutSec: opts.timeoutSec,
-    lastProgressAt: Date.now(),
   };
 
   const updated = [...prev];

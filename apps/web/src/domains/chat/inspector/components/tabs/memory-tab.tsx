@@ -8,14 +8,18 @@ import type {
   MemoryRecallLog,
   MemoryV2ActivationLog,
   MemoryV2ConceptRow,
+  MemoryV3SelectionLog,
+  MemoryV3SelectionRow,
 } from "@vellumai/assistant-api";
 
 /**
- * Memory tab rendering V1 recall and/or V2 activation data. When both
- * are present a pill switcher lets the user toggle between the two
- * views; when only one is present it renders directly.
+ * Memory tab rendering V1 recall, V2 activation, and/or the V3 selection.
+ * When more than one is present a pill switcher lets the user toggle between
+ * them; when only one is present it renders directly. The V3 section shows
+ * what the v3 retriever selected — actually injected in live mode, or the
+ * would-be block in shadow mode.
  */
-type MemoryView = "recall" | "v2";
+type MemoryView = "recall" | "v2" | "v3";
 
 export function MemoryTab({
   context,
@@ -24,43 +28,56 @@ export function MemoryTab({
 }): ReactNode {
   const recall = context?.memoryRecall ?? null;
   const v2 = context?.memoryV2Activation ?? null;
+  const v3 = context?.memoryV3Selection ?? null;
   const hasRecall = recall !== null;
   const hasV2 = v2 !== null;
+  const hasV3 = v3 != null;
 
-  const defaultView: MemoryView = hasV2 ? "v2" : "recall";
+  const pills: { id: MemoryView; label: string; show: boolean }[] = [
+    { id: "v3", label: "Memory V3", show: hasV3 },
+    { id: "v2", label: "Memory V2", show: hasV2 },
+    { id: "recall", label: "Recall (v1)", show: hasRecall },
+  ];
+  const available = pills.filter((p) => p.show);
+
+  const defaultView: MemoryView = hasV2 ? "v2" : hasV3 ? "v3" : "recall";
   const [view, setView] = useState<MemoryView>(defaultView);
 
   useEffect(() => {
-    setView(hasV2 ? "v2" : "recall");
-  }, [hasV2, hasRecall]);
+    setView(hasV2 ? "v2" : hasV3 ? "v3" : "recall");
+  }, [hasV2, hasV3, hasRecall]);
 
-  if (!hasRecall && !hasV2) {
+  if (available.length === 0) {
     return <NoDataState />;
   }
 
+  const activeView = available.some((p) => p.id === view)
+    ? view
+    : (available[0]?.id ?? "recall");
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {hasRecall && hasV2 && (
+      {available.length > 1 && (
         <div
           className="flex gap-1 px-4 py-2"
           style={{ borderBottom: "1px solid var(--border-base)" }}
         >
-          <ViewPill
-            label="Memory V2"
-            active={view === "v2"}
-            onClick={() => setView("v2")}
-          />
-          <ViewPill
-            label="Recall (v1)"
-            active={view === "recall"}
-            onClick={() => setView("recall")}
-          />
+          {available.map((p) => (
+            <ViewPill
+              key={p.id}
+              label={p.label}
+              active={activeView === p.id}
+              onClick={() => setView(p.id)}
+            />
+          ))}
         </div>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {view === "v2" && hasV2 ? (
+        {activeView === "v3" && v3 != null ? (
+          <MemoryV3Section selection={v3} />
+        ) : activeView === "v2" && v2 != null ? (
           <MemoryV2Section activation={v2} />
-        ) : hasRecall ? (
+        ) : recall != null ? (
           <MemoryRecallSection recall={recall} />
         ) : null}
       </div>
@@ -365,6 +382,123 @@ function MemoryV2Section({
       </SectionCard>
     </div>
   );
+}
+
+function MemoryV3Section({
+  selection,
+}: {
+  selection: MemoryV3SelectionLog;
+}): ReactNode {
+  const { live, shadow } = selection;
+  const modeLabel = live
+    ? "Live — injected"
+    : shadow
+      ? "Shadow — not injected"
+      : "Off";
+
+  const coreCount = selection.selections.filter((s) =>
+    s.source.startsWith("core"),
+  ).length;
+  const carryCount = selection.selections.filter(
+    (s) => s.source === "carry-forward",
+  ).length;
+  const pinnedCount = selection.selections.filter((s) => s.pinned).length;
+
+  return (
+    <div className="flex flex-col gap-4 p-4">
+      <ScopeBanner
+        title={
+          live
+            ? "Memory V3 — live injection"
+            : "Memory V3 — shadow (observation only)"
+        }
+        body={
+          live
+            ? "v3 is the live memory source this turn — the block below was injected into context (v2 suppressed)."
+            : "v3 ran in shadow this turn. The block below is what it WOULD have injected; the live memory came from v2."
+        }
+      />
+
+      <SectionCard title="Selection">
+        <MetaGrid
+          rows={[
+            { label: "Mode", value: modeLabel },
+            { label: "Turn", value: String(selection.turn) },
+            {
+              label: "Selected pages",
+              value: fmt(selection.selections.length),
+            },
+            { label: "Core", value: fmt(coreCount) },
+            { label: "Carry-forward", value: fmt(carryCount) },
+            { label: "Pinned", value: fmt(pinnedCount) },
+          ]}
+        />
+      </SectionCard>
+
+      {selection.selections.length > 0 && (
+        <SectionCard
+          title="Selected pages"
+          subtitle={`${selection.selections.length} page(s), tagged by the lane that surfaced them.`}
+        >
+          <div className="flex flex-col gap-1">
+            {selection.selections.map((row) => (
+              <V3SelectionRow key={row.slug} row={row} />
+            ))}
+          </div>
+        </SectionCard>
+      )}
+
+      {selection.injectedText !== "" && (
+        <SectionCard
+          title={live ? "Injected memory context" : "Would-be memory context"}
+          subtitle={
+            live
+              ? undefined
+              : "Rendered from the v3 selection — not injected this turn."
+          }
+          copyText={selection.injectedText}
+        >
+          <CodeBlock text={selection.injectedText} />
+        </SectionCard>
+      )}
+    </div>
+  );
+}
+
+function V3SelectionRow({ row }: { row: MemoryV3SelectionRow }): ReactNode {
+  return (
+    <div
+      className="flex items-center justify-between gap-3 rounded-md px-3 py-2"
+      style={{ background: "var(--surface-base)" }}
+    >
+      <code
+        className="min-w-0 flex-1 truncate text-body-small-default"
+        style={{ color: "var(--content-default)" }}
+      >
+        {row.slug}
+      </code>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {row.pinned && <TypeChip label="pinned" />}
+        <TypeChip label={formatV3Source(row.source)} />
+      </div>
+    </div>
+  );
+}
+
+/** Display label for a v3 selection lane (`source`). */
+function formatV3Source(source: string): string {
+  switch (source) {
+    case "l1+l2":
+      return "L1+L2";
+    case "core+l2":
+      return "core";
+    case "carry-forward":
+      return "carried";
+    case "needle":
+      return "needle";
+    default:
+      return source;
+  }
 }
 
 function ConceptRow({

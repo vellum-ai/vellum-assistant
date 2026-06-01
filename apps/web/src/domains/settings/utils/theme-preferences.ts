@@ -1,4 +1,4 @@
-import { getDeviceSetting, setDeviceSetting } from "@/lib/device-settings";
+import { getDeviceSetting, setDeviceSetting } from "@/utils/device-settings";
 
 export type ThemePreference = "system" | "light" | "dark" | "velvet";
 

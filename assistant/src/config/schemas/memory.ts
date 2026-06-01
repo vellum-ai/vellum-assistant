@@ -16,7 +16,8 @@ import {
   MemorySegmentationConfigSchema,
   QdrantConfigSchema,
 } from "./memory-storage.js";
-import { MemoryV2ConfigSchema, MemoryV3ConfigSchema } from "./memory-v2.js";
+import { MemoryV2ConfigSchema } from "./memory-v2.js";
+import { MemoryV3ConfigSchema } from "./memory-v3.js";
 
 export const MemoryConfigSchema = z
   .object({

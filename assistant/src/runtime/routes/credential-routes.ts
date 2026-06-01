@@ -45,6 +45,7 @@ import {
   listCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -424,7 +425,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "credentials_list",
     endpoint: "credentials/list",
     method: "POST",
-    policyKey: "secrets",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List all credentials with metadata",
     description:
       "Return all stored credentials with metadata, OAuth connection info, and platform-managed credentials.",
@@ -442,7 +446,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "credentials_inspect",
     endpoint: "credentials/inspect",
     method: "POST",
-    policyKey: "secrets",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Inspect a credential",
     description:
       "Return metadata and a masked preview of a stored credential. Does not reveal the plaintext value.",
@@ -465,7 +472,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "credentials_reveal",
     endpoint: "credentials/reveal",
     method: "POST",
-    policyKey: "secrets",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Reveal a credential's plaintext value",
     description:
       "Return the raw plaintext value of a stored credential. Blocked in untrusted shell mode.",
@@ -484,7 +494,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "credentials_set",
     endpoint: "credentials/set",
     method: "POST",
-    policyKey: "secrets",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Store a credential with metadata",
     description:
       "Store a secret value and create or update its metadata (label, description, allowed tools).",
@@ -508,7 +521,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "credentials_delete",
     endpoint: "credentials/delete",
     method: "POST",
-    policyKey: "secrets",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete a credential",
     description:
       "Remove a secret, its metadata, and any associated OAuth connection from the vault.",
@@ -527,7 +543,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "credentials_status",
     endpoint: "credentials/status",
     method: "GET",
-    policyKey: "secrets",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Credential backend status",
     description:
       "Return the active credential storage backend and its configuration details.",

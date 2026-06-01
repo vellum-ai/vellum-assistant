@@ -27,9 +27,8 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
             persistedFlags: [:],
             registryDefaults: registryDefaults
         )
-        let enabled = resolved[conversationStartersKey] ?? true
 
-        XCTAssertFalse(enabled)
+        XCTAssertEqual(resolved[conversationStartersKey], false)
     }
 
     func testPersistedOverrideWinsOverRegistryDefault() {
@@ -38,20 +37,26 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
             persistedFlags: [conversationStartersKey: true],
             registryDefaults: registryDefaults
         )
-        let enabled = resolved[conversationStartersKey] ?? true
 
-        XCTAssertTrue(enabled)
+        XCTAssertEqual(resolved[conversationStartersKey], true)
     }
 
-    func testUndeclaredAssistantFlagsDefaultToEnabled() {
-        let registryDefaults = AssistantFeatureFlagResolver.registryDefaults(from: makeRegistry(defaultEnabled: false))
-        let resolved = AssistantFeatureFlagResolver.resolvedFlags(
-            persistedFlags: [:],
-            registryDefaults: registryDefaults
+    func testUndeclaredAssistantFlagsDefaultToDisabled() {
+        XCTAssertFalse(
+            AssistantFeatureFlagResolver.isEnabled(
+                "unknown",
+                registry: makeRegistry(defaultEnabled: false)
+            )
         )
-        let enabled = resolved["unknown"] ?? true
+    }
 
-        XCTAssertTrue(enabled)
+    func testDeclaredDefaultEnabledFlagResolvesEnabled() {
+        XCTAssertTrue(
+            AssistantFeatureFlagResolver.isEnabled(
+                conversationStartersKey,
+                registry: makeRegistry(defaultEnabled: true)
+            )
+        )
     }
 
     @MainActor
@@ -63,6 +68,7 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
 
         XCTAssertFalse(store.isEnabled(conversationStartersKey))
         XCTAssertFalse(store.isEnabled(conversationStartersKey))
+        XCTAssertFalse(store.isEnabled("unknown"))
     }
 
     @MainActor
@@ -122,6 +128,28 @@ final class AssistantFeatureFlagResolverTests: XCTestCase {
 
         // The cached value (true) should win over the registry default (false)
         XCTAssertEqual(resolved[testKey], true)
+    }
+
+    func testCachedUndeclaredFlagDoesNotResolveEnabled() {
+        let unknownKey = "test-unknown-\(UUID().uuidString)"
+
+        addTeardownBlock {
+            UserDefaults.standard.removeObject(forKey: "AssistantFeatureFlagCache.\(unknownKey)")
+        }
+
+        AssistantFeatureFlagResolver.mergeCachedFlag(key: unknownKey, enabled: true)
+
+        let resolved = AssistantFeatureFlagResolver.resolvedFlags(
+            registryDefaults: [conversationStartersKey: false]
+        )
+
+        XCTAssertNil(resolved[unknownKey])
+        XCTAssertFalse(
+            AssistantFeatureFlagResolver.isEnabled(
+                unknownKey,
+                registry: makeRegistry(defaultEnabled: false)
+            )
+        )
     }
 
     // MARK: - writeCachedFlags replaces all cache entries

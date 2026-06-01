@@ -239,7 +239,7 @@ function PanelItem({
     leadingSlot !== undefined
       ? leadingSlot
       : Icon
-        ? <Icon size={14} aria-hidden className={cn(LEADING_ICON_BASE_CLASSES, iconActiveClass)} />
+        ? <Icon size={14} aria-hidden className={cn("max-md:size-4", LEADING_ICON_BASE_CLASSES, iconActiveClass)} />
         : null;
 
   const labelNode = marqueeOnHover ? (

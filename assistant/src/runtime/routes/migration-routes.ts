@@ -41,6 +41,7 @@ import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir, getWorkspaceHooksDir } from "../../util/platform.js";
 import { APP_VERSION } from "../../version.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   validateGcsSignedUrl,
   type ValidateGcsSignedUrlOptions,
@@ -1852,6 +1853,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "migrations_validate_post",
     endpoint: "migrations/validate",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Validate a .vbundle archive",
     description:
       "Upload a .vbundle archive for validation. Accepts raw binary or multipart form data.",
@@ -1867,6 +1872,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "migrations_export_post",
     endpoint: "migrations/export",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Export a .vbundle archive",
     description:
       "Generate and download a .vbundle archive of the assistant's data. Optional JSON body for metadata.",
@@ -1880,6 +1889,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "migrations_importpreflight_post",
     endpoint: "migrations/import-preflight",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Dry-run import analysis",
     description:
       "Validate a .vbundle archive and return a report of what would change on import without modifying data.",
@@ -1897,6 +1910,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "migrations_import_post",
     endpoint: "migrations/import",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Import a .vbundle archive",
     description:
       "Commit a .vbundle archive import to disk — destructive. Accepts the bundle as raw bytes (application/octet-stream), multipart/form-data, or a JSON body with `{ url }` carrying a signed URL the daemon fetches.",
@@ -1927,6 +1944,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "migrations_exporttogcs_post",
     endpoint: "migrations/export-to-gcs",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Start an async export streamed to a GCS signed URL",
     description:
       "Kick off a background export job that PUTs a freshly-built .vbundle archive to the supplied GCS signed URL. Returns 202 with a job_id the caller can poll via the job-status endpoint. Fails fast with 409 if another export job is already pending or running.",
@@ -1953,6 +1974,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "migrations_importfromgcs_post",
     endpoint: "migrations/import-from-gcs",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Start an async .vbundle import from a signed GCS URL",
     description:
       "Schedule a background import job that fetches the bundle at `bundle_url` and streams it through the importer. Returns 202 with a `job_id`; poll `GET /v1/migrations/jobs/{job_id}` for status. 409 if another import is already in flight.",
@@ -1977,6 +2002,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "migrations_jobs_by_job_id_get",
     endpoint: "migrations/jobs/:job_id",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get migration job status",
     description:
       "Return the current status of an async migration job (export or import). The response discriminates on `status`: `processing` (pending or running), `complete` (with `result`), or `failed` (with `error`, `error_code`, optional `upstream_status`).",

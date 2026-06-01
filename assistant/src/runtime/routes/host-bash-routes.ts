@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { HostBashProxy } from "../../daemon/host-bash-proxy.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
@@ -104,6 +105,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "host_bash_result",
     endpoint: "host-bash-result",
     method: "POST",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     requireGuardian: true,
     summary: "Submit host bash result",
     description: "Resolve a pending host bash request by requestId.",

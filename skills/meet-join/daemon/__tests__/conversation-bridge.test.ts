@@ -49,8 +49,7 @@ interface InsertCall {
   conversationId: string;
   role: string;
   content: string;
-  metadata?: Record<string, unknown>;
-  opts?: { skipIndexing?: boolean };
+  options?: { metadata?: Record<string, unknown>; skipIndexing?: boolean };
 }
 
 function makeInsertRecorder(): {
@@ -63,10 +62,9 @@ function makeInsertRecorder(): {
     conversationId,
     role,
     content,
-    metadata,
-    opts,
+    options,
   ) => {
-    calls.push({ conversationId, role, content, metadata, opts });
+    calls.push({ conversationId, role, content, options });
     counter += 1;
     return { id: `msg-${counter}` };
   };
@@ -323,7 +321,7 @@ describe("MeetConversationBridge — transcript.chunk (resolver integration)", (
     expect(parsed).toEqual([
       { type: "text", text: "[Unknown speaker]: Let's kick off the sync." },
     ]);
-    expect(call?.metadata).toMatchObject({
+    expect(call?.options?.metadata).toMatchObject({
       meetingId: MEETING_ID,
       meetTimestamp: TIMESTAMP,
       meetSpeakerLabel: "Speaker 0",
@@ -363,7 +361,7 @@ describe("MeetConversationBridge — transcript.chunk (resolver integration)", (
     expect(calls).toHaveLength(1);
     const parsed = JSON.parse(calls[0]!.content) as Array<{ text: string }>;
     expect(parsed[0]?.text).toBe("[Alice]: Let's kick off.");
-    expect(calls[0]?.metadata).toMatchObject({
+    expect(calls[0]?.options?.metadata).toMatchObject({
       meetSpeakerName: "Alice",
       meetSpeakerId: "p-alice",
       meetSpeakerLabel: "Speaker 0",
@@ -406,7 +404,7 @@ describe("MeetConversationBridge — transcript.chunk (resolver integration)", (
     await flush();
 
     expect(calls).toHaveLength(2);
-    expect(calls[1]?.metadata).toMatchObject({
+    expect(calls[1]?.options?.metadata).toMatchObject({
       meetSpeakerName: "Alice",
       meetSpeakerId: "p-alice",
       meetSpeakerConfidence: "dom-fallback",
@@ -491,7 +489,7 @@ describe("MeetConversationBridge — chat.inbound", () => {
     expect(call?.conversationId).toBe(CONVERSATION_ID);
     const parsed = JSON.parse(call!.content) as Array<{ text: string }>;
     expect(parsed[0]?.text).toBe("[Meet chat] Alice: Notes?");
-    expect(call?.metadata).toMatchObject({
+    expect(call?.options?.metadata).toMatchObject({
       meetingId: MEETING_ID,
       meetTimestamp: TIMESTAMP,
       meetChatFromId: "u-alice",
@@ -531,14 +529,14 @@ describe("MeetConversationBridge — participant.change", () => {
     expect(bobText).toBe("[Meeting] Bob joined");
 
     expect(alice?.role).toBe("user");
-    expect(alice?.metadata).toMatchObject({
+    expect(alice?.options?.metadata).toMatchObject({
       meetingId: MEETING_ID,
       meetParticipantId: "u-alice",
       meetParticipantChange: "joined",
       automated: true,
     });
-    expect(alice?.opts).toEqual({ skipIndexing: true });
-    expect(bob?.opts).toEqual({ skipIndexing: true });
+    expect(alice?.options?.skipIndexing).toBe(true);
+    expect(bob?.options?.skipIndexing).toBe(true);
   });
 
   test("left participants produce one short 'X left' line each", async () => {
@@ -557,7 +555,7 @@ describe("MeetConversationBridge — participant.change", () => {
     const text = JSON.parse(calls[0]!.content)[0].text;
     expect(text).toBe("[Meeting] Carol left");
     expect(calls[0]?.role).toBe("user");
-    expect(calls[0]?.metadata).toMatchObject({
+    expect(calls[0]?.options?.metadata).toMatchObject({
       meetParticipantId: "u-carol",
       meetParticipantChange: "left",
       automated: true,

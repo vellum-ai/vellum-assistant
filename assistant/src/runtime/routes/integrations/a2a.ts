@@ -21,6 +21,7 @@ import {
   redeemA2AInvite,
   setA2AConfig,
 } from "../../../daemon/handlers/config-a2a.js";
+import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../../auth/route-policy.js";
 import { BadGatewayError, BadRequestError } from "../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
@@ -221,74 +222,83 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "integrations_a2a_config_get",
     endpoint: "integrations/a2a/config",
     method: "GET",
+    policy: null,
     summary: "Get A2A config",
     description: "Check current A2A channel configuration status.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: () => handleGetA2AConfig(),
   },
   {
     operationId: "integrations_a2a_config_post",
     endpoint: "integrations/a2a/config",
     method: "POST",
+    policy: null,
     summary: "Enable A2A channel",
     description: "Enable the A2A channel for inter-assistant communication.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: () => handleSetA2AConfig(),
   },
   {
     operationId: "integrations_a2a_config_delete",
     endpoint: "integrations/a2a/config",
     method: "DELETE",
+    policy: null,
     summary: "Disable A2A channel",
     description: "Disable the A2A channel.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: () => handleClearA2AConfig(),
   },
   {
     operationId: "integrations_a2a_invite_post",
     endpoint: "integrations/a2a/invite",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Create A2A invite",
     description:
       "Create a shareable A2A invite token for link-based contact creation.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: handleCreateA2AInvite,
   },
   {
     operationId: "integrations_a2a_invite_complete_post",
     endpoint: "integrations/a2a/invite/complete",
     method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Complete A2A invite (sender side)",
     description:
       "Called by the platform to finalize the sender side of a link-based A2A connection.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: handleCompleteA2AInvite,
   },
   {
     operationId: "integrations_a2a_invite_redeem_post",
     endpoint: "integrations/a2a/invite/redeem",
     method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Redeem A2A invite (receiver side)",
     description:
       "Called by the platform to create a trusted contact on the receiver side of a link-based A2A connection.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: handleRedeemA2AInvite,
   },
   {
     operationId: "integrations_a2a_invite_accept_post",
     endpoint: "integrations/a2a/invite/accept",
     method: "POST",
+    policy: null,
     summary: "Accept A2A invite (self-hosted broker)",
     description:
       "Orchestrate cross-daemon invite acceptance for self-hosted deployments. Calls the sender's invite/complete, then creates a local contact via invite/redeem.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: handleAcceptA2AInvite,
   },
 ];

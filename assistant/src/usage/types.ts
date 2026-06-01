@@ -85,4 +85,14 @@ export interface UsageEvent extends UsageEventInput {
   inferenceProfileSource: UsageAttributionProfileSource | null;
   estimatedCostUsd: number | null;
   pricingStatus: "priced" | "unpriced";
+  /**
+   * Version of the assistant binary at the moment this event was
+   * RECORDED, captured by `recordUsageEvent` and persisted with the
+   * row. Not provided by callers; computed at record time. Surfaces
+   * onto the telemetry wire as `assistant_version` so analytics
+   * stays truthful even when a batch flushes days after the events
+   * fired. `null` only for rows persisted before migration 267 ran.
+   * See `migrations/267-llm-usage-events-add-assistant-version.ts`.
+   */
+  assistantVersion: string | null;
 }

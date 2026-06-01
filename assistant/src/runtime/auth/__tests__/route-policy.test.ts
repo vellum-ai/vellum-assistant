@@ -1,13 +1,21 @@
 /**
- * Tests for route policy enforcement (enforcePolicy).
+ * Tests for route policy enforcement.
+ *
+ * With policy-on-route (ATL-315 followup), each route owns its own
+ * `policy: RoutePolicy | null` and the HTTP server / IPC adapter pass
+ * that policy directly to `enforcePolicy()`. There is no longer a
+ * side-registry to look up against.
  *
  * Covers:
- * - Unregistered endpoints return null (allowed)
+ * - `policy: null` is treated as unprotected (always allowed)
  * - Principal type check denies disallowed types
  * - Scope check denies missing scopes
  * - Allowed requests return null
- * - Channel inbound requires svc_gateway principal type
  * - Dev bypass allows all requests through
+ * - Sample assertions against canonical ROUTES entries to make sure
+ *   the policy field is wired through to representative endpoints
+ *   (channels/inbound, internal/twilio/voice-webhook, etc.) — these
+ *   replace the prior "registry contents" tests.
  */
 
 import { describe, expect, mock, test } from "bun:test";
@@ -26,7 +34,7 @@ mock.module("../../../config/env.js", () => ({
   hasUngatedHttpAuthDisabled: () => false,
 }));
 
-import { enforcePolicy, getPolicy } from "../route-policy.js";
+import { enforcePolicy, type RoutePolicy } from "../route-policy.js";
 import type { AuthContext, Scope } from "../types.js";
 
 /** Build a synthetic AuthContext for testing. */
@@ -48,234 +56,209 @@ function buildTestContext(overrides?: {
         "approval.write",
       ],
     ),
-    policyEpoch: 1,
+    policyEpoch: 0,
   };
 }
 
-describe("enforcePolicy", () => {
-  test("returns null for unregistered endpoints (no policy)", () => {
-    authDisabled = false;
-    const ctx = buildTestContext();
-    const result = enforcePolicy("nonexistent/endpoint", ctx);
-    expect(result).toBeNull();
-  });
+/** Canonical actor-write policy used by most chat endpoints. */
+const ACTOR_WRITE_POLICY: RoutePolicy = {
+  requiredScopes: ["chat.write"],
+  allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
+};
 
-  test("returns null when actor context has required scopes and type", () => {
+/** Canonical gateway-only policy used by inbound webhook endpoints. */
+const GATEWAY_INGRESS_POLICY: RoutePolicy = {
+  requiredScopes: ["ingress.write"],
+  allowedPrincipalTypes: ["svc_gateway"],
+};
+
+describe("enforcePolicy", () => {
+  test("policy: null is treated as unprotected (always allowed)", () => {
     authDisabled = false;
-    const ctx = buildTestContext({ scopes: ["chat.read", "chat.write"] });
-    const result = enforcePolicy("messages:POST", ctx);
+    const ctx = buildTestContext({ scopes: [] });
+    const result = enforcePolicy("_internal/health", null, ctx);
     expect(result).toBeNull();
   });
 
   test("returns 403 when principal type is not allowed", () => {
     authDisabled = false;
-    // channels/inbound requires svc_gateway, not actor
+    // Actor trying to call a gateway-only ingress endpoint
     const ctx = buildTestContext({
       principalType: "actor",
       scopes: ["ingress.write"],
     });
-    const result = enforcePolicy("channels/inbound", ctx);
+    const result = enforcePolicy(
+      "channels/inbound",
+      GATEWAY_INGRESS_POLICY,
+      ctx,
+    );
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
-    const _body = result!.json();
-    // Response.json() returns a promise
   });
 
   test("returns 403 when required scope is missing", () => {
     authDisabled = false;
-    // messages:POST requires chat.write, we only provide chat.read
+    // Actor missing chat.write
     const ctx = buildTestContext({ scopes: ["chat.read"] });
-    const result = enforcePolicy("messages:POST", ctx);
+    const result = enforcePolicy("messages", ACTOR_WRITE_POLICY, ctx);
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
   });
 
-  test("channel inbound requires svc_gateway principal type", () => {
+  test("allows actor with required scope and allowed principal type", () => {
     authDisabled = false;
-    const policy = getPolicy("channels/inbound");
-    expect(policy).toBeDefined();
-    expect(policy!.allowedPrincipalTypes).toContain("svc_gateway");
-    expect(policy!.allowedPrincipalTypes).not.toContain("actor");
-    expect(policy!.requiredScopes).toContain("ingress.write");
-  });
-
-  test("channel inbound allows svc_gateway with ingress.write", () => {
-    authDisabled = false;
-    const ctx = buildTestContext({
-      principalType: "svc_gateway",
-      scopes: ["ingress.write", "internal.write"],
-    });
-    const result = enforcePolicy("channels/inbound", ctx);
+    const ctx = buildTestContext({ scopes: ["chat.write"] });
+    const result = enforcePolicy("messages", ACTOR_WRITE_POLICY, ctx);
     expect(result).toBeNull();
   });
 
-  test("internal endpoints require svc_gateway principal type", () => {
-    authDisabled = false;
-    const policy = getPolicy("internal/twilio/voice-webhook");
-    expect(policy).toBeDefined();
-    expect(policy!.allowedPrincipalTypes).toContain("svc_gateway");
-    expect(policy!.allowedPrincipalTypes).not.toContain("actor");
-    expect(policy!.requiredScopes).toContain("internal.write");
-  });
-
-  test("internal endpoints deny actor principal type", () => {
+  test("allows svc_gateway with ingress.write on channels/inbound", () => {
     authDisabled = false;
     const ctx = buildTestContext({
-      principalType: "actor",
-      scopes: ["internal.write"],
+      principalType: "svc_gateway",
+      scopes: ["ingress.write"],
     });
-    const result = enforcePolicy("internal/twilio/voice-webhook", ctx);
-    expect(result).not.toBeNull();
-    expect(result!.status).toBe(403);
-  });
-
-  test("standard actor endpoints allow actor, svc_gateway, and local", () => {
-    authDisabled = false;
-    const policy = getPolicy("messages:POST");
-    expect(policy).toBeDefined();
-    expect(policy!.allowedPrincipalTypes).toContain("actor");
-    expect(policy!.allowedPrincipalTypes).toContain("svc_gateway");
-    expect(policy!.allowedPrincipalTypes).toContain("local");
+    const result = enforcePolicy(
+      "channels/inbound",
+      GATEWAY_INGRESS_POLICY,
+      ctx,
+    );
+    expect(result).toBeNull();
   });
 
   test("dev bypass allows all requests through regardless of policy", () => {
     authDisabled = true;
-    // Actor trying to access channels/inbound (which requires svc_gateway)
+    // Actor trying to call channels/inbound (which requires svc_gateway)
     const ctx = buildTestContext({ principalType: "actor", scopes: [] });
-    const result = enforcePolicy("channels/inbound", ctx);
+    const result = enforcePolicy(
+      "channels/inbound",
+      GATEWAY_INGRESS_POLICY,
+      ctx,
+    );
     expect(result).toBeNull();
     authDisabled = false;
   });
 
-  test("approval endpoints require approval.write scope", () => {
+  test("rejects request when ANY required scope is missing", () => {
     authDisabled = false;
-    const policy = getPolicy("confirm");
-    expect(policy).toBeDefined();
-    expect(policy!.requiredScopes).toContain("approval.write");
-  });
-
-  test("guardian-actions/pending requires approval.read scope", () => {
-    authDisabled = false;
-    const policy = getPolicy("guardian-actions/pending");
-    expect(policy).toBeDefined();
-    expect(policy!.requiredScopes).toContain("approval.read");
-  });
-
-  test("guardian-actions/decision requires approval.write scope", () => {
-    authDisabled = false;
-    const policy = getPolicy("guardian-actions/decision");
-    expect(policy).toBeDefined();
-    expect(policy!.requiredScopes).toContain("approval.write");
-  });
-
-  test("events endpoint requires chat.read scope", () => {
-    authDisabled = false;
-    const policy = getPolicy("events");
-    expect(policy).toBeDefined();
-    expect(policy!.requiredScopes).toContain("chat.read");
-  });
-
-  // -- STT transcribe policy ------------------------------------------------
-
-  test("stt/transcribe is registered as a protected endpoint", () => {
-    authDisabled = false;
-    const policy = getPolicy("stt/transcribe");
-    expect(policy).toBeDefined();
-  });
-
-  test("stt/transcribe requires chat.write scope", () => {
-    authDisabled = false;
-    const policy = getPolicy("stt/transcribe");
-    expect(policy).toBeDefined();
-    expect(policy!.requiredScopes).toContain("chat.write");
-  });
-
-  test("stt/transcribe allows actor, svc_gateway, svc_daemon, and local principals", () => {
-    authDisabled = false;
-    const policy = getPolicy("stt/transcribe");
-    expect(policy).toBeDefined();
-    expect(policy!.allowedPrincipalTypes).toContain("actor");
-    expect(policy!.allowedPrincipalTypes).toContain("svc_gateway");
-    expect(policy!.allowedPrincipalTypes).toContain("svc_daemon");
-    expect(policy!.allowedPrincipalTypes).toContain("local");
-  });
-
-  test("stt/transcribe denies actor without chat.write scope", () => {
-    authDisabled = false;
-    const ctx = buildTestContext({ scopes: ["chat.read"] });
-    const result = enforcePolicy("stt/transcribe", ctx);
-    expect(result).not.toBeNull();
-    expect(result!.status).toBe(403);
-  });
-
-  test("stt/transcribe allows actor with chat.write scope", () => {
-    authDisabled = false;
+    const multiScopePolicy: RoutePolicy = {
+      requiredScopes: ["chat.write", "approval.write"],
+      allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
+    };
+    // Has chat.write but not approval.write
     const ctx = buildTestContext({ scopes: ["chat.write"] });
-    const result = enforcePolicy("stt/transcribe", ctx);
-    expect(result).toBeNull();
-  });
-
-  // -- internal/oauth/connect/start policy ----------------------------------
-
-  test("internal/oauth/connect/start is registered as a protected endpoint", () => {
-    authDisabled = false;
-    const policy = getPolicy("internal/oauth/connect/start");
-    expect(policy).toBeDefined();
-    expect(policy!.allowedPrincipalTypes).toContain("svc_gateway");
-    expect(policy!.allowedPrincipalTypes).not.toContain("actor");
-    expect(policy!.requiredScopes).toContain("internal.write");
-  });
-
-  test("internal/oauth/connect/start denies non-svc_gateway principals", () => {
-    authDisabled = false;
-    const ctx = buildTestContext({
-      principalType: "actor",
-      scopes: ["internal.write"],
-    });
-    const result = enforcePolicy("internal/oauth/connect/start", ctx);
+    const result = enforcePolicy("compound", multiScopePolicy, ctx);
     expect(result).not.toBeNull();
     expect(result!.status).toBe(403);
   });
 
-  test("internal/oauth/connect/start allows svc_gateway with internal.write", () => {
+  test("empty requiredScopes admits any principal of allowed type", () => {
     authDisabled = false;
-    const ctx = buildTestContext({
-      principalType: "svc_gateway",
-      scopes: ["internal.write"],
-    });
-    const result = enforcePolicy("internal/oauth/connect/start", ctx);
+    const openPolicy: RoutePolicy = {
+      requiredScopes: [],
+      allowedPrincipalTypes: ["actor", "svc_gateway", "svc_daemon", "local"],
+    };
+    const ctx = buildTestContext({ scopes: [] });
+    const result = enforcePolicy("open", openPolicy, ctx);
     expect(result).toBeNull();
   });
+});
 
-  // -- internal/oauth/connect/status policy ---------------------------------
+// ---------------------------------------------------------------------------
+// Integration: representative ROUTES entries carry the expected policy
+//
+// Replaces the prior "registry contents" tests. With policy-on-route, the
+// canonical assertion is "the route declaration carries the policy I expect"
+// — checked by importing ROUTES and reading `.policy` directly.
+// ---------------------------------------------------------------------------
 
-  test("internal/oauth/connect/status is registered as a protected endpoint", () => {
-    authDisabled = false;
-    const policy = getPolicy("internal/oauth/connect/status");
-    expect(policy).toBeDefined();
-    expect(policy!.allowedPrincipalTypes).toContain("svc_gateway");
-    expect(policy!.allowedPrincipalTypes).not.toContain("actor");
-    expect(policy!.requiredScopes).toContain("internal.write");
+describe("ROUTES policy declarations", () => {
+  test("channels/inbound declares gateway-only ingress policy", async () => {
+    const { ROUTES } = await import("../../routes/index.js");
+    const route = ROUTES.find(
+      (r) => r.endpoint === "channels/inbound" && r.method === "POST",
+    );
+    expect(route).toBeDefined();
+    expect(route!.policy).not.toBeNull();
+    expect(route!.policy!.allowedPrincipalTypes).toContain("svc_gateway");
+    expect(route!.policy!.allowedPrincipalTypes).not.toContain("actor");
+    expect(route!.policy!.requiredScopes).toContain("ingress.write");
   });
 
-  test("internal/oauth/connect/status denies non-svc_gateway principals", () => {
-    authDisabled = false;
-    const ctx = buildTestContext({
-      principalType: "actor",
-      scopes: ["internal.write"],
-    });
-    const result = enforcePolicy("internal/oauth/connect/status", ctx);
-    expect(result).not.toBeNull();
-    expect(result!.status).toBe(403);
+  test("internal/twilio/voice-webhook is gateway-only", async () => {
+    const { ROUTES } = await import("../../routes/index.js");
+    const route = ROUTES.find(
+      (r) => r.endpoint === "internal/twilio/voice-webhook",
+    );
+    expect(route).toBeDefined();
+    expect(route!.policy).not.toBeNull();
+    expect(route!.policy!.allowedPrincipalTypes).toContain("svc_gateway");
+    expect(route!.policy!.allowedPrincipalTypes).not.toContain("actor");
+    expect(route!.policy!.requiredScopes).toContain("internal.write");
   });
 
-  test("internal/oauth/connect/status allows svc_gateway with internal.write", () => {
-    authDisabled = false;
-    const ctx = buildTestContext({
-      principalType: "svc_gateway",
-      scopes: ["internal.write"],
-    });
-    const result = enforcePolicy("internal/oauth/connect/status", ctx);
-    expect(result).toBeNull();
+  test("messages POST is an actor-write endpoint", async () => {
+    const { ROUTES } = await import("../../routes/index.js");
+    const route = ROUTES.find(
+      (r) => r.endpoint === "messages" && r.method === "POST",
+    );
+    expect(route).toBeDefined();
+    expect(route!.policy).not.toBeNull();
+    expect(route!.policy!.allowedPrincipalTypes).toContain("actor");
+    expect(route!.policy!.allowedPrincipalTypes).toContain("svc_gateway");
+    expect(route!.policy!.allowedPrincipalTypes).toContain("local");
+    expect(route!.policy!.requiredScopes).toContain("chat.write");
+  });
+
+  test("confirm declares an approval-write policy", async () => {
+    const { ROUTES } = await import("../../routes/index.js");
+    const route = ROUTES.find((r) => r.endpoint === "confirm");
+    expect(route).toBeDefined();
+    expect(route!.policy).not.toBeNull();
+    expect(route!.policy!.requiredScopes).toContain("approval.write");
+  });
+
+  test("stt/transcribe declares chat.write with all standard principals", async () => {
+    const { ROUTES } = await import("../../routes/index.js");
+    const route = ROUTES.find((r) => r.endpoint === "stt/transcribe");
+    expect(route).toBeDefined();
+    expect(route!.policy).not.toBeNull();
+    expect(route!.policy!.requiredScopes).toContain("chat.write");
+    expect(route!.policy!.allowedPrincipalTypes).toContain("actor");
+    expect(route!.policy!.allowedPrincipalTypes).toContain("svc_gateway");
+    expect(route!.policy!.allowedPrincipalTypes).toContain("svc_daemon");
+    expect(route!.policy!.allowedPrincipalTypes).toContain("local");
+  });
+
+  test("internal/oauth/connect/start is gateway-only", async () => {
+    const { ROUTES } = await import("../../routes/index.js");
+    const route = ROUTES.find(
+      (r) => r.endpoint === "internal/oauth/connect/start",
+    );
+    expect(route).toBeDefined();
+    expect(route!.policy).not.toBeNull();
+    expect(route!.policy!.allowedPrincipalTypes).toContain("svc_gateway");
+    expect(route!.policy!.allowedPrincipalTypes).not.toContain("actor");
+    expect(route!.policy!.requiredScopes).toContain("internal.write");
+  });
+
+  test("internal/oauth/connect/status/:state is gateway-only", async () => {
+    const { ROUTES } = await import("../../routes/index.js");
+    const route = ROUTES.find(
+      (r) => r.endpoint === "internal/oauth/connect/status/:state",
+    );
+    expect(route).toBeDefined();
+    expect(route!.policy).not.toBeNull();
+    expect(route!.policy!.allowedPrincipalTypes).toContain("svc_gateway");
+    expect(route!.policy!.allowedPrincipalTypes).not.toContain("actor");
+    expect(route!.policy!.requiredScopes).toContain("internal.write");
+  });
+
+  test("every route declares a policy field (no undefined)", async () => {
+    const { ROUTES } = await import("../../routes/index.js");
+    for (const r of ROUTES) {
+      // policy is required: must be RoutePolicy or null, never undefined.
+      expect(r.policy === null || typeof r.policy === "object").toBe(true);
+    }
   });
 });

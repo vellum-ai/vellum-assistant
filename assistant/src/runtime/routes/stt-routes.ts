@@ -23,6 +23,7 @@ import {
   FFPROBE_TIMEOUT_MS,
   spawnWithTimeout,
 } from "../../util/spawn.js";
+import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadGatewayError,
   BadRequestError,
@@ -382,8 +383,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "stt_providers",
     endpoint: "stt/providers",
     method: "GET",
-    policyKey: "stt/providers",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List STT providers",
     description:
       "Return the catalog of available STT providers with client-facing metadata.",
@@ -408,8 +411,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "stt_transcribe",
     endpoint: "stt/transcribe",
     method: "POST",
-    policyKey: "stt/transcribe",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Transcribe audio to text",
     description:
       "Transcribe base64-encoded audio to text using the configured STT provider.",
@@ -441,8 +446,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "stt_transcribe_file",
     endpoint: "stt/transcribe-file",
     method: "POST",
-    policyKey: "stt/transcribe-file",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Transcribe audio/video file to text",
     description:
       "Transcribe an audio or video file to text using the configured STT provider. Handles ffmpeg conversion, large-file chunking, and sequential chunk transcription.",

@@ -676,34 +676,48 @@ final class ConversationRestorer {
             // per-request timeout) while still covering the daemon restart race.
             let maxAttempts = 2
             for attempt in 1...maxAttempts {
-                // Fetch foreground and background conversations in parallel so
-                // background conversations don't consume pagination slots from
-                // the main list. Each side paginates until the daemon reports
+                // Fetch foreground, background, and archived conversations in
+                // parallel so they don't consume each other's pagination slots.
+                // Each side paginates until the daemon reports
                 // `hasMore == false`; without this the sidebar truncates at the
                 // first 50 rows (LUM-1618 on web, fixed for macOS here).
+                //
+                // Archived rows are fetched separately so the active streams
+                // stay lean (the daemon now filters archived by default —
+                // `archiveStatus: "active"`), while the merged list still
+                // contains every row that the Settings → Archive tab needs to
+                // render. The archived fetch is best-effort: if it fails the
+                // sidebar still restores; the Archive tab repopulates on the
+                // next refresh.
                 async let foregroundResult = self.fetchAllConversationPages(conversationType: nil)
                 async let backgroundResult = self.fetchAllConversationPages(conversationType: "background")
+                async let archivedResult = self.fetchAllConversationPages(conversationType: nil, archiveStatus: "archived")
                 let foreground = await foregroundResult
                 let background = await backgroundResult
+                let archived = await archivedResult
 
                 if let foreground {
                     // Deduplicate by conversation ID so that daemons that don't
-                    // yet support the conversationType query param (which return
-                    // the same conversations for both requests) don't produce
-                    // duplicate sidebar entries.
+                    // yet support the conversationType / archiveStatus query
+                    // params (which would return overlapping conversations
+                    // across requests) don't produce duplicate sidebar entries.
                     var seenIds = Set(foreground.conversations.map(\.id))
                     let uniqueBackground = (background?.conversations ?? []).filter {
+                        seenIds.insert($0.id).inserted
+                    }
+                    let uniqueArchived = (archived?.conversations ?? []).filter {
                         seenIds.insert($0.id).inserted
                     }
                     // Set serverOffset to the foreground DB cursor BEFORE
                     // merging. loadMoreConversations pages the foreground
                     // endpoint only, so the offset must not include merged
-                    // background rows; nextOffset is the DB cursor (see
-                    // fetchAllConversationPages), not the inflated row count.
+                    // background or archived rows; nextOffset is the DB cursor
+                    // (see fetchAllConversationPages), not the inflated row
+                    // count.
                     self.delegate?.serverOffset = foreground.nextOffset ?? foreground.conversations.count
                     let merged = ConversationListResponse(
                         type: foreground.type,
-                        conversations: foreground.conversations + uniqueBackground,
+                        conversations: foreground.conversations + uniqueBackground + uniqueArchived,
                         hasMore: false,
                         groups: foreground.groups
                     )
@@ -736,7 +750,11 @@ final class ConversationRestorer {
     /// the daemon reports `hasMore == false` or the safety cap is hit. Returns
     /// `nil` if any page request fails so the caller's retry/fallback logic
     /// can drive recovery from a single-shot failure.
-    private func fetchAllConversationPages(conversationType: String?) async -> ConversationListResponse? {
+    ///
+    /// - Parameter archiveStatus: forwarded to the daemon — `nil` defers to
+    ///   the daemon's `"active"` default; pass `"archived"` to drain only
+    ///   archived rows.
+    private func fetchAllConversationPages(conversationType: String?, archiveStatus: String? = nil) async -> ConversationListResponse? {
         let pageSize = Self.conversationListPageSize
         var accumulated: [ConversationListResponseItem] = []
         var firstPage: ConversationListResponse?
@@ -745,7 +763,7 @@ final class ConversationRestorer {
         for page in 0..<Self.conversationListMaxPages {
             let offset = page * pageSize
             guard let response = await conversationListClient.fetchConversationList(
-                offset: offset, limit: pageSize, conversationType: conversationType
+                offset: offset, limit: pageSize, conversationType: conversationType, archiveStatus: archiveStatus
             ) else {
                 return nil
             }

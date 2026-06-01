@@ -10,7 +10,6 @@ import type {
   Message,
   ProviderResponse,
   SendMessageOptions,
-  ToolDefinition,
 } from "../types.js";
 import { ContextOverflowError, isContextOverflowError } from "../types.js";
 
@@ -142,8 +141,6 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
 
   override async sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
-    systemPrompt?: string,
     options?: SendMessageOptions,
   ): Promise<ProviderResponse> {
     const effectiveModel = this.resolveEffectiveModel(options);
@@ -151,12 +148,10 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
       if (isAnthropicModel(effectiveModel)) {
         return await this.getAnthropicInner().sendMessage(
           messages,
-          tools,
-          systemPrompt,
           withOpenRouterBodyExtras(options),
         );
       }
-      return await super.sendMessage(messages, tools, systemPrompt, options);
+      return await super.sendMessage(messages, options);
     } catch (error) {
       // Re-tag delegate-thrown ContextOverflowError so the outer provider name
       // matches the configured provider ("openrouter"). This keeps downstream

@@ -63,6 +63,12 @@ export class RemoteFeatureFlagSync {
   private started = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private syncNowActive = false;
+  /**
+   * Set when `syncNow()` is called while a sync is already in flight. The
+   * active loop runs one more fetch after it settles, so a credential/identity
+   * change that lands mid-fetch is never dropped (see `syncNow`).
+   */
+  private pendingResync = false;
   private waitingForCredentials = false;
   private unsubscribeCredentials: (() => void) | null = null;
   private currentIntervalMs: number;
@@ -125,32 +131,50 @@ export class RemoteFeatureFlagSync {
   async syncNow(): Promise<void> {
     // Re-entrancy guard: if a syncNow is already in-flight (e.g. triggered
     // by onInvalidate callback during a wake that also calls syncNow
-    // explicitly), skip to avoid leaking duplicate poll timers.
-    if (this.syncNowActive) return;
-
-    // Guard: tell poll()'s .finally() not to reschedule — we'll handle it.
-    this.syncNowActive = true;
-
-    // If we were waiting for credentials, clear that state.
-    this.clearCredentialWatch();
-
-    // Cancel the pending poll so we don't double-fetch.
-    if (this.pollTimer) {
-      clearTimeout(this.pollTimer);
-      this.pollTimer = null;
+    // explicitly), don't start a second concurrent fetch. Instead record
+    // that a follow-up is needed: the in-flight fetch may have been
+    // authenticated with now-stale credentials (a warm-pool claim writes
+    // several credential files in quick succession, each firing the change
+    // handler), so the active loop runs one more fetch after it settles to
+    // guarantee the latest identity's flags are fetched (JARVIS-1018).
+    if (this.syncNowActive) {
+      this.pendingResync = true;
+      return;
     }
 
     let result: RemoteFetchResult["status"] = "error";
-    try {
-      result = await this.fetchAndCache();
-      if (result === "success") {
-        this.currentIntervalMs = this.maxIntervalMs;
+
+    // Loop so a credential change that arrives mid-fetch triggers exactly one
+    // more fetch after the current one settles, until none is pending. Each
+    // iteration re-reads credentials via fetchAndCache, so the final pass
+    // always reflects the latest identity.
+    do {
+      this.pendingResync = false;
+
+      // Guard: tell poll()'s .finally() not to reschedule — we'll handle it.
+      this.syncNowActive = true;
+
+      // If we were waiting for credentials, clear that state.
+      this.clearCredentialWatch();
+
+      // Cancel the pending poll so we don't double-fetch.
+      if (this.pollTimer) {
+        clearTimeout(this.pollTimer);
+        this.pollTimer = null;
       }
-    } catch (err) {
-      log.warn({ err }, "Failed to sync remote feature flags (syncNow)");
-    } finally {
-      this.syncNowActive = false;
-    }
+
+      try {
+        result = await this.fetchAndCache();
+        if (result === "success") {
+          this.currentIntervalMs = this.maxIntervalMs;
+        }
+      } catch (err) {
+        log.warn({ err }, "Failed to sync remote feature flags (syncNow)");
+        result = "error";
+      } finally {
+        this.syncNowActive = false;
+      }
+    } while (this.started && this.pendingResync);
 
     if (this.started) {
       // A concurrent poll() may have called pauseForCredentials() during
@@ -373,8 +397,8 @@ export class RemoteFeatureFlagSync {
     // from disabling flags that are already GA (defaultEnabled: true in the
     // registry). The platform uses a blanket-deny posture, sending false for
     // every flag it knows about. Store GA false values as true rather than
-    // omitting them: once a remote snapshot exists, missing keys fail closed
-    // to protect flags that are declared locally but unregistered remotely.
+    // omitting them so the persisted snapshot cannot be interpreted as an
+    // explicit disable by any consumer.
     const registry = loadFeatureFlagDefaults();
     const values: Record<string, boolean> = {};
     for (const [key, value] of Object.entries(body.flags)) {

@@ -25,6 +25,7 @@ import {
 } from "../../oauth/provider-serializer.js";
 import { isProviderVisible } from "../../oauth/provider-visibility.js";
 import { SEEDED_PROVIDER_KEYS } from "../../oauth/seed-providers.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadRequestError,
   ConflictError,
@@ -313,11 +314,14 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "oauth_providers_get",
     endpoint: "oauth/providers",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List OAuth providers",
     description:
       "List all registered OAuth providers with optional filtering.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleListProviders,
     queryParams: [
       {
@@ -331,21 +335,26 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "oauth_providers_by_providerKey_get",
     endpoint: "oauth/providers/:providerKey",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get OAuth provider",
     description: "Get a single OAuth provider by key.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleGetProvider,
   },
   {
     operationId: "oauth_providers_post",
     endpoint: "oauth/providers",
     method: "POST",
-    policyKey: "oauth/providers.register",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Register OAuth provider",
     description: "Register a new OAuth provider configuration.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     responseStatus: "201",
     handler: handleRegisterProvider,
   },
@@ -353,23 +362,27 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "oauth_providers_by_providerKey_patch",
     endpoint: "oauth/providers/:providerKey",
     method: "PATCH",
-    policyKey: "oauth/providers.update",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Update OAuth provider",
     description: "Update an existing custom OAuth provider configuration.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleUpdateProvider,
   },
   {
     operationId: "oauth_providers_by_providerKey_delete",
     endpoint: "oauth/providers/:providerKey",
     method: "DELETE",
-    policyKey: "oauth/providers.delete",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete OAuth provider",
     description:
       "Delete a custom OAuth provider and optionally cascade-delete its apps and connections.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleDeleteProvider,
   },
 ];

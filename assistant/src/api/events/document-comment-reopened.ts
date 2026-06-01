@@ -11,14 +11,12 @@
 
 import { z } from "zod";
 
-export const DocumentCommentReopenedEventSchema = z
-  .object({
-    type: z.literal("document_comment_reopened"),
-    conversationId: z.string(),
-    surfaceId: z.string(),
-    commentId: z.string(),
-  })
-  .strict();
+export const DocumentCommentReopenedEventSchema = z.object({
+  type: z.literal("document_comment_reopened"),
+  conversationId: z.string(),
+  surfaceId: z.string(),
+  commentId: z.string(),
+});
 
 export type DocumentCommentReopenedEvent = z.infer<
   typeof DocumentCommentReopenedEventSchema

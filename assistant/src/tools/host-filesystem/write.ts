@@ -5,35 +5,39 @@ import { assistantEventHub } from "../../runtime/assistant-event-hub.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatWriteSummary } from "../shared/filesystem/format-diff.js";
 import { hostPolicy } from "../shared/filesystem/path-policy.js";
-import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
+import type {
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+} from "../types.js";
 
-class HostFileWriteTool implements Tool {
-  name = "host_file_write";
-  description =
-    "Write content to a file on your guardian's device, creating it if it does not exist. For files on your own machine, use file_write instead.";
-  category = "host-filesystem";
-  executionTarget = "host" as const;
-  defaultRiskLevel = RiskLevel.Medium;
+export const hostFileWriteTool = {
+  name: "host_file_write",
+  description:
+    "Write content to a file on your guardian's device, creating it if it does not exist. For files on your own machine, use file_write instead.",
+  category: "host-filesystem",
+  executionTarget: "host",
+  defaultRiskLevel: RiskLevel.Medium,
 
-  input_schema = {
-        type: "object",
-        properties: {
-          path: {
-            type: "string",
-            description: "Absolute host path to the file to write",
-          },
-          content: {
-            type: "string",
-            description: "The content to write to the file",
-          },
-          target_client_id: {
-            type: "string",
-            description:
-              "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
-          },
-        },
-        required: ["path", "content"],
-      };
+  input_schema: {
+    type: "object",
+    properties: {
+      path: {
+        type: "string",
+        description: "Absolute host path to the file to write",
+      },
+      content: {
+        type: "string",
+        description: "The content to write to the file",
+      },
+      target_client_id: {
+        type: "string",
+        description:
+          "ID of the specific client to execute this on. Required when multiple clients support host_file; omit when only one is connected. Obtain IDs from `assistant clients list --capability host_file`.",
+      },
+    },
+    required: ["path", "content"],
+  },
 
   async execute(
     input: Record<string, unknown>,
@@ -163,7 +167,5 @@ class HostFileWriteTool implements Tool {
       isError: false,
       diff: { filePath, oldContent, newContent, isNewFile },
     };
-  }
-}
-
-export const hostFileWriteTool: Tool = new HostFileWriteTool();
+  },
+} satisfies ToolDefinition;

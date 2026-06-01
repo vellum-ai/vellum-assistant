@@ -35,6 +35,7 @@ import {
   resolveHostAddresses,
   resolveRequestAddress,
 } from "../../tools/network/url-safety.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, ConflictError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -422,7 +423,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "inference_provider_connections_list",
     endpoint: "inference/provider-connections",
     method: "GET",
-    policyKey: "inference/provider-connections",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List provider connections",
     description:
       "Return all provider connections. Optionally filter by provider with ?provider=<name>.",
@@ -443,7 +447,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "inference_provider_connections_get",
     endpoint: "inference/provider-connections/:name",
     method: "GET",
-    policyKey: "inference/provider-connections/detail",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get a provider connection",
     description: "Return a single provider connection by name.",
     tags: ["inference"],
@@ -456,7 +463,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "inference_provider_connections_create",
     endpoint: "inference/provider-connections",
     method: "POST",
-    policyKey: "inference/provider-connections",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Create a provider connection",
     description:
       "Create a new named provider connection. Fails with 409 if a connection with this name already exists.",
@@ -481,7 +491,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "inference_provider_connections_update",
     endpoint: "inference/provider-connections/:name",
     method: "PATCH",
-    policyKey: "inference/provider-connections/detail",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Update a provider connection",
     description:
       "Update an existing connection. Cannot rename or change the provider. For managed connections (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label remains editable.",
@@ -507,7 +520,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "inference_provider_connections_delete",
     endpoint: "inference/provider-connections/:name",
     method: "DELETE",
-    policyKey: "inference/provider-connections/detail",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Delete a provider connection",
     description:
       "Delete a provider connection. Fails with 400 for managed connections (anthropic-managed, openai-managed, gemini-managed) which are re-seeded on boot. Fails with 409 if any profile or call-site references the connection.",

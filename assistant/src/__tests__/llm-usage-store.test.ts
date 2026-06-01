@@ -1458,3 +1458,48 @@ describe("queryUnreportedUsageEvents", () => {
     expect(events[0].rawUsage).toEqual(rawUsage);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Record-time assistantVersion stamping (May 2026 telemetry honesty fix)
+//
+// Events buffered while the assistant is offline must remember the binary
+// that was running when they were recorded, not the one that finally
+// uploads them. recordUsageEvent stamps APP_VERSION at insert time and the
+// query must return it so the reporter can put it on the wire.
+// ---------------------------------------------------------------------------
+
+describe("recordUsageEvent — assistantVersion stamping", () => {
+  beforeEach(() => {
+    const db = getDb();
+    db.run(`DELETE FROM llm_usage_events`);
+  });
+
+  test("stamps APP_VERSION on the returned event", async () => {
+    const { APP_VERSION } = await import("../version.js");
+    const event = recordUsageEvent(makeInput(), pricedResult);
+    expect(event.assistantVersion).toBe(APP_VERSION);
+  });
+
+  test("persists assistantVersion and queryUnreportedUsageEvents returns it", async () => {
+    const { APP_VERSION } = await import("../version.js");
+    insertEventAt(1000);
+    const [event] = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(event).toBeDefined();
+    expect(event.assistantVersion).toBe(APP_VERSION);
+  });
+
+  test("legacy rows (null assistant_version column) round-trip as null", () => {
+    // Simulate a row that was persisted before migration 267 ran by
+    // inserting one through recordUsageEvent and then nulling the
+    // column out. This mirrors what production rows look like before
+    // the migration backfills `null`s; the reporter must accept them
+    // and let the platform fall back to the envelope's version.
+    insertEventAt(1000);
+    const db = getDb();
+    db.run(`UPDATE llm_usage_events SET assistant_version = NULL`);
+
+    const [event] = queryUnreportedUsageEvents(0, undefined, 100);
+    expect(event).toBeDefined();
+    expect(event.assistantVersion).toBeNull();
+  });
+});

@@ -94,6 +94,10 @@ describe("VellumAgent", () => {
       profile,
       testId: "timeline-recall",
       runId: "eval-run-1",
+      // Pin to empty so a host-shell `ANTHROPIC_API_KEY` (or any other
+      // provider var) doesn't leak into the `env: {}` assertion below.
+      // The provider-forwarding contract has its own dedicated tests.
+      processEnv: {},
     });
 
     await agent.hatch();
@@ -147,8 +151,26 @@ describe("VellumAgent", () => {
     expect(runner.runs[3].args).toContain("--cap-add");
     expect(runner.runs[3].args).toContain("NET_ADMIN");
     expect(runner.runs[3].args).toContain("evals.vellum.ai/egress-recording=1");
-    // Setup command — also gets a per-step subprocess-setup-N.log
+    // Species default feature flag — runs between jail apply and the
+    // first setup command. See VELLUM_DEFAULT_FEATURE_FLAGS in the
+    // adapter for the canonical list.
     expect(runner.runs[4]).toEqual({
+      command: "vellum",
+      args: [
+        "flags",
+        "set",
+        "external-plugins",
+        "true",
+        "--assistant",
+        "eval-run-1",
+      ],
+      opts: {
+        logPath: expect.stringMatching(/\/subprocess-feature-flag-1\.log$/),
+        logStep: "feature-flag-1",
+      },
+    });
+    // Setup command — gets a per-step subprocess-setup-N.log
+    expect(runner.runs[5]).toEqual({
       command: "vellum",
       args: [
         "exec",
@@ -182,6 +204,120 @@ describe("VellumAgent", () => {
     expect(events).toEqual([
       { message: { type: "assistant_text_delta", text: "hi" } },
     ]);
+  });
+
+  test("applies vellum species default flags via `vellum flags set --assistant <id>` BEFORE setup commands", async () => {
+    const runner = new FakeRunner();
+    // Ordering invariants under test:
+    //   (a) species default flags come AFTER docker jail apply
+    //       (runs[3]) but BEFORE any setup command — gated setup
+    //       steps (e.g. `assistant plugins install`) depend on the
+    //       flag being flipped first.
+    //   (b) `--assistant <this.id>` is passed explicitly so the
+    //       user's active-assistant pointer is never mutated by an
+    //       eval run.
+    const profileWithSetup: Profile = {
+      id: "vellum-simple-memory",
+      manifest: {
+        species: "vellum",
+        setup: ["assistant plugins install simple-memory"],
+      },
+      workspaceDir: "/profiles/vellum-simple-memory/workspace",
+    };
+    const agent = new VellumAgent({
+      runner,
+      cliCommand: "vellum",
+      profile: profileWithSetup,
+      testId: "timeline-recall",
+      runId: "eval-run-2",
+      processEnv: {},
+    });
+    await agent.hatch();
+
+    // runs[0..3] are hatch + jail rm/build/run — same as the canonical
+    // happy-path test. Confirm the count to anchor the indices: 4
+    // pre-flag steps + 1 species default flag (`external-plugins`) +
+    // 1 setup command = 6.
+    expect(runner.runs.length).toBe(6);
+    expect(runner.runs[0].args[0]).toBe("hatch");
+
+    // Species default: `external-plugins` is always flipped ON for
+    // vellum hatches, regardless of manifest contents.
+    expect(runner.runs[4]).toEqual({
+      command: "vellum",
+      args: [
+        "flags",
+        "set",
+        "external-plugins",
+        "true",
+        "--assistant",
+        "eval-run-2",
+      ],
+      opts: {
+        logPath: expect.stringMatching(/\/subprocess-feature-flag-1\.log$/),
+        logStep: "feature-flag-1",
+      },
+    });
+
+    // Setup command lands AFTER the species default flag — this is the
+    // chicken-and-egg property the ordering protects.
+    expect(runner.runs[5]).toEqual({
+      command: "vellum",
+      args: [
+        "exec",
+        "eval-run-2",
+        "--",
+        "sh",
+        "-lc",
+        "assistant plugins install simple-memory",
+      ],
+      opts: {
+        logPath: expect.stringMatching(/\/subprocess-setup-1\.log$/),
+        logStep: "setup-1",
+      },
+    });
+  });
+
+  test("species default flags still apply to a profile with no setup commands (the bare vellum case)", async () => {
+    const runner = new FakeRunner();
+    // The "no setup commands" case is structurally distinct from "no
+    // flags" — `vellum-bare` exists precisely to exercise the bare
+    // species path. Even with zero setup commands, the species default
+    // flag must land so a downstream test that calls `assistant
+    // plugins install` from inside the agent doesn't trip the gate.
+    const bareProfile: Profile = {
+      id: "vellum-bare",
+      manifest: { species: "vellum" },
+      workspaceDir: "/profiles/vellum-bare/workspace",
+    };
+    const agent = new VellumAgent({
+      runner,
+      cliCommand: "vellum",
+      profile: bareProfile,
+      testId: "timeline-recall",
+      runId: "eval-run-3",
+      processEnv: {},
+    });
+    await agent.hatch();
+
+    // hatch + jail rm/build/run + 1 species default flag = 5. No
+    // setup commands.
+    expect(runner.runs.length).toBe(5);
+    expect(runner.runs[4]).toEqual({
+      command: "vellum",
+      args: [
+        "flags",
+        "set",
+        "external-plugins",
+        "true",
+        "--assistant",
+        "eval-run-3",
+      ],
+      opts: {
+        logPath: expect.stringMatching(/\/subprocess-feature-flag-1\.log$/),
+        logStep: "feature-flag-1",
+      },
+    });
   });
 
   test("forwards LLM provider API keys from process env into the hatch subprocess", async () => {

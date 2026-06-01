@@ -57,11 +57,13 @@ export function registerConversationNotifiers(
         "assistant",
         JSON.stringify([{ type: "text", text: questionText }]),
         {
-          ...provenanceFromTrustContext(ctx.trustContext),
-          userMessageChannel: "phone",
-          assistantMessageChannel: "phone",
-          userMessageInterface: "phone",
-          assistantMessageInterface: "phone",
+          metadata: {
+            ...provenanceFromTrustContext(ctx.trustContext),
+            userMessageChannel: "phone",
+            assistantMessageChannel: "phone",
+            userMessageInterface: "phone",
+            assistantMessageInterface: "phone",
+          },
         },
       );
 

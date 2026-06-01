@@ -27,6 +27,7 @@ import {
 } from "../../memory/jobs-store.js";
 import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../memory/jobs-worker.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -56,8 +57,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "getConsolidationConfig",
     endpoint: "consolidation/config",
     method: "GET",
-    policyKey: "consolidation",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get consolidation config",
     description:
       "Return the current memory v2 consolidation schedule configuration.",
@@ -89,8 +92,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "runConsolidationNow",
     endpoint: "consolidation/run-now",
     method: "POST",
-    policyKey: "consolidation",
-    requirePolicyEnforcement: true,
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Run consolidation now",
     description:
       "Enqueue an immediate memory v2 consolidation job. Returns once the job is queued; the job itself runs through the memory jobs worker.",
@@ -120,7 +125,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "listConsolidationRuns",
     endpoint: "consolidation/runs",
     method: "GET",
-    policyKey: "consolidation",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "List consolidation runs",
     description:
       "Return recent memory v2 consolidation conversations as run records. " +

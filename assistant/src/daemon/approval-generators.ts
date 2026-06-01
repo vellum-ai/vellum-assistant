@@ -108,9 +108,9 @@ export function createApprovalCopyGenerator(): ApprovalCopyGenerator {
 
     const response = await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: prompt }] }],
-      [],
-      APPROVAL_COPY_SYSTEM_PROMPT,
       {
+        tools: [],
+        systemPrompt: APPROVAL_COPY_SYSTEM_PROMPT,
         config: {
           max_tokens: options.maxTokens ?? APPROVAL_COPY_MAX_TOKENS,
           callSite: "approvalCopy",
@@ -169,9 +169,9 @@ export function createApprovalConversationGenerator(): ApprovalConversationGener
 
     const response = await provider.sendMessage(
       [{ role: "user", content: [{ type: "text", text: userPrompt }] }],
-      [APPROVAL_CONVERSATION_TOOL_SCHEMA],
-      APPROVAL_CONVERSATION_SYSTEM_PROMPT,
       {
+        tools: [APPROVAL_CONVERSATION_TOOL_SCHEMA],
+        systemPrompt: APPROVAL_CONVERSATION_SYSTEM_PROMPT,
         config: {
           max_tokens: APPROVAL_CONVERSATION_MAX_TOKENS,
           callSite: "approvalConversation",

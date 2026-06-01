@@ -96,7 +96,6 @@ export async function addPlaygroundMessage(
     conversationId,
     role,
     contentJson,
-    undefined,
     options,
   );
   return { id: persisted.id };

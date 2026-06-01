@@ -38,6 +38,7 @@ import { VellumPlatformClient } from "../../platform/client.js";
 import { withValidToken } from "../../security/token-manager.js";
 import { matchHostPattern } from "../../tools/credentials/host-pattern-match.js";
 import { getLogger } from "../../util/logger.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -977,23 +978,28 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "oauth_disconnect",
     endpoint: "oauth/disconnect",
     method: "POST",
-    policyKey: "oauth/disconnect",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Disconnect OAuth provider",
     description:
       "Disconnect an OAuth provider and remove associated credentials (BYO or managed).",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleDisconnect,
   },
   {
     operationId: "oauth_mode_get",
     endpoint: "oauth/mode",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Get OAuth mode",
     description:
       "Get the current OAuth mode (managed or your-own) for a provider.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     queryParams: [
       {
         name: "provider",
@@ -1008,22 +1014,27 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "oauth_mode_set",
     endpoint: "oauth/mode",
     method: "POST",
-    policyKey: "oauth/mode.set",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Set OAuth mode",
     description: "Set the OAuth mode (managed or your-own) for a provider.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleModeSet,
   },
   {
     operationId: "oauth_status",
     endpoint: "oauth/status",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Get OAuth status",
     description:
       "Show OAuth connection status for a specified provider (BYO or managed).",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     queryParams: [
       {
         name: "provider",
@@ -1038,57 +1049,69 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "oauth_ping",
     endpoint: "oauth/ping",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Ping OAuth provider",
     description:
       "Verify an OAuth token is valid by hitting the provider's configured health-check endpoint.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handlePing,
   },
   {
     operationId: "oauth_token",
     endpoint: "oauth/token",
     method: "POST",
-    policyKey: "oauth/token",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Get OAuth token",
     description: "Retrieve a valid OAuth access token for a BYO-mode provider.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleToken,
   },
   {
     operationId: "oauth_request",
     endpoint: "oauth/request",
     method: "POST",
-    policyKey: "oauth/request",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Make authenticated OAuth request",
     description:
       "Make an authenticated HTTP request through an OAuth connection (supports curl-like interface).",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleRequest,
   },
   {
     operationId: "oauth_managed_connect_start",
     endpoint: "oauth/managed-connect/start",
     method: "POST",
-    policyKey: "oauth/managed-connect.start",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Start managed OAuth connect",
     description:
       "Start a managed (platform) OAuth connect flow and return the connect URL.",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     handler: handleManagedConnect,
   },
   {
     operationId: "oauth_managed_connect_poll",
     endpoint: "oauth/managed-connect/poll",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "Poll managed OAuth connections",
     description:
       "Fetch active platform connections for a provider (used to detect new connections after managed connect).",
     tags: ["oauth"],
-    requirePolicyEnforcement: true,
     queryParams: [
       {
         name: "provider",

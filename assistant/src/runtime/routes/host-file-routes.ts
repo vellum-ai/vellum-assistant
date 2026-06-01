@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { HostFileProxy } from "../../daemon/host-file-proxy.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   enforceSameActorOrThrow,
   SAME_ACTOR_FORBIDDEN_DESCRIPTION,
@@ -30,12 +31,15 @@ function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
     throw new BadRequestError("Request body is required");
   }
 
-  const { requestId, content, isError, imageData } = body as {
-    requestId?: string;
-    content?: string;
-    isError?: boolean;
-    imageData?: string;
-  };
+  const { requestId, content, isError, imageData, audioData, audioMimeType } =
+    body as {
+      requestId?: string;
+      content?: string;
+      isError?: boolean;
+      imageData?: string;
+      audioData?: string;
+      audioMimeType?: string;
+    };
 
   if (!requestId || typeof requestId !== "string") {
     throw new BadRequestError("requestId is required");
@@ -87,6 +91,8 @@ function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
     content: content ?? "",
     isError: isError ?? false,
     imageData,
+    audioData,
+    audioMimeType,
   });
 
   return { accepted: true };
@@ -101,6 +107,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "host_file_result",
     endpoint: "host-file-result",
     method: "POST",
+    policy: {
+      requiredScopes: ["approval.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     requireGuardian: true,
     summary: "Submit host file result",
     description:
@@ -118,6 +128,16 @@ export const ROUTES: RouteDefinition[] = [
         .describe(
           "Optional base64-encoded image bytes for successful image reads",
         )
+        .optional(),
+      audioData: z
+        .string()
+        .describe(
+          "Optional base64-encoded audio bytes for successful audio reads",
+        )
+        .optional(),
+      audioMimeType: z
+        .string()
+        .describe("MIME type for audioData (e.g. audio/mpeg)")
         .optional(),
     }),
     responseBody: z.object({

@@ -270,7 +270,9 @@ public enum HistoryReconstructionService {
     /// Map attachment DTOs to ChatAttachment values, generating thumbnails for images.
     nonisolated static func mapMessageAttachmentsStatic(_ attachments: [UserMessageAttachment]) -> [ChatAttachment] {
         attachments.compactMap { attachment in
-            let id = attachment.id ?? UUID().uuidString
+            // Fall back to a lowercase UUID (matching the daemon's canonical case)
+            // when the server omits the id — Swift's UUID().uuidString is uppercase.
+            let id = attachment.id ?? UUID().uuidString.lowercased()
             let base64 = attachment.data
             let dataLength = base64.count
             let sizeBytes: Int? = attachment.sizeBytes.flatMap { Int(exactly: $0) }

@@ -48,12 +48,20 @@ import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors";
+} from "@/utils/api-errors";
 import {
+  ARCHIVED_CONVERSATIONS_QUERY_KEY,
   CONVERSATIONS_QUERY_KEY,
+  archivedConversationsQueryKey,
   conversationsQueryKey,
 } from "@/lib/sync/query-tags";
 import type { Conversation, ConversationGroup } from "@/types/conversation-types";
+import {
+  findConversation,
+  getConversations,
+  patchConversation,
+  updateConversationsCache,
+} from "@/utils/conversation-cache";
 
 import {
   CONVERSATION_NOT_FOUND,
@@ -68,7 +76,12 @@ export { CONVERSATION_NOT_FOUND, type FetchConversationDetailResult };
 // Query keys
 // ---------------------------------------------------------------------------
 
-export { CONVERSATIONS_QUERY_KEY, conversationsQueryKey };
+export {
+  ARCHIVED_CONVERSATIONS_QUERY_KEY,
+  CONVERSATIONS_QUERY_KEY,
+  archivedConversationsQueryKey,
+  conversationsQueryKey,
+};
 
 /**
  * Build the generated query key for conversation groups. Exported so that
@@ -90,10 +103,21 @@ export function conversationGroupsQueryKey(
 const CONVERSATION_LIST_PAGE_SIZE = 50;
 const CONVERSATION_LIST_MAX_PAGES = 200;
 
+type FetchConversationListOptions = {
+  conversationType?: "background";
+  /**
+   * Filter by archive state. Defaults to `"active"` on the daemon side, so
+   * omitting this returns non-archived rows only — matching how the sidebar
+   * wants to read the list. The Archive page passes `"archived"`.
+   */
+  archiveStatus?: "active" | "archived" | "all";
+};
+
 async function fetchConversationList(
   assistantId: string,
-  conversationType?: "background",
+  options: FetchConversationListOptions = {},
 ): Promise<Conversation[]> {
+  const { conversationType, archiveStatus } = options;
   const all: Conversation[] = [];
 
   for (let page = 0; page < CONVERSATION_LIST_MAX_PAGES; page++) {
@@ -104,6 +128,7 @@ async function fetchConversationList(
         limit: CONVERSATION_LIST_PAGE_SIZE,
         offset,
         ...(conversationType ? { conversationType } : {}),
+        ...(archiveStatus ? { archiveStatus } : {}),
       },
       throwOnError: false,
     });
@@ -126,9 +151,15 @@ async function fetchConversationList(
 }
 
 /**
- * Fetch all conversations (foreground + background) for a given assistant.
- * Both are fetched in parallel and merged so the sidebar can display every
- * conversation type. Returns sorted newest-first.
+ * Fetch all active (non-archived) conversations — foreground + background —
+ * for a given assistant. Both buckets are fetched in parallel and merged so
+ * the sidebar can display every conversation type. Returns sorted
+ * newest-first.
+ *
+ * Archived conversations are filtered out on the daemon (the
+ * `archiveStatus` query param defaults to `"active"`), so the sidebar no
+ * longer paginates past stale archived rows. The Archive page reads from
+ * `listArchivedConversations` instead.
  *
  * The background fetch is best-effort: if it fails the foreground list is
  * still returned so the sidebar remains usable.
@@ -138,7 +169,7 @@ export async function listConversations(
 ): Promise<Conversation[]> {
   const [foregroundResult, backgroundResult] = await Promise.allSettled([
     fetchConversationList(assistantId),
-    fetchConversationList(assistantId, "background"),
+    fetchConversationList(assistantId, { conversationType: "background" }),
   ]);
 
   if (foregroundResult.status === "rejected") {
@@ -168,6 +199,57 @@ export async function listConversations(
   }
 
   conversations.sort((a, b) => (b.lastMessageAt ?? 0) - (a.lastMessageAt ?? 0));
+
+  return conversations;
+}
+
+/**
+ * Fetch all archived conversations — foreground + background — for a given
+ * assistant. Mirrors `listConversations` but passes `archiveStatus:
+ * "archived"` so the daemon returns only archived rows. Sorted by
+ * `archivedAt` descending so the most recently archived row is first.
+ *
+ * The background fetch is best-effort: if it fails the foreground list is
+ * still returned so the archive page remains usable.
+ */
+export async function listArchivedConversations(
+  assistantId: string,
+): Promise<Conversation[]> {
+  const [foregroundResult, backgroundResult] = await Promise.allSettled([
+    fetchConversationList(assistantId, { archiveStatus: "archived" }),
+    fetchConversationList(assistantId, {
+      conversationType: "background",
+      archiveStatus: "archived",
+    }),
+  ]);
+
+  if (foregroundResult.status === "rejected") {
+    throw foregroundResult.reason;
+  }
+
+  const foreground = foregroundResult.value;
+  let background: Conversation[] = [];
+  if (backgroundResult.status === "fulfilled") {
+    background = backgroundResult.value;
+  } else {
+    Sentry.captureException(backgroundResult.reason, {
+      level: "warning",
+      tags: { context: "listArchivedConversations.backgroundFetch" },
+      extra: { assistantId },
+    });
+  }
+
+  const seen = new Set<string>();
+  const conversations: Conversation[] = [];
+  for (const conversation of [...foreground, ...background]) {
+    if (seen.has(conversation.conversationId)) {
+      continue;
+    }
+    seen.add(conversation.conversationId);
+    conversations.push(conversation);
+  }
+
+  conversations.sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
 
   return conversations;
 }
@@ -226,6 +308,44 @@ export function useConversationListQuery(
 }
 
 /**
+ * Subscribe to the archived conversation list for the given assistant. The
+ * cache lives under a separate query key (`archivedConversationsQueryKey`)
+ * so that mutations to the active list don't refetch the archive view and
+ * vice versa.
+ *
+ * Returns an empty array until the query resolves so consumers can render
+ * an empty state without null-checking.
+ */
+export function useArchivedConversationListQuery(
+  assistantId: string | null,
+  enabled: boolean = true,
+): {
+  conversations: Conversation[];
+  isLoading: boolean;
+  isPending: boolean;
+  isError: boolean;
+  error: Error | null;
+  refetch: () => void;
+} {
+  const query = useQuery({
+    queryKey: archivedConversationsQueryKey(assistantId),
+    queryFn: () => listArchivedConversations(assistantId!),
+    enabled: enabled && Boolean(assistantId),
+    staleTime: QUERY_STALE_TIME_MS,
+  });
+  return {
+    conversations: query.data ?? EMPTY_CONVERSATIONS,
+    isLoading: query.isLoading,
+    isPending: query.isPending,
+    isError: query.isError,
+    error: query.error,
+    refetch: () => {
+      void query.refetch();
+    },
+  };
+}
+
+/**
  * Subscribe to the conversation groups (folders) for the given assistant.
  * Mounted with `enabled: false` when the `conversationGroupsUI` flag is
  * disabled so it does not fire a network request.
@@ -255,79 +375,15 @@ const EMPTY_GROUPS: ConversationGroup[] = [];
 // ---------------------------------------------------------------------------
 // Cache helpers — conversations
 //
-// These mutate the conversations query cache (a flat `Conversation[]`).
-// They are the domain-level "change this conversation locally" operations;
-// `queryClient.setQueryData` is implementation detail.
+// The low-level `Conversation[]` cache primitives (`updateConversationsCache`,
+// `findConversation`, `getConversations`, `patchConversation`) live in
+// `@/utils/conversation-cache` so the chat stream handlers can share them
+// without a cross-domain import. They're re-exported here so existing
+// conversations-domain consumers keep their import site. The domain-level
+// mutations below build on `updateConversationsCache`.
 // ---------------------------------------------------------------------------
 
-function updateConversationsCache(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  updater: (conversations: Conversation[]) => Conversation[],
-): void {
-  queryClient.setQueryData<Conversation[]>(
-    conversationsQueryKey(assistantId),
-    (prev) => {
-      const list = prev ?? [];
-      const next = updater(list);
-      if (next === list) return prev;
-      return next;
-    },
-  );
-}
-
-/**
- * Read a single conversation from the conversations query cache. Used by
- * imperative callers (send pipeline, attention tracking) that need the
- * current value without subscribing to re-renders.
- */
-export function findConversation(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  key: string,
-): Conversation | undefined {
-  const list =
-    queryClient.getQueryData<Conversation[]>(
-      conversationsQueryKey(assistantId),
-    ) ?? [];
-  return list.find((c) => c.conversationId === key);
-}
-
-/**
- * Read all conversations from the conversations query cache. Returns an
- * empty array when the query hasn't populated yet.
- */
-export function getConversations(
-  queryClient: QueryClient,
-  assistantId: string | null,
-): Conversation[] {
-  return (
-    queryClient.getQueryData<Conversation[]>(
-      conversationsQueryKey(assistantId),
-    ) ?? []
-  );
-}
-
-/**
- * Immutably patch the conversation matching `key`, leaving all others
- * untouched. No-op when the key is not in the cache.
- */
-export function patchConversation(
-  queryClient: QueryClient,
-  assistantId: string | null,
-  key: string,
-  patch: Partial<Conversation>,
-): void {
-  updateConversationsCache(queryClient, assistantId, (conversations) => {
-    let changed = false;
-    const next = conversations.map((c) => {
-      if (c.conversationId !== key) return c;
-      changed = true;
-      return { ...c, ...patch };
-    });
-    return changed ? next : conversations;
-  });
-}
+export { findConversation, getConversations, patchConversation };
 
 /**
  * Mark the conversation as seen in the local cache. The matching server

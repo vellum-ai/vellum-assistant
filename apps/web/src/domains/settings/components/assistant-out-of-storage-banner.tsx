@@ -6,7 +6,7 @@ import { Button } from "@vellum/design-library/components/button";
 import { Notice } from "@vellum/design-library/components/notice";
 import { assistantsConnectionStatus } from "@/generated/api/sdk.gen";
 import type { AssistantsConnectionStatusResponse } from "@/generated/api/types.gen";
-import { useClientFeatureFlagStore } from "@/lib/feature-flags/client-feature-flag-store";
+import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { routes } from "@/utils/routes";
 

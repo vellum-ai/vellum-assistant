@@ -12,10 +12,7 @@ describe("handleStreamError", () => {
     const ctx = makeCtx({
       streamRef: { current: { cancel: cancelFn } as never },
     });
-    handleStreamError(
-      { type: "error", message: "Something went wrong." },
-      ctx,
-    );
+    handleStreamError({ type: "error", message: "Something went wrong." }, ctx);
     expect(ctx.endTurn).toHaveBeenCalledWith({
       conversationId: "conv-1",
       reason: "error",
@@ -33,7 +30,7 @@ describe("handleConversationErrorEvent", () => {
       {
         type: "conversation_error",
         conversationId: "conv-1",
-        code: "rate_limit",
+        code: "PROVIDER_RATE_LIMIT",
         userMessage: "Rate limited",
         retryable: true,
       },
@@ -59,7 +56,7 @@ describe("handleConversationErrorEvent", () => {
       {
         type: "conversation_error",
         conversationId: "conv-from-event",
-        code: "rate_limit",
+        code: "PROVIDER_RATE_LIMIT",
         userMessage: "Rate limited",
         retryable: true,
       },

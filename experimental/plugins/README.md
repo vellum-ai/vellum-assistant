@@ -1,20 +1,28 @@
 # Plugins
 
-Plugins extend the assistant's default capabilibilities using hooks, tools, skills, and more.
+Plugins extend the assistant's default capabilities using hooks, tools,
+skills, and more.
 
-If you're authoring a plugin against the current convention, this file
-is your map. Read [`simple-memory/`](./simple-memory/) alongside, it's
-the canonical reference implementation and exercises every wired
-surface.
+If you're authoring a plugin against the current convention, this file is
+your map. Read [`simple-memory/`](./simple-memory/) alongside, it's the
+canonical reference implementation and exercises every wired surface.
 
-> Note: This README is meant to be _human-readable_ and is meant to be reviewed by other contributors,
-> so that API conventions can be made intentionally.
+## Table of contents
+
+- [TL;DR](#tldr)
+- [What a plugin can contribute today](#what-a-plugin-can-contribute-today)
+- [Directory layout](#directory-layout)
+- [Manifest](#manifest--packagejson)
+- [Public API surface](#public-api-surface--vellumaiplugin-api)
+- [Hooks](#hooks)
+- [Tools](#tools)
+- [Conventions](#conventions)
 
 ---
 
 ## TL;DR
 
-1. Create a directory `<root>/my-plugin/`.
+1. Create a directory `<workspaceDir>/plugins/my-plugin/`.
 2. Drop a `package.json` with a `name` and a `peerDependencies["@vellumai/plugin-api"]` semver range.
 3. Add `hooks/<name>.ts` files (default export = hook function).
 4. Add `tools/<name>.ts` files (default export = tool definition).
@@ -256,12 +264,12 @@ export default {
 Every field on a plugin tool is optional — the loader fills documented
 defaults when an author omits a field:
 
-| Field              | Default                                                                |
-| ------------------ | ---------------------------------------------------------------------- |
-| `description`      | `""`                                                                   |
-| `defaultRiskLevel` | `"medium"` (prompt-then-allow on first invocation)                     |
-| `input_schema`     | `{ type: "object", properties: {}, additionalProperties: false }`      |
-| `execute`          | Returns an error result naming the tool as unimplemented                |
+| Field              | Default                                                           |
+| ------------------ | ----------------------------------------------------------------- |
+| `description`      | `""`                                                              |
+| `defaultRiskLevel` | `"medium"` (prompt-then-allow on first invocation)                |
+| `input_schema`     | `{ type: "object", properties: {}, additionalProperties: false }` |
+| `execute`          | Returns an error result naming the tool as unimplemented          |
 
 `export default {}` is therefore a valid (if useless) tool — broken
 individual tools never block plugin load; misconfigurations surface at

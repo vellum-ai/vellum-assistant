@@ -9,6 +9,7 @@
 
 import { parseChannelId } from "../../channels/types.js";
 import { getConfig } from "../../config/loader.js";
+import { findConversation } from "../../daemon/conversation-store.js";
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import {
   type AttentionState,
@@ -162,9 +163,24 @@ export function serializeConversationSummary(params: {
     groupId: string | null;
   };
   parentCache: Map<string, ConversationRow | null>;
+  /**
+   * Whether the agent loop is currently mid-turn for this conversation.
+   * Sourced from the in-memory daemon `Conversation.isProcessing()` flag
+   * — callers resolve via `findConversation(id)?.isProcessing() ?? false`
+   * so cold (evicted / never-loaded) rows report `false`. Plumbed in
+   * rather than read here so the serializer stays a pure shape mapper
+   * with no daemon-store coupling.
+   */
+  isProcessing: boolean;
 }) {
-  const { conversation, binding, attentionState, displayMeta, parentCache } =
-    params;
+  const {
+    conversation,
+    binding,
+    attentionState,
+    displayMeta,
+    parentCache,
+    isProcessing,
+  } = params;
   const originChannel = parseChannelId(conversation.originChannel);
   const assistantAttention = buildAssistantAttention(attentionState);
   const forkParent = buildForkParent(conversation, parentCache);
@@ -205,6 +221,7 @@ export function serializeConversationSummary(params: {
     ...(conversation.inferenceProfile != null
       ? { inferenceProfile: conversation.inferenceProfile }
       : {}),
+    isProcessing,
   };
 }
 
@@ -232,6 +249,11 @@ export function buildConversationDetailResponse(
       attentionState: attentionStates.get(conversation.id),
       displayMeta: displayMeta.get(conversation.id),
       parentCache,
+      // Cold (evicted / never-loaded) rows aren't in the in-memory
+      // store, so `findConversation` returns `undefined` and they
+      // report `isProcessing: false` — by definition they aren't
+      // mid-turn since the agent loop only runs on resident convs.
+      isProcessing: findConversation(conversation.id)?.isProcessing() ?? false,
     }),
   };
 }

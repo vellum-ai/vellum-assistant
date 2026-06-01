@@ -11,6 +11,7 @@ import {
   getSlackChannelConfig,
   setSlackChannelConfig,
 } from "../../../../daemon/handlers/config-slack-channel.js";
+import { ACTOR_PRINCIPALS } from "../../../auth/route-policy.js";
 import { BadRequestError } from "../../errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../../types.js";
 
@@ -52,30 +53,39 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "integrations_slack_channel_config_get",
     endpoint: "integrations/slack/channel/config",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Get Slack channel config",
     description: "Check current Slack channel configuration status.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: () => handleGetSlackChannelConfig(),
   },
   {
     operationId: "integrations_slack_channel_config_post",
     endpoint: "integrations/slack/channel/config",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Set Slack channel config",
     description: "Validate and store Slack channel credentials.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: handleSetSlackChannelConfig,
   },
   {
     operationId: "integrations_slack_channel_config_delete",
     endpoint: "integrations/slack/channel/config",
     method: "DELETE",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Clear Slack channel config",
     description: "Clear stored Slack channel credentials.",
     tags: ["integrations"],
-    requirePolicyEnforcement: true,
     handler: () => handleClearSlackChannelConfig(),
   },
 ];

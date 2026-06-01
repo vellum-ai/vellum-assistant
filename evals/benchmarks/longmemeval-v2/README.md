@@ -151,14 +151,56 @@ index file and rerun.
    and the single `longmemeval-v2-judge` metric
 6. flip `run.json` to `status: "completed"` (or `"failed"` on throw)
 
-Still deferred (tracked as PR-8 / PR-9 candidates):
+The wrapped progress reporter + heartbeat ticker that both
+`runEvalOnce` and `runLongMemEvalV2Unit` install at the top of their
+try/finally now come from a shared
+`evals/src/lib/runner/progress-lifecycle.ts` helper — the PR-8
+extract that replaced the inlined `// PR-6 follow-up` blocks. Both
+runners call `createRunProgressLifecycle({ runId, userProgress })`
+and `dispose()` from their `finally`.
 
-- extracting the artifact-lifecycle boilerplate (progress wrapper +
-  heartbeat ticker) into a helper shared with `runEvalOnce` — flagged
-  with `// PR-6 follow-up` markers in the source
-- per-event transcript reconstruction + usage/cost telemetry —
-  `runIngestAsk` doesn't currently surface per-call usage, and the V2
-  judges call OpenAI directly outside the provider wrapper
+### Usage / cost (PR-9)
+
+`usage.json` is now written for every V2 run, mirroring what
+`runEvalOnce` (the simulator path) already does. The runner folds two
+sources through the shared `summarizeAssistantUsage` + pricing pass:
+
+- **Agent events** — `runIngestAsk` exposes the ingest-turn and
+  question-turn event streams; both pass through the summarizer so any
+  `type: "usage"` events the adapter emitted contribute to per-model
+  totals and cost. Same shape, same pricing table, same diagnostics as
+  the simulator runs.
+- **LLM judge** — when the eval_function is `llm_abstention_checker`
+  or `llm_gotchas_checker`, the OpenAI chat-completions response's
+  `usage` block is translated to the canonical evals shape (renaming
+  `prompt_tokens`/`completion_tokens` → `input_tokens`/`output_tokens`
+  and stamping `provider: "openai"` + `model: <evaluatorModel>` +
+  `source: "longmemeval-v2-judge"`) and surfaced as
+  `EvalResult.usage`. The runner synthesizes a single fake usage event
+  from it and rolls it into the same summarizer pass.
+
+Deterministic eval_functions never produce a judge usage record, and
+the LLM judge omits `usage` entirely when the upstream response had no
+`usage` block — the report's "missing" path is the honest answer
+rather than fabricating zeros.
+
+A judge model that isn't in the local pricing table surfaces as an
+`unpriced_model` diagnostic in `usage.json`, exactly how the simulator
+runner handles unknown agent models. Adding a new row in
+`evals/src/lib/pricing.ts` is the one-line fix.
+
+### Ingest-turn events (PR-10b)
+
+The agent's ingest-turn AgentEvents (memory-formation work consuming
+the haystack sessions) are persisted to `ingest-assistant-events.json`
+in the run directory — sibling to `assistant-events.json`, which now
+strictly carries the question-turn events. The report surfaces them in
+a separate "Memory-formation events" section so the question-turn view
+isn't diluted by the agent's bookkeeping.
+
+V1 runs (no ingest phase) and V2 runs whose adapter doesn't emit
+ingest-side events leave the file as `[]` and the section renders an
+empty placeholder.
 
 ## Running the benchmark
 
@@ -199,12 +241,6 @@ read per `evals run` invocation.
 
 ## Next
 
-- **PR-8 candidate** — extract the progress-wrap / heartbeat ticker
-  boilerplate that `runLongMemEvalV2Unit` and `runEvalOnce` both
-  duplicate (see the `// PR-6 follow-up` markers in
-  `src/runner.ts`).
-- **PR-9 candidate** — usage / cost telemetry. `runIngestAsk` doesn't
-  return per-call usage today, and the V2 judges hit OpenAI's REST API
-  directly without going through the provider wrapper that the
-  simulator-driven benchmarks instrument. Both gaps need closing
-  before Phase 2's cost/latency Pareto chart is real.
+- **Phase 2** — full 451-question small tier sweep against the canonical
+  profile set, feeding the cost/latency Pareto chart now that usage/cost
+  telemetry (PR-9) is wired end-to-end.

@@ -113,10 +113,9 @@ async function rerankAndDedup(
       })
       .join("\n");
 
-    const response = await provider.sendMessage(
-      [userMessage(listing)],
-      [RERANK_TOOL],
-      `You are selecting memories for an AI assistant's context at conversation start. You see ${candidates.length} candidate memories ranked by algorithmic score.
+    const response = await provider.sendMessage([userMessage(listing)], {
+      tools: [RERANK_TOOL],
+      systemPrompt: `You are selecting memories for an AI assistant's context at conversation start. You see ${candidates.length} candidate memories ranked by algorithmic score.
 
 Your job:
 1. REMOVE DUPLICATES: If multiple entries describe the same event/fact/topic, keep ONLY the most complete version. Be aggressive — even partial overlaps should be deduplicated.
@@ -125,15 +124,13 @@ Your job:
    - Diversity (don't load 5 memories about the same topic)
    - Importance (key relationship moments, active commitments, identity-defining events)
 3. Return the IDs in order of importance (most important first).`,
-      {
-        config: {
-          callSite: "memoryRetrieval" as const,
-          tool_choice: { type: "tool" as const, name: "select_memories" },
-          thinking: { type: "disabled" },
-          temperature: 0,
-        },
+      config: {
+        callSite: "memoryRetrieval" as const,
+        tool_choice: { type: "tool" as const, name: "select_memories" },
+        thinking: { type: "disabled" },
+        temperature: 0,
       },
-    );
+    });
 
     const toolBlock = extractToolUse(response);
     if (!toolBlock) return candidates.slice(0, maxNodes);
@@ -214,9 +211,9 @@ async function dedupForTurn(
 
     const response = await provider.sendMessage(
       [userMessage(`query:\n${query}\n\nitems:\n\n${listing}`)],
-      [SELECT_ITEMS_TOOL],
-      `Dedupe + rerank the following numbered items. Pick the most relevant items to the query. Call the select_items tool.\n\nBe aggressive on dedup — when multiple items describe the same event, fact, or status, keep ONLY the richest version. But be generous on relevance — only cut items that are completely irrelevant to the query. If it's even tangentially related, keep it.`,
       {
+        tools: [SELECT_ITEMS_TOOL],
+        systemPrompt: `Dedupe + rerank the following numbered items. Pick the most relevant items to the query. Call the select_items tool.\n\nBe aggressive on dedup — when multiple items describe the same event, fact, or status, keep ONLY the richest version. But be generous on relevance — only cut items that are completely irrelevant to the query. If it's even tangentially related, keep it.`,
         config: {
           callSite: "memoryRetrieval" as const,
           tool_choice: { type: "tool" as const, name: "select_items" },
@@ -304,19 +301,16 @@ async function dedupCrossCategory(
       })
       .join("\n");
 
-    const response = await provider.sendMessage(
-      [userMessage(listing)],
-      [DEDUP_ITEMS_TOOL],
-      `Deduplicate the following numbered items. When multiple items describe the same event, fact, or status, keep ONLY the richest version. Keep ALL items that are not duplicates — do not filter by relevance or topic. Call the select_items tool with every item that survives dedup.`,
-      {
-        config: {
-          callSite: "memoryRetrieval" as const,
-          tool_choice: { type: "tool" as const, name: "select_items" },
-          thinking: { type: "disabled" },
-          temperature: 0,
-        },
+    const response = await provider.sendMessage([userMessage(listing)], {
+      tools: [DEDUP_ITEMS_TOOL],
+      systemPrompt: `Deduplicate the following numbered items. When multiple items describe the same event, fact, or status, keep ONLY the richest version. Keep ALL items that are not duplicates — do not filter by relevance or topic. Call the select_items tool with every item that survives dedup.`,
+      config: {
+        callSite: "memoryRetrieval" as const,
+        tool_choice: { type: "tool" as const, name: "select_items" },
+        thinking: { type: "disabled" },
+        temperature: 0,
       },
-    );
+    });
 
     const toolBlock = extractToolUse(response);
     if (!toolBlock) return candidates.slice(0, maxNodes);

@@ -15,6 +15,7 @@ import {
   setPinnedTab,
 } from "../../tools/browser/pinned-tabs.js";
 import type { ToolContext } from "../../tools/types.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { browserCliConversationKey } from "./browser-routes.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -171,6 +172,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "browser_tabs",
     endpoint: "browser/tabs",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleBrowserTabs,
     summary: "Manage browser tabs",
     description:

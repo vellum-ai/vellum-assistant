@@ -8,6 +8,7 @@ import { z } from "zod";
 
 import { getConversation } from "../../memory/conversation-crud.js";
 import { wakeAgentForOpportunity } from "../agent-wake.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
@@ -22,6 +23,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "wake_conversation",
     endpoint: "conversations/wake",
     method: "POST",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     summary: "Wake a conversation",
     description:
       "Invoke the agent loop for a conversation with an opportunity hint.",

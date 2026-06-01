@@ -8,6 +8,7 @@ import { z } from "zod";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { ToolContext } from "../../tools/types.js";
 import { getWorkspaceDir } from "../../util/platform.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -255,6 +256,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "task_save",
     endpoint: "tasks/save",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleTaskSave,
     summary: "Save a task template",
     description: "Save the current conversation as a reusable task template.",
@@ -266,6 +271,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "task_list",
     endpoint: "tasks/list",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleTaskList,
     summary: "List task templates",
     description: "List all saved task templates.",
@@ -276,6 +285,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "task_run",
     endpoint: "tasks/run",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleTaskRun,
     summary: "Run a task template",
     description: "Execute a saved task template by name or ID.",
@@ -287,6 +300,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "task_delete",
     endpoint: "tasks/delete",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleTaskDelete,
     summary: "Delete task templates",
     description: "Delete one or more task templates by ID.",
@@ -300,6 +317,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "task_queue_show",
     endpoint: "tasks/queue/show",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleTaskQueueShow,
     summary: "Show task queue",
     description: "List work items in the task queue, optionally filtered by status.",
@@ -311,6 +332,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "task_queue_add",
     endpoint: "tasks/queue/add",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleTaskQueueAdd,
     summary: "Add to task queue",
     description: "Add a new work item to the task queue.",
@@ -322,6 +347,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "task_queue_update",
     endpoint: "tasks/queue/update",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleTaskQueueUpdate,
     summary: "Update a task queue item",
     description: "Update an existing work item in the task queue.",
@@ -333,6 +362,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "task_queue_remove",
     endpoint: "tasks/queue/remove",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleTaskQueueRemove,
     summary: "Remove from task queue",
     description: "Remove a work item from the task queue.",
@@ -344,6 +377,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "task_queue_run",
     endpoint: "tasks/queue/run",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleTaskQueueRun,
     summary: "Run next task queue item",
     description: "Pick up and execute the next work item from the queue.",

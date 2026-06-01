@@ -7,6 +7,7 @@
 import { z } from "zod";
 
 import { getRecentInvocations } from "../../memory/tool-usage-store.js";
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 function handleAuditList({ queryParams }: RouteHandlerArgs) {
@@ -24,6 +25,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "audit_list",
     endpoint: "audit",
     method: "GET",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     summary: "List recent tool invocations",
     description:
       "Returns recent tool invocation records from the audit log, ordered by most recent first.",

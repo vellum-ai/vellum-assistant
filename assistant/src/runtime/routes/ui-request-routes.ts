@@ -4,6 +4,7 @@
 
 import { z } from "zod";
 
+import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { requestInteractiveUi } from "../interactive-ui.js";
 import { RESERVED_ACTION_IDS } from "../interactive-ui-types.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -46,6 +47,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "ui_request",
     endpoint: "ui/request",
     method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: LOCAL_PRINCIPALS,
+    },
     handler: handleUiRequest,
     summary: "Present an interactive UI surface",
     description:

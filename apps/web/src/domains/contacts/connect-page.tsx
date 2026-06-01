@@ -11,7 +11,7 @@ import { Typography } from "@vellum/design-library/components/typography";
 import { parseA2AInviteParams } from "@/domains/contacts/a2a-invite";
 import { redeemA2AInvite } from "@/domains/contacts/api";
 import type { RedeemA2AInviteResponse } from "@/domains/contacts/types";
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { routes } from "@/utils/routes";
 
 function mapErrorCode(errorCode: string | undefined, errorMessage: string | undefined): string {
@@ -37,7 +37,7 @@ function mapErrorCode(errorCode: string | undefined, errorMessage: string | unde
  * Django broker. Requires `senderAssistantId` and `token` query params.
  */
 export function ConnectPage() {
-  const { assistantId } = useActiveAssistantContext();
+  const assistantId = useActiveAssistantId();
   return <ConnectPageInner assistantId={assistantId} />;
 }
 

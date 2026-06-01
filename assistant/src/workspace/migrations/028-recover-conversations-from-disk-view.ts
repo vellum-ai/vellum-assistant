@@ -133,9 +133,7 @@ export const recoverConversationsFromDiskViewMigration: WorkspaceMigration = {
       // Read and parse meta.json
       const metaPath = join(dirPath, "meta.json");
       if (!existsSync(metaPath)) {
-        log.warn(
-          `Skipping ${entry}: missing meta.json`,
-        );
+        log.warn(`Skipping ${entry}: missing meta.json`);
         skipped++;
         continue;
       }
@@ -144,17 +142,13 @@ export const recoverConversationsFromDiskViewMigration: WorkspaceMigration = {
       try {
         meta = JSON.parse(readFileSync(metaPath, "utf-8")) as DiskMeta;
       } catch (err) {
-        log.warn(
-          `Skipping ${entry}: malformed meta.json: ${err}`,
-        );
+        log.warn(`Skipping ${entry}: malformed meta.json: ${err}`);
         skipped++;
         continue;
       }
 
       if (!meta.id) {
-        log.warn(
-          `Skipping ${entry}: meta.json missing id`,
-        );
+        log.warn(`Skipping ${entry}: meta.json missing id`);
         skipped++;
         continue;
       }
@@ -182,9 +176,7 @@ export const recoverConversationsFromDiskViewMigration: WorkspaceMigration = {
             const trimmed = line.trim();
             if (!trimmed) continue;
             try {
-              messageRecords.push(
-                JSON.parse(trimmed) as DiskMessageRecord,
-              );
+              messageRecords.push(JSON.parse(trimmed) as DiskMessageRecord);
             } catch {
               log.warn(
                 `Skipping malformed JSONL line in ${entry}/messages.jsonl`,
@@ -192,9 +184,7 @@ export const recoverConversationsFromDiskViewMigration: WorkspaceMigration = {
             }
           }
         } catch (err) {
-          log.warn(
-            `Failed to read messages.jsonl for ${entry}: ${err}`,
-          );
+          log.warn(`Failed to read messages.jsonl for ${entry}: ${err}`);
         }
       }
 
@@ -231,8 +221,7 @@ export const recoverConversationsFromDiskViewMigration: WorkspaceMigration = {
 
           for (const record of messageRecords) {
             const contentBlocks = buildContentBlocks(record);
-            const msgCreatedAt =
-              parseEpochMs(record.ts) ?? createdAt;
+            const msgCreatedAt = parseEpochMs(record.ts) ?? createdAt;
 
             tx.insert(messages)
               .values({
@@ -249,9 +238,7 @@ export const recoverConversationsFromDiskViewMigration: WorkspaceMigration = {
 
         recovered++;
       } catch (err) {
-        log.warn(
-          `Failed to insert conversation ${meta.id} (${entry}): ${err}`,
-        );
+        log.warn(`Failed to insert conversation ${meta.id} (${entry}): ${err}`);
         errors++;
       }
     }

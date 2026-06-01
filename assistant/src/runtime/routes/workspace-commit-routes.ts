@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { getWorkspaceDir } from "../../util/platform.js";
 import { getWorkspaceGitService } from "../../workspace/git-service.js";
+import { GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -28,6 +29,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "workspace_commit",
     endpoint: "admin/workspace-commit",
     method: "POST",
+    policy: {
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
+    },
     summary: "Commit workspace changes",
     description:
       "Create a git commit in the workspace directory with all pending changes.",

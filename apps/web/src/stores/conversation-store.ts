@@ -85,6 +85,22 @@ export interface ConversationListActions {
 
   // --- Processing conversation ids (and their snapshots, kept atomic) ---
   addProcessingConversationId: (conversationId: string, snapshot?: number) => void;
+  /**
+   * Idempotent "this conversation is mid-turn" mark for SSE start events.
+   * Like `addProcessingConversationId` but tolerant of repeat firings
+   * (start events fire many times per turn).
+   *
+   * Snapshot semantics: if a snapshot is supplied AND none is recorded
+   * yet, it's seeded. Subsequent calls don't overwrite — first writer
+   * wins, so the send-side `addProcessingConversationId` always takes
+   * precedence over later SSE marks. Without this seed, attention
+   * tracking compares `latestAssistantMessageAt` against `undefined`
+   * and graduates SSE-only (external-channel) turns prematurely.
+   *
+   * No-op when the id is already in the set and a snapshot is already
+   * recorded.
+   */
+  markConversationProcessing: (conversationId: string, snapshot?: number) => void;
   removeProcessingConversationId: (conversationId: string) => void;
   removeMultipleProcessingConversationIds: (conversationIds: string[]) => void;
   transferProcessingConversationId: (
@@ -142,6 +158,23 @@ export const useConversationStore = createSelectors(
       nextSnapshots.set(conversationId, snapshot);
       set({
         processingConversationIds: addToSet(processingConversationIds, conversationId),
+        processingSnapshots: nextSnapshots,
+      });
+    },
+
+    markConversationProcessing: (conversationId, snapshot) => {
+      const { processingConversationIds, processingSnapshots } = get();
+      const alreadyInSet = processingConversationIds.has(conversationId);
+      const alreadyHasSnapshot = processingSnapshots.has(conversationId);
+      // Already fully tracked — no work.
+      if (alreadyInSet && alreadyHasSnapshot) return;
+      const nextSnapshots = alreadyHasSnapshot
+        ? processingSnapshots
+        : new Map(processingSnapshots).set(conversationId, snapshot);
+      set({
+        processingConversationIds: alreadyInSet
+          ? processingConversationIds
+          : addToSet(processingConversationIds, conversationId),
         processingSnapshots: nextSnapshots,
       });
     },

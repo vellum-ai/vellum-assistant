@@ -3,22 +3,34 @@ import { homedir } from "os";
 import { existsSync, mkdirSync, renameSync, writeFileSync } from "fs";
 import { basename, dirname, join } from "path";
 
-import {
-  getDaemonPidPath,
-  loadAllAssistants,
-} from "./assistant-config.js";
+import { getDaemonPidPath, loadAllAssistants } from "./assistant-config.js";
 import type { AssistantEntry } from "./assistant-config.js";
 import {
   stopOrphanedDaemonProcesses,
   stopProcessByPidFile,
 } from "./process.js";
 import { getArchivePath, getMetadataPath } from "./retire-archive.js";
+import {
+  consoleLifecycleReporter,
+  type LifecycleReporter,
+} from "./lifecycle-reporter.js";
+
+export interface RetireLocalResult {
+  assistantId: string;
+  /** Whether the instance data directory was archived (false when skipped). */
+  archived: boolean;
+  /** Path to the background tar archive, when archiving was started. */
+  archivePath?: string;
+  /** True when another local assistant shared the data dir, so it was kept. */
+  sharedDataDir?: boolean;
+}
 
 export async function retireLocal(
   name: string,
   entry: AssistantEntry,
-): Promise<void> {
-  console.log("\u{1F5D1}\ufe0f  Stopping local assistant...\n");
+  reporter: LifecycleReporter = consoleLifecycleReporter,
+): Promise<RetireLocalResult> {
+  reporter.log("\u{1F5D1}\ufe0f  Stopping local assistant...\n");
 
   if (!entry.resources) {
     throw new Error(
@@ -38,11 +50,11 @@ export async function retireLocal(
   });
 
   if (otherSharesDir) {
-    console.log(
+    reporter.log(
       `   Skipping process stop and archive — another local assistant shares ${vellumDir}.`,
     );
-    console.log("\u2705 Local instance retired (config entry removed only).");
-    return;
+    reporter.log("\u2705 Local instance retired (config entry removed only).");
+    return { assistantId: name, archived: false, sharedDataDir: true };
   }
 
   const daemonPidFile = getDaemonPidPath(resources);
@@ -87,11 +99,11 @@ export async function retireLocal(
   const stagingDir = `${archivePath}.staging`;
 
   if (!existsSync(dirToArchive)) {
-    console.log(
+    reporter.log(
       `   No data directory at ${dirToArchive} — nothing to archive.`,
     );
-    console.log("\u2705 Local instance retired.");
-    return;
+    reporter.log("\u2705 Local instance retired.");
+    return { assistantId: name, archived: false };
   }
 
   // Ensure the retired archive directory exists before attempting the rename
@@ -123,6 +135,8 @@ export async function retireLocal(
   });
   child.unref();
 
-  console.log(`📦 Archiving to ${archivePath} in the background.`);
-  console.log("\u2705 Local instance retired.");
+  reporter.log(`📦 Archiving to ${archivePath} in the background.`);
+  reporter.log("\u2705 Local instance retired.");
+
+  return { assistantId: name, archived: true, archivePath };
 }

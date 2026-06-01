@@ -283,6 +283,48 @@ describe("GET /v1/workspace/tree", () => {
       expect(lastDirIdx).toBeLessThan(firstFileIdx);
     }
   });
+
+  test("includeDirSizes=true returns recursive byte size for directories", () => {
+    const result = handler({ queryParams: { includeDirSizes: "true" } }) as {
+      entries: Array<{ name: string; type: string; size: number | null }>;
+    };
+    const subdirEntry = result.entries.find((e) => e.name === "subdir");
+    expect(subdirEntry).toBeDefined();
+    expect(subdirEntry!.type).toBe("directory");
+    // subdir/nested.txt contains "nested content" (14 bytes) — the only file
+    // under subdir/, so the recursive size equals exactly that file's size.
+    expect(subdirEntry!.size).toBe("nested content".length);
+  });
+
+  test("includeDirSizes=true preserves accurate file sizes", () => {
+    const result = handler({ queryParams: { includeDirSizes: "true" } }) as {
+      entries: Array<{ name: string; type: string; size: number | null }>;
+    };
+    const fileEntry = result.entries.find((e) => e.name === "hello.txt");
+    expect(fileEntry).toBeDefined();
+    expect(fileEntry!.size).toBe("Hello, world!".length);
+  });
+
+  test("includeDirSizes omitted preserves null size for directories", () => {
+    const result = handler({ queryParams: {} }) as {
+      entries: Array<{ type: string; size: number | null }>;
+    };
+    const dirEntry = result.entries.find((e) => e.type === "directory");
+    expect(dirEntry).toBeDefined();
+    expect(dirEntry!.size).toBeNull();
+  });
+
+  test("includeDirSizes=true returns 0 for empty directory", () => {
+    const emptyDir = join(testWorkspaceDir, "empty-for-size");
+    mkdirSync(emptyDir, { recursive: true });
+
+    const result = handler({ queryParams: { includeDirSizes: "true" } }) as {
+      entries: Array<{ name: string; size: number | null }>;
+    };
+    const emptyEntry = result.entries.find((e) => e.name === "empty-for-size");
+    expect(emptyEntry).toBeDefined();
+    expect(emptyEntry!.size).toBe(0);
+  });
 });
 
 // ===========================================================================

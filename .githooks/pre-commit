@@ -944,7 +944,7 @@ fi
 # When files in these directories are staged, run prettier --check and eslint
 # on the staged files to catch formatting and lint issues before commit.
 DIRS_WITH_PRETTIER=("assistant" "cli" "gateway")
-DIRS_TO_CHECK=("${DIRS_WITH_PRETTIER[@]}" "apps/web" "clients/web")
+DIRS_TO_CHECK=("${DIRS_WITH_PRETTIER[@]}" "apps/web")
 
 # Detect bun location (reused by message contract check below)
 BUN="${BUN:-$(command -v bun 2>/dev/null || echo "$HOME/.bun/bin/bun")}"
@@ -1028,13 +1028,13 @@ for DIR in "${DIRS_TO_CHECK[@]}"; do
     fi
 done
 
-# --- TypeScript type-check for assistant/, apps/web/, and clients/web/ ---
+# --- TypeScript type-check for assistant/ and apps/web/ ---
 # Full-project tsc catches cross-file type errors that per-file lint misses.
 # assistant/ uses --incremental + --declaration false to keep warm runs at ~5s.
 # Without --declaration false, the tsconfig's declaration:true causes tsc to
 # mark all 1600+ files as "pending emit" on every --noEmit run, defeating
 # incremental caching and falling back to ~20s full rebuilds.
-# apps/web/ and clients/web/ don't need that workaround (no declaration:true).
+# apps/web/ doesn't need that workaround (no declaration:true).
 
 # Shared worktree detection (skip tsc in worktrees — cold cache is slow).
 _GIT_DIR="$(git rev-parse --git-dir 2>/dev/null)"
@@ -1069,8 +1069,8 @@ if [ $ASSISTANT_TS_STAGED -eq 1 ]; then
     fi
 fi
 
-# Type-check apps/web/ and clients/web/
-TYPECHECK_WEB_DIRS=("apps/web" "clients/web")
+# Type-check apps/web/
+TYPECHECK_WEB_DIRS=("apps/web")
 for WEB_DIR in "${TYPECHECK_WEB_DIRS[@]}"; do
     WEB_TS_STAGED=0
     while IFS= read -r -d '' FILE; do

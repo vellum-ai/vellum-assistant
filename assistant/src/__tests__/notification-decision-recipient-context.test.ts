@@ -104,12 +104,9 @@ function makeSignal(
 
 function setupLLMProvider() {
   configuredProvider = {
-    sendMessage: async (
-      _messages: unknown,
-      _tools: unknown,
-      systemPrompt: unknown,
-    ) => {
-      capturedSystemPrompt = systemPrompt as string;
+    sendMessage: async (...args: unknown[]) => {
+      const options = args[1] as { systemPrompt?: string } | undefined;
+      capturedSystemPrompt = options?.systemPrompt;
       return { content: [] };
     },
   };

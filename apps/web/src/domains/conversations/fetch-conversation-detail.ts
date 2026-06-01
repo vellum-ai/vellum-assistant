@@ -10,7 +10,7 @@ import {
   ApiError,
   assertHasResponse,
   extractErrorMessage,
-} from "@/lib/api-errors";
+} from "@/utils/api-errors";
 import type { Conversation } from "@/types/conversation-types";
 
 import { detailToConversation } from "./conversation-transforms";

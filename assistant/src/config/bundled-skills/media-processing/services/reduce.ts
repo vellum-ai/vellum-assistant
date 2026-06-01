@@ -195,15 +195,12 @@ async function sendToClaude(
   const { signal, cleanup } = createTimeout(REDUCE_TIMEOUT_MS);
 
   try {
-    const response = await provider.sendMessage(
-      [userMessage(userContent)],
-      [],
-      effectiveSystemPrompt,
-      {
-        config: model ? { model } : {},
-        signal,
-      },
-    );
+    const response = await provider.sendMessage([userMessage(userContent)], {
+      tools: [],
+      systemPrompt: effectiveSystemPrompt,
+      config: model ? { model } : {},
+      signal,
+    });
     cleanup();
 
     const answer = extractAllText(response);

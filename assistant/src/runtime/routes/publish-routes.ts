@@ -28,6 +28,7 @@ import {
 import { deployHtmlToVercel } from "../../services/vercel-deploy.js";
 import { credentialBroker } from "../../tools/credentials/broker.js";
 import { getLogger } from "../../util/logger.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -174,7 +175,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_publish",
     endpoint: "apps/:id/publish",
     method: "POST",
-    policyKey: "apps/publish",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handlePublish,
     summary: "Publish app to Vercel",
     description:
@@ -192,7 +196,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_unpublish",
     endpoint: "apps/:id/unpublish",
     method: "POST",
-    policyKey: "apps/unpublish",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handleUnpublish,
     summary: "Unpublish app from Vercel",
     description: "Mark the active Vercel deployment as inactive.",
@@ -206,7 +213,10 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "apps_publish_status",
     endpoint: "apps/:id/publish-status",
     method: "GET",
-    policyKey: "apps/publish-status",
+    policy: {
+      requiredScopes: ["settings.read"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
     handler: handlePublishStatus,
     summary: "Get app publish status",
     description: "Return the current Vercel deployment state for an app.",

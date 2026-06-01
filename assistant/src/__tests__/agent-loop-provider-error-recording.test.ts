@@ -59,11 +59,13 @@ function makeThrowingProvider(
     name,
     async sendMessage(
       messages: Message[],
-      tools?: ToolDefinition[],
-      systemPrompt?: string,
       _options?: SendMessageOptions,
     ): Promise<ProviderResponse> {
-      calls.push({ messages: [...messages], tools, systemPrompt });
+      calls.push({
+        messages: [...messages],
+        tools: _options?.tools,
+        systemPrompt: _options?.systemPrompt,
+      });
       throw throwFn();
     },
   };
@@ -184,7 +186,7 @@ describe("AgentLoop provider_error event emission", () => {
       (e) => {
         events.push(e);
       },
-      controller.signal,
+      { signal: controller.signal },
     );
 
     const providerErrorEvent = events.find((e) => e.type === "provider_error");

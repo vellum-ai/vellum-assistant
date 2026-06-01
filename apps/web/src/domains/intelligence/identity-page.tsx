@@ -1,4 +1,4 @@
-import { useActiveAssistantContext } from "@/components/layout/active-assistant-gate";
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
 import { IdentityTab } from "@/domains/intelligence/components/identity-tab";
 
 interface IdentityPageProps {
@@ -6,7 +6,7 @@ interface IdentityPageProps {
 }
 
 export function IdentityPage({ onOpenThread }: IdentityPageProps) {
-  const { assistantId } = useActiveAssistantContext();
+  const assistantId = useActiveAssistantId();
 
   return <IdentityTab assistantId={assistantId} onOpenThread={onOpenThread} />;
 }

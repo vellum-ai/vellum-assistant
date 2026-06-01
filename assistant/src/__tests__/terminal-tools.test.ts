@@ -1,8 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-
-import type { ShellOutputResult } from "../tools/shared/shell-output.js";
-import type { Tool } from "../tools/types.js";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 // ── Mock modules ────────────────────────────────────────────────────────────
 
@@ -64,6 +61,7 @@ mock.module("../tools/network/script-proxy/index.js", () => ({
 
 // ── Imports (after mocks) ───────────────────────────────────────────────────
 
+import { formatShellOutput } from "../tools/shared/shell-output.js";
 import {
   ALWAYS_INJECTED_ENV_VARS,
   buildSanitizedEnv,
@@ -71,6 +69,7 @@ import {
   KATA_SAFE_ENV_VARS,
   SAFE_ENV_VARS,
 } from "../tools/terminal/safe-env.js";
+import { shellTool } from "../tools/terminal/shell.js";
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  Safe Environment — buildSanitizedEnv()
@@ -210,13 +209,6 @@ describe("buildSanitizedEnv", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("Shell tool input validation", () => {
-  let shellTool: Tool;
-
-  beforeEach(async () => {
-    const mod = await import("../tools/terminal/shell.js");
-    shellTool = mod.shellTool;
-  });
-
   const baseContext = {
     workingDir: testTmpDir,
     conversationId: "test-conv-1",
@@ -308,19 +300,6 @@ describe("Shell tool input validation", () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe("formatShellOutput", () => {
-  let formatShellOutput: (
-    stdout: string,
-    stderr: string,
-    code: number | null,
-    timedOut: boolean,
-    timeoutSec: number,
-  ) => ShellOutputResult;
-
-  beforeEach(async () => {
-    const mod = await import("../tools/shared/shell-output.js");
-    formatShellOutput = mod.formatShellOutput;
-  });
-
   test("successful command with output", () => {
     const result = formatShellOutput("hello world", "", 0, false, 120);
     expect(result.content).toBe("hello world");
