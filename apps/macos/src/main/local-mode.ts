@@ -104,7 +104,11 @@ function runHatch(species: string): Promise<HatchResult> {
 
     child.on("close", (code) => {
       if (code !== 0) {
-        settle({ ok: false, error: stderr.trim() || stdout.trim() });
+        const error =
+          stderr.trim() ||
+          stdout.trim() ||
+          `Hatch failed: the CLI exited with code ${code ?? "unknown"} and produced no output.`;
+        settle({ ok: false, error });
         return;
       }
       const assistantId = stdout
