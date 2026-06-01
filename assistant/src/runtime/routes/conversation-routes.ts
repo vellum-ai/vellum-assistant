@@ -842,6 +842,7 @@ export function handleListMessages({
       id: m.id ?? "",
       ...(mergedMessageIds.length > 0 ? { mergedMessageIds } : {}),
       role: m.role,
+      content: m.text,
       timestamp: new Date(displayTimestamp).toISOString(),
       attachments: msgAttachments,
       ...(m.toolCalls.length > 0 ? { toolCalls: m.toolCalls } : {}),
