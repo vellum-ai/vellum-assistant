@@ -29,7 +29,11 @@ import {
 } from "@/hooks/conversation-queries";
 import { patchConversation } from "@/utils/conversation-cache";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { conversationsQueryKey } from "@/lib/sync/query-tags";
+import {
+  backgroundConversationsQueryKey,
+  conversationsQueryKey,
+  scheduledConversationsQueryKey,
+} from "@/lib/sync/query-tags";
 import {
   parseConversationSyncTag,
   SYNC_TAGS,
@@ -115,6 +119,15 @@ function scheduleConversationListRefetch(
     debounceTimerRef.current = null;
     void queryClient.invalidateQueries({
       queryKey: conversationsQueryKey(assistantId),
+    });
+    // The background and scheduled lists each live in their own
+    // lazily-enabled query. Invalidation is a no-op refetch while a list
+    // stays disabled (collapsed section) and refreshes it once revealed.
+    void queryClient.invalidateQueries({
+      queryKey: backgroundConversationsQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: scheduledConversationsQueryKey(assistantId),
     });
     void queryClient.invalidateQueries({
       queryKey: conversationGroupsQueryKey(assistantId),

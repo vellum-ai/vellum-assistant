@@ -42,7 +42,11 @@ import {
   conversationGroupsQueryKey,
   useConversationListQuery,
 } from "@/hooks/conversation-queries";
-import { conversationsQueryKey } from "@/lib/sync/query-tags";
+import {
+  backgroundConversationsQueryKey,
+  conversationsQueryKey,
+  scheduledConversationsQueryKey,
+} from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Module constants
@@ -68,8 +72,10 @@ interface UseConversationLoaderParams {
   /** React Router navigate function for path-based routing. */
   navigate: NavigateFunction;
 
-  // Collections
-  conversations: Conversation[];
+  // The resolved row for the currently-open conversation, drawn from either
+  // list cache (or fetched on demand). Used to decide whether the active
+  // thread exists server-side; null while loading or for local-only drafts.
+  activeConversation: Conversation | undefined;
 
   // Feature flags / epochs
   conversationGroupsUI: boolean;
@@ -135,7 +141,7 @@ export function useConversationLoader({
   urlConversationId,
   searchParams,
   navigate,
-  conversations,
+  activeConversation,
   conversationGroupsUI,
   refreshEpoch,
   reachabilityReadyEpoch,
@@ -179,6 +185,15 @@ export function useConversationLoader({
       await queryClient.invalidateQueries({
         queryKey: conversationsQueryKey(assistantId),
       });
+      // The background and scheduled lists are sibling lazily-enabled
+      // queries; invalidating them is a no-op while collapsed and refreshes
+      // each once its section is revealed.
+      await queryClient.invalidateQueries({
+        queryKey: backgroundConversationsQueryKey(assistantId),
+      });
+      await queryClient.invalidateQueries({
+        queryKey: scheduledConversationsQueryKey(assistantId),
+      });
     } catch (err) {
       Sentry.captureException(err, {
         tags: { context: "refresh_conversations" },
@@ -220,9 +235,12 @@ export function useConversationLoader({
   // Conversation list query subscription
   //
   // The conversation list is owned by `useConversationListQuery`, which
-  // fetches all conversations (foreground + background) for the given
-  // `assistantId`. Sibling consumers in `ChatLayout` and `ChatPage` mount
-  // the same query — they all share one cache entry under
+  // fetches the foreground conversations for the given `assistantId`.
+  // Background and scheduled jobs load separately via
+  // `useBackgroundConversationListQuery`, gated on the sidebar revealing
+  // those sections, so a large background backlog never blocks the initial
+  // render. Sibling consumers in `ChatLayout` and `ChatPage` mount the same
+  // foreground query — they all share one cache entry under
   // `conversationsQueryKey(assistantId)`, so dedupe and structural-sharing
   // are automatic.
   //
@@ -266,6 +284,12 @@ export function useConversationLoader({
     if (assistantStateKind !== "active" || !assistantId) return;
     void queryClient.invalidateQueries({
       queryKey: conversationsQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: backgroundConversationsQueryKey(assistantId),
+    });
+    void queryClient.invalidateQueries({
+      queryKey: scheduledConversationsQueryKey(assistantId),
     });
   }, [
     refreshEpoch,
@@ -359,9 +383,23 @@ export function useConversationLoader({
   useEffect(() => {
     if (assistantStateKind !== "active") return;
     if (!assistantId) return;
-    if (conversationListIsPending) return;
 
     const explicitConversationId = urlConversationId;
+
+    // Only the "resume last-viewed" / "land on latest foreground" fallbacks
+    // read the fetched list. An explicit URL key, an onboarding draft, or the
+    // existing in-memory selection all resolve without it — so the chat
+    // transcript the user opened renders immediately instead of blocking on
+    // the sidebar's conversation-list API.
+    const needsConversationList = !(
+      explicitConversationId != null ||
+      searchParams.get("onboarding") === "1" ||
+      (assistantIdRef.current === assistantId &&
+        useConversationStore.getState().activeConversationId != null)
+    );
+    if (needsConversationList && conversationListIsPending) {
+      return;
+    }
 
     // When only the conversation list changed (e.g. from resolveDraftKey's
     // setQueryData) but the URL hasn't changed, the URL key is stale —
@@ -422,12 +460,8 @@ export function useConversationLoader({
   // conversationExistsOnServer
   // -------------------------------------------------------------------------
   const conversationExistsOnServer = useMemo(
-    () =>
-      activeConversationId != null &&
-      conversations.some(
-        (c) => c.conversationId === activeConversationId && !c.draft,
-      ),
-    [activeConversationId, conversations],
+    () => activeConversation != null && !activeConversation.draft,
+    [activeConversation],
   );
 
   // -------------------------------------------------------------------------

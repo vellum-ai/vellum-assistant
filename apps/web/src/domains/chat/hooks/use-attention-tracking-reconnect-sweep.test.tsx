@@ -32,6 +32,9 @@ import {
 mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: [] }),
   markConversationSeenLocal: () => {},
+  useBackgroundConversationListQuery: () => ({ conversations: [] }),
+  useScheduledConversationListQuery: () => ({ conversations: [] }),
+  refreshConversationRow: async () => {},
 }));
 
 mock.module("@/utils/conversation-cache", () => ({
