@@ -504,6 +504,40 @@ describe("TranscriptMessageBody", () => {
     expect(bubble!.contains(surface)).toBe(false);
   });
 
+  test("omits the user bubble when an interleaved user message has no text or attachments", () => {
+    const { container } = render(
+      <TranscriptMessageBody
+        message={{
+          id: "u4",
+          role: "user",
+          content: "",
+          contentOrder: [{ type: "tool", id: "tc-1" }],
+          toolCalls: [
+            {
+              id: "tc-1",
+              toolName: "bash",
+              input: {},
+              status: "completed",
+            },
+          ],
+        }}
+        expandedToolCallIds={new Set()}
+        expandedCardIds={new Map()}
+        onSurfaceAction={noop}
+      />,
+    );
+
+    // No visible text and no attachments: the empty surface-lift bubble must
+    // not render.
+    expect(
+      container.querySelector("[class*='bg-[var(--surface-lift)]']"),
+    ).toBeNull();
+    // Non-text elements (the tool-call card) still render.
+    expect(
+      container.querySelector("[data-testid='tool-progress-card']"),
+    ).not.toBeNull();
+  });
+
   test("auto-expands legacy tool-only streaming messages until content appears", () => {
     const { getByTestId, rerender } = render(
       <TranscriptMessageBody
