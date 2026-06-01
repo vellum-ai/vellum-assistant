@@ -52,24 +52,33 @@ declare const AudioWorkletProcessor: {
  */
 class PcmDownsampleProcessor extends AudioWorkletProcessor {
   private readonly ratio = sampleRate / TARGET_SAMPLE_RATE;
-  // Carries the fractional read position across render quanta so chunk
-  // boundaries don't drop or duplicate samples.
-  private readPos = 0;
+  // The next fractional sample position to read, expressed relative to the
+  // start of the *current* render quantum. After each block we subtract the
+  // block length so the offset carries forward into the next block. It stays
+  // in [0, ratio) — never negative — so we never read before the buffer start
+  // (which would inject artificial zeros) and never skip boundary samples.
+  private readOffset = 0;
 
   process(inputs: Float32Array[][]): boolean {
     const channel = inputs[0]?.[0];
     // No input (node not yet connected, or upstream ended): keep the
-    // processor alive but emit nothing.
+    // processor alive but emit nothing. The pending read offset is preserved.
     if (!channel || channel.length === 0) return true;
 
-    const outLength = Math.floor((channel.length - this.readPos) / this.ratio);
+    // How many output samples this block can produce: the count of read
+    // positions `readOffset, readOffset + ratio, ...` that land within
+    // `[0, channel.length)`.
+    const outLength = Math.ceil((channel.length - this.readOffset) / this.ratio);
     if (outLength <= 0) {
-      this.readPos -= channel.length;
+      // The next read position is past the end of this block; carry the
+      // offset forward (it will still be >= 0 since outLength <= 0 implies
+      // readOffset >= channel.length).
+      this.readOffset -= channel.length;
       return true;
     }
 
     const pcm = new Int16Array(outLength);
-    let pos = this.readPos;
+    let pos = this.readOffset;
     for (let i = 0; i < outLength; i++) {
       const sample = channel[Math.floor(pos)] ?? 0;
       // Clamp to [-1, 1] then scale to signed 16-bit range.
@@ -77,8 +86,10 @@ class PcmDownsampleProcessor extends AudioWorkletProcessor {
       pcm[i] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
       pos += this.ratio;
     }
-    // Preserve the leftover fractional offset relative to the next buffer.
-    this.readPos = pos - channel.length;
+    // `pos` is now the next read position relative to this block's start.
+    // Rebase it onto the next block so the fractional cursor is continuous and
+    // no boundary samples are dropped or re-read.
+    this.readOffset = pos - channel.length;
 
     // Transfer the underlying buffer to avoid a copy on the main thread.
     this.port.postMessage(pcm.buffer, [pcm.buffer]);

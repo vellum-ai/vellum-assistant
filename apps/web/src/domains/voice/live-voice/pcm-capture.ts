@@ -129,6 +129,10 @@ export class LiveVoiceAudioCapture {
   private worklet: AudioWorkletNode | null = null;
   private smoothedAmplitude = 0;
   private disposed = false;
+  // Incremented by stop()/shutdown() so an in-flight start() can detect that
+  // it was cancelled mid-await and fully tear down instead of wiring up a mic
+  // that the caller has already asked to release.
+  private cancelEpoch = 0;
 
   constructor(options: LiveVoiceAudioCaptureOptions) {
     this.onChunk = options.onChunk;
@@ -145,6 +149,12 @@ export class LiveVoiceAudioCapture {
     if (this.context) return { ok: true };
     if (!isSupported()) return { ok: false, error: "unsupported" };
 
+    // Snapshot the cancel epoch at entry. A stop()/shutdown() that races our
+    // awaits bumps the epoch (and/or sets `disposed`); seeing either change
+    // means this start() was cancelled and must not leave the mic live.
+    const epoch = this.cancelEpoch;
+    const cancelled = () => this.disposed || this.cancelEpoch !== epoch;
+
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -153,7 +163,7 @@ export class LiveVoiceAudioCapture {
     }
 
     // A concurrent shutdown()/stop() may have raced the await above.
-    if (this.disposed) {
+    if (cancelled()) {
       stopTracks(stream);
       return { ok: false, error: "aborted" };
     }
@@ -164,7 +174,7 @@ export class LiveVoiceAudioCapture {
       this.context = context;
       await context.audioWorklet.addModule(WORKLET_MODULE_URL.href);
 
-      if (this.disposed) {
+      if (cancelled()) {
         await this.teardown();
         return { ok: false, error: "aborted" };
       }
@@ -193,12 +203,16 @@ export class LiveVoiceAudioCapture {
 
   /** Releases the mic and audio graph. The instance can be `start()`ed again. */
   async stop(): Promise<void> {
+    // Cancel any in-flight start() so a getUserMedia/addModule that resolves
+    // after this call tears down instead of attaching the stream/worklet.
+    this.cancelEpoch++;
     await this.teardown();
   }
 
   /** Permanently disposes the capture; subsequent `start()` calls fail. */
   async shutdown(): Promise<void> {
     this.disposed = true;
+    this.cancelEpoch++;
     await this.teardown();
   }
 

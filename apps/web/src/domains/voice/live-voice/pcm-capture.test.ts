@@ -147,6 +147,80 @@ describe("downsampleToInt16", () => {
   });
 });
 
+describe("pcm-downsample worklet (cross-quantum continuity)", () => {
+  // The worklet module references the AudioWorkletGlobalScope globals
+  // (`sampleRate`, `AudioWorkletProcessor`, `registerProcessor`) at import
+  // time. Stub them so we can import the processor and drive `process()` with
+  // consecutive 128-frame render quanta, the way the audio thread would.
+  interface ProcessorLike {
+    process(inputs: Float32Array[][]): boolean;
+  }
+
+  async function loadProcessor(
+    contextSampleRate: number,
+    onChunk: (buf: ArrayBuffer) => void,
+  ): Promise<ProcessorLike> {
+    const g = globalThis as Record<string, unknown>;
+    g.sampleRate = contextSampleRate;
+    g.AudioWorkletProcessor = class {
+      port = {
+        postMessage: (buf: ArrayBuffer) => onChunk(buf),
+      };
+    };
+    let Ctor: (new () => ProcessorLike) | null = null;
+    g.registerProcessor = (_name: string, ctor: new () => ProcessorLike) => {
+      Ctor = ctor;
+    };
+    // Cache-bust so each test gets a fresh module evaluation / processor.
+    const mod = `./pcm-downsample-worklet.ts?t=${Math.random()}`;
+    await import(mod);
+    if (!Ctor) throw new Error("processor not registered");
+    return new (Ctor as new () => ProcessorLike)();
+  }
+
+  test("48kHz: consecutive 128-frame blocks stay continuous (no zeros, no dropped boundary samples)", async () => {
+    const chunks: number[] = [];
+    // Distinct, non-zero per-sample values so we can detect both injected
+    // zeros and skipped boundary samples. A linear ramp at full scale would
+    // clip, so keep values in (0, 1].
+    const processor = await loadProcessor(48000, (buf) => {
+      for (const v of new Int16Array(buf)) chunks.push(v);
+    });
+
+    const BLOCK = 128;
+    const RATIO = 3; // 48000 / 16000
+    const BLOCKS = 5;
+
+    // Build the full input stream and feed it block-by-block.
+    const total = BLOCK * BLOCKS;
+    const full = new Float32Array(total);
+    for (let i = 0; i < total; i++) {
+      // Map index -> a positive Float32 sample that round-trips to a unique,
+      // non-zero Int16 so any injected zero or dropped sample is observable.
+      full[i] = ((i % 1000) + 1) / 2000; // in (0, 0.5]
+    }
+
+    for (let b = 0; b < BLOCKS; b++) {
+      const block = full.subarray(b * BLOCK, (b + 1) * BLOCK);
+      processor.process([[block]]);
+    }
+
+    // The streamed result must equal a single-shot decimation of the whole
+    // input: positions 0, 3, 6, ... with no gaps and no leading/boundary zero.
+    const expected: number[] = [];
+    for (let pos = 0; pos < total; pos += RATIO) {
+      const clamped = Math.min(1, Math.max(-1, full[Math.floor(pos)]!));
+      const scaled = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+      // Int16Array stores integers (truncates toward zero on assignment).
+      expected.push(Math.trunc(scaled));
+    }
+
+    expect(chunks).toEqual(expected);
+    // No artificial silence injected at block boundaries.
+    expect(chunks.some((v) => v === 0)).toBe(false);
+  });
+});
+
 describe("isSupported", () => {
   test("true when media + worklet APIs are present", () => {
     expect(isSupported()).toBe(true);
@@ -220,6 +294,36 @@ describe("lifecycle", () => {
     const result = await capture.start();
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toBe("unsupported");
+  });
+
+  test("stop() while start()'s getUserMedia is pending cancels the start (mic stays off)", async () => {
+    const chunks: ArrayBuffer[] = [];
+    const stream = new FakeMediaStream();
+    let resolveGum: (s: FakeMediaStream) => void = () => {};
+    getUserMediaImpl = () =>
+      new Promise<FakeMediaStream>((resolve) => {
+        resolveGum = resolve;
+      });
+
+    const capture = new LiveVoiceAudioCapture({ onChunk: (b) => chunks.push(b) });
+
+    // Kick off start(); it parks on the pending getUserMedia.
+    const startPromise = capture.start();
+    // User cancels before the mic resolves.
+    await capture.stop();
+    // The mic finally resolves after the cancel.
+    resolveGum(stream);
+    const result = await startPromise;
+
+    // start() must report it was aborted and not wire up the graph.
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toBe("aborted");
+    // The late-arriving stream's track must be stopped, not left live.
+    expect(stream.tracks.every((t) => t.stopped)).toBe(true);
+    // No worklet should have been attached, so no chunks can flow.
+    expect(lastWorklet).toBeNull();
+    // Driving any worklet that might exist emits nothing.
+    expect(chunks.length).toBe(0);
   });
 
   test("emitted PCM chunks reach onChunk", async () => {
