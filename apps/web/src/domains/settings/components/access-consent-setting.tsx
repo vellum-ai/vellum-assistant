@@ -9,7 +9,10 @@ import {
   assistantsAccessConsentRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
 import { assistantsAccessConsentPartialUpdate } from "@/generated/api/sdk.gen";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 
 export function AccessConsentSetting() {
   // platformHostedOnly: this consent toggle is per-assistant — Vellum
@@ -18,11 +21,19 @@ export function AccessConsentSetting() {
   // gate would still show it for a logged-in platform session pointed
   // at a self-hosted assistant.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // The privacy page is not mounted under `<ActiveAssistantGate>`, so on
+  // a fresh deep-link the lifecycle is still in `{ kind: "loading" }`
+  // when we render — during that window the gate returns `"full"`
+  // (intentionally, to avoid UI flicker on the surrounding card). Pair
+  // it with a strict "positively resolved as platform-hosted" check so
+  // the retrieve query doesn't fire until lifecycle has projected a
+  // platform-hosted assistant.
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const queryClient = useQueryClient();
 
   const { data, isLoading, isError } = useQuery({
     ...assistantsAccessConsentRetrieveOptions(),
-    enabled: platformGate === "full",
+    enabled: platformGate === "full" && isPlatformHosted,
   });
 
   const updateConsent = useMutation({

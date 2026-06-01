@@ -886,10 +886,18 @@ Pass `{ platformHostedOnly: true }` to `usePlatformGate` for these:
 
 ```ts
 const gate = usePlatformGate({ platformHostedOnly: true });
-if (gate === "gated") return null;
+if (gate === "gated") return <Navigate replace to={routes.settings.general} />;
 if (gate === "disabled") return <PlatformLoginNotice />;
 // gate === "full" — render normally
 ```
+
+**Whole-page gates redirect, section-level gates render null.** When a
+*page* is fully platform-hosted-only (notifications, billing, etc.),
+return `<Navigate replace />` to a reasonable sibling route — a
+bookmark or shared link to that page should land somewhere sensible
+on a self-hosted assistant. When a *section component* inside a mixed
+page (e.g. `AccessConsentSetting` inside `privacy-page.tsx`) is
+gated, return `null` and let the parent page render the rest.
 
 The decision is "is the **active assistant** self-hosted?" — not "is the
 app running in local mode?" Two cases this matters for:
@@ -923,6 +931,35 @@ The `platformFeaturesInLocalMode` flag and its hydration state do NOT
 apply to this branch — that flag gates the daemon-side API interceptor
 in local mode, which is orthogonal to "is this UI's target assistant
 platform-hosted?"
+
+#### Gating network fetches: pair the gate with `useActiveAssistantIsPlatformHosted`
+
+The truth table above shows `"full"` for *none resolved + platform
+session* on purpose: settings routes are NOT mounted under
+`<ActiveAssistantGate>`, so a fresh deep-link to a platform-hosted-only
+page renders with the lifecycle still in `{ kind: "loading" }`. We
+want the UI to render normally (no flicker), but we do NOT want to
+fire platform-API requests against a daemon that might later resolve
+to `self_hosted`.
+
+Pair the gate's `"full"` value with a strict "lifecycle positively
+resolved as platform-hosted" check on the query's `enabled`:
+
+```ts
+const platformGate = usePlatformGate({ platformHostedOnly: true });
+const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+
+const query = useQuery({
+  ...someOrgScopedOptions(),
+  enabled: platformGate === "full" && isPlatformHosted,
+});
+```
+
+`useActiveAssistantIsPlatformHosted` returns `true` only when the
+lifecycle has projected `{ kind: "platform_hosted" }` or
+`{ kind: "active", isLocal: false }` — `false` for `loading` and every
+other state. The rendering decision (gate) and the fetch decision
+(resolved) are intentionally split: render eagerly, fetch strictly.
 
 ### Daemon-owned endpoints routed through the platform proxy
 

@@ -10,7 +10,10 @@ import { useAuthStore } from "@/stores/auth-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import type { AssistantState } from "@/assistant/types";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 
 const initialAuthState = useAuthStore.getState();
 const initialFlagState = useAssistantFeatureFlagStore.getState();
@@ -204,6 +207,61 @@ describe("usePlatformGate — { platformHostedOnly: true }", () => {
         usePlatformGate({ platformHostedOnly: true }),
       );
       expect(result.current).toBe("full");
+      unmount();
+    }
+  });
+});
+
+describe("useActiveAssistantIsPlatformHosted", () => {
+  test("returns true for kind: platform_hosted", () => {
+    setLifecycle({ kind: "platform_hosted" });
+    const { result } = renderHook(() => useActiveAssistantIsPlatformHosted());
+    expect(result.current).toBe(true);
+  });
+
+  test("returns true for kind: active with isLocal: false", () => {
+    setLifecycle({ kind: "active", isLocal: false });
+    const { result } = renderHook(() => useActiveAssistantIsPlatformHosted());
+    expect(result.current).toBe(true);
+  });
+
+  test("returns false during the loading window (no positive resolution yet)", () => {
+    // This is the critical race the helper exists to handle: settings
+    // routes are not under <ActiveAssistantGate>, so a fresh deep-link
+    // renders while lifecycle is still { kind: "loading" }. The gate
+    // returns "full" intentionally (to avoid UI flicker on chrome),
+    // but network fetches must wait for resolution.
+    setLifecycle({ kind: "loading" });
+    const { result } = renderHook(() => useActiveAssistantIsPlatformHosted());
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false for kind: self_hosted", () => {
+    setLifecycle({ kind: "self_hosted" });
+    const { result } = renderHook(() => useActiveAssistantIsPlatformHosted());
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false for kind: active with isLocal: true (gateway-auth short-circuit)", () => {
+    setLifecycle({ kind: "active", isLocal: true });
+    const { result } = renderHook(() => useActiveAssistantIsPlatformHosted());
+    expect(result.current).toBe(false);
+  });
+
+  test("returns false for transitional and non-hosted-resolved kinds", () => {
+    const kinds: AssistantState[] = [
+      { kind: "initializing" },
+      { kind: "cleaning_up" },
+      { kind: "retired" },
+      { kind: "awaiting_version_selection" },
+      { kind: "error", message: "boom" },
+    ];
+    for (const assistantState of kinds) {
+      setLifecycle(assistantState);
+      const { result, unmount } = renderHook(() =>
+        useActiveAssistantIsPlatformHosted(),
+      );
+      expect(result.current).toBe(false);
       unmount();
     }
   });

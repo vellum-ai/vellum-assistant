@@ -8,6 +8,7 @@ import {
   Moon,
 } from "lucide-react";
 import { useCallback, useState, type ReactNode } from "react";
+import { Navigate } from "react-router";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
@@ -18,7 +19,11 @@ import { Notice } from "@vellum/design-library/components/notice";
 import { PanelItem } from "@vellum/design-library/components/panel-item";
 import { Popover } from "@vellum/design-library/components/popover";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
+import { routes } from "@/utils/routes";
 import {
   organizationsNotificationsAcknowledgeCreateMutation,
   organizationsNotificationsListOptions,
@@ -412,6 +417,15 @@ export function NotificationsPage() {
   // platform-mode app + `is_local: true` API response → lifecycle
   // `kind: "self_hosted"`), which is exactly the case we need to hide.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // Settings routes are NOT mounted under `<ActiveAssistantGate>`, so a
+  // fresh deep-link to this page renders with the lifecycle still in
+  // `{ kind: "loading" }`. The gate above returns `"full"` during that
+  // window (no UI flicker on the page chrome), but firing the org
+  // notifications request before lifecycle resolves to platform-hosted
+  // would still hit a self-hosted assistant in the race window. Pair
+  // the gate value with a strict "positively resolved as platform-hosted"
+  // check in the query's `enabled`.
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
 
@@ -421,13 +435,15 @@ export function NotificationsPage() {
 
   // Notifications are an organization-scoped platform concept — they have no
   // meaningful behavior when the active assistant is self-hosted. The query
-  // is suppressed unless the gate is fully open so we don't fire a doomed
-  // platform request in the "disabled" (logged-out) state.
+  // requires BOTH (a) `platformGate === "full"` (UI is rendering the live
+  // surface, not chrome+notice) AND (b) lifecycle positively resolved as
+  // platform-hosted (so we never fire during the `loading` window on a
+  // deep-link to settings).
   const { data, isLoading, isError, refetch } = useQuery({
     ...organizationsNotificationsListOptions({
       query: { status: statusFilter },
     }),
-    enabled: platformGate === "full",
+    enabled: platformGate === "full" && isPlatformHosted,
   });
 
   const notifications = data?.results ?? [];
@@ -508,9 +524,15 @@ export function NotificationsPage() {
   );
 
   // The page is fully platform-routed (organization-scoped notifications and
-  // pause-rule APIs). Hide it on self-hosted assistants; render the page
-  // chrome with a login notice when logged out.
-  if (platformGate === "gated") return null;
+  // pause-rule APIs). On a self-hosted assistant the page is meaningless,
+  // so redirect to the general settings page instead of rendering null —
+  // a bookmark or shared link should land somewhere reasonable. (Sidebar
+  // entry is already filtered out in `settings-layout.tsx`, so the most
+  // likely way to reach this state is a deep link or browser back/forward.)
+  // Render the page chrome with a login notice when logged out.
+  if (platformGate === "gated") {
+    return <Navigate replace to={routes.settings.general} />;
+  }
 
   if (platformGate === "disabled") {
     return (
