@@ -286,9 +286,15 @@ function buildMarkdownComponents(
  * ending at a word/punctuation boundary. Intentionally narrow so real math is
  * preserved — `$E = mc^2$`, `$x^2$`, `$\frac12$` have no digit after `$`, and
  * `$2x + 1$` has the digit followed by a variable rather than a boundary.
+ *
+ * The boundary set includes the en-dash `–` and em-dash `—` (not just the
+ * plain hyphen `-`) because ranges like `$12K–$17K` are common; without them
+ * the opening `$` of the first amount stays unescaped and pairs with the next
+ * `$` into an italic math span. `–—` are literal members of the class; the
+ * plain `-` stays last so it is never read as a range operator.
  */
 const CURRENCY_AMOUNT =
-  /\$(\d[\d,]*(?:\.\d+)?(?:bn|tn|trn|[KMBT])?)(?=$|[\s).,;:!?%"'’\]}/-]|&)/gi;
+  /\$(\d[\d,]*(?:\.\d+)?(?:bn|tn|trn|[KMBT])?)(?=$|[\s).,;:!?%"'’\]}/–—-]|&)/gi;
 
 /**
  * remark-math treats `$…$` as inline LaTeX, so monetary text like
