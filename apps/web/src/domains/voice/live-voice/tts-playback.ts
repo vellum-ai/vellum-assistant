@@ -1,12 +1,25 @@
 /**
  * Streamed TTS playback queue for the live-voice channel.
  *
- * The server streams text-to-speech audio as `tts_audio` frames carrying
- * base64-encoded little-endian 16-bit PCM (default 24 kHz mono, but each frame
- * advertises its own `sampleRate`/`mimeType`). {@link LiveVoiceAudioPlayer}
- * decodes each chunk (base64 → `Int16Array` → `Float32Array`) and schedules
- * gapless sequential playback through a Web Audio `AudioContext` by chaining
- * `AudioBufferSourceNode` start times.
+ * The server streams text-to-speech audio as `tts_audio` frames whose payload
+ * format is advertised per frame via `mimeType`. Two playback paths exist,
+ * selected on `mimeType`:
+ *
+ * - `audio/pcm` — raw little-endian 16-bit PCM (default 24 kHz mono, sample
+ *   rate per `chunk.sampleRate`). Decoded synchronously (base64 → `Int16Array`
+ *   → `Float32Array`) and scheduled immediately.
+ * - Container formats (`audio/wav`, `audio/mpeg`, `audio/opus`) — providers
+ *   without raw-PCM streaming (e.g. Fish Audio) fall back to a `wav` container.
+ *   These are decoded via the Web Audio `AudioContext.decodeAudioData` path,
+ *   which derives sample rate/channels from the container itself. Decoding is
+ *   asynchronous, so the start time is reserved up front against the running
+ *   playhead to preserve ordering and gaplessness.
+ *
+ * Unrecognized MIME types are skipped with a logged warning rather than being
+ * misdecoded as raw PCM (which would play header/interleaved bytes as garbage).
+ *
+ * {@link LiveVoiceAudioPlayer} schedules gapless sequential playback through a
+ * Web Audio `AudioContext` by chaining `AudioBufferSourceNode` start times.
  *
  * Playback is gapless because each source is started at the running
  * `playheadTime` cursor — the precise `AudioContext.currentTime` at which the
@@ -23,12 +36,46 @@
 
 /** A single TTS audio frame as delivered by the live-voice channel. */
 export interface TtsAudioChunk {
-  /** Base64-encoded little-endian 16-bit PCM samples. */
+  /**
+   * Base64-encoded audio payload. For `audio/pcm` this is raw little-endian
+   * 16-bit PCM samples; for container formats it is the encoded container bytes.
+   */
   dataBase64: string;
-  /** Sample rate of the PCM data in Hz (e.g. 24000). */
+  /**
+   * Sample rate of the PCM data in Hz (e.g. 24000). Only meaningful for
+   * `audio/pcm` — container formats carry their own rate in the header.
+   */
   sampleRate: number;
-  /** MIME type of the audio payload (e.g. "audio/pcm"). */
+  /** MIME type of the audio payload (e.g. "audio/pcm", "audio/wav"). */
   mimeType: string;
+}
+
+/**
+ * Container MIME types decoded via `AudioContext.decodeAudioData` (which
+ * derives sample rate/channels from the container itself). Providers without
+ * raw-PCM streaming (e.g. Fish Audio) fall back to one of these.
+ */
+const CONTAINER_MIME_TYPES: ReadonlySet<string> = new Set([
+  "audio/wav",
+  "audio/mpeg",
+  "audio/opus",
+]);
+
+const RAW_PCM_MIME_TYPE = "audio/pcm";
+
+/** Normalize a frame's `mimeType` (strip params, lowercase) for dispatch. */
+function normalizeMimeType(mimeType: string): string {
+  return mimeType.split(";", 1)[0]?.trim().toLowerCase() ?? "";
+}
+
+/** Decode a base64 string into a fresh `ArrayBuffer` of its raw bytes. */
+function base64ToArrayBuffer(dataBase64: string): ArrayBuffer {
+  const binary = atob(dataBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
 }
 
 /** Observer notified whenever `isPlaying` or `queuedCount` changes. */
@@ -52,6 +99,11 @@ export interface AudioContextLike {
     sampleRate: number,
   ): AudioBuffer;
   createBufferSource(): AudioBufferSourceNode;
+  /**
+   * Decode an encoded container (wav/mp3/opus) into an `AudioBuffer`, deriving
+   * sample rate and channel layout from the container header.
+   */
+  decodeAudioData(audioData: ArrayBuffer): Promise<AudioBuffer>;
   close(): Promise<void>;
 }
 
@@ -114,6 +166,14 @@ export class LiveVoiceAudioPlayer {
   /** Resolvers for in-flight `waitUntilDrained()` promises. */
   private drainResolvers: Array<() => void> = [];
 
+  /**
+   * Tail of the serialized container-decode chain. Container frames decode
+   * asynchronously, so they queue behind this promise to schedule strictly in
+   * arrival order — only after the previous frame's buffer (and thus its
+   * duration) is known can the next reserve its gapless start time.
+   */
+  private containerDecodeChain: Promise<void> = Promise.resolve();
+
   constructor(options?: { audioContextFactory?: AudioContextFactory }) {
     this.createContext = options?.audioContextFactory ?? defaultAudioContextFactory;
   }
@@ -141,10 +201,37 @@ export class LiveVoiceAudioPlayer {
   }
 
   /**
-   * Decode a PCM chunk and schedule it to play immediately after whatever is
-   * already queued. Empty/malformed chunks (zero samples) are dropped.
+   * Decode a TTS frame and schedule it to play immediately after whatever is
+   * already queued. The decode path is selected on `chunk.mimeType`:
+   *
+   * - `audio/pcm` — raw 16-bit PCM, decoded synchronously and scheduled now.
+   * - container formats (wav/mp3/opus) — decoded asynchronously via
+   *   `decodeAudioData`; the start time is reserved up front to keep ordering
+   *   and gaplessness intact while decoding.
+   * - anything else — skipped with a warning rather than misdecoded as PCM.
+   *
+   * Empty/malformed PCM chunks (zero samples) are dropped.
    */
   enqueue(chunk: TtsAudioChunk): void {
+    const mimeType = normalizeMimeType(chunk.mimeType);
+
+    if (mimeType === RAW_PCM_MIME_TYPE) {
+      this.enqueueRawPcm(chunk);
+      return;
+    }
+
+    if (CONTAINER_MIME_TYPES.has(mimeType)) {
+      this.enqueueContainer(chunk, mimeType);
+      return;
+    }
+
+    console.warn(
+      `[LiveVoiceAudioPlayer] skipping tts_audio frame with unsupported mimeType "${chunk.mimeType}"`,
+    );
+  }
+
+  /** Synchronous raw-PCM fast path. */
+  private enqueueRawPcm(chunk: TtsAudioChunk): void {
     const samples = decodePcm16Base64(chunk.dataBase64);
     if (samples.length === 0) return;
 
@@ -157,6 +244,45 @@ export class LiveVoiceAudioPlayer {
     const buffer = context.createBuffer(1, samples.length, chunk.sampleRate);
     buffer.getChannelData(0).set(samples);
 
+    this.scheduleBuffer(context, buffer);
+  }
+
+  /**
+   * Asynchronous container path (wav/mp3/opus). `decodeAudioData` derives the
+   * sample rate and channel layout from the container header, so we ignore
+   * `chunk.sampleRate` here.
+   *
+   * Decodes are serialized through {@link containerDecodeChain} so frames
+   * schedule strictly in arrival order: only once a frame is decoded is its
+   * buffer duration known, which the next frame needs to chain a gapless start
+   * time off the playhead. A decode that completes after a {@link stop} flushes
+   * the queue is dropped (the context has been replaced or `currentTime` has
+   * moved on), and a decode failure skips just that frame.
+   */
+  private enqueueContainer(chunk: TtsAudioChunk, mimeType: string): void {
+    const context = this.ensureContext();
+    const arrayBuffer = base64ToArrayBuffer(chunk.dataBase64);
+
+    this.containerDecodeChain = this.containerDecodeChain.then(async () => {
+      let buffer: AudioBuffer;
+      try {
+        buffer = await context.decodeAudioData(arrayBuffer);
+      } catch (err) {
+        console.warn(
+          `[LiveVoiceAudioPlayer] failed to decode ${mimeType} tts_audio frame; skipping`,
+          err,
+        );
+        return;
+      }
+
+      // The context was torn down (close/reuse) while decoding — abandon it.
+      if (this.context !== context || buffer.length === 0) return;
+      this.scheduleBuffer(context, buffer);
+    });
+  }
+
+  /** Connect a decoded buffer to the destination and start it gaplessly. */
+  private scheduleBuffer(context: AudioContextLike, buffer: AudioBuffer): void {
     const source = context.createBufferSource();
     source.buffer = buffer;
     source.connect(context.destination);

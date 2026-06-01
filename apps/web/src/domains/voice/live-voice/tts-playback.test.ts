@@ -29,9 +29,23 @@ class MockAudioContext {
   closed = false;
   readonly sources: MockSource[] = [];
 
+  /** ArrayBuffers passed to decodeAudioData, in call order. */
+  readonly decodedInputs: ArrayBuffer[] = [];
+  /**
+   * Override to control container-decode results in a test. Defaults to a
+   * 1.0s 48 kHz buffer so a decoded frame schedules like the PCM frames.
+   */
+  decodeAudioDataImpl: (audioData: ArrayBuffer) => Promise<AudioBuffer> = () =>
+    Promise.resolve(this.createBuffer(1, 48000, 48000));
+
   constructor(readonly sampleRate = 48000) {}
 
   readonly destination = {} as AudioNode;
+
+  decodeAudioData(audioData: ArrayBuffer): Promise<AudioBuffer> {
+    this.decodedInputs.push(audioData);
+    return this.decodeAudioDataImpl(audioData);
+  }
 
   createBuffer(
     _channels: number,
@@ -128,6 +142,19 @@ function chunk(samples: number[], sampleRate = 24000): {
     sampleRate,
     mimeType: "audio/pcm",
   };
+}
+
+/** Drain the microtask queue so serialized async decodes settle. */
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+}
+
+/** Build a frame with an arbitrary mimeType and opaque (non-PCM) payload. */
+function frame(
+  mimeType: string,
+  dataBase64 = btoa("opaque-container-bytes"),
+): { dataBase64: string; sampleRate: number; mimeType: string } {
+  return { dataBase64, sampleRate: 24000, mimeType };
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +297,69 @@ describe("LiveVoiceAudioPlayer", () => {
 
   test("drops empty/malformed chunks without scheduling", () => {
     player.enqueue(chunk([]));
+    expect(ctx.sources.length).toBe(0);
+    expect(player.isPlaying).toBe(false);
+  });
+
+  // -------------------------------------------------------------------------
+  // mimeType-gated decode routing
+  // -------------------------------------------------------------------------
+
+  test("audio/pcm frames take the synchronous raw-PCM fast path", () => {
+    player.enqueue(chunk(new Array(24000).fill(100)));
+
+    // Scheduled synchronously, built at the frame's own rate, no container
+    // decode invoked.
+    expect(ctx.sources.length).toBe(1);
+    expect(ctx.sources[0]!.buffer!.sampleRate).toBe(24000);
+    expect(ctx.decodedInputs.length).toBe(0);
+  });
+
+  test("audio/wav frames route through decodeAudioData (container path)", async () => {
+    const decoded = ctx.createBuffer(1, 48000, 48000);
+    let decodeCalls = 0;
+    ctx.decodeAudioDataImpl = () => {
+      decodeCalls += 1;
+      return Promise.resolve(decoded);
+    };
+
+    player.enqueue(frame("audio/wav"));
+
+    // Decode is invoked with the raw container bytes; scheduling happens after
+    // the async decode resolves.
+    expect(ctx.sources.length).toBe(0);
+
+    await flushMicrotasks();
+
+    expect(ctx.decodedInputs.length).toBe(1);
+    expect(decodeCalls).toBe(1);
+    expect(ctx.sources.length).toBe(1);
+    // The buffer's rate comes from the container (decodeAudioData), not 24 kHz.
+    expect(ctx.sources[0]!.buffer!.sampleRate).toBe(48000);
+    expect(ctx.sources[0]!.startedAt).toBe(0);
+  });
+
+  test("container frames are decoded with a wav mimeType too (params stripped)", async () => {
+    player.enqueue(frame("audio/wav; codecs=1"));
+    await flushMicrotasks();
+    expect(ctx.decodedInputs.length).toBe(1);
+  });
+
+  test("unknown mimeType is skipped: no decode, no scheduled buffer", async () => {
+    player.enqueue(frame("application/octet-stream"));
+    await flushMicrotasks();
+
+    expect(ctx.decodedInputs.length).toBe(0);
+    expect(ctx.sources.length).toBe(0);
+    expect(player.isPlaying).toBe(false);
+  });
+
+  test("a failed container decode skips the frame without throwing", async () => {
+    ctx.decodeAudioDataImpl = () => Promise.reject(new Error("bad container"));
+
+    player.enqueue(frame("audio/wav"));
+    await flushMicrotasks();
+
     expect(ctx.sources.length).toBe(0);
     expect(player.isPlaying).toBe(false);
   });
