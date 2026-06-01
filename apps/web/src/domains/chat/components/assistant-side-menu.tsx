@@ -308,6 +308,7 @@ export function AssistantSideMenu({
       iconOnly={<SquarePen />}
       aria-label="New conversation"
       tooltip="New conversation"
+      tooltipSide="right"
       onClick={() => { onStartNewConversation(); onClose?.(); }}
     />
   ) : null;
@@ -418,6 +419,7 @@ export function AssistantSideMenu({
         <SideMenu.Item
           icon={Brain}
           label={assistantName || "Your Assistant"}
+          showCollapsedTooltip
           active={isIntelligenceActive}
           onSelect={onOpenIntelligence ? () => { onOpenIntelligence(); onClose?.(); } : undefined}
         />
@@ -425,6 +427,7 @@ export function AssistantSideMenu({
           <SideMenu.Item
             icon={LayoutGrid}
             label="Library"
+            showCollapsedTooltip
             active={isLibraryActive}
             onSelect={onOpenLibrary ? () => { onOpenLibrary(); onClose?.(); } : undefined}
           />
@@ -437,6 +440,7 @@ export function AssistantSideMenu({
             // apps still get a leading icon in the rail.
             icon={app.icon ?? Rocket}
             label={app.name}
+            showCollapsedTooltip
             active={activeAppId === app.appId}
             onSelect={onOpenApp ? () => { onOpenApp(app.appId); onClose?.(); } : undefined}
           />

@@ -1,5 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent, AgentLoopRunResult } from "../agent/loop.js";
 import type {
   ContentBlock,
@@ -179,6 +180,7 @@ mock.module("../context/window-manager.js", () => ({
 // Mock AgentLoop that simulates abort after first of multiple tool calls
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;

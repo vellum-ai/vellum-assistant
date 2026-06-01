@@ -40,9 +40,9 @@ import type { Conversation } from "@/types/conversation-types";
 import { isBackgroundConversation } from "@/utils/conversation-predicates";
 import {
   conversationGroupsQueryKey,
-  conversationsQueryKey,
   useConversationListQuery,
-} from "@/domains/conversations/conversation-queries";
+} from "@/hooks/conversation-queries";
+import { conversationsQueryKey } from "@/lib/sync/query-tags";
 
 // ---------------------------------------------------------------------------
 // Module constants
@@ -88,7 +88,6 @@ interface UseConversationLoaderParams {
   requestIdToMessageIdRef: MutableRefObject<Map<string, string>>;
   pendingLocalDeletionsRef: MutableRefObject<Set<string>>;
   confirmationToolCallMapRef: MutableRefObject<Map<string, string>>;
-  autoGreetRef: MutableRefObject<boolean>;
   conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   pendingInitialMessageRef: MutableRefObject<{ conversationId: string; content: string } | null>;
 
@@ -97,7 +96,6 @@ interface UseConversationLoaderParams {
   setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
   setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
   setError: Dispatch<SetStateAction<ChatError | null>>;
-  setAutoGreetPending: Dispatch<SetStateAction<boolean>>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
@@ -152,14 +150,12 @@ export function useConversationLoader({
   requestIdToMessageIdRef,
   pendingLocalDeletionsRef,
   confirmationToolCallMapRef,
-  autoGreetRef,
   conversationListInvalidatedTimerRef,
   pendingInitialMessageRef,
   setMessages,
   setTranscriptPagination,
   setIsLoadingHistory,
   setError,
-  setAutoGreetPending,
   setContextWindowUsage,
   setCompactionCircuitOpenUntil,
   resetChatAttachments,
@@ -458,12 +454,10 @@ export function useConversationLoader({
     requestIdToMessageIdRef,
     pendingLocalDeletionsRef,
     confirmationToolCallMapRef,
-    autoGreetRef,
     setMessages,
     setTranscriptPagination,
     setIsLoadingHistory,
     setError,
-    setAutoGreetPending,
     setContextWindowUsage,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,

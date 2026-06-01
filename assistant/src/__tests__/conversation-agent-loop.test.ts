@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type {
   AgentEvent,
   AgentLoopRunOptions,
@@ -417,9 +418,18 @@ mock.module("../daemon/date-context.js", () => ({
   resolveTurnTimezoneContext: resolveTurnTimezoneContextMock,
 }));
 
-mock.module("../daemon/history-repair.js", () => ({
+mock.module("../plugins/defaults/history-repair/terminal.js", () => ({
   repairHistory: (msgs: Message[]) => ({
     messages: msgs,
+    stats: {
+      assistantToolResultsMigrated: 0,
+      missingToolResultsInserted: 0,
+      orphanToolResultsDowngraded: 0,
+      consecutiveSameRoleMerged: 0,
+    },
+  }),
+  defaultHistoryRepairTerminal: (args: { history: Message[] }) => ({
+    messages: args.history,
     stats: {
       assistantToolResultsMigrated: 0,
       missingToolResultsInserted: 0,
@@ -707,6 +717,7 @@ function makeCtx(
       // Tests here don't exercise calibration; returning undefined makes
       // the estimator use the per-provider aggregate key.
       getActiveModel: () => undefined,
+      compactionCircuit: new CompactionCircuit("test-conv"),
     } as unknown as AgentLoopConversationContext["agentLoop"],
     provider: {
       name: "mock-provider",
@@ -1154,8 +1165,7 @@ describe("session-agent-loop", () => {
       expect(activityStates).toContainEqual([
         "idle",
         "error_terminal",
-        "global",
-        "test-req",
+        { anchor: "global", requestId: "test-req" },
       ]);
       expect(traceEvents[0]).toEqual([
         "request_error",
@@ -1217,8 +1227,7 @@ describe("session-agent-loop", () => {
       expect(activityStates).toContainEqual([
         "idle",
         "error_terminal",
-        "global",
-        "test-req",
+        { anchor: "global", requestId: "test-req" },
       ]);
     });
   });

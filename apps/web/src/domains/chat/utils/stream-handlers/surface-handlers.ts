@@ -35,6 +35,7 @@ export function handleUISurfaceShow(
     data: event.data,
     actions: event.actions,
     display: event.display,
+    toolCallId: event.toolCallId,
   };
   surfaceObj.display = classifySurfaceDisplay(surfaceObj);
   ctx.turnActions.showSurface(isSurfaceInteractive(surfaceObj));

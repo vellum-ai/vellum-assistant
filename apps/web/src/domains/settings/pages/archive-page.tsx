@@ -5,7 +5,7 @@ import { useCallback, useState } from "react";
 import { Button } from "@vellum/design-library/components/button";
 import { Card } from "@vellum/design-library/components/card";
 import { assistantsListOptions } from "@/generated/api/@tanstack/react-query.gen";
-import { useArchivedConversationListQuery } from "@/domains/conversations/conversation-queries";
+import { useArchivedConversationListQuery } from "@/hooks/conversation-queries";
 import {
   archivedConversationsQueryKey,
   conversationsQueryKey,

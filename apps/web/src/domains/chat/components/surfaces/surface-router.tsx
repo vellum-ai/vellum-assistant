@@ -1,6 +1,7 @@
 
 import { CheckCircle, XCircle } from "lucide-react";
 
+import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { Surface } from "@/domains/chat/types/types";
 
 import { BrowserViewSurface } from "@/domains/chat/components/surfaces/browser-view-surface";
@@ -22,7 +23,10 @@ export interface SurfaceRouterProps {
   assistantId?: string | null;
   onOpenApp?: (appId: string) => void;
   onOpenDocument?: (documentSurfaceId: string) => void;
-  isToolCallComplete?: boolean;
+  /** Tool calls of the message this surface belongs to. Threaded to
+   *  `DynamicPageSurface`, which derives whether the surface's originating
+   *  tool call has completed before unlocking the app preview. */
+  toolCalls?: ChatMessageToolCall[];
 }
 
 export function SurfaceRouter({
@@ -31,7 +35,7 @@ export function SurfaceRouter({
   assistantId,
   onOpenApp,
   onOpenDocument,
-  isToolCallComplete = true,
+  toolCalls,
 }: SurfaceRouterProps) {
   const CHIP_COLLAPSE_TYPES = ["form", "confirmation", "file_upload", "task_preferences"];
   if (surface.completed && CHIP_COLLAPSE_TYPES.includes(surface.surfaceType)) {
@@ -78,7 +82,7 @@ export function SurfaceRouter({
           onAction={onAction}
           assistantId={assistantId}
           onOpenApp={onOpenApp}
-          isToolCallComplete={isToolCallComplete}
+          toolCalls={toolCalls}
         />
       );
 

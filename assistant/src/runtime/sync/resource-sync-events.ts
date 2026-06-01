@@ -46,6 +46,10 @@ export function publishSchedulesChanged(originClientId?: string): void {
   void publishSyncInvalidation([SYNC_TAGS.assistantSchedules], originClientId);
 }
 
+export function publishAppsChanged(originClientId?: string): void {
+  void publishSyncInvalidation([SYNC_TAGS.appsList], originClientId);
+}
+
 /**
  * Reasons that change the *shape* of the conversation list — a row is
  * added, removed, or its position changes. These require web clients to

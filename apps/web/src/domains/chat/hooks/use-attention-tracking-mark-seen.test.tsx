@@ -38,11 +38,14 @@ const markConversationSeenCalls: Array<{
 }> = [];
 let markConversationSeenImpl: () => Promise<void> = async () => {};
 
-mock.module("@/domains/conversations/conversation-queries", () => ({
+mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: conversationsImpl }),
+  markConversationSeenLocal: () => {},
+}));
+
+mock.module("@/utils/conversation-cache", () => ({
   getConversations: () => conversationsImpl,
   findConversation: () => undefined,
-  markConversationSeenLocal: () => {},
 }));
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
@@ -58,7 +61,7 @@ mock.module("@/domains/chat/api/interactions", () => ({
 }));
 
 const { useAttentionTracking } = await import(
-  "@/domains/conversations/use-attention-tracking"
+  "@/domains/chat/hooks/use-attention-tracking"
 );
 
 function wrapper({ children }: { children: ReactNode }) {

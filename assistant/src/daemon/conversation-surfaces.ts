@@ -504,6 +504,7 @@ export interface SurfaceConversationContext {
     }>;
     display?: string;
     persistent?: boolean;
+    toolCallId?: string;
   }>;
   /** Optional proxy for delegating computer-use actions to a connected desktop client. */
   hostCuProxy?: HostCuProxy;
@@ -1966,6 +1967,7 @@ export async function surfaceProxyResolver(
   toolName: string,
   input: Record<string, unknown>,
   signal?: AbortSignal,
+  toolUseId?: string,
 ): Promise<ToolExecutionResult> {
   // Route CU proxy tools (all computer_use_* action tools)
   if (toolName.startsWith("computer_use_")) {
@@ -2311,6 +2313,7 @@ export async function surfaceProxyResolver(
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     } as unknown as UiSurfaceShow);
 
     // Track surface for persistence with the message
@@ -2322,6 +2325,7 @@ export async function surfaceProxyResolver(
       actions: mappedActions,
       display,
       ...(persistent ? { persistent: true } : {}),
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     });
 
     if (awaitAction) {
@@ -2495,6 +2499,7 @@ export async function surfaceProxyResolver(
         title: app.name,
         data: surfaceData,
         display: "inline",
+        ...(toolUseId ? { toolCallId: toolUseId } : {}),
       } as UiSurfaceShow);
 
       // Track for message persistence so the inline card survives history reload.
@@ -2504,6 +2509,7 @@ export async function surfaceProxyResolver(
         title: app.name,
         data: surfaceData,
         display: "inline",
+        ...(toolUseId ? { toolCallId: toolUseId } : {}),
       });
 
       return { content: JSON.stringify({ surfaceId, appId }), isError: false };
@@ -2522,6 +2528,7 @@ export async function surfaceProxyResolver(
       surfaceType: "dynamic_page",
       title: app.name,
       data: surfaceData,
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     } as UiSurfaceShow);
 
     // Track surface for persistence
@@ -2530,6 +2537,7 @@ export async function surfaceProxyResolver(
       surfaceType: "dynamic_page",
       title: app.name,
       data: surfaceData,
+      ...(toolUseId ? { toolCallId: toolUseId } : {}),
     });
 
     ctx.pendingSurfaceActions.set(surfaceId, { surfaceType: "dynamic_page" });

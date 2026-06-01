@@ -769,11 +769,13 @@ describe("voice-session-bridge", () => {
       handleConfirmationResponse: (
         requestId: string,
         decision: string,
-        _selectedPattern?: string,
-        _selectedScope?: string,
-        decisionContext?: string,
+        options?: { decisionContext?: string },
       ) => {
-        handleConfirmationCalls.push({ requestId, decision, decisionContext });
+        handleConfirmationCalls.push({
+          requestId,
+          decision,
+          decisionContext: options?.decisionContext,
+        });
       },
       abort: () => {},
     } as unknown as Conversation;

@@ -95,6 +95,8 @@ export interface HistorySurface {
   persistent?: boolean;
   completed?: boolean;
   completionSummary?: string;
+  /** Id of the tool call that produced this surface (the `ui_show` proxy tool). Lets the client gate app previews on the tool result's arrival rather than whole-turn streaming state. */
+  toolCallId?: string;
 }
 
 /**
@@ -376,6 +378,8 @@ export function renderHistoryContent(content: unknown): RenderedHistoryContent {
           typeof block.completionSummary === "string"
             ? block.completionSummary
             : undefined,
+        toolCallId:
+          typeof block.toolCallId === "string" ? block.toolCallId : undefined,
       };
       surfaces.push(surface);
       contentOrder.push(`surface:${surfaces.length - 1}`);

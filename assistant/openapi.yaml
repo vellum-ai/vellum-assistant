@@ -4861,7 +4861,30 @@ paths:
                 properties:
                   starters:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        label:
+                          type: string
+                        prompt:
+                          type: string
+                        category:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        batch:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                      required:
+                        - id
+                        - label
+                        - prompt
+                        - category
+                        - batch
+                      additionalProperties: false
                     description: Ordered list of starter chips
                   total:
                     type: integer
@@ -8454,7 +8477,68 @@ paths:
                 properties:
                   comments:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        surfaceId:
+                          type: string
+                        conversationId:
+                          type: string
+                        author:
+                          type: string
+                        content:
+                          type: string
+                        anchorStart:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        anchorEnd:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        anchorText:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        parentCommentId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        status:
+                          type: string
+                          enum:
+                            - open
+                            - resolved
+                        resolvedBy:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        resolvedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
+                      required:
+                        - id
+                        - surfaceId
+                        - conversationId
+                        - author
+                        - content
+                        - anchorStart
+                        - anchorEnd
+                        - anchorText
+                        - parentCommentId
+                        - status
+                        - resolvedBy
+                        - resolvedAt
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
                     description: Comment records
                 required:
                   - comments
@@ -8499,8 +8583,35 @@ paths:
                     type: string
                   content:
                     type: string
+                  anchorStart:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  anchorEnd:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  anchorText:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  parentCommentId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   status:
                     type: string
+                    enum:
+                      - open
+                      - resolved
+                  resolvedBy:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  resolvedAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   createdAt:
                     type: number
                   updatedAt:
@@ -8511,7 +8622,13 @@ paths:
                   - conversationId
                   - author
                   - content
+                  - anchorStart
+                  - anchorEnd
+                  - anchorText
+                  - parentCommentId
                   - status
+                  - resolvedBy
+                  - resolvedAt
                   - createdAt
                   - updatedAt
                 additionalProperties: false
@@ -8614,17 +8731,59 @@ paths:
                     type: string
                   surfaceId:
                     type: string
+                  conversationId:
+                    type: string
+                  author:
+                    type: string
                   content:
                     type: string
+                  anchorStart:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  anchorEnd:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  anchorText:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  parentCommentId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   status:
                     type: string
+                    enum:
+                      - open
+                      - resolved
+                  resolvedBy:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  resolvedAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  createdAt:
+                    type: number
                   updatedAt:
                     type: number
                 required:
                   - id
                   - surfaceId
+                  - conversationId
+                  - author
                   - content
+                  - anchorStart
+                  - anchorEnd
+                  - anchorText
+                  - parentCommentId
                   - status
+                  - resolvedBy
+                  - resolvedAt
+                  - createdAt
                   - updatedAt
                 additionalProperties: false
       parameters:
@@ -15935,9 +16094,124 @@ paths:
                     type: string
                   results:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
-                    description: Results grouped by category
+                    properties:
+                      conversations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            title:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            updatedAt:
+                              type: number
+                            excerpt:
+                              type: string
+                            matchCount:
+                              type: integer
+                              minimum: -9007199254740991
+                              maximum: 9007199254740991
+                          required:
+                            - id
+                            - title
+                            - updatedAt
+                            - excerpt
+                            - matchCount
+                          additionalProperties: false
+                      memories:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            kind:
+                              type: string
+                            text:
+                              type: string
+                            subject:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            confidence:
+                              type: number
+                            updatedAt:
+                              type: number
+                            source:
+                              type: string
+                              enum:
+                                - lexical
+                                - semantic
+                          required:
+                            - id
+                            - kind
+                            - text
+                            - subject
+                            - confidence
+                            - updatedAt
+                            - source
+                          additionalProperties: false
+                      schedules:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            expression:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            message:
+                              type: string
+                            enabled:
+                              type: boolean
+                            nextRunAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                          required:
+                            - id
+                            - name
+                            - expression
+                            - message
+                            - enabled
+                            - nextRunAt
+                          additionalProperties: false
+                      contacts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            displayName:
+                              type: string
+                            notes:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            lastInteraction:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                          required:
+                            - id
+                            - displayName
+                            - notes
+                            - lastInteraction
+                          additionalProperties: false
+                    required:
+                      - conversations
+                      - memories
+                      - schedules
+                      - contacts
+                    additionalProperties: false
                 required:
                   - query
                   - results

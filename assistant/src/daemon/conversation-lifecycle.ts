@@ -21,6 +21,7 @@ import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospect
 import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
+import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import {
   isUntrustedTrustClass,
@@ -34,7 +35,6 @@ import type { MessageQueue } from "./conversation-queue-manager.js";
 import { stripInjectionsForCompaction } from "./conversation-runtime-assembly.js";
 import { resetSkillToolProjection } from "./conversation-skill-tools.js";
 import { resolveTrustClass } from "./conversation-tool-setup.js";
-import { repairHistory } from "./history-repair.js";
 import type {
   SurfaceData,
   SurfaceType,
@@ -350,6 +350,13 @@ export async function loadFromDb(ctx: LoadFromDbContext): Promise<void> {
           ...parsedMessages.slice(preStrippedCount),
         ];
 
+  // Normalize the canonical persisted history once at load. Every consumer
+  // of `ctx.messages` outside the agent loop (history edit/undo, PKB context
+  // tracking, surfaces) reads this list directly, so it must satisfy the
+  // provider pairing/alternation rules before any of them run. The agent
+  // loop's pre-run repair only repairs the transient per-turn message list it
+  // sends to the provider and never writes back here, so this pass is not
+  // redundant with it.
   const { messages: repairedMessages, stats } =
     repairHistory(messagesBeforeRepair);
   if (
