@@ -274,12 +274,12 @@ async function buildClientLogsFile(
     // chat page hasn't mounted the API yet.
   }
 
-  // SSE liveness + focus/visibility, read through the same live debug API.
-  // `visibilitychange` only fires on tab-switch / minimize / full occlusion —
-  // not when the browser window loses focus to another app while the tab stays
-  // visible — so a `hasFocus:false` + `visibilityState:"visible"` capture
-  // alongside a half-open socket is the fingerprint of the "stale after
-  // refocus" report.
+  // SSE clients/events + focus/visibility, read through the same live debug
+  // API. Per-client traffic ages (no bytes for minutes but never errored)
+  // plus a `hasFocus:false` + `visibilityState:"visible"` capture are the
+  // fingerprint of the "stale after refocus" report — `visibilitychange`
+  // only fires on tab-switch / minimize / full occlusion, not when the
+  // browser window merely loses focus to another app.
   try {
     const eventsApi =
       typeof window !== "undefined"
@@ -298,7 +298,13 @@ async function buildClientLogsFile(
                 visibilityState: document.visibilityState,
               }
             : null,
-        liveness: eventsApi.getLiveness(),
+        // `AbortSignal` isn't JSON-serializable, so project it to an
+        // `aborted` flag and keep the rest of each client verbatim.
+        clients: eventsApi.getClients().map(({ abortSignal, ...rest }) => ({
+          ...rest,
+          aborted: abortSignal.aborted,
+        })),
+        events: eventsApi.getEvents(),
       };
       const triageBytes = new TextEncoder().encode(
         JSON.stringify(triagePayload, null, 2),

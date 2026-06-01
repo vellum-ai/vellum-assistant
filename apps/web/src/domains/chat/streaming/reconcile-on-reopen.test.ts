@@ -5,6 +5,20 @@ import type {
   WebSyncRouter,
 } from "@/lib/sync/web-sync-router";
 
+// Mock stream store — tracks epoch so tests can simulate races.
+let mockStreamEpoch = 0;
+mock.module("@/domains/chat/stream-store", () => ({
+  useStreamStore: {
+    getState: () => ({
+      streamEpoch: mockStreamEpoch,
+      bumpEpoch: () => {
+        mockStreamEpoch++;
+        return mockStreamEpoch;
+      },
+    }),
+  },
+}));
+
 const recordDiagnosticMock = mock(() => {});
 const recordLifecycleDiagnosticMock = mock(() => {});
 const bucketMessagesAddedMock = mock(() => "0");
@@ -41,24 +55,20 @@ const makeReconcileResult = (
 const makeDeps = (override: Partial<{
   assistantId: string;
   conversationId: string;
-  streamEpochRef: { current: number };
   reconcileActive: () => Promise<ActiveConversationMessagesRefreshResult>;
   startReconciliationLoop: (epoch: number) => void;
   syncRouterRef: { current: WebSyncRouter | null };
 }> = {}) => {
-  const streamEpochRef = override.streamEpochRef ?? { current: 0 };
   const reconcileActive = override.reconcileActive ?? mock(async () => makeReconcileResult());
   const startReconciliationLoop = override.startReconciliationLoop ?? mock(() => {});
   const syncRouterRef = override.syncRouterRef ?? { current: null };
   return {
-    streamEpochRef,
     reconcileActive,
     startReconciliationLoop,
     syncRouterRef,
     deps: {
       assistantId: override.assistantId ?? "asst-1",
       conversationId: override.conversationId ?? "conv-1",
-      streamEpochRef,
       reconcileActive,
       startReconciliationLoop,
       syncRouterRef,
@@ -67,6 +77,7 @@ const makeDeps = (override: Partial<{
 };
 
 beforeEach(() => {
+  mockStreamEpoch = 0;
   recordDiagnosticMock.mockClear();
   recordLifecycleDiagnosticMock.mockClear();
   addBreadcrumbMock.mockClear();
@@ -76,25 +87,25 @@ beforeEach(() => {
 
 describe("reconcile-on-reopen — gating", () => {
   test("ignores opens for a different assistant", () => {
-    const { deps, streamEpochRef, reconcileActive, startReconciliationLoop } =
+    const { deps, reconcileActive, startReconciliationLoop } =
       makeDeps();
     const handler = createReconcileOnReopen(deps);
 
     handler.handleSseOpened({ assistantId: "asst-OTHER", cause: "resume" });
 
-    expect(streamEpochRef.current).toBe(0);
+    expect(mockStreamEpoch).toBe(0);
     expect(reconcileActive).not.toHaveBeenCalled();
     expect(startReconciliationLoop).not.toHaveBeenCalled();
   });
 
   test("fresh cause: bumps epoch but does not reconcile", () => {
-    const { deps, streamEpochRef, reconcileActive, startReconciliationLoop } =
+    const { deps, reconcileActive, startReconciliationLoop } =
       makeDeps();
     const handler = createReconcileOnReopen(deps);
 
     handler.handleSseOpened({ assistantId: "asst-1", cause: "fresh" });
 
-    expect(streamEpochRef.current).toBe(1);
+    expect(mockStreamEpoch).toBe(1);
     expect(reconcileActive).not.toHaveBeenCalled();
     expect(startReconciliationLoop).not.toHaveBeenCalled();
     // AND the open is recorded on the durable lifecycle ring, not the
@@ -108,13 +119,13 @@ describe("reconcile-on-reopen — gating", () => {
 
 describe("reconcile-on-reopen — resume cause", () => {
   test("standalone reconcile + start the loop on the bumped epoch", () => {
-    const { deps, streamEpochRef, reconcileActive, startReconciliationLoop } =
+    const { deps, reconcileActive, startReconciliationLoop } =
       makeDeps();
     const handler = createReconcileOnReopen(deps);
 
     handler.handleSseOpened({ assistantId: "asst-1", cause: "resume" });
 
-    expect(streamEpochRef.current).toBe(1);
+    expect(mockStreamEpoch).toBe(1);
     expect(reconcileActive).toHaveBeenCalledTimes(1);
     expect(startReconciliationLoop).toHaveBeenCalledWith(1);
   });
@@ -186,17 +197,17 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
           resolveReconcile = resolve;
         }),
     );
-    const { deps, streamEpochRef, startReconciliationLoop } = makeDeps({
+    const { deps, startReconciliationLoop } = makeDeps({
       reconcileActive,
     });
     const handler = createReconcileOnReopen(deps);
 
     handler.handleSseOpened({ assistantId: "asst-1", cause: "watchdog" });
-    expect(streamEpochRef.current).toBe(1);
+    expect(mockStreamEpoch).toBe(1);
 
     // Simulate a racing later reopen: bump the epoch before the
     // in-flight reconcile resolves.
-    streamEpochRef.current = 2;
+    mockStreamEpoch = 2;
     resolveReconcile(makeReconcileResult({ messagesAdded: 5 }));
     await new Promise((r) => setTimeout(r, 0));
 

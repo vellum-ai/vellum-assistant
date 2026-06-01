@@ -31,6 +31,8 @@ import { isAsyncChatScopeCurrent } from "@/domains/chat/utils/conversation-scope
 import { resolveEditChatDraftConversationId } from "@/domains/chat/utils/edit-chat-session";
 import { type DiskPressureChatBlockReason, getDiskPressureChatBlockMessage } from "@/assistant/disk-pressure";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
@@ -66,17 +68,7 @@ import { conversationsByIdCancelPost } from "@/generated/daemon/sdk.gen";
 import type { Conversation } from "@/types/conversation-types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { type RuntimeMessage, fetchConversationMessages, postChatMessage, pollForResponse } from "@/domains/chat/api/messages";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import { supportsServerMintedConversation } from "@/lib/backwards-compat/server-minted-conversation";
-
-// Re-export pure utilities so existing consumers don't break.
-export {
-  clearPendingConfirmationsFromMessages,
-  dismissInteractiveSurfaces,
-  resolvePostError,
-  parsePendingSecretState,
-  parsePendingConfirmationData,
-} from "@/domains/chat/hooks/send-message-utils";
 
 // ---------------------------------------------------------------------------
 // Stream send result
@@ -117,15 +109,6 @@ interface UseSendMessageParams {
   diskPressureChatBlockReason: DiskPressureChatBlockReason | null;
   messages: DisplayMessage[];
 
-  // Infrastructure refs (not per-conversation state)
-  assistantIdRef: MutableRefObject<string | null>;
-  streamRef: MutableRefObject<ChatEventStream | null>;
-  streamContextRef: MutableRefObject<{
-    assistantId: string;
-    conversationId: string;
-  } | null>;
-  streamEpochRef: MutableRefObject<number>;
-
   // Onboarding refs (ChatPage-local, not per-conversation)
   pendingOnboardingContextRef: MutableRefObject<PreChatOnboardingContext | null>;
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
@@ -151,10 +134,6 @@ export function useSendMessage({
   activeConversationId,
   diskPressureChatBlockReason,
   messages,
-  assistantIdRef,
-  streamRef,
-  streamContextRef,
-  streamEpochRef,
   pendingOnboardingContextRef,
   onboardingDraftConversationIdRef,
   setInput,
@@ -216,7 +195,7 @@ export function useSendMessage({
       for (const id of dismissedIds) {
         store.dismissedSurfaceIds.add(id);
       }
-      const streamCtx = streamContextRef.current;
+      const streamCtx = useStreamStore.getState().streamContext;
       if (streamCtx) {
         saveDismissedSurfaceIds(
           streamCtx.assistantId,
@@ -243,7 +222,7 @@ export function useSendMessage({
       const requestConversationId = activeConversationId;
       const isCurrentSendScope = (resolvedConversationId?: string | null) =>
         isAsyncChatScopeCurrent({
-          currentAssistantId: assistantIdRef.current,
+          currentAssistantId: useAssistantSelectionStore.getState().activeAssistantId,
           currentConversationId: useConversationStore.getState().activeConversationId,
           requestAssistantId,
           requestConversationId,
@@ -291,7 +270,7 @@ export function useSendMessage({
           recordDiagnostic("send_error_ignored_inactive_conversation", {
             assistantId: requestAssistantId,
             conversationId: requestConversationId,
-            activeAssistantId: assistantIdRef.current,
+            activeAssistantId: useAssistantSelectionStore.getState().activeAssistantId,
             activeConversationId: useConversationStore.getState().activeConversationId,
           });
           return { status: "ignored" };
@@ -334,7 +313,7 @@ export function useSendMessage({
           assistantId: postResult.assistantId,
           conversationId: requestConversationId,
           resolvedConversationId: effectiveConversationId,
-          activeAssistantId: assistantIdRef.current,
+          activeAssistantId: useAssistantSelectionStore.getState().activeAssistantId,
           activeConversationId: useConversationStore.getState().activeConversationId,
         });
         return {
@@ -343,16 +322,17 @@ export function useSendMessage({
         };
       }
 
-      const existingStreamContext = streamContextRef.current;
+      const streamState = useStreamStore.getState();
+      const existingStreamContext = streamState.streamContext;
       const hasMatchingActiveStream =
-        !!streamRef.current &&
+        !!streamState.stream &&
         existingStreamContext?.assistantId === postResult.assistantId &&
         existingStreamContext.conversationId === effectiveConversationId;
 
-      streamContextRef.current = {
+      streamState.setStreamContext({
         assistantId: postResult.assistantId,
         conversationId: effectiveConversationId,
-      };
+      });
 
       if (postResult.queued) {
         return {
@@ -375,7 +355,7 @@ export function useSendMessage({
               assistantId: postResult.assistantId,
               conversationId: requestConversationId,
               resolvedConversationId: effectiveConversationId,
-              activeAssistantId: assistantIdRef.current,
+              activeAssistantId: useAssistantSelectionStore.getState().activeAssistantId,
               activeConversationId: useConversationStore.getState().activeConversationId,
             });
             return;
@@ -638,7 +618,7 @@ export function useSendMessage({
       try {
         const result = await sendMessageViaStream(
           content,
-          streamEpochRef.current,
+          useStreamStore.getState().streamEpoch,
           turnId,
           attachments.map((att) => att.id),
           isDraft,
@@ -749,7 +729,7 @@ export function useSendMessage({
   // -------------------------------------------------------------------------
   const handleStopGenerating = useCallback(async () => {
     if (!assistantId || !activeConversationId) return;
-    streamEpochRef.current++;
+    useStreamStore.getState().bumpEpoch();
     endTurn({ conversationId: activeConversationId, reason: "cancelled" });
     setMessages(clearPendingConfirmationsFromMessages);
     useInteractionStore.getState().resetAll();

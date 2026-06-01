@@ -35,7 +35,7 @@ function resolveConversationId(
   event: { conversationId?: string },
   ctx: StreamHandlerContext,
 ): string | undefined {
-  return event.conversationId ?? ctx.streamContextRef.current?.conversationId;
+  return event.conversationId ?? ctx.streamContext?.conversationId;
 }
 
 /**
@@ -70,7 +70,7 @@ export function handleAssistantTurnStart(
   if (convId) {
     const cached = findConversation(
       ctx.queryClient,
-      ctx.assistantIdRef.current,
+      ctx.assistantId,
       convId,
     );
     useConversationStore
@@ -96,7 +96,7 @@ export function handleAssistantTextDelta(
   if (convId) {
     const cached = findConversation(
       ctx.queryClient,
-      ctx.assistantIdRef.current,
+      ctx.assistantId,
       convId,
     );
     useConversationStore
@@ -162,7 +162,7 @@ export function handleAssistantActivityState(
     // Mirrors the cache patch in `handleMessageComplete` /
     // `handleGenerationCancelled` — see those handlers for the
     // stale-snapshot rationale.
-    patchConversation(ctx.queryClient, ctx.assistantIdRef.current, convId, {
+    patchConversation(ctx.queryClient, ctx.assistantId, convId, {
       isProcessing: false,
     });
   }
@@ -195,7 +195,7 @@ export function handleMessageComplete(
       .reanchorToMessage({ stableId, messageId: event.messageId });
   }
 
-  // Prefer the event's own `conversationId` over `streamContextRef`.
+  // Prefer the event's own `conversationId` over `streamContext`.
   // The event carries the canonical id; the ref is a mirror that may be
   // cleared by a stream teardown that races the terminal event. All
   // three terminal handlers (`handleAssistantActivityState(idle)`,
@@ -209,7 +209,7 @@ export function handleMessageComplete(
     // latched on a stale `true` after the local set is cleared. Without
     // this, conversations opened or refreshed mid-turn would keep the
     // badge / Stop / streaming state lit until an unrelated refetch.
-    patchConversation(ctx.queryClient, ctx.assistantIdRef.current, convId, {
+    patchConversation(ctx.queryClient, ctx.assistantId, convId, {
       isProcessing: false,
     });
   }
@@ -255,7 +255,7 @@ export function handleGenerationCancelled(
   // fallback chain and the cache-patch.
   const convId = resolveConversationId(event, ctx);
   if (convId) {
-    patchConversation(ctx.queryClient, ctx.assistantIdRef.current, convId, {
+    patchConversation(ctx.queryClient, ctx.assistantId, convId, {
       isProcessing: false,
     });
   }

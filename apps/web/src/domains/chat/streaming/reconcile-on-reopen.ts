@@ -23,6 +23,7 @@
 
 import * as Sentry from "@sentry/react";
 
+import { useStreamStore } from "@/domains/chat/stream-store";
 import {
   bucketMessagesAdded,
   recordDiagnostic,
@@ -41,12 +42,6 @@ export interface ReconcileOnReopenDeps {
   assistantId: string;
   /** Active conversation key; included in every diagnostic. */
   conversationId: string;
-  /**
-   * Epoch counter owned by the caller. Each reopen bumps it; in-flight
-   * reconciles compare the captured epoch to the current one and
-   * abort if a newer reopen has superseded them.
-   */
-  streamEpochRef: { current: number };
   /** Reconcile the active conversation; standalone-fallback path. */
   reconcileActive: () => Promise<ActiveConversationMessagesRefreshResult>;
   /** Start the reconciliation loop on a given epoch. */
@@ -65,11 +60,11 @@ export interface ReconcileOnReopen {
 export function createReconcileOnReopen(
   deps: ReconcileOnReopenDeps,
 ): ReconcileOnReopen {
-  const { assistantId, conversationId, streamEpochRef } = deps;
+  const { assistantId, conversationId } = deps;
   return {
     handleSseOpened({ assistantId: openedFor, cause }) {
       if (openedFor !== assistantId) return;
-      const epoch = ++streamEpochRef.current;
+      const epoch = useStreamStore.getState().bumpEpoch();
       recordLifecycleDiagnostic("sse_stream_opened", {
         assistantId,
         conversationId,
@@ -117,7 +112,7 @@ async function runTransportRecoveryReconcile(
   epoch: number,
   cause: "watchdog" | "error",
 ): Promise<void> {
-  const { assistantId, conversationId, streamEpochRef, syncRouterRef } = deps;
+  const { assistantId, conversationId, syncRouterRef } = deps;
   recordLifecycleDiagnostic("sse_stream_reconnect", {
     assistantId,
     conversationId,
@@ -167,12 +162,13 @@ async function runTransportRecoveryReconcile(
   // the rescue metric. Without this, calling
   // startReconciliationLoop(staleEpoch) would cancel the newer loop
   // and then exit as stale, leaving no active loop running.
-  if (epoch !== streamEpochRef.current) {
+  const currentEpoch = useStreamStore.getState().streamEpoch;
+  if (epoch !== currentEpoch) {
     recordDiagnostic("sse_post_reconnect_stale", {
       assistantId,
       conversationId,
       epoch,
-      currentEpoch: streamEpochRef.current,
+      currentEpoch,
       cause,
     });
     return;

@@ -13,10 +13,8 @@ export function makeCtx(
   return {
     router: { push: mock(() => {}) },
     isNative: false,
-    streamContextRef: {
-      current: { assistantId: "ast-1", conversationId: "conv-1" },
-    },
-    assistantIdRef: { current: "ast-1" },
+    streamContext: { assistantId: "ast-1", conversationId: "conv-1" },
+    assistantId: "ast-1",
     setMessages: mock(() => {}),
     messages: [],
     turnActions: {
@@ -51,7 +49,7 @@ export function makeCtx(
     getTurnState: () => ({ ...INITIAL_TURN_STATE }) as TurnState,
     endTurn: mock(() => {}),
     setError: mock(() => {}),
-    streamRef: { current: { cancel: mock(() => {}) } as never },
+    cancelAndClearStream: mock(() => {}),
     cancelReconciliation: mock(() => {}),
     startReconciliationLoop: mock(() => {}),
     confirmationToolCallMap: new Map(),

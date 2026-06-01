@@ -33,12 +33,6 @@ export interface SkillInfo {
   sourceRepo?: string;
 }
 
-export interface SkillsListResponse {
-  skills: SkillInfo[];
-  categoryCounts?: Record<string, number>;
-  totalCount?: number;
-}
-
 export interface SkillFileEntry {
   name: string;
   path: string;
@@ -53,15 +47,6 @@ export interface SkillFilesResponse {
   name: string;
   description?: string;
   files: SkillFileEntry[];
-}
-
-export interface SkillFileContentResponse {
-  path: string;
-  name: string;
-  size: number;
-  mimeType: string;
-  isBinary: boolean;
-  content: string | null;
 }
 
 export type SkillFilter = "all" | "installed" | "available" | SkillOrigin;

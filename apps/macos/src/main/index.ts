@@ -13,6 +13,7 @@ import {
   installDeepLinks,
 } from "./deep-links";
 import { installDock } from "./dock";
+import { installLocalMode } from "./local-mode";
 import {
   ensureVisible as ensureMainWindowVisible,
   installMainWindow,
@@ -260,6 +261,7 @@ app
     }
     installPermissionHandler();
     installSettingsIpc();
+    installLocalMode();
     installAbout();
     installApplicationMenu();
     installDock();

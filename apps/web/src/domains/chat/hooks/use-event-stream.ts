@@ -25,6 +25,7 @@ import {
 } from "react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
 import {
   createReachabilityBurstLimiter,
   type ReachabilityBurstLimiter,
@@ -54,19 +55,6 @@ export interface UseEventStreamParams {
   /** Whether the active conversation has been persisted on the server. */
   conversationExistsOnServer: boolean;
 
-  // Shared refs — owned by caller, read/written by multiple hooks.
-  // `streamRef` is a presence-bit: holds a sentinel object while the
-  // bus subscription is live for the current conversation context,
-  // and is nulled when the subscription tears down. `use-send-message`
-  // reads it to decide whether SSE will deliver the response or
-  // polling is needed.
-  streamRef: MutableRefObject<ChatEventStream | null>;
-  streamEpochRef: MutableRefObject<number>;
-  streamContextRef: MutableRefObject<{
-    assistantId: string;
-    conversationId: string;
-  } | null>;
-
   // Callbacks from useStreamEventHandler / useMessageReconciliation
   handleStreamEvent: (event: AssistantEvent, epoch: number) => void;
   reconcileActiveConversation: () => Promise<ActiveConversationMessagesRefreshResult>;
@@ -92,9 +80,6 @@ export function useEventStream({
   assistantId,
   activeConversationId,
   conversationExistsOnServer,
-  streamRef,
-  streamEpochRef,
-  streamContextRef,
   handleStreamEvent,
   reconcileActiveConversation,
   startReconciliationLoop,
@@ -184,20 +169,20 @@ export function useEventStream({
     const capturedAssistantId = assistantId;
     const capturedConversationId = activeConversationId;
 
-    streamContextRef.current = {
+    const ss = useStreamStore.getState();
+    ss.setStreamContext({
       assistantId: capturedAssistantId,
       conversationId: capturedConversationId,
-    };
-    // `use-send-message.ts` reads `streamRef.current` as a presence bit
-    // to decide whether SSE will deliver the response. We write a
-    // sentinel whose `cancel()` is a no-op — the real teardown is the
-    // bus unsubscribe in the cleanup function below.
+    });
+    // `use-send-message.ts` reads `stream` as a presence bit to decide
+    // whether SSE will deliver the response. We write a sentinel whose
+    // `cancel()` is a no-op — the real teardown is the bus unsubscribe
+    // in the cleanup function below.
     const presence: ChatEventStream = { cancel: () => {} };
-    streamRef.current = presence;
+    ss.setStream(presence);
 
     const consumer = createSseEventConsumer({
       activeConversationIdRef: activeConversationIdLatestRef,
-      streamEpochRef,
       handleStreamEvent: (event, epoch) =>
         handleStreamEventRef.current(event, epoch),
       reconcileActive: () => {
@@ -211,15 +196,21 @@ export function useEventStream({
 
     return () => {
       unsubEvent();
-      streamEpochRef.current += 1;
-      if (streamRef.current === presence) {
-        streamRef.current = null;
+      useStreamStore.getState().bumpEpoch();
+      // Clear stream/context only if they still belong to this
+      // subscription — a newer subscription may have already replaced
+      // them. Uses identity check (stream) and value check (context),
+      // matching the original ref-based ownership checks.
+      const s = useStreamStore.getState();
+      if (s.stream === presence) {
+        s.setStream(null);
       }
+      const ctx = s.streamContext;
       if (
-        streamContextRef.current?.assistantId === capturedAssistantId &&
-        streamContextRef.current.conversationId === capturedConversationId
+        ctx?.assistantId === capturedAssistantId &&
+        ctx.conversationId === capturedConversationId
       ) {
-        streamContextRef.current = null;
+        s.setStreamContext(null);
       }
     };
   }, [
@@ -227,9 +218,6 @@ export function useEventStream({
     assistantId,
     activeConversationId,
     conversationExistsOnServer,
-    streamRef,
-    streamEpochRef,
-    streamContextRef,
   ]);
 
   // --------------------------------------------------------------------------
@@ -248,7 +236,6 @@ export function useEventStream({
     const handler = createReconcileOnReopen({
       assistantId,
       conversationId: activeConversationId,
-      streamEpochRef,
       reconcileActive: () => reconcileActiveConversationRef.current(),
       startReconciliationLoop: (epoch) =>
         startReconciliationLoopRef.current(epoch),
@@ -262,7 +249,6 @@ export function useEventStream({
     assistantStateKind,
     assistantId,
     activeConversationId,
-    streamEpochRef,
     syncRouterRef,
   ]);
 
@@ -288,14 +274,15 @@ export function useEventStream({
 
     return subscribe("sse.closed", ({ reason }) => {
       const hadActiveTurn = isSending(useTurnStore.getState());
+      const streamState = useStreamStore.getState();
       recordLifecycleDiagnostic("sse_stream_error", {
         assistantId: capturedAssistantId,
         conversationId: capturedConversationId,
-        epoch: streamEpochRef.current,
+        epoch: streamState.streamEpoch,
         messageLength: reason.length,
       });
       endTurn({
-        conversationId: streamContextRef.current?.conversationId,
+        conversationId: streamState.streamContext?.conversationId,
         reason: "session_error",
       });
       // Idle SSE drops should reopen the stream without interrupting the
@@ -311,8 +298,6 @@ export function useEventStream({
     assistantStateKind,
     assistantId,
     activeConversationId,
-    streamEpochRef,
-    streamContextRef,
   ]);
 
   // --------------------------------------------------------------------------

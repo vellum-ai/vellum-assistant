@@ -176,16 +176,75 @@ final class AvatarAppearanceManager {
         return statusCode == 404
     }
 
-    /// Fetches the avatar image via HTTP through the gateway. On transient
-    /// failure (401, 5xx, transport error) the existing cached image is
-    /// preserved and one retry is scheduled; only an authoritative 404 clears
-    /// it. Guarded by `avatarRetryInFlight` so repeated transient failures
-    /// don't stack retries.
-    private func fetchAvatarViaHTTP() async {
+    /// Authoritative render state returned by `GET /avatar/state`. `kind`
+    /// selects the render mode; `traits` is populated for `character`, and the
+    /// PNG bytes for `image` are fetched separately from the workspace.
+    struct AvatarState: Codable, Equatable {
+        enum Kind: String, Codable {
+            case character
+            case image
+            case none
+        }
+
+        struct Traits: Codable, Equatable {
+            let bodyShape: String
+            let eyeStyle: String
+            let color: String
+        }
+
+        struct ImageInfo: Codable, Equatable {
+            let updatedAt: String
+            let etag: String
+        }
+
+        let kind: Kind
+        let traits: Traits?
+        let source: String?
+        let image: ImageInfo?
+    }
+
+    /// The action implied by an `avatar/state` HTTP response, before any state
+    /// is mutated. Extracted as a pure function so the transient-vs-authoritative
+    /// policy can be unit-tested without a live gateway connection.
+    enum StateFetchAction: Equatable {
+        /// Apply the decoded authoritative state.
+        case apply(AvatarState)
+        /// Authoritative "no avatar" (404, or 2xx with empty/garbled body):
+        /// clear cached state.
+        case clear
+        /// Transient failure (401/403/5xx): preserve cached state and retry.
+        case retry
+    }
+
+    /// Classifies an `avatar/state` response into an action. Pure and
+    /// synchronous so the preserve-vs-clear policy is fully testable.
+    static func stateFetchAction(statusCode: Int, data: Data) -> StateFetchAction {
+        if (200..<300).contains(statusCode) {
+            guard !data.isEmpty,
+                  let state = try? JSONDecoder().decode(AvatarState.self, from: data) else {
+                // A 2xx with an empty/garbled body is treated as an
+                // authoritative "no avatar" signal, matching the daemon's
+                // `{ kind: "none" }` contract.
+                return .clear
+            }
+            return .apply(state)
+        }
+        if isAuthoritativeAbsence(statusCode: statusCode) {
+            return .clear
+        }
+        return .retry
+    }
+
+    /// Fetches the authoritative avatar render state via `GET /avatar/state`
+    /// and applies it in a single pass. On transient failure (401, 5xx,
+    /// transport error) the existing cached avatar is preserved and one retry
+    /// is scheduled; only an authoritative 404 — or an authoritative `none`
+    /// state — clears it. Guarded by `stateRetryInFlight` so repeated transient
+    /// failures don't stack retries.
+    private func fetchAvatarStateViaHTTP() async {
         do {
             let response = try await GatewayHTTPClient.get(
-                path: "workspace/file/content",
-                params: ["path": "data/avatar/avatar-image.png"],
+                path: "avatar/state",
                 timeout: 10
             )
             // Short-circuit state mutations if the task was cancelled while
@@ -193,122 +252,133 @@ final class AvatarAppearanceManager {
             // response from the previous assistant can stale-flash the
             // avatar after resetForDisconnect() has cleared state.
             guard !Task.isCancelled else { return }
-            if response.isSuccess, !response.data.isEmpty {
-                cachedChatAvatar = nil
-                customAvatarImage = NSImage(data: response.data)
-                AvatarCache.saveImage(response.data)
-                updateDockIcon()
-                return
+            switch Self.stateFetchAction(statusCode: response.statusCode, data: response.data) {
+            case .apply(let state):
+                await applyAvatarState(state)
+            case .clear:
+                applyNoneState()
+            case .retry:
+                log.warning("Transient avatar/state fetch failure (HTTP \(response.statusCode)) — preserving cached avatar and scheduling retry")
+                scheduleStateRetry()
             }
-            if Self.isAuthoritativeAbsence(statusCode: response.statusCode) {
-                if customAvatarImage != nil { customAvatarImage = nil }
-                cachedChatAvatar = nil
-                AvatarCache.clearImage()
-                updateDockIcon()
-                return
-            }
-            log.warning("Transient avatar fetch failure (HTTP \(response.statusCode)) — preserving cached image and scheduling retry")
-            scheduleAvatarRetry()
         } catch {
             guard !Task.isCancelled else { return }
-            log.warning("Transport failure fetching avatar — preserving cached image and scheduling retry: \(error.localizedDescription)")
-            scheduleAvatarRetry()
+            log.warning("Transport failure fetching avatar/state — preserving cached avatar and scheduling retry: \(error.localizedDescription)")
+            scheduleStateRetry()
         }
     }
 
-    /// Fetches character-traits.json via HTTP through the gateway. Same
-    /// transient-vs-authoritative policy as the avatar image: 404 clears the
-    /// cached traits, 401/5xx/transport errors preserve them and schedule one
-    /// retry.
-    private func fetchTraitsViaHTTP() async {
+    /// Applies a decoded `AvatarState` by switching on `kind`:
+    /// - `character`: render the animated character from traits, clear any image.
+    /// - `image`: fetch the PNG bytes and use the static custom-image path.
+    /// - `none`: clear both → default character / fallback.
+    private func applyAvatarState(_ state: AvatarState) async {
+        switch state.kind {
+        case .character:
+            applyCharacterState(state.traits)
+        case .image:
+            await applyImageState()
+        case .none:
+            applyNoneState()
+        }
+    }
+
+    /// Sets character traits from the authoritative state and clears the custom
+    /// image so the animated `AnimatedAvatarView` path is used.
+    func applyCharacterState(_ traits: AvatarState.Traits?) {
+        guard let traits,
+              let body = AvatarBodyShape(rawValue: traits.bodyShape),
+              let eyes = AvatarEyeStyle(rawValue: traits.eyeStyle),
+              let color = AvatarColor(rawValue: traits.color) else {
+            // Malformed traits for a "character" state: treat as no usable
+            // avatar rather than overwriting good cached state.
+            return
+        }
+        characterBodyShape = body
+        characterEyeStyle = eyes
+        characterColor = color
+        customAvatarImage = nil
+        cachedChatAvatar = nil
+        cachedFallbackAvatar = nil
+        cachedFullFallbackAvatar = nil
+        AvatarCache.saveTraits(bodyShape: body, eyeStyle: eyes, color: color)
+        AvatarCache.clearImage()
+        updateDockIcon()
+    }
+
+    /// Fetches the avatar PNG bytes from the workspace and uses them as the
+    /// custom (static) image, clearing character traits so the static
+    /// `VAvatarImage` path is used. A transient PNG fetch failure preserves the
+    /// existing cached image and schedules a retry of the whole state fetch.
+    private func applyImageState() async {
         do {
             let response = try await GatewayHTTPClient.get(
                 path: "workspace/file/content",
-                params: ["path": "data/avatar/character-traits.json"],
+                params: ["path": "data/avatar/avatar-image.png"],
                 timeout: 10
             )
-            // Short-circuit state mutations if the task was cancelled while
-            // the HTTP request was in flight — otherwise a late-arriving
-            // response from the previous assistant can stale-flash the
-            // traits after resetForDisconnect() has cleared state.
             guard !Task.isCancelled else { return }
             if response.isSuccess, !response.data.isEmpty {
-                guard let components = try? JSONDecoder().decode(AvatarComponents.self, from: response.data) else {
-                    return
-                }
-                characterBodyShape = AvatarBodyShape(rawValue: components.bodyShape)
-                characterEyeStyle = AvatarEyeStyle(rawValue: components.eyeStyle)
-                characterColor = AvatarColor(rawValue: components.color)
-                // Character traits loaded — the PNG is just a daemon rendering
-                // of the character, not a user upload. Clear it so the animated
-                // path is used.
-                customAvatarImage = nil
+                customAvatarImage = NSImage(data: response.data)
+                characterBodyShape = nil
+                characterEyeStyle = nil
+                characterColor = nil
                 cachedChatAvatar = nil
-                cachedFallbackAvatar = nil
-                cachedFullFallbackAvatar = nil
-                if let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor {
-                    AvatarCache.saveTraits(bodyShape: body, eyeStyle: eyes, color: color)
-                }
-                AvatarCache.clearImage()
-                updateDockIcon()
-                return
-            }
-            if Self.isAuthoritativeAbsence(statusCode: response.statusCode) {
-                if characterBodyShape != nil { characterBodyShape = nil }
-                if characterEyeStyle != nil { characterEyeStyle = nil }
-                if characterColor != nil { characterColor = nil }
-                cachedFallbackAvatar = nil
-                cachedFullFallbackAvatar = nil
+                AvatarCache.saveImage(response.data)
                 AvatarCache.clearTraits()
                 updateDockIcon()
                 return
             }
-            log.warning("Transient traits fetch failure (HTTP \(response.statusCode)) — preserving cached traits and scheduling retry")
-            scheduleTraitsRetry()
+            if Self.isAuthoritativeAbsence(statusCode: response.statusCode) {
+                applyNoneState()
+                return
+            }
+            log.warning("Transient avatar image fetch failure (HTTP \(response.statusCode)) — preserving cached image and scheduling retry")
+            scheduleStateRetry()
         } catch {
             guard !Task.isCancelled else { return }
-            log.warning("Transport failure fetching character traits — preserving cached traits and scheduling retry: \(error.localizedDescription)")
-            scheduleTraitsRetry()
+            log.warning("Transport failure fetching avatar image — preserving cached image and scheduling retry: \(error.localizedDescription)")
+            scheduleStateRetry()
         }
     }
 
+    /// Clears both the custom image and character traits so the default
+    /// character / bundled-logo / initial-letter fallback is used. Called for an
+    /// authoritative `none` state or 404.
+    func applyNoneState() {
+        if customAvatarImage != nil { customAvatarImage = nil }
+        if characterBodyShape != nil { characterBodyShape = nil }
+        if characterEyeStyle != nil { characterEyeStyle = nil }
+        if characterColor != nil { characterColor = nil }
+        cachedChatAvatar = nil
+        cachedFallbackAvatar = nil
+        cachedFullFallbackAvatar = nil
+        AvatarCache.clearAll()
+        updateDockIcon()
+    }
+
     /// Guards against stacking overlapping retries when repeated transient
-    /// failures arrive before the first retry has completed. Tracked as Task
-    /// handles so `resetForDisconnect()` can cancel a pending retry before it
+    /// failures arrive before the first retry has completed. Tracked as a Task
+    /// handle so `resetForDisconnect()` can cancel a pending retry before it
     /// writes into the next assistant's state.
-    @ObservationIgnored private var avatarRetryInFlight = false
-    @ObservationIgnored private var traitsRetryInFlight = false
-    @ObservationIgnored private var avatarRetryTask: Task<Void, Never>?
-    @ObservationIgnored private var traitsRetryTask: Task<Void, Never>?
+    @ObservationIgnored private var stateRetryInFlight = false
+    @ObservationIgnored private var stateRetryTask: Task<Void, Never>?
     /// Tracks the primary (non-retry) fetch Task spawned by `reloadAvatar()` so
     /// `resetForDisconnect()` can cancel a fetch in flight. Without cancellation,
     /// a late-arriving response from the previous assistant would bypass the
     /// `Task.isCancelled` guards in the fetch methods and stale-flash state.
     @ObservationIgnored private var avatarPrimaryTask: Task<Void, Never>?
 
-    private func scheduleAvatarRetry() {
-        guard !avatarRetryInFlight else { return }
-        avatarRetryInFlight = true
-        avatarRetryTask = Task { [weak self] in
+    private func scheduleStateRetry() {
+        guard !stateRetryInFlight else { return }
+        stateRetryInFlight = true
+        stateRetryTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: Self.transientRetryDelayNs)
             guard !Task.isCancelled, let self else { return }
-            await self.fetchAvatarViaHTTP()
+            await self.fetchAvatarStateViaHTTP()
             guard !Task.isCancelled else { return }
-            self.avatarRetryInFlight = false
-            self.avatarRetryTask = nil
-        }
-    }
-
-    private func scheduleTraitsRetry() {
-        guard !traitsRetryInFlight else { return }
-        traitsRetryInFlight = true
-        traitsRetryTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: Self.transientRetryDelayNs)
-            guard !Task.isCancelled, let self else { return }
-            await self.fetchTraitsViaHTTP()
-            guard !Task.isCancelled else { return }
-            self.traitsRetryInFlight = false
-            self.traitsRetryTask = nil
+            self.stateRetryInFlight = false
+            self.stateRetryTask = nil
         }
     }
 
@@ -352,29 +422,54 @@ final class AvatarAppearanceManager {
             AvatarCache.clearImage()
         }
 
-        // PNG encoding (tiffRepresentation → NSBitmapImageRep → .png) is
-        // CPU-bound. Run off-main so it doesn't block the UI while the
-        // image is persisted to the local cache and the workspace.
+        // Character traits don't need a PNG re-encode for the daemon — the
+        // daemon renders the PNG itself from the traits. Persist them through
+        // the manifest-aware `render-from-traits` endpoint so `avatar.json`
+        // stays authoritative.
+        if isCharacter {
+            if !skipWorkspaceSync, let body = bodyShape, let eyes = eyeStyle, let color = color {
+                Task { [weak self] in
+                    await self?.syncTraitsToDaemon(bodyShape: body, eyeStyle: eyes, color: color)
+                }
+            }
+            return
+        }
+
+        // Custom upload: PNG encoding (tiffRepresentation → NSBitmapImageRep →
+        // .png) is CPU-bound. Run off-main so it doesn't block the UI while the
+        // image is persisted to the local cache and uploaded to the daemon.
         let syncToWorkspace = !skipWorkspaceSync
         Task.detached(priority: .utility) { [weak self] in
             guard let tiffData = image.tiffRepresentation,
                   let bitmap = NSBitmapImageRep(data: tiffData),
                   let pngData = bitmap.representation(using: .png, properties: [:]) else { return }
 
-            if !isCharacter {
-                AvatarCache.saveImage(pngData)
-                AvatarCache.clearTraits()
-            }
+            AvatarCache.saveImage(pngData)
+            AvatarCache.clearTraits()
 
             guard syncToWorkspace else { return }
 
-            let workspaceClient = WorkspaceClient()
-            _ = await workspaceClient.createWorkspaceDirectory(path: "data/avatar")
-            _ = await workspaceClient.writeWorkspaceFile(path: "data/avatar/avatar-image.png", content: pngData)
-            await MainActor.run { [weak self] in
-                self?.saveAvatarComponentsViaGateway()
-            }
+            // Route through the manifest-aware `avatar/image` endpoint: the
+            // daemon writes the PNG, clears any character traits, and updates
+            // `avatar.json` atomically. Replaces the prior direct
+            // `workspace/write` of avatar-image.png + `workspace/delete` of
+            // character-traits.json, which left the manifest stale. Base64 is
+            // encoded here (off-main) so only the HTTP call hops to the actor.
+            let base64 = pngData.base64EncodedString()
+            await self?.uploadCustomImageToDaemon(base64: base64)
         }
+    }
+
+    /// Uploads a base64-encoded custom-image PNG to the daemon via the
+    /// manifest-aware `avatar/image` endpoint. The daemon writes the PNG,
+    /// clears character traits, and records an `image` manifest.
+    private func uploadCustomImageToDaemon(base64: String) async {
+        await postAvatarMutation(
+            label: "uploadCustomImageToDaemon",
+            path: "avatar/image",
+            json: ["content": base64, "encoding": "base64"],
+            timeout: 30
+        )
     }
 
     /// Reloads the avatar by fetching the latest state from the assistant
@@ -406,8 +501,7 @@ final class AvatarAppearanceManager {
         avatarPrimaryTask?.cancel()
         avatarPrimaryTask = Task { [weak self] in
             await self?.fetchComponents()
-            await self?.fetchAvatarViaHTTP()
-            await self?.fetchTraitsViaHTTP()
+            await self?.fetchAvatarStateViaHTTP()
         }
     }
 
@@ -418,35 +512,49 @@ final class AvatarAppearanceManager {
     /// Fires `reloadAvatar()` on success so cached state picks up the daemon's
     /// rendered image.
     func syncTraitsToDaemon(bodyShape: AvatarBodyShape, eyeStyle: AvatarEyeStyle, color: AvatarColor) async {
-        let json: [String: Any] = [
-            "bodyShape": bodyShape.rawValue,
-            "eyeStyle": eyeStyle.rawValue,
-            "color": color.rawValue,
-        ]
         log.info("[avatarSync] syncTraitsToDaemon: posting \(bodyShape.rawValue)/\(eyeStyle.rawValue)/\(color.rawValue)")
-        // Retry up to 3 times with a short delay for transient failures
-        // (e.g. 500 from a freshly-hatched assistant that isn't fully ready).
+        await postAvatarMutation(
+            label: "syncTraitsToDaemon",
+            path: "avatar/render-from-traits",
+            json: [
+                "bodyShape": bodyShape.rawValue,
+                "eyeStyle": eyeStyle.rawValue,
+                "color": color.rawValue,
+            ],
+            // Pick up the daemon's rendered image so cached state matches the
+            // authoritative render. The image/remove paths instead rely on the
+            // daemon's `avatar_changed` event to trigger a reload.
+            onSuccess: { [weak self] in self?.reloadAvatar() }
+        )
+    }
+
+    /// Posts a manifest-aware avatar mutation to the daemon, retrying up to 3
+    /// times with an incremental delay on transient 5xx / transport failures
+    /// (e.g. a freshly-hatched assistant that isn't fully ready). The daemon
+    /// owns the workspace write and `avatar.json` update; this is the single
+    /// retry/log policy shared by the traits, image-upload, and remove paths.
+    private func postAvatarMutation(
+        label: String,
+        path: String,
+        json: [String: Any],
+        timeout: TimeInterval = 15,
+        onSuccess: (() -> Void)? = nil
+    ) async {
         for attempt in 1...3 {
             do {
-                let response = try await GatewayHTTPClient.post(
-                    path: "avatar/render-from-traits",
-                    json: json,
-                    timeout: 15
-                )
+                let response = try await GatewayHTTPClient.post(path: path, json: json, timeout: timeout)
                 if response.isSuccess {
-                    log.info("[avatarSync] syncTraitsToDaemon: success on attempt \(attempt)")
-                    reloadAvatar()
+                    onSuccess?()
                     return
                 } else if response.statusCode >= 500 && attempt < 3 {
-                    log.warning("[avatarSync] syncTraitsToDaemon: HTTP \(response.statusCode) on attempt \(attempt), retrying...")
+                    log.warning("[avatarSync] \(label): HTTP \(response.statusCode) on attempt \(attempt), retrying...")
                     try await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000)
-                    continue
                 } else {
-                    log.warning("[avatarSync] syncTraitsToDaemon: HTTP \(response.statusCode) on attempt \(attempt), giving up")
+                    log.warning("[avatarSync] \(label): HTTP \(response.statusCode) on attempt \(attempt), giving up")
                     return
                 }
             } catch {
-                log.warning("[avatarSync] syncTraitsToDaemon: error on attempt \(attempt): \(error.localizedDescription)")
+                log.warning("[avatarSync] \(label): error on attempt \(attempt): \(error.localizedDescription)")
                 if attempt < 3 {
                     try? await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000)
                 }
@@ -460,19 +568,16 @@ final class AvatarAppearanceManager {
     func resetForDisconnect() {
         identityLoadTask?.cancel()
         identityLoadTask = nil
-        // Cancel any pending retry Tasks and clear in-flight flags so a retry
+        // Cancel any pending retry Task and clear the in-flight flag so a retry
         // spawned against the previous assistant cannot fire after state has
         // been cleared, and so the next connection's legitimate retries are
         // not silently no-oped by a stale in-flight flag.
-        avatarRetryTask?.cancel()
-        avatarRetryTask = nil
-        avatarRetryInFlight = false
-        traitsRetryTask?.cancel()
-        traitsRetryTask = nil
-        traitsRetryInFlight = false
+        stateRetryTask?.cancel()
+        stateRetryTask = nil
+        stateRetryInFlight = false
         // Cancel the in-flight primary fetch too; the `Task.isCancelled` guards
-        // inside `fetchAvatarViaHTTP`/`fetchTraitsViaHTTP` suppress the state
-        // mutation once the surrounding Task is cancelled.
+        // inside `fetchAvatarStateViaHTTP` suppress the state mutation once the
+        // surrounding Task is cancelled.
         avatarPrimaryTask?.cancel()
         avatarPrimaryTask = nil
         customAvatarImage = nil
@@ -523,37 +628,23 @@ final class AvatarAppearanceManager {
         AvatarCache.clearAll()
         updateDockIcon()
 
-        // Remove files from the assistant's workspace via the gateway.
-        Task {
-            let workspaceClient = WorkspaceClient()
-            _ = await workspaceClient.deleteWorkspaceItem(path: "data/avatar/avatar-image.png")
-            _ = await workspaceClient.deleteWorkspaceItem(path: "data/avatar/character-traits.json")
+        // Clear the avatar on the daemon via the manifest-aware `avatar/remove`
+        // endpoint: it deletes all artifacts (image + traits) and records a
+        // `kind:"none"` manifest atomically. Replaces the prior direct
+        // `workspace/delete` calls, which left `avatar.json` stale.
+        Task { [weak self] in
+            await self?.removeAvatarOnDaemon()
         }
     }
 
-    // MARK: - Avatar Components Persistence
-
-    private struct AvatarComponents: Codable {
-        let bodyShape: String
-        let eyeStyle: String
-        let color: String
-    }
-
-    /// Persists character traits to the assistant's workspace via the gateway.
-    private func saveAvatarComponentsViaGateway() {
-        guard let body = characterBodyShape, let eyes = characterEyeStyle, let color = characterColor else {
-            Task {
-                let workspaceClient = WorkspaceClient()
-                _ = await workspaceClient.deleteWorkspaceItem(path: "data/avatar/character-traits.json")
-            }
-            return
-        }
-        let components = AvatarComponents(bodyShape: body.rawValue, eyeStyle: eyes.rawValue, color: color.rawValue)
-        guard let data = try? JSONEncoder().encode(components) else { return }
-        Task {
-            let workspaceClient = WorkspaceClient()
-            _ = await workspaceClient.writeWorkspaceFile(path: "data/avatar/character-traits.json", content: data)
-        }
+    /// Clears the avatar on the daemon via the manifest-aware `avatar/remove`
+    /// endpoint.
+    private func removeAvatarOnDaemon() async {
+        await postAvatarMutation(
+            label: "removeAvatarOnDaemon",
+            path: "avatar/remove",
+            json: [:]
+        )
     }
 
     // MARK: - Dock Icon

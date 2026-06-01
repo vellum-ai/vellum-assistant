@@ -126,16 +126,7 @@ import { DiskPressureBanner, type DiskPressureBannerMode } from "@/domains/chat/
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import type { Conversation } from "@/types/conversation-types";
 import { submitQuestionResponse } from "@/domains/chat/api/interactions";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface StreamContext {
-  assistantId: string;
-  conversationId: string;
-}
+import { useStreamStore } from "@/domains/chat/stream-store";
 
 /** Nudge state produced by useAppNudges. */
 export interface NudgeHandlers {
@@ -243,9 +234,7 @@ export interface ChatRouteRefs {
   sanitizedMessagesRef: MutableRefObject<DisplayMessage[]>;
   transcriptItemsRef: MutableRefObject<TranscriptItem[]>;
   assistantIdRef: MutableRefObject<string | null>;
-  streamContextRef: MutableRefObject<StreamContext | null>;
-  streamRef: MutableRefObject<ChatEventStream | null>;
-  streamEpochRef: MutableRefObject<number>;
+
   /**
    * Imperative handle to the mounted `<Transcript />`. Owned by ChatPage
    * so `useChatDebugApi` (installed there) can read scroll geometry
@@ -513,9 +502,6 @@ export function ChatRouteContent({
     sanitizedMessagesRef,
     transcriptItemsRef,
     assistantIdRef: _assistantIdRef,
-    streamContextRef,
-    streamRef: _streamRef,
-    streamEpochRef: _streamEpochRef,
   } = refs;
 
   // -------------------------------------------------------------------------
@@ -983,7 +969,7 @@ export function ChatRouteContent({
     const snapshot = useInteractionStore.getState().pendingQuestion;
     useInteractionStore.getState().dismissQuestion();
     if (!snapshot) return;
-    const ctx = streamContextRef.current;
+    const ctx = useStreamStore.getState().streamContext;
     if (!ctx) return;
     submitQuestionResponse(ctx.assistantId, snapshot.requestId, {
       kind: "close",
@@ -1004,7 +990,7 @@ export function ChatRouteContent({
           tags: { context: "submit_question_response_close" },
         });
       });
-  }, [streamContextRef]);
+  }, []);
 
   // -------------------------------------------------------------------------
   // Empty state placeholder (stable per mount)

@@ -1062,6 +1062,7 @@ export class Conversation {
           getConversationOriginChannel(this.conversationId) ?? undefined,
         overrideProfile,
         targetInputTokensOverride: options?.targetInputTokensOverride,
+        actorTrustClass: this.trustContext?.trustClass,
       },
     );
     // Track circuit-breaker state for user-initiated `/compact` and other

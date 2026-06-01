@@ -8,7 +8,6 @@
  *
  *   window._vellumDebug.events.getClients()
  *   window._vellumDebug.events.getEvents()
- *   window._vellumDebug.events.getLiveness()
  *
  * The accessors here read directly from the module-state registry in
  * `stream-debug.ts`. Installation onto `window` is performed by
@@ -19,10 +18,8 @@
 import {
   type SseDebugClient,
   type SseDebugEventEntry,
-  type SseLivenessSnapshot,
   getSseClients,
   getSseEvents,
-  getSseLivenessSnapshot,
 } from "@/lib/streaming/stream-debug";
 import { getSeqCursors } from "@/lib/streaming/last-seen-seq";
 
@@ -31,12 +28,6 @@ export interface ChatDebugEventsApi {
   getClients: () => SseDebugClient[];
   /** Last 1 000 parsed SSE events (most-recent last). */
   getEvents: () => SseDebugEventEntry[];
-  /**
-   * Point-in-time SSE liveness: traffic/data ages and frame counts so a
-   * half-open socket (no bytes for minutes, never errored) is
-   * distinguishable from a healthy one.
-   */
-  getLiveness: () => SseLivenessSnapshot;
   /** Per-conversation seq cursors tracked by gap detection. */
   getSeqCursors: () => Record<string, number>;
 }
@@ -48,6 +39,5 @@ export interface ChatDebugEventsApi {
 export const eventsDebugApi: ChatDebugEventsApi = {
   getClients: getSseClients,
   getEvents: getSseEvents,
-  getLiveness: getSseLivenessSnapshot,
   getSeqCursors,
 };

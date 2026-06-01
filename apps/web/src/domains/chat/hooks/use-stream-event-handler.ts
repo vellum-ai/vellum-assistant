@@ -1,5 +1,4 @@
 import {
-  type MutableRefObject,
   type Dispatch,
   type SetStateAction,
   useCallback,
@@ -8,10 +7,12 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
+import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { tailIsAssistant } from "@/domains/chat/hooks/stream-message-updaters";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
 
 import { recordDiagnostic, summarizeAssistantEvent } from "@/lib/diagnostics";
 import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
@@ -65,10 +66,7 @@ import {
   handleSubagentStatusChanged,
   handleSubagentEvent,
 } from "@/domains/chat/utils/stream-handlers/subagent-handlers";
-import type {
-  StreamHandlerContext,
-  StreamContext,
-} from "@/domains/chat/utils/stream-handlers/types";
+import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 
 export type {
   ChatError,
@@ -79,7 +77,6 @@ export type {
 
 import type { AssistantEvent } from "@/types/event-types";
 import type { SyncChangedEvent } from "@/lib/sync/types";
-import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 
 // ---------------------------------------------------------------------------
 // Params & return types
@@ -90,14 +87,6 @@ export interface UseStreamEventHandlerParams {
   /** Forward-navigate to a URL. Callers wire this to their framework router. */
   push: (url: string) => void;
   isNative: boolean;
-
-  // --- Stream context (infrastructure refs, not per-conversation state) ---
-  streamEpochRef: MutableRefObject<number>;
-  streamContextRef: MutableRefObject<StreamContext | null>;
-  assistantIdRef: MutableRefObject<string | null>;
-
-  // --- Stream lifecycle ---
-  streamRef: MutableRefObject<ChatEventStream | null>;
 
   // --- Reconciliation ---
   cancelReconciliation: () => void;
@@ -140,10 +129,6 @@ export function useStreamEventHandler(
   const {
     push,
     isNative,
-    streamEpochRef,
-    streamContextRef,
-    assistantIdRef,
-    streamRef,
     cancelReconciliation,
     startReconciliationLoop,
     setAssetsRefreshKey,
@@ -162,17 +147,18 @@ export function useStreamEventHandler(
     (event: AssistantEvent, epoch: number) => {
       // Discard events from stale/previous streams
       const eventSummary = summarizeAssistantEvent(event);
-      if (epoch !== streamEpochRef.current) {
+      const streamState = useStreamStore.getState();
+      if (epoch !== streamState.streamEpoch) {
         recordDiagnostic("sse_event_stale", {
           epoch,
-          currentEpoch: streamEpochRef.current,
+          currentEpoch: streamState.streamEpoch,
           activeConversationId:
             useConversationStore.getState().activeConversationId,
           ...eventSummary,
         });
         return;
       }
-      const streamConversationId = streamContextRef.current?.conversationId;
+      const streamConversationId = streamState.streamContext?.conversationId;
       // Defense-in-depth: even though useEventStream's filter already
       // rejects conversation-scoped events without an explicit matching
       // conversationId, gate here too so any future caller of
@@ -186,7 +172,7 @@ export function useStreamEventHandler(
             epoch,
             activeConversationId:
               useConversationStore.getState().activeConversationId,
-            streamContext: streamContextRef.current,
+            streamContext: streamState.streamContext,
             reason: !event.conversationId ? "missing" : "no_stream_context",
             ...eventSummary,
           });
@@ -197,7 +183,7 @@ export function useStreamEventHandler(
             epoch,
             activeConversationId:
               useConversationStore.getState().activeConversationId,
-            streamContext: streamContextRef.current,
+            streamContext: streamState.streamContext,
             reason: "mismatch",
             ...eventSummary,
           });
@@ -222,7 +208,7 @@ export function useStreamEventHandler(
             epoch,
             activeConversationId:
               useConversationStore.getState().activeConversationId,
-            streamContext: streamContextRef.current,
+            streamContext: streamState.streamContext,
             ...eventSummary,
           },
         );
@@ -232,15 +218,15 @@ export function useStreamEventHandler(
       const ctx: StreamHandlerContext = {
         router: { push },
         isNative,
-        streamContextRef,
-        assistantIdRef,
+        streamContext: streamState.streamContext,
+        assistantId: useAssistantSelectionStore.getState().activeAssistantId,
         setMessages: store.setMessages,
         messages: store.messages,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,
         setError: store.setError,
-        streamRef,
+        cancelAndClearStream: useStreamStore.getState().cancelAndClearStream,
         cancelReconciliation,
         startReconciliationLoop,
         confirmationToolCallMap: store.confirmationToolCallMap,
@@ -413,10 +399,6 @@ export function useStreamEventHandler(
       // stability for refs, and store getState is module-level stable.
       dispatchSyncChanged,
       queryClient,
-      streamEpochRef,
-      streamContextRef,
-      assistantIdRef,
-      streamRef,
       setAssetsRefreshKey,
     ],
   );

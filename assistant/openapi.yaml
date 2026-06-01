@@ -1947,6 +1947,41 @@ paths:
           schema:
             type: string
           description: '"path" or "base64"'
+  /v1/avatar/image:
+    post:
+      operationId: avatar_image_post
+      summary: Upload avatar image
+      description: Upload a base64-encoded image as the avatar; writes the PNG and clears character traits atomically.
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                encoding:
+                  type: string
+                  const: base64
+              required:
+                - content
+              additionalProperties: false
   /v1/avatar/notify-updated:
     post:
       operationId: avatar_notifyupdated_post
@@ -2060,6 +2095,70 @@ paths:
               required:
                 - imagePath
               additionalProperties: false
+  /v1/avatar/state:
+    get:
+      operationId: avatar_state_get
+      summary: Get avatar state
+      description: Return the authoritative avatar render mode (character, image, or none).
+      tags:
+        - avatar
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  kind:
+                    type: string
+                    enum:
+                      - character
+                      - image
+                      - none
+                  traits:
+                    anyOf:
+                      - type: object
+                        properties:
+                          bodyShape:
+                            type: string
+                          eyeStyle:
+                            type: string
+                          color:
+                            type: string
+                        required:
+                          - bodyShape
+                          - eyeStyle
+                          - color
+                        additionalProperties: false
+                      - type: "null"
+                  source:
+                    anyOf:
+                      - type: string
+                        enum:
+                          - builder
+                          - upload
+                          - ai
+                      - type: "null"
+                  image:
+                    anyOf:
+                      - type: object
+                        properties:
+                          updatedAt:
+                            type: string
+                          etag:
+                            type: string
+                        required:
+                          - updatedAt
+                          - etag
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - kind
+                  - traits
+                  - source
+                  - image
+                additionalProperties: false
   /v1/background-tools:
     get:
       operationId: backgroundtools_get
@@ -4002,6 +4101,49 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  domains:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        displayName:
+                          type: string
+                      required:
+                        - id
+                        - displayName
+                      additionalProperties: false
+                  callSites:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        displayName:
+                          type: string
+                        description:
+                          type: string
+                        domain:
+                          type: string
+                        defaultProfile:
+                          type: string
+                      required:
+                        - id
+                        - displayName
+                        - description
+                        - domain
+                      additionalProperties: false
+                required:
+                  - domains
+                  - callSites
+                additionalProperties: false
   /v1/config/llm/profiles:
     get:
       operationId: config_llm_profiles_get
@@ -18899,7 +19041,65 @@ paths:
                 properties:
                   events:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        eventId:
+                          type: string
+                        conversationId:
+                          type: string
+                        requestId:
+                          type: string
+                        timestampMs:
+                          type: number
+                        sequence:
+                          type: number
+                        kind:
+                          type: string
+                          enum:
+                            - request_received
+                            - request_queued
+                            - request_dequeued
+                            - llm_call_started
+                            - llm_call_finished
+                            - assistant_message
+                            - tool_started
+                            - tool_permission_requested
+                            - tool_permission_decided
+                            - tool_finished
+                            - tool_failed
+                            - generation_handoff
+                            - message_complete
+                            - generation_cancelled
+                            - request_error
+                            - tool_profiling_summary
+                        status:
+                          type: string
+                          enum:
+                            - info
+                            - success
+                            - warning
+                            - error
+                        summary:
+                          type: string
+                        attributes:
+                          type: object
+                          propertyNames:
+                            type: string
+                          additionalProperties:
+                            anyOf:
+                              - type: string
+                              - type: number
+                              - type: boolean
+                              - type: "null"
+                      required:
+                        - eventId
+                        - conversationId
+                        - timestampMs
+                        - sequence
+                        - kind
+                        - summary
+                      additionalProperties: false
                     description: Trace event objects
                 required:
                   - events

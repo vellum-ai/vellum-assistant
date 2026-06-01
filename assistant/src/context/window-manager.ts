@@ -24,6 +24,7 @@ import type {
   Provider,
   ToolDefinition,
 } from "../providers/types.js";
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { getLogger } from "../util/logger.js";
 import {
   type CompactionRunArgs,
@@ -111,6 +112,12 @@ export interface ContextWindowCompactOptions {
   minKeepRecentUserTurns?: number;
   conversationOriginChannel?: string;
   targetInputTokensOverride?: number;
+  /**
+   * Trust class of the actor whose turn triggered compaction. Forwarded to
+   * the compactor so the image manifest excludes guardian-only attachments
+   * for untrusted actors.
+   */
+  actorTrustClass?: TrustClass;
 }
 
 export interface ContextWindowManagerOptions {
@@ -347,6 +354,7 @@ export class ContextWindowManager {
       force: options?.force,
       signal,
       overrideProfile: options?.overrideProfile ?? null,
+      actorTrustClass: options?.actorTrustClass,
       nonPersistedPrefixCount: this.nonPersistedPrefixCount,
     };
 

@@ -1,8 +1,9 @@
-import { type RefObject, useCallback, useRef } from "react";
+import { useCallback, useRef } from "react";
 
 import * as Sentry from "@sentry/browser";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useStreamStore } from "@/domains/chat/stream-store";
 import { bucketMessagesAdded, recordDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
 import {
   summarizeDisplayMessages,
@@ -20,9 +21,7 @@ const RECONCILE_MAX_MS = 60_000;
 const RECONCILE_STABLE_COUNT = 2;
 
 interface UseMessageReconciliationArgs {
-  streamContextRef: RefObject<{ assistantId: string; conversationId: string } | null>;
-  streamEpochRef: RefObject<number>;
-  initialPageOldestTsRef: RefObject<number | null>;
+  initialPageOldestTsRef: { current: number | null };
 }
 
 /** Result of reconciling the active conversation against the server. */
@@ -117,8 +116,6 @@ function serverHasAssistantProgress(
 }
 
 export function useMessageReconciliation({
-  streamContextRef,
-  streamEpochRef,
   initialPageOldestTsRef,
 }: UseMessageReconciliationArgs): UseMessageReconciliationReturn {
   const setMessages = useChatSessionStore.use.setMessages();
@@ -318,8 +315,8 @@ export function useMessageReconciliation({
 
       const tick = () => {
         reconcileTimerRef.current = null;
-        const ctx = streamContextRef.current;
-        if (!ctx || epoch !== streamEpochRef.current) {
+        const ctx = useStreamStore.getState().streamContext;
+        if (!ctx || epoch !== useStreamStore.getState().streamEpoch) {
           recordDiagnostic("reconciliation_loop_finish", {
             epoch,
             reason: !ctx ? "no_context" : "epoch_changed",
@@ -341,7 +338,7 @@ export function useMessageReconciliation({
 
         fetchConversationMessages(ctx.assistantId, ctx.conversationId)
           .then((serverMessages) => {
-            if (epoch !== streamEpochRef.current) return;
+            if (epoch !== useStreamStore.getState().streamEpoch) return;
             recordDiagnostic("reconciliation_fetch", {
               assistantId: ctx.assistantId,
               conversationId: ctx.conversationId,
@@ -370,7 +367,7 @@ export function useMessageReconciliation({
               });
               return;
             }
-            if (epoch !== streamEpochRef.current) {
+            if (epoch !== useStreamStore.getState().streamEpoch) {
               recordDiagnostic("reconciliation_loop_finish", {
                 epoch,
                 reason: "epoch_changed_post_fetch",
@@ -382,7 +379,7 @@ export function useMessageReconciliation({
             reconcileTimerRef.current = setTimeout(tick, RECONCILE_DELAY_MS);
           })
           .catch(() => {
-            if (epoch !== streamEpochRef.current) {
+            if (epoch !== useStreamStore.getState().streamEpoch) {
               recordDiagnostic("reconciliation_loop_finish", {
                 epoch,
                 reason: "epoch_changed_post_error",
@@ -406,8 +403,6 @@ export function useMessageReconciliation({
     [
       cancelReconciliation,
       reconcileFetchedMessages,
-      streamContextRef,
-      streamEpochRef,
     ],
   );
 
@@ -418,7 +413,8 @@ export function useMessageReconciliation({
         messagesAdded: 0,
         assistantProgress: false,
       };
-      const ctx = streamContextRef.current;
+      const streamState = useStreamStore.getState();
+      const ctx = streamState.streamContext;
       if (!ctx) return empty;
 
       // Snapshot the turn identity before the async fetch so the
@@ -426,7 +422,7 @@ export function useMessageReconciliation({
       // starts a new send while the fetch is in-flight, the turnId guard
       // in the store prevents stale reconciliation from idling it.
       const snapshotTurnId = useTurnStore.getState().activeTurnId;
-      const snapshotEpoch = streamEpochRef.current;
+      const snapshotEpoch = streamState.streamEpoch;
 
       try {
         const serverMessages = await fetchConversationMessages(
@@ -436,7 +432,7 @@ export function useMessageReconciliation({
         if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.
-        if (streamEpochRef.current !== snapshotEpoch) return empty;
+        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) return empty;
         recordDiagnostic("reconciliation_active_fetch", {
           assistantId: ctx.assistantId,
           conversationId: ctx.conversationId,
@@ -460,8 +456,6 @@ export function useMessageReconciliation({
       }
     },
     [
-    streamContextRef,
-    streamEpochRef,
     reconcileFetchedMessages,
   ]);
 
