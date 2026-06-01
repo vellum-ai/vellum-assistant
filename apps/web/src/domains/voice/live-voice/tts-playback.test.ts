@@ -1,0 +1,276 @@
+import { beforeEach, describe, expect, test } from "bun:test";
+
+import {
+  LiveVoiceAudioPlayer,
+  decodePcm16Base64,
+  type AudioContextLike,
+} from "@/domains/voice/live-voice/tts-playback";
+
+// ---------------------------------------------------------------------------
+// Mock Web Audio surface
+//
+// The codebase has no audio mocking helper (this is the first audio module),
+// so we hand-roll a minimal AudioContext that records scheduled sources and
+// lets a test fire `onended` to simulate a buffer finishing.
+// ---------------------------------------------------------------------------
+
+interface MockSource {
+  buffer: AudioBuffer | null;
+  startedAt: number | null;
+  stopped: boolean;
+  disconnected: boolean;
+  onended: (() => void) | null;
+  /** Fire the ended handler as the engine would when the buffer finishes. */
+  finish(): void;
+}
+
+class MockAudioContext {
+  currentTime = 0;
+  closed = false;
+  readonly sources: MockSource[] = [];
+
+  constructor(readonly sampleRate = 48000) {}
+
+  readonly destination = {} as AudioNode;
+
+  createBuffer(
+    _channels: number,
+    length: number,
+    sampleRate: number,
+  ): AudioBuffer {
+    const channel = new Float32Array(length);
+    return {
+      length,
+      sampleRate,
+      duration: length / sampleRate,
+      numberOfChannels: 1,
+      getChannelData: () => channel,
+    } as unknown as AudioBuffer;
+  }
+
+  createBufferSource(): AudioBufferSourceNode {
+    const getCurrentTime = () => this.currentTime;
+    const source: MockSource = {
+      buffer: null,
+      startedAt: null,
+      stopped: false,
+      disconnected: false,
+      onended: null,
+      finish() {
+        this.stopped = true;
+        this.onended?.();
+      },
+    };
+    const node = {
+      get buffer() {
+        return source.buffer;
+      },
+      set buffer(b: AudioBuffer | null) {
+        source.buffer = b;
+      },
+      get onended() {
+        return source.onended;
+      },
+      set onended(cb: (() => void) | null) {
+        source.onended = cb;
+      },
+      connect() {},
+      disconnect() {
+        source.disconnected = true;
+      },
+      start(when?: number) {
+        source.startedAt = when ?? getCurrentTime();
+      },
+      stop() {
+        source.stopped = true;
+      },
+    } as unknown as AudioBufferSourceNode;
+    this.sources.push(source);
+    return node;
+  }
+
+  async close(): Promise<void> {
+    this.closed = true;
+  }
+}
+
+/** Build a base64 string from raw little-endian int16 samples. */
+function encodePcm16Base64(samples: number[]): string {
+  const bytes = new Uint8Array(samples.length * 2);
+  samples.forEach((s, i) => {
+    const v = s < 0 ? s + 0x10000 : s;
+    bytes[i * 2] = v & 0xff;
+    bytes[i * 2 + 1] = (v >> 8) & 0xff;
+  });
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
+function makePlayer(): {
+  player: LiveVoiceAudioPlayer;
+  ctx: MockAudioContext;
+} {
+  const ctx = new MockAudioContext();
+  const player = new LiveVoiceAudioPlayer({
+    audioContextFactory: () => ctx as unknown as AudioContextLike,
+  });
+  return { player, ctx };
+}
+
+function chunk(samples: number[], sampleRate = 24000): {
+  dataBase64: string;
+  sampleRate: number;
+  mimeType: string;
+} {
+  return {
+    dataBase64: encodePcm16Base64(samples),
+    sampleRate,
+    mimeType: "audio/pcm",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// decode correctness
+// ---------------------------------------------------------------------------
+
+describe("decodePcm16Base64", () => {
+  test("decodes known little-endian int16 PCM into normalized floats", () => {
+    // 0, full-scale positive (32767), full-scale negative (-32768), -1.
+    const base64 = encodePcm16Base64([0, 32767, -32768, -1]);
+    const out = decodePcm16Base64(base64);
+
+    expect(out.length).toBe(4);
+    expect(out[0]).toBe(0);
+    expect(out[1]).toBeCloseTo(32767 / 32768, 6);
+    expect(out[2]).toBe(-1);
+    expect(out[3]).toBeCloseTo(-1 / 32768, 6);
+  });
+
+  test("returns empty array for empty input", () => {
+    expect(decodePcm16Base64("").length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// playback queue
+// ---------------------------------------------------------------------------
+
+describe("LiveVoiceAudioPlayer", () => {
+  let player: LiveVoiceAudioPlayer;
+  let ctx: MockAudioContext;
+
+  beforeEach(() => {
+    ({ player, ctx } = makePlayer());
+  });
+
+  test("schedules chunks in order, gaplessly, at the frame sample rate", () => {
+    // Two 24 kHz frames of 24000 samples each => 1.0s buffers.
+    player.enqueue(chunk(new Array(24000).fill(100)));
+    player.enqueue(chunk(new Array(24000).fill(200)));
+
+    expect(ctx.sources.length).toBe(2);
+    // First starts now (currentTime 0).
+    expect(ctx.sources[0]!.startedAt).toBe(0);
+    // Second is chained to start exactly when the first ends — gapless.
+    expect(ctx.sources[1]!.startedAt).toBeCloseTo(1.0, 6);
+    // Buffers were built at the frame's own 24 kHz rate, not the 48 kHz ctx.
+    expect(ctx.sources[0]!.buffer!.sampleRate).toBe(24000);
+
+    expect(player.isPlaying).toBe(true);
+    expect(player.queuedCount).toBe(2);
+  });
+
+  test("never schedules in the past after the queue lags currentTime", () => {
+    player.enqueue(chunk(new Array(24000).fill(1))); // 1.0s buffer at t=0
+    // Advance the clock past the scheduled tail, then enqueue again.
+    ctx.currentTime = 5;
+    player.enqueue(chunk(new Array(24000).fill(1)));
+
+    expect(ctx.sources[1]!.startedAt).toBe(5);
+  });
+
+  test("queuedCount decrements as sources finish and isPlaying clears", () => {
+    player.enqueue(chunk(new Array(12000).fill(1)));
+    player.enqueue(chunk(new Array(12000).fill(1)));
+    expect(player.queuedCount).toBe(2);
+
+    ctx.sources[0]!.finish();
+    expect(player.queuedCount).toBe(1);
+    expect(player.isPlaying).toBe(true);
+
+    ctx.sources[1]!.finish();
+    expect(player.queuedCount).toBe(0);
+    expect(player.isPlaying).toBe(false);
+  });
+
+  test("stop() halts every source immediately and clears the queue", () => {
+    player.enqueue(chunk(new Array(24000).fill(1)));
+    player.enqueue(chunk(new Array(24000).fill(1)));
+
+    player.stop();
+
+    expect(ctx.sources.every((s) => s.stopped)).toBe(true);
+    expect(ctx.sources.every((s) => s.disconnected)).toBe(true);
+    expect(player.queuedCount).toBe(0);
+    expect(player.isPlaying).toBe(false);
+  });
+
+  test("playhead resets after stop so the next enqueue starts fresh", () => {
+    player.enqueue(chunk(new Array(24000).fill(1)));
+    player.stop();
+    player.enqueue(chunk(new Array(24000).fill(1)));
+
+    // The newly scheduled source (index 1) starts at currentTime, not chained
+    // after the flushed buffer.
+    expect(ctx.sources[1]!.startedAt).toBe(0);
+  });
+
+  test("waitUntilDrained() resolves when the queue empties", async () => {
+    player.enqueue(chunk(new Array(12000).fill(1)));
+    player.enqueue(chunk(new Array(12000).fill(1)));
+
+    let drained = false;
+    const promise = player.waitUntilDrained().then(() => {
+      drained = true;
+    });
+
+    ctx.sources[0]!.finish();
+    expect(drained).toBe(false);
+
+    ctx.sources[1]!.finish();
+    await promise;
+    expect(drained).toBe(true);
+  });
+
+  test("waitUntilDrained() resolves immediately when idle", async () => {
+    await expect(player.waitUntilDrained()).resolves.toBeUndefined();
+  });
+
+  test("waitUntilDrained() resolves on stop() (barge-in)", async () => {
+    player.enqueue(chunk(new Array(24000).fill(1)));
+    const promise = player.waitUntilDrained();
+    player.stop();
+    await expect(promise).resolves.toBeUndefined();
+  });
+
+  test("subscribe() reports state transitions", () => {
+    const seen: Array<{ isPlaying: boolean; queuedCount: number }> = [];
+    player.subscribe((s) => seen.push({ ...s }));
+
+    // Immediate emit on subscribe.
+    expect(seen[0]).toEqual({ isPlaying: false, queuedCount: 0 });
+
+    player.enqueue(chunk(new Array(24000).fill(1)));
+    expect(seen.at(-1)).toEqual({ isPlaying: true, queuedCount: 1 });
+
+    player.stop();
+    expect(seen.at(-1)).toEqual({ isPlaying: false, queuedCount: 0 });
+  });
+
+  test("drops empty/malformed chunks without scheduling", () => {
+    player.enqueue(chunk([]));
+    expect(ctx.sources.length).toBe(0);
+    expect(player.isPlaying).toBe(false);
+  });
+});
