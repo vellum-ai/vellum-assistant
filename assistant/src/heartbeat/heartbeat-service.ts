@@ -180,9 +180,10 @@ export class HeartbeatService {
   /** Whether the consecutive-run cap has been reached. */
   get isConsecutiveRunCapReached(): boolean {
     const config = getConfig().heartbeat;
+    if (config.maxConsecutiveRuns == null) return false;
     return (
-      config.maxConsecutiveRuns != null &&
-      this._consecutiveRuns >= config.maxConsecutiveRuns
+      countRecentConsecutiveRuns(config.maxConsecutiveRuns) >=
+      config.maxConsecutiveRuns
     );
   }
 
@@ -281,12 +282,6 @@ export class HeartbeatService {
             );
           });
         }
-      }
-
-      if (config.maxConsecutiveRuns != null) {
-        this._consecutiveRuns = countRecentConsecutiveRuns(
-          config.maxConsecutiveRuns,
-        );
       }
     }
 
