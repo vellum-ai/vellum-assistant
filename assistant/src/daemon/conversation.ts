@@ -380,7 +380,6 @@ export class Conversation {
   onConfirmationOutcome?: (
     requestId: string,
     state: string,
-    toolName?: string,
     toolUseId?: string,
   ) => void;
   private cacheWarmAbort?: AbortController;
@@ -420,7 +419,7 @@ export class Conversation {
       });
       // Notify the agent loop so it can track requestId → toolUseId mappings
       // and record confirmation outcomes for persistence.
-      this.onConfirmationOutcome?.(requestId, state, undefined, toolUseId);
+      this.onConfirmationOutcome?.(requestId, state, toolUseId);
       // Emit activity state transitions for confirmation lifecycle
       if (state === "pending") {
         this.emitActivityState(
@@ -894,12 +893,10 @@ export class Conversation {
       return;
     }
 
-    const effectiveDecision = decision;
-
     // Capture toolUseId before resolving (resolution deletes the pending entry)
     const toolUseId = this.prompter.getToolUseId(requestId);
 
-    this.prompter.resolveConfirmation(requestId, effectiveDecision, {
+    this.prompter.resolveConfirmation(requestId, decision, {
       selectedPattern: options?.selectedPattern,
       selectedScope: options?.selectedScope,
       decisionContext: options?.decisionContext,
@@ -909,9 +906,7 @@ export class Conversation {
     // so ALL callers (HTTP handlers, /v1/confirm, channel bridges) get
     // consistent events without duplicating emission logic.
     const resolvedState =
-      effectiveDecision === "deny"
-        ? ("denied" as const)
-        : ("approved" as const);
+      decision === "deny" ? ("denied" as const) : ("approved" as const);
     this.emitConfirmationStateChanged({
       conversationId: this.conversationId,
       requestId,
@@ -926,12 +921,7 @@ export class Conversation {
         : {}),
     });
     // Notify the agent loop of the confirmation outcome for persistence
-    this.onConfirmationOutcome?.(
-      requestId,
-      resolvedState,
-      undefined,
-      toolUseId,
-    );
+    this.onConfirmationOutcome?.(requestId, resolvedState, toolUseId);
     this.emitActivityState(
       "thinking",
       "confirmation_resolved",
