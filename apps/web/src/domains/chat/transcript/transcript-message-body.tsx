@@ -221,6 +221,22 @@ function resolveSpawnedSubagentIds(
   return ids;
 }
 
+function shouldAutoExpandToolCallGroup({
+  isCurrentGroup,
+  isStreaming,
+  toolCalls,
+}: {
+  isCurrentGroup: boolean;
+  isStreaming: boolean;
+  toolCalls: ChatMessageToolCall[];
+}): boolean {
+  if (!isCurrentGroup) return false;
+  return (
+    isStreaming ||
+    toolCalls.some((toolCall) => toolCall.status === "running")
+  );
+}
+
 function latestMessageActivityTimestamp(
   message: DisplayMessage,
 ): number | undefined {
@@ -594,6 +610,11 @@ export function TranscriptMessageBody({
                       expandedToolCallIds={expandedToolCallIds}
                       onExpandChange={handleExpandChange}
                       expandedCardIds={expandedCardIds}
+                      autoExpand={shouldAutoExpandToolCallGroup({
+                        isCurrentGroup: gi === groups.length - 1,
+                        isStreaming,
+                        toolCalls,
+                      })}
                       onOpenRuleEditor={onOpenRuleEditor}
                       isSubmittingConfirmation={isSubmittingConfirmation}
                       onConfirmationSubmit={onConfirmationSubmit}
@@ -601,7 +622,6 @@ export function TranscriptMessageBody({
                       pendingConfirmationToolCallId={pendingConfirmationToolCallId}
                       unknownNudgeToolCallIds={unknownNudgeToolCallIds}
                       onDismissUnknownNudge={onDismissUnknownNudge}
-                      isStreaming={isStreaming}
                       leadingThinkingText={getLeadingThinkingText(message, gi)}
                     />
                   )}
@@ -722,6 +742,9 @@ export function TranscriptMessageBody({
         : null,
     );
   }
+  const legacyToolCalls =
+    message.toolCalls?.filter((tc) => !isSuppressedUiTool(tc)) ?? [];
+  const hasVisibleLegacyContent = contentElements.some((el) => !!el);
 
   return (
     <div
@@ -733,13 +756,18 @@ export function TranscriptMessageBody({
       <div
         className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
       >
-        {message.toolCalls && message.toolCalls.filter((tc) => !isSuppressedUiTool(tc)).length > 0 && (
+        {legacyToolCalls.length > 0 && (
           <>
             <ToolCallProgressCard
-              toolCalls={message.toolCalls.filter((tc) => !isSuppressedUiTool(tc))}
+              toolCalls={legacyToolCalls}
               expandedToolCallIds={expandedToolCallIds}
               onExpandChange={handleExpandChange}
               expandedCardIds={expandedCardIds}
+              autoExpand={shouldAutoExpandToolCallGroup({
+                isCurrentGroup: !hasVisibleLegacyContent,
+                isStreaming,
+                toolCalls: legacyToolCalls,
+              })}
               onOpenRuleEditor={onOpenRuleEditor}
               isSubmittingConfirmation={isSubmittingConfirmation}
               onConfirmationSubmit={onConfirmationSubmit}
@@ -747,12 +775,9 @@ export function TranscriptMessageBody({
               pendingConfirmationToolCallId={pendingConfirmationToolCallId}
               unknownNudgeToolCallIds={unknownNudgeToolCallIds}
               onDismissUnknownNudge={onDismissUnknownNudge}
-              isStreaming={isStreaming}
               leadingThinkingText={getLegacyLeadingThinkingText(message)}
             />
-            {renderInlineSubagentCards(
-              message.toolCalls.filter((tc) => !isSuppressedUiTool(tc)),
-            )}
+            {renderInlineSubagentCards(legacyToolCalls)}
           </>
         )}
         {(contentElements.some((el) => !!el) ||

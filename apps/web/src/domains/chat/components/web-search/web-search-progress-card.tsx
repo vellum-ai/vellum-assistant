@@ -93,6 +93,10 @@ export interface WebSearchProgressCardProps {
   steps: StepDescriptor[];
   /** Whether the card starts expanded. Uncontrolled by default. */
   defaultExpanded?: boolean;
+  /** Controlled expanded value. Pairs with `onExpandChange`. */
+  expanded?: boolean;
+  /** Notified when the user toggles the expand/collapse button. */
+  onExpandChange?: (next: boolean) => void;
   /**
    * Drives the header chrome:
    * - `"loading"` (default) → animated `ThreeDotIndicator` + rotating
@@ -131,6 +135,8 @@ export function WebSearchProgressCard({
   stepCount,
   steps,
   defaultExpanded = false,
+  expanded,
+  onExpandChange,
   state = "loading",
   carouselItems = EMPTY_CAROUSEL_ITEMS,
 }: WebSearchProgressCardProps) {
@@ -162,6 +168,8 @@ export function WebSearchProgressCard({
       currentStepInfo={headerInfo}
       stepCount={stepCount}
       defaultExpanded={defaultExpanded}
+      expanded={expanded}
+      onExpandChange={onExpandChange}
     >
       <div className="flex w-full flex-col gap-3 px-3 pb-3">
         <PhaseGroupedStepList
