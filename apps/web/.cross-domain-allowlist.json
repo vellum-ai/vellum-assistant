@@ -12,6 +12,12 @@
   "src/domains/chat/components/chat-composer/chat-composer.tsx": [
     "voice"
   ],
+  "src/domains/chat/components/live-voice-button.test.tsx": [
+    "voice"
+  ],
+  "src/domains/chat/components/live-voice-button.tsx": [
+    "voice"
+  ],
   "src/domains/chat/components/voice-input-button.tsx": [
     "voice"
   ],
