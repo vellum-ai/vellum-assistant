@@ -7,9 +7,9 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
-  __resetEventBusForTesting,
-  useEventBusStore,
-} from "@/stores/event-bus-store";
+  __resetForTesting,
+  publish,
+} from "@/lib/event-bus";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 
 type StreamContext = { assistantId: string; conversationId: string };
@@ -35,7 +35,6 @@ function renderEventStreamWithCapture(
       observeKeyRef.current = key;
       const streamRef = useRef<ChatEventStream | null>(null);
       const streamEpochRef = useRef(0);
-      const reconcileAfterNextStreamOpenRef = useRef(false);
       const streamContextRef = useRef<StreamContext | null>(null);
       const syncRouterRef = useRef(null) as MutableRefObject<
         null
@@ -48,7 +47,6 @@ function renderEventStreamWithCapture(
         conversationExistsOnServer: true,
         streamRef,
         streamEpochRef,
-        reconcileAfterNextStreamOpenRef,
         streamContextRef,
         handleStreamEvent: (event, epoch) => {
           captured.push({
@@ -64,8 +62,6 @@ function renderEventStreamWithCapture(
         reachabilityProbe: () => {},
         reachabilityPhase: "ready",
         reachabilityReset: () => {},
-        setMessages: () => {},
-        setError: () => {},
         syncRouterRef,
         conversationListInvalidatedTimerRef: timerRef,
       });
@@ -80,7 +76,7 @@ function renderEventStreamWithCapture(
 }
 
 function publishDelta(conversationId: string): void {
-  useEventBusStore.getState().publish("sse.event", {
+  publish("sse.event", {
     id: `evt-${Math.random().toString(36).slice(2, 6)}`,
     conversationId,
     emittedAt: new Date().toISOString(),
@@ -93,12 +89,12 @@ function publishDelta(conversationId: string): void {
 }
 
 beforeEach(() => {
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 describe("useEventStream — rapid conversation switch stress", () => {
@@ -238,7 +234,7 @@ describe("useEventStream — rapid conversation switch stress", () => {
       "conv-A",
       observeKey,
     );
-    useEventBusStore.getState().publish("sse.event", {
+    publish("sse.event", {
       id: "evt-sync-1",
       emittedAt: new Date().toISOString(),
       message: {
@@ -249,7 +245,7 @@ describe("useEventStream — rapid conversation switch stress", () => {
     act(() => {
       rerender({ key: "conv-B" });
     });
-    useEventBusStore.getState().publish("sse.event", {
+    publish("sse.event", {
       id: "evt-sync-2",
       emittedAt: new Date().toISOString(),
       message: {

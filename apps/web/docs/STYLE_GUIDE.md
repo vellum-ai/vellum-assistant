@@ -66,10 +66,10 @@ src/
   routes.tsx                 # route tree (createBrowserRouter)
   stores/                    # app-level Zustand stores (cross-domain)
   domains/                   # business domain modules
-    chat/                    # chat feature (turn, subagent, interaction stores)
+    chat/                    # chat feature (turn, subagent, interaction, session stores)
     messages/                # message lifecycle
-    conversations/           # conversation CRUD, grouping, selection
-    voice/                   # STT, TTS, PTT
+    contacts/                # contact management
+    home/                    # home feed
     ...
   hooks/                     # cross-domain shared hooks
   utils/                     # cross-domain shared utilities (pure functions)
@@ -305,7 +305,7 @@ export function ChatBody({ messages, onSubmit }: ChatBodyProps) { /* ... */ }
 ### Custom hooks start with `use`
 
 All custom hooks follow the React naming convention: `useSendMessage`,
-`useConversationLoader`, `useInteractionActions`.
+`useConversationHistory`, `useInteractionActions`.
 
 Reference: [React — Rules of Hooks](https://react.dev/reference/rules/rules-of-hooks)
 

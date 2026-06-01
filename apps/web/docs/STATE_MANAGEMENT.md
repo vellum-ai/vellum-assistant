@@ -40,6 +40,22 @@ References:
 - [Zustand docs](https://zustand.docs.pmnd.rs/)
 - [Zustand — Auto-generating selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors)
 
+## When Zustand does NOT apply: stateless registries
+
+The "all shared client state lives in Zustand" rule means *state* —
+values consumers read and react to. A handler registry (the event bus,
+in `lib/event-bus.ts`) is not state. It's a pub/sub primitive where
+the only data is a `Map<event, Set<handler>>` that consumers never
+read, only write to and dispatch through. There's nothing for
+selectors to subscribe to. Wrapping it in a Zustand store adds
+ceremony without value — `useEventBusStore.getState().publish(...)`
+when `publish(...)` is the actual operation.
+
+The convention: stateless pub/sub registries are plain modules with
+exported functions. They live in `lib/` alongside other app
+infrastructure. The event bus is the canonical example; other
+registries (if any are added) should follow the same shape.
+
 ## Zustand store conventions
 
 Each domain owns its store, colocated within the domain folder:
@@ -345,12 +361,31 @@ no-ops if `phase !== "thinking"`. The action stays a plain function;
 the rules stay testable in isolation; we don't need a dispatcher
 ceremony to enforce them.
 
-**Known exceptions** (slated for migration):
+## Service-owned state vs store-owned state
 
-- `apps/web/src/domains/terminal/use-terminal-state.ts` and
-  `apps/web/src/domains/terminal/use-terminal-session.ts` still use
-  `useReducer` + dispatch. These will be migrated to Zustand stores
-  in a future change. Do not pattern-match new code on these files.
+Module-level singleton services (e.g. `lifecycle-service.ts`) own
+*behavior* — async work, retry budgets, watchdogs, transitions. Any
+**state that React reads** lives in the service's Zustand store, not as
+a private service field, even if there's only one consumer today.
+
+The trap to avoid: a private singleton field + `peek()` method seems
+fine when the only consumer reads it once at mount. It breaks the
+moment a producer fires from *inside* the consumer's React tree
+(rather than from a sibling that navigates to it) — the singleton flip
+happens after the consumer's `useState` lazy initializer already
+peeked, no re-render is triggered, the UI goes stale. Patching by
+flipping a local mirror at the call site is a band-aid every future
+in-tree producer would need to repeat.
+
+Store-resident state avoids this entirely: `setState` on the store
+automatically re-renders every subscriber, regardless of where the
+producer fired from.
+
+Services expose `mark<Field>()` / `clear<Field>()` (or `set<Field>(v)`)
+that internally call `useTheStore.setState(...)`. React consumers read
+via the atomic selector `useTheStore.use.field()`; non-React callers
+read via `useTheStore.getState().field`. No mirror, no `peek`, no
+two-state invariant.
 
 References:
 - [Zustand — Auto Generating Selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors)

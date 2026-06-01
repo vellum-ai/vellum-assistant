@@ -50,6 +50,13 @@ declare global {
         setBadge(count: number): Promise<void>;
         setSignedIn(signedIn: boolean): Promise<void>;
       };
+      localMode: {
+        hatch(species: string): Promise<{
+          ok: boolean;
+          assistantId?: string;
+          error?: string;
+        }>;
+      };
       mainWindow: {
         ensureVisible(): Promise<void>;
       };

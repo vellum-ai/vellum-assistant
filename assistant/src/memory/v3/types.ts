@@ -14,6 +14,11 @@ export const MEMORY_V3_BLOCK_ID = "memory-v3" as const;
 export interface LeafFrontmatter {
   path: LeafPath;
   in_core: boolean;
+  /**
+   * Optional stable identifier for the leaf, independent of its taxonomy path.
+   * Older leaves predate this field and omit it, so it is optional.
+   */
+  id?: string;
 }
 
 export interface LeafNode {

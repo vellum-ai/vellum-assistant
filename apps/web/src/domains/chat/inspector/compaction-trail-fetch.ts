@@ -20,7 +20,7 @@
  */
 
 import { client } from "@/generated/api/client.gen";
-import { assertHasResponse, SDK_BASE_OPTIONS } from "@/utils/api-errors";
+import { assertHasResponse } from "@/utils/api-errors";
 
 import type { CompactionTrailResponse } from "./compaction-trail-types";
 
@@ -57,7 +57,6 @@ export async function fetchCompactionTrail(
     CompactionTrailResponse,
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/compaction",
     path: { assistant_id: assistantId, conversation_id: conversationId },
     query: { callId },

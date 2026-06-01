@@ -18,11 +18,11 @@ const TEST_REGISTRY = {
       defaultEnabled: true,
     },
     {
-      id: "email-channel",
+      id: "a2a-channel",
       scope: "assistant",
-      key: "email-channel",
-      label: "Email Channel",
-      description: "Email channel integration",
+      key: "a2a-channel",
+      label: "A2A Channel",
+      description: "A2A channel integration",
       defaultEnabled: false,
     },
   ],
@@ -61,25 +61,25 @@ const { clearRemoteFeatureFlagStoreCache, writeRemoteFeatureFlags } =
 describe("isFeatureFlagEnabled", () => {
   test("uses registry defaults when no override exists", () => {
     expect(isFeatureFlagEnabled("browser")).toBe(true);
-    expect(isFeatureFlagEnabled("email-channel")).toBe(false);
+    expect(isFeatureFlagEnabled("a2a-channel")).toBe(false);
   });
 
   test("uses persisted overrides for declared flags", () => {
     writeFeatureFlag("browser", false);
-    writeFeatureFlag("email-channel", true);
+    writeFeatureFlag("a2a-channel", true);
 
     expect(isFeatureFlagEnabled("browser")).toBe(false);
-    expect(isFeatureFlagEnabled("email-channel")).toBe(true);
+    expect(isFeatureFlagEnabled("a2a-channel")).toBe(true);
   });
 
   test("uses explicit remote values for declared flags", () => {
     writeRemoteFeatureFlags({
       browser: false,
-      "email-channel": true,
+      "a2a-channel": true,
     });
 
     expect(isFeatureFlagEnabled("browser")).toBe(false);
-    expect(isFeatureFlagEnabled("email-channel")).toBe(true);
+    expect(isFeatureFlagEnabled("a2a-channel")).toBe(true);
   });
 
   test("ignores persisted and remote values for undeclared flags", () => {

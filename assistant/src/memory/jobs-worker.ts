@@ -1,5 +1,6 @@
 import { join } from "node:path";
 
+import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getConfig } from "../config/loader.js";
 import type { AssistantConfig } from "../config/types.js";
 import {
@@ -84,6 +85,7 @@ import {
   memoryV2ConsolidateJob,
 } from "./v2/consolidation-job.js";
 import { memoryV2SweepJob } from "./v2/sweep-job.js";
+import { maintainJob as memoryV3MaintainJob } from "./v3/maintain-job.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -618,6 +620,9 @@ async function processJob(
     case "memory_v2_activation_recompute":
       await memoryV2ActivationRecomputeJob(job, config);
       return;
+    case "memory_v3_maintain":
+      await memoryV3MaintainJob(job, config);
+      return;
     case "memory_retrospective":
       await memoryRetrospectiveJob(job, config);
       return;
@@ -680,6 +685,12 @@ const GRAPH_DECAY_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const GRAPH_CONSOLIDATE_INTERVAL_MS = 4 * 60 * 60 * 1000; // 4 hours
 const GRAPH_PATTERN_SCAN_INTERVAL_MS = 24 * 60 * 60 * 1000; // 1 day
 const GRAPH_NARRATIVE_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000; // 1 week
+// Backstop cadence for v3 self-maintenance. The primary trigger is the
+// post-consolidation follow-up (see `consolidation-job.ts`); this interval only
+// covers the case where that follow-up is missed (enqueue failure, or a v3-on
+// install with v2 consolidation disabled). A conservative cadence is fine since
+// the maintenance pass is idempotent and cheap when there's nothing to do.
+const GRAPH_V3_MAINTAIN_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   decay: "graph_maintenance:decay:last_run",
@@ -687,6 +698,7 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   patternScan: "graph_maintenance:pattern_scan:last_run",
   narrative: "graph_maintenance:narrative:last_run",
   memoryV2Consolidate: "memory_v2_consolidate_last_run",
+  memoryV3Maintain: "memory_v3_maintain_last_run",
 } as const;
 
 /**
@@ -712,6 +724,10 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
  * Sweep is intentionally not on this schedule: it is debounced from the
  * live `graph_extract` trigger path (see `indexMessageNow` in `indexer.ts`)
  * so it runs on the same idle/message-count cadence.
+ *
+ * Independently of the v1/v2 split, a flag-gated `memory_v3_maintain` backstop
+ * is appended when a v3 path is active so the topic tree self-heals even if the
+ * primary post-consolidation follow-up enqueue is missed.
  */
 export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
@@ -755,6 +771,25 @@ export function maybeEnqueueGraphMaintenanceJobs(
           jobType: "graph_narrative_refine",
         },
       ];
+
+  // v3 self-maintenance backstop. Orthogonal to the v1/v2 mutual exclusion
+  // above: it owns its own checkpoint and operates on the v3 topic tree, so it
+  // runs under either branch. Gated on the same flags that gate the v3 plugin
+  // so it stays inert when v3 is off. The post-consolidation follow-up in
+  // `consolidation-job.ts` remains the primary trigger; this interval only
+  // self-heals when that follow-up is missed (failed enqueue, or v3-on with v2
+  // consolidation disabled). The job handler itself no-ops when v3 is off, so
+  // this guard is belt-and-suspenders that also avoids a wasted enqueue.
+  if (
+    isAssistantFeatureFlagEnabled("memory-v3-shadow", config) ||
+    isAssistantFeatureFlagEnabled("memory-v3-live", config)
+  ) {
+    schedule.push({
+      key: GRAPH_MAINTENANCE_CHECKPOINTS.memoryV3Maintain,
+      intervalMs: GRAPH_V3_MAINTAIN_INTERVAL_MS,
+      jobType: "memory_v3_maintain",
+    });
+  }
 
   let enqueuedConsolidate = false;
   for (const { key, intervalMs, jobType } of schedule) {

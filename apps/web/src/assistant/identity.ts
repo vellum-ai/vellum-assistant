@@ -9,14 +9,13 @@
  */
 import { identityGet } from "@/generated/daemon/sdk.gen";
 import type { IdentityGetResponse } from "@/generated/daemon/types.gen";
-import { assertHasResponse, SDK_BASE_OPTIONS } from "@/utils/api-errors";
+import { assertHasResponse } from "@/utils/api-errors";
 
 export async function fetchAssistantIdentity(
   assistantId: string,
 ): Promise<IdentityGetResponse | null> {
   try {
     const { data, error, response } = await identityGet({
-      ...SDK_BASE_OPTIONS,
       path: { assistant_id: assistantId },
       throwOnError: false,
     });

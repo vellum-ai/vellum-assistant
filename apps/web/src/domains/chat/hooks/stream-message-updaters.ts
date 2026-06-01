@@ -33,24 +33,50 @@ export function finalizeRunningToolCalls(
   );
 }
 
-/**
- * Whether the next streaming chunk should extend the tail bubble or start
- * a fresh one. Derived directly from the message array — the boundary
- * events that previously latched this decision (idle, message_complete,
- * generation_handoff, generation_cancelled, dequeued, conversation switch)
- * all leave the tail in a state where `isStreaming` is either `false` or
- * the tail is no longer an assistant row, so the derivation answers
- * correctly without any shared flag.
- */
-export function tailIsStreamingAssistant(prev: DisplayMessage[]): boolean {
-  const last = prev[prev.length - 1];
-  return !!last && last.role === "assistant" && !!last.isStreaming;
-}
-
-/** Whether the tail row is an assistant message, regardless of streaming. */
+/** Whether the tail row is an assistant message. */
 export function tailIsAssistant(prev: DisplayMessage[]): boolean {
   const last = prev[prev.length - 1];
   return !!last && last.role === "assistant";
+}
+
+/**
+ * Identify the assistant row that is currently live (still streaming) for
+ * the active conversation, or `null` when none is.
+ *
+ * The live row is the last assistant message when the conversation is
+ * processing and that row trails the most recent user message. A brand-new
+ * turn always begins with a user row; a turn with no user row (external
+ * channels) has the assistant run as the tail. Trailing user rows still
+ * waiting in the queue (`queueStatus: "queued"`) are skipped so a message
+ * queued mid-turn doesn't sever the in-flight assistant from its live
+ * status.
+ *
+ * Pure and position-based: this is the single source of truth for row
+ * liveness, derived from message position and the conversation's
+ * processing state rather than a per-row flag.
+ */
+export function liveAssistantRowId(
+  messages: DisplayMessage[],
+  isProcessing: boolean,
+): string | null {
+  if (!isProcessing) {
+    return null;
+  }
+
+  let tailIdx = messages.length - 1;
+  while (
+    tailIdx >= 0 &&
+    messages[tailIdx]!.role === "user" &&
+    messages[tailIdx]!.queueStatus === "queued"
+  ) {
+    tailIdx--;
+  }
+
+  const tail = messages[tailIdx];
+  if (!tail || tail.role !== "assistant") {
+    return null;
+  }
+  return tail.id;
 }
 
 /**
@@ -107,7 +133,6 @@ export function createStreamingBubble(
       ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant",
       content: text,
-      isStreaming: true,
       textSegments: [{ type: "text", content: text }],
       contentOrder: [{ type: "text", id: "0" }],
       timestamp: Date.now(),
@@ -116,22 +141,9 @@ export function createStreamingBubble(
 }
 
 /**
- * Append text to the streaming assistant tail bubble, creating one if the
- * tail isn't a streaming assistant row.
- *
- * The "should I open a new bubble" question is derived from the message
- * array itself — when the previous turn finalized (via `finalizeOnIdle`,
- * `finalizeMessageComplete`, `stopStreaming`, conversation switch, or a
- * user message append), the tail's `isStreaming` flag is already false
- * (or the tail is no longer an assistant row), so this updater branches
- * to `createStreamingBubble` without needing a shared latch.
- */
-/**
  * Append `text` into the message at `prev[idx]`, extending its trailing
  * text segment if the last `contentOrder` entry is text, otherwise opening
- * a new text segment. Stamps `isStreaming: true` because every caller of
- * this helper is mid-turn — including the reconcile-pulled reserved-row
- * case where the existing row arrived without the streaming flag.
+ * a new text segment.
  */
 function appendTextIntoRow(
   prev: DisplayMessage[],
@@ -162,7 +174,6 @@ function appendTextIntoRow(
   next[idx] = {
     ...row,
     content: row.content + text,
-    isStreaming: true,
     textSegments: segments,
     contentOrder: order,
   };
@@ -204,7 +215,7 @@ export function appendTextDelta(
     return createStreamingBubble(prev, text, messageId);
   }
 
-  if (!tailIsStreamingAssistant(prev)) {
+  if (!tailIsAssistant(prev)) {
     return createStreamingBubble(prev, text, messageId);
   }
   return appendTextIntoRow(prev, prev.length - 1, text);
@@ -215,27 +226,18 @@ export function appendTextDelta(
 // ---------------------------------------------------------------------------
 
 /**
- * Finalize all streaming assistant messages when the daemon signals turn
- * idle. Sets `isStreaming: false` on each streaming assistant row and
- * marks any running tool calls as completed.
- *
- * Flipping `isStreaming` here is what lets `appendTextDelta` /
- * `upsertToolCall` derive "next chunk should open a new bubble" from the
- * message array alone — without this, the previous turn's tail would
- * still look like a streaming assistant when the next turn's first chunk
- * arrives, and the next chunk would erroneously extend it.
+ * Finalize assistant messages when the daemon signals turn idle by marking
+ * any running tool calls as completed. Liveness is derived from the
+ * conversation's processing state (see `liveAssistantRowId`), which the
+ * idle event clears, so no per-row flag needs flipping here.
  */
 export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
   let changed = false;
   const updated = prev.map((m) => {
-    if (m.role !== "assistant" || !m.isStreaming) return m;
+    if (m.role !== "assistant") return m;
+    if (!m.toolCalls?.some((tc) => tc.status === "running")) return m;
     changed = true;
-    const finalized = finalizeRunningToolCalls(m.toolCalls);
-    return {
-      ...m,
-      isStreaming: false,
-      ...(finalized ? { toolCalls: finalized } : {}),
-    };
+    return { ...m, toolCalls: finalizeRunningToolCalls(m.toolCalls) };
   });
   return changed ? updated : prev;
 }
@@ -251,8 +253,8 @@ export function finalizeOnIdle(prev: DisplayMessage[]): DisplayMessage[] {
  *   - tail is user (or array empty) → push a new finalized assistant bubble
  *     stamped with `event.messageId`. This covers the start-of-turn case
  *     where no streaming bubble was opened (e.g. tool-only or aux turns).
- *   - tail is assistant → finalize it: flip `isStreaming: false`, complete
- *     any running tool calls, merge in `event.attachments`. The first
+ *   - tail is assistant → finalize it: complete any running tool calls,
+ *     merge in `event.attachments`. The first
  *     `message_complete` for an *optimistic* row also adopts
  *     `event.messageId` as the row id (clearing `isOptimistic`) so the
  *     post-turn history reconcile matches by id instead of falling back to
@@ -305,7 +307,6 @@ export function finalizeMessageComplete(
     {
       ...last,
       ...(adoptServerId ? { id: event.messageId!, isOptimistic: false } : {}),
-      isStreaming: false,
       ...(attachments ? { attachments } : {}),
       ...(finalized ? { toolCalls: finalized } : {}),
     },
@@ -386,27 +387,6 @@ export function applyUserMessageEcho(
 }
 
 // ---------------------------------------------------------------------------
-// generation_handoff / stream stop
-// ---------------------------------------------------------------------------
-
-/**
- * Stop streaming on the tail assistant bubble (handoff or cancellation).
- * Keeps `tail.id` — same anchor preservation as `finalizeMessageComplete`.
- */
-export function stopStreaming(prev: DisplayMessage[]): DisplayMessage[] {
-  const last = prev[prev.length - 1];
-  if (!last || last.role !== "assistant" || !last.isStreaming) return prev;
-
-  return [
-    ...prev.slice(0, -1),
-    {
-      ...last,
-      isStreaming: false,
-    },
-  ];
-}
-
-// ---------------------------------------------------------------------------
 // conversation_error
 // ---------------------------------------------------------------------------
 
@@ -416,7 +396,7 @@ export function handleConversationError(
 ): DisplayMessage[] {
   const lastIdx = prev.length - 1;
   const last = prev[lastIdx];
-  if (!last || last.role !== "assistant" || !last.isStreaming) return prev;
+  if (!last || last.role !== "assistant") return prev;
 
   const finalized = finalizeRunningToolCalls(last.toolCalls);
   const hasContent =
@@ -428,7 +408,6 @@ export function handleConversationError(
   const updated = [...prev];
   updated[lastIdx] = {
     ...last,
-    isStreaming: false,
     ...(finalized ? { toolCalls: finalized } : {}),
   };
   return updated;
@@ -454,14 +433,6 @@ export function attachSurface(
   }
   if (targetIdx === -1) {
     for (let i = prev.length - 1; i >= 0; i--) {
-      if (prev[i]?.role === "assistant" && prev[i]?.isStreaming) {
-        targetIdx = i;
-        break;
-      }
-    }
-  }
-  if (targetIdx === -1) {
-    for (let i = prev.length - 1; i >= 0; i--) {
       if (prev[i]?.role === "assistant") {
         targetIdx = i;
         break;
@@ -481,7 +452,6 @@ export function attachSurface(
       ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant" as const,
       content: "",
-      isStreaming: true,
       surfaces: [surface],
       contentOrder: [{ type: "surface", id: surface.surfaceId }],
       timestamp: Date.now(),
@@ -626,7 +596,7 @@ export function upsertToolCall(
     if (tailIsAssistant(prev)) {
       return upsertToolCallIntoRow(prev, prev.length - 1, toolCall, messageId);
     }
-  } else if (tailIsStreamingAssistant(prev)) {
+  } else if (tailIsAssistant(prev)) {
     return upsertToolCallIntoRow(prev, prev.length - 1, toolCall);
   }
 
@@ -643,7 +613,6 @@ export function upsertToolCall(
       ...(messageId ? {} : { isOptimistic: true }),
       role: "assistant" as const,
       content: "",
-      isStreaming: true,
       toolCalls: [toolCall],
       contentOrder: [{ type: "toolCall", id: toolCall.id }],
       timestamp: Date.now(),
@@ -654,8 +623,7 @@ export function upsertToolCall(
 /**
  * Fold a tool call into the assistant row at `idx`, either updating the
  * existing entry (same `toolCall.id`) or appending a new one with a
- * matching `contentOrder` entry. Stamps `isStreaming: true` so the row
- * keeps streaming semantics — same invariant as `appendTextIntoRow`.
+ * matching `contentOrder` entry.
  */
 function upsertToolCallIntoRow(
   prev: DisplayMessage[],
@@ -674,13 +642,12 @@ function upsertToolCallIntoRow(
       ...updatedToolCalls[existingIdx]!,
       ...toolCall,
     };
-    updated[idx] = { ...row, isStreaming: true, toolCalls: updatedToolCalls };
+    updated[idx] = { ...row, toolCalls: updatedToolCalls };
     return updated;
   }
 
   updated[idx] = {
     ...row,
-    isStreaming: true,
     toolCalls: [...(row.toolCalls ?? []), toolCall],
     contentOrder: [
       ...(row.contentOrder ?? []),

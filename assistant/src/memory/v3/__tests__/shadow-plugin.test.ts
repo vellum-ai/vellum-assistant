@@ -43,6 +43,9 @@ const realNeedle = { ...(await import("../needle.js")) };
 const realOrchestrate = { ...(await import("../orchestrate.js")) };
 const realPlatform = { ...(await import("../../../util/platform.js")) };
 const realPageStore = { ...(await import("../../v2/page-store.js")) };
+const realConversationCrud = {
+  ...(await import("../../conversation-crud.js")),
+};
 
 let shadowMockActive = false;
 
@@ -106,7 +109,12 @@ mock.module("../../../config/loader.js", () => ({
   }),
 }));
 
+// Spread the real module so every export the live path transitively imports
+// (e.g. `getMessageById` via page-content.ts) stays present — replacing the
+// whole module with a bare `{ getMessages }` made those consumers fail to load.
+// Only `getMessages` is overridden, since that's the one the plugin reads.
 mock.module("../../conversation-crud.js", () => ({
+  ...realConversationCrud,
   getMessages: () => messages.map((m, i) => ({ ...m, id: `m${i}` })),
 }));
 
@@ -191,8 +199,12 @@ mock.module("../orchestrate.js", () => ({
 }));
 
 // Import AFTER mocks so the plugin binds to them.
-const { runShadowObservation, resetShadowLanesForTests, memoryV3ShadowPlugin } =
-  await import("../shadow-plugin.js");
+const {
+  runShadowObservation,
+  resetShadowLanesForTests,
+  invalidateLanes,
+  memoryV3ShadowPlugin,
+} = await import("../shadow-plugin.js");
 
 // The module stubs above stay installed for the rest of the process (Bun can't
 // reliably uninstall them), but `shadowMockActive` gates their fake behavior to
@@ -335,6 +347,56 @@ describe("memory-v3 shadow plugin", () => {
     expect(coreLoads).toBe(1);
     expect(needleBuilds).toBe(1);
     expect(orchestrateSpy).toHaveBeenCalledTimes(3);
+  });
+
+  test("invalidateLanes forces a one-time rebuild on the next turn", async () => {
+    shadowEnabled = true;
+    await runShadowObservation("conv-1", 0);
+    await runShadowObservation("conv-1", 1);
+    // One build so far; invalidation drops it.
+    expect(treeLoads).toBe(1);
+    expect(needleBuilds).toBe(1);
+
+    invalidateLanes();
+
+    // The next turn rebuilds (fresh tree load + fresh needle index)...
+    await runShadowObservation("conv-1", 2);
+    expect(treeLoads).toBe(2);
+    expect(coreLoads).toBe(2);
+    expect(needleBuilds).toBe(2);
+
+    // ...and the rebuild is memoized again — no further builds until the next
+    // invalidation.
+    await runShadowObservation("conv-1", 3);
+    expect(treeLoads).toBe(2);
+    expect(needleBuilds).toBe(2);
+  });
+
+  test("resetShadowLanesForTests invalidates like invalidateLanes", async () => {
+    shadowEnabled = true;
+    await runShadowObservation("conv-1", 0);
+    expect(treeLoads).toBe(1);
+
+    resetShadowLanesForTests();
+
+    await runShadowObservation("conv-1", 1);
+    expect(treeLoads).toBe(2);
+  });
+
+  test("concurrent first turns after invalidation share a single build", async () => {
+    shadowEnabled = true;
+    await runShadowObservation("conv-1", 0);
+    expect(treeLoads).toBe(1);
+
+    invalidateLanes();
+
+    // Both turns race the rebuild; memoization must collapse them to one build.
+    await Promise.all([
+      runShadowObservation("conv-1", 1),
+      runShadowObservation("conv-1", 2),
+    ]);
+    expect(treeLoads).toBe(2);
+    expect(needleBuilds).toBe(2);
   });
 
   test("no user message → no orchestrate, no writes", async () => {

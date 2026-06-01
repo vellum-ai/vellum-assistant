@@ -886,7 +886,7 @@ export function ProviderEditorContent({
 
         {/* ChatGPT Subscription OAuth — shown when auth type is oauth_subscription */}
         {authType === "oauth_subscription" && (
-          <div className="space-y-3 rounded-lg border border-[var(--border-default)] p-4">
+          <div className="space-y-3 rounded-lg border border-[var(--border-base)] p-4">
             <Typography
               variant="body-small-default"
               as="p"

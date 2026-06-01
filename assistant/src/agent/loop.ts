@@ -17,6 +17,7 @@ import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
   CompactionArgs,
+  CompactionCircuitEvent,
   CompactionResult,
   EmptyResponseArgs,
   EmptyResponseDecision,
@@ -47,6 +48,7 @@ import {
 import { AssistantError, ErrorCode, ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { isRetryableNetworkError } from "../util/retry.js";
+import { CompactionCircuit } from "./compaction-circuit.js";
 
 const log = getLogger("agent-loop");
 
@@ -292,6 +294,25 @@ export type AgentEvent =
     }
   | {
       /**
+       * Emitted when the inline `compaction` pipeline times out. The
+       * orchestrator records the failure against the compaction circuit
+       * breaker, which trips after repeated timeouts to suspend
+       * auto-compaction. The loop abandons the compaction attempt for this
+       * turn after emitting it.
+       */
+      type: "compaction_timed_out";
+    }
+  /**
+   * Circuit-breaker transitions emitted when auto-compaction is paused
+   * (`compaction_circuit_open`, after three consecutive summary-LLM
+   * failures) or resumed (`compaction_circuit_closed`). These are already
+   * in wire-contract shape; the daemon's event dispatcher forwards them to
+   * the client unchanged so the "auto-compaction paused" banner shows and
+   * dismisses.
+   */
+  | CompactionCircuitEvent
+  | {
+      /**
        * Emitted when an agent turn reaches a terminal state. Checkpoint
        * yields used for orchestration (handoff or budget compaction) are not
        * emitted by {@link AgentLoop.run}; the outer orchestrator emits a
@@ -427,9 +448,9 @@ export interface ResolvedSystemPrompt {
  * trips and inline compaction runs. The loop owns the trigger, the
  * `compaction` pipeline call, and the inline continue; these hooks bridge the
  * durable / injection state the loop is intentionally blind to. Persistence
- * ({@link persist}, {@link onTimeout}) and re-injection ({@link reinject})
- * remain orchestrator-supplied for now and are expected to move into the loop
- * in a future change.
+ * ({@link persist}) and re-injection ({@link reinject}) remain
+ * orchestrator-supplied for now and are expected to move into the loop in a
+ * future change.
  */
 export interface MidLoopCompaction {
   /** Strip runtime injections, commit stripped messages, and resolve pipeline options. */
@@ -437,8 +458,6 @@ export interface MidLoopCompaction {
     rawHistory: Message[];
     options: CompactionArgs["options"];
   };
-  /** Record a compaction-pipeline timeout for the circuit breaker. */
-  onTimeout: () => Promise<void>;
   /** Persist a compaction result and report whether the retry budget was exhausted. */
   persist: (
     result: CompactionResult,
@@ -550,6 +569,20 @@ export type LoopToolExecutor = (
   activityMetadata?: ToolActivityMetadata;
 }>;
 
+export interface AgentLoopConstructorOptions {
+  config?: Partial<AgentLoopConfig>;
+  tools?: ToolDefinition[];
+  toolExecutor?: LoopToolExecutor;
+  resolveTools?: (history: Message[]) => ToolDefinition[];
+  resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt;
+  /**
+   * Conversation this loop drives. Used to scope the loop-held compaction
+   * circuit breaker; defaults to an empty key for test loops that never
+   * exercise compaction.
+   */
+  conversationId?: string;
+}
+
 export class AgentLoop {
   private provider: Provider;
   private systemPrompt: string;
@@ -561,15 +594,28 @@ export class AgentLoop {
     | null;
   private toolExecutor: LoopToolExecutor | null;
 
+  /**
+   * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
+   * conversation, so it is the source of truth for the cross-turn failure
+   * counter and cooldown deadline. Non-loop callers (the orchestrator's
+   * compaction paths, `Conversation.forceCompact`, and the dev-only playground
+   * routes) reach it via `agentLoop.compactionCircuit`.
+   */
+  readonly compactionCircuit: CompactionCircuit;
+
   constructor(
     provider: Provider,
     systemPrompt: string,
-    config?: Partial<AgentLoopConfig>,
-    tools?: ToolDefinition[],
-    toolExecutor?: LoopToolExecutor,
-    resolveTools?: (history: Message[]) => ToolDefinition[],
-    resolveSystemPrompt?: (history: Message[]) => ResolvedSystemPrompt,
+    options?: AgentLoopConstructorOptions,
   ) {
+    const {
+      config,
+      tools,
+      toolExecutor,
+      resolveTools,
+      resolveSystemPrompt,
+      conversationId,
+    } = options ?? {};
     this.provider = provider;
     this.systemPrompt = systemPrompt;
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -577,6 +623,7 @@ export class AgentLoop {
     this.resolveTools = resolveTools ?? null;
     this.resolveSystemPrompt = resolveSystemPrompt ?? null;
     this.toolExecutor = toolExecutor ?? null;
+    this.compactionCircuit = new CompactionCircuit(conversationId ?? "");
   }
 
   /**
@@ -662,7 +709,7 @@ export class AgentLoop {
       );
     } catch (error) {
       if (error instanceof PluginTimeoutError) {
-        await compaction.onTimeout();
+        await onEvent({ type: "compaction_timed_out" });
         return null;
       }
       throw error;

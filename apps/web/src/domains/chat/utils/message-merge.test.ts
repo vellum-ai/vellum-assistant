@@ -349,18 +349,6 @@ describe("mergeAdjacentAssistantMessages · contentOrder remap", () => {
 });
 
 describe("mergeAdjacentAssistantMessages · skip predicates", () => {
-  test("does NOT fold when either side is streaming", () => {
-    const finalized = makeAssistant({ id: "a-1", content: "done" });
-    const streaming = makeAssistant({
-      id: "a-2",
-      content: "still typing",
-      isStreaming: true,
-    });
-    const result = mergeAdjacentAssistantMessages([finalized, streaming]);
-    expect(result).toHaveLength(2);
-    expect(result.map((m) => m.id)).toEqual(["a-1", "a-2"]);
-  });
-
   test("does NOT fold when either side is optimistic", () => {
     const real = makeAssistant({ id: "a-1", content: "done" });
     const optimistic = makeAssistant({

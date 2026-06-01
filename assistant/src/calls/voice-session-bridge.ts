@@ -516,13 +516,9 @@ export async function startVoiceTurn(
               },
               "Consumed scoped grant — allowing non-guardian voice confirmation",
             );
-            conversation.handleConfirmationResponse(
-              msg.requestId,
-              "allow",
-              undefined,
-              undefined,
-              `Permission approved for "${msg.toolName}": guardian pre-approved via scoped grant.`,
-            );
+            conversation.handleConfirmationResponse(msg.requestId, "allow", {
+              decisionContext: `Permission approved for "${msg.toolName}": guardian pre-approved via scoped grant.`,
+            });
             broadcastMessage(msg);
             return;
           }
@@ -537,13 +533,9 @@ export async function startVoiceTurn(
           { turnId, toolName: msg.toolName },
           "Auto-denying confirmation request for non-guardian voice turn (no matching scoped grant)",
         );
-        conversation.handleConfirmationResponse(
-          msg.requestId,
-          "deny",
-          undefined,
-          undefined,
-          `Permission denied for "${msg.toolName}": this voice call does not have interactive approval capabilities. Side-effect tools are not available for non-guardian voice callers. In your next assistant reply, explain briefly that this action requires guardian-level access and cannot be performed during this call.`,
-        );
+        conversation.handleConfirmationResponse(msg.requestId, "deny", {
+          decisionContext: `Permission denied for "${msg.toolName}": this voice call does not have interactive approval capabilities. Side-effect tools are not available for non-guardian voice callers. In your next assistant reply, explain briefly that this action requires guardian-level access and cannot be performed during this call.`,
+        });
         broadcastMessage(msg);
         return;
       }
@@ -552,13 +544,9 @@ export async function startVoiceTurn(
           { turnId, toolName: msg.toolName },
           "Auto-approving confirmation request for guardian voice turn",
         );
-        conversation.handleConfirmationResponse(
-          msg.requestId,
-          "allow",
-          undefined,
-          undefined,
-          `Permission approved for "${msg.toolName}": this is a verified guardian voice call.`,
-        );
+        conversation.handleConfirmationResponse(msg.requestId, "allow", {
+          decisionContext: `Permission approved for "${msg.toolName}": this is a verified guardian voice call.`,
+        });
         broadcastMessage(msg);
         return;
       }
@@ -594,10 +582,8 @@ export async function startVoiceTurn(
       // flag into subsequent non-voice turns on the same conversation.
       conversation.forcePromptSideEffects =
         !isGuardian && !usesLocalInteractiveApprovals;
-      await conversation.runAgentLoop(
-        persistedContent,
-        messageId,
-        (msg: ServerMessage) => {
+      await conversation.runAgentLoop(persistedContent, messageId, {
+        onEvent: (msg: ServerMessage) => {
           if (msg.type === "error") {
             lastError = msg.message;
           } else if (msg.type === "conversation_error") {
@@ -624,8 +610,8 @@ export async function startVoiceTurn(
           // Note: tool_use_preview_start is intentionally not handled here.
           // Voice only reacts to the definitive tool_use_start event.
         },
-        { callSite: "callAgent" },
-      );
+        callSite: "callAgent",
+      });
       if (lastError) {
         log.error(
           { turnId, error: lastError },

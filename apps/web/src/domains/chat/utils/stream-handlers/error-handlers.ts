@@ -1,8 +1,5 @@
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
-import {
-  handleConversationError,
-  stopStreaming,
-} from "@/domains/chat/hooks/stream-message-updaters";
+import { handleConversationError } from "@/domains/chat/hooks/stream-message-updaters";
 import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import { patchConversation } from "@/utils/conversation-cache";
@@ -25,7 +22,6 @@ export function handleStreamError(
     });
   }
   ctx.endTurn({ conversationId: convId, reason: "error" });
-  ctx.setMessages((prev) => stopStreaming(prev));
   const detail =
     (event.code && ERROR_MESSAGES[event.code]) ||
     event.message ||

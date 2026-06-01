@@ -1255,9 +1255,9 @@ describe("shouldShowThinkingIndicator", () => {
   });
 
   test("fallback: visible in streaming phase when no streaming message exists yet", () => {
-    // ASSISTANT_TEXT_DELTA moves phase to "streaming", but the
-    // DisplayMessage with isStreaming may not exist yet (brief race).
-    // The fallback !hasStreamingAssistantMessage keeps the dots visible.
+    // ASSISTANT_TEXT_DELTA moves phase to "streaming", but the live
+    // assistant row may not exist yet (brief race). The fallback
+    // !hasStreamingAssistantMessage keeps the dots visible.
     const streaming = applyEvents(INITIAL_TURN_STATE, [
       { type: "USER_SEND_REQUESTED" },
       { type: "ASSISTANT_TEXT_DELTA" },

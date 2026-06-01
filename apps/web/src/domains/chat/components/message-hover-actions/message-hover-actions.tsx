@@ -10,8 +10,6 @@ type MessageHoverActionsProps = {
   timestamp?: number;
   /** The role of the message sender. */
   role: "user" | "assistant";
-  /** Whether the message is currently streaming. */
-  isStreaming?: boolean;
   /** Slack permalink for the message, shown as a hover action when present. */
   openInSlackUrl?: string;
   /** Callback when "Fork from here" is clicked. */
@@ -56,7 +54,6 @@ export function MessageHoverActions({
   content,
   timestamp,
   role,
-  isStreaming,
   openInSlackUrl,
   onFork,
   onInspect,
@@ -92,10 +89,6 @@ export function MessageHoverActions({
       // Clipboard write denied — silently ignore
     });
   }, [content]);
-
-  if (isStreaming) {
-    return null;
-  }
 
   return (
     <div

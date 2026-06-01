@@ -35,12 +35,10 @@ import type { AssistantConfig } from "../../config/schema.js";
 import { getMessages } from "../../memory/conversation-crud.js";
 import { getDb, getSqliteFrom } from "../../memory/db-connection.js";
 import { stringifyMessageContent } from "../../memory/message-content.js";
-import { registerPlugin } from "../../plugins/registry.js";
 import {
   type InjectionBlock,
   type Injector,
   type Plugin,
-  PluginExecutionError,
   type TurnContext as PluginTurnContext,
 } from "../../plugins/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -92,9 +90,21 @@ export interface ShadowLanes {
  */
 let lanesPromise: Promise<ShadowLanes> | null = null;
 
-/** Test-only: drop the memoized lanes so a fresh init runs next turn. */
-export function resetShadowLanesForTests(): void {
+/**
+ * Drop the memoized lanes so the NEXT `getLanes` rebuilds them from scratch
+ * (fresh topic-tree load + fresh needle index). The rebuild is lazy — this only
+ * clears the cache, so the cost is paid by the next caller, and concurrent
+ * first-callers after the invalidation still share a single build via the
+ * re-memoized promise. Call this whenever the underlying tree or needle sources
+ * change on disk.
+ */
+export function invalidateLanes(): void {
   lanesPromise = null;
+}
+
+/** Test-only alias for {@link invalidateLanes}. */
+export function resetShadowLanesForTests(): void {
+  invalidateLanes();
 }
 
 /**
@@ -113,7 +123,12 @@ async function pageSummary(slug: Slug): Promise<string> {
 
 async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const dataDir = resolveDataDir();
-  const tree = await loadLeafTree(dataDir);
+  const pageIndex = await getPageIndex(getWorkspaceDir());
+  const pageLeaves = new Map<Slug, LeafPath[]>();
+  for (const entry of pageIndex.entries) {
+    pageLeaves.set(entry.slug, entry.leaves);
+  }
+  const tree = await loadLeafTree(dataDir, pageLeaves);
   const core = await loadCore(dataDir);
 
   const needle = await buildNeedleIndex(tree, pageSummary);
@@ -350,20 +365,3 @@ export const memoryV3ShadowPlugin: Plugin = {
   },
   injectors: [memoryV3Injector],
 };
-
-// Module-load side effect: register at import time so the registry is
-// populated even for callers that skip `bootstrapPlugins()`. Idempotent via
-// the swallowed duplicate-name check — mirrors the other default plugins.
-try {
-  registerPlugin(memoryV3ShadowPlugin);
-} catch (err) {
-  if (
-    err instanceof PluginExecutionError &&
-    err.message.includes("already registered")
-  ) {
-    // already registered — expected when both index.ts and the direct file
-    // are imported in the same process
-  } else {
-    throw err;
-  }
-}

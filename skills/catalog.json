@@ -155,12 +155,11 @@
       "metadata": {
         "emoji": "📧",
         "vellum": {
-          "display-name": "Email Setup",
-          "feature-flag": "email-channel"
+          "display-name": "Email Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-04-18T11:33:07.000Z"
+      "updatedAt": "2026-06-01T13:28:59.000Z"
     },
     {
       "id": "fish-audio",
@@ -415,7 +414,7 @@
           "feature-flag": "meet"
         }
       },
-      "updatedAt": "2026-05-29T19:20:59.000Z"
+      "updatedAt": "2026-05-29T20:37:22.000Z"
     },
     {
       "id": "meme-generator",

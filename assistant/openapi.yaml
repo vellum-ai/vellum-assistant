@@ -4101,6 +4101,49 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  domains:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        displayName:
+                          type: string
+                      required:
+                        - id
+                        - displayName
+                      additionalProperties: false
+                  callSites:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        displayName:
+                          type: string
+                        description:
+                          type: string
+                        domain:
+                          type: string
+                        defaultProfile:
+                          type: string
+                      required:
+                        - id
+                        - displayName
+                        - description
+                        - domain
+                      additionalProperties: false
+                required:
+                  - domains
+                  - callSites
+                additionalProperties: false
   /v1/config/llm/profiles:
     get:
       operationId: config_llm_profiles_get
@@ -4960,7 +5003,30 @@ paths:
                 properties:
                   starters:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        label:
+                          type: string
+                        prompt:
+                          type: string
+                        category:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        batch:
+                          type: integer
+                          minimum: -9007199254740991
+                          maximum: 9007199254740991
+                      required:
+                        - id
+                        - label
+                        - prompt
+                        - category
+                        - batch
+                      additionalProperties: false
                     description: Ordered list of starter chips
                   total:
                     type: integer
@@ -5278,7 +5344,10 @@ paths:
             type: string
             enum:
               - background
-          description: Filter by conversation type. Pass "background" to list only background/scheduled conversations.
+              - scheduled
+          description:
+            Filter by conversation type. Pass "background" to list background and scheduled conversations together (the
+            back-compat umbrella), or "scheduled" to list only scheduled conversations.
         - name: archiveStatus
           in: query
           required: false
@@ -6341,8 +6410,8 @@ paths:
       operationId: conversations_cli_clear_post
       summary: Clear all conversations (CLI)
       description:
-        Tear down all active conversations and clear the database. The confirmation prompt is handled client-side
-        by the CLI.
+        "Tear down all active conversations and clear the database. Requires X-Confirm-Destructive:
+        clear-all-conversations."
       tags:
         - conversations
       responses:
@@ -8550,7 +8619,68 @@ paths:
                 properties:
                   comments:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        surfaceId:
+                          type: string
+                        conversationId:
+                          type: string
+                        author:
+                          type: string
+                        content:
+                          type: string
+                        anchorStart:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        anchorEnd:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        anchorText:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        parentCommentId:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        status:
+                          type: string
+                          enum:
+                            - open
+                            - resolved
+                        resolvedBy:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        resolvedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        createdAt:
+                          type: number
+                        updatedAt:
+                          type: number
+                      required:
+                        - id
+                        - surfaceId
+                        - conversationId
+                        - author
+                        - content
+                        - anchorStart
+                        - anchorEnd
+                        - anchorText
+                        - parentCommentId
+                        - status
+                        - resolvedBy
+                        - resolvedAt
+                        - createdAt
+                        - updatedAt
+                      additionalProperties: false
                     description: Comment records
                 required:
                   - comments
@@ -8595,8 +8725,35 @@ paths:
                     type: string
                   content:
                     type: string
+                  anchorStart:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  anchorEnd:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  anchorText:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  parentCommentId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   status:
                     type: string
+                    enum:
+                      - open
+                      - resolved
+                  resolvedBy:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  resolvedAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
                   createdAt:
                     type: number
                   updatedAt:
@@ -8607,7 +8764,13 @@ paths:
                   - conversationId
                   - author
                   - content
+                  - anchorStart
+                  - anchorEnd
+                  - anchorText
+                  - parentCommentId
                   - status
+                  - resolvedBy
+                  - resolvedAt
                   - createdAt
                   - updatedAt
                 additionalProperties: false
@@ -8710,17 +8873,59 @@ paths:
                     type: string
                   surfaceId:
                     type: string
+                  conversationId:
+                    type: string
+                  author:
+                    type: string
                   content:
                     type: string
+                  anchorStart:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  anchorEnd:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  anchorText:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  parentCommentId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   status:
                     type: string
+                    enum:
+                      - open
+                      - resolved
+                  resolvedBy:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  resolvedAt:
+                    anyOf:
+                      - type: number
+                      - type: "null"
+                  createdAt:
+                    type: number
                   updatedAt:
                     type: number
                 required:
                   - id
                   - surfaceId
+                  - conversationId
+                  - author
                   - content
+                  - anchorStart
+                  - anchorEnd
+                  - anchorText
+                  - parentCommentId
                   - status
+                  - resolvedBy
+                  - resolvedAt
+                  - createdAt
                   - updatedAt
                 additionalProperties: false
       parameters:
@@ -13432,6 +13637,42 @@ paths:
               type: object
               properties: {}
               additionalProperties: false
+  /v1/memory/v3/health:
+    post:
+      operationId: memory_v3_health_post
+      summary: Print the v3 structural health report (read-only)
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+  /v1/memory/v3/rebuild-index:
+    post:
+      operationId: memory_v3_rebuildindex_post
+      summary: Invalidate the v3 lanes so the next turn rebuilds
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+  /v1/memory/v3/reconcile:
+    post:
+      operationId: memory_v3_reconcile_post
+      summary: v1 convergence/prune pass over page+core refs (no rename detection without a prior snapshot)
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
+  /v1/memory/v3/set-core:
+    post:
+      operationId: memory_v3_setcore_post
+      summary: Add/remove always-on core leaves (validates + previews cost)
+      tags:
+        - memory
+      responses:
+        "200":
+          description: Successful response
   /v1/messages:
     get:
       operationId: messages_get
@@ -15995,9 +16236,124 @@ paths:
                     type: string
                   results:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
-                    description: Results grouped by category
+                    properties:
+                      conversations:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            title:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            updatedAt:
+                              type: number
+                            excerpt:
+                              type: string
+                            matchCount:
+                              type: integer
+                              minimum: -9007199254740991
+                              maximum: 9007199254740991
+                          required:
+                            - id
+                            - title
+                            - updatedAt
+                            - excerpt
+                            - matchCount
+                          additionalProperties: false
+                      memories:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            kind:
+                              type: string
+                            text:
+                              type: string
+                            subject:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            confidence:
+                              type: number
+                            updatedAt:
+                              type: number
+                            source:
+                              type: string
+                              enum:
+                                - lexical
+                                - semantic
+                          required:
+                            - id
+                            - kind
+                            - text
+                            - subject
+                            - confidence
+                            - updatedAt
+                            - source
+                          additionalProperties: false
+                      schedules:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            name:
+                              type: string
+                            expression:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            message:
+                              type: string
+                            enabled:
+                              type: boolean
+                            nextRunAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                          required:
+                            - id
+                            - name
+                            - expression
+                            - message
+                            - enabled
+                            - nextRunAt
+                          additionalProperties: false
+                      contacts:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            displayName:
+                              type: string
+                            notes:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            lastInteraction:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                          required:
+                            - id
+                            - displayName
+                            - notes
+                            - lastInteraction
+                          additionalProperties: false
+                    required:
+                      - conversations
+                      - memories
+                      - schedules
+                      - contacts
+                    additionalProperties: false
                 required:
                   - query
                   - results
@@ -18111,7 +18467,9 @@ paths:
                   surfaceType:
                     type: string
                   title:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   data:
                     type: object
                     properties: {}
@@ -18647,7 +19005,65 @@ paths:
                 properties:
                   events:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        eventId:
+                          type: string
+                        conversationId:
+                          type: string
+                        requestId:
+                          type: string
+                        timestampMs:
+                          type: number
+                        sequence:
+                          type: number
+                        kind:
+                          type: string
+                          enum:
+                            - request_received
+                            - request_queued
+                            - request_dequeued
+                            - llm_call_started
+                            - llm_call_finished
+                            - assistant_message
+                            - tool_started
+                            - tool_permission_requested
+                            - tool_permission_decided
+                            - tool_finished
+                            - tool_failed
+                            - generation_handoff
+                            - message_complete
+                            - generation_cancelled
+                            - request_error
+                            - tool_profiling_summary
+                        status:
+                          type: string
+                          enum:
+                            - info
+                            - success
+                            - warning
+                            - error
+                        summary:
+                          type: string
+                        attributes:
+                          type: object
+                          propertyNames:
+                            type: string
+                          additionalProperties:
+                            anyOf:
+                              - type: string
+                              - type: number
+                              - type: boolean
+                              - type: "null"
+                      required:
+                        - eventId
+                        - conversationId
+                        - timestampMs
+                        - sequence
+                        - kind
+                        - summary
+                      additionalProperties: false
                     description: Trace event objects
                 required:
                   - events

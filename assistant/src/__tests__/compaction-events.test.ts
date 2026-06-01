@@ -10,7 +10,8 @@
  */
 import { describe, expect, mock, test } from "bun:test";
 
-import type { AgentEvent, AgentLoopConfig } from "../agent/loop.js";
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
+import type { AgentEvent } from "../agent/loop.js";
 import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
@@ -216,11 +217,8 @@ mock.module("../memory/auto-analysis-enqueue.js", () => ({
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
-    constructor(
-      _provider: unknown,
-      _systemPrompt: string,
-      _config?: Partial<AgentLoopConfig>,
-    ) {}
+    compactionCircuit = new CompactionCircuit("test-conv");
+    constructor() {}
     getToolTokenBudget() {
       return 0;
     }
@@ -291,11 +289,11 @@ function makeConversation(
     id,
     makeProvider(),
     "system prompt",
-    4096,
     (msg) => {
       collected.push(msg);
     },
     "/tmp",
+    { maxTokens: 4096 },
   );
 }
 

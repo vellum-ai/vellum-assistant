@@ -11,7 +11,6 @@ import {
   assertHasResponse,
   client,
   extractErrorMessage,
-  SDK_BASE_OPTIONS,
 } from "@/domains/intelligence/client";
 
 import type {
@@ -45,8 +44,10 @@ export async function fetchSkills(
   assistantId: string,
   params: FetchSkillsParams = {},
 ): Promise<SkillsListResponse> {
-  const { data, error, response } = await client.get<SkillsListResponse, unknown>({
-    ...SDK_BASE_OPTIONS,
+  const { data, error, response } = await client.get<
+    SkillsListResponse,
+    unknown
+  >({
     url: "/v1/assistants/{assistant_id}/skills/",
     path: { assistant_id: assistantId },
     query: buildQuery({ includeCatalog: true, ...params }),
@@ -72,8 +73,10 @@ export async function installSkill(
   slug: string,
   version?: string,
 ): Promise<InstallSkillResponse> {
-  const { data, error, response } = await client.post<InstallSkillResponse, unknown>({
-    ...SDK_BASE_OPTIONS,
+  const { data, error, response } = await client.post<
+    InstallSkillResponse,
+    unknown
+  >({
     url: "/v1/assistants/{assistant_id}/skills/install",
     path: { assistant_id: assistantId },
     body: version ? { slug, version } : { slug },
@@ -95,7 +98,6 @@ export async function uninstallSkill(
   skillId: string,
 ): Promise<void> {
   const { error, response } = await client.delete<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/skills/{skill_id}",
     path: { assistant_id: assistantId, skill_id: skillId },
     throwOnError: false,
@@ -117,7 +119,6 @@ export async function fetchSkillDetail(
     { skill: SkillInfo } | SkillInfo,
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/skills/{skill_id}",
     path: { assistant_id: assistantId, skill_id: skillId },
     throwOnError: false,
@@ -138,8 +139,10 @@ export async function fetchSkillFiles(
   assistantId: string,
   skillId: string,
 ): Promise<SkillFilesResponse | null> {
-  const { data, error, response } = await client.get<SkillFilesResponse, unknown>({
-    ...SDK_BASE_OPTIONS,
+  const { data, error, response } = await client.get<
+    SkillFilesResponse,
+    unknown
+  >({
     url: "/v1/assistants/{assistant_id}/skills/{skill_id}/files",
     path: { assistant_id: assistantId, skill_id: skillId },
     throwOnError: false,
@@ -163,7 +166,6 @@ export async function fetchSkillFileContent(
     SkillFileContentResponse,
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/skills/{skill_id}/files/content",
     path: { assistant_id: assistantId, skill_id: skillId },
     query: { path },

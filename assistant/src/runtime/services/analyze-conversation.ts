@@ -255,7 +255,7 @@ export async function analyzeConversation(
   // routes the per-call provider config through `resolveCallSiteConfig`
   // against `llm.callSites.analyzeConversation`.
   analysisConversation
-    .runAgentLoop(prompt, messageId, undefined, {
+    .runAgentLoop(prompt, messageId, {
       isInteractive: false,
       isUserMessage: true,
       callSite: "analyzeConversation",

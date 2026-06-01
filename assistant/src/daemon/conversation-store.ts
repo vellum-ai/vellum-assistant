@@ -265,13 +265,14 @@ export async function getOrCreateConversation(
         conversationId,
         provider,
         systemPrompt,
-        maxTokens,
         sendToClient,
         workingDir,
-        sharedCesClient,
-        storedOptions?.speed,
-        undefined,
-        storedOptions?.modelOverride,
+        {
+          maxTokens,
+          sharedCesClient,
+          speedOverride: storedOptions?.speed,
+          modelOverride: storedOptions?.modelOverride,
+        },
       );
       newConversation.updateClient(sendToClient, true);
       await newConversation.loadFromDb();

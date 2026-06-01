@@ -1,6 +1,7 @@
 import { rmSync, writeFileSync } from "node:fs";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type {
   AgentEvent,
   AgentLoopRunResult,
@@ -341,6 +342,7 @@ let pendingRuns: PendingRun[] = [];
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;
@@ -443,9 +445,9 @@ function makeConversation(
     "conv-1",
     provider,
     "system prompt",
-    4096,
     sendToClient ?? (() => {}),
     "/tmp",
+    { maxTokens: 4096 },
   );
   const conversationWithWorkspaceDeps =
     conversationObj as ConversationWithWorkspaceDeps;

@@ -2,8 +2,8 @@ import { useEffect, useRef } from "react";
 import * as Sentry from "@sentry/browser";
 import { useNavigate } from "react-router";
 
+import { subscribe } from "@/lib/event-bus";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
-import { useEventBusStore } from "@/stores/event-bus-store";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
 import { routes } from "@/utils/routes";
 
@@ -37,15 +37,13 @@ export function useGlobalDeepLinkConsumer(): void {
   navigateRef.current = navigate;
 
   useEffect(() => {
-    const bus = useEventBusStore.getState();
-
-    const unsubSend = bus.subscribe("deeplink.send", ({ message }) => {
+    const unsubSend = subscribe("deeplink.send", ({ message }) => {
       void ensureMainWindowVisible();
       usePendingDeepLinkStore.getState().setPendingComposerMessage(message);
       navigateRef.current(routes.assistant);
     });
 
-    const unsubOpenThread = bus.subscribe(
+    const unsubOpenThread = subscribe(
       "deeplink.openThread",
       ({ threadId }) => {
         void ensureMainWindowVisible();
@@ -53,7 +51,7 @@ export function useGlobalDeepLinkConsumer(): void {
       },
     );
 
-    const unsubUnknown = bus.subscribe("deeplink.unknown", ({ url }) => {
+    const unsubUnknown = subscribe("deeplink.unknown", ({ url }) => {
       Sentry.addBreadcrumb({
         category: "deeplink",
         level: "info",

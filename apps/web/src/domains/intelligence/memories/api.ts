@@ -11,7 +11,6 @@ import {
   assertHasResponse,
   client,
   extractErrorMessage,
-  SDK_BASE_OPTIONS,
 } from "@/domains/intelligence/client";
 
 import type { MemoryItem, MemoryItemsListResponse } from "./types";
@@ -44,8 +43,10 @@ export async function fetchMemories(
   assistantId: string,
   params: FetchMemoriesParams = {},
 ): Promise<MemoryItemsListResponse> {
-  const { data, error, response } = await client.get<MemoryItemsListResponse, unknown>({
-    ...SDK_BASE_OPTIONS,
+  const { data, error, response } = await client.get<
+    MemoryItemsListResponse,
+    unknown
+  >({
     url: "/v1/assistants/{assistant_id}/memory-items",
     path: { assistant_id: assistantId },
     query: buildQuery(params),
@@ -73,7 +74,6 @@ export async function fetchMemoryDetail(
     MemoryItemWrapper | MemoryItem,
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/memory-items/{memory_id}",
     path: { assistant_id: assistantId, memory_id: memoryId },
     throwOnError: false,
@@ -108,7 +108,6 @@ export async function updateMemory(
     MemoryItemWrapper | MemoryItem,
     unknown
   >({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/memory-items/{memory_id}",
     path: { assistant_id: assistantId, memory_id: memoryId },
     body,
@@ -134,7 +133,6 @@ export async function deleteMemory(
   memoryId: string,
 ): Promise<void> {
   const { error, response } = await client.delete<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/memory-items/{memory_id}",
     path: { assistant_id: assistantId, memory_id: memoryId },
     throwOnError: false,

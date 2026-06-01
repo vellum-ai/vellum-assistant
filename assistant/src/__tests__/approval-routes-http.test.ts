@@ -181,8 +181,9 @@ function makeIdleSession(opts?: {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      onEvent: (msg: ServerMessage) => void,
+      options?: { onEvent?: (msg: ServerMessage) => void },
     ) => {
+      const onEvent = options?.onEvent ?? (() => {});
       onEvent({ type: "assistant_text_delta", text: "Hello!" });
       onEvent({ type: "message_complete", conversationId: "test-session" });
       processing = false;
@@ -246,8 +247,9 @@ function makeConfirmationEmittingSession(opts?: {
     runAgentLoop: async (
       _content: string,
       _messageId: string,
-      onEvent: (msg: ServerMessage) => void,
+      options?: { onEvent?: (msg: ServerMessage) => void },
     ) => {
+      const onEvent = options?.onEvent ?? (() => {});
       // Simulate PermissionPrompter.prompt(): self-register in pendingInteractions
       // before emitting the SSE event (registration no longer happens via broadcastMessage).
       pendingInteractions.register(reqId, {

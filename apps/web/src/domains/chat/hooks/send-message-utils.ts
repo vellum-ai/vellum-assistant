@@ -119,22 +119,6 @@ export function resolvePostError(
   return (code && ERROR_MESSAGES[code]) || detail || fallback;
 }
 
-/**
- * Compose clearing the streaming flag on the last assistant message with
- * clearing pending confirmations — a single pure transform for
- * `handleStopGenerating` (avoids two separate `setMessages` calls).
- */
-export function stopStreamingAndClearConfirmations(
-  prev: DisplayMessage[],
-): DisplayMessage[] {
-  const last = prev[prev.length - 1];
-  let updated = prev;
-  if (last?.role === "assistant" && last.isStreaming) {
-    updated = [...prev.slice(0, -1), { ...last, isStreaming: false }];
-  }
-  return clearPendingConfirmationsFromMessages(updated);
-}
-
 // ---------------------------------------------------------------------------
 // Parsing helpers — type-safe conversion from untyped API responses.
 //

@@ -38,6 +38,50 @@ type OverlayView = "document" | "subagent-detail" | "tool-detail";
  * it. If already inside an overlay, the existing saved view is kept rather
  * than capturing the current overlay as the "back" destination.
  */
+/**
+ * The daemon returns app-load failures as a structured error envelope
+ * (`{ error: { code: "NOT_FOUND", message } }`) when the app reference
+ * has been deleted server-side — that's the shape produced by
+ * `httpError(...)` in `assistant/src/runtime/http-errors.ts` and the
+ * shape recorded in Sentry breadcrumbs for this issue. The HeyAPI
+ * client's `throwOnError: true` then throws that envelope as the catch
+ * value. Treat it as an expected condition — the UI falls back to chat
+ * — rather than a Sentry-worthy crash.
+ *
+ * **Narrow to the app-missing case via the message.** A bare `code:
+ * "NOT_FOUND"` match would also swallow route-mismatch / version-skew
+ * 404s (the daemon's catch-all returns `{ error: { code: "NOT_FOUND",
+ * message: "Not found" } }`), and *those* are real telemetry we want
+ * Sentry to see. The app-open handlers throw `NotFoundError("App not
+ * found")` or `NotFoundError("App not found: ${appId}")` (see
+ * `assistant/src/runtime/routes/app-routes.ts` and `app-management-routes.ts`),
+ * so a `startsWith("App not found")` check matches the deleted-app case
+ * specifically without swallowing routing bugs.
+ *
+ * **Two assumptions, both verified by `viewer-store.test.ts`:**
+ *
+ * 1. The daemon wraps the body in an `error` key (`assistant/src/runtime/http-errors.ts`).
+ * 2. HeyAPI's `throwOnError: true` throws that body verbatim, not wrapped in
+ *    an `Error` subclass (current behavior of `@hey-api/client-fetch`,
+ *    bundled inline by `@hey-api/openapi-ts`).
+ *
+ * If a future HeyAPI upgrade wraps errors in an `Error` instance with the
+ * body on a `.data` (or similar) property, this check silently stops
+ * matching and NOT_FOUND noise comes back to Sentry — graceful degradation,
+ * not a crash. The accompanying test will still pass (it tests our helper's
+ * contract, not HeyAPI's). The signal to update is the Sentry issue
+ * reopening, at which point this function and its test get adjusted to the
+ * new envelope shape.
+ */
+export function isAppNotFoundError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const envelope = (err as { error?: unknown }).error;
+  if (typeof envelope !== "object" || envelope === null) return false;
+  if ((envelope as { code?: unknown }).code !== "NOT_FOUND") return false;
+  const message = (envelope as { message?: unknown }).message;
+  return typeof message === "string" && message.startsWith("App not found");
+}
+
 function resolveViewBefore(
   state: ViewerState,
   field: "viewBeforeDocument" | "viewBeforeSubagentDetail" | "viewBeforeToolDetail",
@@ -219,7 +263,14 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       primeAppHtmlCache(assistantId, result.appId, result.html);
     } catch (err) {
       if (get().activeAppId !== appId) return;
-      Sentry.captureException(err, { tags: { context: "openApp" } });
+      // 404s here are an expected condition (app was deleted on the
+      // server but the client still has a reference). Skip the Sentry
+      // capture for those — the daemon already returns a structured
+      // `{ code: "NOT_FOUND", message }` body — and let the UI fall
+      // back to chat as below. Unexpected failures still report.
+      if (!isAppNotFoundError(err)) {
+        Sentry.captureException(err, { tags: { context: "openApp" } });
+      }
       set({ mainView: "chat", activeAppId: null, openedAppState: null });
     }
   },

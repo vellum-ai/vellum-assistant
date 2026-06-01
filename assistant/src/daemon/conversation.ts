@@ -79,7 +79,6 @@ import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   applyCompactionResult,
   runAgentLoopImpl,
-  trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
 import { undo as undoImpl } from "./conversation-history.js";
@@ -162,6 +161,14 @@ export type {
 } from "./conversation-queue-manager.js";
 import type { TrustContext } from "./trust-context.js";
 
+export interface ConversationConstructorOptions {
+  maxTokens?: number;
+  sharedCesClient?: CesClient;
+  speedOverride?: Speed;
+  cacheTtl?: "5m" | "1h";
+  modelOverride?: string;
+}
+
 export class Conversation {
   public readonly conversationId: string;
   /** @internal */ provider: Provider;
@@ -205,19 +212,6 @@ export class Conversation {
    * stripped and never re-emits them.
    */
   /** @internal */ pendingPostCompactReinject = false;
-  /**
-   * Tracks consecutive compaction failures (summary LLM call threw). In-memory
-   * only — resets to 0 on process restart, which is the intended "one free
-   * retry after restart" behavior. Reset to 0 on any successful compaction.
-   */
-  /** @internal */ consecutiveCompactionFailures = 0;
-  /**
-   * When the circuit breaker is open, this timestamp (ms since epoch) marks
-   * when auto-compaction is allowed to resume. Set to `Date.now() + 1h` after
-   * 3 consecutive failures; cleared on a successful compaction. User-initiated
-   * compaction (`force: true`) bypasses the breaker regardless.
-   */
-  /** @internal */ compactionCircuitOpenUntil: number | null = null;
   /** @internal */ currentRequestId?: string;
   /** @internal */ hasNoClient = false;
   /** @internal */ isSubagent = false;
@@ -372,7 +366,6 @@ export class Conversation {
   onConfirmationOutcome?: (
     requestId: string,
     state: string,
-    toolName?: string,
     toolUseId?: string,
   ) => void;
   private cacheWarmAbort?: AbortController;
@@ -381,14 +374,17 @@ export class Conversation {
     conversationId: string,
     provider: Provider,
     systemPrompt: string,
-    maxTokens: number | undefined,
     sendToClient: (msg: ServerMessage) => void,
     workingDir: string,
-    sharedCesClient?: CesClient,
-    speedOverride?: Speed,
-    cacheTtl?: "5m" | "1h",
-    modelOverride?: string,
+    options?: ConversationConstructorOptions,
   ) {
+    const {
+      maxTokens,
+      sharedCesClient,
+      speedOverride,
+      cacheTtl,
+      modelOverride,
+    } = options ?? {};
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
@@ -409,22 +405,17 @@ export class Conversation {
       });
       // Notify the agent loop so it can track requestId → toolUseId mappings
       // and record confirmation outcomes for persistence.
-      this.onConfirmationOutcome?.(requestId, state, undefined, toolUseId);
+      this.onConfirmationOutcome?.(requestId, state, toolUseId);
       // Emit activity state transitions for confirmation lifecycle
       if (state === "pending") {
         this.emitActivityState(
           "awaiting_confirmation",
           "confirmation_requested",
-          "assistant_turn",
         );
       } else if (state === "timed_out") {
-        this.emitActivityState(
-          "thinking",
-          "confirmation_resolved",
-          "assistant_turn",
-          undefined,
-          "Resuming after timeout",
-        );
+        this.emitActivityState("thinking", "confirmation_resolved", {
+          statusText: "Resuming after timeout",
+        });
       }
     });
     this.secretPrompter = new SecretPrompter();
@@ -527,15 +518,14 @@ export class Conversation {
       agentLoopConfig.maxTokens = configuredMaxTokens;
     }
 
-    this.agentLoop = new AgentLoop(
-      provider,
-      systemPrompt,
-      agentLoopConfig,
-      toolDefs.length > 0 ? toolDefs : undefined,
-      toolDefs.length > 0 ? toolExecutor : undefined,
+    this.agentLoop = new AgentLoop(provider, systemPrompt, {
+      conversationId: this.conversationId,
+      config: agentLoopConfig,
+      tools: toolDefs.length > 0 ? toolDefs : undefined,
+      toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
-      resolveSystemPromptCallback,
-    );
+      resolveSystemPrompt: resolveSystemPromptCallback,
+    });
     this.contextWindowManager = new ContextWindowManager({
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
@@ -868,13 +858,15 @@ export class Conversation {
   handleConfirmationResponse(
     requestId: string,
     decision: UserDecision,
-    selectedPattern?: string,
-    selectedScope?: string,
-    decisionContext?: string,
-    emissionContext?: {
-      source?: ConfirmationStateChanged["source"];
-      causedByRequestId?: string;
-      decisionText?: string;
+    options?: {
+      selectedPattern?: string;
+      selectedScope?: string;
+      decisionContext?: string;
+      emissionContext?: {
+        source?: ConfirmationStateChanged["source"];
+        causedByRequestId?: string;
+        decisionText?: string;
+      };
     },
   ): void {
     // Guard: only proceed if the confirmation is still pending. Stale or
@@ -883,53 +875,38 @@ export class Conversation {
       return;
     }
 
-    const effectiveDecision = decision;
-
     // Capture toolUseId before resolving (resolution deletes the pending entry)
     const toolUseId = this.prompter.getToolUseId(requestId);
 
-    this.prompter.resolveConfirmation(
-      requestId,
-      effectiveDecision,
-      selectedPattern,
-      selectedScope,
-      decisionContext,
-    );
+    this.prompter.resolveConfirmation(requestId, decision, {
+      selectedPattern: options?.selectedPattern,
+      selectedScope: options?.selectedScope,
+      decisionContext: options?.decisionContext,
+    });
 
     // Emit authoritative confirmation state and activity transition centrally
     // so ALL callers (HTTP handlers, /v1/confirm, channel bridges) get
     // consistent events without duplicating emission logic.
     const resolvedState =
-      effectiveDecision === "deny"
-        ? ("denied" as const)
-        : ("approved" as const);
+      decision === "deny" ? ("denied" as const) : ("approved" as const);
     this.emitConfirmationStateChanged({
       conversationId: this.conversationId,
       requestId,
       state: resolvedState,
-      source: emissionContext?.source ?? "button",
+      source: options?.emissionContext?.source ?? "button",
       toolUseId,
-      ...(emissionContext?.causedByRequestId
-        ? { causedByRequestId: emissionContext.causedByRequestId }
+      ...(options?.emissionContext?.causedByRequestId
+        ? { causedByRequestId: options.emissionContext.causedByRequestId }
         : {}),
-      ...(emissionContext?.decisionText
-        ? { decisionText: emissionContext.decisionText }
+      ...(options?.emissionContext?.decisionText
+        ? { decisionText: options.emissionContext.decisionText }
         : {}),
     });
     // Notify the agent loop of the confirmation outcome for persistence
-    this.onConfirmationOutcome?.(
-      requestId,
-      resolvedState,
-      undefined,
-      toolUseId,
-    );
-    this.emitActivityState(
-      "thinking",
-      "confirmation_resolved",
-      "assistant_turn",
-      undefined,
-      "Resuming after approval",
-    );
+    this.onConfirmationOutcome?.(requestId, resolvedState, toolUseId);
+    this.emitActivityState("thinking", "confirmation_resolved", {
+      statusText: "Resuming after approval",
+    });
 
     // Sync the canonical guardian request status so stale "pending" DB
     // records don't get matched by later guardian reply routing. Best-effort:
@@ -1005,10 +982,13 @@ export class Conversation {
   emitActivityState(
     phase: AssistantActivityStateEvent["phase"],
     reason: AssistantActivityStateEvent["reason"],
-    anchor: AssistantActivityStateEvent["anchor"] = "assistant_turn",
-    requestId?: string,
-    statusText?: string,
+    options?: {
+      anchor?: AssistantActivityStateEvent["anchor"];
+      requestId?: string;
+      statusText?: string;
+    },
   ): void {
+    const { anchor = "assistant_turn", requestId, statusText } = options ?? {};
     this.activityVersion++;
     const msg: ServerMessage = {
       type: "assistant_activity_state",
@@ -1090,7 +1070,7 @@ export class Conversation {
     // is `undefined` on early-return paths (no eligible messages, disabled,
     // etc.) — skip those so they don't silently reset the counter.
     if (result.summaryFailed !== undefined) {
-      await trackCompactionOutcome(
+      await this.agentLoop.compactionCircuit.recordOutcome(
         this,
         result.summaryFailed,
         this.sendToClient,
@@ -1272,8 +1252,8 @@ export class Conversation {
   async runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent?: (msg: ServerMessage) => void,
     options?: {
+      onEvent?: (msg: ServerMessage) => void;
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
@@ -1289,12 +1269,13 @@ export class Conversation {
       overrideProfile?: string;
     },
   ): Promise<void> {
+    const { onEvent, ...rest } = options ?? {};
     return runAgentLoopImpl(
       this,
       content,
       userMessageId,
       onEvent ?? this.sendToClient,
-      options,
+      rest,
     );
   }
 

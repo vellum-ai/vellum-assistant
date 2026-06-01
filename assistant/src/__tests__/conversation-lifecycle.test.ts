@@ -126,9 +126,9 @@ function makeConversation(): Conversation {
     "conv-1",
     provider,
     "system prompt",
-    4096,
     () => {},
     "/tmp",
+    { maxTokens: 4096 },
   );
   // Default to guardian trust so tests load all messages.
   conv.setTrustContext({ trustClass: "guardian", sourceChannel: "vellum" });

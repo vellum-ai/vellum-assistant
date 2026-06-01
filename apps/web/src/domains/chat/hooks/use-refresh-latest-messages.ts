@@ -1,7 +1,6 @@
 
 import {
   type Dispatch,
-  type MutableRefObject,
   type SetStateAction,
   useCallback,
   useRef,
@@ -13,6 +12,7 @@ import {
 import { fetchLatestHistoryPage } from "@/domains/chat/api/history";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces";
 import { useConversationStore } from "@/stores/conversation-store";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import {
   type DisplayMessage,
   reconcileDisplayMessagesWithLatestHistory,
@@ -26,9 +26,6 @@ export type RefreshLatestOutcome =
 
 interface UseRefreshLatestMessagesArgs {
   assistantId: string | null;
-  messagesRef: MutableRefObject<DisplayMessage[]>;
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
 }
 
 /**
@@ -63,21 +60,19 @@ function refreshSurfacesForFetchedMessages({
   fetched,
   assistantId,
   conversationId,
-  dismissedSurfaceIdsRef,
   setMessages,
   isStale,
 }: {
   fetched: DisplayMessage[];
   assistantId: string;
   conversationId: string;
-  dismissedSurfaceIdsRef: MutableRefObject<Set<string>>;
   setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
   isStale: () => boolean;
 }): void {
   for (const message of fetched) {
     if (!message.surfaces) continue;
     for (const surface of message.surfaces) {
-      if (dismissedSurfaceIdsRef.current.has(surface.surfaceId)) continue;
+      if (useChatSessionStore.getState().dismissedSurfaceIds.has(surface.surfaceId)) continue;
       void fetchSurfaceContent(
         assistantId,
         surface.surfaceId,
@@ -85,10 +80,10 @@ function refreshSurfacesForFetchedMessages({
       ).then((fresh) => {
         if (!fresh) return;
         if (isStale()) return;
-        if (dismissedSurfaceIdsRef.current.has(fresh.surfaceId)) return;
+        if (useChatSessionStore.getState().dismissedSurfaceIds.has(fresh.surfaceId)) return;
         setMessages((prev) => {
           if (isStale()) return prev;
-          if (dismissedSurfaceIdsRef.current.has(fresh.surfaceId)) return prev;
+          if (useChatSessionStore.getState().dismissedSurfaceIds.has(fresh.surfaceId)) return prev;
           for (let i = prev.length - 1; i >= 0; i--) {
             const row = prev[i]!;
             const idx =
@@ -136,10 +131,8 @@ function refreshSurfacesForFetchedMessages({
  */
 export function useRefreshLatestMessages({
   assistantId,
-  messagesRef,
-  setMessages,
-  dismissedSurfaceIdsRef,
 }: UseRefreshLatestMessagesArgs): () => Promise<RefreshLatestOutcome> {
+  const setMessages = useChatSessionStore.use.setMessages();
   const refreshTokenRef = useRef(0);
   return useCallback(async (): Promise<RefreshLatestOutcome> => {
     if (!assistantId) return { kind: "no-change" };
@@ -162,25 +155,34 @@ export function useRefreshLatestMessages({
 
     const filteredMessages = filterDismissedSurfaces(
       fetched.messages,
-      dismissedSurfaceIdsRef.current,
+      useChatSessionStore.getState().dismissedSurfaceIds,
     );
 
     // Snapshot for the outcome report. The setMessages updater below uses
     // its own `prev` to stay consistent with any SSE deltas that landed
     // between the fetch resolving and React applying the update; the merge
     // helper is pure so running it twice is safe.
+    const isProcessing = useConversationStore
+      .getState()
+      .processingConversationIds.has(conversationId);
+    const currentMessages = useChatSessionStore.getState().messages;
     const snapshotNext = reconcileDisplayMessagesWithLatestHistory(
-      messagesRef.current,
+      currentMessages,
       filteredMessages,
+      isProcessing,
     );
     const outcome = classifyRefreshLatestOutcome(
-      messagesRef.current,
+      currentMessages,
       snapshotNext,
     );
 
     setMessages((prev) => {
       if (isStale()) return prev;
-      return reconcileDisplayMessagesWithLatestHistory(prev, filteredMessages);
+      return reconcileDisplayMessagesWithLatestHistory(
+        prev,
+        filteredMessages,
+        isProcessing,
+      );
     });
 
     // Surfaces can change server-side independently of message content
@@ -191,7 +193,6 @@ export function useRefreshLatestMessages({
       fetched: filteredMessages,
       assistantId,
       conversationId,
-      dismissedSurfaceIdsRef,
       setMessages,
       isStale,
     });
@@ -199,8 +200,6 @@ export function useRefreshLatestMessages({
     return outcome;
   }, [
     assistantId,
-    messagesRef,
     setMessages,
-    dismissedSurfaceIdsRef,
   ]);
 }

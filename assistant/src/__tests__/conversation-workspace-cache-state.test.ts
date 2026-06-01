@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { CompactionCircuit } from "../agent/compaction-circuit.js";
 import type { AgentEvent } from "../agent/loop.js";
 import { getConversationDirName } from "../memory/conversation-disk-view.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
@@ -164,6 +165,7 @@ mock.module("../memory/app-store.js", () => ({
 
 mock.module("../agent/loop.js", () => ({
   AgentLoop: class {
+    compactionCircuit = new CompactionCircuit("test-conv");
     constructor() {}
     getToolTokenBudget() {
       return 0;
@@ -217,9 +219,9 @@ function makeConversation(workingDir = "/tmp"): Conversation {
     "conv-1",
     provider,
     "system prompt",
-    4096,
     () => {},
     workingDir,
+    { maxTokens: 4096 },
   );
 }
 

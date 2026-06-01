@@ -170,20 +170,9 @@ export function handleChannelDecision(
   const conversation = findConversation(resolved.conversationId);
   if (!conversation) return { applied: false };
 
-  if (decisionContext === undefined) {
-    conversation.handleConfirmationResponse(
-      info.requestId,
-      userDecision,
-    );
-  } else {
-    conversation.handleConfirmationResponse(
-      info.requestId,
-      userDecision,
-      undefined,
-      undefined,
-      decisionContext,
-    );
-  }
+  conversation.handleConfirmationResponse(info.requestId, userDecision, {
+    decisionContext,
+  });
 
   return {
     applied: true,

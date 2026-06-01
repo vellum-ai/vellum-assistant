@@ -109,7 +109,7 @@ function SentryTestRow({
   onClick,
 }: SentryTestRowProps) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-lg border border-[var(--border-default)] px-4 py-3">
+    <div className="flex items-center justify-between gap-4 rounded-lg border border-[var(--border-base)] px-4 py-3">
       <div className="flex min-w-0 items-center gap-3">
         <div className="shrink-0">{icon}</div>
         <div className="min-w-0">

@@ -97,7 +97,10 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
-import { defaultHistoryRepairTerminal } from "../plugins/defaults/history-repair/terminal.js";
+import {
+  deepRepairHistory,
+  defaultHistoryRepairTerminal,
+} from "../plugins/defaults/history-repair/terminal.js";
 import {
   asDefaultGraphPayload,
   type DefaultMemoryRetrievalDeps,
@@ -110,8 +113,6 @@ import { defaultTokenEstimateTerminal } from "../plugins/defaults/token-estimate
 import { DEFAULT_TIMEOUTS, runHook, runPipeline } from "../plugins/pipeline.js";
 import { getMiddlewaresFor } from "../plugins/registry.js";
 import type {
-  CircuitBreakerArgs,
-  CircuitBreakerResult,
   CompactionArgs,
   CompactionResult,
   EstimateArgs,
@@ -211,7 +212,6 @@ import {
 } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "./disk-pressure-policy.js";
-import { deepRepairHistory } from "./history-repair.js";
 import type {
   DynamicPageSurfaceData,
   ServerMessage,
@@ -275,154 +275,6 @@ type GitServiceInitializer = {
 
 function formatDiskPressureBlockedMessage(): string {
   return "Storage is critically low, so background processes are paused and remote messages are ignored until the guardian frees enough space. Remote senders should try again later.";
-}
-
-// ── Compaction circuit-breaker pipeline helpers ─────────────────────
-//
-// The circuit-breaker behavior (3 consecutive summary-LLM failures trips a
-// 1-hour cooldown) is now implemented by the `circuitBreaker` plugin
-// pipeline. The default plugin (`plugins/defaults/circuit-breaker/register.ts`)
-// replicates the legacy threshold/cooldown constants and event-emission
-// semantics exactly — it operates on the `consecutiveCompactionFailures` /
-// `compactionCircuitOpenUntil` fields the conversation still owns so the
-// dev-only playground routes (`POST /playground/reset-compaction-circuit`,
-// `POST /playground/inject-compaction-failures`) continue to read and
-// mutate those fields directly.
-//
-// The helpers below build the pipeline inputs and invoke the runner. They
-// are the sole entry points the rest of the daemon uses to query or update
-// the compaction circuit.
-
-/** Circuit-breaker key for a specific conversation's compaction pipeline. */
-function compactionCircuitKey(conversationId: string): string {
-  return `compaction:${conversationId}`;
-}
-
-/**
- * Build the minimal {@link TurnContext} the pipeline runner requires. Called
- * both from inside the agent loop (where turn identifiers are available) and
- * from non-turn invocations like `Conversation.forceCompact` (which falls
- * back to stable placeholders so the runner's log records still carry the
- * conversation identifier).
- */
-function buildCircuitTurnContext(ctx: {
-  readonly conversationId: string;
-  currentRequestId?: string;
-  currentTurnTrustContext?: TrustContext;
-  trustContext?: TrustContext;
-  turnCount: number;
-}): PluginTurnContext {
-  const trust: TrustContext =
-    ctx.currentTurnTrustContext ?? ctx.trustContext ?? FALLBACK_TURN_TRUST;
-  return {
-    requestId: ctx.currentRequestId ?? "circuit-breaker",
-    conversationId: ctx.conversationId,
-    turnIndex: ctx.turnCount,
-    trust,
-  };
-}
-
-/**
- * Run the `circuitBreaker` pipeline for the compaction circuit on this
- * conversation. When `outcome` is provided, state is updated (and transition
- * events emit via `onEvent`); when omitted the call is query-only.
- *
- * Returns the post-call decision from the pipeline. Callers gate auto-paths
- * on `!result.open` and admit forced paths regardless of the decision.
- */
-async function runCompactionCircuitPipeline(
-  ctx: {
-    readonly conversationId: string;
-    consecutiveCompactionFailures: number;
-    compactionCircuitOpenUntil: number | null;
-    currentRequestId?: string;
-    currentTurnTrustContext?: TrustContext;
-    trustContext?: TrustContext;
-    turnCount: number;
-  },
-  args: {
-    outcome?: "success" | "failure";
-    onEvent?: (msg: ServerMessage) => void;
-  },
-): Promise<CircuitBreakerResult> {
-  const turnContext = buildCircuitTurnContext(ctx);
-  return runPipeline<CircuitBreakerArgs, CircuitBreakerResult>(
-    "circuitBreaker",
-    getMiddlewaresFor("circuitBreaker"),
-    async (terminalArgs) => {
-      // No plugin in the chain produced a decision. This should be
-      // unreachable in production because the default plugin registers a
-      // `circuitBreaker` middleware that always returns a decision, but we
-      // defensively derive the state here so test setups that intentionally
-      // omit the default plugin still get a sensible response.
-      const openUntil = terminalArgs.state.compactionCircuitOpenUntil;
-      const now = Date.now();
-      if (openUntil !== null && now < openUntil) {
-        return { open: true, cooldownRemainingMs: openUntil - now };
-      }
-      return { open: false };
-    },
-    {
-      key: compactionCircuitKey(ctx.conversationId),
-      // Pass the ctx directly as the mutable state container. The
-      // `CircuitBreakerArgs.state` shape deliberately matches the subset of
-      // fields the conversation owns so plugins mutate the same object the
-      // playground routes read and write.
-      state: ctx,
-      ...(args.outcome !== undefined ? { outcome: args.outcome } : {}),
-      ...(args.onEvent ? { onEvent: args.onEvent } : {}),
-    },
-    turnContext,
-    DEFAULT_TIMEOUTS.circuitBreaker,
-  );
-}
-
-/**
- * Query-only: is the compaction circuit breaker currently open for this
- * conversation? Thin wrapper around {@link runCompactionCircuitPipeline}
- * with no outcome. Async because the pipeline runner is async, but the
- * default plugin resolves synchronously on its microtask.
- */
-async function isCompactionCircuitOpen(ctx: {
-  readonly conversationId: string;
-  consecutiveCompactionFailures: number;
-  compactionCircuitOpenUntil: number | null;
-  currentRequestId?: string;
-  currentTurnTrustContext?: TrustContext;
-  trustContext?: TrustContext;
-  turnCount: number;
-}): Promise<boolean> {
-  const decision = await runCompactionCircuitPipeline(ctx, {});
-  return decision.open;
-}
-
-/**
- * Update the compaction circuit breaker with the outcome of a `maybeCompact`
- * call and emit any transition event. A `summaryFailed` value of `undefined`
- * means the summary LLM never ran (early return) — callers must guard with
- * `summaryFailed !== undefined` before invoking this helper so early-return
- * paths don't silently reset the 3-strike counter.
- *
- * The default plugin handles threshold-based tripping and cooldown reset;
- * see `plugins/defaults/circuit-breaker/register.ts` for the canonical semantics.
- */
-export async function trackCompactionOutcome(
-  ctx: {
-    readonly conversationId: string;
-    consecutiveCompactionFailures: number;
-    compactionCircuitOpenUntil: number | null;
-    currentRequestId?: string;
-    currentTurnTrustContext?: TrustContext;
-    trustContext?: TrustContext;
-    turnCount: number;
-  },
-  summaryFailed: boolean,
-  onEvent: (msg: ServerMessage) => void,
-): Promise<void> {
-  await runCompactionCircuitPipeline(ctx, {
-    outcome: summaryFailed ? "failure" : "success",
-    onEvent,
-  });
 }
 
 // ── Plugin pipeline helpers ──────────────────────────────────────────
@@ -503,6 +355,8 @@ export interface AssistantSurface {
   }>;
   display?: string;
   persistent?: boolean;
+  /** Id of the tool call that produced this surface (the `ui_show` proxy tool). Persisted so app previews can gate on the tool result's arrival rather than whole-turn streaming state. */
+  toolCallId?: string;
 }
 
 export interface AgentLoopConversationContext {
@@ -528,10 +382,6 @@ export interface AgentLoopConversationContext {
    * happened just before this turn).
    */
   pendingPostCompactReinject: boolean;
-  /** Tracks consecutive compaction failures (summary LLM call threw). */
-  consecutiveCompactionFailures: number;
-  /** Timestamp (ms since epoch) until which the circuit breaker is open. */
-  compactionCircuitOpenUntil: number | null;
 
   readonly graphMemory: ConversationGraphMemory;
 
@@ -632,9 +482,11 @@ export interface AgentLoopConversationContext {
       | "message_complete"
       | "generation_cancelled"
       | "error_terminal",
-    anchor?: "assistant_turn" | "user_turn" | "global",
-    requestId?: string,
-    statusText?: string,
+    options?: {
+      anchor?: "assistant_turn" | "user_turn" | "global";
+      requestId?: string;
+      statusText?: string;
+    },
   ): void;
   emitConfirmationStateChanged(
     params: ConfirmationStateChanged extends {
@@ -652,7 +504,6 @@ export interface AgentLoopConversationContext {
   onConfirmationOutcome?: (
     requestId: string,
     state: string,
-    toolName?: string,
     toolUseId?: string,
   ) => void;
 
@@ -995,7 +846,10 @@ export async function runAgentLoopImpl(
         { reason: diskPressureDecision.reason },
         "Blocked turn during disk pressure cleanup mode",
       );
-      ctx.emitActivityState("idle", "error_terminal", "global", reqId);
+      ctx.emitActivityState("idle", "error_terminal", {
+        anchor: "global",
+        requestId: reqId,
+      });
       ctx.traceEmitter.emit("request_error", message, {
         requestId: reqId,
         status: "error",
@@ -1247,14 +1101,12 @@ export async function runAgentLoopImpl(
     );
     // Skip auto-compaction while the circuit breaker is open. Force paths
     // and user-initiated /compact bypass this check.
-    const autoCompactAllowed = !(await isCompactionCircuitOpen(ctx));
+    const autoCompactAllowed =
+      !(await ctx.agentLoop.compactionCircuit.isOpen(ctx));
     if (compactCheck.needed && autoCompactAllowed) {
-      ctx.emitActivityState(
-        "thinking",
-        "context_compacting",
-        "assistant_turn",
-        reqId,
-      );
+      ctx.emitActivityState("thinking", "context_compacting", {
+        requestId: reqId,
+      });
     }
     const compactionOptions = {
       lastCompactedAt: ctx.contextCompactedAt ?? undefined,
@@ -1294,7 +1146,11 @@ export async function runAgentLoopImpl(
             { err, phase: "start-of-turn-compaction" },
             "Compaction pipeline timed out — skipping compaction this turn",
           );
-          await trackCompactionOutcome(ctx, true, onEvent);
+          await ctx.agentLoop.compactionCircuit.recordOutcome(
+            ctx,
+            true,
+            onEvent,
+          );
           compacted = null;
         } else {
           throw err;
@@ -1307,7 +1163,11 @@ export async function runAgentLoopImpl(
     // path) — treating those as "successful" compactions would silently reset
     // the 3-strike counter and break the invariant.
     if (compacted && compacted.summaryFailed !== undefined) {
-      await trackCompactionOutcome(ctx, compacted.summaryFailed, onEvent);
+      await ctx.agentLoop.compactionCircuit.recordOutcome(
+        ctx,
+        compacted.summaryFailed,
+        onEvent,
+      );
     }
     if (compacted?.compacted) {
       await applySuccessfulCompaction(
@@ -1322,12 +1182,7 @@ export async function runAgentLoopImpl(
 
     // Register confirmation outcome tracker so the agent loop can link
     // confirmation decisions to tool_use_ids for persistence.
-    ctx.onConfirmationOutcome = (
-      requestId,
-      confirmationState,
-      toolName,
-      toolUseId,
-    ) => {
+    ctx.onConfirmationOutcome = (requestId, confirmationState, toolUseId) => {
       if (confirmationState === "pending") {
         // Use the toolUseId passed from the prompter (which knows which tool
         // requested confirmation) instead of the ambient state.currentToolUseId,
@@ -1344,7 +1199,7 @@ export async function runAgentLoopImpl(
         const resolvedId =
           state.requestIdToToolUseId.get(requestId) ?? toolUseId;
         if (resolvedId) {
-          const name = state.toolUseIdToName.get(resolvedId) ?? toolName ?? "";
+          const name = state.toolUseIdToName.get(resolvedId) ?? "";
           // Build a friendly label from the tool name
           const label =
             TOOL_FRIENDLY_LABEL[name] ??
@@ -2036,7 +1891,11 @@ export async function runAgentLoopImpl(
                 { err, phase: "overflow-reducer-forced-compaction" },
                 "Compaction pipeline timed out — falling through to next reducer tier",
               );
-              await trackCompactionOutcome(ctx, true, onEvent);
+              await ctx.agentLoop.compactionCircuit.recordOutcome(
+                ctx,
+                true,
+                onEvent,
+              );
               return {
                 messages: msgs,
                 compacted: false,
@@ -2058,12 +1917,9 @@ export async function runAgentLoopImpl(
           }
         },
         emitActivityState: () => {
-          ctx.emitActivityState(
-            "thinking",
-            "context_compacting",
-            "assistant_turn",
-            reqId,
-          );
+          ctx.emitActivityState("thinking", "context_compacting", {
+            requestId: reqId,
+          });
         },
         onCompactionResult: async (result, compactedBasis) => {
           // Track circuit-breaker state whenever the reducer invoked
@@ -2076,7 +1932,11 @@ export async function runAgentLoopImpl(
           // truncation-only path, etc.) that shouldn't influence the
           // breaker.
           if (result.summaryFailed !== undefined) {
-            await trackCompactionOutcome(ctx, result.summaryFailed, onEvent);
+            await ctx.agentLoop.compactionCircuit.recordOutcome(
+              ctx,
+              result.summaryFailed,
+              onEvent,
+            );
           }
           if (result.compacted) {
             await applySuccessfulCompaction(result, compactedBasis);
@@ -2274,7 +2134,7 @@ export async function runAgentLoopImpl(
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
     };
-    const eventHandler = (event: AgentEvent) =>
+    const eventHandler = (event: AgentEvent): Promise<void> =>
       dispatchAgentEvent(state, deps, event);
     emitTerminalExit = async (reason: AgentLoopExitReason): Promise<void> => {
       await eventHandler({ type: "agent_loop_exit", reason });
@@ -2324,9 +2184,6 @@ export async function runAgentLoopImpl(
           },
         };
       },
-      onTimeout: async () => {
-        await trackCompactionOutcome(ctx, true, onEvent);
-      },
       persist: async (result, rawHistory) => {
         const compactResult = result as Awaited<
           ReturnType<typeof ctx.contextWindowManager.maybeCompact>
@@ -2336,7 +2193,7 @@ export async function runAgentLoopImpl(
         // leave `summaryFailed` undefined. Only track when the summary LLM
         // actually ran.
         if (compactResult.summaryFailed !== undefined) {
-          await trackCompactionOutcome(
+          await ctx.agentLoop.compactionCircuit.recordOutcome(
             ctx,
             compactResult.summaryFailed,
             onEvent,
@@ -2662,7 +2519,7 @@ export async function runAgentLoopImpl(
               "Emergency mid-turn compaction succeeded — bypassing reducer tiers",
             );
             if (emergencyResult.summaryFailed !== undefined) {
-              await trackCompactionOutcome(
+              await ctx.agentLoop.compactionCircuit.recordOutcome(
                 ctx,
                 emergencyResult.summaryFailed,
                 onEvent,
@@ -2703,12 +2560,9 @@ export async function runAgentLoopImpl(
           "Context too large — applying next reducer tier",
         );
 
-        ctx.emitActivityState(
-          "thinking",
-          "context_compacting",
-          "assistant_turn",
-          reqId,
-        );
+        ctx.emitActivityState("thinking", "context_compacting", {
+          requestId: reqId,
+        });
         const convergenceCompactionBasis = ctx.messages;
         const step = await reduceContextOverflow(
           convergenceCompactionBasis,
@@ -2740,7 +2594,7 @@ export async function runAgentLoopImpl(
           step.compactionResult &&
           step.compactionResult.summaryFailed !== undefined
         ) {
-          await trackCompactionOutcome(
+          await ctx.agentLoop.compactionCircuit.recordOutcome(
             ctx,
             step.compactionResult.summaryFailed,
             onEvent,
@@ -2831,12 +2685,9 @@ export async function runAgentLoopImpl(
 
         if (action === "auto_compress_latest_turn") {
           // Auto-compress without asking — users opt out via the "drop" policy.
-          ctx.emitActivityState(
-            "thinking",
-            "context_compacting",
-            "assistant_turn",
-            reqId,
-          );
+          ctx.emitActivityState("thinking", "context_compacting", {
+            requestId: reqId,
+          });
           let emergencyCompact: Awaited<
             ReturnType<typeof ctx.contextWindowManager.maybeCompact>
           > | null = null;
@@ -2878,7 +2729,11 @@ export async function runAgentLoopImpl(
                 { err, phase: "emergency-compaction" },
                 "Emergency compaction pipeline timed out — continuing with overflow fallback",
               );
-              await trackCompactionOutcome(ctx, true, onEvent);
+              await ctx.agentLoop.compactionCircuit.recordOutcome(
+                ctx,
+                true,
+                onEvent,
+              );
               emergencyCompact = null;
             } else {
               throw err;
@@ -2890,7 +2745,7 @@ export async function runAgentLoopImpl(
             emergencyCompact &&
             emergencyCompact.summaryFailed !== undefined
           ) {
-            await trackCompactionOutcome(
+            await ctx.agentLoop.compactionCircuit.recordOutcome(
               ctx,
               emergencyCompact.summaryFailed,
               onEvent,
@@ -3324,7 +3179,10 @@ export async function runAgentLoopImpl(
     // so the client can re-enable the UI without delay.
     if (abortController.signal.aborted) {
       syncLastAssistantMessageToDisk();
-      ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
+      ctx.emitActivityState("idle", "generation_cancelled", {
+        anchor: "global",
+        requestId: reqId,
+      });
       ctx.traceEmitter.emit(
         "generation_cancelled",
         "Generation cancelled by user",
@@ -3368,7 +3226,10 @@ export async function runAgentLoopImpl(
           await emitTerminalExit?.("aborted_after_checkpoint");
           pendingCheckpointYield = null;
         }
-        ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
+        ctx.emitActivityState("idle", "generation_cancelled", {
+          anchor: "global",
+          requestId: reqId,
+        });
         ctx.traceEmitter.emit(
           "generation_cancelled",
           "Generation cancelled by user",
@@ -3409,7 +3270,10 @@ export async function runAgentLoopImpl(
         });
         publishLoopMessagesChanged();
       } else {
-        ctx.emitActivityState("idle", "message_complete", "global", reqId);
+        ctx.emitActivityState("idle", "message_complete", {
+          anchor: "global",
+          requestId: reqId,
+        });
         ctx.traceEmitter.emit(
           "message_complete",
           "Message processing complete",
@@ -3504,7 +3368,10 @@ export async function runAgentLoopImpl(
         await emitTerminalExit?.("aborted_after_checkpoint");
         pendingCheckpointYield = null;
       }
-      ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
+      ctx.emitActivityState("idle", "generation_cancelled", {
+        anchor: "global",
+        requestId: reqId,
+      });
       rlog.info("Generation cancelled by user");
       ctx.traceEmitter.emit(
         "generation_cancelled",
@@ -3520,7 +3387,10 @@ export async function runAgentLoopImpl(
       });
       publishLoopMessagesChanged();
     } else {
-      ctx.emitActivityState("idle", "error_terminal", "global", reqId);
+      ctx.emitActivityState("idle", "error_terminal", {
+        anchor: "global",
+        requestId: reqId,
+      });
       const message = err instanceof Error ? err.message : String(err);
       const errorClass = err instanceof Error ? err.constructor.name : "Error";
       rlog.error({ err }, "Conversation processing error");

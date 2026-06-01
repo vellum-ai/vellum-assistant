@@ -33,6 +33,38 @@ describe("loadLeafTree", () => {
     const topicZ = tree.leaves.get("domain-b/topic-z");
     expect(topicZ?.frontmatter.in_core).toBe(false);
     expect(topicZ?.domain).toBe("domain-b");
+
+    // Bundled leaves predate the optional `id` field.
+    expect(topicX?.frontmatter.id).toBeUndefined();
+  });
+
+  test("parses the optional stable id when present, omits it otherwise", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "v3-leaf-id-"));
+    try {
+      await mkdir(join(dataDir, "leaves", "domain-a"), { recursive: true });
+      await writeFile(
+        join(dataDir, "leaves", "domain-a", "topic-x.md"),
+        "---\npath: domain-a/topic-x\nin_core: true\nid: leaf-123\n---\n\nWith id.\n",
+      );
+      await writeFile(
+        join(dataDir, "leaves", "domain-a", "topic-y.md"),
+        "---\npath: domain-a/topic-y\nin_core: false\n---\n\nNo id.\n",
+      );
+      await writeFile(
+        join(dataDir, "assignments.json"),
+        JSON.stringify({ "page-a": ["domain-a/topic-x"] }),
+      );
+
+      const tree = await loadLeafTree(dataDir);
+      expect(tree.leaves.get("domain-a/topic-x")?.frontmatter.id).toBe(
+        "leaf-123",
+      );
+      expect(
+        tree.leaves.get("domain-a/topic-y")?.frontmatter.id,
+      ).toBeUndefined();
+    } finally {
+      await rm(dataDir, { recursive: true, force: true });
+    }
   });
 
   test("builds members and byPage from assignments", async () => {
@@ -67,6 +99,51 @@ describe("loadLeafTree", () => {
       "domain-a/topic-x",
       "domain-a/topic-y",
     ]);
+  });
+
+  test("frontmatter pageLeaves win over assignments.json per page", async () => {
+    const tree = await loadLeafTree(
+      BUNDLED_DATA_DIR,
+      new Map([["page-a", ["domain-a/topic-y"]]]),
+    );
+
+    // page-a is overridden by frontmatter; assignments.json said topic-x.
+    expect(leavesOf(tree, "page-a")).toEqual(["domain-a/topic-y"]);
+    expect(membersOf(tree, "domain-a/topic-y").sort()).toEqual([
+      "page-a",
+      "page-b",
+    ]);
+    expect(membersOf(tree, "domain-a/topic-x")).toEqual(["page-b"]);
+  });
+
+  test("pages absent from pageLeaves fall back to assignments.json", async () => {
+    // page-a override + a page-with-empty-frontmatter that must fall back.
+    const tree = await loadLeafTree(
+      BUNDLED_DATA_DIR,
+      new Map([
+        ["page-a", ["domain-a/topic-y"]],
+        ["page-c", []],
+      ]),
+    );
+
+    // page-b never appeared in pageLeaves → assignments.json.
+    expect(leavesOf(tree, "page-b")).toEqual([
+      "domain-a/topic-x",
+      "domain-a/topic-y",
+    ]);
+    // page-c had an empty frontmatter array → falls back to assignments.json.
+    expect(leavesOf(tree, "page-c")).toEqual(["domain-b/topic-z"]);
+  });
+
+  test("omitting pageLeaves preserves assignments.json behavior", async () => {
+    const withMap = await loadLeafTree(BUNDLED_DATA_DIR, new Map());
+    const without = await loadLeafTree(BUNDLED_DATA_DIR);
+
+    // An empty map is equivalent to omitting it: pure assignments.json.
+    for (const slug of ["page-a", "page-b", "page-c"]) {
+      expect(leavesOf(withMap, slug)).toEqual(leavesOf(without, slug));
+    }
+    expect(leavesOf(without, "page-a")).toEqual(["domain-a/topic-x"]);
   });
 });
 

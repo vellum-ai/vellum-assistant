@@ -1,4 +1,5 @@
 import { prepareServerMessage } from "@/domains/chat/utils/map-runtime-message";
+import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { dedupeDisplayMessages, mergeLatestHistoryMessage, messagesEqual } from "@/domains/chat/utils/message-merge";
 import { sortByTimestamp, sortedByTimestamp, timestampToMs } from "@/domains/chat/utils/message-sorting";
 import type { DisplayMessage } from "@/domains/chat/types/types";
@@ -148,6 +149,7 @@ function findLatestHistoryFallbackIndex(
   messages: DisplayMessage[],
   incoming: DisplayMessage,
   claimedIndexes: Set<number>,
+  liveRowId: string | null,
 ): number | undefined {
   const exactIdx = messages.findIndex(
     (message, index) =>
@@ -172,7 +174,7 @@ function findLatestHistoryFallbackIndex(
       claimedIndexes.has(index) ||
       !hasPlaceholderIdentity(message) ||
       message.role !== "assistant" ||
-      !message.isStreaming ||
+      message.id !== liveRowId ||
       !timestampsLikelySameTurn(message.timestamp, incomingTimestamp)
     ) {
       continue;
@@ -199,9 +201,11 @@ function findLatestHistoryFallbackIndex(
 export function reconcileDisplayMessagesWithLatestHistory(
   current: DisplayMessage[],
   latestHistory: DisplayMessage[],
+  isProcessing: boolean,
 ): DisplayMessage[] {
   if (latestHistory.length === 0) return dedupeDisplayMessages(current);
 
+  const liveRowId = liveAssistantRowId(current, isProcessing);
   const merged = [...current];
   const indexById = new Map<string, number>();
   const claimedIndexes = new Set<number>();
@@ -217,6 +221,7 @@ export function reconcileDisplayMessagesWithLatestHistory(
         merged,
         incoming,
         claimedIndexes,
+        liveRowId,
       );
     }
 
@@ -301,12 +306,6 @@ export function reconcileMessages(
 
       const msg: DisplayMessage = { id: m.id, role: m.role, content: prepared.cleanedContent };
       if (m.mergedMessageIds?.length) msg.mergedMessageIds = m.mergedMessageIds;
-      // `isStreaming` is a client-owned, live-only flag — server snapshots
-      // never carry it. Preserve the local row's value so a sync-driven
-      // reconcile that lands mid-turn doesn't flip the active bubble to
-      // "completed" and cause downstream bubble-split / footer-injection
-      // glitches.
-      if (localMsg?.isStreaming) msg.isStreaming = true;
       if (m.metadata) msg.metadata = m.metadata;
       if (m.subagentNotification) msg.isSubagentNotification = true;
       if (prepared.slackMessage ?? localMsg?.slackMessage) {
@@ -433,7 +432,7 @@ export function reconcileMessages(
   //
   //  2. Non-optimistic local rows whose id isn't in `serverIds` — likely
   //     brief replication lag or pagination. Preserve to prevent
-  //     vanishing, including `isStreaming` flag if the turn is still live.
+  //     vanishing.
   for (const m of local) {
     if (!m.isOptimistic && hasServerIdentity(serverIds, m)) continue;
 

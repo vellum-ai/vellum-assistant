@@ -42,11 +42,13 @@ import type {
 } from "@/types/interaction-ui-types";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
 import {
   isProgressBadgeEnabled,
   setProgressBadgeEnabled,
+  type ProgressBadgeVariant,
 } from "@/lib/feature-flags/progress-badge-flag";
 import {
   setSeqGapDetectionEnabled,
@@ -366,7 +368,6 @@ const FLAGS_NS = "flags";
  * current value at install time would freeze the API to the initial render.
  */
 export interface ChatDebugRefs {
-  messagesRef: MutableRefObject<DisplayMessage[]>;
   /**
    * Post-`sanitizeDisplayMessages` snapshot. Populated by
    * `chat-route-content.tsx` and read by `getClientMessages()`.
@@ -659,7 +660,7 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 
   function getScrollState(): ChatDebugScrollState {
     const capturedAt = new Date().toISOString();
-    const messages = refs.messagesRef.current ?? [];
+    const { messages } = useChatSessionStore.getState();
     const itemCount = messages.length;
     const pagination = refs.getScrollPagination();
 
@@ -794,17 +795,21 @@ export interface VellumDebugFlagsApi {
 
   /** Opt into the new avatar progress-badge UX. When off (default), the
    *  chat shows the long-standing transcript "thinking…" dots; when on,
-   *  the dots are hidden and a small pulsing badge renders on the
-   *  assistant avatar instead. Persists to localStorage and reloads.
+   *  the dots are hidden and a small badge renders on the assistant
+   *  avatar instead. The badge has two variants: pulsing dots or a
+   *  glistening gradient sweep. Persists to localStorage and reloads.
    *
-   *  - `toggleProgressBadge(true)`   — enable + reload.
-   *  - `toggleProgressBadge(false)`  — disable + reload.
-   *  - `toggleProgressBadge(null)`   — clear + reload (same as false).
-   *  - `toggleProgressBadge()`       — log + return current value
+   *  - `toggleProgressBadge(true)`         — enable dots variant + reload.
+   *  - `toggleProgressBadge("gradient")`   — enable gradient variant + reload.
+   *  - `toggleProgressBadge(false)`        — disable + reload.
+   *  - `toggleProgressBadge(null)`         — clear + reload (same as false).
+   *  - `toggleProgressBadge()`             — log + return current value
    *    (no reload, no mutation).
    *
-   *  Returns the value in effect after the call. */
-  toggleProgressBadge(value?: boolean | null): boolean;
+   *  Returns the variant in effect after the call (`null` when off). */
+  toggleProgressBadge(
+    value?: boolean | ProgressBadgeVariant | null,
+  ): ProgressBadgeVariant | null;
 
   /** Opt into client-side seq gap detection. When enabled, the bus
    *  subscriber tracks per-conversation seq cursors and triggers
@@ -914,7 +919,6 @@ export function useChatDebugApi(refs: ChatDebugRefs): void {
 
   useEffect(() => {
     const stableRefs: ChatDebugRefs = {
-      messagesRef: refs.messagesRef,
       sanitizedMessagesRef: refs.sanitizedMessagesRef,
       transcriptItemsRef: refs.transcriptItemsRef,
       transcriptRef: refs.transcriptRef,

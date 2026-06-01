@@ -15,6 +15,7 @@ import { initializeProviders } from "../providers/registry.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getSigningKeyFingerprint } from "../runtime/auth/token-service.js";
 import {
+  publishAppsChanged,
   publishAvatarChanged,
   publishConfigChanged,
   publishIdentityChanged,
@@ -231,6 +232,7 @@ export class DaemonServer {
         refreshSurfacesForApp(conversation, appId, { fileChange: true });
       }
       broadcastMessage({ type: "app_files_changed", appId });
+      publishAppsChanged();
       void updatePublishedAppDeployment(appId);
     };
 

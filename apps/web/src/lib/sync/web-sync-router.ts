@@ -25,6 +25,7 @@ export interface WebSyncRouterOptions {
   invalidateAssistantConfig: () => void;
   invalidateAssistantSounds: () => void;
   invalidateAssistantSchedules: () => void;
+  invalidateApps?: () => void;
   scheduleConversationListRefetch: () => void;
   refreshActiveConversationMessages: () => Promise<ActiveConversationMessagesRefreshResult>;
 }
@@ -68,6 +69,7 @@ export function createWebSyncRouter(
       SYNC_TAGS.assistantSchedules,
       options.invalidateAssistantSchedules,
     ),
+    registry.register(SYNC_TAGS.appsList, options.invalidateApps ?? (() => {})),
     registry.register(
       SYNC_TAGS.conversationsList,
       options.scheduleConversationListRefetch,

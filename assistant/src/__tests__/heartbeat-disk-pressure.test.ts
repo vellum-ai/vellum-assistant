@@ -56,6 +56,7 @@ mock.module("../heartbeat/heartbeat-run-store.js", () => ({
   markStaleRunsAsMissed: mockMarkStaleRunsAsMissed,
   markStaleRunningAsError: mockMarkStaleRunningAsError,
   countCompletedHeartbeatRuns: mock(() => 10),
+  countRecentConsecutiveRuns: mock(() => 0),
 }));
 
 mock.module("../schedule/recurrence-engine.js", () => ({

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
+import { appsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import type { AssistantEvent } from "@/types/event-types";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import {
@@ -17,9 +18,9 @@ import {
 } from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
-  __resetEventBusForTesting,
-  useEventBusStore,
-} from "@/stores/event-bus-store";
+  __resetForTesting,
+  publish,
+} from "@/lib/event-bus";
 
 function createWrapper(queryClient: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -40,7 +41,7 @@ function syncEvent(tags: string[]): SyncChangedEvent {
 }
 
 function emit(event: AssistantEvent): void {
-  useEventBusStore.getState().publish("sse.event", {
+  publish("sse.event", {
     id: "evt-1",
     emittedAt: new Date().toISOString(),
     message: event,
@@ -48,12 +49,12 @@ function emit(event: AssistantEvent): void {
 }
 
 beforeEach(() => {
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 describe("useAssistantResourceSync", () => {
@@ -140,6 +141,36 @@ describe("useAssistantResourceSync", () => {
         ]) as never,
       );
     });
+  });
+
+  test("invalidates app list queries on apps:list sync tag", async () => {
+    const queryClient = freshQueryClient();
+    let predicate:
+      | ((query: { queryKey: readonly unknown[] }) => boolean)
+      | undefined;
+    queryClient.invalidateQueries = ((arg: unknown) => {
+      predicate = (
+        arg as {
+          predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+        }
+      ).predicate;
+      return Promise.resolve();
+    }) as never;
+    renderHook(() => useAssistantResourceSync("asst-1", true), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    emit(syncEvent([SYNC_TAGS.appsList]) as unknown as AssistantEvent);
+
+    await waitFor(() => {
+      expect(predicate).toBeDefined();
+    });
+    expect(
+      predicate!({
+        queryKey: appsGetQueryKey({ path: { assistant_id: "asst-1" } }),
+      }),
+    ).toBe(true);
+    expect(predicate!({ queryKey: avatarQueryKey("asst-1") })).toBe(false);
   });
 
   test("invalidates home-feed query on home_feed_updated", async () => {
