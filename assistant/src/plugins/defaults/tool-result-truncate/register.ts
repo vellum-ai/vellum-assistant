@@ -16,19 +16,9 @@
  */
 
 import { registerPlugin } from "../../registry.js";
-import {
-  type Middleware,
-  type Plugin,
-  PluginExecutionError,
-  type ToolResultTruncateArgs,
-  type ToolResultTruncateResult,
-} from "../../types.js";
+import { type Plugin, PluginExecutionError } from "../../types.js";
+import toolResultTruncate from "./middlewares/toolResultTruncate.js";
 import pkg from "./package.json" with { type: "json" };
-
-const passthrough: Middleware<
-  ToolResultTruncateArgs,
-  ToolResultTruncateResult
-> = async (args, next) => next(args);
 
 /**
  * Plugin descriptor for the default tool-result truncation middleware.
@@ -41,7 +31,7 @@ export const defaultToolResultTruncatePlugin: Plugin = {
     version: pkg.version,
   },
   middleware: {
-    toolResultTruncate: passthrough,
+    toolResultTruncate,
   },
 };
 

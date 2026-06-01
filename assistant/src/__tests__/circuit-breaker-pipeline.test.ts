@@ -30,8 +30,8 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import {
   COMPACTION_CIRCUIT_COOLDOWN_MS,
   COMPACTION_CIRCUIT_FAILURE_THRESHOLD,
-  defaultCircuitBreakerPlugin,
-} from "../plugins/defaults/circuit-breaker/register.js";
+} from "../plugins/defaults/circuit-breaker/middlewares/circuitBreaker.js";
+import { defaultCircuitBreakerPlugin } from "../plugins/defaults/circuit-breaker/register.js";
 import { runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

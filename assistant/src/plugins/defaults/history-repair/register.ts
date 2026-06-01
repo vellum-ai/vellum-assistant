@@ -18,19 +18,9 @@
  */
 
 import { registerPlugin } from "../../registry.js";
-import {
-  type HistoryRepairArgs,
-  type HistoryRepairResult,
-  type Middleware,
-  type Plugin,
-  PluginExecutionError,
-} from "../../types.js";
+import { type Plugin, PluginExecutionError } from "../../types.js";
+import historyRepair from "./middlewares/historyRepair.js";
 import pkg from "./package.json" with { type: "json" };
-
-const passthrough: Middleware<HistoryRepairArgs, HistoryRepairResult> = async (
-  args,
-  next,
-) => next(args);
 
 export const defaultHistoryRepairPlugin: Plugin = {
   manifest: {
@@ -38,7 +28,7 @@ export const defaultHistoryRepairPlugin: Plugin = {
     version: pkg.version,
   },
   middleware: {
-    historyRepair: passthrough,
+    historyRepair,
   },
 };
 
