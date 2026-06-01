@@ -88,7 +88,7 @@ export function ApiKeyScreen() {
           </div>
 
           {requiresKey && (
-            <div className="flex flex-col gap-1.5">
+            <div className="flex flex-col gap-3">
               <Input
                 type="password"
                 label={`${entry.displayName} API Key`}
