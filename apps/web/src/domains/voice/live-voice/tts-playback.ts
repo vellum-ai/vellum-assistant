@@ -338,10 +338,13 @@ export class LiveVoiceAudioPlayer {
 
   /**
    * Release the underlying `AudioContext`. Implicitly stops playback first.
-   * The player can be reused afterwards — the next `enqueue` lazily recreates
-   * the context.
+   *
+   * Idempotent and safe to call when the context was never created or is
+   * already closed: only a context this player owns is closed, and the field is
+   * cleared before awaiting so re-entrant/repeat calls are no-ops. The player
+   * can be reused afterwards — the next `enqueue` lazily recreates the context.
    */
-  async close(): Promise<void> {
+  async dispose(): Promise<void> {
     this.stop();
     const context = this.context;
     this.context = null;
