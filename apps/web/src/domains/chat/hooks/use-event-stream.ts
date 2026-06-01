@@ -34,7 +34,7 @@ import { createSseEventConsumer } from "@/domains/chat/streaming/sse-event-consu
 import { endTurn } from "@/domains/chat/turn-coordinator";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { subscribe } from "@/lib/event-bus";
-import { recordDiagnostic } from "@/lib/diagnostics";
+import { recordLifecycleDiagnostic } from "@/lib/diagnostics";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import type {
   ActiveConversationMessagesRefreshResult,
@@ -288,7 +288,7 @@ export function useEventStream({
 
     return subscribe("sse.closed", ({ reason }) => {
       const hadActiveTurn = isSending(useTurnStore.getState());
-      recordDiagnostic("sse_stream_error", {
+      recordLifecycleDiagnostic("sse_stream_error", {
         assistantId: capturedAssistantId,
         conversationId: capturedConversationId,
         epoch: streamEpochRef.current,

@@ -26,6 +26,7 @@ import * as Sentry from "@sentry/react";
 import {
   bucketMessagesAdded,
   recordDiagnostic,
+  recordLifecycleDiagnostic,
   resolvePlatformTag,
 } from "@/lib/diagnostics";
 import type {
@@ -69,7 +70,7 @@ export function createReconcileOnReopen(
     handleSseOpened({ assistantId: openedFor, cause }) {
       if (openedFor !== assistantId) return;
       const epoch = ++streamEpochRef.current;
-      recordDiagnostic("sse_stream_opened", {
+      recordLifecycleDiagnostic("sse_stream_opened", {
         assistantId,
         conversationId,
         epoch,
@@ -117,7 +118,7 @@ async function runTransportRecoveryReconcile(
   cause: "watchdog" | "error",
 ): Promise<void> {
   const { assistantId, conversationId, streamEpochRef, syncRouterRef } = deps;
-  recordDiagnostic("sse_stream_reconnect", {
+  recordLifecycleDiagnostic("sse_stream_reconnect", {
     assistantId,
     conversationId,
     epoch,

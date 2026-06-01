@@ -9,4 +9,11 @@ describe("eventsDebugApi", () => {
     expect(Array.isArray(eventsDebugApi.getClients())).toBe(true);
     expect(Array.isArray(eventsDebugApi.getEvents())).toBe(true);
   });
+
+  test("exposes getLiveness returning a snapshot object", () => {
+    expect(typeof eventsDebugApi.getLiveness).toBe("function");
+    const snapshot = eventsDebugApi.getLiveness();
+    expect(snapshot).toBeObject();
+    expect(snapshot).toHaveProperty("activeClientCount");
+  });
 });

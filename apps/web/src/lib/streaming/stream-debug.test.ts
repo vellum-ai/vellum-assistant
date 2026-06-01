@@ -3,8 +3,10 @@ import { describe, expect, test, beforeEach } from "bun:test";
 import {
   getSseClients,
   getSseEvents,
+  getSseLivenessSnapshot,
   markClientEstablished,
   pushSseEvent,
+  recordSseTraffic,
   registerSseClient,
   resetSseDebugStateForTests,
   unregisterSseClient,
@@ -154,5 +156,74 @@ describe("getSseEvents limit", () => {
 
     expect(getSseEvents(5).length).toBe(5);
     expect(getSseEvents(50).length).toBe(20);
+  });
+});
+
+describe("getSseLivenessSnapshot", () => {
+  test("reports nulls and zero counters before any traffic", () => {
+    // GIVEN no SSE traffic has been recorded since reset
+    // WHEN a liveness snapshot is captured
+    const snapshot = getSseLivenessSnapshot();
+
+    // THEN all timestamps are null and counters are zero
+    expect(snapshot.lastTrafficAt).toBeNull();
+    expect(snapshot.lastDataAt).toBeNull();
+    expect(snapshot.msSinceLastTraffic).toBeNull();
+    expect(snapshot.msSinceLastData).toBeNull();
+    expect(snapshot.dataFramesSinceLoad).toBe(0);
+    expect(snapshot.keepalivesSinceLoad).toBe(0);
+    expect(snapshot.activeClientCount).toBe(0);
+  });
+
+  test("counts data frames and keepalives separately", () => {
+    // GIVEN a mix of data frames and heartbeat comment frames arrive
+    recordSseTraffic(true);
+    recordSseTraffic(false);
+    recordSseTraffic(true);
+
+    // WHEN a liveness snapshot is captured
+    const snapshot = getSseLivenessSnapshot();
+
+    // THEN data and keepalive frames are tallied independently
+    expect(snapshot.dataFramesSinceLoad).toBe(2);
+    expect(snapshot.keepalivesSinceLoad).toBe(1);
+    // AND both freshness ages are present once any frame has arrived
+    expect(snapshot.lastTrafficAt).not.toBeNull();
+    expect(snapshot.lastDataAt).not.toBeNull();
+    expect(snapshot.msSinceLastTraffic).toBeGreaterThanOrEqual(0);
+    expect(snapshot.msSinceLastData).toBeGreaterThanOrEqual(0);
+  });
+
+  test("tracks last-data age independently of heartbeat-only traffic", () => {
+    // GIVEN a data frame arrived, then only heartbeats kept the socket warm
+    recordSseTraffic(true);
+    const start = Date.now();
+    while (Date.now() - start < 3) {
+      /* busy wait so a later heartbeat has a distinct timestamp */
+    }
+    recordSseTraffic(false);
+
+    // WHEN a liveness snapshot is captured
+    const snapshot = getSseLivenessSnapshot();
+
+    // THEN last *data* is older than last *traffic* (a half-open shape)
+    expect(snapshot.lastDataAt!).toBeLessThan(snapshot.lastTrafficAt!);
+    expect(snapshot.msSinceLastData!).toBeGreaterThanOrEqual(
+      snapshot.msSinceLastTraffic!,
+    );
+  });
+
+  test("reports the count of currently-registered stream clients", () => {
+    // GIVEN two live clients are registered
+    const a = new AbortController();
+    const b = new AbortController();
+    registerSseClient(a.signal, "conv-live-1");
+    registerSseClient(b.signal, "conv-live-2");
+
+    // WHEN a liveness snapshot is captured
+    const snapshot = getSseLivenessSnapshot();
+
+    // THEN the active client count reflects both
+    expect(snapshot.activeClientCount).toBe(2);
   });
 });

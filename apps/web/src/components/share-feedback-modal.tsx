@@ -34,6 +34,7 @@ import { Toggle } from "@vellum/design-library/components/toggle";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import type { ClassificationEnum } from "@/generated/api/types.gen";
 import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
+import type { ChatDebugEventsApi } from "@/domains/chat/api/debug-api";
 import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
 import { isElectron } from "@/runtime/is-electron";
@@ -247,7 +248,7 @@ async function buildClientLogsFile(
     buildTarEntry("web-chat-diagnostics.json", diagnosticsBytes),
   ];
 
-  // ATL-654 triage: capture the live debug API state for indicator-stuck reports.
+  // Capture the live chat debug API state for indicator-stuck reports.
   // This is a separate file so support can diff it against the main diagnostics
   // snapshot without cross-contamination.
   try {
@@ -266,6 +267,45 @@ async function buildClientLogsFile(
         JSON.stringify(triagePayload, null, 2),
       );
       tarParts.push(buildTarEntry("web-chat-debug-api-triage.json", triageBytes));
+    }
+  } catch {
+    // Debug API is best-effort; if it's missing or throws, don't block the
+    // feedback submission. This can happen during SSR, in tests, or if the
+    // chat page hasn't mounted the API yet.
+  }
+
+  // SSE liveness + focus/visibility, read through the same live debug API.
+  // `visibilitychange` only fires on tab-switch / minimize / full occlusion —
+  // not when the browser window loses focus to another app while the tab stays
+  // visible — so a `hasFocus:false` + `visibilityState:"visible"` capture
+  // alongside a half-open socket is the fingerprint of the "stale after
+  // refocus" report.
+  try {
+    const eventsApi =
+      typeof window !== "undefined"
+        ? (window as unknown as { _vellumDebug?: { events?: ChatDebugEventsApi } })
+            ._vellumDebug?.events
+        : null;
+    if (eventsApi) {
+      const triagePayload = {
+        focus:
+          typeof document !== "undefined"
+            ? {
+                hasFocus:
+                  typeof document.hasFocus === "function"
+                    ? document.hasFocus()
+                    : null,
+                visibilityState: document.visibilityState,
+              }
+            : null,
+        liveness: eventsApi.getLiveness(),
+      };
+      const triageBytes = new TextEncoder().encode(
+        JSON.stringify(triagePayload, null, 2),
+      );
+      tarParts.push(
+        buildTarEntry("web-sse-liveness-triage.json", triageBytes),
+      );
     }
   } catch {
     // Debug API is best-effort; if it's missing or throws, don't block the

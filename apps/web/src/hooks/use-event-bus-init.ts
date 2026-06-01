@@ -6,7 +6,9 @@
  * 1. **Signal sources.** Wires each `runtime/event-sources/*` helper
  *    once at mount so DOM visibility, network online/offline,
  *    Capacitor app state, Electron `powerMonitor`, and Electron
- *    deep-link events flow into the bus.
+ *    deep-link events flow into the bus. The lifecycle diagnostics
+ *    recorder is attached in the same effect so those signals are
+ *    captured for support bundles.
  *
  * 2. **SSE service.** Calls `sseService.attach(assistantId)` when an
  *    assistant becomes active and the returned detach when it
@@ -22,6 +24,7 @@
 import { useEffect } from "react";
 
 import { sseService } from "@/assistant/sse-service";
+import { subscribeLifecycleDiagnostics } from "@/lib/lifecycle-diagnostics";
 import { publishCapacitorAppStateSource } from "@/runtime/event-sources/capacitor-app-state";
 import { publishVisibilitySource } from "@/runtime/event-sources/dom-visibility";
 import { publishElectronDeepLinksSource } from "@/runtime/event-sources/electron-deep-links";
@@ -54,6 +57,7 @@ export function useEventBusInit({
       publishCapacitorAppStateSource(),
       publishElectronPowerSource(),
       publishElectronDeepLinksSource(),
+      subscribeLifecycleDiagnostics(),
     ];
     return () => {
       for (const unsub of unsubscribers) unsub();

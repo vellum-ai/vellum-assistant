@@ -6,10 +6,12 @@ import type {
 } from "@/lib/sync/web-sync-router";
 
 const recordDiagnosticMock = mock(() => {});
+const recordLifecycleDiagnosticMock = mock(() => {});
 const bucketMessagesAddedMock = mock(() => "0");
 const resolvePlatformTagMock = mock(() => "web");
 mock.module("@/lib/diagnostics", () => ({
   recordDiagnostic: recordDiagnosticMock,
+  recordLifecycleDiagnostic: recordLifecycleDiagnosticMock,
   bucketMessagesAdded: bucketMessagesAddedMock,
   resolvePlatformTag: resolvePlatformTagMock,
 }));
@@ -66,6 +68,7 @@ const makeDeps = (override: Partial<{
 
 beforeEach(() => {
   recordDiagnosticMock.mockClear();
+  recordLifecycleDiagnosticMock.mockClear();
   addBreadcrumbMock.mockClear();
   captureMessageMock.mockClear();
   captureExceptionMock.mockClear();
@@ -94,6 +97,12 @@ describe("reconcile-on-reopen — gating", () => {
     expect(streamEpochRef.current).toBe(1);
     expect(reconcileActive).not.toHaveBeenCalled();
     expect(startReconciliationLoop).not.toHaveBeenCalled();
+    // AND the open is recorded on the durable lifecycle ring, not the
+    // high-volume main ring, so it survives a long streaming session.
+    expect(recordLifecycleDiagnosticMock).toHaveBeenCalledWith(
+      "sse_stream_opened",
+      expect.objectContaining({ cause: "fresh" }),
+    );
   });
 });
 
@@ -150,6 +159,11 @@ describe("reconcile-on-reopen — transport recovery (watchdog / error)", () => 
     expect(dispatchReconnect).toHaveBeenCalledTimes(1);
     expect(reconcileActive).not.toHaveBeenCalled();
     expect(startReconciliationLoop).toHaveBeenCalledWith(1);
+    // AND the reconnect is recorded on the durable lifecycle ring.
+    expect(recordLifecycleDiagnosticMock).toHaveBeenCalledWith(
+      "sse_stream_reconnect",
+      expect.objectContaining({ cause: "watchdog" }),
+    );
   });
 
   test("error with no sync router: falls back to standalone reconcile", async () => {
