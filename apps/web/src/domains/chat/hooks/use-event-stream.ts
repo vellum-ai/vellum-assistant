@@ -38,6 +38,7 @@ import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import {
   bucketMessagesAdded,
   recordDiagnostic,
+  recordLifecycleDiagnostic,
   resolvePlatformTag,
 } from "@/lib/diagnostics";
 import {
@@ -350,7 +351,7 @@ export function useEventStream({
     const unsub = subscribe("sse.opened", ({ assistantId: openedFor, cause }) => {
         if (openedFor !== capturedAssistantId) return;
         const epoch = ++streamEpochRef.current;
-        recordDiagnostic("sse_stream_opened", {
+        recordLifecycleDiagnostic("sse_stream_opened", {
           assistantId: capturedAssistantId,
           conversationId: capturedConversationId,
           epoch,
@@ -375,7 +376,7 @@ export function useEventStream({
         // reconcile.
         if (cause === "watchdog" || cause === "error") {
           void (async () => {
-            recordDiagnostic("sse_stream_reconnect", {
+            recordLifecycleDiagnostic("sse_stream_reconnect", {
               assistantId: capturedAssistantId,
               conversationId: capturedConversationId,
               epoch,
@@ -487,7 +488,7 @@ export function useEventStream({
 
     const unsub = subscribe("sse.closed", ({ reason }) => {
         const hadActiveTurn = isSending(useTurnStore.getState());
-        recordDiagnostic("sse_stream_error", {
+        recordLifecycleDiagnostic("sse_stream_error", {
           assistantId: capturedAssistantId,
           conversationId: capturedConversationId,
           epoch: streamEpochRef.current,

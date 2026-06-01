@@ -16,6 +16,7 @@ import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
   markClientEstablished,
   pushSseEvent,
+  recordSseTraffic,
   registerSseClient,
   unregisterSseClient,
 } from "@/lib/streaming/stream-debug";
@@ -216,6 +217,7 @@ export function subscribeChatEvents(
             if (isData) {
               markClientEstablished(sseDebugClientId);
             }
+            recordSseTraffic(isData);
             watchdog.recordTraffic(isData);
             if (!cancelled) {
               watchdog.arm(abortController, reconnectCount);

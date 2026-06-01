@@ -36,6 +36,7 @@ import type { ClassificationEnum } from "@/generated/api/types.gen";
 import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
 import type { ChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { buildDiagnosticsSnapshot } from "@/lib/diagnostics";
+import { getSseLivenessSnapshot } from "@/lib/streaming/stream-debug";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore } from "@/stores/auth-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
@@ -239,6 +240,24 @@ async function buildClientLogsFile(
         : null,
     hardwareConcurrency:
       typeof navigator !== "undefined" ? navigator.hardwareConcurrency : null,
+    // Focus/visibility at collection time. `visibilitychange` only
+    // fires on tab-switch / minimize / full occlusion — not when the
+    // browser window loses focus to another app while the tab stays
+    // visible — so a `hasFocus:false` + `visibilityState:"visible"`
+    // bundle is the fingerprint of the "stale after refocus" report.
+    focus:
+      typeof document !== "undefined"
+        ? {
+            hasFocus:
+              typeof document.hasFocus === "function"
+                ? document.hasFocus()
+                : null,
+            visibilityState: document.visibilityState,
+          }
+        : null,
+    // SSE liveness so a half-open socket (no bytes for minutes, but the
+    // connection never errored) is distinguishable from a healthy one.
+    sse_liveness: getSseLivenessSnapshot(),
   };
   const contextBytes = new TextEncoder().encode(JSON.stringify(payload, null, 2));
   const diagnosticsBytes = new TextEncoder().encode(JSON.stringify(chatDiagnostics, null, 2));
