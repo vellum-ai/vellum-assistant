@@ -495,7 +495,7 @@ extension AppDelegate {
     // MARK: - Wake-Up Greeting
 
     func wakeUpGreeting() -> String {
-        return "Wake up, my friend."
+        return PreChatOnboardingContext.defaultInitialMessage
     }
 }
 

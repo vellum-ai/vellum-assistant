@@ -8,7 +8,10 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 
-import { STORAGE_KEY } from "@/domains/onboarding/prechat";
+import {
+  DEFAULT_PRECHAT_INITIAL_MESSAGE,
+  STORAGE_KEY,
+} from "@/domains/onboarding/prechat";
 import { routes } from "@/utils/routes";
 
 let searchParams = new URLSearchParams();
@@ -58,6 +61,7 @@ type TestOnboardingRecipe = {
 
 let onboardingCompleted = false;
 let prechatOnboardingCondensedFlow = true;
+let selfIntroGreeting = true;
 let isIOSWeb = false;
 let isMacOSWeb = false;
 let iosAppDownloaded = true;
@@ -183,6 +187,14 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   },
 }));
 
+mock.module("@/stores/assistant-feature-flag-store", () => ({
+  useAssistantFeatureFlagStore: {
+    use: {
+      selfIntroGreeting: () => selfIntroGreeting,
+    },
+  },
+}));
+
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     use: {
@@ -290,6 +302,7 @@ beforeEach(() => {
   checkAssistantImpl = async () => {};
   onboardingCompleted = false;
   prechatOnboardingCondensedFlow = true;
+  selfIntroGreeting = true;
   isIOSWeb = false;
   isMacOSWeb = false;
   iosAppDownloaded = true;
@@ -378,7 +391,7 @@ describe("onboarding lifecycle sync", () => {
       tone: "grounded",
       userName: "Alice",
       googleConnected: false,
-      initialMessage: "Wake up, my friend!",
+      initialMessage: "Hi, I'm Alice. Nice to meet you.",
     });
 
     await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
@@ -392,6 +405,25 @@ describe("onboarding lifecycle sync", () => {
         { replace: true },
       ),
     );
+  });
+
+  test("pre-chat uses the canned opener when self-intro greeting is off", async () => {
+    selfIntroGreeting = false;
+
+    render(<PreChatFlow />);
+
+    fireEvent.click(await screen.findByTestId("name-continue"));
+    fireEvent.click(await screen.findByText("Skip for now"));
+
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
+      tools: [],
+      tasks: [],
+      tone: "grounded",
+      userName: "Alice",
+      googleConnected: false,
+      initialMessage: DEFAULT_PRECHAT_INITIAL_MESSAGE,
+    });
   });
 
   test("pre-chat keeps the existing full funnel when the v3 flag is off", async () => {
@@ -444,7 +476,7 @@ describe("onboarding lifecycle sync", () => {
     expect(await screen.findByTestId("name-continue")).toBeTruthy();
   });
 
-  test("recipe skip stores the pre-chat handoff and enters chat without showing pre-chat screens", async () => {
+  test("recipe skip does not bypass the pared-down pre-chat screens", async () => {
     const recipe: TestOnboardingRecipe = {
       cohort: "content-automation",
       tasks: ["writing", "research"],
@@ -455,10 +487,19 @@ describe("onboarding lifecycle sync", () => {
       skipPrechat: true,
     };
     fetchOnboardingRecipeImpl = async () => recipe;
+    selfIntroGreeting = false;
 
     render(<PreChatFlow />);
 
-    expect(screen.queryByTestId("name-continue")).toBeNull();
+    expect(await screen.findByTestId("name-continue")).toBeTruthy();
+    expect(checkAssistantMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("name-continue"));
+    expect(await screen.findByText("Gmail")).toBeTruthy();
+    expect(screen.getByText("Google Calendar")).toBeTruthy();
+    expect(screen.getByText("Google Drive")).toBeTruthy();
+    fireEvent.click(screen.getByText("Skip for now"));
+
     await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
     await waitFor(() =>
       expect(navigateMock).toHaveBeenCalledWith(
@@ -473,6 +514,7 @@ describe("onboarding lifecycle sync", () => {
       tools: [],
       tasks: recipe.tasks,
       tone: recipe.tone,
+      userName: "Alice",
       googleConnected: false,
       cohort: recipe.cohort,
       initialMessage: recipe.initialMessage,
