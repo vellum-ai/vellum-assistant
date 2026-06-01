@@ -297,14 +297,20 @@ class AssistantLifecycleService {
     } else if (prevKind !== "initializing") {
       this.armInitializingWatchdog();
     }
-    // Drop the auto-greet one-shot when entering a state that means
-    // no greeting is forthcoming — otherwise a failed hatch leaves
-    // the flag set and a subsequent retry that resolves into an
-    // already-active assistant (no fresh hatch) would inherit a
-    // spurious "Connecting..." gate. A retry that re-enters
-    // `auto_hatch` re-marks the flag, so this only clears the path
-    // where the expectation has actually been invalidated.
-    if (next.kind === "error" || next.kind === "retired") {
+    // Drop the auto-greet one-shot on any transition to a state
+    // where a greeting is no longer forthcoming. The only two
+    // states where the expectation still holds are `initializing`
+    // (hatch in progress) and `active` (greeting may have just
+    // arrived or be arriving via SSE). Everything else — error,
+    // retired, loading (logout), maintenance_mode, cleaning_up,
+    // self_hosted (different greeting path), and crucially
+    // `awaiting_version_selection` (a recoverable nonprod hatch
+    // failure can land back here, and the chat surface renders
+    // the "Connecting..." gate ahead of the version picker until
+    // this flag clears) — must drop the flag so chat doesn't show
+    // a stale gate. A subsequent retry that re-enters `auto_hatch`
+    // or `hatchVersion` re-marks the flag.
+    if (next.kind !== "initializing" && next.kind !== "active") {
       this.clearExpectingFirstMessage();
     }
   }

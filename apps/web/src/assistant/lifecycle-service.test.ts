@@ -295,6 +295,33 @@ describe("lifecycleService — bootstrap branches", () => {
     expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
   });
 
+  test("transition to awaiting_version_selection drops the flag — a recoverable nonprod hatch failure returns to the version picker, not a stale Connecting gate", async () => {
+    // Nonprod auto-hatch lands the user on the version picker
+    // *without* setting the flag (verified in a sibling test), so
+    // simulate the recovery-after-hatch-failure case directly:
+    // mark the flag (as `hatchVersion` would), then drive the
+    // service back to `awaiting_version_selection`.
+    lifecycleService.markExpectingFirstMessage();
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(true);
+
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 404,
+    }));
+
+    lifecycleService.setInputs({
+      ...baseInputs,
+      isNonProduction: true,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+
+    expect(useAssistantLifecycleStore.getState().assistantState.kind).toBe(
+      "awaiting_version_selection",
+    );
+    expect(useAssistantLifecycleStore.getState().expectingFirstMessage).toBe(false);
+  });
+
   test("gateway-auth short-circuit writes active state without calling the server", async () => {
     isGatewayAuthModeMock.mockImplementation(() => true);
 
