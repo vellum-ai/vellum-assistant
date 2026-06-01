@@ -21,8 +21,10 @@ import {
   SDK_BASE_OPTIONS,
 } from "@/domains/intelligence/client";
 import { pluginsGet, pluginsSearchGet } from "@/generated/daemon/sdk.gen";
-
-import type { PluginCatalogResponse, PluginsListResponse } from "./types";
+import type {
+  PluginsGetResponse,
+  PluginsSearchGetResponse,
+} from "@/generated/daemon/types.gen";
 
 export { ApiError };
 
@@ -47,7 +49,7 @@ function buildQuery(params: FetchPluginsParams): Record<string, string> {
 export async function fetchPlugins(
   assistantId: string,
   params: FetchPluginsParams = {},
-): Promise<PluginsListResponse> {
+): Promise<PluginsGetResponse> {
   const { data, error, response } = await pluginsGet({
     ...SDK_BASE_OPTIONS,
     path: { assistant_id: assistantId },
@@ -111,7 +113,7 @@ function buildCatalogQuery(
 export async function fetchPluginCatalog(
   assistantId: string,
   params: FetchPluginCatalogParams = {},
-): Promise<PluginCatalogResponse> {
+): Promise<PluginsSearchGetResponse> {
   const { data, error, response } = await pluginsSearchGet({
     ...SDK_BASE_OPTIONS,
     path: { assistant_id: assistantId },

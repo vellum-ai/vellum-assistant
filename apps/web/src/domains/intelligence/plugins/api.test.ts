@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
-import { client as daemonClient } from "@/generated/daemon/client.gen";
+import { client } from "@/generated/daemon/client.gen";
 import {
   ApiError,
   fetchPluginCatalog,
@@ -16,14 +16,14 @@ import {
 // ---------------------------------------------------------------------------
 
 describe("fetchPluginCatalog", () => {
-  const originalGet = daemonClient.get;
+  const originalGet = client.get;
   afterEach(() => {
-    daemonClient.get = originalGet;
+    client.get = originalGet;
   });
 
   test("forwards a plain query as ?q after regex-escaping specials", async () => {
     const captured: Array<Record<string, unknown>> = [];
-    daemonClient.get = mock(async (req: Record<string, unknown>) => {
+    client.get = mock(async (req: Record<string, unknown>) => {
       captured.push(req);
       return {
         data: {
@@ -34,7 +34,7 @@ describe("fetchPluginCatalog", () => {
         error: null,
         response: new Response("{}", { status: 200 }),
       };
-    }) as typeof daemonClient.get;
+    }) as typeof client.get;
 
     await fetchPluginCatalog("assistant-1", { query: "memory.(test)" });
 
@@ -49,14 +49,14 @@ describe("fetchPluginCatalog", () => {
 
   test("omits ?q entirely when the query is empty (match-all)", async () => {
     let capturedQuery: unknown;
-    daemonClient.get = mock(async (req: Record<string, unknown>) => {
+    client.get = mock(async (req: Record<string, unknown>) => {
       capturedQuery = req.query;
       return {
         data: { query: "", ref: "main", matches: [] },
         error: null,
         response: new Response("{}", { status: 200 }),
       };
-    }) as typeof daemonClient.get;
+    }) as typeof client.get;
 
     await fetchPluginCatalog("assistant-1", { query: "" });
 
@@ -65,14 +65,14 @@ describe("fetchPluginCatalog", () => {
 
   test("forwards ref when provided", async () => {
     let capturedQuery: Record<string, string> | undefined;
-    daemonClient.get = mock(async (req: Record<string, unknown>) => {
+    client.get = mock(async (req: Record<string, unknown>) => {
       capturedQuery = req.query as Record<string, string>;
       return {
         data: { query: "", ref: "feature-x", matches: [] },
         error: null,
         response: new Response("{}", { status: 200 }),
       };
-    }) as typeof daemonClient.get;
+    }) as typeof client.get;
 
     await fetchPluginCatalog("assistant-1", { ref: "feature-x" });
 
@@ -80,7 +80,7 @@ describe("fetchPluginCatalog", () => {
   });
 
   test("returns the parsed envelope on success", async () => {
-    daemonClient.get = mock(async () => ({
+    client.get = mock(async () => ({
       data: {
         query: "mem",
         ref: "main",
@@ -90,7 +90,7 @@ describe("fetchPluginCatalog", () => {
       },
       error: null,
       response: new Response("{}", { status: 200 }),
-    })) as typeof daemonClient.get;
+    })) as typeof client.get;
 
     const result = await fetchPluginCatalog("assistant-1", { query: "mem" });
 
@@ -101,14 +101,14 @@ describe("fetchPluginCatalog", () => {
   });
 
   test("throws ApiError on non-ok responses (no 404 fallback)", async () => {
-    daemonClient.get = mock(async () => ({
+    client.get = mock(async () => ({
       data: undefined,
       error: { error: "endpoint not found" },
       response: new Response(JSON.stringify({ error: "endpoint not found" }), {
         status: 404,
         headers: { "Content-Type": "application/json" },
       }),
-    })) as typeof daemonClient.get;
+    })) as typeof client.get;
 
     let thrown: unknown;
     try {
@@ -121,14 +121,14 @@ describe("fetchPluginCatalog", () => {
   });
 
   test("throws ApiError on 500", async () => {
-    daemonClient.get = mock(async () => ({
+    client.get = mock(async () => ({
       data: undefined,
       error: { error: "boom" },
       response: new Response(JSON.stringify({ error: "boom" }), {
         status: 500,
         headers: { "Content-Type": "application/json" },
       }),
-    })) as typeof daemonClient.get;
+    })) as typeof client.get;
 
     let thrown: unknown;
     try {
