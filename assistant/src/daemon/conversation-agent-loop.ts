@@ -486,9 +486,11 @@ export interface AgentLoopConversationContext {
       | "message_complete"
       | "generation_cancelled"
       | "error_terminal",
-    anchor?: "assistant_turn" | "user_turn" | "global",
-    requestId?: string,
-    statusText?: string,
+    options?: {
+      anchor?: "assistant_turn" | "user_turn" | "global";
+      requestId?: string;
+      statusText?: string;
+    },
   ): void;
   emitConfirmationStateChanged(
     params: ConfirmationStateChanged extends {
@@ -849,7 +851,10 @@ export async function runAgentLoopImpl(
         { reason: diskPressureDecision.reason },
         "Blocked turn during disk pressure cleanup mode",
       );
-      ctx.emitActivityState("idle", "error_terminal", "global", reqId);
+      ctx.emitActivityState("idle", "error_terminal", {
+        anchor: "global",
+        requestId: reqId,
+      });
       ctx.traceEmitter.emit("request_error", message, {
         requestId: reqId,
         status: "error",
@@ -1103,12 +1108,9 @@ export async function runAgentLoopImpl(
     // and user-initiated /compact bypass this check.
     const autoCompactAllowed = !(await isCompactionCircuitOpen(ctx));
     if (compactCheck.needed && autoCompactAllowed) {
-      ctx.emitActivityState(
-        "thinking",
-        "context_compacting",
-        "assistant_turn",
-        reqId,
-      );
+      ctx.emitActivityState("thinking", "context_compacting", {
+        requestId: reqId,
+      });
     }
     const compactionOptions = {
       lastCompactedAt: ctx.contextCompactedAt ?? undefined,
@@ -1912,12 +1914,9 @@ export async function runAgentLoopImpl(
           }
         },
         emitActivityState: () => {
-          ctx.emitActivityState(
-            "thinking",
-            "context_compacting",
-            "assistant_turn",
-            reqId,
-          );
+          ctx.emitActivityState("thinking", "context_compacting", {
+            requestId: reqId,
+          });
         },
         onCompactionResult: async (result, compactedBasis) => {
           // Track circuit-breaker state whenever the reducer invoked
@@ -2554,12 +2553,9 @@ export async function runAgentLoopImpl(
           "Context too large — applying next reducer tier",
         );
 
-        ctx.emitActivityState(
-          "thinking",
-          "context_compacting",
-          "assistant_turn",
-          reqId,
-        );
+        ctx.emitActivityState("thinking", "context_compacting", {
+          requestId: reqId,
+        });
         const convergenceCompactionBasis = ctx.messages;
         const step = await reduceContextOverflow(
           convergenceCompactionBasis,
@@ -2682,12 +2678,9 @@ export async function runAgentLoopImpl(
 
         if (action === "auto_compress_latest_turn") {
           // Auto-compress without asking — users opt out via the "drop" policy.
-          ctx.emitActivityState(
-            "thinking",
-            "context_compacting",
-            "assistant_turn",
-            reqId,
-          );
+          ctx.emitActivityState("thinking", "context_compacting", {
+            requestId: reqId,
+          });
           let emergencyCompact: Awaited<
             ReturnType<typeof ctx.contextWindowManager.maybeCompact>
           > | null = null;
@@ -3175,7 +3168,10 @@ export async function runAgentLoopImpl(
     // so the client can re-enable the UI without delay.
     if (abortController.signal.aborted) {
       syncLastAssistantMessageToDisk();
-      ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
+      ctx.emitActivityState("idle", "generation_cancelled", {
+        anchor: "global",
+        requestId: reqId,
+      });
       ctx.traceEmitter.emit(
         "generation_cancelled",
         "Generation cancelled by user",
@@ -3219,7 +3215,10 @@ export async function runAgentLoopImpl(
           await emitTerminalExit?.("aborted_after_checkpoint");
           pendingCheckpointYield = null;
         }
-        ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
+        ctx.emitActivityState("idle", "generation_cancelled", {
+          anchor: "global",
+          requestId: reqId,
+        });
         ctx.traceEmitter.emit(
           "generation_cancelled",
           "Generation cancelled by user",
@@ -3260,7 +3259,10 @@ export async function runAgentLoopImpl(
         });
         publishLoopMessagesChanged();
       } else {
-        ctx.emitActivityState("idle", "message_complete", "global", reqId);
+        ctx.emitActivityState("idle", "message_complete", {
+          anchor: "global",
+          requestId: reqId,
+        });
         ctx.traceEmitter.emit(
           "message_complete",
           "Message processing complete",
@@ -3355,7 +3357,10 @@ export async function runAgentLoopImpl(
         await emitTerminalExit?.("aborted_after_checkpoint");
         pendingCheckpointYield = null;
       }
-      ctx.emitActivityState("idle", "generation_cancelled", "global", reqId);
+      ctx.emitActivityState("idle", "generation_cancelled", {
+        anchor: "global",
+        requestId: reqId,
+      });
       rlog.info("Generation cancelled by user");
       ctx.traceEmitter.emit(
         "generation_cancelled",
@@ -3371,7 +3376,10 @@ export async function runAgentLoopImpl(
       });
       publishLoopMessagesChanged();
     } else {
-      ctx.emitActivityState("idle", "error_terminal", "global", reqId);
+      ctx.emitActivityState("idle", "error_terminal", {
+        anchor: "global",
+        requestId: reqId,
+      });
       const message = err instanceof Error ? err.message : String(err);
       const errorClass = err instanceof Error ? err.constructor.name : "Error";
       rlog.error({ err }, "Conversation processing error");

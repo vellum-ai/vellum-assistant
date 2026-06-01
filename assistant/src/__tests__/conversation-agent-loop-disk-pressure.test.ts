@@ -213,8 +213,7 @@ describe("runAgentLoopImpl disk pressure gate", () => {
     expect(activityStates).toContainEqual([
       "idle",
       "error_terminal",
-      "global",
-      "req-123",
+      { anchor: "global", requestId: "req-123" },
     ]);
     expect(ctx.processing).toBe(false);
     expect(ctx.abortController).toBeNull();

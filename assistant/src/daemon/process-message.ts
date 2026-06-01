@@ -421,11 +421,7 @@ export async function processMessage(
     );
     conversation.getMessages().push(cleanMsg);
 
-    conversation.emitActivityState(
-      "thinking",
-      "context_compacting",
-      "assistant_turn",
-    );
+    conversation.emitActivityState("thinking", "context_compacting");
     const result = await conversation.forceCompact({
       targetInputTokensOverride: slashResult.targetInputTokensOverride,
     });

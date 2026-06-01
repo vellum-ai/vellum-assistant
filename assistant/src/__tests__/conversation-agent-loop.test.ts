@@ -1166,8 +1166,7 @@ describe("session-agent-loop", () => {
       expect(activityStates).toContainEqual([
         "idle",
         "error_terminal",
-        "global",
-        "test-req",
+        { anchor: "global", requestId: "test-req" },
       ]);
       expect(traceEvents[0]).toEqual([
         "request_error",
@@ -1229,8 +1228,7 @@ describe("session-agent-loop", () => {
       expect(activityStates).toContainEqual([
         "idle",
         "error_terminal",
-        "global",
-        "test-req",
+        { anchor: "global", requestId: "test-req" },
       ]);
     });
   });
