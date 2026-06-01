@@ -5,15 +5,6 @@ SCRIPT_DIR="$(CDPATH= cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
 . "${SCRIPT_DIR}/vellum-block-volume-common.sh"
 
-block_detect_fs_type() {
-  if block_is_dry_run; then
-    block_dry_run "blkid -o value -s TYPE ${BLOCK_DEVICE}"
-    printf '%s\n' "${VELLUM_BLOCK_DRY_RUN_BLKID_TYPE:-}"
-    return 0
-  fi
-  blkid -o value -s TYPE "${BLOCK_DEVICE}" 2>/dev/null || true
-}
-
 block_prepare_top_level_dir() {
   name="$1"
   owner="$2"
@@ -33,6 +24,7 @@ case "${fs_type}" in
     ;;
   ext4)
     block_log "${BLOCK_DEVICE} already contains an ext4 filesystem"
+    "${SCRIPT_DIR}/vellum-block-volume-resize.sh"
     ;;
   *)
     block_die "${BLOCK_DEVICE} contains unsupported filesystem '${fs_type}'; expected ext4"

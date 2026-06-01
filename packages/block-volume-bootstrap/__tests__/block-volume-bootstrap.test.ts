@@ -11,6 +11,10 @@ const mountScript = resolve(
   packageRoot,
   "scripts/vellum-block-volume-mount.sh",
 );
+const resizeScript = resolve(
+  packageRoot,
+  "scripts/vellum-block-volume-resize.sh",
+);
 
 function runScript(
   script: string,
@@ -146,7 +150,41 @@ describe("block volume bootstrap scripts", () => {
     expect(result.stderr).toContain("DRY-RUN: chown 0:0 /mnt/test-root/dockerd-data");
   });
 
-  test("init helper never formats a device with an existing ext4 filesystem", () => {
+  test("resize helper grows ext4 and prints requested bind path evidence", () => {
+    const result = runScript(resizeScript, {
+      args: ["/workspace"],
+      env: {
+        VELLUM_BLOCK_DRY_RUN_BLKID_TYPE: "ext4",
+      },
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(
+      [
+        "DRY-RUN: wait for block device /dev/test-block",
+        "DRY-RUN: blkid -o value -s TYPE /dev/test-block",
+        "DRY-RUN: resize2fs /dev/test-block",
+        "DRY-RUN: findmnt --target /workspace",
+        "DRY-RUN: df -h /workspace",
+      ].join("\n"),
+    );
+  });
+
+  test("resize helper rejects non-ext4 filesystems", () => {
+    const result = runScript(resizeScript, {
+      env: {
+        VELLUM_BLOCK_DRY_RUN_BLKID_TYPE: "xfs",
+      },
+    });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(
+      "/dev/test-block contains unsupported filesystem 'xfs'; expected ext4",
+    );
+    expect(result.stderr).not.toContain("resize2fs");
+  });
+
+  test("init helper resizes and never formats a device with an existing ext4 filesystem", () => {
     const result = runScript(initScript, {
       env: {
         VELLUM_BLOCK_DRY_RUN_BLKID_TYPE: "ext4",
@@ -156,6 +194,15 @@ describe("block volume bootstrap scripts", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).not.toContain("mkfs.ext4");
     expect(result.stderr).toContain("already contains an ext4 filesystem");
+    expect(result.stderr).toContain(
+      [
+        "vellum block volume: /dev/test-block already contains an ext4 filesystem",
+        "DRY-RUN: wait for block device /dev/test-block",
+        "DRY-RUN: blkid -o value -s TYPE /dev/test-block",
+        "DRY-RUN: resize2fs /dev/test-block",
+        "DRY-RUN: mkdir -p /mnt/test-root",
+      ].join("\n"),
+    );
   });
 
   test("init helper rejects non-ext4 existing filesystems before formatting", () => {

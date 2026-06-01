@@ -63,7 +63,8 @@ COPY packages/block-volume-bootstrap/scripts/*.sh /usr/local/bin/
 RUN chmod +x \
     /usr/local/bin/vellum-block-volume-common.sh \
     /usr/local/bin/vellum-block-volume-init.sh \
-    /usr/local/bin/vellum-block-volume-mount.sh
+    /usr/local/bin/vellum-block-volume-mount.sh \
+    /usr/local/bin/vellum-block-volume-resize.sh
 
 USER ces
 
