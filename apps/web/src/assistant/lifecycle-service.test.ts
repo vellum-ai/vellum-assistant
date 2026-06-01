@@ -192,7 +192,7 @@ describe("lifecycleService — server state projection", () => {
 });
 
 describe("lifecycleService — bootstrap branches", () => {
-  test("logout clears both stores", async () => {
+  test("respondToInputs with isLoggedIn=false clears both stores (safety-net for token-expiry-style auth flips that don't call logout())", async () => {
     // Drive the service into an `active` state through the
     // legitimate path so its internal state mirrors the store.
     getAssistantMock.mockImplementationOnce(async () => ({
