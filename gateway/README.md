@@ -318,7 +318,7 @@ On `SIGTERM` the gateway enters drain mode: `/readyz` begins returning `503` so 
 
 ```bash
 # Build
-docker build -t vellum-gateway:local gateway
+docker build -f gateway/Dockerfile -t vellum-gateway:local .
 
 # Run (pass required env vars)
 docker run --rm -p 7830:7830 \

@@ -97,7 +97,7 @@ const SERVICE_CONFIG: Record<Service, ServiceConfig> = {
   },
   gateway: {
     imageEnvVar: "GATEWAY_IMAGE_NAME",
-    context: "gateway",
+    context: ".",
     dockerfile: "gateway/Dockerfile",
     featureFlagSync: {
       src: "meta/feature-flags/feature-flag-registry.json",
