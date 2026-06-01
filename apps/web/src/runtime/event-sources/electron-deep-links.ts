@@ -1,11 +1,11 @@
 import * as Sentry from "@sentry/browser";
 
+import { publish } from "@/lib/event-bus";
 import {
   drainPendingDeepLinks,
   subscribeToDeepLinks,
   type DeepLink,
 } from "@/runtime/deep-links";
-import type { EventBusPublisher } from "@/stores/event-bus-store";
 
 /**
  * Electron `vellum://` deep-link bridge → typed bus events:
@@ -32,19 +32,17 @@ import type { EventBusPublisher } from "@/stores/event-bus-store";
  * Off Electron the wrappers are no-ops and the returned unsubscribe
  * drops through cleanly.
  */
-export function publishElectronDeepLinksSource(
-  bus: EventBusPublisher,
-): () => void {
+export function publishElectronDeepLinksSource(): () => void {
   const publishDeepLink = (link: DeepLink): void => {
     switch (link.kind) {
       case "send":
-        bus.publish("deeplink.send", { message: link.message });
+        publish("deeplink.send", { message: link.message });
         break;
       case "openThread":
-        bus.publish("deeplink.openThread", { threadId: link.threadId });
+        publish("deeplink.openThread", { threadId: link.threadId });
         break;
       case "unknown":
-        bus.publish("deeplink.unknown", { url: link.url });
+        publish("deeplink.unknown", { url: link.url });
         break;
     }
   };

@@ -40,6 +40,22 @@ References:
 - [Zustand docs](https://zustand.docs.pmnd.rs/)
 - [Zustand — Auto-generating selectors](https://zustand.docs.pmnd.rs/guides/auto-generating-selectors)
 
+## When Zustand does NOT apply: stateless registries
+
+The "all shared client state lives in Zustand" rule means *state* —
+values consumers read and react to. A handler registry (the event bus,
+in `lib/event-bus.ts`) is not state. It's a pub/sub primitive where
+the only data is a `Map<event, Set<handler>>` that consumers never
+read, only write to and dispatch through. There's nothing for
+selectors to subscribe to. Wrapping it in a Zustand store adds
+ceremony without value — `useEventBusStore.getState().publish(...)`
+when `publish(...)` is the actual operation.
+
+The convention: stateless pub/sub registries are plain modules with
+exported functions. They live in `lib/` alongside other app
+infrastructure. The event bus is the canonical example; other
+registries (if any are added) should follow the same shape.
+
 ## Zustand store conventions
 
 Each domain owns its store, colocated within the domain folder:

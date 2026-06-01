@@ -19,7 +19,7 @@ import { createElement } from "react";
 
 import * as sdkGen from "@/generated/daemon/sdk.gen";
 import { useConversationStore } from "@/stores/conversation-store";
-import { __resetEventBusForTesting } from "@/stores/event-bus-store";
+import { __resetForTesting } from "@/lib/event-bus";
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -69,7 +69,7 @@ function wrapper({ children }: { children: ReactNode }) {
 }
 
 beforeEach(() => {
-  __resetEventBusForTesting();
+  __resetForTesting();
   useConversationStore.getState().reset();
   conversationsImpl = [];
   markConversationSeenCalls.length = 0;
@@ -78,7 +78,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetForTesting();
   useConversationStore.getState().reset();
 });
 

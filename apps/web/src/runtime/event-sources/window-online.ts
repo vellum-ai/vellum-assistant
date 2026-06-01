@@ -1,4 +1,4 @@
-import type { EventBusPublisher } from "@/stores/event-bus-store";
+import { publish } from "@/lib/event-bus";
 
 /**
  * `window.online` / `window.offline` → `app.online` + `app.resume(signal: "online")`
@@ -9,15 +9,13 @@ import type { EventBusPublisher } from "@/stores/event-bus-store";
  *
  * Browser-only; same SSR guard as `publishVisibilitySource`.
  */
-export function publishWindowOnlineSource(
-  bus: EventBusPublisher,
-): () => void {
+export function publishWindowOnlineSource(): () => void {
   const onOnline = () => {
-    bus.publish("app.online", {});
-    bus.publish("app.resume", { signal: "online" });
+    publish("app.online", {});
+    publish("app.resume", { signal: "online" });
   };
   const onOffline = () => {
-    bus.publish("app.offline", {});
+    publish("app.offline", {});
   };
   window.addEventListener("online", onOnline);
   window.addEventListener("offline", onOffline);

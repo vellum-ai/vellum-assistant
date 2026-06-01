@@ -8,11 +8,11 @@
  *    Capacitor app state, Electron `powerMonitor`, and Electron
  *    deep-link events flow into the bus.
  *
- * 2. **SSE service.** Calls `sseService.attach(bus, assistantId)`
- *    when an assistant becomes active and the returned detach when
- *    it changes or unmounts. All connection lifecycle, dedup
- *    windows, and bounce policy live inside the service —
- *    paralleling `lifecycleService`.
+ * 2. **SSE service.** Calls `sseService.attach(assistantId)` when an
+ *    assistant becomes active and the returned detach when it
+ *    changes or unmounts. All connection lifecycle, dedup windows,
+ *    and bounce policy live inside the service — paralleling
+ *    `lifecycleService`.
  *
  * The daemon dedups SSE subscribers by `clientId`, so this hook MUST
  * be the only place that calls `sseService.attach`. Consumers
@@ -27,7 +27,6 @@ import { publishVisibilitySource } from "@/runtime/event-sources/dom-visibility"
 import { publishElectronDeepLinksSource } from "@/runtime/event-sources/electron-deep-links";
 import { publishElectronPowerSource } from "@/runtime/event-sources/electron-power";
 import { publishWindowOnlineSource } from "@/runtime/event-sources/window-online";
-import { useEventBusStore } from "@/stores/event-bus-store";
 
 interface UseEventBusInitParams {
   /** Resolved assistant id, or `null` when not yet loaded. */
@@ -42,13 +41,12 @@ export function useEventBusInit({
 }: UseEventBusInitParams): void {
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const bus = useEventBusStore.getState();
     const unsubscribers = [
-      publishVisibilitySource(bus),
-      publishWindowOnlineSource(bus),
-      publishCapacitorAppStateSource(bus),
-      publishElectronPowerSource(bus),
-      publishElectronDeepLinksSource(bus),
+      publishVisibilitySource(),
+      publishWindowOnlineSource(),
+      publishCapacitorAppStateSource(),
+      publishElectronPowerSource(),
+      publishElectronDeepLinksSource(),
     ];
     return () => {
       for (const unsub of unsubscribers) unsub();
@@ -57,6 +55,6 @@ export function useEventBusInit({
 
   useEffect(() => {
     if (!assistantId || !isAssistantActive) return;
-    return sseService.attach(useEventBusStore.getState(), assistantId);
+    return sseService.attach(assistantId);
   }, [assistantId, isAssistantActive]);
 }

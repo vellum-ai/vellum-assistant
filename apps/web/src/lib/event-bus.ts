@@ -1,26 +1,26 @@
 /**
- * Cross-domain typed publish/subscribe surface for assistant-global
- * signals (SSE events, app lifecycle, network reachability).
+ * Cross-domain typed publish/subscribe registry for assistant-global
+ * signals (SSE events, app lifecycle, network reachability, deep
+ * links). Plain module — `publish` and `subscribe` are exported
+ * functions, the handler registry is module-private.
  *
- * Pub/sub semantics intentionally do not flow through Zustand
- * reactivity — handlers fire synchronously from `publish()` rather
- * than via state-change subscriptions, so a single batched react
- * commit cycle does not collapse a burst of events. The Zustand
- * wrapper exists for codebase consistency and the `.getState()`
- * non-React entry point, not for React reactivity.
+ * Not a Zustand store. The bus has no state; what looks like state
+ * (the handler set) is a registry, not user-observable application
+ * state, so Zustand's selector + re-render machinery does not apply.
+ * Handlers fire synchronously from `publish()` so a burst of events
+ * is not collapsed into a single React commit. See
+ * `STATE_MANAGEMENT.md` for the convention carve-out.
  *
- * Sources are wired by `useEventBusInit` at chat-layout scope: a
- * single assistant-scoped SSE connection and DOM lifecycle events
- * (visibility, online, offline, Capacitor app-state). Consumers
- * anywhere in the chat-layout subtree subscribe via
- * `useEventBusStore.getState()`.
+ * Producers:
+ *   - `runtime/event-sources/*` for host-environment signals
+ *   - `assistant/sse-service.ts` for SSE-derived signals
+ *   - `domains/chat/hooks/use-event-stream.ts` for
+ *     `reachability.retry-requested`
  *
- * @see {@link https://zustand.docs.pmnd.rs/}
+ * Consumers: `useBusSubscription` (React) or `subscribe` directly
+ * (non-React).
  */
 
-import { create } from "zustand";
-
-import { createSelectors } from "@/utils/create-selectors";
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 
 /**
@@ -131,103 +131,58 @@ export type BusHandler<K extends BusEventName> = (
   payload: BusEventPayload<K>,
 ) => void;
 
-// ---------------------------------------------------------------------------
-// Internal handler registry
-// ---------------------------------------------------------------------------
-//
-// Handlers live outside Zustand state on purpose. React-Query-style
-// reactivity (re-render on every state change) is not what consumers
-// want from a pub/sub: every subscribe call would re-render every
-// other subscriber, and a burst publish would coalesce into a single
-// commit.
-//
-// Encapsulated in a module-private map so tests reset it via the
-// exported `__resetEventBusForTesting` hook.
-
 type AnyHandler = (payload: never) => void;
 let handlers: Map<BusEventName, Set<AnyHandler>> = new Map();
 
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
-
-export interface EventBusState {
-  /**
-   * Reserved for future internals. Kept here so future state fields
-   * (e.g. last-seen connection status) can be added without churning
-   * every consumer's import path. Tests must not depend on this shape.
-   */
-  readonly _version: 1;
-}
-
-export interface EventBusActions {
-  /**
-   * Subscribe a handler to a bus event. Returns an unsubscribe
-   * function; safe to call multiple times. Handlers are invoked
-   * synchronously in registration order; a thrown handler is logged
-   * and does not block downstream handlers.
-   */
-  subscribe<K extends BusEventName>(
-    event: K,
-    handler: BusHandler<K>,
-  ): () => void;
-  /** Publish a payload to every handler subscribed to `event`. */
-  publish<K extends BusEventName>(event: K, payload: BusEventPayload<K>): void;
-}
-
-export type EventBusStore = EventBusState & EventBusActions;
-
 /**
- * Narrowed bus surface for signal-source helpers (`runtime/event-sources/`).
- * Sources only ever publish — they should not subscribe to the bus to
- * derive their own signals. Pass `EventBusPublisher` instead of the
- * full store/actions to keep the principle of least authority and to
- * keep the helpers easy to test with a `{ publish: mock() }` stub.
+ * Subscribe a handler to a bus event. Returns an unsubscribe
+ * function; safe to call multiple times. Handlers are invoked
+ * synchronously in registration order; a thrown handler is logged
+ * and does not block downstream handlers.
  */
-export type EventBusPublisher = Pick<EventBusActions, "publish">;
+export function subscribe<K extends BusEventName>(
+  event: K,
+  handler: BusHandler<K>,
+): () => void {
+  let set = handlers.get(event);
+  if (!set) {
+    set = new Set();
+    handlers.set(event, set);
+  }
+  set.add(handler as AnyHandler);
+  return () => {
+    const current = handlers.get(event);
+    if (!current) return;
+    current.delete(handler as AnyHandler);
+    if (current.size === 0) handlers.delete(event);
+  };
+}
 
-const useEventBusStoreBase = create<EventBusStore>()(() => ({
-  _version: 1,
-
-  subscribe(event, handler) {
-    let set = handlers.get(event);
-    if (!set) {
-      set = new Set();
-      handlers.set(event, set);
+/** Publish a payload to every handler subscribed to `event`. */
+export function publish<K extends BusEventName>(
+  event: K,
+  payload: BusEventPayload<K>,
+): void {
+  const set = handlers.get(event);
+  if (!set || set.size === 0) return;
+  // Snapshot before iterating so handlers that unsubscribe (or
+  // resubscribe) during dispatch don't mutate the in-flight set.
+  for (const handler of Array.from(set)) {
+    try {
+      (handler as (p: typeof payload) => void)(payload);
+    } catch (err) {
+      // One bad subscriber must not block downstream subscribers.
+      // Surface via console so the failure is debuggable without
+      // pulling Sentry into a primitive.
+      console.error("[event-bus] handler threw", event, err);
     }
-    set.add(handler as AnyHandler);
-    return () => {
-      const current = handlers.get(event);
-      if (!current) return;
-      current.delete(handler as AnyHandler);
-      if (current.size === 0) handlers.delete(event);
-    };
-  },
-
-  publish(event, payload) {
-    const set = handlers.get(event);
-    if (!set || set.size === 0) return;
-    // Snapshot before iterating so handlers that unsubscribe (or
-    // resubscribe) during dispatch don't mutate the in-flight set.
-    for (const handler of Array.from(set)) {
-      try {
-        (handler as (p: typeof payload) => void)(payload);
-      } catch (err) {
-        // One bad subscriber must not block downstream subscribers.
-        // Surface via console so the failure is debuggable without
-        // pulling Sentry into a primitive.
-        console.error("[event-bus] handler threw", event, err);
-      }
-    }
-  },
-}));
-
-export const useEventBusStore = createSelectors(useEventBusStoreBase);
+  }
+}
 
 /**
  * Reset the handler registry. Tests use this between cases to ensure
  * isolation; not intended for production callers.
  */
-export function __resetEventBusForTesting(): void {
+export function __resetForTesting(): void {
   handlers = new Map();
 }

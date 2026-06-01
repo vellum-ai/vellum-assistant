@@ -67,6 +67,7 @@ mock.module("@/lib/local-mode", () => ({
 mock.module("@sentry/react", () => ({
   captureException: () => {},
   captureMessage: () => {},
+  addBreadcrumb: () => {},
 }));
 
 mock.module("@/assistant/lifecycle", () => ({
