@@ -5,7 +5,7 @@ Block mode is an opt-in deployment shape rendered by vembda. The service images 
 In block mode, vembda exposes the raw PVC block device to the relevant container and wraps the normal service command with one of the helper scripts installed at `/usr/local/bin/`:
 
 - `vellum-block-volume-init.sh` initializes the shared ext4 filesystem once.
-- `vellum-block-volume-mount.sh -- <service command...>` mounts the ext4 root, bind-mounts service subdirectories, optionally drops privileges, and then executes the service command.
+- `vellum-block-volume-mount.sh -- <service command...>` mounts the ext4 root, bind-mounts service subdirectories, unmounts the staging root, optionally drops privileges, and then executes the service command.
 - `vellum-block-volume-resize.sh [bind-path]` verifies the raw device is ext4, runs `resize2fs`, and optionally prints `findmnt` and `df -h` evidence for a bind path after resize.
 
 ## Required Environment
@@ -45,6 +45,8 @@ Gateway security material (`/gateway-security`), CES credential/security materia
 The block-volume helper does not provide cryptographic isolation between subdirectories. Any container with access to the raw block device can mount the entire ext4 filesystem, so vembda must not treat bind-mounted paths as a hard security boundary. Block mode is a storage-layout optimization for Kata-family isolation, not a substitute for per-service secrets ownership or separate security volumes.
 
 Block-mode app containers that invoke `vellum-block-volume-mount.sh` must start the helper as root so it can mount the raw block device and bind targets. For images that normally run as a non-root user, vembda must set `VELLUM_BLOCK_EXEC_UID=1001` and `VELLUM_BLOCK_EXEC_GID=1001` so the helper drops to that user before executing the service command.
+
+After service bind mounts are established, `vellum-block-volume-mount.sh` unmounts `VELLUM_BLOCK_ROOT` before executing the service. App processes must use their declared bind targets and must not rely on the staging root remaining available.
 
 ## Resize Flow
 

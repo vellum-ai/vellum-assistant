@@ -8,7 +8,7 @@ SCRIPT_DIR="$(CDPATH= cd "$(dirname "$0")" && pwd)"
 block_mount_bind_spec() {
   source_name="$1"
   target="$2"
-  mode="$3"
+  requested_mode="$3"
   source_path="$(block_child_path "${source_name}")"
 
   block_ensure_dir "${source_path}"
@@ -19,15 +19,27 @@ block_mount_bind_spec() {
       ! block_mount_source_matches_device_fsroot "${source_name}" "${BLOCK_MOUNT_SOURCE}" "${BLOCK_MOUNT_FSROOT}"; then
       block_die "${target} is mounted from ${BLOCK_MOUNT_SOURCE}; expected ${source_path}"
     fi
-    block_verify_mount_mode "${target}" "${mode}" "${BLOCK_MOUNT_OPTIONS}"
-    block_log "${target} is already mounted"
+    if [ "${requested_mode}" = "rw" ]; then
+      block_verify_mount_mode "${target}" "rw" "${BLOCK_MOUNT_OPTIONS}"
+      block_log "${target} is already mounted"
+    elif block_mount_options_include_mode "${BLOCK_MOUNT_OPTIONS}" "ro"; then
+      block_log "${target} is already mounted"
+    elif block_mount_options_include_mode "${BLOCK_MOUNT_OPTIONS}" "rw"; then
+      block_log "${target} is mounted rw; remounting ro"
+    else
+      block_verify_mount_mode "${target}" "ro" "${BLOCK_MOUNT_OPTIONS}"
+    fi
   else
     block_run "mount --bind ${source_path} ${target}" mount --bind "${source_path}" "${target}"
   fi
 
-  if [ "${mode}" = "ro" ]; then
+  if [ "${requested_mode}" = "ro" ]; then
     block_run "mount -o remount,bind,ro ${target}" mount -o remount,bind,ro "${target}"
   fi
+}
+
+block_hide_root_before_exec() {
+  block_run "umount ${BLOCK_ROOT}" umount "${BLOCK_ROOT}"
 }
 
 block_join_command() {
@@ -97,4 +109,5 @@ block_for_each_bind_spec "${VELLUM_BLOCK_BIND_SPECS:-}" :
 block_wait_for_device
 block_mount_root
 block_for_each_bind_spec "${VELLUM_BLOCK_BIND_SPECS:-}" block_mount_bind_spec
+block_hide_root_before_exec
 block_exec_service "$@"
