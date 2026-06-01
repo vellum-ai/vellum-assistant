@@ -39,19 +39,20 @@ type OverlayView = "document" | "subagent-detail" | "tool-detail";
  * than capturing the current overlay as the "back" destination.
  */
 /**
- * The daemon returns app-load failures as a structured error body
- * (`{ code: "NOT_FOUND", message }`) when the app reference has been
- * deleted server-side. The HeyAPI client's `throwOnError: true` then
- * throws that body as the catch value. Treat it as an expected
- * condition — the UI falls back to chat — rather than a Sentry-worthy
- * crash.
+ * The daemon returns app-load failures as a structured error envelope
+ * (`{ error: { code: "NOT_FOUND", message } }`) when the app reference
+ * has been deleted server-side — that's the shape produced by
+ * `httpError(...)` in `assistant/src/runtime/http-errors.ts` and the
+ * shape recorded in Sentry breadcrumbs for this issue. The HeyAPI
+ * client's `throwOnError: true` then throws that envelope as the catch
+ * value. Treat it as an expected condition — the UI falls back to chat
+ * — rather than a Sentry-worthy crash.
  */
 function isAppNotFoundError(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { code?: unknown }).code === "NOT_FOUND"
-  );
+  if (typeof err !== "object" || err === null) return false;
+  const envelope = (err as { error?: unknown }).error;
+  if (typeof envelope !== "object" || envelope === null) return false;
+  return (envelope as { code?: unknown }).code === "NOT_FOUND";
 }
 
 function resolveViewBefore(
