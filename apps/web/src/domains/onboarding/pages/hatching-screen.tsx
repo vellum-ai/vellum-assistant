@@ -42,9 +42,10 @@ const POLL_INTERVAL_MS = 3000;
 const COMPLETION_NAVIGATE_DELAY_MS = 800;
 const MAX_HATCH_WAIT_MS = 300_000;
 
-// Module-level promise so HMR remounts and StrictMode double-mounts
+// Module-level promises so HMR remounts and StrictMode double-mounts
 // can await the same in-flight hatch instead of spawning duplicates.
 let localHatchPromise: Promise<import("@/lib/local-mode").LocalHatchResult> | null = null;
+let platformHatchPromise: Promise<import("@/assistant/api").HatchResult> | null = null;
 
 type HatchPhase = "initializing" | "provisioning" | "connecting" | "ready";
 
@@ -296,9 +297,13 @@ export function HatchingScreen() {
       }
 
       try {
-        const result = await hatchAssistant(
-          pinnedVersion ? { version: pinnedVersion } : undefined,
-        );
+        if (!platformHatchPromise) {
+          platformHatchPromise = hatchAssistant(
+            pinnedVersion ? { version: pinnedVersion } : undefined,
+          );
+        }
+        const result = await platformHatchPromise;
+        platformHatchPromise = null;
         if (cancelled) return;
         if (!result.ok) {
           Sentry.captureMessage("Onboarding hatch request failed", {
@@ -324,6 +329,7 @@ export function HatchingScreen() {
           }
         }
       } catch (err) {
+        platformHatchPromise = null;
         Sentry.captureException(err, {
           tags: { context: "onboarding_hatch_assistant" },
         });
