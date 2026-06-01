@@ -6,7 +6,7 @@ Feature flag keys are **simple kebab-case strings** with no prefix or suffix:
 
 ```
 "browser"
-"email-channel"
+"a2a-channel"
 "ces-tools"
 "conversation-starters"
 ```

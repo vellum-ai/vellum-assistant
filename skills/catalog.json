@@ -155,8 +155,7 @@
       "metadata": {
         "emoji": "📧",
         "vellum": {
-          "display-name": "Email Setup",
-          "feature-flag": "email-channel"
+          "display-name": "Email Setup"
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
