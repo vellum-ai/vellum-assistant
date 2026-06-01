@@ -244,6 +244,82 @@ export function reconcileDisplayMessagesWithLatestHistory(
   return sorted;
 }
 
+type TextSegments = NonNullable<DisplayMessage["textSegments"]>;
+type ContentOrder = NonNullable<DisplayMessage["contentOrder"]>;
+
+/** Total character length across all text segments. */
+function totalSegmentTextLength(segments: DisplayMessage["textSegments"]): number {
+  if (!segments) {
+    return 0;
+  }
+  return segments.reduce((sum, seg) => sum + (seg.content?.length ?? 0), 0);
+}
+
+/** Number of `text` entries in a contentOrder list. */
+function countTextEntries(order: DisplayMessage["contentOrder"]): number {
+  if (!order) {
+    return 0;
+  }
+  return order.filter((entry) => entry.type === "text").length;
+}
+
+/**
+ * Resolve the segment a contentOrder text entry points at. Mirrors the
+ * transcript renderer: a numeric id is an array index, otherwise the id is
+ * matched against a segment's `id` field.
+ */
+function segmentForTextEntry(
+  entryId: string,
+  segments: TextSegments,
+): { index: number; segment: TextSegments[number] | undefined } {
+  const numericIdx = parseInt(entryId, 10);
+  if (!Number.isNaN(numericIdx)) {
+    return { index: numericIdx, segment: segments[numericIdx] };
+  }
+  const index = segments.findIndex((seg) => seg.id === entryId);
+  return { index, segment: index >= 0 ? segments[index] : undefined };
+}
+
+/**
+ * Re-sync local text segment content from the authoritative server segments.
+ *
+ * `textSegments` is accumulated locally from streamed `assistant_text_delta`
+ * chunks, which are transient and not replayed on an SSE reconnect. A reconnect
+ * mid-turn can therefore leave the local segments truncated while the server
+ * holds the complete text. When both sides describe the same structure (equal
+ * count of `text` entries), copy each server segment's content into the
+ * matching local segment in order. Local segment objects, ids, and contentOrder
+ * are preserved — only the text content is replaced — so the local toolCall ids
+ * stay valid and tool rendering is untouched.
+ */
+function healLocalTextFromServer(
+  localSegments: TextSegments,
+  localOrder: ContentOrder,
+  serverSegments: TextSegments,
+  serverOrder: ContentOrder,
+): TextSegments {
+  const localTextEntries = localOrder.filter((entry) => entry.type === "text");
+  const serverTextEntries = serverOrder.filter((entry) => entry.type === "text");
+  const healed = localSegments.map((seg) => ({ ...seg }));
+  for (let i = 0; i < localTextEntries.length; i++) {
+    const localEntry = localTextEntries[i];
+    const serverEntry = serverTextEntries[i];
+    if (!localEntry || !serverEntry) {
+      continue;
+    }
+    const { segment: serverSeg } = segmentForTextEntry(serverEntry.id, serverSegments);
+    if (!serverSeg) {
+      continue;
+    }
+    const { index: localIdx, segment: localSeg } = segmentForTextEntry(localEntry.id, healed);
+    if (!localSeg) {
+      continue;
+    }
+    healed[localIdx] = { ...localSeg, content: serverSeg.content };
+  }
+  return healed;
+}
+
 /**
  * Reconcile locally displayed messages with the server's authoritative list.
  * Server messages are used as the source of truth for content and ordering.
@@ -318,7 +394,28 @@ export function reconcileMessages(
       // in lockstep with those toolCalls and use matching ids. Local surfaces
       // may have been updated by ui_surface_update events that the server
       // hasn't persisted yet.
-      const keepLocalToolState = !!(localMsg?.toolCalls && localMsg.toolCalls.length > 0);
+      // The server holds more text than the locally-accumulated segments when
+      // an SSE reconnect dropped text deltas (transient, never replayed). In
+      // that case the server segments are authoritative and the local ones must
+      // not be preserved verbatim. The length comparison keeps this monotonic:
+      // during normal streaming local text is >= the server snapshot, so this
+      // never fires and never shrinks the live view.
+      const serverTextAhead =
+        prepared.normalizedSegments != null &&
+        totalSegmentTextLength(prepared.normalizedSegments) >
+          totalSegmentTextLength(localMsg?.textSegments);
+      // Same text structure means each side has the same number of `text`
+      // entries, so server content can be copied into the local segments
+      // positionally without disturbing local contentOrder/toolCall ids. When
+      // the structure diverges we fall back to the server-authoritative branch.
+      const sameTextStructure =
+        countTextEntries(localMsg?.contentOrder) > 0 &&
+        countTextEntries(localMsg?.contentOrder) ===
+          countTextEntries(prepared.normalizedContentOrder);
+
+      const keepLocalToolState =
+        !!(localMsg?.toolCalls && localMsg.toolCalls.length > 0) &&
+        !(serverTextAhead && !sameTextStructure);
 
       if (keepLocalToolState) {
         const localTcs = localMsg!.toolCalls!;
@@ -356,7 +453,22 @@ export function reconcileMessages(
           msg.toolCalls = localTcs;
         }
         if (localMsg!.contentOrder) msg.contentOrder = localMsg!.contentOrder;
-        if (localMsg!.textSegments) msg.textSegments = localMsg!.textSegments;
+        if (
+          serverTextAhead &&
+          localMsg!.textSegments &&
+          localMsg!.contentOrder &&
+          prepared.normalizedSegments &&
+          prepared.normalizedContentOrder
+        ) {
+          msg.textSegments = healLocalTextFromServer(
+            localMsg!.textSegments,
+            localMsg!.contentOrder,
+            prepared.normalizedSegments,
+            prepared.normalizedContentOrder,
+          );
+        } else if (localMsg!.textSegments) {
+          msg.textSegments = localMsg!.textSegments;
+        }
         if (localMsg!.surfaces) msg.surfaces = localMsg!.surfaces;
       } else {
         // Prefer local surfaces (updated by SSE ui_surface_update events)

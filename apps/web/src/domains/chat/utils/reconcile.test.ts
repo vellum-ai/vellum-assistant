@@ -883,6 +883,175 @@ describe("reconcileMessages", () => {
     expect(result[1]!.textSegments).toEqual(localTextSegments);
   });
 
+  test("heals a truncated local text segment from the server when local has toolCalls", () => {
+    /**
+     * Reproduces the SSE-reconnect truncation: text deltas are transient and
+     * not replayed on reconnect, so the locally-accumulated text segment can be
+     * left holding only the tail while the server persisted the full text.
+     * Because the row has tool calls, reconcile previously kept the truncated
+     * local segment verbatim and the head was lost. The server text is ahead
+     * and the structure matches, so its content must be copied into the local
+     * segment while local toolCall ids / contentOrder are preserved.
+     */
+    // GIVEN a local assistant row whose single text segment is truncated to the
+    // tail (the head was dropped across an SSE reconnect)
+    const localContentOrder = [
+      { type: "toolCall", id: "tool-use-abc" },
+      { type: "text", id: "0" },
+    ];
+    const localToolCalls: ChatMessageToolCall[] = [
+      {
+        id: "tool-use-abc",
+        toolName: "web_search",
+        input: { query: "skill packs" },
+        status: "completed",
+      },
+    ];
+    const local: DisplayMessage[] = [
+      makeLocal({ id: "m1", role: "user", content: "Find skill packs" }),
+      makeLocal({
+        id: "m2",
+        role: "assistant",
+        content: "head text. tail text",
+        toolCalls: localToolCalls,
+        contentOrder: localContentOrder,
+        textSegments: [{ type: "text", content: "tail text" }],
+      }),
+    ];
+    // AND the server holds the complete text in a single text block
+    const server: RuntimeMessage[] = [
+      { id: "m1", role: "user", content: "Find skill packs" },
+      {
+        id: "m2",
+        role: "assistant",
+        content: "head text. tail text",
+        toolCalls: [{ name: "web_search", input: { query: "skill packs" } }],
+        contentOrder: [{ type: "tool", id: "0" }, { type: "text", id: "0" }],
+        textSegments: [{ type: "text", content: "head text. tail text" }],
+      },
+    ];
+
+    // WHEN the local view is reconciled against the server
+    const result = reconcileMessages(local, server);
+
+    // THEN the local text segment is healed to the full server text
+    expect(result[1]!.textSegments).toEqual([
+      { type: "text", content: "head text. tail text" },
+    ]);
+    // AND the local toolCalls and contentOrder are preserved (richer local ids)
+    expect(result[1]!.toolCalls).toEqual(localToolCalls);
+    expect(result[1]!.contentOrder).toEqual(localContentOrder);
+  });
+
+  test("does not shrink local text when local is ahead of the server snapshot", () => {
+    /**
+     * During normal streaming the local deltas run ahead of the periodic server
+     * snapshot. Reconcile must never replace the longer local text with a
+     * shorter server one — the heal only applies when the server is ahead.
+     */
+    // GIVEN a local row whose text is longer than the lagging server snapshot
+    const localToolCalls: ChatMessageToolCall[] = [
+      {
+        id: "tool-use-abc",
+        toolName: "web_search",
+        input: { query: "q" },
+        status: "completed",
+      },
+    ];
+    const localSegments = [{ type: "text", content: "the full streamed answer" }];
+    const local: DisplayMessage[] = [
+      makeLocal({ id: "m1", role: "user", content: "go" }),
+      makeLocal({
+        id: "m2",
+        role: "assistant",
+        content: "the full streamed answer",
+        toolCalls: localToolCalls,
+        contentOrder: [{ type: "toolCall", id: "tool-use-abc" }, { type: "text", id: "0" }],
+        textSegments: localSegments,
+      }),
+    ];
+    // AND a server snapshot that has only caught up to a prefix
+    const server: RuntimeMessage[] = [
+      { id: "m1", role: "user", content: "go" },
+      {
+        id: "m2",
+        role: "assistant",
+        content: "the full",
+        toolCalls: [{ name: "web_search", input: { query: "q" } }],
+        contentOrder: [{ type: "tool", id: "0" }, { type: "text", id: "0" }],
+        textSegments: [{ type: "text", content: "the full" }],
+      },
+    ];
+
+    // WHEN reconciled
+    const result = reconcileMessages(local, server);
+
+    // THEN the longer local text is preserved
+    expect(result[1]!.textSegments).toEqual(localSegments);
+  });
+
+  test("adopts server segments when the server is ahead and the structure diverges", () => {
+    /**
+     * When the server holds more text but the segment structure differs from
+     * local (e.g. local missed an entire interleaved text run, not just a
+     * delta), the local segments/order are stale and cannot be healed
+     * positionally — reconcile falls back to the server-authoritative segments
+     * and contentOrder.
+     */
+    // GIVEN a local row with a single trailing text segment and one tool call
+    const local: DisplayMessage[] = [
+      makeLocal({ id: "m1", role: "user", content: "go" }),
+      makeLocal({
+        id: "m2",
+        role: "assistant",
+        content: "second run",
+        toolCalls: [
+          {
+            id: "tool-use-abc",
+            toolName: "web_search",
+            input: { query: "q" },
+            status: "completed",
+          },
+        ],
+        contentOrder: [{ type: "toolCall", id: "tool-use-abc" }, { type: "text", id: "0" }],
+        textSegments: [{ type: "text", content: "second run" }],
+      }),
+    ];
+    // AND a server snapshot whose text is split into two runs around the tool
+    const server: RuntimeMessage[] = [
+      { id: "m1", role: "user", content: "go" },
+      {
+        id: "m2",
+        role: "assistant",
+        content: "first run second run",
+        toolCalls: [{ name: "web_search", input: { query: "q" } }],
+        contentOrder: [
+          { type: "text", id: "0" },
+          { type: "tool", id: "0" },
+          { type: "text", id: "1" },
+        ],
+        textSegments: [
+          { type: "text", content: "first run " },
+          { type: "text", content: "second run" },
+        ],
+      },
+    ];
+
+    // WHEN reconciled
+    const result = reconcileMessages(local, server);
+
+    // THEN the server's authoritative segments and order are adopted
+    expect(result[1]!.textSegments).toEqual([
+      { type: "text", content: "first run " },
+      { type: "text", content: "second run" },
+    ]);
+    expect(result[1]!.contentOrder).toEqual([
+      { type: "text", id: "0" },
+      { type: "tool", id: "0" },
+      { type: "text", id: "1" },
+    ]);
+  });
+
   test("uses server contentOrder when local has no toolCalls", () => {
     // When the local message has no toolCalls (e.g. a text-only message
     // loaded from history), take contentOrder from the server.
