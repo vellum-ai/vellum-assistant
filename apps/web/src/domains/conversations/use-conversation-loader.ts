@@ -96,7 +96,6 @@ interface UseConversationLoaderParams {
   setTranscriptPagination: Dispatch<SetStateAction<Omit<TranscriptPaginationState, "items">>>;
   setIsLoadingHistory: Dispatch<SetStateAction<boolean>>;
   setError: Dispatch<SetStateAction<ChatError | null>>;
-  setAutoGreetPending: Dispatch<SetStateAction<boolean>>;
   setContextWindowUsage: Dispatch<SetStateAction<ContextWindowUsage | null>>;
   setCompactionCircuitOpenUntil: Dispatch<SetStateAction<Date | null>>;
 
@@ -157,7 +156,6 @@ export function useConversationLoader({
   setTranscriptPagination,
   setIsLoadingHistory,
   setError,
-  setAutoGreetPending,
   setContextWindowUsage,
   setCompactionCircuitOpenUntil,
   resetChatAttachments,
@@ -460,7 +458,6 @@ export function useConversationLoader({
     setTranscriptPagination,
     setIsLoadingHistory,
     setError,
-    setAutoGreetPending,
     setContextWindowUsage,
     setCompactionCircuitOpenUntil,
     resetChatAttachments,
