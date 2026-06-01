@@ -8,7 +8,10 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 
-import { STORAGE_KEY } from "@/domains/onboarding/prechat";
+import {
+  DEFAULT_PRECHAT_INITIAL_MESSAGE,
+  STORAGE_KEY,
+} from "@/domains/onboarding/prechat";
 import { routes } from "@/utils/routes";
 
 let searchParams = new URLSearchParams();
@@ -58,6 +61,7 @@ type TestOnboardingRecipe = {
 
 let onboardingCompleted = false;
 let prechatOnboardingCondensedFlow = true;
+let selfIntroGreeting = true;
 let isIOSWeb = false;
 let isMacOSWeb = false;
 let iosAppDownloaded = true;
@@ -183,6 +187,14 @@ mock.module("@/stores/client-feature-flag-store", () => ({
   },
 }));
 
+mock.module("@/stores/assistant-feature-flag-store", () => ({
+  useAssistantFeatureFlagStore: {
+    use: {
+      selfIntroGreeting: () => selfIntroGreeting,
+    },
+  },
+}));
+
 mock.module("@/stores/auth-store", () => ({
   useAuthStore: {
     use: {
@@ -290,6 +302,7 @@ beforeEach(() => {
   checkAssistantImpl = async () => {};
   onboardingCompleted = false;
   prechatOnboardingCondensedFlow = true;
+  selfIntroGreeting = true;
   isIOSWeb = false;
   isMacOSWeb = false;
   iosAppDownloaded = true;
@@ -394,6 +407,25 @@ describe("onboarding lifecycle sync", () => {
     );
   });
 
+  test("pre-chat uses the canned opener when self-intro greeting is off", async () => {
+    selfIntroGreeting = false;
+
+    render(<PreChatFlow />);
+
+    fireEvent.click(await screen.findByTestId("name-continue"));
+    fireEvent.click(await screen.findByText("Skip for now"));
+
+    await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
+    expect(JSON.parse(sessionStorage.getItem(STORAGE_KEY) ?? "null")).toEqual({
+      tools: [],
+      tasks: [],
+      tone: "grounded",
+      userName: "Alice",
+      googleConnected: false,
+      initialMessage: DEFAULT_PRECHAT_INITIAL_MESSAGE,
+    });
+  });
+
   test("pre-chat keeps the existing full funnel when the v3 flag is off", async () => {
     prechatOnboardingCondensedFlow = false;
 
@@ -455,6 +487,7 @@ describe("onboarding lifecycle sync", () => {
       skipPrechat: true,
     };
     fetchOnboardingRecipeImpl = async () => recipe;
+    selfIntroGreeting = false;
 
     render(<PreChatFlow />);
 

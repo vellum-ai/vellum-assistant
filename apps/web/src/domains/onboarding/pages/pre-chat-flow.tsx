@@ -34,6 +34,7 @@ import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react
 import { usePrefilledInput } from "@/hooks/use-prefilled-input.js";
 import {
   buildPreChatInitialMessage,
+  DEFAULT_PRECHAT_INITIAL_MESSAGE,
   setPendingAssistantName,
   setPendingPreChatContext,
   type PreChatOnboardingContext,
@@ -60,6 +61,7 @@ import {
   getSelectedAssistant,
   isLocalMode,
 } from "@/lib/local-mode";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth.js";
 import { useAuthStore } from "@/stores/auth-store.js";
@@ -93,6 +95,19 @@ function readLocalPlatformAssistantId(): string | null {
   return getPlatformAssistants()[0]?.assistantId ?? null;
 }
 
+function resolveInitialMessage(
+  context: PreChatOnboardingContext,
+  recipe: OnboardingRecipe | null,
+  selfIntroGreetingEnabled: boolean,
+): string {
+  if (recipe?.initialMessage) {
+    return recipe.initialMessage;
+  }
+  return selfIntroGreetingEnabled
+    ? buildPreChatInitialMessage(context)
+    : DEFAULT_PRECHAT_INITIAL_MESSAGE;
+}
+
 export function PreChatFlow() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -117,6 +132,8 @@ export function PreChatFlow() {
   const showIOSAppStep = isIOSWeb && !readIOSAppDownloaded();
   const condensedPrechatFlag =
     useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
+  const selfIntroGreetingEnabled =
+    useAssistantFeatureFlagStore.use.selfIntroGreeting();
   const preferredFunnelVariant =
     onboardingFunnelVariantFromCondensedFlag(condensedPrechatFlag);
   const webFunnelVariant =
@@ -336,8 +353,11 @@ export function PreChatFlow() {
         ...selectedPriorAssistantsForContext,
       ]);
     }
-    context.initialMessage =
-      recipe?.initialMessage ?? buildPreChatInitialMessage(context);
+    context.initialMessage = resolveInitialMessage(
+      context,
+      recipe,
+      selfIntroGreetingEnabled,
+    );
 
     setPendingPreChatContext(context);
     if (trimmedAssistant) setPendingAssistantName(trimmedAssistant);
@@ -405,7 +425,11 @@ export function PreChatFlow() {
         context.assistantName = trimmedAssistant;
       }
       context.googleConnected = false;
-      context.initialMessage = buildPreChatInitialMessage(context);
+      context.initialMessage = resolveInitialMessage(
+        context,
+        null,
+        selfIntroGreetingEnabled,
+      );
       setPendingPreChatContext(context);
       if (trimmedAssistant) {
         setPendingAssistantName(trimmedAssistant);
