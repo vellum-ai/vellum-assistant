@@ -482,10 +482,14 @@ export function reconcileMessages(
           const serverToolCalls = [...prepared.toolCalls];
           // Monotonic: never downgrade tool call status from completed/error
           // back to running. The local state from SSE events is more current
-          // than the server's periodic snapshot.
-          if (localMsg?.toolCalls) {
-            for (const stc of serverToolCalls) {
-              const localTc = localMsg.toolCalls.find((ltc) => ltc.id === stc.id);
+          // than the server's periodic snapshot. Server history tool calls are
+          // re-keyed (`tool-history-<id>-<idx>`) so they don't share ids with
+          // local streaming calls (`tool-use-*`); match by id first, then fall
+          // back to position so the guard still holds across id schemes.
+          if (localMsg?.toolCalls && localMsg.toolCalls.length > 0) {
+            const localTcs = localMsg.toolCalls;
+            serverToolCalls.forEach((stc, idx) => {
+              const localTc = localTcs.find((ltc) => ltc.id === stc.id) ?? localTcs[idx];
               if (
                 localTc &&
                 (localTc.status === "completed" || localTc.status === "error") &&
@@ -495,7 +499,7 @@ export function reconcileMessages(
                 stc.result = localTc.result;
                 stc.isError = localTc.isError;
               }
-            }
+            });
           }
           msg.toolCalls = serverToolCalls;
         }

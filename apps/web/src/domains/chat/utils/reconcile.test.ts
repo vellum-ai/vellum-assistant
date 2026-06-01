@@ -1052,6 +1052,71 @@ describe("reconcileMessages", () => {
     ]);
   });
 
+  test("preserves a local terminal tool result when adopting server segments on divergent structure", () => {
+    /**
+     * When the server is ahead and the text structure diverges, the row is
+     * routed to the server-authoritative branch — which must also adopt the
+     * server's tool calls so contentOrder ids stay resolvable. Server history
+     * tool calls are re-keyed (`tool-history-<id>-<idx>`) and a freshly loaded
+     * snapshot may still show a tool as `running`, while the local SSE state
+     * already saw it complete. The monotonic guard must keep the local terminal
+     * status/result even though the ids don't match, falling back to position.
+     */
+    // GIVEN a local row whose tool call already completed (with a result) via SSE
+    const local: DisplayMessage[] = [
+      makeLocal({ id: "m1", role: "user", content: "go" }),
+      makeLocal({
+        id: "m2",
+        role: "assistant",
+        content: "second run",
+        toolCalls: [
+          {
+            id: "tool-use-abc",
+            toolName: "web_search",
+            input: { query: "q" },
+            status: "completed",
+            result: "found it",
+          },
+        ],
+        contentOrder: [{ type: "toolCall", id: "tool-use-abc" }, { type: "text", id: "0" }],
+        textSegments: [{ type: "text", content: "second run" }],
+      }),
+    ];
+    // AND a server snapshot that is ahead on text, splits it into two runs, and
+    // still reports the tool as running (no result persisted yet)
+    const server: RuntimeMessage[] = [
+      { id: "m1", role: "user", content: "go" },
+      {
+        id: "m2",
+        role: "assistant",
+        content: "first run second run",
+        toolCalls: [{ name: "web_search", input: { query: "q" } }],
+        contentOrder: [
+          { type: "text", id: "0" },
+          { type: "tool", id: "0" },
+          { type: "text", id: "1" },
+        ],
+        textSegments: [
+          { type: "text", content: "first run " },
+          { type: "text", content: "second run" },
+        ],
+      },
+    ];
+
+    // WHEN reconciled
+    const result = reconcileMessages(local, server);
+
+    // THEN the server's authoritative segments are adopted
+    expect(result[1]!.textSegments).toEqual([
+      { type: "text", content: "first run " },
+      { type: "text", content: "second run" },
+    ]);
+    // AND the local terminal tool status/result is not downgraded to running
+    expect(result[1]!.toolCalls).toHaveLength(1);
+    expect(result[1]!.toolCalls![0]!.status).toBe("completed");
+    expect(result[1]!.toolCalls![0]!.result).toBe("found it");
+  });
+
   test("uses server contentOrder when local has no toolCalls", () => {
     // When the local message has no toolCalls (e.g. a text-only message
     // loaded from history), take contentOrder from the server.
