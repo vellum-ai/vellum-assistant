@@ -13,7 +13,10 @@ import {
   organizationsBillingSubscriptionRetrieveOptions,
   organizationsBillingSubscriptionRetrieveQueryKey,
 } from "@/generated/api/@tanstack/react-query.gen";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 
 /**
@@ -31,11 +34,16 @@ export const POLL_TIMEOUT_MS = 10_000;
 export const SUCCESS_REDIRECT_DELAY_MS = 2500;
 
 export function UpgradeSuccessPage() {
-  // Same predicate as the billing page itself. Without the gate, a self-hosted
-  // user deep-linking here would fire `POLL_TIMEOUT_MS / POLL_INTERVAL_MS`
-  // = 10 org-scoped subscription-retrieve requests against an org with no
-  // platform-hosted target. Gate before the `useQuery` even starts.
+  // Same predicate as the billing page itself for the page-level chrome.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // Strict hosting predicate for the *Fetch*-tier `enabled` below.
+  // `platformGate === "full"` is permissive during the lifecycle-loading
+  // window — using it alone for `enabled` would let the subscription poll
+  // start before we know whether the assistant is hosted. Pair with
+  // `useActiveAssistantIsPlatformHosted()` so polling only kicks off after
+  // positive hosted resolution (matches the notifications-page pattern from
+  // PR-2.5 / Trap 6).
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [pollExpired, setPollExpired] = useState(false);
@@ -50,11 +58,14 @@ export function UpgradeSuccessPage() {
 
   const { data, isError } = useQuery({
     ...organizationsBillingSubscriptionRetrieveOptions(),
-    // Don't poll when the page is gated — keeps both the initial fetch AND
-    // the `refetchInterval` from firing org-scoped requests against a
-    // self-hosted assistant or a logged-out session before the
-    // `<Navigate />` below takes effect.
-    enabled: platformGate === "full",
+    // Fetch-tier predicate: strict on `isPlatformHosted`, not just the
+    // page-level `platformGate === "full"`. During the lifecycle-loading
+    // window `platformGate === "full"` and `isPlatformHosted === false`,
+    // and the poll would otherwise start firing org-scoped requests
+    // before we know the assistant is hosted. Wait for positive
+    // resolution; either the query fires (hosted) or the body's
+    // `<Navigate />` takes over (gated).
+    enabled: platformGate === "full" && isPlatformHosted,
     // Stop polling once we observe Pro OR the timeout fires.
     refetchInterval: (query) => {
       const planId = query.state.data?.plan_id;

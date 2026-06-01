@@ -6,7 +6,10 @@ import { Card } from "@vellum/design-library/components/card";
 import { Notice } from "@vellum/design-library/components/notice";
 import { toast } from "@vellum/design-library/components/toast";
 import { Typography } from "@vellum/design-library/components/typography";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
 
 /**
@@ -27,17 +30,29 @@ export function UpgradeCancelPage() {
   // "upgrade canceled" toast for an upgrade the user never started. Cleaner
   // to short-circuit at this page too.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // Strict hosting predicate for the side effect below. `platformGate ===
+  // "full"` is the *Render*-tier predicate — it's intentionally permissive
+  // during the lifecycle-loading window so the page chrome stays mounted.
+  // The toast + navigate side effect is a *Fetch/Interact*-tier action and
+  // must wait for positive hosted resolution; otherwise a self-hosted
+  // deep-link user sees the stray toast before `<Navigate />` flips below.
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Only fire the toast + redirect when we're actually rendering the
-    // success path — gated states render Navigate/Notice instead.
-    if (platformGate !== "full") return;
+    // Wait for positive hosted resolution before firing the toast +
+    // redirect. During the lifecycle-loading window `platformGate ===
+    // "full"` AND `isPlatformHosted === false` — running the effect here
+    // would defeat the gate on a self-hosted deep-link. Once lifecycle
+    // resolves, either `isPlatformHosted` flips true (run the effect) or
+    // `platformGate` flips to `"gated"` (body's `<Navigate />` takes
+    // over, this effect never runs).
+    if (!isPlatformHosted) return;
     toast.info("Upgrade canceled. No changes to your plan.", {
       id: "pro-upgrade-cancel",
     });
     navigate(routes.settings.billing, { replace: true });
-  }, [navigate, platformGate]);
+  }, [navigate, isPlatformHosted]);
 
   if (platformGate === "gated") {
     return <Navigate replace to={routes.settings.general} />;
