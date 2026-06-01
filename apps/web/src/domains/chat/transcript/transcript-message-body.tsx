@@ -700,6 +700,13 @@ export function TranscriptMessageBody({
           )
         : null;
 
+    // Mirrors the legacy user branch's `(hasVisibleLegacyText || hasAttachments)`
+    // gate: only render the surface-lift bubble when it would have visible
+    // content. Without this, an interleaved user message with no resolvable
+    // text, no fallback, and no attachments renders an empty padded box.
+    const hasVisibleInterleavedText =
+      interleavedTextElements.some((el) => !!el) || !!interleavedFallback;
+
     return (
       <div
         ref={wrapperRef}
@@ -712,16 +719,18 @@ export function TranscriptMessageBody({
         >
           {isUser ? (
             <>
-              <div className={userBubbleClass}>
-                {interleavedTextElements}
-                {interleavedFallback}
-                {hasAttachments && message.attachments ? (
-                  <BubbleAttachments
-                    attachments={message.attachments}
-                    assistantId={assistantId}
-                  />
-                ) : null}
-              </div>
+              {(hasVisibleInterleavedText || hasAttachments) && (
+                <div className={userBubbleClass}>
+                  {interleavedTextElements}
+                  {interleavedFallback}
+                  {hasAttachments && message.attachments ? (
+                    <BubbleAttachments
+                      attachments={message.attachments}
+                      assistantId={assistantId}
+                    />
+                  ) : null}
+                </div>
+              )}
               {/* Tool-call cards and surfaces stay outside the user bubble
                   (low-reachability for user messages, but kept for parity with
                   the assistant path). */}
