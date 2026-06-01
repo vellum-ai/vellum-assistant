@@ -21,6 +21,7 @@ COPY packages/ces-client ./packages/ces-client
 COPY packages/service-contracts ./packages/service-contracts
 COPY packages/credential-storage ./packages/credential-storage
 COPY packages/egress-proxy ./packages/egress-proxy
+COPY packages/environments ./packages/environments
 COPY packages/gateway-client ./packages/gateway-client
 COPY packages/ipc-server-utils ./packages/ipc-server-utils
 COPY packages/skill-host-contracts ./packages/skill-host-contracts
