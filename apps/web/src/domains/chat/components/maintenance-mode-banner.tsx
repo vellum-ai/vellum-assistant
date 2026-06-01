@@ -5,7 +5,10 @@ import { useState } from "react";
 import { Button } from "@vellum/design-library";
 import { Notice } from "@vellum/design-library/components/notice";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 
 interface MaintenanceModeBannerProps {
   assistantId: string;
@@ -18,11 +21,23 @@ export function MaintenanceModeBanner({
 }: MaintenanceModeBannerProps) {
   const [isExiting, setIsExiting] = useState(false);
   const [exitError, setExitError] = useState<string | null>(null);
-  const platformGate = usePlatformGate();
-
   // Self-hosted assistants don't run platform-managed Recovery Mode, so the
-  // banner has nothing to act on. Hide entirely.
+  // banner has nothing to act on — `platformHostedOnly: true` flips "gated"
+  // for the platform-mode-app-pointed-at-self-hosted case too (the standard
+  // gate would still resolve to "full" there and leak the platform-routed
+  // exit mutation onto a self-hosted target).
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // `ChatPage` is NOT mounted under `<ActiveAssistantGate>` (see routes.tsx
+  // — chat owns its own lifecycle UI), so the banner can render while
+  // lifecycle is still `{ kind: "loading" }`. The gate above intentionally
+  // returns "full" during that window; pair with the strict hosting signal
+  // so the exit-mutation button stays disabled until the assistant is
+  // positively resolved as platform-hosted.
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+
   if (platformGate === "gated") return null;
+
+  const isResolving = platformGate === "full" && !isPlatformHosted;
 
   const handleResumeAssistant = async () => {
     if (isExiting) return;
@@ -76,9 +91,13 @@ export function MaintenanceModeBanner({
         <Button
           variant="primary"
           size="compact"
-          leftIcon={isExiting ? <Loader2 className="animate-spin" /> : undefined}
+          leftIcon={
+            isExiting || isResolving ? (
+              <Loader2 className="animate-spin" />
+            ) : undefined
+          }
           onClick={() => void handleResumeAssistant()}
-          disabled={isExiting}
+          disabled={isExiting || isResolving}
           data-testid="resume-assistant-button"
         >
           Resume Assistant

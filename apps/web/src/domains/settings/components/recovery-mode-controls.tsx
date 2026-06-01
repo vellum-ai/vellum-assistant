@@ -8,7 +8,10 @@ import {
   assistantsMaintenanceModeExitCreate,
 } from "@/generated/api/sdk.gen";
 import type { MaintenanceMode } from "@/generated/api/types.gen";
-import { usePlatformGate } from "@/hooks/use-platform-gate";
+import {
+  useActiveAssistantIsPlatformHosted,
+  usePlatformGate,
+} from "@/hooks/use-platform-gate";
 import { reportError } from "@/utils/error-report";
 
 interface RecoveryModeControlsProps {
@@ -24,7 +27,16 @@ export function RecoveryModeControls({
 }: RecoveryModeControlsProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const platformGate = usePlatformGate();
+  // Recovery Mode is platform-managed — self-hosted assistants have no
+  // equivalent, so `platformHostedOnly: true` flips "gated" when the active
+  // assistant is self-hosted regardless of platform-session state.
+  const platformGate = usePlatformGate({ platformHostedOnly: true });
+  // Settings routes are NOT mounted under `<ActiveAssistantGate>`, so this
+  // panel can render while lifecycle is `{ kind: "loading" }`. Pair the
+  // permissive gate value with the strict hosting signal so the
+  // enter/exit-mutation buttons stay disabled until lifecycle resolves
+  // positively as platform-hosted.
+  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
 
   const handleEnter = useCallback(async () => {
     setLoading(true);
@@ -90,11 +102,17 @@ export function RecoveryModeControls({
 
   // Self-hosted assistants don't run platform-managed Recovery Mode.
   // Early return must follow every hook above so that gate transitions
-  // (e.g. `disabled` -> `gated` as `platformFeaturesInLocalMode` hydrates)
+  // (e.g. lifecycle flipping to `self_hosted` after the API resolves)
   // never skip a hook and trigger a hook-order violation.
   if (platformGate === "gated") return null;
 
   const isActive = maintenanceMode?.enabled === true;
+  // Treat "lifecycle not yet positively-resolved as platform-hosted" as
+  // effective loading: the existing spinner branch already replaces the
+  // action button while a mutation is in flight, so reusing it here keeps
+  // UX consistent and prevents the race-window click.
+  const isResolving = platformGate === "full" && !isPlatformHosted;
+  const effectiveLoading = loading || isResolving;
 
   return (
     <div className="space-y-2">
@@ -121,7 +139,7 @@ export function RecoveryModeControls({
         </div>
 
         <div className="ml-4 flex shrink-0 items-center gap-2">
-          {platformGate === "disabled" ? null : loading ? (
+          {platformGate === "disabled" ? null : effectiveLoading ? (
             <Loader2 className="h-4 w-4 animate-spin text-[var(--content-disabled)]" />
           ) : isActive ? (
             <Button variant="outlined" onClick={handleExit}>
