@@ -1,7 +1,4 @@
 {
   "species": "vellum",
-  "featureFlags": {
-    "external-plugins": true
-  },
   "setup": ["assistant plugins install simple-memory"]
 }
