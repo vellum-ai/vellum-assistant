@@ -15,19 +15,9 @@
  */
 
 import { registerPlugin } from "../../registry.js";
-import {
-  type EstimateArgs,
-  type EstimateResult,
-  type Middleware,
-  type Plugin,
-  PluginExecutionError,
-} from "../../types.js";
+import { type Plugin, PluginExecutionError } from "../../types.js";
+import tokenEstimate from "./middlewares/tokenEstimate.js";
 import pkg from "./package.json" with { type: "json" };
-
-const passthrough: Middleware<EstimateArgs, EstimateResult> = async (
-  args,
-  next,
-) => next(args);
 
 /**
  * Default `tokenEstimate` plugin. Registered by
@@ -40,7 +30,7 @@ export const defaultTokenEstimatePlugin: Plugin = {
     version: pkg.version,
   },
   middleware: {
-    tokenEstimate: passthrough,
+    tokenEstimate,
   },
 };
 

@@ -1878,6 +1878,15 @@ export async function dispatchAgentEvent(
         });
         break;
       }
+      case "context_compacting":
+        deps.ctx.emitActivityState(
+          "thinking",
+          "context_compacting",
+          "assistant_turn",
+          deps.reqId,
+          "Compacting context",
+        );
+        break;
       case "error":
         handleError(state, deps, event);
         break;

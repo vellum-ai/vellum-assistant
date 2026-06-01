@@ -33,10 +33,8 @@ import {
 } from "../daemon/context-overflow-reducer.js";
 import type { InjectionMode } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import {
-  defaultOverflowReduceMiddleware,
-  defaultOverflowReducePlugin,
-} from "../plugins/defaults/overflow-reduce/register.js";
+import defaultOverflowReduceMiddleware from "../plugins/defaults/overflow-reduce/middlewares/overflowReduce.js";
+import { defaultOverflowReducePlugin } from "../plugins/defaults/overflow-reduce/register.js";
 import { runPipeline } from "../plugins/pipeline.js";
 import {
   getMiddlewaresFor,

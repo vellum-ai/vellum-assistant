@@ -24,19 +24,9 @@
  */
 
 import { registerPlugin } from "../../registry.js";
-import {
-  type Middleware,
-  type PersistArgs,
-  type PersistResult,
-  type Plugin,
-  PluginExecutionError,
-} from "../../types.js";
+import { type Plugin, PluginExecutionError } from "../../types.js";
+import persistence from "./middlewares/persistence.js";
 import pkg from "./package.json" with { type: "json" };
-
-const passthrough: Middleware<PersistArgs, PersistResult> = async (
-  args,
-  next,
-) => next(args);
 
 export const defaultPersistencePlugin: Plugin = {
   manifest: {
@@ -44,7 +34,7 @@ export const defaultPersistencePlugin: Plugin = {
     version: pkg.version,
   },
   middleware: {
-    persistence: passthrough,
+    persistence,
   },
 };
 

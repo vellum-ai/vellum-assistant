@@ -460,8 +460,9 @@ async function simulateInlineCompaction(
   history: Message[],
   turnContext: TurnContext | undefined,
   signal: AbortSignal | undefined,
+  onEvent: (event: AgentEvent) => void | Promise<void>,
 ): Promise<Message[] | null> {
-  compaction.onCompacting?.();
+  await onEvent({ type: "context_compacting" });
   const { rawHistory, options } = compaction.prepare(history);
   let result: CompactionResult;
   try {
@@ -545,6 +546,7 @@ const asAgentLoopRun = (
                     info.history,
                     options.turnContext,
                     options.signal,
+                    onEvent,
                   )
                 : null;
               if (compacted) {
