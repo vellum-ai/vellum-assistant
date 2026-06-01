@@ -945,15 +945,24 @@ export class Conversation {
 
   ensureHostProxiesForTurn(
     sourceInterface: import("../channels/types.js").InterfaceId | undefined,
+    sourceActorPrincipalId = this.trustContext?.guardianPrincipalId,
   ): void {
     if (
-      shouldAttachHostProxyForCapability("host_cu", sourceInterface) &&
+      shouldAttachHostProxyForCapability(
+        "host_cu",
+        sourceInterface,
+        sourceActorPrincipalId,
+      ) &&
       !this.hostCuProxy
     ) {
       this.setHostCuProxy(new HostCuProxy());
     }
     if (
-      shouldAttachHostProxyForCapability("host_app_control", sourceInterface) &&
+      shouldAttachHostProxyForCapability(
+        "host_app_control",
+        sourceInterface,
+        sourceActorPrincipalId,
+      ) &&
       !this.hostAppControlProxy
     ) {
       this.setHostAppControlProxy(new HostAppControlProxy(this.conversationId));
