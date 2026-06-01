@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Button, Tag, Typography } from "@vellum/design-library";
 
-import type { DocumentComment } from "@/domains/chat/api/document-comments";
+import type { DocumentsByIdCommentsPostResponse } from "@/generated/daemon/types.gen";
 import { DocumentCommentForm } from "./document-comment-form";
 
 // ---------------------------------------------------------------------------
@@ -38,7 +38,9 @@ function formatTimestamp(epoch: number): string {
   });
 }
 
-function authorLabel(author: DocumentComment["author"]): string {
+function authorLabel(
+  author: DocumentsByIdCommentsPostResponse["author"],
+): string {
   return author === "assistant" ? "Assistant" : "You";
 }
 
@@ -50,8 +52,8 @@ function CommentBubble({
   comment,
   onCommentSelect,
 }: {
-  comment: DocumentComment;
-  onCommentSelect?: (comment: DocumentComment) => void;
+  comment: DocumentsByIdCommentsPostResponse;
+  onCommentSelect?: (comment: DocumentsByIdCommentsPostResponse) => void;
 }) {
   const isInline = comment.anchorText != null;
   return (
@@ -74,10 +76,7 @@ function CommentBubble({
             V
           </Typography>
         ) : (
-          <User
-            size={12}
-            style={{ color: "var(--content-secondary)" }}
-          />
+          <User size={12} style={{ color: "var(--content-secondary)" }} />
         )}
       </span>
 
@@ -129,13 +128,13 @@ function CommentBubble({
 // ---------------------------------------------------------------------------
 
 export interface DocumentCommentThreadProps {
-  comment: DocumentComment;
-  replies: DocumentComment[];
+  comment: DocumentsByIdCommentsPostResponse;
+  replies: DocumentsByIdCommentsPostResponse[];
   onResolve: (commentId: string) => Promise<void>;
   onReopen: (commentId: string) => Promise<void>;
   onDelete: (commentId: string) => Promise<void>;
   onReply: (parentCommentId: string, content: string) => Promise<void>;
-  onCommentSelect?: (comment: DocumentComment) => void;
+  onCommentSelect?: (comment: DocumentsByIdCommentsPostResponse) => void;
 }
 
 /**
