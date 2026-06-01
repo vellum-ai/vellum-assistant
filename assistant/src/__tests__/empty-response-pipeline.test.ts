@@ -73,9 +73,20 @@ function makeArgs(
     emptyResponseRetries: 0,
     maxEmptyResponseRetries: 1,
     priorAssistantHadVisibleText: false,
+    // Default to `null` (no stop reason reported) so existing fixtures
+    // exercise the "organic empty turn" path. The refusal branch
+    // dedicated tests below set this to `"refusal"` explicitly.
+    stopReason: null,
     ...overrides,
   };
 }
+
+/**
+ * Refusal-specific nudge text — keep in sync with `register.ts`. Clients
+ * (and the model) may match on this exact text.
+ */
+const CANONICAL_REFUSAL_NUDGE_TEXT =
+  '<system_notice>Your previous response was empty because the upstream provider returned stop_reason="refusal". Please answer the user\'s last message directly with a plain-text response. Do not use any tools — just respond with text.</system_notice>';
 
 async function runEmpty(
   args: EmptyResponseArgs,
@@ -167,7 +178,8 @@ describe("emptyResponse pipeline — default decisions", () => {
 
   test("no prior tool-use turn (toolUseTurns === 0) → accept", async () => {
     // Empty first assistant response with no tools is not the pattern the
-    // nudge guards against. Default accepts.
+    // organic-empty-turn nudge guards against. Default accepts (unless the
+    // stop reason is `"refusal"` — see the refusal-specific tests below).
     const decision = await runEmpty(
       makeArgs({
         responseContent: [],
@@ -175,6 +187,118 @@ describe("emptyResponse pipeline — default decisions", () => {
       }),
     );
     expect(decision.action).toBe("accept");
+  });
+
+  // ─── Refusal stop ────────────────────────────────────────────────────────
+
+  test("stopReason='refusal' on turn 0 with no content → nudge with refusal text", async () => {
+    // The canonical failure mode this branch exists to catch: Anthropic's
+    // safety classifier zeros the response on the very first model call,
+    // returning a single thinking block and `stopReason: "refusal"`. Without
+    // this branch, the terminal would `accept` and the loop would persist
+    // an empty assistant bubble to the user.
+    const decision = await runEmpty(
+      makeArgs({
+        stopReason: "refusal",
+        responseContent: [],
+        toolUseBlocksLength: 0,
+        toolUseTurns: 0,
+        emptyResponseRetries: 0,
+        priorAssistantHadVisibleText: false,
+      }),
+    );
+    expect(decision.action).toBe("nudge");
+    expect(decision.nudgeText).toBe(CANONICAL_REFUSAL_NUDGE_TEXT);
+  });
+
+  test("stopReason='refusal' with a thinking-only block still nudges", async () => {
+    // Thinking blocks aren't visible text — the user sees nothing. A
+    // refusal with only thinking content matches the same shape the
+    // production log captured (`contentBlocks: 1, toolUseCount: 0`).
+    const decision = await runEmpty(
+      makeArgs({
+        stopReason: "refusal",
+        responseContent: [
+          {
+            type: "thinking",
+            thinking: "...",
+            signature: "sig",
+          } as ContentBlock,
+        ],
+        toolUseBlocksLength: 0,
+        toolUseTurns: 0,
+      }),
+    );
+    expect(decision.action).toBe("nudge");
+    expect(decision.nudgeText).toBe(CANONICAL_REFUSAL_NUDGE_TEXT);
+  });
+
+  test("stopReason='refusal' but visible text present → accept (model recovered)", async () => {
+    // The classifier can flag a partial response; if the model already
+    // delivered some visible text before refusing, the user has something
+    // to see. Accept.
+    const decision = await runEmpty(
+      makeArgs({
+        stopReason: "refusal",
+        responseContent: [{ type: "text", text: "partial answer" }],
+      }),
+    );
+    expect(decision.action).toBe("accept");
+  });
+
+  test("stopReason='refusal' but tool_use blocks present → accept", async () => {
+    // A refusal with tool_use blocks is unusual (the model wouldn't normally
+    // issue tools after a classifier hit) but we still shouldn't nudge —
+    // the loop will execute the tools and the model will get another shot.
+    const decision = await runEmpty(
+      makeArgs({
+        stopReason: "refusal",
+        responseContent: [
+          {
+            type: "tool_use",
+            id: "tu-1",
+            name: "read",
+            input: { path: "/tmp/x" },
+          } as ContentBlock,
+        ],
+        toolUseBlocksLength: 1,
+      }),
+    );
+    expect(decision.action).toBe("accept");
+  });
+
+  test("stopReason='refusal' but retries exhausted → accept (no infinite loop)", async () => {
+    // Persistent classifier hit shouldn't burn turns indefinitely. Once
+    // we've used our retry budget, accept (the user will see an empty
+    // bubble, but the loop terminates).
+    const decision = await runEmpty(
+      makeArgs({
+        stopReason: "refusal",
+        responseContent: [],
+        toolUseTurns: 0,
+        emptyResponseRetries: 1,
+        maxEmptyResponseRetries: 1,
+      }),
+    );
+    expect(decision.action).toBe("accept");
+  });
+
+  test("stopReason='refusal' beats post-tool-empty nudge text (refusal-specific wording)", async () => {
+    // When both branches would fire, refusal wins because the refusal
+    // text is more accurate ("safety classifier zeroed the response"
+    // vs. "summary of what you found or did"). This guards against a
+    // future refactor that orders the branches differently.
+    const decision = await runEmpty(
+      makeArgs({
+        stopReason: "refusal",
+        responseContent: [],
+        toolUseBlocksLength: 0,
+        toolUseTurns: 2, // would trip the post-tool branch too
+        priorAssistantHadVisibleText: false,
+      }),
+    );
+    expect(decision.action).toBe("nudge");
+    expect(decision.nudgeText).toBe(CANONICAL_REFUSAL_NUDGE_TEXT);
   });
 });
 

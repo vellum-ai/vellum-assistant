@@ -651,6 +651,17 @@ export interface EmptyResponseArgs {
    * visible text. See `agent/loop.ts` for why the whole-run scan matters.
    */
   readonly priorAssistantHadVisibleText: boolean;
+  /**
+   * Provider-reported stop reason for the assistant turn being evaluated.
+   * `null`/`undefined` when the provider didn't report one (older
+   * providers, partial responses). The default terminal uses this to
+   * distinguish an explicit safety-classifier refusal (Anthropic's
+   * `"refusal"`) from an organically-empty turn — refusals deserve a
+   * nudge even on the very first model call of the run, whereas an
+   * organically-empty first call usually means the model legitimately
+   * had nothing to say.
+   */
+  readonly stopReason: string | null | undefined;
 }
 
 /**
