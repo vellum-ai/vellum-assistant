@@ -42,6 +42,7 @@ export const AttachmentLoadingChip: FC<AttachmentLoadingChipProps> = ({
       <Button
         variant="ghost"
         size="compact"
+        expandOnMobile={false}
         iconOnly={<X />}
         onClick={() => onCancel(localId)}
         aria-label={`Cancel upload of ${filename}`}

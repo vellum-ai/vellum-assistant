@@ -107,6 +107,7 @@ export const AttachmentChip: FC<AttachmentChipProps> = ({
           <Button
             variant="ghost"
             size="compact"
+            expandOnMobile={false}
             iconOnly={<X />}
             onClick={(e) => {
               e.stopPropagation();
