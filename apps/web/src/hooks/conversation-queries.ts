@@ -49,6 +49,8 @@ import {
   assertHasResponse,
   extractErrorMessage,
 } from "@/utils/api-errors";
+import { isLocalMode } from "@/lib/local-mode";
+import { useOrganizationStore } from "@/stores/organization-store";
 import {
   archivedConversationsQueryKey,
   conversationsQueryKey,
@@ -208,6 +210,21 @@ export async function listArchivedConversations(
 const QUERY_STALE_TIME_MS = 30_000;
 
 /**
+ * Platform-mode daemon requests require the `Vellum-Organization-Id`
+ * header, which the HeyAPI request interceptor reads from the org store
+ * (with a sessionStorage fallback). On a fresh session neither source
+ * has a value until `fetchOrganizations()` completes — firing the query
+ * before that produces a headerless request that Django rejects with 400.
+ *
+ * Returns `true` when local/self-hosted (org header not needed) or when
+ * the org store has been populated.
+ */
+function useHasOrgContext(): boolean {
+  const currentOrgId = useOrganizationStore.use.currentOrganizationId();
+  return isLocalMode() || currentOrgId != null;
+}
+
+/**
  * Subscribe to the conversation list for the given assistant.
  *
  * Fetches all conversations (foreground + background) via
@@ -236,10 +253,11 @@ export function useConversationListQuery(
   error: Error | null;
   refetch: () => void;
 } {
+  const hasOrgContext = useHasOrgContext();
   const query = useQuery({
     queryKey: conversationsQueryKey(assistantId),
     queryFn: () => listConversations(assistantId!),
-    enabled: enabled && Boolean(assistantId),
+    enabled: enabled && Boolean(assistantId) && hasOrgContext,
     staleTime: QUERY_STALE_TIME_MS,
   });
   return {
@@ -274,10 +292,11 @@ export function useArchivedConversationListQuery(
   error: Error | null;
   refetch: () => void;
 } {
+  const hasOrgContext = useHasOrgContext();
   const query = useQuery({
     queryKey: archivedConversationsQueryKey(assistantId),
     queryFn: () => listArchivedConversations(assistantId!),
-    enabled: enabled && Boolean(assistantId),
+    enabled: enabled && Boolean(assistantId) && hasOrgContext,
     staleTime: QUERY_STALE_TIME_MS,
   });
   return {
@@ -301,12 +320,13 @@ export function useConversationGroupsQuery(
   assistantId: string | null,
   enabled: boolean = true,
 ): { conversationGroups: ConversationGroup[]; isLoading: boolean } {
+  const hasOrgContext = useHasOrgContext();
   const query = useQuery({
     ...groupsGetOptions({
       path: { assistant_id: assistantId ?? "" },
     } as Options<GroupsGetData>),
     select: (data) => data.groups,
-    enabled: enabled && Boolean(assistantId),
+    enabled: enabled && Boolean(assistantId) && hasOrgContext,
     staleTime: QUERY_STALE_TIME_MS,
   });
   return {
