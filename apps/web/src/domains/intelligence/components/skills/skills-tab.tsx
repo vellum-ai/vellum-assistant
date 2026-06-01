@@ -124,8 +124,8 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
         category: category ?? undefined,
       },
     }),
-    select: (data) => ({
-      skills: data.skills as SkillInfo[],
+    select: (data): { skills: SkillInfo[]; categoryCounts?: Record<string, number>; totalCount?: number } => ({
+      skills: data.skills,
       categoryCounts: data.categoryCounts,
       totalCount: data.totalCount,
     }),
@@ -142,8 +142,8 @@ export function SkillsTab({ assistantId, initialSkillId }: SkillsTabProps) {
         q: debouncedSearch || undefined,
       },
     }),
-    select: (data) => ({
-      skills: data.skills as SkillInfo[],
+    select: (data): { skills: SkillInfo[]; categoryCounts?: Record<string, number>; totalCount?: number } => ({
+      skills: data.skills,
       categoryCounts: data.categoryCounts,
       totalCount: data.totalCount,
     }),

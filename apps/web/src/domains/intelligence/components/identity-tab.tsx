@@ -223,7 +223,7 @@ export function IdentityTab({ assistantId, onOpenThread }: IdentityTabProps) {
       path: { assistant_id: assistantId },
       query: { kind: "installed" },
     }),
-    select: (data) => data.skills as SkillInfo[],
+    select: (data): SkillInfo[] => data.skills,
     enabled: Boolean(assistantId),
   });
   const installedSkills = useMemo(() => skillsQuery.data ?? [], [skillsQuery.data]);
