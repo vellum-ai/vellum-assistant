@@ -38,6 +38,19 @@ The init helper creates these top-level directories under `VELLUM_BLOCK_ROOT`: `
 
 When the init helper finds an existing ext4 filesystem, it runs `vellum-block-volume-resize.sh` before mounting the shared root. It must never run `mkfs.ext4` on a device that already has a filesystem.
 
+## CES Service Environment
+
+In addition to the helper environment and bind specs above, vembda must set these variables on the CES service container in block mode:
+
+| Variable | Value |
+| --- | --- |
+| `VELLUM_WORKSPACE_DIR` | `/workspace` |
+| `CREDENTIAL_SECURITY_DIR` | `/ces-security` |
+
+`VELLUM_WORKSPACE_DIR=/workspace` is required so managed CES command execution resolves its workspace root to the read-only workspace bind. Without this value, managed CES falls back to the legacy assistant data mount path (`/assistant-data-ro/.vellum/workspace` by default), which is not the block-mode workspace bind.
+
+`CREDENTIAL_SECURITY_DIR=/ces-security` keeps credential keys and stores on the separate CES-owned security volume described below. It must not point into the shared block volume.
+
 Gateway security material (`/gateway-security`), CES credential/security material (`/ces-security`), and other service-owned security storage must stay on separate service-owned volumes or equivalent platform-provisioned storage. They must not be initialized under, or bind-mounted from, the shared raw block volume.
 
 ## Security Boundary
