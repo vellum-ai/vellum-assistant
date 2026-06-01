@@ -1345,6 +1345,7 @@ export function ChatRouteContent({
     onVoiceBeforeStart: handleVoiceBeforeStart,
     onStopGenerating: handleStopGenerating,
     assistantId,
+    conversationId: activeConversation?.conversationId,
     modelSupportsVision: activeModelSupportsVision,
     onRecallLastMessage: phase === "idle" ? () => {
       const content = startEditing();

@@ -23,12 +23,15 @@ import {
   VoiceInputButton,
   type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
+import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
+import { useLiveVoice } from "@/domains/voice/live-voice/use-live-voice";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useAudioAmplitude } from "@/domains/voice/use-audio-amplitude";
 import { useVoiceRecordingStore } from "@/domains/voice/voice-recording-store";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 
 import { EMOJI_MIN_FILTER_LENGTH, EMOJI_TRIGGER_RE, useEmojiSearch, type EmojiEntry } from "@/domains/chat/components/chat-composer/emoji-catalog";
@@ -194,6 +197,12 @@ export interface ChatComposerProps {
   // assistant id used by AttachFileButton's disabled guard
   assistantId: string | null;
 
+  // Active conversation the live-voice session should attach to. Optional —
+  // when absent (e.g. the empty/new-conversation state) live voice still
+  // starts a fresh session for the assistant. The app-editing variant, which
+  // has no voice, leaves this undefined.
+  conversationId?: string | null;
+
   /**
    * Whether the currently-active inference model accepts image input.
    * When `false`, the AttachFileButton is disabled so users can't pick a
@@ -257,6 +266,7 @@ export function ChatComposer({
   onVoiceBeforeStart,
   onStopGenerating,
   assistantId,
+  conversationId,
   thresholdPickerSlot,
   contextWindowIndicatorSlot,
   noticesAboveFormSlot,
@@ -280,6 +290,25 @@ export function ChatComposer({
   });
   const showVoiceInput =
     voiceInputRef !== undefined && onVoiceTranscript !== undefined;
+
+  // ---- Live voice (full-duplex conversation) ----------------------------
+  // Coexists with dictation: `LiveVoiceButton` self-gates on the `voice-mode`
+  // flag, but the transcript surface and the mutual-exclusion wiring below
+  // must also no-op when the flag is off so the composer is byte-identical for
+  // users without the flag. The live-voice button only appears alongside the
+  // dictation button (same `showVoiceInput` precondition + a non-null id).
+  const voiceMode = useAssistantFeatureFlagStore.use.voiceMode();
+  const liveVoiceEligible = voiceMode && showVoiceInput && !!assistantId;
+  const {
+    state: liveVoiceState,
+    partialTranscript: liveVoicePartial,
+    finalTranscript: liveVoiceFinal,
+    assistantTranscript: liveVoiceAssistant,
+  } = useLiveVoice();
+  // Anything but idle counts as an active session; while active the dictation
+  // mic is disabled so the two capture flows never run at once.
+  const isLiveVoiceActive = liveVoiceEligible && liveVoiceState !== "idle";
+
   const pointerCoarse = useMemo(() => isPointerCoarse(), []);
   const isMobile = useIsMobile();
   const isNative = useIsNativePlatform();
@@ -596,6 +625,28 @@ export function ChatComposer({
                 )}
               </div>
             )}
+            {isLiveVoiceActive && (
+              // Live-voice transcript surface — distinct from the dictation
+              // interim preview above, which only exists while the dictation
+              // recorder is running. Shows the user's partial/final speech and
+              // the streaming assistant reply for the in-flight turn.
+              <div
+                className="px-4 pb-1 space-y-0.5"
+                aria-label="Live voice transcript"
+                aria-live="polite"
+              >
+                {(liveVoicePartial || liveVoiceFinal) && (
+                  <p className="truncate text-[11px] text-[var(--content-secondary)]">
+                    {liveVoicePartial || liveVoiceFinal}
+                  </p>
+                )}
+                {liveVoiceAssistant && (
+                  <p className="truncate text-[11px] italic text-[var(--content-tertiary)]">
+                    {liveVoiceAssistant}
+                  </p>
+                )}
+              </div>
+            )}
             <div className="flex items-center justify-between px-2 pb-2">
               <div className="flex items-center gap-1">
                 {thresholdPickerSlot}
@@ -652,7 +703,10 @@ export function ChatComposer({
                       <VoiceInputButton
                         ref={voiceInputRef}
                         assistantId={assistantId}
-                        disabled={typingDisabled}
+                        // Mutual exclusion: an active live-voice session
+                        // disables the dictation mic so the two capture flows
+                        // never run simultaneously.
+                        disabled={typingDisabled || isLiveVoiceActive}
                         onTranscript={onVoiceTranscript}
                         onInterimTranscript={onVoiceInterimTranscript}
                         onError={onVoiceError}
@@ -661,6 +715,18 @@ export function ChatComposer({
                           voiceStreamRef.current = stream;
                           setVoiceStream(stream);
                         }}
+                      />
+                    )}
+                    {showVoiceInput && assistantId && (
+                      // Self-gates on the `voice-mode` flag (renders null when
+                      // off — no layout shift). The composer's busy/disabled
+                      // signal only gates the START path; an active session
+                      // stays stoppable even while the composer is otherwise
+                      // busy (see LiveVoiceButton).
+                      <LiveVoiceButton
+                        assistantId={assistantId}
+                        conversationId={conversationId ?? undefined}
+                        disabled={typingDisabled}
                       />
                     )}
                     {/* macOS parity: the send button is hidden during recording
