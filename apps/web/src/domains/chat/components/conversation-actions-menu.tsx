@@ -27,6 +27,7 @@ import {
 } from "@vellum/design-library";
 import type { MoveToGroupTarget } from "@/domains/chat/utils/group-conversations";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { isNativePlatform } from "@/runtime/native-auth";
 
 /**
  * Hover-revealed "more" menu for a conversation row. Renders an ellipsis
@@ -264,14 +265,15 @@ export function renderConversationMenuItems({
       </Primitive.Item>
     ) : null;
 
-  const openInNewWindowItem = onOpenInNewWindow ? (
-    <Primitive.Item
-      leftIcon={<ExternalLink size={14} />}
-      onSelect={onOpenInNewWindow}
-    >
-      {variant === "header" ? "Open in new window" : "Open in New Window"}
-    </Primitive.Item>
-  ) : null;
+  const openInNewWindowItem =
+    onOpenInNewWindow && !isNativePlatform() ? (
+      <Primitive.Item
+        leftIcon={<ExternalLink size={14} />}
+        onSelect={onOpenInNewWindow}
+      >
+        {variant === "header" ? "Open in new window" : "Open in New Window"}
+      </Primitive.Item>
+    ) : null;
 
   const inspectItem = onInspect ? (
     <Primitive.Item leftIcon={<Microscope size={14} />} onSelect={onInspect}>
@@ -518,16 +520,17 @@ function renderConversationMenuItemsAsPanelItems({
         })
       : null;
 
-  const openInNewWindowItem = onOpenInNewWindow
-    ? buildPanelItem({
-        key: "open-in-new-window",
-        icon: ExternalLink,
-        label:
-          variant === "header" ? "Open in new window" : "Open in New Window",
-        run: onOpenInNewWindow,
-        onClose,
-      })
-    : null;
+  const openInNewWindowItem =
+    onOpenInNewWindow && !isNativePlatform()
+      ? buildPanelItem({
+          key: "open-in-new-window",
+          icon: ExternalLink,
+          label:
+            variant === "header" ? "Open in new window" : "Open in New Window",
+          run: onOpenInNewWindow,
+          onClose,
+        })
+      : null;
 
   const inspectItem = onInspect
     ? buildPanelItem({

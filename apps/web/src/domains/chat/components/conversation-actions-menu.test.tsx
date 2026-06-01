@@ -24,6 +24,11 @@ mock.module("@/hooks/use-is-mobile", () => ({
   MOBILE_MEDIA_QUERY: "(max-width: 767px)",
 }));
 
+let mockIsNativePlatform = false;
+mock.module("@/runtime/native-auth", () => ({
+  isNativePlatform: () => mockIsNativePlatform,
+}));
+
 // Mock design library compound components that require browser APIs (portals,
 // Radix floating-ui) so renderToStaticMarkup can produce testable HTML.
 const passthrough = ({ children, ...props }: Record<string, unknown>) =>
@@ -96,6 +101,7 @@ import {
 
 beforeEach(() => {
   mockIsMobile = false;
+  mockIsNativePlatform = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -292,6 +298,38 @@ describe("ConversationActionsMenu — mobile panel details", () => {
     expect(html).toContain("Move to");
     expect(html).toContain("Work");
     expect(html).toContain("Remove from group");
+  });
+
+  test("hides Open in New Window on native iOS bottom sheet", () => {
+    mockIsMobile = true;
+    mockIsNativePlatform = true;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu
+        variant="header"
+        onOpenInNewWindow={() => {}}
+        onPinToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(html).not.toContain("Open in new window");
+    expect(html).not.toContain("Open in New Window");
+    // Other actions remain.
+    expect(html).toContain("Pin");
+    expect(html).toContain("Rename");
+  });
+
+  test("shows Open in New Window on web bottom sheet", () => {
+    mockIsMobile = true;
+    mockIsNativePlatform = false;
+    const html = renderToStaticMarkup(
+      <ConversationActionsMenu
+        variant="header"
+        onOpenInNewWindow={() => {}}
+        onPinToggle={() => {}}
+        onRename={() => {}}
+      />,
+    );
+    expect(html).toContain("Open in new window");
   });
 
   test("variant header renders header-order items on mobile", () => {
