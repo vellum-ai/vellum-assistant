@@ -116,6 +116,22 @@ export interface RunMetadata {
    * Same value is copied onto every execution belonging to the session.
    */
   sessionLabel?: string;
+  /**
+   * `process.argv` captured at the top of the originating `evals run`
+   * invocation. Same value copied onto every execution belonging to the
+   * session — the report UI surfaces a friendly `evals run …` line so an
+   * operator opening a run page can read (and copy) the exact command
+   * that produced it.
+   *
+   * Stored as the raw argv array, not a pre-joined string, so the
+   * display layer owns formatting choices (shell-escaping rules, which
+   * argv prefix to strip, etc.) and a future consumer that needs the
+   * original tokenization isn't forced to re-split a string.
+   *
+   * Optional because legacy run.json files predate this field; the UI
+   * renders "command unavailable" in that case and moves on.
+   */
+  cliArgv?: string[];
   profileId: string;
   testId: string;
   status: "running" | "completed" | "failed" | "abandoned" | "unknown";

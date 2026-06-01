@@ -193,6 +193,13 @@ export interface EvalRunInput {
   sessionId?: string;
   /** Human-readable label propagated from the originating `evals run`. */
   sessionLabel?: string;
+  /**
+   * `process.argv` captured at the top of the originating `evals run`.
+   * Stored on every `RunMetadata` so the report UI can surface the
+   * exact command that produced the run. Undefined for programmatic
+   * callers that aren't bound to a CLI invocation.
+   */
+  cliArgv?: string[];
   simulator?: Simulator;
   maxTurns?: number;
   progress?: EvalProgressReporter;
@@ -351,6 +358,7 @@ async function sendAndPersistSimulatorMessage(input: {
 export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
   const sessionId = input.sessionId ?? input.runId;
   const sessionLabel = input.sessionLabel;
+  const cliArgv = input.cliArgv;
   // The shared progress-lifecycle helper owns the
   //   userProgress tee → progress.ndjson append → heartbeat bump
   // chain plus the standalone heartbeat ticker (cleared by `dispose`
@@ -423,6 +431,7 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       runId: input.runId,
       sessionId,
       sessionLabel,
+      cliArgv,
       profileId: input.profile.id,
       testId: input.test.id,
       status: "running",
@@ -592,6 +601,7 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
       runId: input.runId,
       sessionId,
       sessionLabel,
+      cliArgv,
       profileId: input.profile.id,
       testId: input.test.id,
       status: "completed",
@@ -632,6 +642,7 @@ export async function runEvalOnce(input: EvalRunInput): Promise<EvalRunResult> {
         runId: input.runId,
         sessionId,
         sessionLabel,
+        cliArgv,
         profileId: input.profile.id,
         testId: input.test.id,
         status: "failed",
