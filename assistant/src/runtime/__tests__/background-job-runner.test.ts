@@ -46,24 +46,28 @@ mock.module("../../memory/conversation-crud.js", () => ({
 let processMessageImpl: (
   conversationId: string,
   content: string,
-  options: Record<string, unknown> | undefined,
+  options?: unknown,
 ) => Promise<{ messageId: string }> = async () => ({ messageId: "msg-1" });
 const processMessageCalls: Array<{
   conversationId: string;
   content: string;
-  options: Record<string, unknown> | undefined;
+  options?: unknown;
 }> = [];
 
-mock.module("../../daemon/process-message.js", () => ({
-  processMessage: async (
-    conversationId: string,
-    content: string,
-    options: Record<string, unknown> | undefined,
-  ) => {
-    processMessageCalls.push({ conversationId, content, options });
-    return processMessageImpl(conversationId, content, options);
-  },
-}));
+mock.module(
+  "../../daemon/process-message.js",
+  () =>
+    ({
+      processMessage: async (
+        conversationId: string,
+        content: string,
+        options?: unknown,
+      ) => {
+        processMessageCalls.push({ conversationId, content, options });
+        return processMessageImpl(conversationId, content, options);
+      },
+    }) satisfies Partial<typeof import("../../daemon/process-message.js")>,
+);
 
 const emitCalls: Array<Record<string, unknown>> = [];
 let emitImpl: (

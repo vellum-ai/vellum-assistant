@@ -90,3 +90,31 @@ Concretely:
 - **Destructive ops** (e.g. `rmSync(dbPath, ...)`) in tests must call `assertNotLiveDb(path)` from `src/__tests__/assert-not-live-db.js` immediately before the destructive call. The check is a per-callsite belt to the preload-verifier suspenders.
 
 When in doubt: **if a piece of test infrastructure (preload / helper / verifier) can live in `__tests__/` without reaching into `src/`, it must.** Reach for source-code coupling only when there is no `__tests__/`-only alternative that achieves the same invariant. This restriction is about preload-time infrastructure, not the test files themselves.
+
+## mock.module signature drift
+
+Bun's `mock.module` factory returns `any`, so TypeScript cannot detect when a mock's function signatures diverge from the production module it replaces. When a production signature changes, stale mocks silently compile, and tests only fail at runtime if they happen to read from the shifted parameter position.
+
+**Convention:** constrain mock factory returns with `satisfies`:
+
+```typescript
+mock.module(
+  "../daemon/process-message.js",
+  () =>
+    ({
+      processMessage: async (
+        id: string,
+        content: string,
+        options?: ProcessMessageOptions,
+      ) => ({
+        messageId: "msg-1",
+      }),
+    }) satisfies Partial<typeof import("../daemon/process-message.js")>,
+);
+```
+
+This surfaces mismatched parameter types and wrong return shapes at `tsc --noEmit` time. It does **not** catch mocks that use `unknown` or `...args: unknown[]` params — those are inherently untyped and require manual review when the production signature changes.
+
+The ESLint rule `mock/typed-module` (in `eslint-rules/typed-mock-module.js`) warns on `mock.module` factories that return a bare object literal without `satisfies`. It is `"off"` by default — enable as `"warn"` when ready to ratchet existing test files.
+
+See [Bun mock.module docs](https://bun.sh/docs/test/mocking#mock-module).

@@ -86,19 +86,23 @@ let processMessageCalls: Array<{
 }> = [];
 let processMessageShouldThrow = false;
 
-mock.module("../daemon/process-message.js", () => ({
-  processMessage: async (
-    conversationId: string,
-    prompt: string,
-    options: unknown,
-  ) => {
-    processMessageCalls.push({ conversationId, prompt, options });
-    if (processMessageShouldThrow) {
-      throw new Error("processMessage failed");
-    }
-    return { messageId: "pm-msg-1" };
-  },
-}));
+mock.module(
+  "../daemon/process-message.js",
+  () =>
+    ({
+      processMessage: async (
+        conversationId: string,
+        prompt: string,
+        options: unknown,
+      ) => {
+        processMessageCalls.push({ conversationId, prompt, options });
+        if (processMessageShouldThrow) {
+          throw new Error("processMessage failed");
+        }
+        return { messageId: "pm-msg-1" };
+      },
+    }) satisfies Partial<typeof import("../daemon/process-message.js")>,
+);
 
 // App store mock
 let mockApps: Array<{

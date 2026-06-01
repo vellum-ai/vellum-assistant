@@ -3,6 +3,7 @@ import simpleImportSort from "eslint-plugin-simple-import-sort";
 import tseslint from "typescript-eslint";
 
 import cliNoDaemonInternals from "./eslint-rules/cli-no-daemon-internals.js";
+import typedMockModule from "./eslint-rules/typed-mock-module.js";
 
 const eslintConfig = defineConfig([
   ...tseslint.configs.recommended,
@@ -45,6 +46,14 @@ const eslintConfig = defineConfig([
       "@typescript-eslint/no-explicit-any": "off",
     },
   },
+  // `mock/typed-module` nudges toward `satisfies Partial<typeof import("…")>`
+  // on mock.module() factory returns so tsc catches signature drift. Off by
+  // default — enable as "warn" when ready to start migrating existing mocks.
+  {
+    files: ["**/__tests__/**/*.ts", "**/*.test.ts"],
+    plugins: { mock: { rules: { "typed-module": typedMockModule } } },
+    rules: { "mock/typed-module": "off" },
+  },
   // `cli/no-daemon-internals` enforces the CLI ↔ daemon import boundary
   // that the CLI → IPC refactor is built on. Keep at `"error"`: a soft
   // rule here would let daemon-internal imports re-enter the CLI bundle,
@@ -52,7 +61,9 @@ const eslintConfig = defineConfig([
   {
     files: ["src/cli/commands/**/*.ts"],
     ignores: ["src/cli/commands/**/__tests__/**"],
-    plugins: { cli: { rules: { "no-daemon-internals": cliNoDaemonInternals } } },
+    plugins: {
+      cli: { rules: { "no-daemon-internals": cliNoDaemonInternals } },
+    },
     rules: { "cli/no-daemon-internals": "error" },
   },
 ]);
