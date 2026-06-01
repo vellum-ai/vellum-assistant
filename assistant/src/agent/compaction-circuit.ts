@@ -53,11 +53,11 @@ export class CompactionCircuit {
    * silently reset the 3-strike counter.
    */
   async recordOutcome(
-    summaryFailed: boolean,
     turn: CircuitTurnInfo,
+    summaryFailed: boolean,
     onEvent: (msg: CompactionCircuitEvent) => void,
   ): Promise<void> {
-    await this.#run(turn, {
+    await this.run(turn, {
       outcome: summaryFailed ? "failure" : "success",
       onEvent,
     });
@@ -68,7 +68,7 @@ export class CompactionCircuit {
    * `!isOpen(...)`; forced paths admit regardless of the decision.
    */
   async isOpen(turn: CircuitTurnInfo): Promise<boolean> {
-    const decision = await this.#run(turn, {});
+    const decision = await this.run(turn, {});
     return decision.open;
   }
 
@@ -81,20 +81,20 @@ export class CompactionCircuit {
     turn: CircuitTurnInfo,
     onEvent?: (msg: CompactionCircuitEvent) => void,
   ): Promise<void> {
-    await this.#run(turn, {
+    await this.run(turn, {
       outcome: "success",
       ...(onEvent ? { onEvent } : {}),
     });
   }
 
-  async #run(
+  private async run(
     turn: CircuitTurnInfo,
     args: {
       outcome?: "success" | "failure";
       onEvent?: (msg: CompactionCircuitEvent) => void;
     },
   ): Promise<CircuitBreakerResult> {
-    const turnContext = this.#buildTurnContext(turn);
+    const turnContext = this.buildTurnContext(turn);
     return runPipeline<CircuitBreakerArgs, CircuitBreakerResult>(
       "circuitBreaker",
       getMiddlewaresFor("circuitBreaker"),
@@ -126,7 +126,7 @@ export class CompactionCircuit {
     );
   }
 
-  #buildTurnContext(turn: CircuitTurnInfo): TurnContext {
+  private buildTurnContext(turn: CircuitTurnInfo): TurnContext {
     return {
       requestId: turn.currentRequestId ?? "circuit-breaker",
       conversationId: this.conversationId,

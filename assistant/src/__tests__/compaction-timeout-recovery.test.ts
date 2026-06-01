@@ -6,7 +6,7 @@
  * `PluginTimeoutError`. The three compaction call sites in
  * `conversation-agent-loop.ts` (start-of-turn, mid-loop, emergency) catch
  * that error, record the failure on the loop-held `CompactionCircuit`
- * (`recordOutcome(true, ...)`) so the circuit breaker counts it, and degrade
+ * (`recordOutcome(turn, true, ...)`) so the circuit breaker counts it, and degrade
  * gracefully.
  *
  * This file asserts the tight coupling between:
@@ -122,21 +122,21 @@ describe("compaction timeout recovery (JARVIS-587)", () => {
   test("recordOutcome(failed=true) driven by PluginTimeoutError trips the breaker at the 3rd strike", async () => {
     // Simulates the production sequence: each mid-loop compaction hits the
     // pipeline's 30s ceiling, the catch path calls
-    // `circuit.recordOutcome(true, turn, onEvent)`. After three such catches
+    // `circuit.recordOutcome(turn, true, onEvent)`. After three such catches
     // the circuit breaker must be open — matching the same invariant the
     // existing breaker test file exercises for normal summary-LLM throws.
     const circuit = makeCircuit();
     const { onEvent, events } = collectEvents();
 
     // First two timeouts — circuit still closed.
-    await circuit.recordOutcome(true, turn, onEvent);
-    await circuit.recordOutcome(true, turn, onEvent);
+    await circuit.recordOutcome(turn, true, onEvent);
+    await circuit.recordOutcome(turn, true, onEvent);
     expect(circuit.consecutiveCompactionFailures).toBe(2);
     expect(circuit.compactionCircuitOpenUntil).toBeNull();
     expect(events).toHaveLength(0);
 
     // Third timeout — breaker trips and emits the canonical transition event.
-    await circuit.recordOutcome(true, turn, onEvent);
+    await circuit.recordOutcome(turn, true, onEvent);
     expect(circuit.consecutiveCompactionFailures).toBe(
       COMPACTION_CIRCUIT_FAILURE_THRESHOLD,
     );
@@ -157,15 +157,15 @@ describe("compaction timeout recovery (JARVIS-587)", () => {
     const circuit = makeCircuit();
     const { onEvent } = collectEvents();
 
-    await circuit.recordOutcome(true, turn, onEvent);
-    await circuit.recordOutcome(true, turn, onEvent);
+    await circuit.recordOutcome(turn, true, onEvent);
+    await circuit.recordOutcome(turn, true, onEvent);
     expect(circuit.consecutiveCompactionFailures).toBe(2);
 
-    await circuit.recordOutcome(false, turn, onEvent);
+    await circuit.recordOutcome(turn, false, onEvent);
     expect(circuit.consecutiveCompactionFailures).toBe(0);
     expect(circuit.compactionCircuitOpenUntil).toBeNull();
 
-    await circuit.recordOutcome(true, turn, onEvent);
+    await circuit.recordOutcome(turn, true, onEvent);
     expect(circuit.consecutiveCompactionFailures).toBe(1);
   });
 

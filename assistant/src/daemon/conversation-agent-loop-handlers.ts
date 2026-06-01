@@ -1894,8 +1894,8 @@ export async function dispatchAgentEvent(
         // conversation's durable compaction circuit breaker, which trips
         // after repeated timeouts to suspend auto-compaction.
         await deps.ctx.agentLoop.compactionCircuit.recordOutcome(
-          true,
           deps.ctx,
+          true,
           deps.onEvent,
         );
         break;
