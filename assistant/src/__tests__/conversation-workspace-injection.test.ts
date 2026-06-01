@@ -288,6 +288,7 @@ mock.module("../memory/canonical-guardian-store.js", () => ({
 }));
 
 import { Conversation } from "../daemon/conversation.js";
+import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
 
 function makeConversation(): Conversation {
   const provider = {
@@ -327,6 +328,7 @@ describe("Conversation workspace injection", () => {
     runCalls = [];
     agentLoopScript = () => {};
     scanCallCount = 0;
+    resetPluginRegistryAndRegisterDefaults();
   });
 
   test("runtime messages include workspace top-level context", async () => {
@@ -413,6 +415,7 @@ describe("Conversation workspace dirty-refresh E2E", () => {
     runCalls = [];
     agentLoopScript = () => {};
     scanCallCount = 0;
+    resetPluginRegistryAndRegisterDefaults();
   });
 
   test("first turn computes snapshot", async () => {
