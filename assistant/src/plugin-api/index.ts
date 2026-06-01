@@ -24,6 +24,7 @@
  * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
  * - {@link UserPromptSubmitContext} — passed to `user-prompt-submit` hook,
  *   fired immediately before the agent loop receives a user's prompt
+ * - {@link PluginHookFn} — signature every lifecycle hook implements
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
  *   for both plugin tool files and workspace tool files)
@@ -39,6 +40,7 @@
 export type { HookName } from "./constants.js";
 export { HOOKS } from "./constants.js";
 export type {
+  PluginHookFn,
   PluginInitContext,
   PluginLogger,
   PluginShutdownContext,

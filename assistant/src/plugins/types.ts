@@ -34,6 +34,7 @@ import type { PkbContextConversation } from "../daemon/pkb-context-tracker.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { MessageRole } from "../memory/conversation-crud.js";
 import type { QdrantSparseVector } from "../memory/qdrant-client.js";
+import type { PluginHookFn } from "../plugin-api/types.js";
 import type {
   ContentBlock,
   Message,
@@ -85,11 +86,12 @@ export interface PluginManifest {
   config?: unknown;
 }
 
-// ─── Init / Shutdown context ─────────────────────────────────────────────────
-// Public types — defined in `assistant/src/plugin-api/types.ts` and re-exported
-// here so existing internal call sites keep working. Plugin authors will
-// import these from `@vellumai/plugin-api` once that package is published.
+// ─── Public plugin-API types ─────────────────────────────────────────────────
+// Defined in `assistant/src/plugin-api/types.ts` and re-exported here so
+// existing internal call sites keep working. Plugin authors import these from
+// `@vellumai/plugin-api`.
 export type {
+  PluginHookFn,
   PluginInitContext,
   PluginShutdownContext,
 } from "../plugin-api/types.js";
@@ -1098,22 +1100,6 @@ export interface PluginSkillRegistration {
 }
 
 // ─── Plugin ──────────────────────────────────────────────────────────────────
-
-/**
- * A plugin lifecycle hook. Receives a per-lifecycle context shape and
- * may return either a transformed context or `void`. Today's runtime
- * consumes only the resolved-or-rejected nature of the promise; the
- * `TCtx` return is reserved for future hooks that fan a transformed
- * context out to downstream plugins.
- *
- * Each known hook key has a documented context shape:
- *   - `init` — {@link PluginInitContext}
- *   - `shutdown` — {@link PluginShutdownContext}
- *
- * Unknown keys are populated by the loader for forward compatibility
- * but are not invoked by today's runtime.
- */
-export type PluginHookFn<TCtx = unknown> = (ctx: TCtx) => Promise<TCtx | void>;
 
 /**
  * Map of lifecycle hooks contributed by a plugin. Keys match file

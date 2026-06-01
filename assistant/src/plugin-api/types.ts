@@ -34,6 +34,22 @@ export interface PluginLogger {
   debug(obj: Record<string, unknown>, msg?: string): void;
 }
 
+// ─── Hook function ───────────────────────────────────────────────────────────
+
+/**
+ * A plugin lifecycle hook. Receives a per-lifecycle context shape and
+ * may return either a transformed context or `void`. Today's runtime
+ * consumes only the resolved-or-rejected nature of the promise; the
+ * `TCtx` return is reserved for hooks that fan a transformed context out
+ * to downstream plugins (e.g. `user-prompt-submit`).
+ *
+ * Each known hook key has a documented context shape:
+ *   - `init` — {@link PluginInitContext}
+ *   - `shutdown` — {@link PluginShutdownContext}
+ *   - `user-prompt-submit` — {@link UserPromptSubmitContext}
+ */
+export type PluginHookFn<TCtx = unknown> = (ctx: TCtx) => Promise<TCtx | void>;
+
 // ─── Init context ────────────────────────────────────────────────────────────
 
 /**
@@ -85,9 +101,7 @@ export interface PluginShutdownContext {
  * turn, after the agent loop has prepared the message list (PKB / NOW /
  * memory-graph injections, overflow reduction all already applied) and
  * immediately before the messages are handed to the agent loop's tool/LLM
- * iteration. The default `history-repair` plugin contributes the first hook
- * in this chain, so its normalization runs before any user hook sees the
- * messages.
+ * iteration.
  *
  * The hook may transform `latestMessages` either by mutating it in place
  * (`push` / `splice` / `length = 0`) or by returning a new context with

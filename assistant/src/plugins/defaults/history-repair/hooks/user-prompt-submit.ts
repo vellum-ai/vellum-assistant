@@ -9,9 +9,12 @@
  * repaired list.
  */
 
-import type { UserPromptSubmitContext } from "../../../../plugin-api/types.js";
+import type {
+  PluginHookFn,
+  UserPromptSubmitContext,
+} from "@vellumai/plugin-api";
+
 import { getLogger } from "../../../../util/logger.js";
-import type { PluginHookFn } from "../../../types.js";
 import { repairHistory } from "../terminal.js";
 
 const log = getLogger("history-repair");

@@ -2031,16 +2031,12 @@ export async function runAgentLoopImpl(
     }
 
     // user-prompt-submit hook: plugins may transform `runMessages` right
-    // before the agent loop receives them. The default history-repair plugin
-    // contributes the first hook in this chain — it normalizes the history to
-    // satisfy the provider's tool-use/tool-result pairing and role-alternation
-    // rules. Because defaults register first, that normalization runs before
-    // any user hook. Fires once per user turn at the primary `agentLoop.run`
-    // only — the re-entry / retry calls further down in this function do not
-    // refire it (they're not new user submissions). Plugins may mutate
-    // `ctx.latestMessages` in place OR return a new context with a fresh
-    // array; `runHook` forwards whichever the chain settles on. Order is
-    // plugin registration order.
+    // before the agent loop receives them. Fires once per user turn at the
+    // primary `agentLoop.run` only — the re-entry / retry calls further down
+    // in this function do not refire it (they're not new user submissions).
+    // Plugins may mutate `ctx.latestMessages` in place OR return a new
+    // context with a fresh array; `runHook` forwards whichever the chain
+    // settles on. Order is plugin registration order.
     //
     // Fires BEFORE `preRunHistoryLength` is captured so the boundary
     // between pre-existing and hook-emitted messages — consumed by the
