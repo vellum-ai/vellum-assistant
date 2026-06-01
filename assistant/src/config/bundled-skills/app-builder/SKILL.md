@@ -135,13 +135,13 @@ assistant config get llm.activeProfile
 
 If the profile is already `quality-optimized`, skip the rest of this step and proceed to Step 1.
 
-**If the active profile is `balanced`, `cost-optimized`, or any non-quality profile, you MUST ask the user for permission before switching. Do NOT open an inference session without explicit user confirmation.** Use `assistant ui confirm`:
+**If the active profile is `balanced`, `cost-optimized`, or any non-quality profile, you MUST ask the user for permission before switching. Do NOT open an inference session without explicit user confirmation.** Ask in normal conversation, then stop and wait for the user's reply. Do not call `assistant ui confirm` or any other blocking UI confirmation command for this optional model-upgrade preflight; delayed confirmation surfaces block the build flow before the app work starts.
 
 ```
-assistant ui confirm --message "App building works best with a high-quality model — it makes better design decisions, writes cleaner components, and produces more visually polished results. Switch to the quality profile for this build? (You can switch back after.)"
+The current model profile is `<profile>`. App building works best with `quality-optimized` because it makes better design decisions, writes cleaner components, and produces more visually polished results. Want me to switch for this build, or keep the current profile and build now?
 ```
 
-If `assistant ui confirm` isn't available on this binary, ask the user directly in conversation instead. **Either way, wait for the user's answer before proceeding.**
+Wait for the user's answer before proceeding.
 
 **Only if the user confirms**, open an inference session:
 
