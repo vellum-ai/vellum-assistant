@@ -57,43 +57,6 @@ interface ExportRequestBody {
 }
 
 /**
- * Trim a daily pino log file to the lines whose `time` (epoch ms) falls within
- * the requested [startMs, endMs] window.
- *
- * Daemon logs are collected at whole-day file granularity, so the day that
- * straddles the start or end of a narrower window (e.g. the default "past
- * hour" feedback range) would otherwise carry lines from outside it — including
- * unrelated conversations from the same UTC day. Filtering by each line's
- * timestamp keeps the export within the scope the caller asked for. Lines that
- * cannot be parsed as JSON or carry no numeric `time` are kept so multi-line or
- * non-JSON diagnostic output is never silently dropped.
- */
-function filterLogContentToWindow(
-  content: string,
-  startMs: number | undefined,
-  endMs: number | undefined,
-): string {
-  if (startMs === undefined && endMs === undefined) return content;
-  const kept: string[] = [];
-  for (const line of content.split("\n")) {
-    if (line === "") continue;
-    let time: number | undefined;
-    try {
-      const parsed = JSON.parse(line) as { time?: unknown };
-      if (typeof parsed.time === "number") time = parsed.time;
-    } catch {
-      // Non-JSON line — keep it.
-    }
-    if (time !== undefined) {
-      if (startMs !== undefined && time < startMs) continue;
-      if (endMs !== undefined && time > endMs) continue;
-    }
-    kept.push(line);
-  }
-  return kept.length > 0 ? kept.join("\n") + "\n" : "";
-}
-
-/**
  * Collect audit data, daemon log files, and a sanitized config snapshot,
  * then package everything into a tar.gz archive.
  *
@@ -232,10 +195,7 @@ async function handleExport({
           const stat = statSync(filePath);
           if (!stat.isFile()) continue;
           if (totalBytes + stat.size > MAX_LOG_PAYLOAD_BYTES) continue;
-          let content = readFileSync(filePath, "utf-8");
-          if (dateMatch && (startDate || endDate)) {
-            content = filterLogContentToWindow(content, startTime, endTime);
-          }
+          const content = readFileSync(filePath, "utf-8");
           writeFileSync(join(daemonLogsDir, entry), content, "utf-8");
           collectedLogFiles.push(join(daemonLogsDir, entry));
           totalBytes += stat.size;
@@ -287,15 +247,14 @@ async function handleExport({
         );
       }
 
-      // We intentionally retain the daily `assistant-*.log` and
-      // `daemon-stderr.log` files (already trimmed to the requested time window
-      // during collection above) rather than removing them here. Agent-loop
+      // We intentionally retain the full daily `assistant-*.log` and
+      // `daemon-stderr.log` files rather than removing them here. Agent-loop
       // failures — stream aborts, stack traces, provider errors — are routinely
       // logged without the conversationId, so the grep above drops exactly the
       // lines needed to debug a failed turn. We cannot currently guarantee that
       // every log line emitted while handling a conversation carries its
-      // conversationId; until we can, the daily log must stay in the bundle.
-      // Re-enable the removal below only once that guarantee holds.
+      // conversationId; until we can, the full daily log must stay in the
+      // bundle. Re-enable the removal below only once that guarantee holds.
       //
       // for (const logFile of collectedLogFiles) {
       //   try {
