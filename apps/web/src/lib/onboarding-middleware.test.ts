@@ -8,6 +8,14 @@ function makeRequest(path: string): Request {
   return new Request(`https://example.com${path}`);
 }
 
+async function captureRedirect(
+  middlewareCall: ReturnType<typeof onboardingCompletedMiddleware>,
+): Promise<Response> {
+  return (await Promise.resolve(middlewareCall).catch(
+    (err: unknown) => err,
+  )) as Response;
+}
+
 describe("onboardingCompletedMiddleware", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -29,7 +37,7 @@ describe("onboardingCompletedMiddleware", () => {
         activeAssistant: "asst-local-1",
       }),
     );
-    const next = mock(() => "ok");
+    const next = mock(async () => "ok");
 
     const result = await onboardingCompletedMiddleware(
       { request: makeRequest(routes.onboarding.prechat) } as Parameters<
@@ -45,22 +53,22 @@ describe("onboardingCompletedMiddleware", () => {
   test("redirects completed onboarding unless replay is present", async () => {
     useOnboardingStore.getState().setOnboardingCompleted(true);
 
-    const redirectResponse = await onboardingCompletedMiddleware(
-      { request: makeRequest(routes.onboarding.prechat) } as Parameters<
-        typeof onboardingCompletedMiddleware
-      >[0],
-      mock(() => "ok"),
-    ).catch((err: unknown) => err);
+    const redirectResponse = await captureRedirect(
+      onboardingCompletedMiddleware(
+        { request: makeRequest(routes.onboarding.prechat) } as Parameters<
+          typeof onboardingCompletedMiddleware
+        >[0],
+        mock(async () => "ok"),
+      ),
+    );
 
     expect(redirectResponse).toBeInstanceOf(Response);
-    expect((redirectResponse as Response).headers.get("Location")).toBe(
-      routes.assistant,
-    );
+    expect(redirectResponse.headers.get("Location")).toBe(routes.assistant);
   });
 
   test("allows replay even when onboarding is complete", async () => {
     useOnboardingStore.getState().setOnboardingCompleted(true);
-    const next = mock(() => "ok");
+    const next = mock(async () => "ok");
 
     const result = await onboardingCompletedMiddleware(
       {
