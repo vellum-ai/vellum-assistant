@@ -57,6 +57,17 @@ describe("runHatch", () => {
     });
   });
 
+  test("a non-zero exit with no output carries a descriptive fallback error", async () => {
+    const pending = runHatch(invocation, "vellum");
+    lastChild.emit("close", 1);
+
+    const result = await pending;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("exited with code 1");
+    }
+  });
+
   test("a zero exit whose stdout has no parseable id fails instead of returning a blank id", async () => {
     const pending = runHatch(invocation, "vellum");
     lastChild.stdout.emit("data", Buffer.from("done, but no id line\n"));

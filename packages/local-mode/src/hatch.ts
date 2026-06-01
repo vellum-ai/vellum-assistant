@@ -45,7 +45,11 @@ export function runHatch(
 
     child.on("close", (code) => {
       if (code !== 0) {
-        finish({ ok: false, status: 500, error: stderr || stdout });
+        const error =
+          stderr.trim() ||
+          stdout.trim() ||
+          `Hatch failed: the CLI exited with code ${code ?? "unknown"} and produced no output.`;
+        finish({ ok: false, status: 500, error });
         return;
       }
       const assistantId = stdout
