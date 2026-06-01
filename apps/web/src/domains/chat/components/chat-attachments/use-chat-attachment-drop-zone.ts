@@ -7,6 +7,12 @@ import {
   type DragEvent,
 } from "react";
 
+import {
+  collectDataTransferFolderFiles,
+  dataTransferHasDirectory,
+  filterFolderFiles,
+} from "@/domains/chat/components/chat-attachments/folder-files";
+
 interface UseChatAttachmentDropZoneOptions {
   /** Callback that receives files dropped on the zone. */
   onFiles: (files: File[]) => void;
@@ -157,6 +163,24 @@ export function useChatAttachmentDropZone({
         return;
       }
       event.preventDefault();
+      // A folder drop exposes a FileSystemEntry tree rather than flat files;
+      // walk it asynchronously, then strip noise (node_modules, .git, …) and
+      // cap the count before handing the survivors to the upload pipeline.
+      // `dataTransferHasDirectory` and the synchronous prefix of
+      // `collectDataTransferFolderFiles` both run before this handler returns,
+      // while the DataTransfer is still live.
+      if (dataTransferHasDirectory(event.dataTransfer)) {
+        void collectDataTransferFolderFiles(event.dataTransfer).then(
+          (collected) => {
+            const { accepted } = filterFolderFiles(collected);
+            if (accepted.length > 0) {
+              onFiles(accepted);
+            }
+          },
+        );
+        reset();
+        return;
+      }
       const files = extractFiles(event.dataTransfer);
       reset();
       if (files.length > 0) {
