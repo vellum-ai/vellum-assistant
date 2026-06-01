@@ -97,10 +97,7 @@ import type { PermissionPrompter } from "../permissions/prompter.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
-import {
-  deepRepairHistory,
-  defaultHistoryRepairTerminal,
-} from "../plugins/defaults/history-repair/terminal.js";
+import { deepRepairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import {
   asDefaultGraphPayload,
   type DefaultMemoryRetrievalDeps,
@@ -117,8 +114,6 @@ import type {
   CompactionResult,
   EstimateArgs,
   EstimateResult,
-  HistoryRepairArgs,
-  HistoryRepairResult,
   MemoryArgs,
   MemoryResult,
   OverflowReduceArgs,
@@ -2019,55 +2014,7 @@ export async function runAgentLoopImpl(
       }
     }
 
-    // Pre-run repair — routed through the `historyRepair` plugin pipeline so
-    // plugins can observe or override repair behavior. The default plugin's
-    // middleware is a passthrough; the actual repair runs in the terminal
-    // (`defaultHistoryRepairTerminal`).
     let preRepairMessages = runMessages;
-    let preRunRepair: HistoryRepairResult | null = null;
-    try {
-      preRunRepair = await runPipeline<HistoryRepairArgs, HistoryRepairResult>(
-        "historyRepair",
-        getMiddlewaresFor("historyRepair"),
-        async (args) => defaultHistoryRepairTerminal(args),
-        { history: runMessages, provider: ctx.provider.name },
-        buildPluginTurnContext(ctx, reqId),
-        DEFAULT_TIMEOUTS.historyRepair,
-      );
-    } catch (err) {
-      if (err instanceof PluginTimeoutError) {
-        // Pipeline exceeded its budget — likely a misbehaving third-party
-        // middleware. Degrade gracefully by proceeding with the un-repaired
-        // history rather than turn-fatal-erroring; un-repaired history is
-        // strictly better than no turn at all, and the provider call itself
-        // will still error visibly if the drift is unrecoverable.
-        rlog.warn(
-          { err, phase: "pre_run" },
-          "historyRepair pipeline timed out — proceeding with un-repaired history",
-        );
-      } else {
-        throw err;
-      }
-    }
-    if (preRunRepair !== null) {
-      // Always adopt the pipeline's output history — a user `historyRepair`
-      // middleware may rewrite `messages` (e.g. provider-specific
-      // normalization) without incrementing any of the built-in repair
-      // counters. Gating the assignment on `stats` would silently discard
-      // those edits and send the un-rewritten history to the provider.
-      runMessages = preRunRepair.messages;
-      if (
-        preRunRepair.stats.assistantToolResultsMigrated > 0 ||
-        preRunRepair.stats.missingToolResultsInserted > 0 ||
-        preRunRepair.stats.orphanToolResultsDowngraded > 0 ||
-        preRunRepair.stats.consecutiveSameRoleMerged > 0
-      ) {
-        rlog.warn(
-          { phase: "pre_run", ...preRunRepair.stats },
-          "Repaired runtime history before provider call",
-        );
-      }
-    }
 
     // Replace historical web_search_tool_result blocks with text summaries.
     // The opaque `encrypted_content` tokens Anthropic attaches to each result
@@ -2084,12 +2031,16 @@ export async function runAgentLoopImpl(
     }
 
     // user-prompt-submit hook: plugins may transform `runMessages` right
-    // before the agent loop receives them. Fires once per user turn at
-    // the primary `agentLoop.run` only — the re-entry / retry calls
-    // further down in this function do not refire it (they're not new
-    // user submissions). Plugins may mutate `ctx.latestMessages` in place
-    // OR return a new context with a fresh array; `runHook` forwards
-    // whichever the chain settles on. Order is plugin registration order.
+    // before the agent loop receives them. The default history-repair plugin
+    // contributes the first hook in this chain — it normalizes the history to
+    // satisfy the provider's tool-use/tool-result pairing and role-alternation
+    // rules. Because defaults register first, that normalization runs before
+    // any user hook. Fires once per user turn at the primary `agentLoop.run`
+    // only — the re-entry / retry calls further down in this function do not
+    // refire it (they're not new user submissions). Plugins may mutate
+    // `ctx.latestMessages` in place OR return a new context with a fresh
+    // array; `runHook` forwards whichever the chain settles on. Order is
+    // plugin registration order.
     //
     // Fires BEFORE `preRunHistoryLength` is captured so the boundary
     // between pre-existing and hook-emitted messages — consumed by the
@@ -2311,15 +2262,15 @@ export async function runAgentLoopImpl(
         { phase: "retry" },
         "Provider ordering error detected, attempting one-shot deep-repair retry",
       );
-      // Design note: deep-repair intentionally bypasses the `historyRepair`
-      // plugin pipeline. Deep-repair is a recovery-only path triggered by a
-      // provider ordering error — it must be deterministic and unaffected by
-      // user middleware that might have caused (or be unable to recover from)
-      // the original drift. Plugins can already observe / override the
-      // pre-run repair via the `historyRepair` pipeline above; widening that
-      // surface to deep-repair is intentionally deferred until there's a
-      // concrete plugin-level use case. Do not route this call through
-      // `runPipeline` without first revisiting that contract.
+      // Design note: deep-repair intentionally stays a direct call rather
+      // than running through the `user-prompt-submit` hook chain. Deep-repair
+      // is a recovery-only path triggered by a provider ordering error — it
+      // must be deterministic and unaffected by user hooks that might have
+      // caused (or be unable to recover from) the original drift. Plugins can
+      // already observe / transform the pre-run repair via the
+      // `user-prompt-submit` hook (the default history-repair plugin runs
+      // `repairHistory` there); widening that surface to deep-repair is
+      // intentionally deferred until there's a concrete plugin-level use case.
       const retryRepair = deepRepairHistory(runMessages);
       runMessages = retryRepair.messages;
       const retryStrip = stripHistoricalWebSearchResults(runMessages);

@@ -83,9 +83,11 @@ export interface PluginShutdownContext {
 /**
  * Context passed to the `user-prompt-submit` hook. Fires once per user
  * turn, after the agent loop has prepared the message list (PKB / NOW /
- * memory-graph injections, history repair, overflow reduction all already
- * applied) and immediately before the messages are handed to the agent
- * loop's tool/LLM iteration.
+ * memory-graph injections, overflow reduction all already applied) and
+ * immediately before the messages are handed to the agent loop's tool/LLM
+ * iteration. The default `history-repair` plugin contributes the first hook
+ * in this chain, so its normalization runs before any user hook sees the
+ * messages.
  *
  * The hook may transform `latestMessages` either by mutating it in place
  * (`push` / `splice` / `length = 0`) or by returning a new context with
