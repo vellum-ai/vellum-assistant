@@ -329,6 +329,8 @@ docker run --rm -p 7830:7830 \
 
 The image runs as non-root user `gateway` (uid 1001) and exposes port `7830`.
 
+The image also includes the opt-in block-volume helper scripts used by vembda for Kata-family block-mode deployments. Default startup still runs as `gateway` and does not invoke the helpers; vembda must wrap the service command explicitly. Gateway block mode uses `workspace:/workspace:rw;gateway-security:/gateway-security:rw`. See [Kata Block-Mode Image Contract](../docs/kata-block-mode-image-contract.md).
+
 The runtime base URL is derived from `RUNTIME_HTTP_PORT` as `http://localhost:${RUNTIME_HTTP_PORT}` (default port `7821`). The gateway internal base URL is always derived from `GATEWAY_PORT` as `http://127.0.0.1:${GATEWAY_PORT}` (default `7830`). Both hosts are hardcoded to localhost — the gateway and runtime must be co-located (e.g., same host, `--network host`, or Docker Compose with shared networking). Separate-host deployments are not currently supported.
 
 ## Development

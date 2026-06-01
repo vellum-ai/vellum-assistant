@@ -1,6 +1,12 @@
 #!/usr/bin/env sh
 
-if [ "${VELLUM_SANDBOX_RUNTIME:-}" != "kata" ]; then
+if [ -r /app/assistant/docker-kata-runtime-family.sh ]; then
+  . /app/assistant/docker-kata-runtime-family.sh
+else
+  vellum_is_kata_family_runtime() { [ "${VELLUM_SANDBOX_RUNTIME:-}" = "kata" ]; }
+fi
+
+if ! vellum_is_kata_family_runtime; then
   return 0 2>/dev/null || exit 0
 fi
 
