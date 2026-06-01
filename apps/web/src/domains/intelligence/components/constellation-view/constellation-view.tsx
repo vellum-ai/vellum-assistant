@@ -72,7 +72,7 @@ export function ConstellationView({
       id: skill.id,
       label: skill.name,
       emoji: skill.emoji,
-      category: skill.category,
+      category: skill.category ?? "knowledge",
       description: skill.description,
       kind: "skill" as const,
     }));

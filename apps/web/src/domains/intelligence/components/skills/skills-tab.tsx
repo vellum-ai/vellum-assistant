@@ -352,7 +352,8 @@ function useDerivedCounts(
     }
     const computed: Record<string, number> = {};
     for (const skill of skills) {
-      computed[skill.category] = (computed[skill.category] ?? 0) + 1;
+      const cat = skill.category ?? "knowledge";
+      computed[cat] = (computed[cat] ?? 0) + 1;
     }
     return {
       counts: computed,
