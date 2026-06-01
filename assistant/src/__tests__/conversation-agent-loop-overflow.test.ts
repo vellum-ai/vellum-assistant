@@ -18,10 +18,20 @@ import type {
   AgentEvent,
   AgentLoopRunOptions,
   AgentLoopRunResult,
+  MidLoopCompaction,
 } from "../agent/loop.js";
 import type { LLMConfig } from "../config/schemas/llm.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import { defaultCompactionTerminal } from "../plugins/defaults/compaction/register.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
+import { DEFAULT_TIMEOUTS, runPipeline } from "../plugins/pipeline.js";
+import { getMiddlewaresFor } from "../plugins/registry.js";
+import type {
+  CompactionArgs,
+  CompactionResult,
+  TurnContext,
+} from "../plugins/types.js";
+import { PluginTimeoutError } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
@@ -439,6 +449,45 @@ type AgentLoopRun = (
 ) => Promise<Message[]>;
 
 /**
+ * Faithful re-implementation of `AgentLoop.compact()` for the mock loop: run
+ * the compaction pipeline against the supplied turn context (which carries the
+ * test's `contextWindowManager`), invoke the orchestrator-supplied hooks, and
+ * return the continuation history — or `null` on timeout/exhaustion so the
+ * caller yields "budget".
+ */
+async function simulateInlineCompaction(
+  compaction: MidLoopCompaction,
+  history: Message[],
+  turnContext: TurnContext | undefined,
+  signal: AbortSignal | undefined,
+): Promise<Message[] | null> {
+  compaction.onCompacting?.();
+  const { rawHistory, options } = compaction.prepare(history);
+  let result: CompactionResult;
+  try {
+    result = await runPipeline<CompactionArgs, CompactionResult>(
+      "compaction",
+      getMiddlewaresFor("compaction"),
+      (args) => defaultCompactionTerminal(args, turnContext as TurnContext),
+      { messages: rawHistory, signal, options },
+      turnContext as TurnContext,
+      DEFAULT_TIMEOUTS.compaction,
+    );
+  } catch (error) {
+    if (error instanceof PluginTimeoutError) {
+      await compaction.onTimeout();
+      return null;
+    }
+    throw error;
+  }
+  const { exhausted } = await compaction.persist(result, rawHistory);
+  if (exhausted) {
+    return null;
+  }
+  return compaction.reinject();
+}
+
+/**
  * Adapt a `Message[]`-returning mock loop body into `run()`'s real result
  * shape. Mirrors the production loop: the pause-reason carried back is
  * whatever the most recent `onCheckpoint` call yielded with (null when it
@@ -466,10 +515,12 @@ const asAgentLoopRun = (
             exitReason = decision;
             return decision;
           }
-          // The mid-loop budget gate lives inside `AgentLoop.run`. Replicate
-          // it here — using the same formula and the stubbed estimator — so
-          // these orchestrator-escalation tests still drive the budget-yield
-          // path now that the orchestrator's `onCheckpoint` is handoff-only.
+          // The mid-loop budget gate and inline compaction both live inside
+          // `AgentLoop.run`. Replicate them here — same formula, stubbed
+          // estimator, and the loop's own `compact()` ceremony — so these
+          // orchestrator tests drive the real escalation path now that the
+          // orchestrator's `onCheckpoint` is handoff-only and compaction
+          // runs inline rather than via an orchestrator re-entry loop.
           const contextWindow = options.resolveContextWindow?.();
           if (contextWindow?.overflowRecovery.enabled) {
             const { maxInputTokens, overflowRecovery } = contextWindow;
@@ -485,6 +536,21 @@ const asAgentLoopRun = (
                 ? mockEstimateTokens(info.history)
                 : mockEstimateTokens;
             if (estimated > preflightBudget * 0.85) {
+              // Mirror `AgentLoop.compact()`: when a compaction path is
+              // supplied, run it in place and continue; on timeout or
+              // exhaustion it returns null, so the loop yields "budget".
+              const compacted = options.compaction
+                ? await simulateInlineCompaction(
+                    options.compaction,
+                    info.history,
+                    options.turnContext,
+                    options.signal,
+                  )
+                : null;
+              if (compacted) {
+                exitReason = null;
+                return "continue";
+              }
               exitReason = "budget";
               return "budget";
             }
@@ -2011,20 +2077,14 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
   });
 
   // ── Test 8b ───────────────────────────────────────────────────────
-  // Counterpart to Test 8: when each mid-loop `maybeCompact` returns
-  // productive (`compacted: true`, no `exhausted` flag), the
-  // orchestrator iterates indefinitely without ever escalating to the
-  // convergence loop. The retry budget for the compactor lives INSIDE
-  // `ContextWindowManager.maybeCompact` now; the orchestrator's outer
-  // loop has no count cap of its own.
-  //
-  // Pre-refactor this case would have tripped the daemon-level
-  // `midLoopCompactAttempts` counter after 3 cycles and dumped the turn
-  // into convergence, even though every cycle was clearly forward
-  // progress (170k → 100k each time). The relocate makes the
-  // orchestrator agnostic to attempt counts — it only sees the binary
-  // `exhausted` signal.
-  test("productive mid-loop compactions iterate without daemon-level cap", async () => {
+  // Counterpart to Test 8: when a mid-loop `maybeCompact` returns
+  // productive (`compacted: true`, no `exhausted` flag), the loop
+  // compacts in place and continues the run itself — it never yields
+  // "budget", so the orchestrator does not escalate to the convergence
+  // loop. Mid-loop iteration is now wholly internal to `AgentLoop.run`;
+  // the orchestrator only reacts to the binary `exhausted`/timeout
+  // signal carried back as a "budget" exit.
+  test("productive mid-loop compaction continues in place without escalating", async () => {
     const events: ServerMessage[] = [];
 
     // Budget = 200_000 * 0.95 = 190_000
@@ -2040,9 +2100,10 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
       return 170_000;
     };
 
-    // Agent loop yields on its first 5 calls so the test exercises more
-    // mid-loop iterations than `maxAttempts = 3`. The 6th call returns
-    // without yielding so the test terminates cleanly.
+    // A single tool round reaches one checkpoint; the in-loop budget
+    // gate trips there and compaction runs in place. The loop continues
+    // the run itself rather than handing control back, so the
+    // orchestrator invokes `run()` exactly once.
     let agentLoopCallCount = 0;
     const agentLoopRun: AgentLoopRun = async (messages, onEvent, options) => {
       await onEvent({ type: "llm_call_started" });
@@ -2098,24 +2159,21 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
         providerDurationMs: 100,
       });
 
-      if (agentLoopCallCount <= 5 && options?.onCheckpoint) {
-        const decision = await options.onCheckpoint({
+      if (options?.onCheckpoint) {
+        await options.onCheckpoint({
           turnIndex: 0,
           toolCount: 1,
           hasToolUse: true,
           history: withProgress,
         });
-        if (decision !== "continue") {
-          return withProgress;
-        }
       }
 
       return withProgress;
     };
 
     // Compaction reports `estimatedInputTokens` well below the 161_500
-    // threshold every time — the "compaction is productive" signal that
-    // the new reset logic keys off.
+    // threshold — the "compaction is productive" signal (no `exhausted`
+    // flag) that lets the loop continue in place.
     let compactionCallCount = 0;
     const ctx = makeCtx({
       agentLoopRun,
@@ -2149,16 +2207,13 @@ describe("session-agent-loop overflow recovery (JARVIS-110)", () => {
 
     await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
 
-    // 1 initial auto-compact + 5 productive mid-loop compactions ran
-    // before the agent loop stopped yielding on its 6th call. Pre-
-    // relocate this would have capped at 1 initial + 3 mid-loop = 4
-    // and escalated to convergence after the 3rd mid-loop attempt.
-    // Now the orchestrator has no count cap of its own — it only sees
-    // the `exhausted` signal (never set by this mock).
-    expect(compactionCallCount).toBe(6);
-    expect(agentLoopCallCount).toBe(6);
+    // 1 initial auto-compact + 1 productive mid-loop compaction. The
+    // loop continues in place after compacting, so the orchestrator
+    // never re-enters `run()` — it is invoked exactly once.
+    expect(compactionCallCount).toBe(2);
+    expect(agentLoopCallCount).toBe(1);
 
-    // No escalation to the convergence loop because every mid-loop
+    // No escalation to the convergence loop because the mid-loop
     // `maybeCompact` returned productive (no `exhausted` flag).
     expect(setAgentLoopExitReasonOnLatestLogMock).not.toHaveBeenCalledWith(
       "test-conv",
