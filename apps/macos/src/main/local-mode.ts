@@ -23,18 +23,21 @@ const DEFAULT_SPECIES = "vellum";
 const HATCH_TIMEOUT_MS = 120_000;
 
 /**
- * How to invoke the CLI, in the two runtime shapes the app ships in:
- *  - Packaged: the compiled single-file `bun` executable in `Resources/`
- *    (the same artifact the daemon supervisor spawns), invoked as
- *    `<resources>/bun <subcommand> …`.
+ * How to invoke the CLI for local lifecycle ops, or `null` when no CLI is
+ * available to invoke.
  *  - Dev: the monorepo source tree, run via `bun run <repo>/cli/src/index.ts
  *    <subcommand> …`. `app.getAppPath()` is `apps/macos`; the repo root is
  *    two levels up.
+ *  - Packaged: unsupported for now. The only bundled executable is
+ *    `Resources/bun`, which is the daemon binary — the supervisor in
+ *    `index.ts` spawns it as `bun daemon`, not the CLI — so driving a hatch
+ *    through it would hand CLI args to the daemon. Bundling a CLI-capable
+ *    binary and reconciling it with the daemon supervisor is the DEP-2 work
+ *    tracked in LUM-2085; until then this returns `null` so hatch fails
+ *    explicitly instead of spawning the wrong binary.
  */
-function resolveCliInvocation(): { command: string; baseArgs: string[] } {
-  if (app.isPackaged) {
-    return { command: path.join(process.resourcesPath, "bun"), baseArgs: [] };
-  }
+function resolveCliInvocation(): { command: string; baseArgs: string[] } | null {
+  if (app.isPackaged) return null;
   const repoRoot = path.resolve(app.getAppPath(), "..", "..");
   const cliEntry = path.join(repoRoot, "cli", "src", "index.ts");
   return { command: "bun", baseArgs: ["run", cliEntry] };
@@ -55,7 +58,15 @@ interface HatchResult {
  */
 function runHatch(species: string): Promise<HatchResult> {
   return new Promise((resolve) => {
-    const { command, baseArgs } = resolveCliInvocation();
+    const invocation = resolveCliInvocation();
+    if (invocation === null) {
+      resolve({
+        ok: false,
+        error: "Local assistants aren't supported in the packaged app yet.",
+      });
+      return;
+    }
+    const { command, baseArgs } = invocation;
     const child = spawn(command, [...baseArgs, "hatch", species], {
       stdio: ["ignore", "pipe", "pipe"],
     });

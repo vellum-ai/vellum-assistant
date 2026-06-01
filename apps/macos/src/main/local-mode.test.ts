@@ -76,25 +76,16 @@ describe("vellum:localMode:hatch handler", () => {
     ]);
   });
 
-  test("packaged: spawns the bundled `Resources/bun hatch <species>`", async () => {
+  test("packaged: fails explicitly without spawning (Resources/bun is the daemon, not the CLI)", async () => {
     appState.isPackaged = true;
-    const originalResourcesPath = process.resourcesPath;
-    (process as { resourcesPath: string }).resourcesPath = "/app/Resources";
 
-    const pending = hatch("openclaw");
-    lastChild.stdout.emit(
-      "data",
-      Buffer.from("Hatching local assistant: asst-7\n"),
+    const result = (await hatch("openclaw")) as { ok: boolean; error: string };
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe(
+      "Local assistants aren't supported in the packaged app yet.",
     );
-    lastChild.emit("close", 0);
-
-    expect(await pending).toEqual({ ok: true, assistantId: "asst-7" });
-    expect(spawnArgs[0]).toEqual([
-      path.join("/app/Resources", "bun"),
-      ["hatch", "openclaw"],
-    ]);
-
-    (process as { resourcesPath: string }).resourcesPath = originalResourcesPath;
+    expect(spawnArgs).toHaveLength(0);
   });
 
   test("coerces a missing or empty species to the default", async () => {
