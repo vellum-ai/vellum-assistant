@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import { client as daemonClient } from "@/generated/daemon/client.gen";
-import { listConversations } from "@/hooks/conversation-queries";
+import {
+  listBackgroundConversations,
+  listConversations,
+} from "@/hooks/conversation-queries";
 import {
   toConversation,
   type RawConversationSummary,
@@ -361,13 +364,19 @@ describe("listConversations — pagination", () => {
     expect(result).toHaveLength(80);
     expect(result.at(0)?.conversationId).toBe("foreground-0");
     expect(result.at(-1)?.conversationId).toBe("foreground-79");
-    expect(calls).toHaveLength(3);
+    // Foreground only — background is a separate lazily-enabled query and is
+    // never fetched here.
+    expect(calls).toHaveLength(2);
     const foregroundCalls = calls.filter(
       (c) => c.query?.conversationType === undefined,
     );
     expect(foregroundCalls).toHaveLength(2);
     expect(foregroundCalls[0]?.query).toMatchObject({ limit: 50, offset: 0 });
     expect(foregroundCalls[1]?.query).toMatchObject({ limit: 50, offset: 50 });
+    const backgroundCalls = calls.filter(
+      (c) => c.query?.conversationType === "background",
+    );
+    expect(backgroundCalls).toHaveLength(0);
   });
 
   test("stops on the first page when hasMore is false or absent", async () => {
@@ -380,8 +389,8 @@ describe("listConversations — pagination", () => {
     const result = await listConversations("assistant-1");
 
     expect(result).toHaveLength(1);
-    // 1 foreground + 1 background
-    expect(calls).toHaveLength(2);
+    // Foreground only — a single page, no background fetch.
+    expect(calls).toHaveLength(1);
   });
 
   test("does not loop forever on hasMore=true with empty page", async () => {
@@ -395,6 +404,82 @@ describe("listConversations — pagination", () => {
     const result = await listConversations("assistant-1");
 
     expect(result).toHaveLength(1);
-    expect(calls).toHaveLength(3); // 2 foreground + 1 background
+    expect(calls).toHaveLength(2); // 2 foreground pages, no background
+  });
+});
+
+// ---------------------------------------------------------------------------
+// listBackgroundConversations — pagination
+// ---------------------------------------------------------------------------
+
+describe("listBackgroundConversations — pagination", () => {
+  const originalGet = daemonClient.get;
+  type GetOptions = {
+    query?: Record<string, unknown>;
+  };
+
+  type Page = {
+    conversations: Array<{
+      id: string;
+      title: string;
+      createdAt: number;
+      updatedAt: number;
+      lastMessageAt: number;
+      conversationType: "standard" | "background" | "scheduled";
+      source: string;
+      groupId: string;
+    }>;
+    hasMore?: boolean;
+  };
+
+  function makeBackgroundRow(id: string): Page["conversations"][number] {
+    return {
+      id,
+      title: "",
+      createdAt: 0,
+      updatedAt: 0,
+      lastMessageAt: 0,
+      conversationType: "background",
+      source: "vellum",
+      groupId: "",
+    };
+  }
+
+  afterEach(() => {
+    daemonClient.get = originalGet;
+  });
+
+  test("fetches only the background bucket and paginates it", async () => {
+    /**
+     * The lazily-enabled background query pages through the background bucket
+     * and never touches the foreground list.
+     */
+
+    // GIVEN two pages of background conversations
+    const calls: Array<{ query: Record<string, unknown> | undefined }> = [];
+    daemonClient.get = mock(async (options: GetOptions) => {
+      calls.push({ query: options.query });
+      const offset = Number(options.query?.offset ?? 0);
+      const data =
+        offset === 0
+          ? { conversations: [makeBackgroundRow("bg-0")], hasMore: true }
+          : { conversations: [makeBackgroundRow("bg-1")], hasMore: false };
+      return {
+        data,
+        error: null,
+        response: new Response(null, { status: 200 }),
+      };
+    }) as typeof daemonClient.get;
+
+    // WHEN we list background conversations
+    const result = await listBackgroundConversations("assistant-1");
+
+    // THEN both pages are returned
+    expect(result.map((c) => c.conversationId)).toEqual(["bg-0", "bg-1"]);
+    // AND every request targets the background bucket
+    expect(calls).toHaveLength(2);
+    expect(
+      calls.every((c) => c.query?.conversationType === "background"),
+    ).toBe(true);
   });
 });

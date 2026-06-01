@@ -13,6 +13,33 @@ import { listConversationIdsWithPendingInteractions } from "@/domains/chat/api/i
 import { USER_FACING_INTERACTION_KINDS } from "@/types/event-types";
 import type { AssistantState } from "@/assistant/types";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
+import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
+
+import { useActiveConversation } from "./use-active-conversation";
+
+/**
+ * The Background and Scheduled conversation lists load lazily via separate
+ * queries, only once the user reveals their sidebar sections. A pending
+ * interaction can, however, belong to a background or scheduled job the user
+ * hasn't revealed yet — its attention dot would stay invisible because that
+ * section's rows aren't loaded. The pending key alone doesn't tell us which
+ * of the two sections it lives in, so when the daemon reports a pending key
+ * absent from the loaded conversations, reveal both sections; each lazy
+ * fetch then runs and the indicator surfaces wherever the row resolves.
+ */
+function revealLazySectionsIfPendingUnloaded(
+  pendingKeys: ReadonlySet<string>,
+  loadedConversationIds: ReadonlySet<string>,
+): void {
+  for (const key of pendingKeys) {
+    if (!loadedConversationIds.has(key)) {
+      const store = useSidebarCollapseStore.getState();
+      store.activateBackground();
+      store.activateScheduled();
+      return;
+    }
+  }
+}
 
 interface UseAttentionTrackingParams {
   /** From `useAssistantLifecycle` in `ChatLayout`. */
@@ -89,8 +116,13 @@ export function useAttentionTracking({
   const activeConversationId = useConversationStore.use.activeConversationId();
   const processingConversationIds = useConversationStore.use.processingConversationIds();
 
-  const activeConversation = conversations.find(
-    (c) => c.conversationId === activeConversationId,
+  // Resolve from either list cache (fetching the single row on demand) so a
+  // background/scheduled thread opened before its sidebar section is revealed
+  // is still marked seen on open.
+  const activeConversation = useActiveConversation(
+    assistantId,
+    activeConversationId,
+    assistantStateKind === "active",
   );
 
   const lastSeenOnOpenConversationIdRef = useRef<string | null>(null);
@@ -247,6 +279,14 @@ export function useAttentionTracking({
       }
       const state = useConversationStore.getState();
       const activeKey = state.activeConversationId;
+      revealLazySectionsIfPendingUnloaded(
+        pendingKeys,
+        new Set(
+          getConversations(queryClient, assistantId).map(
+            (c) => c.conversationId,
+          ),
+        ),
+      );
       for (const key of state.attentionConversationIds) {
         if (key === activeKey) continue;
         if (!pendingKeys.has(key)) state.removeAttentionConversationId(key);
@@ -289,6 +329,10 @@ export function useAttentionTracking({
       // Pull the current snapshot from the cache to avoid the closed-over
       // `conversations` capture from the effect's first render.
       const currentConversations = getConversations(queryClient, assistantId);
+      revealLazySectionsIfPendingUnloaded(
+        pendingKeys,
+        new Set(currentConversations.map((c) => c.conversationId)),
+      );
       for (const conv of currentConversations) {
         if (conv.conversationId === activeConversationId) continue;
         if (pendingKeys.has(conv.conversationId)) {

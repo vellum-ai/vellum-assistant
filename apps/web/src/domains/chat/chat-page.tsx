@@ -36,6 +36,7 @@ import {
 import {
   useConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -486,9 +487,14 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Derived state
   // -------------------------------------------------------------------------
-  const activeConversation = useMemo(
-    () => conversations.find((c) => c.conversationId === activeConversationId),
-    [conversations, activeConversationId],
+  // Resolve the active row from either list cache, fetching the single row
+  // when an open background/scheduled thread is in neither — so the header,
+  // action menu, read-state, and SSE subscription have metadata without
+  // pulling the whole background backlog onto the initial-render path.
+  const activeConversation = useActiveConversation(
+    assistantId,
+    activeConversationId,
+    shouldRenderChat,
   );
   const isChannelReadonly = isChannelConversation(activeConversation);
 
@@ -509,7 +515,7 @@ export function ChatPage() {
     urlConversationId: urlConversationId ?? null,
     searchParams,
     navigate,
-    conversations,
+    activeConversation,
     conversationGroupsUI,
     refreshEpoch,
     reachabilityReadyEpoch,

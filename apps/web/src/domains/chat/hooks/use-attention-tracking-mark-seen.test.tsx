@@ -41,6 +41,9 @@ let markConversationSeenImpl: () => Promise<void> = async () => {};
 mock.module("@/hooks/conversation-queries", () => ({
   useConversationListQuery: () => ({ conversations: conversationsImpl }),
   markConversationSeenLocal: () => {},
+  useBackgroundConversationListQuery: () => ({ conversations: [] }),
+  useScheduledConversationListQuery: () => ({ conversations: [] }),
+  refreshConversationRow: async () => {},
 }));
 
 mock.module("@/utils/conversation-cache", () => ({

@@ -65,6 +65,11 @@ export interface CollapsedGroupIconProps {
   /** When true, the group has no conversations — renders a muted icon with no popover. */
   disabled?: boolean;
   /**
+   * Called when the popover opens or closes. Lets callers react to the user
+   * revealing the group (e.g. trigger a lazy fetch on first open).
+   */
+  onOpenChange?: (open: boolean) => void;
+  /**
    * Popover content. Accepts a render function that receives a `close` callback
    * to programmatically dismiss the popover (e.g. after selecting a conversation).
    */
@@ -76,9 +81,17 @@ export function CollapsedGroupIcon({
   label,
   indicatorState,
   disabled = false,
+  onOpenChange,
   children,
 }: CollapsedGroupIconProps) {
   const [open, setOpen] = useState(false);
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      setOpen(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange],
+  );
   const close = useCallback(() => setOpen(false), []);
 
   if (disabled) {
@@ -99,7 +112,7 @@ export function CollapsedGroupIcon({
   }
 
   return (
-    <Popover.Root open={open} onOpenChange={setOpen}>
+    <Popover.Root open={open} onOpenChange={handleOpenChange}>
       <Tooltip content={label} side="right">
         <Popover.Trigger asChild>
           <button
