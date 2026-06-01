@@ -14,10 +14,7 @@ import type {
   UserPromptSubmitContext,
 } from "@vellumai/plugin-api";
 
-import { getLogger } from "../../../../util/logger.js";
 import { repairHistory } from "../terminal.js";
-
-const log = getLogger("history-repair");
 
 const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
   const { messages, stats } = repairHistory(ctx.latestMessages);
@@ -28,8 +25,8 @@ const userPromptSubmit: PluginHookFn<UserPromptSubmitContext> = async (ctx) => {
     stats.orphanToolResultsDowngraded > 0 ||
     stats.consecutiveSameRoleMerged > 0
   ) {
-    log.warn(
-      { phase: "pre_run", conversationId: ctx.conversationId, ...stats },
+    ctx.logger.warn(
+      { plugin: "history-repair", phase: "pre_run", ...stats },
       "Repaired runtime history before provider call",
     );
   }

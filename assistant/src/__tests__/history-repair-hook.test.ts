@@ -16,7 +16,10 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { HOOKS } from "../plugin-api/constants.js";
-import type { UserPromptSubmitContext } from "../plugin-api/types.js";
+import type {
+  PluginLogger,
+  UserPromptSubmitContext,
+} from "../plugin-api/types.js";
 import userPromptSubmit from "../plugins/defaults/history-repair/hooks/user-prompt-submit.js";
 import { defaultHistoryRepairPlugin } from "../plugins/defaults/history-repair/register.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
@@ -27,11 +30,19 @@ import {
 } from "../plugins/registry.js";
 import type { Message } from "../providers/types.js";
 
+const noopLogger: PluginLogger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+  debug: () => {},
+};
+
 function makeCtx(messages: Message[]): UserPromptSubmitContext {
   return {
     conversationId: "conv-test",
     originalMessages: messages,
     latestMessages: messages,
+    logger: noopLogger,
   };
 }
 

@@ -131,4 +131,10 @@ export interface UserPromptSubmitContext {
    * may mutate this in place or replace it by returning a new context.
    */
   latestMessages: Message[];
+  /**
+   * Logger scoped to the current turn. The same instance is shared by
+   * every hook in the chain, so plugins should tag their structured log
+   * fields (e.g. `{ plugin: "<name>" }`) for attribution.
+   */
+  readonly logger: PluginLogger;
 }

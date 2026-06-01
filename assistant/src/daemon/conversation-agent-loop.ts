@@ -2047,6 +2047,7 @@ export async function runAgentLoopImpl(
       conversationId: ctx.conversationId,
       originalMessages: ctx.messages,
       latestMessages: runMessages,
+      logger: rlog,
     };
     const finalUserPromptCtx = await runHook(
       HOOKS.USER_PROMPT_SUBMIT,
