@@ -89,7 +89,23 @@ function tableToMarkdown(columns: TableColumn[], rows: TableRow[]): string {
 // ---------------------------------------------------------------------------
 
 export function TableSurface({ surface, onAction }: TableSurfaceProps) {
-  const data = surface.data as unknown as TableSurfaceData;
+  // The daemon owns the surface payload shape; in practice we've seen
+  // malformed deliveries (no `rows`, no `columns`) reach the renderer
+  // — they surface as a hard crash on `data.rows.filter`. Default both
+  // to empty arrays here so the row/column reads downstream stay safe.
+  // A surface with no columns and no rows renders to a near-empty
+  // container, which is the right shape for "we don't know what to
+  // show" — not a thrown error inside React's render path.
+  const rawData = surface.data as unknown as Partial<TableSurfaceData> | null;
+  const data = useMemo<TableSurfaceData>(
+    () => ({
+      columns: rawData?.columns ?? [],
+      rows: rawData?.rows ?? [],
+      selectionMode: rawData?.selectionMode,
+      caption: rawData?.caption,
+    }),
+    [rawData],
+  );
   const selectionMode = data.selectionMode ?? "none";
 
   // Derive selection from server data; recomputed when rows change.
