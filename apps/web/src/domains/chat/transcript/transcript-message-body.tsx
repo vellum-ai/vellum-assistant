@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 
+import { BubbleAttachments } from "@/domains/chat/components/chat-attachments/bubble-attachments";
 import { MessageAttachments } from "@/domains/chat/components/chat-attachments/message-attachments";
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
@@ -351,15 +352,25 @@ export function TranscriptMessageBody({
     (e) => e.type === "toolCall" || e.type === "tool",
   );
   const isSlackMessage = Boolean(message.slackMessage);
+  const isUser = message.role === "user";
 
-  const textBubbleClass =
-    message.role === "user"
-      ? `max-w-[80%] rounded-lg bg-[var(--surface-lift)] px-4 py-3 text-[var(--content-default)] ${
-          isSlackMessage ? "sm:max-w-[420px]" : ""
-        }`
-      : isSlackMessage
-        ? "max-w-[80%] text-[var(--content-default)] sm:max-w-[640px]"
-        : "w-full text-[var(--content-default)]";
+  // Assistant text bubble class (unchanged). User text no longer carries the
+  // bubble — the bubble is applied once at the wrapper (`userBubbleClass`).
+  const textBubbleClass = isSlackMessage
+    ? "max-w-[80%] text-[var(--content-default)] sm:max-w-[640px]"
+    : "w-full text-[var(--content-default)]";
+
+  // User messages render text + attachments inside a single bubble; the bubble
+  // background/padding live here at the wrapper rather than per text segment.
+  const userBubbleClass = `max-w-[80%] rounded-lg bg-[var(--surface-lift)] px-4 py-3 text-[var(--content-default)] flex w-full flex-col gap-2 ${
+    isSlackMessage ? "sm:max-w-[420px]" : ""
+  }`;
+
+  // Class applied to each text segment inside `renderTextWithInlineSurfaces`.
+  // For users the wrapper provides the bubble, so segments carry no bubble bg.
+  const segmentClass = isUser
+    ? "break-words text-[15px]"
+    : `break-words text-[15px] ${textBubbleClass}`;
 
   const handleExpandChange = (toolCallId: string, isExpanded: boolean) => {
     if (isExpanded) {
@@ -463,7 +474,7 @@ export function TranscriptMessageBody({
             return (
               <div
                 key={`inline-text-${si}`}
-                className={`break-words text-[15px] ${textBubbleClass}`}
+                className={segmentClass}
               >
                 <ChatMarkdownMessage content={seg.content} hardLineBreaks={hardLineBreaks} />
               </div>
@@ -473,7 +484,7 @@ export function TranscriptMessageBody({
       );
     }
     return (
-      <div key={key} className={`break-words text-[15px] ${textBubbleClass}`}>
+      <div key={key} className={segmentClass}>
         <ChatMarkdownMessage content={text} hardLineBreaks={hardLineBreaks} />
       </div>
     );
@@ -575,17 +586,7 @@ export function TranscriptMessageBody({
       return undefined;
     };
 
-    return (
-      <div
-        ref={wrapperRef}
-        onClick={handleBubbleClick}
-        data-revealed={revealed}
-        className={`group/msg flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
-      >
-        <div
-          className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
-        >
-          {groups.map((group, gi) => {
+    const interleavedGroupElements = groups.map((group, gi) => {
             if (group.type === "toolCalls") {
               const toolCalls = group.ids
                 .map(resolveToolCall)
@@ -662,18 +663,54 @@ export function TranscriptMessageBody({
               );
             }
             return null;
-          })}
-          {/* Fallback: if message.content exists but no text groups rendered
-              (e.g. tool_use_start before any assistant_text_delta), show the
-              content. */}
-          {!groups.some((g) => g.type === "text") && message.content &&
-            renderTextWithInlineSurfaces(message.content, "fallback", message.role === "user")
-          }
-          {message.attachments && message.attachments.length > 0 && (
-            <MessageAttachments
-              attachments={message.attachments}
-              assistantId={assistantId}
-            />
+          });
+
+    const hasAttachments = Boolean(
+      message.attachments && message.attachments.length > 0,
+    );
+    // Fallback: if message.content exists but no text groups rendered
+    // (e.g. tool_use_start before any assistant_text_delta), show the content.
+    const interleavedFallback =
+      !groups.some((g) => g.type === "text") && message.content
+        ? renderTextWithInlineSurfaces(
+            message.content,
+            "fallback",
+            message.role === "user",
+          )
+        : null;
+
+    return (
+      <div
+        ref={wrapperRef}
+        onClick={handleBubbleClick}
+        data-revealed={revealed}
+        className={`group/msg flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
+      >
+        <div
+          className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
+        >
+          {isUser ? (
+            <div className={userBubbleClass}>
+              {interleavedGroupElements}
+              {interleavedFallback}
+              {hasAttachments && message.attachments ? (
+                <BubbleAttachments
+                  attachments={message.attachments}
+                  assistantId={assistantId}
+                />
+              ) : null}
+            </div>
+          ) : (
+            <>
+              {interleavedGroupElements}
+              {interleavedFallback}
+              {hasAttachments && (
+                <MessageAttachments
+                  attachments={message.attachments ?? []}
+                  assistantId={assistantId}
+                />
+              )}
+            </>
           )}
           <SlackMessageAttribution
             message={message}
@@ -745,6 +782,7 @@ export function TranscriptMessageBody({
   const legacyToolCalls =
     message.toolCalls?.filter((tc) => !isSuppressedUiTool(tc)) ?? [];
   const hasVisibleLegacyContent = contentElements.some((el) => !!el);
+  const hasLegacyAttachments = Boolean(message.attachments?.length);
 
   return (
     <div
@@ -780,24 +818,43 @@ export function TranscriptMessageBody({
             {renderInlineSubagentCards(legacyToolCalls)}
           </>
         )}
-        {(contentElements.some((el) => !!el) ||
-          (!message.toolCalls?.length &&
-            !(message.attachments && message.attachments.length > 0))) && (
-          // Layout-only column: the bubble styling (textBubbleClass) is applied
-          // per text segment inside renderTextWithInlineSurfaces, mirroring the
-          // interleaved path above. Applying textBubbleClass here too would
-          // double-wrap text in two nested bubbles (doubled padding/background).
-          <div
-            className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
-          >
-            {contentElements}
-          </div>
-        )}
-        {message.attachments && message.attachments.length > 0 && (
-          <MessageAttachments
-            attachments={message.attachments}
-            assistantId={assistantId}
-          />
+        {isUser ? (
+          // User messages render text + attachments in a single bubble. The
+          // bubble background/padding live here (userBubbleClass) instead of
+          // per text segment. Rendered whenever there is any text content OR
+          // any attachments, so attachment-only messages still get a bubble.
+          (hasVisibleLegacyContent || hasLegacyAttachments) && (
+            <div className={userBubbleClass}>
+              {contentElements}
+              {hasLegacyAttachments && message.attachments ? (
+                <BubbleAttachments
+                  attachments={message.attachments}
+                  assistantId={assistantId}
+                />
+              ) : null}
+            </div>
+          )
+        ) : (
+          <>
+            {(hasVisibleLegacyContent ||
+              (!message.toolCalls?.length && !hasLegacyAttachments)) && (
+              // Layout-only column: the bubble styling (textBubbleClass) is applied
+              // per text segment inside renderTextWithInlineSurfaces, mirroring the
+              // interleaved path above. Applying textBubbleClass here too would
+              // double-wrap text in two nested bubbles (doubled padding/background).
+              <div
+                className={`flex w-full flex-col gap-2 ${message.role === "user" ? "items-end" : "items-start"}`}
+              >
+                {contentElements}
+              </div>
+            )}
+            {hasLegacyAttachments && message.attachments && (
+              <MessageAttachments
+                attachments={message.attachments}
+                assistantId={assistantId}
+              />
+            )}
+          </>
         )}
         {/* Render surfaces attached to this message that aren't in contentOrder */}
         {(() => {
