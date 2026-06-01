@@ -22,8 +22,10 @@ import {
   formatTokens,
   formatTokensCombined,
 } from "@/domains/logs/format";
-import { fetchTraceEvents } from "@/domains/logs/trace-events-api";
-import type { TraceEventRow } from "@/domains/logs/trace-events-types";
+import {
+  fetchTraceEvents,
+  type TraceEventRow,
+} from "@/domains/logs/trace-events-api";
 import {
   calculateMetrics,
   determineGroupStatus,
@@ -69,9 +71,7 @@ export function LogsTab({ assistantId }: LogsTabProps) {
     }
     const lastViewed = loadLastViewedConversationId(assistantId);
     if (lastViewed) {
-      const match = conversations.find(
-        (c) => c.conversationId === lastViewed,
-      );
+      const match = conversations.find((c) => c.conversationId === lastViewed);
       if (match) {
         return match.conversationId;
       }
@@ -273,8 +273,7 @@ function MetricStatCard({
     <div
       className="flex flex-col gap-1 rounded-md px-3 py-2"
       style={{
-        background:
-          "color-mix(in srgb, var(--border-base) 15%, transparent)",
+        background: "color-mix(in srgb, var(--border-base) 15%, transparent)",
       }}
     >
       <span
@@ -328,9 +327,7 @@ function RequestGroup({
 }) {
   const status = useMemo(() => determineGroupStatus(events), [events]);
   const meta = getGroupStatusMeta(status);
-  const label = requestId
-    ? `Request ${requestId.slice(0, 8)}`
-    : "System";
+  const label = requestId ? `Request ${requestId.slice(0, 8)}` : "System";
 
   return (
     <div className="flex flex-col gap-2">

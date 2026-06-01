@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
 import { loadConfig } from "../../config/loader.js";
 import {
@@ -7,6 +9,24 @@ import {
 import type { LLMCallSite } from "../../config/schemas/llm.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition } from "./types.js";
+
+const callSiteDomainSchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+});
+
+const callSiteEntrySchema = z.object({
+  id: z.string(),
+  displayName: z.string(),
+  description: z.string(),
+  domain: z.string(),
+  defaultProfile: z.string().optional(),
+});
+
+const callSiteCatalogResponseSchema = z.object({
+  domains: z.array(callSiteDomainSchema),
+  callSites: z.array(callSiteEntrySchema),
+});
 
 async function handleGetCallSites() {
   const { llm } = loadConfig();
@@ -50,6 +70,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Returns the full catalog of LLM call sites with display names, descriptions, and domain groupings. Used by clients to render the per-call-site override settings UI.",
     tags: ["config"],
+    responseBody: callSiteCatalogResponseSchema,
   },
   {
     operationId: "llm_profiles_list",
