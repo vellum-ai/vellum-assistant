@@ -21,6 +21,7 @@ import { Popover } from "@vellum/design-library/components/popover";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
   useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { routes } from "@/utils/routes";
@@ -426,6 +427,12 @@ export function NotificationsPage() {
   // the gate value with a strict "positively resolved as platform-hosted"
   // check in the query's `enabled`.
   const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  // Race-window indicator for UX (showLoading, pause-popover auto-close).
+  // Narrow to the genuine lifecycle-loading window: in already-resolved
+  // non-hosted states (`retired`, `error`, `awaiting_version_selection`)
+  // the query is disabled (above), `data` is undefined → notifications
+  // = []; the empty-state branch should render, not a stuck spinner.
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
   const queryClient = useQueryClient();
   const isMobile = useIsMobile();
 
@@ -447,12 +454,14 @@ export function NotificationsPage() {
   });
 
   // `useQuery` with `enabled: false` reports `isLoading: false`, so during
-  // the resolution race we need to compute "still loading" ourselves —
-  // otherwise the render falls through to the empty state ("No open
-  // notifications") AND mutation-firing controls (pause-rules popover)
-  // render interactively. Treat the unresolved window as loading: hide /
-  // disable mutation triggers, show the loading spinner.
-  const isResolving = platformGate === "full" && !isPlatformHosted;
+  // the lifecycle-loading race we need to compute "still loading"
+  // ourselves — otherwise the render falls through to the empty state
+  // ("No open notifications") AND mutation-firing controls (pause-rules
+  // popover) render interactively. Treat the lifecycle-loading window
+  // as loading: hide / disable mutation triggers, show the loading
+  // spinner. After the lifecycle resolves (any kind), this falls back
+  // to the query's own `isLoading` signal.
+  const isResolving = platformGate === "full" && isLifecycleLoading;
   const showLoading = isResolving || isLoading;
 
   // The pause-alerts trigger is unmounted while `isResolving` (below), so

@@ -6,7 +6,7 @@ import { Button } from "@vellum/design-library";
 import { Notice } from "@vellum/design-library/components/notice";
 import { assistantsMaintenanceModeExitCreate } from "@/generated/api/sdk.gen";
 import {
-  useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 
@@ -29,15 +29,18 @@ export function MaintenanceModeBanner({
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   // `ChatPage` is NOT mounted under `<ActiveAssistantGate>` (see routes.tsx
   // — chat owns its own lifecycle UI), so the banner can render while
-  // lifecycle is still `{ kind: "loading" }`. The gate above intentionally
-  // returns "full" during that window; pair with the strict hosting signal
-  // so the exit-mutation button stays disabled until the assistant is
-  // positively resolved as platform-hosted.
-  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  // lifecycle is still `{ kind: "loading" }`. The gate intentionally
+  // returns "full" during that window; pair with the lifecycle-loading
+  // signal so the exit-mutation button stays disabled until lifecycle has
+  // landed a resolution. Already-resolved non-hosted lifecycle kinds
+  // (`retired`, `error`, etc.) don't reach this banner — the parent only
+  // mounts it when `maintenanceMode != null` — so the narrow predicate
+  // catches exactly the deep-link race we care about.
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
 
   if (platformGate === "gated") return null;
 
-  const isResolving = platformGate === "full" && !isPlatformHosted;
+  const isResolving = platformGate === "full" && isLifecycleLoading;
 
   const handleResumeAssistant = async () => {
     if (isExiting) return;

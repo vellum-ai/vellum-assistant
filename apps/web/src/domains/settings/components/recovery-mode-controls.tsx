@@ -9,7 +9,7 @@ import {
 } from "@/generated/api/sdk.gen";
 import type { MaintenanceMode } from "@/generated/api/types.gen";
 import {
-  useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { reportError } from "@/utils/error-report";
@@ -33,10 +33,12 @@ export function RecoveryModeControls({
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   // Settings routes are NOT mounted under `<ActiveAssistantGate>`, so this
   // panel can render while lifecycle is `{ kind: "loading" }`. Pair the
-  // permissive gate value with the strict hosting signal so the
-  // enter/exit-mutation buttons stay disabled until lifecycle resolves
-  // positively as platform-hosted.
-  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  // permissive gate value with the lifecycle-loading signal so the
+  // enter/exit-mutation buttons stay disabled during the deep-link
+  // resolution race — but NOT in already-resolved non-hosted states
+  // (`retired`, `error`, `awaiting_version_selection`) where the parent
+  // wouldn't render this panel anyway (`maintenanceMode` would be null).
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
 
   const handleEnter = useCallback(async () => {
     setLoading(true);
@@ -107,11 +109,11 @@ export function RecoveryModeControls({
   if (platformGate === "gated") return null;
 
   const isActive = maintenanceMode?.enabled === true;
-  // Treat "lifecycle not yet positively-resolved as platform-hosted" as
-  // effective loading: the existing spinner branch already replaces the
-  // action button while a mutation is in flight, so reusing it here keeps
-  // UX consistent and prevents the race-window click.
-  const isResolving = platformGate === "full" && !isPlatformHosted;
+  // Treat the lifecycle-loading window as effective loading: the existing
+  // spinner branch already replaces the action button while a mutation is
+  // in flight, so reusing it here keeps UX consistent and prevents the
+  // race-window click on a fresh deep-link.
+  const isResolving = platformGate === "full" && isLifecycleLoading;
   const effectiveLoading = loading || isResolving;
 
   return (

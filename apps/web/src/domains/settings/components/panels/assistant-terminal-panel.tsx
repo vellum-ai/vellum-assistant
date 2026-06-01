@@ -7,7 +7,7 @@ import { TerminalPanel } from "@/components/terminal-panel";
 import type { MaintenanceMode } from "@/generated/api/types.gen";
 import { getAssistant } from "@/assistant/api";
 import {
-  useActiveAssistantIsPlatformHosted,
+  useActiveAssistantLifecycleIsLoading,
   usePlatformGate,
 } from "@/hooks/use-platform-gate";
 import { reportError } from "@/utils/error-report";
@@ -30,10 +30,12 @@ export function AssistantTerminalPanel() {
   const platformGate = usePlatformGate({ platformHostedOnly: true });
   // Settings routes are NOT mounted under `<ActiveAssistantGate>`, so the
   // gate intentionally returns "full" during the lifecycle `loading`
-  // window on a deep-link / hard refresh. Pair with the strict hosting
-  // signal so we don't kick off the platform-routed terminal connection
-  // before lifecycle resolves positively as platform-hosted.
-  const isPlatformHosted = useActiveAssistantIsPlatformHosted();
+  // window on a deep-link / hard refresh. Pair with the lifecycle-loading
+  // signal so we hold in the loading branch during the race; once the
+  // lifecycle resolves to `self_hosted` the gate flips to `gated` and we
+  // early-return null, structurally blocking TerminalPanel from mounting
+  // a platform-routed exec connection against a self-hosted target.
+  const isLifecycleLoading = useActiveAssistantLifecycleIsLoading();
   const [assistantId, setAssistantId] = useState<string | null>(null);
   const [maintenanceMode, setMaintenanceMode] =
     useState<MaintenanceMode | null>(null);
@@ -65,25 +67,29 @@ export function AssistantTerminalPanel() {
     }
   }, []);
 
-  // The terminal session is a platform-routed exec channel, so only fetch
-  // assistant detail (and let TerminalPanel attempt a connection) when the
-  // gate is fully open AND the assistant is positively resolved as
-  // platform-hosted. When disabled we render the panel chrome plus a
-  // Notice without firing the platform fetch; during the resolution race
-  // we hold in the loading branch until `isPlatformHosted` flips true.
+  // `getAssistant` is a daemon-side call (safe in every lifecycle state
+  // where we have a daemon connection), so fire it eagerly whenever the
+  // gate is open. The platform-routed exec connection — the actual
+  // Trap-5 concern — lives inside `<TerminalPanel>` and is structurally
+  // blocked from mounting in two ways: the gate flips to `"gated"` and
+  // returns null when the lifecycle resolves to self-hosted, and the
+  // `showLoading` branch below covers the lifecycle-loading race window.
+  // When disabled we render the panel chrome plus a Notice without
+  // firing the fetch.
   useEffect(() => {
-    if (platformGate !== "full" || !isPlatformHosted) return;
+    if (platformGate !== "full") return;
     fetchAssistant();
-  }, [fetchAssistant, platformGate, isPlatformHosted]);
+  }, [fetchAssistant, platformGate]);
 
   if (platformGate === "gated") return null;
 
-  // Treat the resolution race as still-loading. `loading` only reflects
-  // the daemon `getAssistant` call — without `isResolving`, the panel
-  // would fall through to "No assistant found" (when `loading` is false
-  // and `assistantId` is null) during the window before the gate fires
-  // the fetch.
-  const isResolving = platformGate === "full" && !isPlatformHosted;
+  // Treat ONLY the genuine lifecycle-loading window as still-resolving.
+  // Already-resolved non-hosted kinds (`retired`, `error`,
+  // `awaiting_version_selection`) must fall through to the existing
+  // "No assistant found" empty state — gating those on `!isPlatformHosted`
+  // would stick the panel on the spinner forever because `fetchAssistant`
+  // never clears `loading` for an assistant that doesn't exist.
+  const isResolving = platformGate === "full" && isLifecycleLoading;
   const showLoading = loading || isResolving;
 
   return (
