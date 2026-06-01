@@ -140,21 +140,30 @@ export async function saveLockfileAssistant(
 }
 
 /**
- * Upsert platform-hosted assistants into the lockfile so they appear in the
- * local assistant picker after login.
+ * Replace all platform-hosted assistant entries in the lockfile with the
+ * current set from the API. Removes stale entries and adds new ones atomically.
  */
 export async function syncPlatformAssistantsToLockfile(
   assistants: Array<{ id: string; is_local: boolean; ingress_url: string | null; created: string }>,
 ): Promise<void> {
-  for (const a of assistants) {
-    if (!a.is_local) {
-      await saveLockfileAssistant({
-        assistantId: a.id,
-        cloud: "vellum",
-        runtimeUrl: a.ingress_url ?? "",
-        hatchedAt: a.created,
-      });
-    }
+  const platformAssistants = assistants
+    .filter((a) => !a.is_local)
+    .map((a) => ({
+      assistantId: a.id,
+      cloud: "vellum",
+      runtimeUrl: a.ingress_url ?? "",
+      hatchedAt: a.created,
+    }));
+
+  const res = await fetch("/assistant/__local/lockfile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ syncPlatform: true, platformAssistants }),
+  });
+  if (res.ok) {
+    const { lockfile: updated } = (await res.json()) as { lockfile: Lockfile };
+    lockfile = updated;
+    setLocalSetting(LOCKFILE_STORAGE_KEY, JSON.stringify(updated));
   }
 }
 

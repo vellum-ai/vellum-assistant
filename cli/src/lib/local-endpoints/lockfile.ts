@@ -85,3 +85,47 @@ export function upsertLockfileAssistant(
   stripSensitiveFields(stripped);
   return { ok: true, lockfile: stripped };
 }
+
+export function replacePlatformAssistants(
+  lockfilePaths: string[],
+  platformAssistants: Array<Record<string, unknown>>,
+): WriteResult {
+  let lockfile: Record<string, unknown> = { assistants: [], activeAssistant: null };
+  for (const candidate of lockfilePaths) {
+    try {
+      lockfile = JSON.parse(fs.readFileSync(candidate, "utf-8")) as Record<string, unknown>;
+      break;
+    } catch {
+      // continue
+    }
+  }
+
+  const existing = Array.isArray(lockfile.assistants) ? lockfile.assistants : [];
+  const local = existing.filter(
+    (a: Record<string, unknown>) => a?.cloud !== "vellum",
+  );
+  lockfile.assistants = [...local, ...platformAssistants];
+
+  const active = lockfile.activeAssistant as string | null;
+  if (active) {
+    const stillExists = (lockfile.assistants as Array<Record<string, unknown>>).some(
+      (a) => a.assistantId === active,
+    );
+    if (!stillExists) lockfile.activeAssistant = null;
+  }
+
+  const writePath = lockfilePaths[0]!;
+  try {
+    const dir = path.dirname(writePath);
+    fs.mkdirSync(dir, { recursive: true });
+    const tmp = `${writePath}.tmp.${process.pid}`;
+    fs.writeFileSync(tmp, JSON.stringify(lockfile, null, 2));
+    fs.renameSync(tmp, writePath);
+  } catch (err) {
+    return { ok: false, status: 500, error: `Failed to write lockfile: ${err}` };
+  }
+
+  const stripped = JSON.parse(JSON.stringify(lockfile)) as Record<string, unknown>;
+  stripSensitiveFields(stripped);
+  return { ok: true, lockfile: stripped };
+}

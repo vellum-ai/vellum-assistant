@@ -9,6 +9,7 @@ import {
   isLoopbackAddr,
   getLockfileData,
   upsertLockfileAssistant,
+  replacePlatformAssistants,
   runHatch,
   runRetire,
   getGuardianAccessToken,
@@ -126,11 +127,19 @@ function lockfileMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction
           return;
         }
 
-        const result = upsertLockfileAssistant(
-          lockfilePaths,
-          body.assistant as Record<string, unknown>,
-          body.activeAssistant as string | undefined,
-        );
+        let result;
+        if (body.syncPlatform && Array.isArray(body.platformAssistants)) {
+          result = replacePlatformAssistants(
+            lockfilePaths,
+            body.platformAssistants as Array<Record<string, unknown>>,
+          );
+        } else {
+          result = upsertLockfileAssistant(
+            lockfilePaths,
+            body.assistant as Record<string, unknown>,
+            body.activeAssistant as string | undefined,
+          );
+        }
         res.statusCode = result.ok ? 200 : result.status;
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify(result));

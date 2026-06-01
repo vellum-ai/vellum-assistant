@@ -1,7 +1,7 @@
 export { stripSensitiveFields, isLoopbackAddr, resolveCliPath, resetCliPathCache } from "./util";
 export { resolveLocalConfigFromEnv, resolveLockfilePaths, resolveConfigDir } from "./config";
 export type { LocalEndpointConfig } from "./config";
-export { getLockfileData, upsertLockfileAssistant } from "./lockfile";
+export { getLockfileData, upsertLockfileAssistant, replacePlatformAssistants } from "./lockfile";
 export type { LockfileResult, WriteResult } from "./lockfile";
 export { runHatch } from "./hatch";
 export type { HatchResult } from "./hatch";

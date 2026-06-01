@@ -27,6 +27,7 @@ import {
 import {
   getLockfileData,
   upsertLockfileAssistant,
+  replacePlatformAssistants,
   runHatch,
   runRetire,
   getGuardianAccessToken,
@@ -404,11 +405,19 @@ async function handleLocalEndpoints(
       } catch {
         return Response.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
       }
-      const result = upsertLockfileAssistant(
-        lockfilePaths,
-        body.assistant as Record<string, unknown>,
-        body.activeAssistant as string | undefined,
-      );
+      let result;
+      if (body.syncPlatform && Array.isArray(body.platformAssistants)) {
+        result = replacePlatformAssistants(
+          lockfilePaths,
+          body.platformAssistants as Array<Record<string, unknown>>,
+        );
+      } else {
+        result = upsertLockfileAssistant(
+          lockfilePaths,
+          body.assistant as Record<string, unknown>,
+          body.activeAssistant as string | undefined,
+        );
+      }
       return Response.json(result, { status: result.ok ? 200 : result.status });
     }
     return new Response(null, { status: 405 });
