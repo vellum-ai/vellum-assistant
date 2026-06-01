@@ -9,6 +9,7 @@ import {
   clearLastSeenSeq,
   getLastSeenSeq,
   hydrateLastSeenSeqFromStorage,
+  MAX_TRACKED_CONVERSATIONS,
   replaceLastSeenSeq,
   setLastSeenSeq,
 } from "@/lib/streaming/last-seen-seq";
@@ -286,5 +287,159 @@ describe("replaceLastSeenSeq", () => {
 
     // THEN the stored value should advance to 2
     expect(getLastSeenSeq("conv-1")).toBe(2);
+  });
+});
+
+describe("LRU eviction", () => {
+  test("evicts the oldest entry when the cap is exceeded via setLastSeenSeq", () => {
+    /**
+     * Filling the map beyond MAX_TRACKED_CONVERSATIONS should evict the
+     * least-recently-written entry from both memory and localStorage.
+     */
+
+    // GIVEN MAX_TRACKED_CONVERSATIONS conversations have been stored
+    for (let i = 0; i < MAX_TRACKED_CONVERSATIONS; i++) {
+      setLastSeenSeq(`conv-${i}`, i + 1);
+    }
+
+    // WHEN we store one more (exceeding the cap)
+    setLastSeenSeq("conv-overflow", 999);
+
+    // THEN the oldest (conv-0) should be evicted
+    expect(getLastSeenSeq("conv-0")).toBeNull();
+    expect(localStorage.getItem("vellum.lastSeenSeq.conv-0")).toBeNull();
+
+    // AND the new entry should be present
+    expect(getLastSeenSeq("conv-overflow")).toBe(999);
+
+    // AND the second-oldest should still be present
+    expect(getLastSeenSeq("conv-1")).toBe(2);
+  });
+
+  test("evicts the oldest entry when the cap is exceeded via replaceLastSeenSeq", () => {
+    /**
+     * replaceLastSeenSeq should also trigger eviction when over capacity.
+     */
+
+    // GIVEN MAX_TRACKED_CONVERSATIONS conversations have been stored
+    for (let i = 0; i < MAX_TRACKED_CONVERSATIONS; i++) {
+      setLastSeenSeq(`conv-${i}`, i + 1);
+    }
+
+    // WHEN we replace a new conversation (exceeding the cap)
+    replaceLastSeenSeq("conv-overflow", 1);
+
+    // THEN the oldest (conv-0) should be evicted
+    expect(getLastSeenSeq("conv-0")).toBeNull();
+    expect(localStorage.getItem("vellum.lastSeenSeq.conv-0")).toBeNull();
+
+    // AND the new entry should be present
+    expect(getLastSeenSeq("conv-overflow")).toBe(1);
+  });
+
+  test("writing to an existing conversation promotes it and does not evict", () => {
+    /**
+     * Updating an existing entry should promote it to the end of the
+     * LRU order without evicting anything, since the map size stays
+     * the same.
+     */
+
+    // GIVEN MAX_TRACKED_CONVERSATIONS conversations have been stored
+    for (let i = 0; i < MAX_TRACKED_CONVERSATIONS; i++) {
+      setLastSeenSeq(`conv-${i}`, i + 1);
+    }
+
+    // WHEN we update the oldest conversation (conv-0)
+    setLastSeenSeq("conv-0", 1000);
+
+    // THEN conv-0 should still be present with the new value
+    expect(getLastSeenSeq("conv-0")).toBe(1000);
+
+    // AND no other conversations should have been evicted
+    expect(getLastSeenSeq("conv-1")).toBe(2);
+    expect(getLastSeenSeq(`conv-${MAX_TRACKED_CONVERSATIONS - 1}`)).toBe(
+      MAX_TRACKED_CONVERSATIONS,
+    );
+  });
+
+  test("promoting an entry changes the eviction order", () => {
+    /**
+     * After promoting conv-0, the next eviction should remove conv-1
+     * (now the oldest) instead of conv-0.
+     */
+
+    // GIVEN MAX_TRACKED_CONVERSATIONS conversations
+    for (let i = 0; i < MAX_TRACKED_CONVERSATIONS; i++) {
+      setLastSeenSeq(`conv-${i}`, i + 1);
+    }
+
+    // AND conv-0 is promoted by writing to it
+    setLastSeenSeq("conv-0", 1000);
+
+    // WHEN we add a new conversation (exceeding the cap)
+    setLastSeenSeq("conv-overflow", 999);
+
+    // THEN conv-1 (now the oldest) should be evicted, not conv-0
+    expect(getLastSeenSeq("conv-0")).toBe(1000);
+    expect(getLastSeenSeq("conv-1")).toBeNull();
+    expect(getLastSeenSeq("conv-overflow")).toBe(999);
+  });
+});
+
+describe("hydrateLastSeenSeqFromStorage GC", () => {
+  test("prunes localStorage entries exceeding the cap during hydration", () => {
+    /**
+     * If localStorage accumulated more keys than the cap (e.g., from a
+     * previous version without GC), hydrate should prune the excess
+     * entries with the lowest seq values.
+     */
+
+    // GIVEN localStorage has more entries than MAX_TRACKED_CONVERSATIONS
+    const total = MAX_TRACKED_CONVERSATIONS + 10;
+    for (let i = 0; i < total; i++) {
+      localStorage.setItem(`vellum.lastSeenSeq.conv-${i}`, String(i + 1));
+    }
+
+    // WHEN we hydrate
+    hydrateLastSeenSeqFromStorage();
+
+    // THEN the 10 conversations with the lowest seqs should be pruned
+    // from localStorage (conv-0 through conv-9 have seq 1..10)
+    for (let i = 0; i < 10; i++) {
+      expect(localStorage.getItem(`vellum.lastSeenSeq.conv-${i}`)).toBeNull();
+    }
+
+    // AND the remaining conversations should be in memory
+    for (let i = 10; i < total; i++) {
+      expect(getLastSeenSeq(`conv-${i}`)).toBe(i + 1);
+    }
+  });
+
+  test("preserves LRU order so post-hydration eviction drops lowest-seq entry", () => {
+    /**
+     * After hydration with pruning, the Map insertion order must be
+     * ascending by seq so that writeThrough evicts the lowest-seq
+     * (least recent) entry, not the highest.
+     */
+
+    // GIVEN localStorage has more entries than the cap
+    const total = MAX_TRACKED_CONVERSATIONS + 5;
+    for (let i = 0; i < total; i++) {
+      localStorage.setItem(`vellum.lastSeenSeq.conv-${i}`, String(i + 1));
+    }
+
+    // WHEN we hydrate (prunes conv-0..conv-4) and then add a new entry
+    hydrateLastSeenSeqFromStorage();
+    setLastSeenSeq("conv-new", 9999);
+
+    // THEN the entry with the lowest retained seq (conv-5, seq=6) should
+    // be evicted — not the highest (conv-{total-1})
+    expect(getLastSeenSeq("conv-5")).toBeNull();
+
+    // AND the highest-seq retained entry should still be present
+    expect(getLastSeenSeq(`conv-${total - 1}`)).toBe(total);
+
+    // AND the new entry should be present
+    expect(getLastSeenSeq("conv-new")).toBe(9999);
   });
 });

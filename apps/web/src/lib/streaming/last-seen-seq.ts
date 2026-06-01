@@ -13,12 +13,21 @@
  * the server seq counter restarts (e.g., daemon restart) and the
  * observed seq is lower than the stored value.
  *
+ * The in-memory map is capped at {@link MAX_TRACKED_CONVERSATIONS}.
+ * When the cap is exceeded, the oldest entry (Map iteration order =
+ * insertion order) is evicted from both memory and localStorage.
+ * Every write promotes the conversation to the end of the map so
+ * recently-active conversations are retained.
+ *
  * All localStorage operations are wrapped in try/catch so
  * private-browsing or quota-exceeded environments fall back to
  * in-memory-only tracking.
  */
 
 const STORAGE_KEY_PREFIX = "vellum.lastSeenSeq.";
+
+/** Visible for testing. */
+export const MAX_TRACKED_CONVERSATIONS = 256;
 
 const seqMap = new Map<string, number>();
 
@@ -35,6 +44,34 @@ export function getLastSeenSeq(conversationId: string): number | null {
 }
 
 /**
+ * Write a cursor value, promote the conversation to the end of the
+ * Map (LRU), and evict the oldest entry if over capacity.
+ */
+function writeThrough(conversationId: string, seq: number): void {
+  // Delete-then-set promotes to the end of Map iteration order.
+  seqMap.delete(conversationId);
+  seqMap.set(conversationId, seq);
+
+  if (seqMap.size > MAX_TRACKED_CONVERSATIONS) {
+    const oldest = seqMap.keys().next().value;
+    if (oldest != null) {
+      seqMap.delete(oldest);
+      try {
+        localStorage.removeItem(storageKey(oldest));
+      } catch {
+        // localStorage unavailable.
+      }
+    }
+  }
+
+  try {
+    localStorage.setItem(storageKey(conversationId), String(seq));
+  } catch {
+    // Quota exceeded or private browsing — in-memory only.
+  }
+}
+
+/**
  * Persist a seq value for a conversation. Only writes if `seq` is
  * strictly greater than the current stored value (monotonic).
  * Writes through to localStorage synchronously.
@@ -44,13 +81,7 @@ export function setLastSeenSeq(conversationId: string, seq: number): void {
   if (current !== undefined && seq <= current) {
     return;
   }
-
-  seqMap.set(conversationId, seq);
-  try {
-    localStorage.setItem(storageKey(conversationId), String(seq));
-  } catch {
-    // Quota exceeded or private browsing — in-memory only.
-  }
+  writeThrough(conversationId, seq);
 }
 
 /**
@@ -59,32 +90,56 @@ export function setLastSeenSeq(conversationId: string, seq: number): void {
  * Unlike `setLastSeenSeq`, this does not enforce monotonicity.
  */
 export function replaceLastSeenSeq(conversationId: string, seq: number): void {
-  seqMap.set(conversationId, seq);
-  try {
-    localStorage.setItem(storageKey(conversationId), String(seq));
-  } catch {
-    // Quota exceeded or private browsing — in-memory only.
-  }
+  writeThrough(conversationId, seq);
 }
 
 /**
  * Populate the in-memory map from localStorage. Called once at
  * chat-page mount so the cursor is seeded before the bus subscriber
  * fires. Idempotent — safe to call multiple times.
+ *
+ * If localStorage contains more keys than {@link MAX_TRACKED_CONVERSATIONS},
+ * excess entries are pruned from localStorage to bound storage growth.
  */
 export function hydrateLastSeenSeqFromStorage(): void {
   try {
+    const entries: Array<{ conversationId: string; seq: number }> = [];
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (!key?.startsWith(STORAGE_KEY_PREFIX)) continue;
+      if (!key?.startsWith(STORAGE_KEY_PREFIX)) {
+        continue;
+      }
       const conversationId = key.slice(STORAGE_KEY_PREFIX.length);
       const raw = localStorage.getItem(key);
-      if (raw == null) continue;
+      if (raw == null) {
+        continue;
+      }
       const parsed = Number(raw);
-      if (!Number.isFinite(parsed) || parsed < 0) continue;
+      if (!Number.isFinite(parsed) || parsed < 0) {
+        continue;
+      }
+      entries.push({ conversationId, seq: parsed });
+    }
+
+    // Sort ascending so lowest-seq (oldest) entries are inserted first.
+    // Map preserves insertion order, and writeThrough evicts from the
+    // front, so the highest-seq (most recent) entries must be last.
+    entries.sort((a, b) => a.seq - b.seq);
+
+    // When localStorage has accumulated more than the cap, prune the
+    // lowest-seq entries from localStorage and keep only the tail.
+    if (entries.length > MAX_TRACKED_CONVERSATIONS) {
+      const pruneCount = entries.length - MAX_TRACKED_CONVERSATIONS;
+      for (let i = 0; i < pruneCount; i++) {
+        localStorage.removeItem(storageKey(entries[i].conversationId));
+      }
+      entries.splice(0, pruneCount);
+    }
+
+    for (const { conversationId, seq } of entries) {
       const current = seqMap.get(conversationId);
-      if (current === undefined || parsed > current) {
-        seqMap.set(conversationId, parsed);
+      if (current === undefined || seq > current) {
+        seqMap.set(conversationId, seq);
       }
     }
   } catch {
