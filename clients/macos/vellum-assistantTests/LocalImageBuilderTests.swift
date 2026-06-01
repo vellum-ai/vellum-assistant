@@ -89,9 +89,9 @@ final class LocalImageBuilderTests: XCTestCase {
         XCTAssertEqual(assistant.dockerfile.lastPathComponent, "Dockerfile")
         XCTAssertTrue(assistant.dockerfile.path.contains("assistant"))
 
-        // Gateway: context=repoRoot, dockerfile=repoRoot/gateway/Dockerfile
+        // Gateway: context=repoRoot/gateway, dockerfile=repoRoot/gateway/Dockerfile
         let gateway = byService[.gateway]!
-        XCTAssertEqual(gateway.context, root)
+        XCTAssertEqual(gateway.context, root.appendingPathComponent("gateway"))
         XCTAssertEqual(gateway.dockerfile.lastPathComponent, "Dockerfile")
         XCTAssertTrue(gateway.dockerfile.path.contains("gateway"))
 

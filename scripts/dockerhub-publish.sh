@@ -103,7 +103,7 @@ build_context_for() {
   case "$1" in
     assistant)            echo "." ;;
     credential-executor)  echo "." ;;
-    gateway)              echo "." ;;
+    gateway)              echo "gateway" ;;
   esac
 }
 

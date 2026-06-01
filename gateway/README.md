@@ -318,7 +318,7 @@ On `SIGTERM` the gateway enters drain mode: `/readyz` begins returning `503` so 
 
 ```bash
 # Build
-docker build -f gateway/Dockerfile -t vellum-gateway:local .
+docker build -t vellum-gateway:local gateway
 
 # Run (pass required env vars)
 docker run --rm -p 7830:7830 \
@@ -328,8 +328,6 @@ docker run --rm -p 7830:7830 \
 ```
 
 The image runs as non-root user `gateway` (uid 1001) and exposes port `7830`.
-
-For Kata-family block-mode deployments, see the canonical [Kata Block-Mode Image Contract](../docs/kata-block-mode-image-contract.md). Gateway block mode uses the non-security bind spec `workspace:/workspace:rw`; `/gateway-security` remains on a separate gateway-owned security volume or equivalent platform-provisioned storage.
 
 The runtime base URL is derived from `RUNTIME_HTTP_PORT` as `http://localhost:${RUNTIME_HTTP_PORT}` (default port `7821`). The gateway internal base URL is always derived from `GATEWAY_PORT` as `http://127.0.0.1:${GATEWAY_PORT}` (default `7830`). Both hosts are hardcoded to localhost — the gateway and runtime must be co-located (e.g., same host, `--network host`, or Docker Compose with shared networking). Separate-host deployments are not currently supported.
 

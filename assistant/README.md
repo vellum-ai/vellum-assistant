@@ -466,8 +466,6 @@ docker run --rm -p 3001:3001 \
 
 The image exposes port `3001` and bundles the `assistant` CLI binary.
 
-For Kata-family block-mode deployments, see the canonical [Kata Block-Mode Image Contract](../docs/kata-block-mode-image-contract.md). Assistant block mode uses the non-security bind specs `assistant-data:/data:rw;workspace:/workspace:rw;dockerd-data:/var/lib/docker:rw`; security storage remains on separate service-owned volumes.
-
 ## Troubleshooting
 
 ### Guardian and gateway-origin issues
