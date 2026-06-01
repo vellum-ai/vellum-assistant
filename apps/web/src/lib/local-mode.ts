@@ -139,6 +139,25 @@ export async function saveLockfileAssistant(
   }
 }
 
+/**
+ * Upsert platform-hosted assistants into the lockfile so they appear in the
+ * local assistant picker after login.
+ */
+export async function syncPlatformAssistantsToLockfile(
+  assistants: Array<{ id: string; is_local: boolean; ingress_url: string | null; created: string }>,
+): Promise<void> {
+  for (const a of assistants) {
+    if (!a.is_local) {
+      await saveLockfileAssistant({
+        assistantId: a.id,
+        cloud: "vellum",
+        runtimeUrl: a.ingress_url ?? "",
+        hatchedAt: a.created,
+      });
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Retire
 // ---------------------------------------------------------------------------

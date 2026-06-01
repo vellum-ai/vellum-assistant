@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router";
 
 import { listAssistants } from "@/assistant/api";
+import { syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 
@@ -60,6 +61,7 @@ export function PlatformLoopbackPage() {
       try {
         const result = await listAssistants();
         if (result.ok && result.data.length > 0) {
+          await syncPlatformAssistantsToLockfile(result.data);
           void navigate(routes.assistant, { replace: true });
           return;
         }

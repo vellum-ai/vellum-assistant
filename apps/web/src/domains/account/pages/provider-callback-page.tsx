@@ -11,7 +11,7 @@ import {
   resolvePostAuthDestination,
 } from "@/domains/account/login-flow";
 import { classifyCallbackFlows } from "@/domains/account/social-auth";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalMode, syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
 import { useAuthStore } from "@/stores/auth-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { routes } from "@/utils/routes";
@@ -61,6 +61,7 @@ export function ProviderCallbackPage() {
               try {
                 const assistants = await listAssistants();
                 if (assistants.ok && assistants.data.length > 0) {
+                  await syncPlatformAssistantsToLockfile(assistants.data);
                   navigate(routes.assistant, { replace: true });
                   break;
                 }
