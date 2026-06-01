@@ -88,6 +88,22 @@ describe("BubbleAttachments", () => {
     );
   });
 
+  test("preserves the original attachment order for a mixed list", () => {
+    const { getByText, getByRole } = render(
+      <BubbleAttachments attachments={[pdf, imageWithPreview]} />,
+    );
+
+    const pdfEl = getByText("report.pdf");
+    const imgEl = getByRole("button", { name: "photo.png" });
+
+    // The pdf chip must appear before the image preview in document order,
+    // matching the input order [pdf, image].
+    expect(
+      pdfEl.compareDocumentPosition(imgEl) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
   test("returns null for an empty attachments array", () => {
     const { container } = render(<BubbleAttachments attachments={[]} />);
     expect(container.innerHTML).toBe("");

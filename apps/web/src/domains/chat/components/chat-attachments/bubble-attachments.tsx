@@ -37,51 +37,47 @@ export const BubbleAttachments: FC<BubbleAttachmentsProps> = ({
     return null;
   }
 
-  const inlineImages: DisplayAttachment[] = [];
-  const chips: DisplayAttachment[] = [];
-  for (const att of attachments) {
-    const isInlineImage =
-      classifyAttachment(att.mimeType, att.filename) === "image" &&
-      att.previewUrl != null;
-    (isInlineImage ? inlineImages : chips).push(att);
-  }
-
   return (
     <>
       <div className="flex flex-col gap-2">
-        {inlineImages.map((att) => (
-          <img
-            key={att.id}
-            src={att.previewUrl ?? undefined}
-            alt={att.filename}
-            role="button"
-            aria-label={att.filename}
-            title={att.filename}
-            tabIndex={0}
-            onClick={() => setPreviewAttachment(att)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                setPreviewAttachment(att);
-              }
-            }}
-            className="max-h-[320px] max-w-full cursor-pointer rounded-lg object-cover"
-          />
-        ))}
-        {chips.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
-            {chips.map((att) => (
-              <MessageAttachmentSquare
+        {attachments.map((att) => {
+          const isInlineImage =
+            classifyAttachment(att.mimeType, att.filename) === "image" &&
+            att.previewUrl != null;
+
+          if (isInlineImage) {
+            return (
+              <img
                 key={att.id}
-                filename={att.filename}
-                mimeType={att.mimeType}
-                sizeBytes={att.sizeBytes}
-                previewUrl={att.previewUrl}
-                onPreview={() => setPreviewAttachment(att)}
+                src={att.previewUrl ?? undefined}
+                alt={att.filename}
+                role="button"
+                aria-label={att.filename}
+                title={att.filename}
+                tabIndex={0}
+                onClick={() => setPreviewAttachment(att)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setPreviewAttachment(att);
+                  }
+                }}
+                className="max-h-[320px] max-w-full cursor-pointer rounded-lg object-cover"
               />
-            ))}
-          </div>
-        ) : null}
+            );
+          }
+
+          return (
+            <MessageAttachmentSquare
+              key={att.id}
+              filename={att.filename}
+              mimeType={att.mimeType}
+              sizeBytes={att.sizeBytes}
+              previewUrl={att.previewUrl}
+              onPreview={() => setPreviewAttachment(att)}
+            />
+          );
+        })}
       </div>
       {previewAttachment && (
         <AttachmentPreviewModal
