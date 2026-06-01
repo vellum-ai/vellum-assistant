@@ -444,7 +444,7 @@ describe("onboarding lifecycle sync", () => {
     expect(await screen.findByTestId("name-continue")).toBeTruthy();
   });
 
-  test("recipe skip stores the pre-chat handoff and enters chat without showing pre-chat screens", async () => {
+  test("recipe skip does not bypass the pared-down pre-chat screens", async () => {
     const recipe: TestOnboardingRecipe = {
       cohort: "content-automation",
       tasks: ["writing", "research"],
@@ -458,7 +458,15 @@ describe("onboarding lifecycle sync", () => {
 
     render(<PreChatFlow />);
 
-    expect(screen.queryByTestId("name-continue")).toBeNull();
+    expect(await screen.findByTestId("name-continue")).toBeTruthy();
+    expect(checkAssistantMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("name-continue"));
+    expect(await screen.findByText("Gmail")).toBeTruthy();
+    expect(screen.getByText("Google Calendar")).toBeTruthy();
+    expect(screen.getByText("Google Drive")).toBeTruthy();
+    fireEvent.click(screen.getByText("Skip for now"));
+
     await waitFor(() => expect(checkAssistantMock).toHaveBeenCalled());
     await waitFor(() =>
       expect(navigateMock).toHaveBeenCalledWith(
@@ -473,9 +481,10 @@ describe("onboarding lifecycle sync", () => {
       tools: [],
       tasks: recipe.tasks,
       tone: recipe.tone,
+      userName: "Alice",
       googleConnected: false,
       cohort: recipe.cohort,
-      initialMessage: recipe.initialMessage,
+      initialMessage: "Hi, I'm Alice. Nice to meet you.",
       bootstrapTemplate: recipe.bootstrapTemplate,
       skills: recipe.skills,
     });

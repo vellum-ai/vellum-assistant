@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useRef,
   useState,
 } from "react";
 import { useNavigate, useSearchParams } from "react-router";
@@ -267,51 +266,6 @@ export function PreChatFlow() {
     userId,
   ]);
 
-  // ── Recipe-driven auto-skip: skip all pre-chat screens (web only) ──
-  const autoSkippedRef = useRef(false);
-  useEffect(() => {
-    if (isReplay) return;
-    if (!recipe?.skipPrechat || isNative) return;
-    if (isAuthLoading || !isLoggedIn || consentDecision !== "ok") return;
-    if (readOnboardingCompleted()) return;
-    if (autoSkippedRef.current) return;
-    autoSkippedRef.current = true;
-
-    const context: PreChatOnboardingContext = {
-      tools: [],
-      tasks: recipe.tasks,
-      tone: recipe.tone,
-      googleConnected: false,
-      cohort: recipe.cohort,
-      initialMessage: recipe.initialMessage,
-      bootstrapTemplate: recipe.bootstrapTemplate,
-      skills: recipe.skills,
-    };
-    setPendingPreChatContext(context);
-    try {
-      setOnboardingCompleted(true);
-    } catch (err) {
-      Sentry.captureException(err, {
-        tags: { context: "prechat_auto_skip_recipe" },
-      });
-    }
-    clearPrivacyConsent();
-    // Skip-recipe finishes onboarding; the post-hatch greeting is
-    // forthcoming. Mark before navigating so the destination chat
-    // mount shows the loading gate until the greeting arrives.
-    lifecycleService.markExpectingFirstMessage();
-    void navigateToChatAfterLifecycleRefresh();
-  }, [
-    recipe,
-    isNative,
-    isReplay,
-    isAuthLoading,
-    isLoggedIn,
-    consentDecision,
-    navigateToChatAfterLifecycleRefresh,
-    setOnboardingCompleted,
-  ]);
-
   const consentReady = isNative || consentDecision === "ok";
   const recipeReady = isNative || recipeLoadState === "ready";
   const shouldHidePrechat =
@@ -319,8 +273,7 @@ export function PreChatFlow() {
     !isLoggedIn ||
     !consentReady ||
     !recipeReady ||
-    (readOnboardingCompleted() && !isReplay) ||
-    (recipe?.skipPrechat && !isNative && !isReplay);
+    (readOnboardingCompleted() && !isReplay);
 
   function emitWebFunnelStep(
     step: (typeof ONBOARDING_FUNNEL_STEPS)[keyof typeof ONBOARDING_FUNNEL_STEPS],
@@ -340,20 +293,26 @@ export function PreChatFlow() {
     const selectedPriorAssistantsForContext =
       options.selectedPriorAssistants ?? selectedPriorAssistants;
     const connectedWithCurrentAction = connectedScopes !== undefined;
+    const tone = selectedGroupId ?? recipe?.tone ?? DEFAULT_GROUP_ID;
     const context: PreChatOnboardingContext = paredDownPrechat
       ? {
           tools: connectedWithCurrentAction
             ? [...PARED_DOWN_GOOGLE_TOOL_IDS]
             : [],
-          tasks: [],
-          tone: selectedGroupId ?? DEFAULT_GROUP_ID,
+          tasks: recipe?.tasks ?? [],
+          tone,
           googleConnected: connectedWithCurrentAction,
         }
       : {
           tools: stripOtherPrefix([...selectedTools]),
           tasks: [...selectedTasks].sort(),
-          tone: selectedGroupId ?? DEFAULT_GROUP_ID,
+          tone,
         };
+    if (recipe) {
+      context.cohort = recipe.cohort;
+      context.bootstrapTemplate = recipe.bootstrapTemplate;
+      context.skills = recipe.skills;
+    }
     const trimmedUser = userName.trim();
     if (trimmedUser) context.userName = trimmedUser;
     const trimmedAssistant = assistantName.trim();
