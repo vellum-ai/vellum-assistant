@@ -8,17 +8,18 @@ import { searchGlobalGet } from "@/generated/daemon/sdk.gen";
  * Search results grouped by category, as returned by the daemon.
  *
  * The generated `SearchGlobalGetResponse["results"]` type resolves to
- * `{ [key: string]: unknown }` because the OpenAPI spec uses
- * `additionalProperties`. This interface captures the actual shape so
- * consumers get proper type safety.
+ * `{ [key: string]: unknown }` because HeyAPI collapses the inline nested
+ * object despite the spec having full property definitions. This interface
+ * mirrors the Zod schemas in `assistant/src/runtime/routes/global-search-routes.ts`
+ * (lines 34–76) so consumers get proper type safety.
  */
 export interface GlobalSearchResponse {
   conversations: Array<{
     id: string;
     title: string | null;
-    excerpt?: string;
-    updatedAt?: number;
-    matchCount?: number;
+    updatedAt: number;
+    excerpt: string;
+    matchCount: number;
   }>;
   memories: Array<{
     id: string;
@@ -32,16 +33,16 @@ export interface GlobalSearchResponse {
   schedules: Array<{
     id: string;
     name: string;
-    expression?: string;
-    message?: string;
-    enabled?: boolean;
-    nextRunAt?: number | null;
+    expression: string | null;
+    message: string;
+    enabled: boolean;
+    nextRunAt: number | null;
   }>;
   contacts: Array<{
     id: string;
     displayName: string;
-    notes?: string | null;
-    lastInteraction?: number | null;
+    notes: string | null;
+    lastInteraction: number | null;
   }>;
 }
 

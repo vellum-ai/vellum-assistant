@@ -299,7 +299,7 @@ const QUERY_STALE_TIME_MS = 30_000;
  *     the org store intentionally stays empty), or
  *   - the org store has been populated.
  */
-function useHasOrgContext(): boolean {
+function useIsOrgReady(): boolean {
   const currentOrgId = useOrganizationStore.use.currentOrganizationId();
   const hasPlatformSession = useAuthStore.use.hasPlatformSession();
   return isLocalMode() || !hasPlatformSession || currentOrgId != null;
@@ -335,11 +335,11 @@ export function useConversationListQuery(
   error: Error | null;
   refetch: () => void;
 } {
-  const hasOrgContext = useHasOrgContext();
+  const isOrgReady = useIsOrgReady();
   const query = useQuery({
     queryKey: conversationsQueryKey(assistantId),
     queryFn: () => listConversations(assistantId!),
-    enabled: enabled && Boolean(assistantId) && hasOrgContext,
+    enabled: enabled && Boolean(assistantId) && isOrgReady,
     staleTime: QUERY_STALE_TIME_MS,
   });
   return {
@@ -373,10 +373,11 @@ export function useBackgroundConversationListQuery(
   isLoading: boolean;
   isPending: boolean;
 } {
+  const isOrgReady = useIsOrgReady();
   const query = useQuery({
     queryKey: backgroundConversationsQueryKey(assistantId),
     queryFn: () => listBackgroundConversations(assistantId!),
-    enabled: enabled && Boolean(assistantId),
+    enabled: enabled && Boolean(assistantId) && isOrgReady,
     staleTime: QUERY_STALE_TIME_MS,
   });
   return {
@@ -406,10 +407,11 @@ export function useScheduledConversationListQuery(
   isLoading: boolean;
   isPending: boolean;
 } {
+  const isOrgReady = useIsOrgReady();
   const query = useQuery({
     queryKey: scheduledConversationsQueryKey(assistantId),
     queryFn: () => listScheduledConversations(assistantId!),
-    enabled: enabled && Boolean(assistantId),
+    enabled: enabled && Boolean(assistantId) && isOrgReady,
     staleTime: QUERY_STALE_TIME_MS,
   });
   return {
@@ -439,11 +441,11 @@ export function useArchivedConversationListQuery(
   error: Error | null;
   refetch: () => void;
 } {
-  const hasOrgContext = useHasOrgContext();
+  const isOrgReady = useIsOrgReady();
   const query = useQuery({
     queryKey: archivedConversationsQueryKey(assistantId),
     queryFn: () => listArchivedConversations(assistantId!),
-    enabled: enabled && Boolean(assistantId) && hasOrgContext,
+    enabled: enabled && Boolean(assistantId) && isOrgReady,
     staleTime: QUERY_STALE_TIME_MS,
   });
   return {
@@ -467,13 +469,13 @@ export function useConversationGroupsQuery(
   assistantId: string | null,
   enabled: boolean = true,
 ): { conversationGroups: ConversationGroup[]; isLoading: boolean } {
-  const hasOrgContext = useHasOrgContext();
+  const isOrgReady = useIsOrgReady();
   const query = useQuery({
     ...groupsGetOptions({
       path: { assistant_id: assistantId ?? "" },
     } as Options<GroupsGetData>),
     select: (data) => data.groups,
-    enabled: enabled && Boolean(assistantId) && hasOrgContext,
+    enabled: enabled && Boolean(assistantId) && isOrgReady,
     staleTime: QUERY_STALE_TIME_MS,
   });
   return {
