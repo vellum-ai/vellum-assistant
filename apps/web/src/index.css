@@ -19,7 +19,10 @@ body {
 
 @keyframes fadeInUp {
   0% { transform: translateY(16px); opacity: 0; }
-  100% { transform: translateY(0); opacity: 1; }
+  /* End at `none` (not translateY(0)) so the filled-forwards transform does
+     not create a containing block — otherwise position:fixed descendants like
+     the Dropdown menu anchor to this element instead of the viewport. */
+  100% { transform: none; opacity: 1; }
 }
 
 @keyframes typing-dot-pulse {

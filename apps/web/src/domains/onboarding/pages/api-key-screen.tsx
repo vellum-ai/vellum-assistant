@@ -98,14 +98,17 @@ export function ApiKeyScreen() {
                 fullWidth
               />
               {entry.docsUrl && (
-                <a
-                  href={entry.docsUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="self-start text-body-small-default text-[var(--content-default)] underline"
-                >
-                  Get an API key here
-                </a>
+                <p className="self-start text-body-medium-lighter text-[var(--content-tertiary)]">
+                  Don't have it?{" "}
+                  <a
+                    href={entry.docsUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[var(--content-default)] underline"
+                  >
+                    Get an API key here
+                  </a>
+                </p>
               )}
             </div>
           )}
