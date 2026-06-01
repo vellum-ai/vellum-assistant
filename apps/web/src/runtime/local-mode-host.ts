@@ -28,10 +28,11 @@ export interface LocalHatchResult {
 /**
  * Provision a local assistant for the requested species.
  *
- * Electron: the main process imports the CLI's `hatchLocal` and runs it
- * in-process. Web/dev: a POST to the Vite middleware spawns the CLI binary.
- * Both return the same `{ ok, assistantId }` contract; callers reload the
- * lockfile to discover the new assistant regardless of host.
+ * Both hosts spawn the Vellum CLI in a trusted process and return the same
+ * `{ ok, assistantId }` contract: the Electron main process behind
+ * `window.vellum.localMode.hatch`, the Vite dev server behind the
+ * `/assistant/__local/hatch` middleware. Callers reload the lockfile to
+ * discover the new assistant regardless of host.
  */
 export async function hatchLocalAssistant(
   species: string = "vellum",
