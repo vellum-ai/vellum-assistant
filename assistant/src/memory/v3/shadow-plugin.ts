@@ -35,12 +35,10 @@ import type { AssistantConfig } from "../../config/schema.js";
 import { getMessages } from "../../memory/conversation-crud.js";
 import { getDb, getSqliteFrom } from "../../memory/db-connection.js";
 import { stringifyMessageContent } from "../../memory/message-content.js";
-import { registerPlugin } from "../../plugins/registry.js";
 import {
   type InjectionBlock,
   type Injector,
   type Plugin,
-  PluginExecutionError,
   type TurnContext as PluginTurnContext,
 } from "../../plugins/types.js";
 import { getLogger } from "../../util/logger.js";
@@ -367,20 +365,3 @@ export const memoryV3ShadowPlugin: Plugin = {
   },
   injectors: [memoryV3Injector],
 };
-
-// Module-load side effect: register at import time so the registry is
-// populated even for callers that skip `bootstrapPlugins()`. Idempotent via
-// the swallowed duplicate-name check — mirrors the other default plugins.
-try {
-  registerPlugin(memoryV3ShadowPlugin);
-} catch (err) {
-  if (
-    err instanceof PluginExecutionError &&
-    err.message.includes("already registered")
-  ) {
-    // already registered — expected when both index.ts and the direct file
-    // are imported in the same process
-  } else {
-    throw err;
-  }
-}

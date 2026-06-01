@@ -9,9 +9,8 @@ import {
 } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
-import { useIsIOSWeb, useIsMacOSWeb } from "@/runtime/platform-detection";
+import { useIsIOSWeb } from "@/runtime/platform-detection";
 import { readIOSAppDownloaded } from "@/hooks/use-ios-app-nudge";
-import { readMacOsAppDownloaded } from "@/hooks/use-macos-app-nudge";
 import {
   fetchOnboardingRecipe,
   type OnboardingRecipe,
@@ -25,7 +24,6 @@ import {
   resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import { GetIOSAppScreen } from "@/domains/onboarding/screens/get-ios-app-screen.js";
-import { GetMacOSAppScreen } from "@/domains/onboarding/screens/get-macos-app-screen.js";
 import { GoogleConnectScreen } from "@/domains/onboarding/screens/google-connect-screen.js";
 import { NameExchangeScreen } from "@/domains/onboarding/screens/name-exchange-screen.js";
 import { NameStepScreen } from "@/domains/onboarding/screens/name-step-screen.js";
@@ -76,7 +74,7 @@ import { routes } from "@/utils/routes.js";
  *   2 = ToolSelection (control web)
  *   3 = PriorAssistants (control web)
  *   4 = GoogleOAuth (control web)
- *   5 = GetApp (control web)
+ *   5 = GetIOSApp (control iOS web only)
  */
 type Screen = 0 | 1 | 2 | 3 | 4 | 5;
 
@@ -115,11 +113,8 @@ export function PreChatFlow() {
 
   const localMode = isLocalMode();
   const isReplay = searchParams.get("replay") === "1";
-  const isMacOSWeb = useIsMacOSWeb();
   const isIOSWeb = useIsIOSWeb();
-  const showAppStep =
-    (isIOSWeb && !readIOSAppDownloaded()) ||
-    (isMacOSWeb && !readMacOsAppDownloaded());
+  const showIOSAppStep = isIOSWeb && !readIOSAppDownloaded();
   const condensedPrechatFlag =
     useClientFeatureFlagStore.use.prechatOnboardingCondensedFlow();
   const preferredFunnelVariant =
@@ -478,7 +473,7 @@ export function PreChatFlow() {
   }
 
   // ── Web flow:
-  // Control: NameExchange → TaskTone → Tools → PriorAssistants → Google → App
+  // Control: NameExchange → TaskTone → Tools → PriorAssistants → Google → iOS App
   // Treatment: NameExchange → Google → Chat
 
   if (screen === 0) {
@@ -549,7 +544,7 @@ export function PreChatFlow() {
     emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlPriorAssistants);
     if (hasGoogleTool && canOfferGoogleStep) {
       setScreen(4);
-    } else if (showAppStep) {
+    } else if (showIOSAppStep) {
       setScreen(5);
     } else {
       void finish(undefined, {
@@ -614,7 +609,7 @@ export function PreChatFlow() {
           emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlGmailConnect);
           setGoogleConnected(true);
           setGoogleScopes(scopes);
-          if (showAppStep) {
+          if (showIOSAppStep) {
             setScreen(5);
           } else {
             void finish(scopes);
@@ -622,7 +617,7 @@ export function PreChatFlow() {
         }}
         onSkip={() => {
           emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlGmailConnect);
-          if (showAppStep) {
+          if (showIOSAppStep) {
             setScreen(5);
           } else {
             void finish();
@@ -638,10 +633,7 @@ export function PreChatFlow() {
       emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlGetApp);
       void finish();
     };
-    if (isIOSWeb) {
-      return <GetIOSAppScreen onComplete={completeAppStep} />;
-    }
-    return <GetMacOSAppScreen onComplete={completeAppStep} />;
+    return <GetIOSAppScreen onComplete={completeAppStep} />;
   }
 
   return null;

@@ -265,29 +265,25 @@ export function processChannelMessageInBackground(
 
       let userMessageId: string | undefined;
       try {
-        const result = await processMessage(
-          conversationId,
-          content,
+        const result = await processMessage(conversationId, content, {
           attachmentIds,
-          {
-            transport: {
-              channelId: sourceChannel,
-              hints: metadataHints.length > 0 ? metadataHints : undefined,
-              uxBrief: metadataUxBrief,
-              chatType,
-              ...(clientTimezone ? { clientTimezone } : {}),
-            },
-            assistantId,
-            trustContext: trustCtx,
-            isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
-            ...(displayContent !== undefined ? { displayContent } : {}),
-            ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
-            ...(slackInbound ? { slackInbound } : {}),
-            onEvent: observeAgentEvent,
+          transport: {
+            channelId: sourceChannel,
+            hints: metadataHints.length > 0 ? metadataHints : undefined,
+            uxBrief: metadataUxBrief,
+            chatType,
+            ...(clientTimezone ? { clientTimezone } : {}),
           },
+          assistantId,
+          trustContext: trustCtx,
+          isInteractive: resolveRoutingState(trustCtx).promptWaitingAllowed,
+          ...(displayContent !== undefined ? { displayContent } : {}),
+          ...(cmdIntent ? { commandIntent: cmdIntent } : {}),
+          ...(slackInbound ? { slackInbound } : {}),
+          onEvent: observeAgentEvent,
           sourceChannel,
           sourceInterface,
-        );
+        });
         userMessageId = result.messageId;
         linkMessage(eventId, userMessageId);
         markProcessed(eventId);

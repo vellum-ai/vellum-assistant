@@ -192,7 +192,6 @@ describe("analyzeConversation", () => {
     expect(currentConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
       "msg-1",
-      undefined,
       expect.objectContaining({
         isInteractive: false,
         isUserMessage: true,
@@ -366,7 +365,6 @@ describe("analyzeConversation", () => {
     expect(currentConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
       "msg-1",
-      undefined,
       expect.objectContaining({ callSite: "analyzeConversation" }),
     );
   });

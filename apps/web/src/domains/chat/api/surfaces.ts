@@ -3,11 +3,7 @@
  */
 
 import { client } from "@/generated/api/client.gen";
-import {
-  assertHasResponse,
-  extractErrorMessage,
-  SDK_BASE_OPTIONS,
-} from "@/utils/api-errors";
+import { assertHasResponse, extractErrorMessage } from "@/utils/api-errors";
 
 export async function submitSurfaceAction(
   assistantId: string,
@@ -15,13 +11,17 @@ export async function submitSurfaceAction(
   actionId: string,
   data?: Record<string, unknown>,
 ): Promise<{ ok: boolean }> {
-  if (!surfaceId || typeof surfaceId !== "string" || !actionId || typeof actionId !== "string") {
+  if (
+    !surfaceId ||
+    typeof surfaceId !== "string" ||
+    !actionId ||
+    typeof actionId !== "string"
+  ) {
     return { ok: false };
   }
 
   try {
     const { error, response } = await client.post<unknown, unknown>({
-      ...SDK_BASE_OPTIONS,
       url: "/v1/assistants/{assistant_id}/surface-actions/",
       path: { assistant_id: assistantId },
       body: { surfaceId, actionId, data },
@@ -54,8 +54,10 @@ export async function fetchSurfaceContent(
   conversationId: string,
 ): Promise<SurfaceContentResponse | null> {
   try {
-    const { data, error, response } = await client.get<SurfaceContentResponse, unknown>({
-      ...SDK_BASE_OPTIONS,
+    const { data, error, response } = await client.get<
+      SurfaceContentResponse,
+      unknown
+    >({
       url: "/v1/assistants/{assistant_id}/surfaces/{surface_id}",
       path: { assistant_id: assistantId, surface_id: surfaceId },
       query: { conversationId },
@@ -79,7 +81,6 @@ export async function downloadArtifact(
   filename: string,
 ): Promise<void> {
   const { data, error, response } = await client.get<Blob | File, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/artifacts/{artifact_path}",
     path: { assistant_id: assistantId, artifact_path: artifactPath },
     parseAs: "blob",
@@ -88,7 +89,11 @@ export async function downloadArtifact(
   assertHasResponse(response, error, "Failed to download artifact");
 
   if (!response.ok) {
-    const msg = extractErrorMessage(error, response, "Failed to download artifact");
+    const msg = extractErrorMessage(
+      error,
+      response,
+      "Failed to download artifact",
+    );
     throw new Error(msg);
   }
 

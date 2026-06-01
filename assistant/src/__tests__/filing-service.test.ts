@@ -155,7 +155,7 @@ describe("FilingService", () => {
         conversationId: args[0] as string,
         content: args[1] as string,
         options:
-          (args[3] as { speed?: string; callSite?: string } | undefined) ??
+          (args[2] as { speed?: string; callSite?: string } | undefined) ??
           undefined,
       });
       return { messageId: "msg-1" };
@@ -319,7 +319,7 @@ describe("FilingService", () => {
       let compactionCalls = 0;
 
       setTestProcessMessage((...args: unknown[]) => {
-        const callSite = (args[3] as { callSite?: string } | undefined)
+        const callSite = (args[2] as { callSite?: string } | undefined)
           ?.callSite;
         if (callSite === "filingAgent") {
           filingCalls += 1;

@@ -257,9 +257,9 @@ function makeConversation(
     "conv-signals-test",
     makeProvider(),
     "system prompt",
-    4096,
     sendToClient ?? (() => {}),
     process.env.VELLUM_WORKSPACE_DIR!,
+    { maxTokens: 4096 },
   );
 }
 

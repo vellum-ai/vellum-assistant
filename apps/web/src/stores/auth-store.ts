@@ -13,6 +13,7 @@
  */
 import { create } from "zustand";
 
+import { lifecycleService } from "@/assistant/lifecycle-service";
 import { createSelectors } from "@/utils/create-selectors";
 
 import {
@@ -29,14 +30,17 @@ import {
 import {
   isLocalMode,
   getPlatformAssistants,
+  getLocalAssistants,
   clearSelectedAssistant,
   primeLocalGatewayConnection,
+  syncPlatformAssistantsToLockfile,
 } from "@/lib/local-mode";
+import { listAssistants } from "@/assistant/api";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { syncOnboardingUser, clearOnboardingFlags } from "@/utils/onboarding-cleanup";
 import { clearOrganization } from "@/stores/organization-store";
 import { clearUserScopedStorage } from "@/lib/auth/session-cleanup";
-import { useEventBusStore } from "@/stores/event-bus-store";
+import { subscribe } from "@/lib/event-bus";
 import { isNativePlatform, installSessionCookies, waitForNativeSessionCookie } from "@/runtime/native-auth";
 import { isBiometricEnabled, retrieveBiometricToken } from "@/runtime/native-biometric";
 
@@ -91,6 +95,7 @@ type AuthStore = AuthState & AuthActions;
 
 let previousUserId: string | null = null;
 let broadcastChannel: BroadcastChannel | null = null;
+let suppressPlatformProbe = false;
 
 const GATEWAY_LOCAL_USER: AuthUser = {
   id: "gateway-local",
@@ -144,15 +149,48 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
     }
 
     if (isLocalMode() && !isGatewayAuthEnabled()) {
-      set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
-      getSession()
-        .then((result) => {
+      const hasPlatformAssistants = getPlatformAssistants().length > 0;
+      if (hasPlatformAssistants) {
+        // Platform assistants require a valid session — await the check
+        // so the auth middleware can redirect to login if it fails.
+        try {
+          const result = await getSession();
           if (result.ok && result.data.user) {
             const user = toAuthUser(result.data.user);
-            set({ hasPlatformSession: true, user });
+            // Re-sync platform assistants to remove stale lockfile entries.
+            try {
+              const apiAssistants = await listAssistants();
+              if (apiAssistants.ok) {
+                await syncPlatformAssistantsToLockfile(apiAssistants.data);
+                if (getPlatformAssistants().length === 0 && getLocalAssistants().length === 0) {
+                  set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+                  return;
+                }
+              }
+            } catch {
+              // Sync failed — continue with cached data
+            }
+            set({ isLoggedIn: true, isLoading: false, user, hasPlatformSession: true });
+            return;
           }
-        })
-        .catch(() => {});
+        } catch {
+          // Session check failed — fall through to unauthenticated
+        }
+        set({ isLoggedIn: false, isLoading: false, user: null });
+        return;
+      }
+      set({ isLoggedIn: true, isLoading: false, user: GATEWAY_LOCAL_USER });
+      if (!suppressPlatformProbe) {
+        getSession()
+          .then((result) => {
+            if (result.ok && result.data.user) {
+              const user = toAuthUser(result.data.user);
+              set({ hasPlatformSession: true, user });
+            }
+          })
+          .catch(() => {});
+      }
+      suppressPlatformProbe = false;
       return;
     }
 
@@ -235,18 +273,28 @@ const useAuthStoreBase = create<AuthStore>()((set) => ({
       clearOnboardingFlags();
       clearOrganization();
       clearUserScopedStorage();
+      // Clear lifecycle state BEFORE flipping `isLoggedIn` so the
+      // assistant sync hooks don't observe a stale assistant id in
+      // their first re-render. The `respondToInputs` `!isLoggedIn`
+      // branch is the safety net for token-expiry-style flips.
+      lifecycleService.resetForLogout();
       set({ isLoggedIn: false, user: null, hasPlatformSession: false });
       broadcastAuthChange();
       return;
     }
 
+    suppressPlatformProbe = true;
     try {
       await allauthLogout();
     } finally {
+      if (isLocalMode()) {
+        document.cookie = "sessionid=; path=/; samesite=lax; expires=Thu, 01 Jan 1970 00:00:00 UTC";
+      }
       void deleteBiometricToken();
       clearOnboardingFlags();
       clearOrganization();
       clearUserScopedStorage();
+      lifecycleService.resetForLogout();
       set({ isLoggedIn: false, user: null, hasPlatformSession: false });
       broadcastAuthChange();
     }
@@ -272,9 +320,7 @@ export function setupAuthListeners(): () => void {
       console.warn("auth.refreshSession failed", err),
     );
 
-  const unsubResume = useEventBusStore
-    .getState()
-    .subscribe("app.resume", () => {
+  const unsubResume = subscribe("app.resume", () => {
       void safeRefresh();
     });
   cleanups.push(unsubResume);

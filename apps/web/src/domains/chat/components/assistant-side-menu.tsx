@@ -22,7 +22,7 @@ import {
 } from "@/domains/chat/components/conversation-actions-menu";
 import { CollapsedGroupIcon, getGroupIndicatorState } from "@/domains/chat/components/collapsed-group-icon";
 import { ThreadPinToggle } from "@/domains/chat/components/thread-pin-toggle";
-import { GroupActionsMenu } from "@/domains/chat/components/group-actions-menu";
+import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
 import { BackgroundSubGroups, ScheduledSubGroups } from "@/domains/chat/components/sub-group-accordion";
 import {
   formatBackgroundSubGroupLabel,
@@ -73,6 +73,8 @@ export interface AssistantSideMenuProps extends UseSidebarStateParams {
   onRemoveFromGroup?: (conversation: Conversation) => void;
   onRenameGroup?: (groupId: string) => void;
   onDeleteGroup?: (groupId: string) => void;
+  onMarkAllReadInGroup?: (conversations: Conversation[]) => void;
+  onArchiveAllInGroup?: (groupName: string, conversations: Conversation[]) => void;
   processingConversationIds?: Set<string>;
   activeConversationProcessing?: boolean;
   onAnalyze?: (conversation: Conversation) => void;
@@ -131,6 +133,8 @@ export function AssistantSideMenu({
   onRemoveFromGroup,
   onRenameGroup,
   onDeleteGroup,
+  onMarkAllReadInGroup,
+  onArchiveAllInGroup,
   onClose,
   onSearchClick,
   processingConversationIds,
@@ -250,6 +254,32 @@ export function AssistantSideMenu({
     );
   };
 
+  const buildGroupContextMenu = (
+    groupName: string,
+    conversations: Conversation[],
+    options?: { onRename?: () => void; onDelete?: () => void },
+  ) => {
+    const hasAnyAction =
+      onMarkAllReadInGroup || onArchiveAllInGroup || options?.onRename || options?.onDelete;
+    if (!hasAnyAction) return undefined;
+
+    return renderGroupMenuItems({
+      Primitive: ContextMenu,
+      onMarkAllRead: onMarkAllReadInGroup
+        ? () => onMarkAllReadInGroup(conversations)
+        : undefined,
+      hasUnreadConversations: conversations.some(
+        (c) => c.hasUnseenLatestAssistantMessage,
+      ),
+      onArchiveAll: onArchiveAllInGroup
+        ? () => onArchiveAllInGroup(groupName, conversations)
+        : undefined,
+      hasConversations: conversations.length > 0,
+      onRename: options?.onRename,
+      onDelete: options?.onDelete,
+    });
+  };
+
   // --- Shared sub-component props ---
 
   const subGroupProps = {
@@ -290,9 +320,8 @@ export function AssistantSideMenu({
     onShowMore?: () => void,
     showLess = false,
     onShowLess?: () => void,
-    className?: string,
   ): ReactNode => (
-    <SideMenu.SubList className={className}>
+    <SideMenu.SubList>
       {items.map((c) =>
         renderThreadRow(
           c,
@@ -478,10 +507,6 @@ export function AssistantSideMenu({
                 {renderFlatList(
                   sidebar.pinned,
                   false,
-                  undefined,
-                  false,
-                  undefined,
-                  "-ml-[10px] w-[calc(100%+10px)]",
                 )}
               </SideMenu.Section>
             ) : null}
@@ -496,7 +521,6 @@ export function AssistantSideMenu({
                 sidebar.recents.onShowMore,
                 sidebar.recents.showLess,
                 sidebar.recents.onShowLess,
-                "-ml-[10px] w-[calc(100%+10px)]",
               )}
 
               <CollapsibleNavSection.Root
@@ -509,6 +533,7 @@ export function AssistantSideMenu({
                     value="slack"
                     icon={Hash}
                     label="Slack"
+                    contextMenuContent={buildGroupContextMenu("Slack", sidebar.slack.all)}
                   >
                     {renderFlatList(
                       sidebar.slack.items,
@@ -524,6 +549,7 @@ export function AssistantSideMenu({
                   value="scheduled"
                   icon={Calendar}
                   label="Scheduled"
+                  contextMenuContent={buildGroupContextMenu("Scheduled", sidebar.scheduled)}
                 >
                   <ScheduledSubGroups
                     subGroups={sidebar.scheduledSubGroups}
@@ -535,6 +561,7 @@ export function AssistantSideMenu({
                   value="background"
                   icon={Layers}
                   label="Background"
+                  contextMenuContent={buildGroupContextMenu("Background", sidebar.background)}
                 >
                   <BackgroundSubGroups
                     subGroups={sidebar.backgroundSubGroups}
@@ -566,6 +593,18 @@ export function AssistantSideMenu({
                               />
                             ) : null
                           }
+                          contextMenuContent={buildGroupContextMenu(
+                            group.name,
+                            group.conversations,
+                            {
+                              onRename: onRenameGroup
+                                ? () => onRenameGroup(group.id)
+                                : undefined,
+                              onDelete: onDeleteGroup
+                                ? () => onDeleteGroup(group.id)
+                                : undefined,
+                            },
+                          )}
                         >
                           <SideMenu.SubList>
                             {group.conversations.map((c) =>

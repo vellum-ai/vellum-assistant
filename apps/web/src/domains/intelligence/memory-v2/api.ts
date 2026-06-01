@@ -10,7 +10,6 @@ import {
   assertHasResponse,
   client,
   extractErrorMessage,
-  SDK_BASE_OPTIONS,
 } from "@/domains/intelligence/client";
 
 import type { ConceptPageSummary, ListConceptPagesResult } from "./types";
@@ -40,7 +39,6 @@ export async function listConceptPages(
   assistantId: string,
 ): Promise<ListConceptPagesResult> {
   const { data, error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/memory/v2/list-concept-pages",
     path: { assistant_id: assistantId },
     body: {},
@@ -78,7 +76,6 @@ export async function readConceptPage(
   slug: string,
 ): Promise<string | null> {
   const { data, error, response } = await client.post<unknown, unknown>({
-    ...SDK_BASE_OPTIONS,
     url: "/v1/assistants/{assistant_id}/memory/v2/concept-page",
     path: { assistant_id: assistantId },
     body: { slug },

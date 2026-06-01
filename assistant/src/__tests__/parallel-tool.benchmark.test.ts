@@ -128,13 +128,10 @@ describe("Parallel tool execution benchmarks", () => {
       return { content: "ok", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const start = Date.now();
     await loop.run([userMessage], () => {});
     const elapsed = Date.now() - start;
@@ -172,13 +169,10 @@ describe("Parallel tool execution benchmarks", () => {
       return { content: "ok", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const start = Date.now();
     await loop.run([userMessage], () => {});
     const elapsed = Date.now() - start;
@@ -228,13 +222,10 @@ describe("Parallel tool execution benchmarks", () => {
       return { content: "ok", isError: false };
     };
 
-    const loop = new AgentLoop(
-      provider,
-      "system",
-      {},
-      dummyTools,
-      toolExecutor,
-    );
+    const loop = new AgentLoop(provider, "system", {
+      tools: dummyTools,
+      toolExecutor: toolExecutor,
+    });
     const events: AgentEvent[] = [];
     const start = Date.now();
     await loop.run([userMessage], collectEvents(events));
@@ -298,13 +289,10 @@ describe("Parallel tool execution benchmarks", () => {
         return { content: "should not return", isError: false };
       };
 
-      const loop = new AgentLoop(
-        provider,
-        "system",
-        {},
-        dummyTools,
-        toolExecutor,
-      );
+      const loop = new AgentLoop(provider, "system", {
+        tools: dummyTools,
+        toolExecutor: toolExecutor,
+      });
       const start = Date.now();
       const { history } = await loop.run([userMessage], () => {}, {
         signal: controller.signal,

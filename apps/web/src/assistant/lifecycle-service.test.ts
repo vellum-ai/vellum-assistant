@@ -67,6 +67,7 @@ mock.module("@/lib/local-mode", () => ({
 mock.module("@sentry/react", () => ({
   captureException: () => {},
   captureMessage: () => {},
+  addBreadcrumb: () => {},
 }));
 
 mock.module("@/assistant/lifecycle", () => ({
@@ -192,7 +193,7 @@ describe("lifecycleService — server state projection", () => {
 });
 
 describe("lifecycleService — bootstrap branches", () => {
-  test("logout clears both stores", async () => {
+  test("respondToInputs with isLoggedIn=false clears both stores (safety-net for token-expiry-style auth flips that don't call logout())", async () => {
     // Drive the service into an `active` state through the
     // legitimate path so its internal state mirrors the store.
     getAssistantMock.mockImplementationOnce(async () => ({
@@ -221,6 +222,38 @@ describe("lifecycleService — bootstrap branches", () => {
       queryClient: makeQueryClient(),
     });
     await lifecycleService.respondToInputs();
+
+    expect(
+      useAssistantSelectionStore.getState().activeAssistantId,
+    ).toBeNull();
+    expect(useAssistantLifecycleStore.getState().assistantState).toEqual({
+      kind: "loading",
+    });
+  });
+
+  test("resetForLogout clears both stores synchronously without needing setInputs", async () => {
+    // Drive into active first via the normal flow.
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: true,
+      status: 200,
+      data: {
+        id: "asst-prev",
+        status: "active",
+        is_local: false,
+        maintenance_mode: { enabled: false },
+      },
+    }));
+    lifecycleService.setInputs({
+      ...baseInputs,
+      queryClient: makeQueryClient(),
+    });
+    await lifecycleService.checkAssistant();
+    expect(
+      useAssistantSelectionStore.getState().activeAssistantId,
+    ).toBe("asst-prev");
+
+    // Synchronous reset — no `await`, no input flip needed.
+    lifecycleService.resetForLogout();
 
     expect(
       useAssistantSelectionStore.getState().activeAssistantId,

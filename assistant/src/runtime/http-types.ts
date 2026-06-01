@@ -85,8 +85,7 @@ export interface RuntimeMessageConversationOptions {
   /**
    * Optional LLM call-site identifier. Channel ingress and other inbound paths
    * may pass this so the daemon's per-call provider config picks up the right
-   * profile via `resolveCallSiteConfig`. PRs 7-11 wire individual call-site
-   * literals into specific call paths.
+   * profile via `resolveCallSiteConfig`.
    */
   callSite?: LLMCallSite;
   /**
@@ -96,15 +95,18 @@ export interface RuntimeMessageConversationOptions {
    * chronological renderer to consume.
    */
   slackInbound?: SlackInboundMessageMetadata;
+  /** IDs of user-uploaded attachments to resolve and include in the turn. */
+  attachmentIds?: string[];
+  /** Originating channel (e.g. "slack", "telegram"). Defaults to "vellum". */
+  sourceChannel?: ChannelId;
+  /** Originating interface (e.g. "cli", "web"). Defaults to "web". */
+  sourceInterface?: InterfaceId;
 }
 
 export type MessageProcessor = (
   conversationId: string,
   content: string,
-  attachmentIds?: string[],
   options?: RuntimeMessageConversationOptions,
-  sourceChannel?: ChannelId,
-  sourceInterface?: InterfaceId,
 ) => Promise<{ messageId: string; assistantMessageId?: string }>;
 
 /**

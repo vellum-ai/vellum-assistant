@@ -2605,7 +2605,6 @@ describe("background channel processing approval prompts", () => {
       async (
         conversationId: string,
         _content: string,
-        _attachmentIds?: string[],
         options?: Record<string, unknown>,
       ) => {
         processCalls.push({ options });
@@ -2666,7 +2665,6 @@ describe("background channel processing approval prompts", () => {
       async (
         conversationId: string,
         _content: string,
-        _attachmentIds?: string[],
         options?: Record<string, unknown>,
       ) => {
         processCalls.push({ options });
@@ -2724,7 +2722,6 @@ describe("background channel processing approval prompts", () => {
       async (
         _conversationId: string,
         _content: string,
-        _attachmentIds?: string[],
         options?: Record<string, unknown>,
       ) => {
         processCalls.push({ options });
@@ -2765,7 +2762,6 @@ describe("background channel processing approval prompts", () => {
       async (
         conversationId: string,
         _content: string,
-        _attachmentIds?: string[],
         options?: Record<string, unknown>,
       ) => {
         processCalls.push({ options });

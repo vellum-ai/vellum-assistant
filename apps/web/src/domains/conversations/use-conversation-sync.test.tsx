@@ -11,9 +11,9 @@ import type { Conversation } from "@/types/conversation-types";
 import { conversationsQueryKey } from "@/lib/sync/query-tags";
 import { SYNC_TAGS, type SyncChangedEvent } from "@/lib/sync/types";
 import {
-  __resetEventBusForTesting,
-  useEventBusStore,
-} from "@/stores/event-bus-store";
+  __resetForTesting,
+  publish,
+} from "@/lib/event-bus";
 
 // ---------------------------------------------------------------------------
 // Module mock — `@/domains/conversations/fetch-conversation-detail`.
@@ -68,7 +68,7 @@ function syncEvent(tags: string[]): SyncChangedEvent {
 }
 
 function emit(event: SyncChangedEvent): void {
-  useEventBusStore.getState().publish("sse.event", {
+  publish("sse.event", {
     id: "evt-1",
     emittedAt: new Date().toISOString(),
     message: event,
@@ -79,11 +79,11 @@ function emitOpened(
   cause: "fresh" | "error" | "watchdog" | "resume",
   assistantId = "asst-1",
 ): void {
-  useEventBusStore.getState().publish("sse.opened", { assistantId, cause });
+  publish("sse.opened", { assistantId, cause });
 }
 
 beforeEach(() => {
-  __resetEventBusForTesting();
+  __resetForTesting();
   fetchConversationDetailCalls.length = 0;
   fetchConversationDetailImpl = () =>
     Promise.reject(
@@ -95,7 +95,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 describe("useConversationSync", () => {
@@ -304,7 +304,7 @@ describe("useConversationSync", () => {
     renderHook(() => useConversationSync("asst-1", true), {
       wrapper: createWrapper(queryClient),
     });
-    useEventBusStore.getState().publish("sse.event", {
+    publish("sse.event", {
       id: "evt-title",
       conversationId: "conv-1",
       emittedAt: new Date().toISOString(),

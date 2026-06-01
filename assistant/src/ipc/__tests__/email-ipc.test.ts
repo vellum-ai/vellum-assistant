@@ -17,15 +17,6 @@ import { runAssistantCommandFull } from "../../cli/__tests__/run-assistant-comma
 import { AssistantIpcServer } from "../assistant-server.js";
 
 // ---------------------------------------------------------------------------
-// Enable the email-channel feature flag so the email command is registered
-// in the CLI program (defaultEnabled is false in the registry).
-// ---------------------------------------------------------------------------
-
-mock.module("../../email/feature-gate.js", () => ({
-  isEmailEnabled: () => true,
-}));
-
-// ---------------------------------------------------------------------------
 // Mock state — set up a controllable VellumPlatformClient at module boundary
 // ---------------------------------------------------------------------------
 

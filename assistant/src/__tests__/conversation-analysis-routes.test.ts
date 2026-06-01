@@ -117,7 +117,6 @@ describe("POST /v1/conversations/:id/analyze", () => {
     expect(mockConversation.runAgentLoop).toHaveBeenCalledWith(
       expect.any(String),
       "msg-1",
-      undefined,
       expect.objectContaining({ isInteractive: false, isUserMessage: true }),
     );
   });
@@ -140,7 +139,6 @@ describe("POST /v1/conversations/:id/analyze", () => {
       expect(mockConversation.runAgentLoop).toHaveBeenCalledWith(
         expect.any(String),
         "msg-1",
-        undefined,
         expect.objectContaining({ isInteractive: false, isUserMessage: true }),
       );
     } finally {

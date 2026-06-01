@@ -6,9 +6,9 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import type { AssistantEvent } from "@/types/event-types";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
 import {
-  __resetEventBusForTesting,
-  useEventBusStore,
-} from "@/stores/event-bus-store";
+  __resetForTesting,
+  publish,
+} from "@/lib/event-bus";
 
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 
@@ -59,7 +59,7 @@ function renderEventStream(
 }
 
 function publishDelta(conversationId: string): void {
-  useEventBusStore.getState().publish("sse.event", {
+  publish("sse.event", {
     id: "evt-1",
     conversationId,
     emittedAt: new Date().toISOString(),
@@ -72,12 +72,12 @@ function publishDelta(conversationId: string): void {
 }
 
 beforeEach(() => {
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 afterEach(() => {
   cleanup();
-  __resetEventBusForTesting();
+  __resetForTesting();
 });
 
 describe("useEventStream — conversation-switch filtering", () => {
@@ -117,7 +117,7 @@ describe("useEventStream — conversation-switch filtering", () => {
   test("forwards assistant-broadcast events that omit conversationId", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
-    useEventBusStore.getState().publish("sse.event", {
+    publish("sse.event", {
       id: "evt-sync",
       emittedAt: new Date().toISOString(),
       message: {
@@ -137,7 +137,7 @@ describe("useEventStream — conversation-switch filtering", () => {
     // "unknown conversation", not "broadcast".
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
-    useEventBusStore.getState().publish("sse.event", {
+    publish("sse.event", {
       id: "evt-no-conv",
       emittedAt: new Date().toISOString(),
       message: {
@@ -151,7 +151,7 @@ describe("useEventStream — conversation-switch filtering", () => {
   test("forwards conversation-scoped events whose conversationId matches the active conversation", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
-    useEventBusStore.getState().publish("sse.event", {
+    publish("sse.event", {
       id: "evt-msg",
       conversationId: "conv-A",
       emittedAt: new Date().toISOString(),
@@ -167,7 +167,7 @@ describe("useEventStream — conversation-switch filtering", () => {
   test("a conversation-scoped event for another conversation is dropped even when the active conversation has no current SSE epoch yet", () => {
     const handler = mock(() => {});
     renderEventStream("conv-A", handler);
-    useEventBusStore.getState().publish("sse.event", {
+    publish("sse.event", {
       id: "evt-tool",
       conversationId: "conv-B",
       emittedAt: new Date().toISOString(),

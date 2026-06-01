@@ -39,9 +39,12 @@ import {
 } from "../daemon/external-plugins-bootstrap.js";
 import { runShutdownHooks } from "../daemon/shutdown-registry.js";
 import { RiskLevel } from "../permissions/types.js";
+import { registerDefaultPlugins } from "../plugins/defaults/index.js";
 import {
+  closeRegistration,
   getInjectors,
   getMiddlewaresFor,
+  getRegisteredPlugins,
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
@@ -321,6 +324,37 @@ describe("plugin bootstrap", () => {
     // throwing — the surface of defaults is verified in each pipeline's own
     // dedicated test file.
     await bootstrapPlugins(fakeCtx);
+  });
+
+  test("startup ordering: defaults registered before the window closes survive bootstrap replay", async () => {
+    /**
+     * Reproduces the daemon startup ordering the registration regression
+     * guards: defaults must register before `loadUserPlugins()` closes the
+     * window, so the `registerDefaultPlugins` replay inside `bootstrapPlugins`
+     * is swallowed by the duplicate-name check instead of throwing on the
+     * closed window and leaving every default unregistered.
+     */
+
+    // GIVEN the first-party defaults have registered while the window is open
+    // (what `initializePlugins()` does at daemon startup)
+    registerDefaultPlugins();
+
+    // AND a user plugin registers after them (what `loadUserPlugins()` does)
+    registerPlugin(buildPlugin("user-after-defaults"));
+
+    // AND the registration window has since closed
+    closeRegistration();
+
+    // WHEN bootstrap runs and replays the default registration
+    await bootstrapPlugins(fakeCtx);
+
+    // THEN the defaults are still registered, ahead of the user plugin, so the
+    // middleware onion order is unchanged
+    const names = getRegisteredPlugins().map((p) => p.manifest.name);
+    expect(names).toContain("default-llm-call");
+    expect(names.indexOf("default-llm-call")).toBeLessThan(
+      names.indexOf("user-after-defaults"),
+    );
   });
 
   // ── requiresFlag gating (G2.2) ──────────────────────────────────────────

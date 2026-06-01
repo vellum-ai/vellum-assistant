@@ -285,12 +285,9 @@ export class SubagentManager {
       conversationRecord.id,
       provider,
       systemPrompt,
-      maxTokens,
       wrappedSendToClient,
       workingDir,
-      undefined, // sharedCesClient
-      undefined, // speedOverride
-      "5m", // cacheTtl — subagents run tight tool-use loops, 5m is always hot
+      { maxTokens, cacheTtl: "5m" },
     );
 
     // Mark conversation as having no direct client — it routes through parent.
@@ -439,7 +436,7 @@ export class SubagentManager {
       const { id: messageId } = await conversation.persistUserMessage({
         content: message,
       });
-      await conversation.runAgentLoop(message, messageId, undefined, {
+      await conversation.runAgentLoop(message, messageId, {
         callSite: "subagentSpawn",
         ...(managed.state.config.overrideProfile
           ? { overrideProfile: managed.state.config.overrideProfile }
@@ -627,7 +624,7 @@ export class SubagentManager {
         content: trimmed,
       });
       conversation
-        .runAgentLoop(trimmed, messageId, undefined, {
+        .runAgentLoop(trimmed, messageId, {
           callSite: "subagentSpawn",
           ...(managed.state.config.overrideProfile
             ? { overrideProfile: managed.state.config.overrideProfile }

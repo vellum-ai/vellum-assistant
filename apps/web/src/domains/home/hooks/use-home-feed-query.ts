@@ -11,8 +11,8 @@ import type {
   FeedItemStatus,
   HomeFeedResponse,
 } from "../types";
+import { subscribe } from "@/lib/event-bus";
 import { homeFeedQueryKey } from "@/lib/sync/query-tags";
-import { useEventBusStore } from "@/stores/event-bus-store";
 
 /**
  * React Query hook for the home feed.
@@ -31,13 +31,11 @@ export function useHomeFeedQuery(assistantId: string | null) {
   const timeAwaySecondsRef = useRef(0);
 
   useEffect(() => {
-    const bus = useEventBusStore.getState();
-
-    const unsubHidden = bus.subscribe("app.hidden", () => {
+    const unsubHidden = subscribe("app.hidden", () => {
       hiddenAtRef.current = Date.now();
     });
 
-    const unsubResume = bus.subscribe("app.resume", ({ signal }) => {
+    const unsubResume = subscribe("app.resume", ({ signal }) => {
       if (signal === "online") return;
       if (hiddenAtRef.current === null) return;
       const elapsed = Math.round((Date.now() - hiddenAtRef.current) / 1000);

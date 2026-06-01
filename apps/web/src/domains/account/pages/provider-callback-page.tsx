@@ -4,12 +4,14 @@ import * as Sentry from "@sentry/react";
 
 import { AccountHeading } from "@/components/account/account-form";
 import { AccountShell } from "@/components/account/account-shell";
+import { listAssistants } from "@/assistant/api";
 import { getSession } from "@/lib/auth/allauth-client";
 import {
   readAuthCallbackIntent,
   resolvePostAuthDestination,
 } from "@/domains/account/login-flow";
 import { classifyCallbackFlows } from "@/domains/account/social-auth";
+import { isLocalMode, syncPlatformAssistantsToLockfile } from "@/lib/local-mode";
 import { useAuthStore } from "@/stores/auth-store";
 import { VELLUM_COMMUNITY_URL } from "@/utils/external-urls";
 import { routes } from "@/utils/routes";
@@ -54,6 +56,20 @@ export function ProviderCallbackPage() {
         switch (outcome.kind) {
           case "authenticated": {
             await refreshSession();
+
+            if (isLocalMode()) {
+              try {
+                const assistants = await listAssistants();
+                if (assistants.ok && assistants.data.length > 0) {
+                  await syncPlatformAssistantsToLockfile(assistants.data);
+                  navigate(routes.assistant, { replace: true });
+                  break;
+                }
+              } catch {
+                // Fall through to normal destination
+              }
+            }
+
             const fallback = routes.assistant;
             const { destination, requiresFullPageNavigation } =
               resolvePostAuthDestination({ returnTo, fallback, authIntent });

@@ -25,6 +25,7 @@ type MockSchedule = {
 
 let heartbeatConfig: MockHeartbeatConfig;
 let heartbeatNextRunAt: number | null;
+let heartbeatConsecutiveRunCapReached: boolean;
 let schedules: MockSchedule[];
 let computedCronNextRunAt: number;
 
@@ -39,7 +40,10 @@ mock.module("../heartbeat/heartbeat-service.js", () => ({
     getInstance: () =>
       heartbeatNextRunAt == null
         ? undefined
-        : { nextRunAt: heartbeatNextRunAt },
+        : {
+            nextRunAt: heartbeatNextRunAt,
+            isConsecutiveRunCapReached: heartbeatConsecutiveRunCapReached,
+          },
   },
 }));
 
@@ -70,6 +74,7 @@ describe("computeNextBackgroundWakeIntent", () => {
       maxConsecutiveRuns: 3,
     };
     heartbeatNextRunAt = null;
+    heartbeatConsecutiveRunCapReached = false;
     schedules = [];
     computedCronNextRunAt = NOW + 3_600_000;
   });
@@ -269,6 +274,31 @@ describe("computeNextBackgroundWakeIntent", () => {
     expect(second).not.toBeNull();
     expect(first!.computedAt).not.toBe(second!.computedAt);
     expect(first!.sourceGeneration).toBe(second!.sourceGeneration);
+  });
+
+  test("returns null when heartbeat consecutive run cap is reached and no schedules", () => {
+    heartbeatNextRunAt = NOW + 30_000;
+    heartbeatConsecutiveRunCapReached = true;
+
+    expect(computeNextBackgroundWakeIntent(NOW)).toBeNull();
+  });
+
+  test("returns schedule-only intent when heartbeat consecutive run cap is reached", () => {
+    heartbeatNextRunAt = NOW + 30_000;
+    heartbeatConsecutiveRunCapReached = true;
+    schedules = [
+      scheduleFixture({
+        id: "still-active",
+        nextRunAt: NOW + 60_000,
+      }),
+    ];
+
+    const intent = computeNextBackgroundWakeIntent(NOW);
+
+    expect(intent).not.toBeNull();
+    expect(intent!.reason).toBe("schedule");
+    expect(intent!.sourcePayload.heartbeat).toBeNull();
+    expect(intent!.sourcePayload.schedules).toHaveLength(1);
   });
 });
 

@@ -29,15 +29,6 @@ export interface TerminalOutputStream {
 }
 
 // ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-const SDK_BASE_OPTIONS =
-  typeof window === "undefined"
-    ? ({ baseUrl: "http://localhost" } as const)
-    : ({} as const);
-
-// ---------------------------------------------------------------------------
 // Create / destroy
 // ---------------------------------------------------------------------------
 
@@ -64,7 +55,10 @@ export async function createTerminalSession(
       error && typeof error === "object" && !Array.isArray(error)
         ? ((error as Record<string, unknown>).detail as string | undefined)
         : undefined;
-    throw new Error(detail ?? `Failed to create terminal session (HTTP ${response?.status ?? "unknown"})`);
+    throw new Error(
+      detail ??
+        `Failed to create terminal session (HTTP ${response?.status ?? "unknown"})`,
+    );
   }
 
   const raw =
@@ -123,7 +117,9 @@ export async function sendTerminalInput(
   });
 
   if (!result.response || !result.response.ok) {
-    throw new Error(`Failed to send terminal input (HTTP ${result.response?.status ?? "unknown"})`);
+    throw new Error(
+      `Failed to send terminal input (HTTP ${result.response?.status ?? "unknown"})`,
+    );
   }
 }
 
@@ -143,7 +139,9 @@ export async function resizeTerminal(
   });
 
   if (!result.response || !result.response.ok) {
-    throw new Error(`Failed to resize terminal (HTTP ${result.response?.status ?? "unknown"})`);
+    throw new Error(
+      `Failed to resize terminal (HTTP ${result.response?.status ?? "unknown"})`,
+    );
   }
 }
 
@@ -178,8 +176,9 @@ export function subscribeTerminalEvents(
 
     let streamError: Error | null = null;
     try {
-      const { stream } = await platformClient.sse.get<Record<string, unknown> | string>({
-        ...SDK_BASE_OPTIONS,
+      const { stream } = await platformClient.sse.get<
+        Record<string, unknown> | string
+      >({
         url: "/v1/assistants/{assistant_id}/terminal/sessions/{session_id}/events/",
         path: { assistant_id: assistantId, session_id: sessionId },
         headers: {
@@ -189,9 +188,10 @@ export function subscribeTerminalEvents(
         signal: abortController.signal,
         sseMaxRetryAttempts: 3,
         onSseError: (error) => {
-          streamError = error instanceof Error
-            ? error
-            : new Error("Terminal stream disconnected");
+          streamError =
+            error instanceof Error
+              ? error
+              : new Error("Terminal stream disconnected");
         },
       });
 
@@ -202,15 +202,17 @@ export function subscribeTerminalEvents(
         const raw =
           typeof payload === "string"
             ? (() => {
-              try {
-                const parsed = JSON.parse(payload);
-                return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-                  ? (parsed as Record<string, unknown>)
-                  : null;
-              } catch {
-                return null;
-              }
-            })()
+                try {
+                  const parsed = JSON.parse(payload);
+                  return parsed &&
+                    typeof parsed === "object" &&
+                    !Array.isArray(parsed)
+                    ? (parsed as Record<string, unknown>)
+                    : null;
+                } catch {
+                  return null;
+                }
+              })()
             : payload && typeof payload === "object" && !Array.isArray(payload)
               ? (payload as Record<string, unknown>)
               : null;
@@ -249,13 +251,19 @@ export function subscribeTerminalEvents(
       onError(new Error("Terminal stream ended unexpectedly"));
     } catch (err) {
       if (cancelled) return;
-      onError(err instanceof Error ? err : new Error("Terminal stream connection failed"));
+      onError(
+        err instanceof Error
+          ? err
+          : new Error("Terminal stream connection failed"),
+      );
     }
   };
 
   connect().catch((err) => {
     if (!cancelled) {
-      onError(err instanceof Error ? err : new Error("Terminal stream setup failed"));
+      onError(
+        err instanceof Error ? err : new Error("Terminal stream setup failed"),
+      );
     }
   });
 

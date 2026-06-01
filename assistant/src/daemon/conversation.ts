@@ -79,8 +79,8 @@ import type { AssistantSurface } from "./conversation-agent-loop.js";
 import {
   applyCompactionResult,
   runAgentLoopImpl,
-  trackCompactionOutcome,
 } from "./conversation-agent-loop.js";
+import { trackCompactionOutcome } from "./conversation-agent-loop-handlers.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
 import { undo as undoImpl } from "./conversation-history.js";
 import {
@@ -161,6 +161,14 @@ export type {
   QueuePolicy,
 } from "./conversation-queue-manager.js";
 import type { TrustContext } from "./trust-context.js";
+
+export interface ConversationConstructorOptions {
+  maxTokens?: number;
+  sharedCesClient?: CesClient;
+  speedOverride?: Speed;
+  cacheTtl?: "5m" | "1h";
+  modelOverride?: string;
+}
 
 export class Conversation {
   public readonly conversationId: string;
@@ -381,14 +389,17 @@ export class Conversation {
     conversationId: string,
     provider: Provider,
     systemPrompt: string,
-    maxTokens: number | undefined,
     sendToClient: (msg: ServerMessage) => void,
     workingDir: string,
-    sharedCesClient?: CesClient,
-    speedOverride?: Speed,
-    cacheTtl?: "5m" | "1h",
-    modelOverride?: string,
+    options?: ConversationConstructorOptions,
   ) {
+    const {
+      maxTokens,
+      sharedCesClient,
+      speedOverride,
+      cacheTtl,
+      modelOverride,
+    } = options ?? {};
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
@@ -527,15 +538,13 @@ export class Conversation {
       agentLoopConfig.maxTokens = configuredMaxTokens;
     }
 
-    this.agentLoop = new AgentLoop(
-      provider,
-      systemPrompt,
-      agentLoopConfig,
-      toolDefs.length > 0 ? toolDefs : undefined,
-      toolDefs.length > 0 ? toolExecutor : undefined,
+    this.agentLoop = new AgentLoop(provider, systemPrompt, {
+      config: agentLoopConfig,
+      tools: toolDefs.length > 0 ? toolDefs : undefined,
+      toolExecutor: toolDefs.length > 0 ? toolExecutor : undefined,
       resolveTools,
-      resolveSystemPromptCallback,
-    );
+      resolveSystemPrompt: resolveSystemPromptCallback,
+    });
     this.contextWindowManager = new ContextWindowManager({
       provider,
       systemPrompt: () => resolveSystemPromptCallback([]).systemPrompt,
@@ -1272,8 +1281,8 @@ export class Conversation {
   async runAgentLoop(
     content: string,
     userMessageId: string,
-    onEvent?: (msg: ServerMessage) => void,
     options?: {
+      onEvent?: (msg: ServerMessage) => void;
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
@@ -1289,12 +1298,13 @@ export class Conversation {
       overrideProfile?: string;
     },
   ): Promise<void> {
+    const { onEvent, ...rest } = options ?? {};
     return runAgentLoopImpl(
       this,
       content,
       userMessageId,
       onEvent ?? this.sendToClient,
-      options,
+      rest,
     );
   }
 

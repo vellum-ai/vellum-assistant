@@ -6,7 +6,6 @@ metadata:
   emoji: "📧"
   vellum:
     display-name: "Email Setup"
-    feature-flag: "email-channel"
 ---
 
 You are setting up your own custom domain and email address. This is a one-time operation — once you have a domain and email, you do not need to run this again.

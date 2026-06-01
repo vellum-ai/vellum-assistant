@@ -56,8 +56,8 @@ import {
   isSending,
   useTurnStore,
 } from "@/domains/chat/turn-store";
+import { publish, subscribe } from "@/lib/event-bus";
 import type { ChatEventStream } from "@/lib/streaming/stream-transport";
-import { useEventBusStore } from "@/stores/event-bus-store";
 import type { UseAssistantReachabilityResult } from "@/assistant/use-assistant-reachability";
 
 // ---------------------------------------------------------------------------
@@ -204,7 +204,6 @@ export function useEventStream({
       return;
     }
 
-    const bus = useEventBusStore.getState();
     const capturedAssistantId = assistantId;
     const capturedConversationId = activeConversationId;
 
@@ -229,7 +228,7 @@ export function useEventStream({
     // is stale (e.g., stored=50 but server is at seq=500).
     let seededSeqForConversation = false;
 
-    const unsubEvent = bus.subscribe("sse.event", (envelope) => {
+    const unsubEvent = subscribe("sse.event", (envelope) => {
       const event = envelope.message;
       const eventConversationId = envelope.conversationId;
       // Two-stage filter to prevent cross-conversation event leakage.
@@ -348,9 +347,7 @@ export function useEventStream({
     const capturedAssistantId = assistantId;
     const capturedConversationId = activeConversationId;
 
-    const unsub = useEventBusStore
-      .getState()
-      .subscribe("sse.opened", ({ assistantId: openedFor, cause }) => {
+    const unsub = subscribe("sse.opened", ({ assistantId: openedFor, cause }) => {
         if (openedFor !== capturedAssistantId) return;
         const epoch = ++streamEpochRef.current;
         recordDiagnostic("sse_stream_opened", {
@@ -488,9 +485,7 @@ export function useEventStream({
     const capturedAssistantId = assistantId;
     const capturedConversationId = activeConversationId;
 
-    const unsub = useEventBusStore
-      .getState()
-      .subscribe("sse.closed", ({ reason }) => {
+    const unsub = subscribe("sse.closed", ({ reason }) => {
         const hadActiveTurn = isSending(useTurnStore.getState());
         recordDiagnostic("sse_stream_error", {
           assistantId: capturedAssistantId,
@@ -565,7 +560,7 @@ export function useEventStream({
     ) {
       return;
     }
-    const unsub = useEventBusStore.getState().subscribe("app.resume", () => {
+    const unsub = subscribe("app.resume", () => {
       reconcileAfterNextStreamOpenRef.current = true;
     });
     return () => unsub();
@@ -606,9 +601,7 @@ export function useEventStream({
       setErrorRef.current(null);
     }
     reconcileAfterNextStreamOpenRef.current = true;
-    useEventBusStore
-      .getState()
-      .publish("reachability.retry-requested", {});
+    publish("reachability.retry-requested", {});
     if (reachabilityPhase === "retrying") {
       reachabilityResetRef.current();
     }

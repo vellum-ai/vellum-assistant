@@ -59,7 +59,8 @@ mock.module("../../util/platform.js", () => ({
   getEmbedWorkerPidPath: () =>
     join(workspaceDir ?? fallbackDir, "embed-worker.pid"),
   getWorkspaceDirDisplay: () => workspaceDir ?? fallbackDir,
-  getWorkspaceConfigPath: () => join(workspaceDir ?? fallbackDir, "config.json"),
+  getWorkspaceConfigPath: () =>
+    join(workspaceDir ?? fallbackDir, "config.json"),
   getWorkspaceSkillsDir: () => join(workspaceDir ?? fallbackDir, "skills"),
   getWorkspaceHooksDir: () => join(workspaceDir ?? fallbackDir, ".githooks"),
   getWorkspacePluginsDir: () => join(workspaceDir ?? fallbackDir, "plugins"),
@@ -194,6 +195,7 @@ mock.module("../heartbeat-run-store.js", () => ({
   markStaleRunsAsMissed: () => 0,
   markStaleRunningAsError: () => 0,
   countCompletedHeartbeatRuns: () => 10,
+  countRecentConsecutiveRuns: () => 0,
 }));
 
 // Stub the pre-first-message gate so tests can flip it on/off without

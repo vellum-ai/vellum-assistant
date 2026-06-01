@@ -217,9 +217,9 @@ function makeConversation(workingDir = "/tmp"): Conversation {
     "conv-1",
     provider,
     "system prompt",
-    4096,
     () => {},
     workingDir,
+    { maxTokens: 4096 },
   );
 }
 

@@ -284,7 +284,7 @@ For apps, keep scope tight — single file or 2-3 files max, under ~300 lines. S
 
 Write the source code following the skill instructions, then compile via app_refresh.`;
 
-  await processMessage(conversation.id, prompt, undefined, {
+  await processMessage(conversation.id, prompt, {
     callSite: "proactiveArtifactBuild",
     trustContext: INTERNAL_GUARDIAN_TRUST_CONTEXT,
   });

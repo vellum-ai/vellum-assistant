@@ -29,16 +29,14 @@
  *   canonical terminator regardless of which third parties load.
  */
 
-import { registerPlugin } from "../../registry.js";
-import { type Plugin, PluginExecutionError } from "../../types.js";
+import { type Plugin } from "../../types.js";
 import defaultToolExecute from "./middlewares/toolExecute.js";
 import pkg from "./package.json" with { type: "json" };
 
 /**
- * The default `toolExecute` plugin. Exported as a module constant so the
- * daemon bootstrap can register it via a side-effect import. Tests may
- * import and register it explicitly via `registerPlugin()` to cover the
- * on-by-default execution path.
+ * The default `toolExecute` plugin. Exported as a module constant that the
+ * defaults aggregator registers centrally; tests may register it explicitly to
+ * cover the on-by-default execution path.
  */
 export const defaultToolExecutePlugin: Plugin = {
   manifest: {
@@ -49,25 +47,3 @@ export const defaultToolExecutePlugin: Plugin = {
     toolExecute: defaultToolExecute,
   },
 };
-
-// Module-load side effect: register this default at import time so
-// downstream consumers (including tests that skip `bootstrapPlugins()`)
-// observe a populated registry by default. Idempotent via the swallowed
-// duplicate-name check. Kept local to this module (rather than iterating
-// an array in `defaults/index.ts`) so the registration only references
-// the already-initialized `defaultToolExecutePlugin` identifier —
-// avoiding a TDZ crash when tests `mock.module(...)` a dependency of any
-// other default plugin and directly import this file.
-try {
-  registerPlugin(defaultToolExecutePlugin);
-} catch (err) {
-  if (
-    err instanceof PluginExecutionError &&
-    err.message.includes("already registered")
-  ) {
-    // already registered — expected when both index.ts and the direct
-    // file are imported in the same process
-  } else {
-    throw err;
-  }
-}

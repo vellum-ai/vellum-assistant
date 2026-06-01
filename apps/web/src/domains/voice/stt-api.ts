@@ -1,5 +1,4 @@
 import { sttTranscribePost } from "@/generated/daemon/sdk.gen";
-import { SDK_BASE_OPTIONS } from "@/utils/api-errors";
 
 export interface SttTranscribeOk {
   status: "ok";
@@ -138,7 +137,6 @@ export async function postSttTranscribe(
   let result: Awaited<ReturnType<typeof sttTranscribePost>>;
   try {
     result = await sttTranscribePost({
-      ...SDK_BASE_OPTIONS,
       path: { assistant_id: assistantId },
       body: {
         audioBase64,
