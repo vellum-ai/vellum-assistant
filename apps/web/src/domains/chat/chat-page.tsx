@@ -704,6 +704,10 @@ export function ChatPage() {
     await baseHandleStopGenerating();
   }, [baseHandleStopGenerating]);
 
+  const probeInitialMessageReachability = useCallback(() => {
+    reachability.probe({ mode: "background" });
+  }, [reachability.probe]);
+
   useInitialMessageLaunch({
     assistantId,
     activeConversationId,
@@ -711,6 +715,7 @@ export function ChatPage() {
     pendingInitialMessageRef,
     startNewConversation,
     sendMessage,
+    probeReachability: probeInitialMessageReachability,
   });
 
   // Auto-send a message when navigated to with ?prompt= (e.g. Submit Feedback)

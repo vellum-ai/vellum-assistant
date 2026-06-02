@@ -8,6 +8,8 @@ type PendingInitialMessage = {
   content: string;
 };
 
+let routedInitialMessage: PendingInitialMessage | null = null;
+
 interface UseInitialMessageLaunchParams {
   assistantId: string | null;
   activeConversationId: string | null;
@@ -18,6 +20,7 @@ interface UseInitialMessageLaunchParams {
     initialMessage?: string;
   }) => void;
   sendMessage: (content: string) => Promise<void>;
+  probeReachability: () => void;
 }
 
 export function useInitialMessageLaunch({
@@ -27,6 +30,7 @@ export function useInitialMessageLaunch({
   pendingInitialMessageRef,
   startNewConversation,
   sendMessage,
+  probeReachability,
 }: UseInitialMessageLaunchParams) {
   const consumedStoredMessageRef = useRef(false);
 
@@ -38,7 +42,37 @@ export function useInitialMessageLaunch({
 
     consumedStoredMessageRef.current = true;
     startNewConversation({ initialMessage: message });
-  }, [assistantId, startNewConversation]);
+
+    const pending = pendingInitialMessageRef.current;
+    if (pending?.content === message) {
+      routedInitialMessage = pending;
+    }
+  }, [assistantId, pendingInitialMessageRef, startNewConversation]);
+
+  useEffect(() => {
+    if (!assistantId || !activeConversationId || !routedInitialMessage) return;
+    if (routedInitialMessage.conversationId !== activeConversationId) return;
+
+    pendingInitialMessageRef.current = routedInitialMessage;
+    routedInitialMessage = null;
+  }, [activeConversationId, assistantId, pendingInitialMessageRef]);
+
+  useEffect(() => {
+    if (!assistantId || !activeConversationId || reachabilityPhase !== "idle") {
+      return;
+    }
+
+    const pending = pendingInitialMessageRef.current;
+    if (!pending || pending.conversationId !== activeConversationId) return;
+
+    probeReachability();
+  }, [
+    activeConversationId,
+    assistantId,
+    pendingInitialMessageRef,
+    probeReachability,
+    reachabilityPhase,
+  ]);
 
   useEffect(() => {
     if (!assistantId || !activeConversationId || reachabilityPhase !== "ready") {

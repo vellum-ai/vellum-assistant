@@ -33,6 +33,7 @@ describe("useInitialMessageLaunch", () => {
     } as MutableRefObject<PendingInitialMessage | null>,
     startNewConversation = mock(() => {}),
     sendMessage = mock(async () => {}),
+    probeReachability = mock(() => {}),
   }: {
     assistantId?: string | null;
     activeConversationId?: string | null;
@@ -43,6 +44,7 @@ describe("useInitialMessageLaunch", () => {
       initialMessage?: string;
     }) => void;
     sendMessage?: (content: string) => Promise<void>;
+    probeReachability?: () => void;
   } = {}) {
     return renderHook(
       (props: {
@@ -57,6 +59,7 @@ describe("useInitialMessageLaunch", () => {
           pendingInitialMessageRef,
           startNewConversation,
           sendMessage,
+          probeReachability,
         }),
       {
         initialProps: {
@@ -166,5 +169,77 @@ describe("useInitialMessageLaunch", () => {
 
     await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(PROMPT));
     expect(pendingInitialMessageRef.current).toBeNull();
+  });
+
+  test("probes reachability when a staged initial message is waiting from idle", async () => {
+    const pendingInitialMessageRef: MutableRefObject<PendingInitialMessage | null> =
+      {
+        current: {
+          conversationId: "draft-1",
+          content: PROMPT,
+        },
+      };
+    const probeReachability = mock(() => {});
+    const sendMessage = mock(async () => {});
+
+    renderLaunchHook({
+      activeConversationId: "draft-1",
+      reachabilityPhase: "idle",
+      pendingInitialMessageRef,
+      sendMessage,
+      probeReachability,
+    });
+
+    await waitFor(() => expect(probeReachability).toHaveBeenCalledTimes(1));
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(pendingInitialMessageRef.current?.content).toBe(PROMPT);
+  });
+
+  test("carries a stored prompt across the index-to-conversation remount", async () => {
+    sessionStorage.setItem(INITIAL_MESSAGE_SESSION_KEY, PROMPT);
+    const firstMountPendingRef: MutableRefObject<PendingInitialMessage | null> =
+      { current: null };
+    const startNewConversation = mock(
+      (opts?: { silent?: boolean; initialMessage?: string }) => {
+        firstMountPendingRef.current = {
+          conversationId: "draft-1",
+          content: opts?.initialMessage ?? "",
+        };
+      },
+    );
+
+    const firstMount = renderLaunchHook({
+      activeConversationId: null,
+      pendingInitialMessageRef: firstMountPendingRef,
+      startNewConversation,
+    });
+
+    await waitFor(() => expect(startNewConversation).toHaveBeenCalled());
+    firstMount.unmount();
+
+    const secondMountPendingRef: MutableRefObject<PendingInitialMessage | null> =
+      { current: null };
+    const probeReachability = mock(() => {});
+    const sendMessage = mock(async () => {});
+
+    const { rerender } = renderLaunchHook({
+      activeConversationId: "draft-1",
+      reachabilityPhase: "idle",
+      pendingInitialMessageRef: secondMountPendingRef,
+      probeReachability,
+      sendMessage,
+    });
+
+    await waitFor(() => expect(probeReachability).toHaveBeenCalledTimes(1));
+    expect(secondMountPendingRef.current?.content).toBe(PROMPT);
+
+    rerender({
+      assistantId: "asst-1",
+      activeConversationId: "draft-1",
+      reachabilityPhase: "ready",
+    });
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(PROMPT));
+    expect(secondMountPendingRef.current).toBeNull();
   });
 });
