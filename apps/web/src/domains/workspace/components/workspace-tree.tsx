@@ -41,7 +41,12 @@ import { Button } from "@vellum/design-library/components/button";
 import { Input } from "@vellum/design-library/components/input";
 import { PanelItem } from "@vellum/design-library/components/panel-item";
 import { Popover } from "@vellum/design-library/components/popover";
-import { client } from "@/generated/api/client.gen";
+import {
+  workspaceMkdirPost,
+  workspaceTreeGet,
+  workspaceWritePost,
+} from "@/generated/daemon/sdk.gen";
+import type { WorkspaceTreeGetResponse } from "@/generated/daemon/types.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { formatFileSize } from "@/domains/workspace/utils/format-file-size";
 import {
@@ -55,36 +60,29 @@ export type { WorkspaceSortMode };
 // API helpers
 // ---------------------------------------------------------------------------
 
-interface WorkspaceTreeEntry {
-  name?: string;
-  path?: string;
-  type?: string;
-  size?: number | null;
-  mimeType?: string;
-  modifiedAt?: string;
-}
-
-interface WorkspaceTreeResponse {
-  entries?: WorkspaceTreeEntry[];
-}
+type WorkspaceTreeEntry = WorkspaceTreeGetResponse["entries"][number];
 
 function workspaceTreeRetrieveOptions(opts: {
   path: { assistant_id: string };
   query?: { path?: string; showHidden?: boolean; includeDirSizes?: boolean };
 }) {
-  return queryOptions<WorkspaceTreeResponse>({
+  return queryOptions<WorkspaceTreeGetResponse>({
     queryFn: async () => {
       const query: Record<string, string> = {};
       if (opts.query?.path) query.path = opts.query.path;
       if (opts.query?.showHidden) query.showHidden = "true";
       if (opts.query?.includeDirSizes) query.includeDirSizes = "true";
-      const { data, error } = await client.get<WorkspaceTreeResponse, unknown>({
-        url: "/v1/assistants/{assistant_id}/workspace/tree/",
+      const { data, error } = await workspaceTreeGet({
         path: opts.path,
         query,
       });
-      if (error) throw error;
-      return data!;
+      if (error) {
+        throw error;
+      }
+      if (!data) {
+        throw new Error("Failed to load workspace tree");
+      }
+      return data;
     },
     queryKey: ["assistantsWorkspaceTreeRetrieve", opts],
   });
@@ -406,21 +404,18 @@ export function WorkspaceTree({
 
   const createMutation = useMutation({
     mutationFn: async (input: { kind: "file" | "folder"; name: string }) => {
-      const url =
+      const { error, response } =
         input.kind === "file"
-          ? "/v1/assistants/{assistant_id}/workspace/write/"
-          : "/v1/assistants/{assistant_id}/workspace/mkdir/";
-      const body =
-        input.kind === "file"
-          ? { path: input.name, content: "", encoding: "utf8" }
-          : { path: input.name };
-      const { error, response } = await client.post<unknown, unknown>({
-        url,
-        path: { assistant_id: assistantId },
-        body,
-        headers: { "Content-Type": "application/json" },
-        throwOnError: false,
-      });
+          ? await workspaceWritePost({
+              path: { assistant_id: assistantId },
+              body: { path: input.name, content: "", encoding: "utf8" },
+              throwOnError: false,
+            })
+          : await workspaceMkdirPost({
+              path: { assistant_id: assistantId },
+              body: { path: input.name },
+              throwOnError: false,
+            });
       if (error || !response?.ok) {
         throw new Error(
           typeof error === "string"
