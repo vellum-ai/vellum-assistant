@@ -456,7 +456,7 @@ export function AssistantSideMenu({
         <SideMenu.Separator />
       </SideMenu.Header>
 
-      <SideMenu.Body className="pt-3 max-md:pt-4">
+      <SideMenu.Body className="gap-1 pt-3 max-md:pt-4">
         {collapsed && variant === "rail" ? (
           <div className="flex flex-col items-center gap-1">
             {headerActions}
@@ -529,6 +529,7 @@ export function AssistantSideMenu({
 
             <SideMenu.Section
               title="Conversations"
+              className="gap-1"
               actions={variant === "overlay" ? undefined : headerActions}
             >
               {renderFlatList(
@@ -541,6 +542,7 @@ export function AssistantSideMenu({
 
               <CollapsibleNavSection.Root
                 type="multiple"
+                className="gap-1"
                 value={sidebar.effectiveOpenCategories}
                 onValueChange={sidebar.onOpenCategoriesChange}
               >
@@ -594,6 +596,7 @@ export function AssistantSideMenu({
                   <SideMenu.Section title="Your Groups">
                     <CollapsibleNavSection.Root
                       type="multiple"
+                      className="gap-1"
                       value={sidebar.effectiveOpenCustomGroups}
                       onValueChange={sidebar.onOpenCustomGroupsChange}
                     >
