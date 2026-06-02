@@ -1,12 +1,12 @@
 /**
  * Tests for the headless `TimezoneSync` component.
  *
- * Strategy: mock the generated API client's `patch`, the browser-zone and
- * device-setting readers (separately), and the effective-timezone hook
- * (the reactivity trigger), drive the active assistant id through the real
- * selection store, and assert the PATCH writes both `detectedTimezone`
- * (browser zone) and `userTimezone` (override or "") and never persists a
- * stale zone when requests overlap.
+ * Strategy: mock the generated API client's `patch`, the browser-zone reader,
+ * and the effective-timezone hook (the reactivity trigger), drive the active
+ * assistant id through the real selection store, and assert the PATCH writes
+ * ONLY `detectedTimezone` (the live browser zone) and NEVER `userTimezone`,
+ * that writes are serialized (no two PATCHes in flight at once), and that the
+ * final write always reflects the newest zone when triggers overlap.
  */
 import {
   afterEach,
@@ -29,26 +29,19 @@ interface PatchArgs {
   body: { ui: Record<string, unknown> };
 }
 
-// Mutable separate readers; tests flip them then re-render. `browserTz`
-// is the live auto zone; `override` is the manual `device:timezone`.
+// Mutable browser zone; tests flip it then re-render.
 let browserTz = "America/New_York";
-let override = "";
 const patchMock = mock(async (_args: PatchArgs) => ({ data: {} }));
 const captureErrorMock = mock((_error: unknown, _opts: { context: string }) => {});
 
-// The hook is just a reactivity trigger; it folds override over browser
-// zone (matching the real implementation) so a flip of either re-renders.
+// The hook is just a reactivity trigger; it tracks the browser zone so a flip
+// re-renders.
 mock.module("@/utils/use-effective-timezone", () => ({
-  useEffectiveTimezone: () => (override.trim() ? override.trim() : browserTz),
+  useEffectiveTimezone: () => browserTz,
 }));
 
 mock.module("@/utils/browser-timezone", () => ({
   getBrowserTimezone: () => browserTz,
-}));
-
-mock.module("@/utils/device-settings", () => ({
-  getDeviceSetting: (_name: string, fallback: string) =>
-    override === "" ? fallback : override,
 }));
 
 mock.module("@/generated/api/client.gen", () => ({
@@ -73,7 +66,6 @@ function renderSync() {
 
 beforeEach(() => {
   browserTz = "America/New_York";
-  override = "";
   patchMock.mockClear();
   captureErrorMock.mockClear();
   patchMock.mockImplementation(async () => ({ data: {} }));
@@ -90,36 +82,20 @@ function lastBody() {
 }
 
 describe("TimezoneSync", () => {
-  test("PATCHes both fields once on mount in auto mode (userTimezone cleared)", async () => {
+  test("PATCHes only detectedTimezone on mount; never sends userTimezone", async () => {
     renderSync();
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
     const call = patchMock.mock.calls[0]![0];
     expect(call.url).toBe("/v1/assistants/{assistant_id}/config");
     expect(call.path).toEqual({ assistant_id: "asst-1" });
-    expect(call.body).toEqual({
-      ui: { detectedTimezone: "America/New_York", userTimezone: "" },
-    });
+    expect(call.body).toEqual({ ui: { detectedTimezone: "America/New_York" } });
+    // Explicitly assert userTimezone is never part of any PATCH body.
+    for (const c of patchMock.mock.calls) {
+      expect(c[0].body.ui).not.toHaveProperty("userTimezone");
+    }
   });
 
-  test("manual override is written to userTimezone; detectedTimezone carries the live browser zone", async () => {
-    override = "Asia/Tokyo";
-    renderSync();
-    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
-    expect(lastBody()).toEqual({
-      ui: { detectedTimezone: "America/New_York", userTimezone: "Asia/Tokyo" },
-    });
-  });
-
-  test("trims the override before writing userTimezone", async () => {
-    override = "  Asia/Tokyo  ";
-    renderSync();
-    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
-    expect(lastBody()).toEqual({
-      ui: { detectedTimezone: "America/New_York", userTimezone: "Asia/Tokyo" },
-    });
-  });
-
-  test("a browser-zone change triggers exactly one additional PATCH with the new zone", async () => {
+  test("a browser-zone change triggers exactly one additional PATCH with the new zone (no userTimezone)", async () => {
     const { rerender } = renderSync();
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
 
@@ -127,9 +103,7 @@ describe("TimezoneSync", () => {
     rerender(<TimezoneSync />);
 
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(2));
-    expect(lastBody()).toEqual({
-      ui: { detectedTimezone: "Europe/London", userTimezone: "" },
-    });
+    expect(lastBody()).toEqual({ ui: { detectedTimezone: "Europe/London" } });
   });
 
   test("no additional PATCH when nothing changed across re-renders (redundant-key dedupe)", async () => {
@@ -174,9 +148,7 @@ describe("TimezoneSync", () => {
     browserTz = "America/New_York";
     rerender(<TimezoneSync />);
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(3));
-    expect(lastBody()).toEqual({
-      ui: { detectedTimezone: "America/New_York", userTimezone: "" },
-    });
+    expect(lastBody()).toEqual({ ui: { detectedTimezone: "America/New_York" } });
   });
 
   test("retries on app.resume with the same zone after a failed initial sync", async () => {
@@ -189,9 +161,7 @@ describe("TimezoneSync", () => {
 
     publish("app.resume", { signal: "visibility" });
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(2));
-    expect(lastBody()).toEqual({
-      ui: { detectedTimezone: "America/New_York", userTimezone: "" },
-    });
+    expect(lastBody()).toEqual({ ui: { detectedTimezone: "America/New_York" } });
   });
 
   test("retries on window focus with the same zone after a failed initial sync", async () => {
@@ -204,9 +174,7 @@ describe("TimezoneSync", () => {
 
     window.dispatchEvent(new Event("focus"));
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(2));
-    expect(lastBody()).toEqual({
-      ui: { detectedTimezone: "America/New_York", userTimezone: "" },
-    });
+    expect(lastBody()).toEqual({ ui: { detectedTimezone: "America/New_York" } });
   });
 
   test("does not re-PATCH on resume/focus after a successful sync with the same zone", async () => {
@@ -220,10 +188,12 @@ describe("TimezoneSync", () => {
     expect(patchMock).toHaveBeenCalledTimes(1);
   });
 
-  test("last-writer-wins: a slow older PATCH cannot overwrite a newer zone", async () => {
-    // Two overlapping triggers; the FIRST (older zone) resolves AFTER the
-    // SECOND (newer zone). The final synced state must reflect the newer
-    // zone, and the stale older completion must not re-open it for resync.
+  test("serializes PATCHes (last-writer-wins): newer zone is the final write, no overlap", async () => {
+    // The first PATCH (older zone) is held pending while the zone flips. The
+    // serializer must NOT start a second PATCH while the first is in flight;
+    // the newer zone is queued and fired only after the first settles, so the
+    // FINAL server write reflects the newer zone — even if the first promise
+    // resolves after the newer target arrives.
     const resolvers: Array<() => void> = [];
     patchMock.mockImplementation(
       () =>
@@ -235,31 +205,37 @@ describe("TimezoneSync", () => {
     const { rerender } = renderSync();
     // First PATCH issued (mount) for America/New_York; still pending.
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(1));
+    expect(lastBody()).toEqual({ ui: { detectedTimezone: "America/New_York" } });
 
-    // Zone flips before the first request settles → second PATCH issued.
+    // Zone flips before the first request settles. NO second PATCH yet — the
+    // first is still in flight, so only ONE PATCH is ever in flight at once.
     browserTz = "Europe/London";
     rerender(<TimezoneSync />);
-    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(2));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(patchMock).toHaveBeenCalledTimes(1);
+    expect(resolvers).toHaveLength(1);
 
-    expect(resolvers).toHaveLength(2);
-    // Newer request resolves first, then the stale older one resolves last.
-    resolvers[1]!();
+    // First (older) PATCH settles → queue drains and fires the newer zone.
     resolvers[0]!();
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(2));
+    expect(lastBody()).toEqual({ ui: { detectedTimezone: "Europe/London" } });
+    expect(resolvers).toHaveLength(2);
+
+    // Second (newer) PATCH settles → that is now the synced state.
+    resolvers[1]!();
     await new Promise((r) => setTimeout(r, 10));
 
-    // The newer zone is the synced state: re-rendering with Europe/London
-    // (the latest issued key) must NOT trigger a redundant PATCH...
+    // Re-rendering at the newer zone must NOT trigger a redundant PATCH...
     rerender(<TimezoneSync />);
     await new Promise((r) => setTimeout(r, 10));
     expect(patchMock).toHaveBeenCalledTimes(2);
 
-    // ...and flipping back to the older zone DOES PATCH (so the stale
-    // completion never recorded America/New_York as the synced key).
+    // ...and flipping back to the older zone DOES PATCH (the older zone was
+    // never recorded as the synced key).
     browserTz = "America/New_York";
     rerender(<TimezoneSync />);
     await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(3));
-    expect(lastBody()).toEqual({
-      ui: { detectedTimezone: "America/New_York", userTimezone: "" },
-    });
+    resolvers[2]!();
+    expect(lastBody()).toEqual({ ui: { detectedTimezone: "America/New_York" } });
   });
 });

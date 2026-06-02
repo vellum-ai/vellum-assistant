@@ -1,31 +1,29 @@
 /**
- * Headless background sync of the client's timezone into the assistant
- * daemon config, writing both cascade tiers separately:
+ * Headless background sync of the client's *auto* browser timezone into the
+ * assistant daemon config. It writes ONLY `ui.detectedTimezone` — the live
+ * auto browser zone, used for background grounding (memory retrospective,
+ * scheduling) that has no per-turn `clientTimezone`.
  *
- * - `ui.userTimezone`  ← the manual `device:timezone` override (trimmed),
- *   or `""` to CLEAR it when in auto mode. A deliberate override must
- *   live in this tier so it outranks another client's per-turn
- *   `clientTimezone`; storing it in `detectedTimezone` (the weakest
- *   relevant tier) would let a transient per-turn zone win.
- * - `ui.detectedTimezone` ← the live auto browser zone, used for
- *   background grounding (memory retrospective, scheduling) that has no
- *   per-turn `clientTimezone`.
+ * It deliberately NEVER writes `ui.userTimezone`. That tier is the
+ * authoritative manual override and may be set from the CLI, the assistant,
+ * or another client; a background auto-mode client clearing it would clobber
+ * a global override. The settings picker owns writing `ui.userTimezone` for
+ * explicit user actions.
  *
- * This is the single point that mirrors `device:timezone` into config;
- * the settings picker only writes localStorage. `useEffectiveTimezone()`
- * is used purely as a reactivity trigger (focus / app.resume / device
- * watcher) so the sync re-runs when either the browser zone or the
- * override changes.
+ * `useEffectiveTimezone()` is used purely as a reactivity trigger (focus /
+ * app.resume / device watcher) so the sync re-runs when the browser zone
+ * changes; the value persisted is always re-read from `getBrowserTimezone()`.
  *
- * A sync only advances `lastSyncedRef` once the PATCH *succeeds*, so a
- * failed sync (e.g. resumed-after-offline) leaves the key "unsynced" and
- * is retried on the next `app.resume` or focus — even when the values
- * are unchanged. A successful prior sync makes those triggers a no-op.
+ * A sync only advances `lastSyncedRef` once the PATCH *succeeds*, so a failed
+ * sync (e.g. resumed-after-offline) leaves the zone "unsynced" and is retried
+ * on the next `app.resume` or focus. A successful prior sync makes those
+ * triggers a no-op.
  *
- * iOS fires `app.resume`+`focus` back-to-back, so PATCHes can overlap. A
- * monotonic request token guarantees last-writer-wins: a slow older
- * request's success is ignored once a newer request has been issued, so
- * a stale zone can never be persisted.
+ * Writes are truly serialized (last-writer-wins): at most one PATCH is in
+ * flight at a time. A trigger that fires while a PATCH is in flight only
+ * records the latest desired zone; when the in-flight PATCH settles, the
+ * queue drains to the latest target, so the final server write is always the
+ * newest zone and writes can never overlap or land out of order.
  *
  * Mounted once in `RootLayout` (behind `authMiddleware`). Renders `null`
  * and is silent on error — a failed background sync must never toast.
@@ -38,46 +36,37 @@ import { client } from "@/generated/api/client.gen";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { captureError } from "@/lib/sentry/capture-error";
 import { getBrowserTimezone } from "@/utils/browser-timezone";
-import { getDeviceSetting } from "@/utils/device-settings";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
 export function TimezoneSync(): null {
   // Reactivity trigger only: this value changes whenever the browser zone
-  // or the override changes, re-running the effect below. The actual
-  // detected/override values are re-read imperatively inside `trySync`.
+  // changes, re-running the effect below. The detected value is re-read
+  // imperatively inside `trySync` from `getBrowserTimezone()`.
   const effectiveTz = useEffectiveTimezone();
   const assistantId = useAssistantSelectionStore.use.activeAssistantId();
 
   const { mutateAsync: patchTimezone } = useMutation({
-    mutationFn: async (vars: {
-      assistantId: string;
-      detectedTimezone: string;
-      userTimezone: string;
-    }) => {
+    mutationFn: async (vars: { assistantId: string; detectedTimezone: string }) => {
       const { data } = await client.patch<Record<string, unknown>, unknown, true>({
         url: `/v1/assistants/{assistant_id}/config`,
         path: { assistant_id: vars.assistantId },
-        body: {
-          ui: {
-            detectedTimezone: vars.detectedTimezone,
-            userTimezone: vars.userTimezone,
-          },
-        },
+        body: { ui: { detectedTimezone: vars.detectedTimezone } },
         throwOnError: true,
       });
       return data;
     },
   });
 
-  // Dedupe key of the last *successful* sync, covering both values plus
-  // the assistant (so switching assistants re-syncs even when unchanged).
-  // Only advanced on success, so a failed sync stays "unsynced".
+  // Dedupe key of the last *successful* sync (`${assistantId}:${detectedTimezone}`,
+  // so switching assistants re-syncs even when the zone is unchanged). Only
+  // advanced on success, so a failed sync stays "unsynced".
   const lastSyncedRef = useRef<string | null>(null);
 
-  // Monotonic token: incremented per issued PATCH. A request only records
-  // its key if it is still the latest issued, so a slow older completion
-  // cannot overwrite a newer zone (last-writer-wins).
-  const requestSeqRef = useRef(0);
+  // Write serialization: at most one PATCH in flight. `inFlightRef` guards
+  // overlap; `pendingKeyRef` holds the latest desired key while a PATCH is in
+  // flight so the queue can drain to it on settle.
+  const inFlightRef = useRef(false);
+  const pendingKeyRef = useRef<string | null>(null);
 
   // Hold the live assistant id so resume/focus handlers (which capture
   // `trySync` once) always target the current assistant.
@@ -87,33 +76,45 @@ export function TimezoneSync(): null {
   const trySync = useCallback(() => {
     const currentAssistantId = assistantIdRef.current;
     const detectedTimezone = getBrowserTimezone();
-    const userTimezone = getDeviceSetting("timezone", "").trim();
     if (!currentAssistantId || !detectedTimezone) return;
 
-    const key = `${currentAssistantId}:${detectedTimezone}:${userTimezone}`;
+    const key = `${currentAssistantId}:${detectedTimezone}`;
     if (lastSyncedRef.current === key) return;
 
-    const seq = ++requestSeqRef.current;
-    // Fire-and-forget: background sync, silent on error. Only record the
-    // key on success, and only if no newer request has since been issued.
-    patchTimezone({ assistantId: currentAssistantId, detectedTimezone, userTimezone })
+    // A PATCH is already running: just record the latest desired target so
+    // the in-flight PATCH drains to it on settle (no overlapping writes).
+    if (inFlightRef.current) {
+      pendingKeyRef.current = key;
+      return;
+    }
+
+    inFlightRef.current = true;
+    pendingKeyRef.current = null;
+
+    // Fire-and-forget background sync, silent on error. Record the key only
+    // on success; on settle, drain any newer target requested while in flight.
+    patchTimezone({ assistantId: currentAssistantId, detectedTimezone })
       .then(() => {
-        if (seq === requestSeqRef.current) {
-          lastSyncedRef.current = key;
-        }
+        lastSyncedRef.current = key;
       })
       .catch((error) => {
         captureError(error, { context: "timezone-sync" });
+      })
+      .finally(() => {
+        inFlightRef.current = false;
+        const pending = pendingKeyRef.current;
+        pendingKeyRef.current = null;
+        if (pending && pending !== key) trySync();
       });
   }, [patchTimezone]);
 
-  // Reactive path: zone/override or assistant change.
+  // Reactive path: zone or assistant change.
   useEffect(() => {
     trySync();
   }, [effectiveTz, assistantId, trySync]);
 
-  // Resume/focus path: retry a previously failed sync even when the
-  // values are unchanged. A successful prior sync makes this a no-op.
+  // Resume/focus path: retry a previously failed sync even when the zone is
+  // unchanged. A successful prior sync makes this a no-op.
   useBusSubscription("app.resume", trySync);
   useEffect(() => {
     window.addEventListener("focus", trySync);
