@@ -17,7 +17,7 @@
  * @see https://docs.sentry.io/product/explore/discover-queries/
  */
 
-import * as Sentry from "@sentry/browser";
+import * as Sentry from "@sentry/react";
 
 import { recordLifecycleDiagnostic, resolvePlatformTag } from "@/lib/diagnostics";
 import type { ChatStreamReconnectCause } from "@/lib/streaming/stream-transport";

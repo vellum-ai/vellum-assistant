@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import * as Sentry from "@sentry/browser";
+import * as Sentry from "@sentry/react";
 import { useNavigate } from "react-router";
 
 import { subscribe } from "@/lib/event-bus";

@@ -1,6 +1,6 @@
 import { useCallback, useRef } from "react";
 
-import * as Sentry from "@sentry/browser";
+import * as Sentry from "@sentry/react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
