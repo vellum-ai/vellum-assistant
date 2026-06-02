@@ -524,6 +524,16 @@ export function ChatRouteContent({
   // instead of a separate recomputation (see useChatDebugRegistration).
   uiContextRef.current = uiContext;
 
+  // Clear the published context on unmount so the debug API falls back to its
+  // empty default instead of reporting the last rendered frame (which could
+  // claim a badge is processing) while no chat content is on screen.
+  useEffect(
+    () => () => {
+      uiContextRef.current = null;
+    },
+    [uiContextRef],
+  );
+
   // When the `useProgressBadge` debug flag is on, suppress the
   // transcript-trailer thinking dots — the avatar badge takes over the
   // "the assistant is working" affordance. Default (flag off) keeps the
