@@ -78,6 +78,18 @@ function buildConnectionProviderDisplayNames(): Record<
 }
 
 // ---------------------------------------------------------------------------
+// Feature-flag filter
+// ---------------------------------------------------------------------------
+
+export function filterFlaggedConnections(
+  connections: ProviderConnection[],
+  openAICompatibleEndpointsEnabled: boolean,
+): ProviderConnection[] {
+  if (openAICompatibleEndpointsEnabled) return connections;
+  return connections.filter((c) => c.provider !== "openai-compatible");
+}
+
+// ---------------------------------------------------------------------------
 // Credential-entry parser (transforms secrets list into service/field pairs)
 // ---------------------------------------------------------------------------
 

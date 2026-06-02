@@ -1,17 +1,20 @@
 import { Trash2 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellum/design-library/components/button";
 import { Modal } from "@vellum/design-library/components/modal";
 import { Tag } from "@vellum/design-library/components/tag";
 import { Typography } from "@vellum/design-library/components/typography";
 
+import { inferenceProviderconnectionsByNameDelete } from "@/generated/daemon/sdk.gen";
 import {
-  inferenceProviderconnectionsByNameDelete,
-  inferenceProviderconnectionsGet,
-} from "@/generated/daemon/sdk.gen";
+  inferenceProviderconnectionsGetOptions,
+  inferenceProviderconnectionsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 
 import {
+  filterFlaggedConnections,
   PROVIDER_DISPLAY_NAMES,
   type ProviderConnection,
 } from "@/domains/settings/ai/provider-connections-client";
@@ -37,14 +40,6 @@ function formatAuthSummary(auth: ProviderConnection["auth"]): string {
   }
 }
 
-function filterFlaggedConnections(
-  connections: ProviderConnection[],
-  openAICompatibleEndpointsEnabled: boolean,
-): ProviderConnection[] {
-  if (openAICompatibleEndpointsEnabled) return connections;
-  return connections.filter((c) => c.provider !== "openai-compatible");
-}
-
 // ---------------------------------------------------------------------------
 // ManageProvidersModal
 // ---------------------------------------------------------------------------
@@ -62,62 +57,28 @@ export function ManageProvidersModal({
 }: ManageProvidersModalProps) {
   const openAICompatibleEndpoints = useAssistantFeatureFlagStore.use.openAICompatibleEndpoints();
   const chatgptSubscriptionAuth = useAssistantFeatureFlagStore.use.chatgptSubscriptionAuth();
-  const [connections, setConnections] = useState<ProviderConnection[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingConnection, setEditingConnection] = useState<ProviderConnection | null>(null);
 
-  // Request versioning: prevents stale listConnections responses from
-  // overwriting newer local state (e.g. after handleEditorSave).
-  const listVersionRef = useRef(0);
+  const queryClient = useQueryClient();
+  const queryOpts = inferenceProviderconnectionsGetOptions({
+    path: { assistant_id: assistantId },
+  });
+  const { data, isLoading: loading, isError } = useQuery({
+    ...queryOpts,
+    enabled: isOpen,
+  });
 
-  const refreshList = useCallback(() => {
-    const version = ++listVersionRef.current;
-    setLoading(true);
-    setLoadError(null);
-    void inferenceProviderconnectionsGet({
-      path: { assistant_id: assistantId },
-      throwOnError: true,
-    })
-      .then(({ data }) => {
-        if (listVersionRef.current !== version) return;
-        setConnections(
-          filterFlaggedConnections(data.connections, openAICompatibleEndpoints),
-        );
-        setLoading(false);
-      })
-      .catch(() => {
-        if (listVersionRef.current !== version) return;
-        setLoadError("Failed to load connections. Please try again.");
-        setLoading(false);
-      });
-  }, [assistantId, openAICompatibleEndpoints]);
+  const connections = useMemo(
+    () => filterFlaggedConnections(data?.connections ?? [], openAICompatibleEndpoints),
+    [data, openAICompatibleEndpoints],
+  );
 
-  // Load list whenever the outer modal opens.
-  useEffect(() => {
-    if (isOpen) refreshList();
-  }, [isOpen, refreshList]);
-
-  function handleEditorSave(saved: ProviderConnection) {
-    // Invalidate any in-flight refreshList so it won't overwrite this save.
-    listVersionRef.current++;
-
-    // Update the local list: replace existing entry or append new one.
-    setConnections((prev) => {
-      if (
-        saved.provider === "openai-compatible" &&
-        !openAICompatibleEndpoints
-      ) {
-        return prev;
-      }
-      const idx = prev.findIndex((c) => c.name === saved.name);
-      if (idx >= 0) {
-        const next = [...prev];
-        next[idx] = saved;
-        return next;
-      }
-      return [...prev, saved];
+  function handleEditorSave(_saved: ProviderConnection) {
+    void queryClient.invalidateQueries({
+      queryKey: inferenceProviderconnectionsGetQueryKey({
+        path: { assistant_id: assistantId },
+      }),
     });
     setEditorOpen(false);
     setEditingConnection(null);
@@ -172,7 +133,7 @@ export function ManageProvidersModal({
           <ManageProvidersModalInner
             connections={connections}
             loading={loading}
-            loadError={loadError}
+            isError={isError}
             assistantId={assistantId}
             onClose={onClose}
             onEditClick={(conn) => {
@@ -183,8 +144,12 @@ export function ManageProvidersModal({
               setEditingConnection(null);
               setEditorOpen(true);
             }}
-            onConnectionDeleted={(name) => {
-              setConnections((prev) => prev.filter((c) => c.name !== name));
+            onConnectionDeleted={() => {
+              void queryClient.invalidateQueries({
+                queryKey: inferenceProviderconnectionsGetQueryKey({
+                  path: { assistant_id: assistantId },
+                }),
+              });
             }}
           />
         )
@@ -200,7 +165,7 @@ export function ManageProvidersModal({
 interface ManageProvidersModalInnerProps {
   connections: ProviderConnection[];
   loading: boolean;
-  loadError: string | null;
+  isError: boolean;
   assistantId: string;
   onClose: () => void;
   onEditClick: (conn: ProviderConnection) => void;
@@ -211,7 +176,7 @@ interface ManageProvidersModalInnerProps {
 function ManageProvidersModalInner({
   connections,
   loading,
-  loadError,
+  isError,
   assistantId,
   onClose,
   onEditClick,
@@ -281,13 +246,13 @@ function ManageProvidersModalInner({
               />
             ))}
           </div>
-        ) : loadError ? (
+        ) : isError ? (
           <Typography
             variant="body-medium-default"
             as="p"
             className="py-4 text-center text-(--system-negative-strong)"
           >
-            {loadError}
+            Failed to load connections. Please try again.
           </Typography>
         ) : connections.length === 0 ? (
           <Typography
