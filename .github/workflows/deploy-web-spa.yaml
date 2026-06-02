@@ -50,6 +50,17 @@ jobs:
       - name: Generate API clients
         run: bun run openapi-ts
 
+      # vite.config.ts loads the local-mode dev-server plugin, which imports the
+      # `@vellumai/local-mode` file: package. Bun resolves a file: dep to its
+      # real path, so the plugin's own transitive deps (`@vellumai/environments`)
+      # only resolve when those packages are installed in place — without this,
+      # loading the Vite config fails even though the plugin is unused in
+      # platform builds. Matches the PR/CI web workflows.
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+
       # Build per environment so the bundle bakes in this environment's public
       # config — the Stripe publishable key differs per env (pk_test_ vs pk_live_)
       # and the Sentry environment tag must match. Sources, per the GitHub config:
