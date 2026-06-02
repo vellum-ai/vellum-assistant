@@ -36,6 +36,12 @@ const captureExceptionMock = mock(() => {});
 mock.module("@sentry/browser", () => ({
   captureException: captureExceptionMock,
   addBreadcrumb: () => {},
+  setContext: () => {},
+}));
+mock.module("@sentry/react", () => ({
+  captureException: captureExceptionMock,
+  addBreadcrumb: () => {},
+  setContext: () => {},
 }));
 
 import * as eventBus from "@/lib/event-bus";

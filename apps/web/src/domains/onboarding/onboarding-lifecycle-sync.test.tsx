@@ -137,6 +137,12 @@ mock.module("@vellum/design-library/components/progress-bar", () => ({
 mock.module("@sentry/browser", () => ({
   captureException: mock(() => {}),
   captureMessage: mock(() => {}),
+  setContext: () => {},
+}));
+mock.module("@sentry/react", () => ({
+  captureException: mock(() => {}),
+  captureMessage: mock(() => {}),
+  setContext: () => {},
 }));
 
 mock.module("@/domains/onboarding/prefs", () => ({
