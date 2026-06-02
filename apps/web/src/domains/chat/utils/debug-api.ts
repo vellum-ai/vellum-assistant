@@ -54,7 +54,7 @@ import {
   setSeqGapDetectionEnabled,
 } from "@/lib/feature-flags/seq-gap-detection-flag";
 import { classifyScrollPosition } from "@/domains/chat/transcript/transcript-scroll-utils";
-import type { TranscriptHandle } from "@/domains/chat/transcript/use-transcript-scroll";
+import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import {
   type TerminalReason,

@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { MutableRefObject } from "react";
 
-import type { TranscriptHandle } from "@/domains/chat/transcript/use-transcript-scroll";
+import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { RuntimeMessage } from "@/domains/chat/api/messages";

@@ -68,7 +68,7 @@ export function useTextPopup<T>(config: TextPopupConfig<T>): TextPopup<T> {
   const meetsMinLength = filter.length >= minFilterLength;
 
   const items = useMemo(() => {
-    if (!hasMatch || !meetsMinLength) return EMPTY_ARRAY as unknown as T[];
+    if (!hasMatch || !meetsMinLength) return EMPTY_ARRAY as T[];
     return search(filter);
   }, [hasMatch, meetsMinLength, filter, search]);
 

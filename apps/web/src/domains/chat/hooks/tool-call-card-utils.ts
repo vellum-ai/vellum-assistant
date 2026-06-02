@@ -157,7 +157,7 @@ function isSubagentSpawnLikeCall(tc: ChatMessageToolCall): boolean {
   if (tc.toolName !== "skill_execute") return false;
   const input = tc.input;
   if (input == null || typeof input !== "object") return false;
-  return (input as Record<string, unknown>).tool === "subagent_spawn";
+  return input.tool === "subagent_spawn";
 }
 
 /**

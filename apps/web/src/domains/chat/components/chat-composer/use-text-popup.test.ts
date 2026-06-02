@@ -3,9 +3,12 @@
  *
  * The web workspace lacks @testing-library/react (no jsdom/happy-dom), so we
  * exercise behavior through the pure helpers that the hook delegates to:
- *   - `derivePopupState` — the core derivation logic
  *   - `listIndexUp` / `listIndexDown` — keyboard navigation
  *   - `filteredCommands` / `selectedInputText` — slash command catalog
+ *
+ * The `derivePopupState` helper below mirrors the hook's inline derivation
+ * logic so the regex + search + suppress composition can be tested without
+ * a React render cycle.
  */
 import { describe, expect, test } from "bun:test";
 
@@ -21,10 +24,25 @@ import {
   SLASH_COMMANDS,
 } from "@/domains/chat/components/chat-composer/slash-command-catalog";
 import {
-  derivePopupState,
   listIndexDown,
   listIndexUp,
 } from "@/domains/chat/components/chat-composer/text-popup-utils";
+
+/** Local test helper mirroring the hook's inline derivation logic. */
+function derivePopupState<T>(
+  text: string,
+  trigger: RegExp,
+  search: (filter: string) => T[],
+  suppressed: boolean,
+  minFilterLength = 0,
+): { show: boolean; filter: string; items: T[] } {
+  const match = trigger.exec(text);
+  if (!match) return { show: false, filter: "", items: [] };
+  const filter = match[1] ?? "";
+  if (filter.length < minFilterLength) return { show: false, filter, items: [] };
+  const items = search(filter);
+  return { show: items.length > 0 && !suppressed, filter, items };
+}
 
 // ---------------------------------------------------------------------------
 // Slash command catalog

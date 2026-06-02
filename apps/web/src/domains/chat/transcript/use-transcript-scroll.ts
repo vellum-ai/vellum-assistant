@@ -42,8 +42,6 @@ import {
 
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 
-export type { TranscriptHandle };
-
 // ---------------------------------------------------------------------------
 // Public hook API
 // ---------------------------------------------------------------------------
