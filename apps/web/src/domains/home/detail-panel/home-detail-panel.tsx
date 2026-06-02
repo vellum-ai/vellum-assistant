@@ -62,7 +62,7 @@ export function HomeDetailPanel({
     return (
       <div className="flex h-full flex-col bg-[var(--surface-overlay)]">
         {/* Nav bar */}
-        <div className="flex shrink-0 items-center gap-2 px-3 py-2">
+        <div className="relative flex shrink-0 items-center px-3 py-2">
           <Button
             variant="ghost"
             iconOnly={<ArrowLeft />}
@@ -73,35 +73,39 @@ export function HomeDetailPanel({
 
           <Typography
             variant="body-medium-default"
-            className="min-w-0 flex-1 text-center text-[var(--content-secondary)]"
+            className="pointer-events-none absolute inset-x-0 text-center text-[var(--content-secondary)]"
           >
             Details
           </Typography>
 
-          <Button
-            variant="ghost"
-            iconOnly={isUnread ? <MailOpen /> : <Mail />}
-            onClick={() => onUpdateStatus(item.id, isUnread ? "seen" : "new")}
-            aria-label={isUnread ? "Mark as read" : "Mark as unread"}
-            tooltip={isUnread ? "Mark as read" : "Mark as unread"}
-          />
-          {isDismissed ? (
+          <div className="ml-auto flex items-center gap-2">
             <Button
               variant="ghost"
-              iconOnly={<RotateCcw />}
-              onClick={() => onUpdateStatus(item.id, "seen")}
-              aria-label="Restore"
-              tooltip="Restore"
+              iconOnly={isUnread ? <MailOpen /> : <Mail />}
+              onClick={() =>
+                onUpdateStatus(item.id, isUnread ? "seen" : "new")
+              }
+              aria-label={isUnread ? "Mark as read" : "Mark as unread"}
+              tooltip={isUnread ? "Mark as read" : "Mark as unread"}
             />
-          ) : (
-            <Button
-              variant="ghost"
-              iconOnly={<Trash2 />}
-              onClick={() => onDismiss(item.id)}
-              aria-label="Dismiss"
-              tooltip="Dismiss"
-            />
-          )}
+            {isDismissed ? (
+              <Button
+                variant="ghost"
+                iconOnly={<RotateCcw />}
+                onClick={() => onUpdateStatus(item.id, "seen")}
+                aria-label="Restore"
+                tooltip="Restore"
+              />
+            ) : (
+              <Button
+                variant="ghost"
+                iconOnly={<Trash2 />}
+                onClick={() => onDismiss(item.id)}
+                aria-label="Dismiss"
+                tooltip="Dismiss"
+              />
+            )}
+          </div>
         </div>
 
         {/* Detail header */}
