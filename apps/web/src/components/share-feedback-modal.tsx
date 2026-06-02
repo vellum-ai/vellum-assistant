@@ -31,6 +31,7 @@ import { Dropdown, type DropdownOption } from "@vellum/design-library/components
 import { Input, Textarea } from "@vellum/design-library/components/input";
 import { Notice } from "@vellum/design-library/components/notice";
 import { Toggle } from "@vellum/design-library/components/toggle";
+import { Tooltip } from "@vellum/design-library/components/tooltip";
 import { feedbackCreateMutation } from "@/generated/api/@tanstack/react-query.gen";
 import type { ClassificationEnum } from "@/generated/api/types.gen";
 import { buildVellumMutatingHeaders } from "@/lib/auth/request-headers";
@@ -683,22 +684,27 @@ export function ShareFeedbackModal({
 
           {selectedReason !== "feature_request" && (
             <div className="flex items-center justify-between">
-              <label className="flex cursor-pointer items-center gap-2.5">
-                <Toggle
-                  checked={includeLogs}
-                  onChange={handleToggleLogs}
-                  aria-label="Include browser diagnostics"
-                />
-                <span className="text-body-medium-lighter leading-6 text-[var(--content-default)]">
-                  Include diagnostics
-                </span>
-                <span
-                  title="Diagnostics include browser context, assistant logs, and timestamps — never passwords or credentials."
-                  className="inline-flex items-center justify-center text-[var(--content-tertiary)]"
-                >
-                  <Info className="h-3.5 w-3.5" />
-                </span>
-              </label>
+              <div className="flex items-center gap-2.5">
+                <label className="flex cursor-pointer items-center gap-2.5">
+                  <Toggle
+                    checked={includeLogs}
+                    onChange={handleToggleLogs}
+                    aria-label="Include browser diagnostics"
+                  />
+                  <span className="text-body-medium-lighter leading-6 text-[var(--content-default)]">
+                    Include diagnostics
+                  </span>
+                </label>
+                <Tooltip content="Diagnostics include browser context, assistant logs, and timestamps — never passwords or credentials.">
+                  <button
+                    type="button"
+                    aria-label="About diagnostics"
+                    className="inline-flex items-center justify-center text-[var(--content-tertiary)]"
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
+                </Tooltip>
+              </div>
               {includeLogs && (
                 <Dropdown
                   options={TIME_RANGE_OPTIONS}
