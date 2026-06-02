@@ -1,0 +1,13 @@
+appId: com.vellum.vellum-assistant-electron
+productName: Vellum
+directories:
+  output: dist
+extraResources:
+  - from: resources/bun
+    to: bun
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
