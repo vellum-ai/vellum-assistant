@@ -1863,21 +1863,24 @@ export async function dispatchAgentEvent(
               errorMessage = WEB_SEARCH_BACKEND_FAILURE_MESSAGE;
               fallbackShown = true;
             }
+
+            // Backend-failure telemetry (provider outages / rate limits) must
+            // fire only for genuine backend classifications so it does not
+            // count recoverable input/quota errors as provider failures.
+            logWebSearchBackendFailure(deps.rlog, {
+              provider: "anthropic-native",
+              requestId: deps.reqId,
+              errorCategory: classification.category,
+              rawDetail: classification.rawDetail,
+              fallbackShown,
+              queryLength: query.length,
+            });
           } else {
             // Recoverable, non-backend categories (query_too_long,
             // max_uses_exceeded, unknown) are not deduped against the backend
             // notice; fall back to a concise message when there is no copy.
             errorMessage = classification.userMessage || "Search failed";
           }
-
-          logWebSearchBackendFailure(deps.rlog, {
-            provider: "anthropic-native",
-            requestId: deps.reqId,
-            errorCategory: classification.category,
-            rawDetail: classification.rawDetail,
-            fallbackShown,
-            queryLength: query.length,
-          });
         }
 
         const metadata: WebSearchMetadata | undefined = isAnthropicNative

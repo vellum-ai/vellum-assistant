@@ -732,7 +732,7 @@ describe("Native Web Search — Backend Failure Handling", () => {
   });
 
   test("query_too_long yields a distinct non-backend message", async () => {
-    const { deps, events } = createHandlerDeps();
+    const { deps, events, warnings } = createHandlerDeps();
     await completeWebSearch(state, deps, "tu_long", {
       isError: true,
       errorCode: "query_too_long",
@@ -742,5 +742,9 @@ describe("Native Web Search — Backend Failure Handling", () => {
       ?.errorMessage;
     expect(errorMessage).toBeDefined();
     expect(errorMessage).not.toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+    // Recoverable non-backend errors must NOT emit backend-failure telemetry.
+    expect(
+      warnings.filter((w) => w.obj.event === "web_search_backend_failure"),
+    ).toHaveLength(0);
   });
 });
