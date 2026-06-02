@@ -2,7 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { disposeAcpSessionManager } from "../acp/index.js";
-import { compileApp } from "../bundler/app-compiler.js";
+import {
+  compileApp,
+  disposeAppCompilerContexts,
+} from "../bundler/app-compiler.js";
 import { getConfig } from "../config/loader.js";
 import { onContactChange } from "../contacts/contact-events.js";
 import type { CesClient } from "../credential-execution/client.js";
@@ -335,6 +338,7 @@ export class DaemonServer {
     this.evictor.stop();
     this.configWatcher.stop();
     this.appSourceWatcher.stop();
+    void disposeAppCompilerContexts();
     this.pluginSourceWatcher.stop();
     this.cliIpc.stop();
     this.skillIpc.stop();

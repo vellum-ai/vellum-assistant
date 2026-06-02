@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 
-import { compileApp } from "../bundler/app-compiler.js";
+import {
+  __getAppCompilerContextStats,
+  __resetAppCompilerContextStats,
+  compileApp,
+  disposeAppCompilerContexts,
+} from "../bundler/app-compiler.js";
 import {
   ALLOWED_PACKAGES,
   getCacheDir,
@@ -24,6 +29,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  await disposeAppCompilerContexts();
   await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -411,6 +417,51 @@ console.log("styled");`,
     const js = await readFile(join(appDir, "dist", "main.js"), "utf-8");
     expect(js).toContain("updated");
     expect(js).not.toContain("original");
+  });
+
+  test("second compile of the same app reuses the warm esbuild context", async () => {
+    const appDir = await scaffold("warm-context", {
+      "main.tsx": `console.log("v1");`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    __resetAppCompilerContextStats();
+
+    const r1 = await compileApp(appDir);
+    expect(r1.ok).toBe(true);
+    // First compile creates a fresh context.
+    expect(__getAppCompilerContextStats().createCount).toBe(1);
+    expect(__getAppCompilerContextStats().rebuildCount).toBe(0);
+
+    // Edit and recompile: the context is reused (rebuild), not recreated.
+    await writeFile(join(appDir, "src", "main.tsx"), `console.log("v2");`);
+    const r2 = await compileApp(appDir);
+    expect(r2.ok).toBe(true);
+    expect(__getAppCompilerContextStats().createCount).toBe(1);
+    expect(__getAppCompilerContextStats().rebuildCount).toBe(1);
+
+    const js = await readFile(join(appDir, "dist", "main.js"), "utf-8");
+    expect(js).toContain("v2");
+    expect(js).not.toContain("v1");
+  });
+
+  test("compile error maps esbuild diagnostics to the result shape", async () => {
+    const appDir = await scaffold("warm-context-error", {
+      "main.tsx": `const x = <<<broken>>>;`,
+      "index.html": MINIMAL_HTML,
+    });
+
+    const result = await compileApp(appDir);
+
+    expect(result.ok).toBe(false);
+    expect(result.warnings).toEqual([]);
+    expect(result.errors.length).toBeGreaterThan(0);
+    expect(typeof result.errors[0].text).toBe("string");
+    expect(result.errors[0].text.length).toBeGreaterThan(0);
+    // esbuild diagnostics carry a structured location.
+    expect(result.errors[0].location?.file).toBeTruthy();
+    expect(typeof result.errors[0].location?.line).toBe("number");
+    expect(typeof result.errors[0].location?.column).toBe("number");
   });
 });
 

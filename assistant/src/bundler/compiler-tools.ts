@@ -24,8 +24,12 @@ import { PromiseGuard } from "../util/promise-guard.js";
 
 const log = getLogger("compiler-tools");
 
-// Pinned versions matching assistant/bun.lock
-const ESBUILD_VERSION = "0.24.2";
+// Pinned versions matching assistant/bun.lock.
+// ESBUILD_VERSION must match the esbuild JS API package version (see
+// node_modules/esbuild/package.json): app-compiler.ts drives the JS API and
+// points ESBUILD_BINARY_PATH at this on-disk binary, and esbuild refuses to
+// run a binary whose version differs from the host package.
+const ESBUILD_VERSION = "0.19.12";
 const PREACT_VERSION = "10.28.4";
 
 const TOOLS_VERSION = `esbuild-${ESBUILD_VERSION}_preact-${PREACT_VERSION}`;
