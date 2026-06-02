@@ -1,17 +1,22 @@
 /**
  * Compiler for multi-file TSX apps.
  *
- * Shells out to the esbuild CLI binary (JIT-downloaded on first use) to
- * compile src/main.tsx -> dist/main.js, then copies index.html with
- * script/style tag injection.
+ * Compiles src/main.tsx -> dist/main.js via esbuild's JS API using a warm,
+ * incremental build context cached per app directory, then copies index.html
+ * with script/style tag injection. Reusing the context lets esbuild keep its
+ * module graph hot, so recompiles on source edits are typically sub-second.
  *
- * This avoids importing esbuild's JS API (which caches its native binary
- * path at module load time and breaks inside bun --compile's /$bunfs/).
+ * esbuild resolves its native binary relative to its package at module load,
+ * which does not exist inside bun --compile's /$bunfs/. We point
+ * ESBUILD_BINARY_PATH at the on-disk binary produced by ensureCompilerTools()
+ * so the JS API works in both `bun run` and compiled-binary modes.
  */
 
 import { existsSync, rmSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
+
+import * as esbuild from "esbuild";
 
 import { getLogger } from "../util/logger.js";
 import { ensureCompilerTools } from "./compiler-tools.js";
@@ -37,46 +42,19 @@ export interface CompileResult {
 }
 
 /**
- * Parse esbuild CLI stderr into structured diagnostics.
- * esbuild outputs errors like:
- *   ✘ [ERROR] Could not resolve "foo"
- *       src/main.tsx:3:7:
+ * Map an esbuild JS API Message into our structured CompileDiagnostic shape:
+ * the message text plus an optional { file, line, column } location.
  */
-function parseEsbuildStderr(stderr: string): {
-  errors: CompileDiagnostic[];
-  warnings: CompileDiagnostic[];
-} {
-  const errors: CompileDiagnostic[] = [];
-  const warnings: CompileDiagnostic[] = [];
-  const lines = stderr.split("\n");
-
-  for (let i = 0; i < lines.length; i++) {
-    const errorMatch = lines[i].match(/✘ \[ERROR\] (.+)/);
-    const warnMatch = lines[i].match(/▲ \[WARNING\] (.+)/);
-
-    if (errorMatch || warnMatch) {
-      const text = (errorMatch ?? warnMatch)![1];
-      const diag: CompileDiagnostic = { text };
-
-      // Next non-empty line may have location: "    file:line:col:"
-      const locLine = lines[i + 1]?.trim();
-      if (locLine) {
-        const locMatch = locLine.match(/^(.+):(\d+):(\d+):?$/);
-        if (locMatch) {
-          diag.location = {
-            file: locMatch[1],
-            line: parseInt(locMatch[2], 10),
-            column: parseInt(locMatch[3], 10),
-          };
-        }
-      }
-
-      if (errorMatch) errors.push(diag);
-      else warnings.push(diag);
-    }
+function toDiagnostic(message: esbuild.Message): CompileDiagnostic {
+  const diag: CompileDiagnostic = { text: message.text };
+  if (message.location) {
+    diag.location = {
+      file: message.location.file,
+      line: message.location.line,
+      column: message.location.column,
+    };
   }
-
-  return { errors, warnings };
+  return diag;
 }
 
 /**
@@ -295,6 +273,132 @@ interface CompileSlot {
 const compileSlots = new Map<string, CompileSlot>();
 
 /**
+ * Warm esbuild build contexts, one per app directory.
+ *
+ * The first compile for an appDir creates a context and caches it; subsequent
+ * compiles call ctx.rebuild(), which reuses esbuild's hot module graph and is
+ * typically sub-second. A stable `key` fingerprinting the resolution-relevant
+ * build options (entry points + nodePaths) is recorded so the context can be
+ * torn down and rebuilt if any of them change — e.g. a new top-level source
+ * file is added, or the user adds an allowed third-party import whose newly
+ * installed package cache extends nodePaths.
+ */
+interface CachedContext {
+  ctx: esbuild.BuildContext;
+  key: string;
+}
+
+const appContexts = new Map<string, CachedContext>();
+
+/**
+ * Test/diagnostics hook: counts how many times a fresh esbuild context was
+ * created (vs reused). A reused context increments rebuildCount instead.
+ */
+const contextStats = { createCount: 0, rebuildCount: 0 };
+
+/** Exposed for tests: read and reset the context create/rebuild counters. */
+export function __getAppCompilerContextStats(): {
+  createCount: number;
+  rebuildCount: number;
+} {
+  return { ...contextStats };
+}
+
+/** Exposed for tests: reset the context create/rebuild counters. */
+export function __resetAppCompilerContextStats(): void {
+  contextStats.createCount = 0;
+  contextStats.rebuildCount = 0;
+}
+
+/**
+ * Build a stable identity key for the resolution-relevant build options.
+ *
+ * Two contexts are interchangeable only if they share the same entry points
+ * AND the same module-resolution roots (nodePaths). Sorting makes the key
+ * order-insensitive so a reorder alone never forces a needless recreate, while
+ * any added/removed entry point or nodePath does.
+ */
+function contextKey(entryPoints: string[], nodePaths: string[]): string {
+  return JSON.stringify({
+    entryPoints: [...entryPoints].sort(),
+    nodePaths: [...nodePaths].sort(),
+  });
+}
+
+/**
+ * Whether ESBUILD_BINARY_PATH has been pointed at the on-disk binary.
+ * esbuild resolves its binary lazily on the first build, so this must be set
+ * before any context is created — but only once, since esbuild caches it.
+ */
+let esbuildBinaryConfigured = false;
+
+/**
+ * Get (or lazily create) the warm esbuild context for an appDir, recreating it
+ * if any resolution-relevant build option (entry points or nodePaths) changed
+ * since it was cached.
+ */
+async function getOrCreateContext(
+  appDir: string,
+  entryPoints: string[],
+  distDir: string,
+  nodePaths: string[],
+): Promise<esbuild.BuildContext> {
+  const key = contextKey(entryPoints, nodePaths);
+  const cached = appContexts.get(appDir);
+  if (cached) {
+    if (cached.key === key) {
+      contextStats.rebuildCount++;
+      return cached.ctx;
+    }
+    // A resolution input changed (entry points or nodePaths) — dispose the
+    // stale context and build a fresh one so esbuild picks up the new paths.
+    appContexts.delete(appDir);
+    await cached.ctx.dispose();
+  }
+
+  const ctx = await esbuild.context({
+    entryPoints,
+    bundle: true,
+    minify: true,
+    outdir: distDir,
+    format: "esm",
+    target: "es2022",
+    jsx: "automatic",
+    jsxImportSource: "preact",
+    alias: { react: "preact/compat", "react-dom": "preact/compat" },
+    loader: {
+      ".tsx": "tsx",
+      ".ts": "ts",
+      ".jsx": "jsx",
+      ".js": "js",
+      ".css": "css",
+    },
+    nodePaths,
+    logLevel: "silent",
+    absWorkingDir: appDir,
+  });
+  contextStats.createCount++;
+  appContexts.set(appDir, { ctx, key });
+  return ctx;
+}
+
+/**
+ * Dispose every cached esbuild context and stop their child esbuild services.
+ * Called on daemon shutdown so no esbuild subprocesses are left running.
+ */
+export async function disposeAppCompilerContexts(): Promise<void> {
+  const contexts = [...appContexts.values()];
+  appContexts.clear();
+  await Promise.all(
+    contexts.map(({ ctx }) =>
+      ctx.dispose().catch((err) => {
+        log.warn({ err }, "Failed to dispose esbuild context");
+      }),
+    ),
+  );
+}
+
+/**
  * Compile a TSX app from appDir/src/ into appDir/dist/.
  *
  * Expects appDir/src/main.tsx as the entry point and appDir/src/index.html
@@ -400,54 +504,45 @@ async function runCompile(appDir: string): Promise<CompileResult> {
   // Scan source files for bare imports and JIT-install allowed packages
   await resolveAppImports(srcDir);
 
-  // Build NODE_PATH: preact parent dir + shared package cache
+  // Point esbuild's JS API at the on-disk binary. esbuild otherwise resolves
+  // it relative to its package, which doesn't exist inside bun --compile's
+  // /$bunfs/. esbuild caches the path on first build, so set it only once.
+  if (!esbuildBinaryConfigured) {
+    process.env.ESBUILD_BINARY_PATH = tools.esbuildBin;
+    esbuildBinaryConfigured = true;
+  }
+
+  // Resolution roots for bare imports: preact parent dir + shared package cache
   const preactParent = dirname(tools.preactDir);
   const cacheNodeModules = join(getCacheDir(), "node_modules");
-  const nodePath = [preactParent, cacheNodeModules]
-    .filter((p) => existsSync(p))
-    .join(":");
+  const nodePaths = [preactParent, cacheNodeModules].filter((p) =>
+    existsSync(p),
+  );
 
-  // Shell out to esbuild CLI
-  const args = [
-    entryPoint,
-    "--bundle",
-    "--minify",
-    `--outdir=${distDir}`,
-    "--format=esm",
-    "--target=es2022",
-    "--jsx=automatic",
-    "--jsx-import-source=preact",
-    "--alias:react=preact/compat",
-    "--alias:react-dom=preact/compat",
-    "--loader:.tsx=tsx",
-    "--loader:.ts=ts",
-    "--loader:.jsx=jsx",
-    "--loader:.js=js",
-    "--loader:.css=css",
-    "--log-level=warning",
-  ];
-
-  const proc = Bun.spawn({
-    cmd: [tools.esbuildBin, ...args],
-    cwd: appDir,
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, NODE_PATH: nodePath },
-  });
-
-  await proc.exited;
-  const stderr = await new Response(proc.stderr).text();
-
-  if (proc.exitCode !== 0) {
+  // esbuild's rebuild() resolves with an empty errors array on success and
+  // rejects with a BuildFailure carrying errors/warnings on failure.
+  let result: esbuild.BuildResult;
+  try {
+    const ctx = await getOrCreateContext(
+      appDir,
+      [entryPoint],
+      distDir,
+      nodePaths,
+    );
+    result = await ctx.rebuild();
+  } catch (err) {
     const durationMs = Math.round(performance.now() - start);
-    const { errors, warnings } = parseEsbuildStderr(stderr);
-    // If parsing found nothing, use raw stderr as the error
-    if (errors.length === 0 && stderr.trim()) {
-      errors.push({ text: stderr.trim() });
+    const failure = err as Partial<esbuild.BuildFailure>;
+    const errors = (failure.errors ?? []).map(toDiagnostic);
+    const warnings = (failure.warnings ?? []).map(toDiagnostic);
+    if (errors.length === 0) {
+      errors.push({ text: err instanceof Error ? err.message : String(err) });
     }
     log.info({ durationMs, errorCount: errors.length }, "Build failed");
     return { ok: false, errors, warnings, durationMs };
   }
+
+  const warnings = result.warnings.map(toDiagnostic);
 
   // Copy index.html and inject script/style tags
   const htmlSrc = join(srcDir, "index.html");
@@ -479,5 +574,5 @@ async function runCompile(appDir: string): Promise<CompileResult> {
 
   const durationMs = Math.round(performance.now() - start);
   log.info({ durationMs }, "Build succeeded");
-  return { ok: true, errors: [], warnings: [], durationMs };
+  return { ok: true, errors: [], warnings, durationMs };
 }
