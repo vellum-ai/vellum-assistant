@@ -492,6 +492,66 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   );
 
   // -------------------------------------------------------------------------
+  // Trust rule suggestion (shared by both rule-editor entry points)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Fires the best-effort LLM trust-rule suggestion in the background and
+   * merges the result into the open rule-editor context. Aborts any in-flight
+   * suggestion first so reopening the editor can't apply a stale one, and skips
+   * the merge if the fetch was superseded/dismissed. Used by both the risk-badge
+   * and the "Allow & Create Rule" confirmation entry points.
+   */
+  const fireSuggestion = useCallback(
+    (params: {
+      assistantId: string;
+      toolName: string;
+      input?: Record<string, unknown>;
+      riskLevel?: string;
+      riskReason?: string;
+      resolvedAllowlistOptions: AllowlistOption[];
+      scopeOptions: ScopeOption[];
+      directoryScopeOptions: DirectoryScopeOption[];
+      existingRule?: TrustRuleItem;
+    }) => {
+      suggestionAbortRef.current?.abort();
+      const abortController = new AbortController();
+      suggestionAbortRef.current = abortController;
+
+      const scopeOpts =
+        params.resolvedAllowlistOptions.length > 0
+          ? params.resolvedAllowlistOptions.map((o) => ({ pattern: o.pattern, label: o.label }))
+          : params.scopeOptions.map((o) => ({ pattern: o.scope, label: o.label }));
+
+      void (async () => {
+        try {
+          const suggestion = await suggestTrustRule(params.assistantId, {
+            tool: params.toolName,
+            command: buildFullCommandText(params.input),
+            riskAssessment: {
+              risk: params.riskLevel ?? "medium",
+              reasoning: params.riskReason ?? "",
+              reasonDescription: params.riskReason ?? "",
+            },
+            scopeOptions: scopeOpts,
+            directoryScopeOptions: params.directoryScopeOptions.map((o) => ({ scope: o.scope, label: o.label })),
+            intent: "auto_approve",
+            existingRule: params.existingRule
+              ? { id: params.existingRule.id, pattern: params.existingRule.pattern, risk: params.existingRule.risk }
+              : undefined,
+          });
+          if (!abortController.signal.aborted) {
+            setRuleEditorContext((prev) => (prev ? { ...prev, suggestion } : null));
+          }
+        } catch {
+          // Suggestion is best-effort — silently ignore failures.
+        }
+      })();
+    },
+    [],
+  );
+
+  // -------------------------------------------------------------------------
   // Allow & Create Rule flow
   // -------------------------------------------------------------------------
 
@@ -519,6 +579,24 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       commandDescription: snapshot.riskReason ?? snapshot.description ?? "",
     };
 
+    // Open the editor in create mode and pre-populate it with a background LLM
+    // suggestion, matching macOS `fetchSuggestionAndOpenEditor`. The confirmation
+    // snapshot carries no `matchedTrustRuleId`, so this path is always create-only.
+    const openCreateEditor = (context: RuleEditorContext) => {
+      setRuleEditorContext(context);
+      setShowRuleEditor(true);
+      fireSuggestion({
+        assistantId: ctx.assistantId,
+        toolName: snapshot.toolName ?? "",
+        input: snapshot.input,
+        riskLevel: snapshot.riskLevel,
+        riskReason: snapshot.riskReason ?? snapshot.description,
+        resolvedAllowlistOptions: snapshot.allowlistOptions ?? [],
+        scopeOptions: snapshot.scopeOptions ?? [],
+        directoryScopeOptions: snapshot.directoryScopeOptions ?? [],
+      });
+    };
+
     try {
       const result = await submitConfirmation(
         ctx.assistantId,
@@ -531,25 +609,22 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         useInteractionStore.getState().submitConfirmationEnd();
         useInteractionStore.getState().setInlineConfirmationToolCallId(null);
         setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
-        setRuleEditorContext(editorContext);
-        setShowRuleEditor(true);
+        openCreateEditor(editorContext);
         return;
       }
 
       cleanupAfterConfirmationDecision(snapshot, mappedToolCallId, "allow");
 
-      setRuleEditorContext({ ...editorContext, requestId: "" });
-      setShowRuleEditor(true);
+      openCreateEditor({ ...editorContext, requestId: "" });
     } catch (err) {
       captureError(err, { context: "allow_and_create_rule" });
       useInteractionStore.getState().setInlineConfirmationToolCallId(null);
       setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, snapshot.requestId));
-      setRuleEditorContext(editorContext);
-      setShowRuleEditor(true);
+      openCreateEditor(editorContext);
       setError({ message: "Failed to submit confirmation, but you can still create a rule." });
       useInteractionStore.getState().submitConfirmationEnd();
     }
-  }, [pendingConfirmation, isSubmittingConfirmation, cleanupAfterConfirmationDecision]);
+  }, [pendingConfirmation, isSubmittingConfirmation, cleanupAfterConfirmationDecision, fireSuggestion]);
 
   const handleOpenRuleEditorForToolCall = useCallback(
     (context: ToolCallRuleContext) => {
@@ -612,41 +687,22 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         setShowRuleEditor(true);
 
         // Fire LLM suggestion in the background.
-        const abortController = new AbortController();
-        suggestionAbortRef.current = abortController;
-
-        const commandForSuggestion = buildFullCommandText(context.input);
-        const scopeOpts = resolvedAllowlistOptions.length > 0
-          ? resolvedAllowlistOptions.map((o) => ({ pattern: o.pattern, label: o.label }))
-          : context.scopeOptions.map((o) => ({ pattern: o.scope, label: o.label }));
-
-        try {
-          const suggestion = await suggestTrustRule(ctx.assistantId, {
-            tool: context.toolName,
-            command: commandForSuggestion,
-            riskAssessment: {
-              risk: context.riskLevel ?? "medium",
-              reasoning: context.riskReason ?? "",
-              reasonDescription: context.riskReason ?? "",
-            },
-            scopeOptions: scopeOpts,
-            directoryScopeOptions: context.directoryScopeOptions.map((o) => ({ scope: o.scope, label: o.label })),
-            intent: "auto_approve",
-            existingRule: existingRule
-              ? { id: existingRule.id, pattern: existingRule.pattern, risk: existingRule.risk }
-              : undefined,
-          });
-          if (!abortController.signal.aborted) {
-            setRuleEditorContext((prev) => prev ? { ...prev, suggestion } : null);
-          }
-        } catch {
-          // Suggestion is best-effort — silently ignore failures.
-        }
+        fireSuggestion({
+          assistantId: ctx.assistantId,
+          toolName: context.toolName,
+          input: context.input,
+          riskLevel: context.riskLevel,
+          riskReason: context.riskReason,
+          resolvedAllowlistOptions,
+          scopeOptions: context.scopeOptions,
+          directoryScopeOptions: context.directoryScopeOptions,
+          existingRule,
+        });
       };
 
       openModal().catch((err) => captureError(err, { context: "open_rule_editor" }));
     },
-    [],
+    [fireSuggestion],
   );
 
   const handleSaveRule = useCallback(

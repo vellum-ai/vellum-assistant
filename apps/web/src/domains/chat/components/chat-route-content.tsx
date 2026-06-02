@@ -29,7 +29,7 @@ import { useConversationStarters } from "@/domains/chat/hooks/use-conversation-s
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
-import { hasAnyInteractiveSurface, hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
+import { hasAnyInteractiveSurface, hasPendingAssistantResponse, toolCallToRuleContext } from "@/domains/chat/utils/chat";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
 import type { ChatAttachment } from "@/domains/chat/components/chat-attachments/use-chat-attachments";
 import type { ChatEmptyStateProps } from "@/domains/chat/components/chat-empty-state";
@@ -421,17 +421,7 @@ export function ChatRouteContent({
     if (!tc) {
       return;
     }
-    handleOpenRuleEditorForToolCall({
-      toolName: tc.toolName,
-      riskLevel: tc.riskLevel,
-      riskReason: tc.riskReason,
-      input: tc.input ?? {},
-      allowlistOptions: tc.allowlistOptions ?? [],
-      scopeOptions: tc.scopeOptions ?? [],
-      riskScopeOptions: tc.riskScopeOptions ?? [],
-      directoryScopeOptions: tc.directoryScopeOptions ?? [],
-      matchedTrustRuleId: tc.matchedTrustRuleId,
-    });
+    handleOpenRuleEditorForToolCall(toolCallToRuleContext(tc));
   }, [activeToolDetail, messages, handleOpenRuleEditorForToolCall]);
 
   // -------------------------------------------------------------------------

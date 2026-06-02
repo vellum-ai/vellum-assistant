@@ -29,6 +29,7 @@ import {
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, RiskScopeOption, ScopeOption } from "@/types/interaction-ui-types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { toolCallToRuleContext } from "@/domains/chat/utils/chat";
 
 export interface ToolCallProgressCardProps {
   toolCalls: ChatMessageToolCall[];
@@ -318,17 +319,7 @@ function UnifiedToolCallProgressCard({
                       ? () => {
                           const tc = toolCallById.get(step.toolCallId);
                           if (!tc) return;
-                          onOpenRuleEditor({
-                            toolName: tc.toolName,
-                            riskLevel: tc.riskLevel,
-                            riskReason: tc.riskReason,
-                            input: tc.input ?? {},
-                            allowlistOptions: tc.allowlistOptions ?? [],
-                            scopeOptions: tc.scopeOptions ?? [],
-                            riskScopeOptions: tc.riskScopeOptions ?? [],
-                            directoryScopeOptions: tc.directoryScopeOptions ?? [],
-                            matchedTrustRuleId: tc.matchedTrustRuleId,
-                          });
+                          onOpenRuleEditor(toolCallToRuleContext(tc));
                         }
                       : undefined
                   }
