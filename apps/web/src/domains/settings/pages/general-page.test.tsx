@@ -182,4 +182,56 @@ describe("TimezoneCard", () => {
     expect(patchMock).toHaveBeenCalledTimes(2);
     expect(maxInFlight).toBe(1);
   });
+
+  test("a queued override after an assistant switch targets the CURRENT assistant, not the one active when the change started", async () => {
+    // Hold the first PATCH pending so we can switch assistants and queue a
+    // second change while it is in flight.
+    const resolvers: Array<() => void> = [];
+    patchMock.mockImplementation(
+      () =>
+        new Promise<{ data: Record<string, unknown> }>((resolve) => {
+          resolvers.push(() => resolve({ data: {} }));
+        }),
+    );
+
+    useAssistantSelectionStore.setState({ activeAssistantId: "asst-A" });
+    const { getByText, rerender } = render(<TimezoneCard />);
+
+    // (a) Start a change for assistant A: the first PATCH fires and stays in
+    // flight.
+    fireEvent.click(getByText("pick-zone")); // America/Los_Angeles
+    expect(patchMock).toHaveBeenCalledTimes(1);
+    expect(patchMock.mock.calls[0]![0].path).toEqual({ assistant_id: "asst-A" });
+
+    // (b) Switch the active assistant to B and re-render so `assistantIdRef`
+    // picks up the new id via its effect.
+    useAssistantSelectionStore.setState({ activeAssistantId: "asst-B" });
+    rerender(<TimezoneCard />);
+
+    // (c) Change the timezone again while A's PATCH is still in flight: this
+    // only records the pending value (no second PATCH yet).
+    fireEvent.click(getByText("pick-tokyo")); // Asia/Tokyo
+    expect(patchMock).toHaveBeenCalledTimes(1);
+
+    // Settle A's PATCH → the queue drains. The drained write must target the
+    // CURRENT assistant (B), carrying the latest requested value.
+    resolvers[0]!();
+    await waitFor(() => expect(patchMock).toHaveBeenCalledTimes(2));
+    expect(patchMock.mock.calls[1]![0].path).toEqual({ assistant_id: "asst-B" });
+    expect(patchMock.mock.calls[1]![0].body).toEqual({
+      ui: { userTimezone: "Asia/Tokyo" },
+    });
+
+    // No write ever went to A carrying B's requested value.
+    const wroteTokyoToA = patchMock.mock.calls.some(
+      (call) =>
+        call[0].path.assistant_id === "asst-A" &&
+        call[0].body.ui.userTimezone === "Asia/Tokyo",
+    );
+    expect(wroteTokyoToA).toBe(false);
+
+    resolvers[1]!();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(patchMock).toHaveBeenCalledTimes(2);
+  });
 });
