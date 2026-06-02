@@ -55,6 +55,7 @@ export interface ToolCallProgressCardProps {
     allowlistOptions: AllowlistOption[];
     scopeOptions: ScopeOption[];
     directoryScopeOptions: DirectoryScopeOption[];
+    matchedTrustRuleId?: string;
   }) => void;
   // Inline confirmation props (pass-through)
   isSubmittingConfirmation?: boolean;
@@ -324,6 +325,7 @@ function UnifiedToolCallProgressCard({
                             allowlistOptions: tc.allowlistOptions ?? [],
                             scopeOptions: tc.scopeOptions ?? [],
                             directoryScopeOptions: tc.directoryScopeOptions ?? [],
+                            matchedTrustRuleId: tc.matchedTrustRuleId,
                           });
                         }
                       : undefined

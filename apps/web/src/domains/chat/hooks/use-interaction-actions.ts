@@ -12,9 +12,9 @@
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { type Dispatch, type SetStateAction, useCallback, useState } from "react";
+import { type Dispatch, type SetStateAction, useCallback, useRef, useState } from "react";
 
-import { addTrustRule } from "@/lib/trust-rules-api";
+import { addTrustRule, fetchTrustRules, suggestTrustRule, updateTrustRule } from "@/lib/trust-rules-api";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
@@ -27,9 +27,35 @@ import { clearConfirmationByRequestId } from "@/domains/chat/hooks/send-message-
 import { deriveCommandText } from "@/domains/chat/utils/chat";
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { AllowlistOption, DirectoryScopeOption, ScopeOption } from "@/types/interaction-ui-types";
+import type { TrustRuleItem, TrustRuleSuggestion } from "@/types/trust-rules";
 import type { QuestionResponseEntry } from "@/domains/chat/api/event-types";
 import { submitConfirmation, submitContactPrompt, submitQuestionResponse, submitSecretResponse } from "@/domains/chat/api/interactions";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds a full command text from tool call input for the suggestion endpoint.
+ * Formats all key-value pairs rather than extracting just the primary field,
+ * giving the LLM full context for pattern suggestion.
+ */
+function buildFullCommandText(input?: Record<string, unknown>): string {
+  if (!input) {
+    return "";
+  }
+  const entries = Object.entries(input).filter(
+    ([, v]) => v !== undefined && v !== null && v !== "",
+  );
+  if (entries.length === 0) {
+    return "";
+  }
+  if (entries.length === 1) {
+    return String(entries[0][1]);
+  }
+  return entries.map(([k, v]) => `${k}: ${String(v)}`).join("\n");
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,6 +71,8 @@ export interface RuleEditorContext {
   directoryScopeOptions: DirectoryScopeOption[];
   commandText: string;
   commandDescription: string;
+  existingRule?: TrustRuleItem;
+  suggestion?: TrustRuleSuggestion;
 }
 
 /** Shape for `handleOpenRuleEditorForToolCall`'s argument. */
@@ -56,6 +84,7 @@ export interface ToolCallRuleContext {
   allowlistOptions: AllowlistOption[];
   scopeOptions: ScopeOption[];
   directoryScopeOptions: DirectoryScopeOption[];
+  matchedTrustRuleId?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +100,7 @@ export interface UseInteractionActionsReturn {
   handleAllowAndCreateRule: () => Promise<void>;
   handleOpenRuleEditorForToolCall: (context: ToolCallRuleContext) => void;
   handleSaveRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
+  handleSaveAsNewRule: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => Promise<void>;
   handleQuestionResponse: (responses: QuestionResponseEntry[]) => Promise<void>;
   handleSurfaceAction: (surfaceId: string, actionId: string, data?: Record<string, unknown>) => Promise<void>;
   showRuleEditor: boolean;
@@ -102,6 +132,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   const [ruleEditorContext, setRuleEditorContext] = useState<RuleEditorContext | null>(null);
   const [isSavingRule, setIsSavingRule] = useState(false);
   const [unknownNudgeToolCallIds, setUnknownNudgeToolCallIds] = useState<Set<string>>(new Set());
+  const suggestionAbortRef = useRef<AbortController | null>(null);
 
   // -------------------------------------------------------------------------
   // Secret handlers
@@ -521,7 +552,16 @@ export function useInteractionActions(): UseInteractionActionsReturn {
 
   const handleOpenRuleEditorForToolCall = useCallback(
     (context: ToolCallRuleContext) => {
-      setRuleEditorContext({
+      const ctx = useStreamStore.getState().streamContext;
+      if (!ctx) {
+        return;
+      }
+
+      // Cancel any previous suggestion fetch.
+      suggestionAbortRef.current?.abort();
+      suggestionAbortRef.current = null;
+
+      const baseContext: RuleEditorContext = {
         requestId: "",
         toolName: context.toolName,
         riskLevel: context.riskLevel ?? "medium",
@@ -530,8 +570,63 @@ export function useInteractionActions(): UseInteractionActionsReturn {
         directoryScopeOptions: context.directoryScopeOptions,
         commandText: deriveCommandText(context.input, context.toolName),
         commandDescription: context.riskReason ?? "",
-      });
-      setShowRuleEditor(true);
+      };
+
+      // Fetch matched rule (edit mode) then open modal immediately.
+      // Suggestion fetch fires in the background after modal is open.
+      const openModal = async () => {
+        let existingRule: TrustRuleItem | undefined;
+        if (context.matchedTrustRuleId) {
+          try {
+            const rules = await fetchTrustRules(ctx.assistantId, { tool: context.toolName });
+            existingRule = rules.find((r) => r.id === context.matchedTrustRuleId);
+            if (!existingRule) {
+              const defaultRules = await fetchTrustRules(ctx.assistantId, { origin: "default", tool: context.toolName });
+              existingRule = defaultRules.find((r) => r.id === context.matchedTrustRuleId);
+            }
+          } catch {
+            // Failed to fetch matched rule — fall through to create mode.
+          }
+        }
+
+        const editorContext: RuleEditorContext = { ...baseContext, existingRule };
+        setRuleEditorContext(editorContext);
+        setShowRuleEditor(true);
+
+        // Fire LLM suggestion in the background.
+        const abortController = new AbortController();
+        suggestionAbortRef.current = abortController;
+
+        const commandForSuggestion = buildFullCommandText(context.input);
+        const scopeOpts = context.allowlistOptions.length > 0
+          ? context.allowlistOptions.map((o) => ({ pattern: o.pattern, label: o.label }))
+          : context.scopeOptions.map((o) => ({ pattern: o.scope, label: o.label }));
+
+        try {
+          const suggestion = await suggestTrustRule(ctx.assistantId, {
+            tool: context.toolName,
+            command: commandForSuggestion,
+            riskAssessment: {
+              risk: context.riskLevel ?? "medium",
+              reasoning: context.riskReason ?? "",
+              reasonDescription: context.riskReason ?? "",
+            },
+            scopeOptions: scopeOpts,
+            directoryScopeOptions: context.directoryScopeOptions.map((o) => ({ scope: o.scope, label: o.label })),
+            intent: "auto_approve",
+            existingRule: existingRule
+              ? { id: existingRule.id, pattern: existingRule.pattern, risk: existingRule.risk }
+              : undefined,
+          });
+          if (!abortController.signal.aborted) {
+            setRuleEditorContext((prev) => prev ? { ...prev, suggestion } : null);
+          }
+        } catch {
+          // Suggestion is best-effort — silently ignore failures.
+        }
+      };
+
+      openModal().catch((err) => captureError(err, { context: "open_rule_editor" }));
     },
     [],
   );
@@ -540,19 +635,30 @@ export function useInteractionActions(): UseInteractionActionsReturn {
     async (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => {
       const ctx = useStreamStore.getState().streamContext;
       const context = ruleEditorContext;
-      if (!ctx || !context) return;
-      if (isSavingRule) return;
+      if (!ctx || !context) {
+        return;
+      }
+      if (isSavingRule) {
+        return;
+      }
 
       if (!context.requestId) {
         setIsSavingRule(true);
         try {
-          await addTrustRule(ctx.assistantId, {
-            tool: rule.toolName,
-            pattern: rule.pattern,
-            risk: rule.riskLevel as "low" | "medium" | "high",
-            description: `${rule.toolName} — ${rule.pattern}`,
-            scope: rule.scope,
-          });
+          if (context.existingRule) {
+            // Edit mode: update the existing rule's risk level.
+            await updateTrustRule(ctx.assistantId, context.existingRule.id, {
+              risk: rule.riskLevel as "low" | "medium" | "high",
+            });
+          } else {
+            await addTrustRule(ctx.assistantId, {
+              tool: rule.toolName,
+              pattern: rule.pattern,
+              risk: rule.riskLevel as "low" | "medium" | "high",
+              description: `${rule.toolName} — ${rule.pattern}`,
+              scope: rule.scope,
+            });
+          }
         } catch (err) {
           captureError(err, { context: "save_trust_rule_direct" });
           setError({ message: "Failed to save trust rule. Please try again." });
@@ -597,6 +703,38 @@ export function useInteractionActions(): UseInteractionActionsReturn {
       setMessages((prev: DisplayMessage[]) => clearConfirmationByRequestId(prev, context.requestId));
       setShowRuleEditor(false);
       setRuleEditorContext(null);
+    },
+    [ruleEditorContext, isSavingRule],
+  );
+
+  const handleSaveAsNewRule = useCallback(
+    async (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => {
+      const ctx = useStreamStore.getState().streamContext;
+      const context = ruleEditorContext;
+      if (!ctx || !context) {
+        return;
+      }
+      if (isSavingRule) {
+        return;
+      }
+
+      setIsSavingRule(true);
+      try {
+        await addTrustRule(ctx.assistantId, {
+          tool: rule.toolName,
+          pattern: rule.pattern,
+          risk: rule.riskLevel as "low" | "medium" | "high",
+          description: `${rule.toolName} — ${rule.pattern}`,
+          scope: rule.scope,
+        });
+      } catch (err) {
+        captureError(err, { context: "save_as_new_trust_rule" });
+        setError({ message: "Failed to save trust rule. Please try again." });
+      } finally {
+        setIsSavingRule(false);
+        setShowRuleEditor(false);
+        setRuleEditorContext(null);
+      }
     },
     [ruleEditorContext, isSavingRule],
   );
@@ -676,6 +814,8 @@ export function useInteractionActions(): UseInteractionActionsReturn {
   );
 
   const dismissRuleEditor = useCallback(() => {
+    suggestionAbortRef.current?.abort();
+    suggestionAbortRef.current = null;
     setShowRuleEditor(false);
     setRuleEditorContext(null);
   }, []);
@@ -689,6 +829,7 @@ export function useInteractionActions(): UseInteractionActionsReturn {
     handleAllowAndCreateRule,
     handleOpenRuleEditorForToolCall,
     handleSaveRule,
+    handleSaveAsNewRule,
     handleQuestionResponse,
     handleSurfaceAction,
     showRuleEditor,

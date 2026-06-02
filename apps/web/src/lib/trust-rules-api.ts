@@ -13,9 +13,11 @@ import {
 
 import type {
   AddTrustRuleBody,
+  SuggestTrustRuleBody,
   TrustRuleItem,
   TrustRuleOrigin,
   TrustRulesListResponse,
+  TrustRuleSuggestion,
   UpdateTrustRuleBody,
 } from "@/types/trust-rules";
 
@@ -101,6 +103,37 @@ export async function updateTrustRule(
       extractErrorMessage(error, response, "Failed to update trust rule."),
     );
   }
+}
+
+interface SuggestTrustRuleResponse {
+  suggestion: TrustRuleSuggestion;
+}
+
+export async function suggestTrustRule(
+  assistantId: string,
+  body: SuggestTrustRuleBody,
+): Promise<TrustRuleSuggestion> {
+  const { data, error, response } = await client.post<
+    SuggestTrustRuleResponse,
+    unknown
+  >({
+    url: "/v1/assistants/{assistant_id}/trust-rules/suggest/",
+    path: { assistant_id: assistantId },
+    body,
+    headers: { "Content-Type": "application/json" },
+    throwOnError: false,
+  });
+  assertHasResponse(response, error, "Failed to get trust rule suggestion.");
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      extractErrorMessage(error, response, "Failed to get trust rule suggestion."),
+    );
+  }
+  if (!data?.suggestion) {
+    throw new ApiError(500, "No suggestion in response.");
+  }
+  return data.suggestion;
 }
 
 export async function deleteTrustRule(

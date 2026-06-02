@@ -1,15 +1,18 @@
 /**
  * In-chat trust rule editor modal.
  *
- * Mirrors the macOS `RuleEditorModal` — a focused dialog for creating a trust
- * rule directly from the chat transcript. Shows the command context,
- * generalized pattern options, directory scope, and a risk level picker.
+ * Mirrors the macOS `RuleEditorModal` — a focused dialog for creating or
+ * editing a trust rule directly from the chat transcript. Supports:
+ * - Create mode: pattern selection, directory scope, risk level picker
+ * - Edit mode: locked existing pattern, "Save As New" for narrower scope
+ * - LLM suggestion pre-population with `hasUserInteracted` guard
+ * - Suggestion annotation in edit mode ("Suggested: {risk}")
  *
  * Rendered by `ChatRouteContent` when `showRuleEditor` is `true`. Driven by
  * `RuleEditorContext` from `useInteractionActions`.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button } from "@vellum/design-library/components/button";
 import { Modal } from "@vellum/design-library/components/modal";
@@ -54,6 +57,10 @@ function isPipelineDecomposition(options: AllowlistOption[]): boolean {
   });
 }
 
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 // ---------------------------------------------------------------------------
 // Risk level config
 // ---------------------------------------------------------------------------
@@ -68,10 +75,18 @@ const RISK_LEVELS = [
 // Props
 // ---------------------------------------------------------------------------
 
+interface SaveRulePayload {
+  toolName: string;
+  pattern: string;
+  riskLevel: string;
+  scope: string;
+}
+
 export interface ChatRuleEditorModalProps {
   context: RuleEditorContext;
   isSaving: boolean;
-  onSave: (rule: { toolName: string; pattern: string; riskLevel: string; scope: string }) => void;
+  onSave: (rule: SaveRulePayload) => void;
+  onSaveAsNew?: (rule: SaveRulePayload) => void;
   onDismiss: () => void;
 }
 
@@ -124,8 +139,12 @@ export function ChatRuleEditorModal({
   context,
   isSaving,
   onSave,
+  onSaveAsNew,
   onDismiss,
 }: ChatRuleEditorModalProps) {
+  const { existingRule, suggestion } = context;
+  const isEditMode = !!existingRule;
+
   const effectiveOptions = ensureAllowlistOptions(
     context.allowlistOptions,
     context.toolName,
@@ -138,7 +157,15 @@ export function ChatRuleEditorModal({
       ? effectiveOptions.slice(1)
       : effectiveOptions;
 
+  const isSingleOption = effectiveOptions.length === 1;
   const pipelineCollapsed = isPipelineDecomposition(generalizedOptions);
+
+  // In edit mode, narrower options exclude the existing rule's own pattern.
+  const narrowerOptions = existingRule
+    ? generalizedOptions.filter((opt) => opt.pattern !== existingRule.pattern)
+    : generalizedOptions;
+
+  const showSaveAsNew = isEditMode && !!onSaveAsNew && narrowerOptions.length > 0;
 
   const [selectedPatternIndex, setSelectedPatternIndex] = useState(() => {
     return effectiveOptions.length > 1 ? 1 : 0;
@@ -152,6 +179,86 @@ export function ChatRuleEditorModal({
     (opt) => opt.scope !== "everywhere",
   );
   const [selectedDirScopeIndex, setSelectedDirScopeIndex] = useState(-1);
+
+  // Tracks whether user has manually interacted with the form.
+  // Prevents a late-arriving LLM suggestion from overwriting user choices.
+  const [hasUserInteracted, setHasUserInteracted] = useState(false);
+  const prevSuggestionPattern = useRef<string | undefined>(undefined);
+
+  // Apply suggestion or defaults when suggestion arrives.
+  // Matches macOS `applySuggestionOrDefaults()`. The ref-based guard ensures
+  // this only fires when the suggestion pattern actually changes, even though
+  // all dependencies are listed.
+  const suggestionPattern = suggestion?.pattern;
+  useEffect(() => {
+    if (suggestionPattern === prevSuggestionPattern.current) {
+      return;
+    }
+    prevSuggestionPattern.current = suggestionPattern;
+
+    if (hasUserInteracted) {
+      return;
+    }
+
+    if (existingRule) {
+      // Edit mode: pre-fill risk from existing rule.
+      setSelectedRiskLevel(existingRule.risk || "medium");
+
+      // Default to first narrower option.
+      if (narrowerOptions.length > 0) {
+        const firstNarrower = narrowerOptions[0];
+        const idx = effectiveOptions.findIndex((o) => o.pattern === firstNarrower.pattern);
+        if (idx >= 0) {
+          setSelectedPatternIndex(idx);
+        }
+      } else if (isSingleOption) {
+        setSelectedPatternIndex(0);
+      }
+
+      // If suggestion arrived, pre-select its pattern for Save As New.
+      if (suggestion && suggestion.pattern && suggestion.pattern !== existingRule.pattern) {
+        const matchIdx = effectiveOptions.findIndex((o) => o.pattern === suggestion.pattern);
+        if (matchIdx >= 0 && (matchIdx > 0 || isSingleOption)) {
+          setSelectedPatternIndex(matchIdx);
+        }
+      }
+      // Apply suggestion directory scope in edit mode.
+      if (suggestion?.scope && suggestion.scope !== "everywhere") {
+        const matchIdx = directoryScopeFiltered.findIndex((o) => o.scope === suggestion.scope);
+        if (matchIdx >= 0) {
+          setSelectedDirScopeIndex(matchIdx);
+        }
+      }
+    } else if (suggestion) {
+      // Create mode with suggestion.
+      if (suggestion.risk) {
+        setSelectedRiskLevel(suggestion.risk);
+      }
+      if (suggestion.pattern) {
+        const matchIdx = effectiveOptions.findIndex((o) => o.pattern === suggestion.pattern);
+        if (matchIdx >= 0 && (matchIdx > 0 || isSingleOption)) {
+          setSelectedPatternIndex(matchIdx);
+        }
+      }
+      if (suggestion.scope && suggestion.scope !== "everywhere") {
+        const matchIdx = directoryScopeFiltered.findIndex((o) => o.scope === suggestion.scope);
+        if (matchIdx >= 0) {
+          setSelectedDirScopeIndex(matchIdx);
+        }
+      }
+    } else {
+      // Create mode without suggestion — use risk from context.
+      setSelectedRiskLevel(context.riskLevel || "medium");
+      if (isSingleOption) {
+        setSelectedPatternIndex(0);
+      }
+    }
+  }, [suggestionPattern, hasUserInteracted, existingRule, suggestion, effectiveOptions, isSingleOption, narrowerOptions, directoryScopeFiltered, context.riskLevel]);
+
+  const handleUserInteraction = useCallback((setter: () => void) => {
+    setHasUserInteracted(true);
+    setter();
+  }, []);
 
   const resolvedScope = useCallback(() => {
     if (
@@ -172,16 +279,49 @@ export function ChatRuleEditorModal({
     if (!canSave) {
       return;
     }
+    if (isEditMode && existingRule) {
+      // Edit mode: save updates the existing rule (risk only, pattern is locked).
+      onSave({
+        toolName: context.toolName,
+        pattern: existingRule.pattern,
+        riskLevel: selectedRiskLevel,
+        scope: "everywhere",
+      });
+    } else {
+      // Create mode: save creates a new rule with the selected pattern.
+      const selectedOption = effectiveOptions[selectedPatternIndex];
+      onSave({
+        toolName: context.toolName,
+        pattern: selectedOption.pattern,
+        riskLevel: selectedRiskLevel,
+        scope: resolvedScope(),
+      });
+    }
+  }, [canSave, isEditMode, existingRule, effectiveOptions, context.toolName, selectedPatternIndex, selectedRiskLevel, resolvedScope, onSave]);
+
+  const handleSaveAsNew = useCallback(() => {
+    if (!onSaveAsNew || selectedPatternIndex >= effectiveOptions.length) {
+      return;
+    }
     const selectedOption = effectiveOptions[selectedPatternIndex];
-    onSave({
+    onSaveAsNew({
       toolName: context.toolName,
       pattern: selectedOption.pattern,
       riskLevel: selectedRiskLevel,
       scope: resolvedScope(),
     });
-  }, [canSave, effectiveOptions, context.toolName, selectedPatternIndex, selectedRiskLevel, resolvedScope, onSave]);
+  }, [onSaveAsNew, effectiveOptions, selectedPatternIndex, context.toolName, selectedRiskLevel, resolvedScope]);
 
   const riskHint = RISK_LEVELS.find((r) => r.value === selectedRiskLevel)?.hint ?? "";
+
+  // Suggestion annotation: show when in edit mode, suggestion exists,
+  // and its risk differs from the existing rule's risk.
+  const showSuggestionAnnotation =
+    isEditMode &&
+    existingRule &&
+    suggestion &&
+    suggestion.risk &&
+    suggestion.risk.toLowerCase() !== existingRule.risk.toLowerCase();
 
   return (
     <Modal.Root
@@ -194,7 +334,7 @@ export function ChatRuleEditorModal({
     >
       <Modal.Content size="sm" hideCloseButton>
         <Modal.Header>
-          <Modal.Title>Create Trust Rule</Modal.Title>
+          <Modal.Title>{isEditMode ? "Edit Trust Rule" : "Create Trust Rule"}</Modal.Title>
         </Modal.Header>
 
         <Modal.Body>
@@ -229,7 +369,63 @@ export function ChatRuleEditorModal({
               >
                 Apply to
               </Typography>
-              {pipelineCollapsed || generalizedOptions.length === 1 ? (
+              {isEditMode && existingRule ? (
+                <>
+                  {/* Edit mode: show existing rule pattern as read-only */}
+                  <div className="flex items-center gap-1.5 rounded-md border border-[var(--border-base)] bg-[var(--surface-base)] px-3 py-2">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-2.5 w-2.5 shrink-0 text-[var(--content-tertiary)]"
+                    >
+                      <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
+                      <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                    <Typography
+                      variant="body-medium-default"
+                      className="truncate font-mono text-[var(--content-secondary)]"
+                    >
+                      {existingRule.pattern}
+                    </Typography>
+                  </div>
+                  {/* Narrower scope options for Save As New */}
+                  {showSaveAsNew && (
+                    <>
+                      <Typography
+                        variant="label-medium-default"
+                        className="text-[var(--content-secondary)]"
+                      >
+                        Or narrow the scope:
+                      </Typography>
+                      <div className="space-y-1">
+                        {narrowerOptions.map((option) => {
+                          const scopeIdx = effectiveOptions.findIndex(
+                            (o) => o.pattern === option.pattern,
+                          );
+                          if (scopeIdx < 0) {
+                            return null;
+                          }
+                          return (
+                            <RadioRow
+                              key={option.pattern}
+                              label={option.label}
+                              selected={selectedPatternIndex === scopeIdx}
+                              onSelect={() =>
+                                handleUserInteraction(() => setSelectedPatternIndex(scopeIdx))
+                              }
+                            />
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : pipelineCollapsed || generalizedOptions.length === 1 ? (
                 <div className="rounded-md bg-[var(--surface-base)] px-3 py-2">
                   <Typography
                     variant="body-medium-default"
@@ -248,7 +444,9 @@ export function ChatRuleEditorModal({
                         key={option.pattern}
                         label={option.label}
                         selected={selectedPatternIndex === targetIndex}
-                        onSelect={() => setSelectedPatternIndex(targetIndex)}
+                        onSelect={() =>
+                          handleUserInteraction(() => setSelectedPatternIndex(targetIndex))
+                        }
                       />
                     );
                   })}
@@ -271,13 +469,17 @@ export function ChatRuleEditorModal({
                       key={option.scope}
                       label={option.label}
                       selected={selectedDirScopeIndex === i}
-                      onSelect={() => setSelectedDirScopeIndex(i)}
+                      onSelect={() =>
+                        handleUserInteraction(() => setSelectedDirScopeIndex(i))
+                      }
                     />
                   ))}
                   <RadioRow
                     label="Everywhere"
                     selected={selectedDirScopeIndex === -1}
-                    onSelect={() => setSelectedDirScopeIndex(-1)}
+                    onSelect={() =>
+                      handleUserInteraction(() => setSelectedDirScopeIndex(-1))
+                    }
                   />
                 </div>
               </div>
@@ -298,7 +500,9 @@ export function ChatRuleEditorModal({
                     <button
                       key={level.value}
                       type="button"
-                      onClick={() => setSelectedRiskLevel(level.value)}
+                      onClick={() =>
+                        handleUserInteraction(() => setSelectedRiskLevel(level.value))
+                      }
                       className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 transition-colors ${
                         isSelected
                           ? "border-[var(--primary-base)] bg-[var(--surface-active)]"
@@ -317,6 +521,14 @@ export function ChatRuleEditorModal({
                   );
                 })}
               </div>
+              {showSuggestionAnnotation && (
+                <Typography
+                  variant="label-medium-default"
+                  className="text-[var(--content-tertiary)]"
+                >
+                  Suggested: {capitalize(suggestion.risk)}
+                </Typography>
+              )}
               {riskHint && (
                 <Typography
                   variant="label-medium-default"
@@ -330,16 +542,43 @@ export function ChatRuleEditorModal({
         </Modal.Body>
 
         <Modal.Footer>
-          <Button variant="outlined" onClick={onDismiss}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleSave}
-            disabled={!canSave}
-          >
-            {isSaving ? "Saving…" : "Save Rule"}
-          </Button>
+          {isEditMode ? (
+            <>
+              {showSaveAsNew && (
+                <Button
+                  variant="outlined"
+                  onClick={handleSaveAsNew}
+                  disabled={isSaving || selectedPatternIndex >= effectiveOptions.length}
+                >
+                  Save As New
+                </Button>
+              )}
+              <div className="flex-1" />
+              <Button variant="outlined" onClick={onDismiss}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleSave}
+                disabled={isSaving}
+              >
+                {isSaving ? "Saving…" : "Save"}
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="outlined" onClick={onDismiss}>
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleSave}
+                disabled={!canSave}
+              >
+                {isSaving ? "Saving…" : "Save Rule"}
+              </Button>
+            </>
+          )}
         </Modal.Footer>
       </Modal.Content>
     </Modal.Root>

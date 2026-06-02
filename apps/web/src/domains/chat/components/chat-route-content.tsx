@@ -293,6 +293,7 @@ export function ChatRouteContent({
     handleAllowAndCreateRule,
     handleOpenRuleEditorForToolCall,
     handleSaveRule,
+    handleSaveAsNewRule,
     showRuleEditor,
     ruleEditorContext,
     dismissRuleEditor,
@@ -600,6 +601,7 @@ export function ChatRouteContent({
         context={ruleEditorContext}
         isSaving={isSavingRule}
         onSave={handleSaveRule}
+        onSaveAsNew={handleSaveAsNewRule}
         onDismiss={dismissRuleEditor}
       />
     ) : null;
