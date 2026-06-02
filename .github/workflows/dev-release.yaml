@@ -1305,7 +1305,7 @@ jobs:
             COMPARE_URL="https://github.com/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}"
             TOTAL=$(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --jq '.total_commits')
             mapfile -t LINES < <(gh api "repos/${REPO}/compare/${PREV_SHA}...${HEAD_SHA}" --paginate \
-              --jq ".commits[] | (${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(\$a)\"")
+              --jq ".commits[] | (${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — \(if (\$a | contains(\"@\")) then \$a else \"@\" + \$a end)\"")
           else
             # First tracked release (or no new commits): fall back to HEAD itself.
             COMPARE_URL="https://github.com/${REPO}/commit/${HEAD_SHA}"
@@ -1315,7 +1315,7 @@ jobs:
             else
               TOTAL=1
               mapfile -t LINES < <(gh api "repos/${REPO}/commits/${HEAD_SHA}" \
-                --jq "(${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — @\(\$a)\"")
+                --jq "(${RESOLVE_AUTHOR}) as \$a | \"\((.commit.message | split(\"\n\")[0]) | ${ESCAPE} | ${LINKIFY}) — \(if (\$a | contains(\"@\")) then \$a else \"@\" + \$a end)\"")
             fi
           fi
 
