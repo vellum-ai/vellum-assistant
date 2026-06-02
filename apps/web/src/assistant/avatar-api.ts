@@ -7,6 +7,7 @@
  * and workspace routes flat (`/v1/avatar/...`, `/v1/workspace/...`).
  */
 import { client } from "@/generated/api/client.gen";
+import { supportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
 import { assertHasResponse } from "@/utils/api-errors";
 import type {
   AvatarState,
@@ -112,6 +113,10 @@ export async function uploadAvatarImage(
       ),
     );
 
+    if (!supportsAvatarStateManifest()) {
+      return uploadAvatarImageLegacy(assistantId, base64);
+    }
+
     const { error, response } = await client.post({
       url: "/v1/assistants/{assistant_id}/avatar/image",
       path: { assistant_id: assistantId },
@@ -123,6 +128,40 @@ export async function uploadAvatarImage(
   } catch {
     return false;
   }
+}
+
+/**
+ * Pre-manifest custom-image upload for assistants without the avatar
+ * state manifest: write the PNG to the workspace and delete any
+ * character-traits sidecar so the legacy file-existence inference resolves
+ * to a custom image. Used as the fallback for {@link uploadAvatarImage};
+ * see `lib/backwards-compat/avatar-state-manifest.ts`.
+ */
+async function uploadAvatarImageLegacy(
+  assistantId: string,
+  base64: string,
+): Promise<boolean> {
+  const { error: writeError, response: writeResponse } = await client.post({
+    url: "/v1/assistants/{assistant_id}/workspace/write/",
+    path: { assistant_id: assistantId },
+    body: {
+      path: "data/avatar/avatar-image.png",
+      content: base64,
+      encoding: "base64",
+    },
+    headers: { "Content-Type": "application/json" },
+  });
+  assertHasResponse(writeResponse, writeError, "Failed to upload avatar image");
+  if (!writeResponse.ok) return false;
+
+  await client.post({
+    url: "/v1/assistants/{assistant_id}/workspace/delete/",
+    path: { assistant_id: assistantId },
+    body: { path: "data/avatar/character-traits.json" },
+    headers: { "Content-Type": "application/json" },
+  });
+
+  return true;
 }
 
 export async function fetchAvatarImageUrl(

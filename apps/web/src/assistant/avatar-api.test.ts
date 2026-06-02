@@ -12,9 +12,11 @@
  *     throw, non-2xx, or a payload that fails validation).
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { client } from "@/generated/api/client.gen";
+import { MIN_VERSION } from "@/lib/backwards-compat/avatar-state-manifest";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import type { AvatarState } from "@/types/avatar";
 import { isAvatarState } from "@/types/avatar";
 
@@ -202,9 +204,14 @@ function pngFile(): File {
 afterEach(() => {
   client.post = originalPost;
   capturedPosts = [];
+  useAssistantIdentityStore.getState().clearIdentity();
 });
 
-describe("uploadAvatarImage", () => {
+describe("uploadAvatarImage (manifest assistants)", () => {
+  beforeEach(() => {
+    useAssistantIdentityStore.getState().setIdentity("test-asst", MIN_VERSION);
+  });
+
   test("POSTs base64 content to the single avatar/image endpoint", async () => {
     stubPost({ error: undefined, response: okResponse() });
 
@@ -242,5 +249,48 @@ describe("uploadAvatarImage", () => {
     ) as typeof client.post;
 
     expect(await uploadAvatarImage("asst-1", pngFile())).toBe(false);
+  });
+});
+
+describe("uploadAvatarImage (pre-manifest assistants)", () => {
+  beforeEach(() => {
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
+  });
+
+  test("writes the PNG then deletes the traits sidecar via workspace routes", async () => {
+    stubPost({ error: undefined, response: okResponse() });
+
+    const result = await uploadAvatarImage("asst-1", pngFile());
+
+    expect(result).toBe(true);
+    expect(capturedPosts).toHaveLength(2);
+
+    const write = capturedPosts[0];
+    expect(write?.url).toBe("/v1/assistants/{assistant_id}/workspace/write/");
+    expect(write?.path).toEqual({ assistant_id: "asst-1" });
+    expect(write?.body).toEqual({
+      path: "data/avatar/avatar-image.png",
+      content: btoa("\x89PNG"),
+      encoding: "base64",
+    });
+
+    const del = capturedPosts[1];
+    expect(del?.url).toBe("/v1/assistants/{assistant_id}/workspace/delete/");
+    expect(del?.body).toEqual({ path: "data/avatar/character-traits.json" });
+
+    // The new single-shot endpoint must never be hit on old assistants.
+    for (const post of capturedPosts) {
+      expect(post.url).not.toContain("avatar/image");
+    }
+  });
+
+  test("returns false and skips the delete when the write fails", async () => {
+    stubPost({ error: { detail: "boom" }, response: errorResponse(500) });
+
+    expect(await uploadAvatarImage("asst-1", pngFile())).toBe(false);
+    expect(capturedPosts).toHaveLength(1);
+    expect(capturedPosts[0]?.url).toBe(
+      "/v1/assistants/{assistant_id}/workspace/write/",
+    );
   });
 });
