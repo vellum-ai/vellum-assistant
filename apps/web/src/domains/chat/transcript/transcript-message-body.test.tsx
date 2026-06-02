@@ -374,6 +374,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         isStreaming
       />,
@@ -413,6 +414,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         isStreaming
       />,
@@ -447,6 +449,7 @@ describe("TranscriptMessageBody", () => {
         }}
         expandedToolCallIds={new Set()}
         expandedCardIds={new Map()}
+        expandedThinkingKeys={new Map()}
         onSurfaceAction={noop}
         isStreaming
       />,
