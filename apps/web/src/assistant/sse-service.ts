@@ -29,6 +29,10 @@ import * as Sentry from "@sentry/react";
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { publish, subscribe } from "@/lib/event-bus";
 import {
+  clearSseReconnectHandler,
+  setSseReconnectHandler,
+} from "@/lib/streaming/sse-reconnect-control";
+import {
   subscribeChatEvents,
   type ChatEventStream,
 } from "@/lib/streaming/stream-transport";
@@ -58,7 +62,11 @@ export const sseService: SseService = {
     // self-dedups against its own action's recency.
     let lastAppResumeAt = 0;
     let lastPowerActionAt = 0;
-    let nextOpenCause: "fresh" | "error" | "watchdog" | "resume" = "fresh";
+    let nextOpenCause: "fresh" | "error" | "watchdog" | "resume" | "debug" =
+      "fresh";
+    // Pending timer for a delayed debug-triggered reconnect, so detach
+    // can cancel a reconnect that hasn't fired yet.
+    let debugReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const open = () => {
       if (cancelled || current) return;
@@ -143,7 +151,38 @@ export const sseService: SseService = {
       teardown();
     };
 
+    // Manual reconnect for QA of the disconnect/reconnect path, driven
+    // by `_vellumDebug.events.reconnectClient(timeout?)`. Tears the
+    // connection down now and reopens after `delayMs` so a tester can
+    // observe the offline window and the post-reconnect catch-up. The
+    // reopen is labeled `cause: "debug"` so reconcile consumers still
+    // fire (they only skip on `"fresh"`) and telemetry stays honest.
+    const reconnectForDebug = (delayMs: number) => {
+      if (cancelled) {
+        return;
+      }
+      if (debugReconnectTimer !== null) {
+        clearTimeout(debugReconnectTimer);
+        debugReconnectTimer = null;
+      }
+      teardown();
+      const reopen = () => {
+        debugReconnectTimer = null;
+        if (cancelled) {
+          return;
+        }
+        nextOpenCause = "debug";
+        open();
+      };
+      if (delayMs <= 0) {
+        reopen();
+      } else {
+        debugReconnectTimer = setTimeout(reopen, delayMs);
+      }
+    };
+
     open();
+    setSseReconnectHandler(reconnectForDebug);
 
     const unsubHidden = subscribe("app.hidden", teardownIfOpen);
     // System-level suspend: gracefully close the SSE so the daemon
@@ -170,6 +209,11 @@ export const sseService: SseService = {
 
     return () => {
       cancelled = true;
+      clearSseReconnectHandler(reconnectForDebug);
+      if (debugReconnectTimer !== null) {
+        clearTimeout(debugReconnectTimer);
+        debugReconnectTimer = null;
+      }
       unsubHidden();
       unsubPowerSuspend();
       unsubResume();

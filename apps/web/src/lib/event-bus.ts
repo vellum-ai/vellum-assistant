@@ -57,13 +57,14 @@ export interface BusEventMap {
   /**
    * The bus-owned SSE connection just opened (or reopened). Carries the
    * `cause` of the (re)open so consumers can distinguish a fresh
-   * connection from a transport-error reconnect or a watchdog-driven
-   * recovery. Conversation-scoped consumers use this to schedule a
+   * connection from a transport-error reconnect, a watchdog-driven
+   * recovery, or a manual `_vellumDebug.events.reconnectClient()`
+   * trigger. Conversation-scoped consumers use this to schedule a
    * post-reconnect reconciliation pass.
    */
   "sse.opened": {
     assistantId: string;
-    cause: "fresh" | "error" | "watchdog" | "resume";
+    cause: "fresh" | "error" | "watchdog" | "resume" | "debug";
   };
   /**
    * The bus-owned SSE connection closed for a non-cancel reason

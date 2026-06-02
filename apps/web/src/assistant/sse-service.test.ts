@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import * as eventBus from "@/lib/event-bus";
+import { requestSseReconnect } from "@/lib/streaming/sse-reconnect-control";
 
 type EventHandler = (envelope: AssistantEventEnvelope) => void;
 type ReconnectHandler = (cause: "error" | "watchdog") => void;
@@ -327,6 +328,84 @@ describe("sseService.attach — reachability bounce", () => {
       assistantId: "asst-1",
       cause: "error",
     });
+  });
+});
+
+describe("sseService.attach — debug-driven reconnect", () => {
+  test("reconnectClient with no delay bounces the SSE immediately", () => {
+    // GIVEN a live SSE connection
+    sseService.attach("asst-1");
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+
+    // WHEN a debug reconnect is requested with no delay
+    const serviced = requestSseReconnect(0);
+
+    // THEN the live connection is torn down and a fresh one opened
+    expect(serviced).toBe(true);
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("debug reconnect labels sse.opened with cause='debug'", () => {
+    // GIVEN a live SSE connection
+    sseService.attach("asst-1");
+    publishSpy.mockClear();
+
+    // WHEN a debug reconnect is requested
+    requestSseReconnect(0);
+
+    // THEN the reopen is labeled as a debug-triggered reconnect so
+    // reconcile consumers (which only skip on "fresh") still fire
+    expect(publishSpy).toHaveBeenCalledWith("sse.opened", {
+      assistantId: "asst-1",
+      cause: "debug",
+    });
+  });
+
+  test("reconnectClient with a delay disconnects now and reopens after the timeout", async () => {
+    // GIVEN a live SSE connection
+    sseService.attach("asst-1");
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+
+    // WHEN a debug reconnect is requested with a delay
+    requestSseReconnect(50);
+
+    // THEN the connection drops immediately but does not reopen yet
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(1);
+
+    // AND it reopens once the delay elapses
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(subscribeChatEventsMock).toHaveBeenCalledTimes(2);
+  }, 5_000);
+
+  test("detach cancels a pending delayed reconnect", async () => {
+    // GIVEN a live connection with a delayed debug reconnect queued
+    const detach = sseService.attach("asst-1");
+    requestSseReconnect(1000);
+    expect(cancelMock).toHaveBeenCalledTimes(1);
+    subscribeChatEventsMock.mockClear();
+
+    // WHEN the connection is detached before the timer fires
+    detach();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    // THEN the queued reopen never runs
+    expect(subscribeChatEventsMock).not.toHaveBeenCalled();
+  });
+
+  test("reconnectClient is a no-op after detach (no live connection)", () => {
+    // GIVEN a connection that has already been detached
+    const detach = sseService.attach("asst-1");
+    detach();
+    subscribeChatEventsMock.mockClear();
+
+    // WHEN a debug reconnect is requested
+    const serviced = requestSseReconnect(0);
+
+    // THEN nothing services it and no connection is opened
+    expect(serviced).toBe(false);
+    expect(subscribeChatEventsMock).not.toHaveBeenCalled();
   });
 });
 
