@@ -32,6 +32,7 @@ import {
   runRetire,
   getGuardianAccessToken,
   parseGatewayUrl,
+  resolveGatewayProxyTarget,
   readAllowedGatewayPorts,
   isLoopbackAddr,
   resolveDevCliInvocation,
@@ -538,21 +539,21 @@ async function handleLocalEndpoints(
     return Response.json({ error: result.error }, { status: result.status });
   }
 
-  // Gateway proxy
-  const gatewayResult = parseGatewayUrl(pathname);
-  if (gatewayResult.match) {
-    if (!gatewayResult.valid) {
-      return new Response("Port must be between 1024 and 65535", {
-        status: 400,
-      });
-    }
-    const { target: gatewayTarget } = gatewayResult;
-    const allowedPorts = readAllowedGatewayPorts(lockfilePaths);
-    if (!allowedPorts.has(gatewayTarget.port)) {
-      return new Response("Gateway port is not active in lockfile", {
-        status: 403,
-      });
-    }
+  // Gateway proxy — same allowlist decision the web (Vite middleware) and
+  // Electron (`app://` handler) hosts use, so all three can't drift.
+  const gatewayDecision = resolveGatewayProxyTarget(pathname, () =>
+    readAllowedGatewayPorts(lockfilePaths),
+  );
+  if (gatewayDecision.kind === "invalid-port") {
+    return new Response("Port must be between 1024 and 65535", { status: 400 });
+  }
+  if (gatewayDecision.kind === "forbidden-port") {
+    return new Response("Gateway port is not active in lockfile", {
+      status: 403,
+    });
+  }
+  if (gatewayDecision.kind === "forward") {
+    const { target: gatewayTarget } = gatewayDecision;
     const targetUrl = `http://127.0.0.1:${gatewayTarget.port}${gatewayTarget.path}${url.search}`;
     const headers = new Headers(req.headers);
     headers.set("host", `127.0.0.1:${gatewayTarget.port}`);
