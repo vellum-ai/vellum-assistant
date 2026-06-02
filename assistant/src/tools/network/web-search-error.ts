@@ -140,7 +140,18 @@ function categoryFromError(error: unknown): WebSearchFailureCategory | undefined
     .toLowerCase();
 
   // A user-initiated abort (Stop/Esc, preemption, dispose) is not a failure.
-  if (isAbortReason((error as { reason?: unknown }).reason)) return undefined;
+  // The tagged `AbortReason` may surface directly (`AbortSignal.throwIfAborted`
+  // throws `signal.reason` verbatim), via `error.reason`, or — when a provider
+  // wrapper erases the `AbortError` name — on `ProviderError.abortReason`. Check
+  // all three before the abort/timeout substring heuristic so a wrapped abort
+  // like "Request was aborted" short-circuits the backend-failure path.
+  if (
+    isAbortReason(error) ||
+    isAbortReason((error as { reason?: unknown }).reason) ||
+    isAbortReason((error as { abortReason?: unknown }).abortReason)
+  ) {
+    return undefined;
+  }
 
   // web_search-only: treat aborts/timeouts/DNS/fetch failures (the cases
   // `isRetryableNetworkError` doesn't cover) as backend failures.

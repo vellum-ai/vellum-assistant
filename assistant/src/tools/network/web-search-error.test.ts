@@ -62,6 +62,19 @@ describe("classifyWebSearchFailure", () => {
     expect(result.userMessage).not.toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
   });
 
+  test("wrapped ProviderError carrying abortReason is not a backend failure", () => {
+    // A provider wrapper erases the AbortError name and re-words the message,
+    // but carries the tagged reason on `abortReason` (ProviderError shape).
+    const err = Object.assign(new Error("Request was aborted"), {
+      name: "ProviderError",
+      abortReason: createAbortReason("user_cancel", "cancelGeneration"),
+    });
+    const result = classifyWebSearchFailure({ isError: true, error: err });
+    expect(result.category).not.toBe("backend_unavailable");
+    expect(result.isBackendFailure).toBe(false);
+    expect(result.userMessage).not.toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+  });
+
   test("ECONNRESET network error is a backend failure", () => {
     const err = Object.assign(new Error("socket hang up"), {
       code: "ECONNRESET",
