@@ -1,5 +1,11 @@
 import { Loader2 } from "lucide-react";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -7,10 +13,10 @@ import { Tag } from "@vellum/design-library/components/tag";
 import { CapacityBar } from "@/domains/settings/components/capacity-bar";
 import {
   type Assistant,
-  type AssistantHealthz,
   getAssistant,
   getAssistantHealthz,
 } from "@/assistant/api";
+import type { HealthzGetResponse } from "@/generated/daemon/types.gen";
 import { useAuthStore } from "@/stores/auth-store";
 import { toast } from "@vellum/design-library";
 import { captureError } from "@/lib/sentry/capture-error";
@@ -31,8 +37,8 @@ const HEALTHZ_POLL_TIMEOUT_MS = 90_000;
  * a resize has actually landed.
  */
 function allocationChanged(
-  next: AssistantHealthz,
-  baseline: AssistantHealthz,
+  next: HealthzGetResponse,
+  baseline: HealthzGetResponse,
 ): boolean {
   return (
     (next.memory?.maxMb ?? null) !== (baseline.memory?.maxMb ?? null) ||
@@ -43,7 +49,7 @@ function allocationChanged(
 export interface AssistantWithHealthz {
   assistant: Assistant | null;
   assistantLoading: boolean;
-  healthz: AssistantHealthz | null;
+  healthz: HealthzGetResponse | null;
   healthzLoading: boolean;
   /** True while a post-resize poll is waiting for the new allocation to appear. */
   healthzPolling: boolean;
@@ -53,7 +59,7 @@ export interface AssistantWithHealthz {
    * `baseline` (the resize has landed) or a timeout elapses. Tolerates the
    * pod-restart window where /v1/health is briefly unreachable.
    */
-  refetchUntilResized: (baseline: AssistantHealthz | null) => Promise<void>;
+  refetchUntilResized: (baseline: HealthzGetResponse | null) => Promise<void>;
 }
 
 export function useAssistantWithHealthz(): AssistantWithHealthz {
@@ -71,7 +77,7 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
   });
   const assistantId = assistant?.id;
 
-  const [healthz, setHealthz] = useState<AssistantHealthz | null>(null);
+  const [healthz, setHealthz] = useState<HealthzGetResponse | null>(null);
   const [healthzLoading, setHealthzLoading] = useState(false);
   const [healthzPolling, setHealthzPolling] = useState(false);
   const healthzRequestIdRef = useRef(0);
@@ -79,9 +85,9 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
   const pollIdRef = useRef(0);
 
   const fetchHealthz = useCallback(
-    async (
-      opts?: { keepStaleOnError?: boolean },
-    ): Promise<AssistantHealthz | null> => {
+    async (opts?: {
+      keepStaleOnError?: boolean;
+    }): Promise<HealthzGetResponse | null> => {
       if (!assistantId) {
         setHealthz(null);
         setHealthzLoading(false);
@@ -142,7 +148,7 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
   }, [refetchAssistant, fetchHealthz]);
 
   const refetchUntilResized = useCallback(
-    async (baseline: AssistantHealthz | null) => {
+    async (baseline: HealthzGetResponse | null) => {
       const pollId = ++pollIdRef.current;
       const deadline = Date.now() + HEALTHZ_POLL_TIMEOUT_MS;
       setHealthzPolling(true);
@@ -190,7 +196,7 @@ export function useAssistantWithHealthz(): AssistantWithHealthz {
 export interface AssistantStatusPanelProps {
   assistant: Assistant | null;
   assistantLoading: boolean;
-  healthz: AssistantHealthz | null;
+  healthz: HealthzGetResponse | null;
   healthzLoading: boolean;
 }
 
@@ -264,7 +270,11 @@ export function AssistantStatusPanel({
       )}
 
       <Label>Created</Label>
-      <Value>{assistant.created ? new Date(assistant.created).toLocaleDateString() : "Unknown"}</Value>
+      <Value>
+        {assistant.created
+          ? new Date(assistant.created).toLocaleDateString()
+          : "Unknown"}
+      </Value>
 
       <Label>Version</Label>
       <DevModeVersionUnlock
@@ -277,7 +287,7 @@ export function AssistantStatusPanel({
 }
 
 export interface SystemResourcesPanelProps {
-  healthz: AssistantHealthz | null;
+  healthz: HealthzGetResponse | null;
   healthzLoading: boolean;
 }
 
