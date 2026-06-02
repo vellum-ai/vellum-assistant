@@ -11,7 +11,8 @@
  * actually usable — not during setup, cleanup, or error states.
  */
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
+import * as Sentry from "@sentry/react";
 
 import { useAuthStore } from "@/stores/auth-store";
 import { lifecycleService } from "@/assistant/lifecycle-service";
@@ -57,7 +58,33 @@ export function ChatPage() {
   // -------------------------------------------------------------------------
   // Loading guards — auth / assistant lifecycle not yet resolved
   // -------------------------------------------------------------------------
-  if (authLoading || assistantState.kind === "loading") {
+  const connectingReason = authLoading
+    ? "auth_loading"
+    : assistantState.kind === "loading"
+      ? "assistant_loading"
+      : null;
+
+  const lastConnectingReasonRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (connectingReason === null) {
+      lastConnectingReasonRef.current = null;
+      return;
+    }
+    if (lastConnectingReasonRef.current === connectingReason) return;
+    lastConnectingReasonRef.current = connectingReason;
+    Sentry.addBreadcrumb({
+      category: "chat.connecting",
+      level: "info",
+      message: "ChatPage rendered Connecting",
+      data: {
+        reason: connectingReason,
+        assistantStateKind: assistantState.kind,
+        hasAssistantId: assistantId != null,
+      },
+    });
+  }, [connectingReason, assistantState.kind, assistantId]);
+
+  if (connectingReason !== null) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-[var(--text-secondary)]">Connecting…</p>
