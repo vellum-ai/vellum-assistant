@@ -3,13 +3,12 @@
  *
  * Operations submitted for the SAME key run strictly one-at-a-time in
  * submission order; operations for DIFFERENT keys proceed concurrently. This
- * is the lightweight in-process serialization primitive used to guard shared
- * mutable resources (e.g. an app's source dir + its dist/ rebuild) against
- * concurrent callers racing on `rm -rf` + write sequences, per the
- * "serialise per-resource" rule in CLAUDE.md.
+ * is the lightweight in-process serialization primitive used to guard
+ * per-resource critical sections, per the "serialise per-resource" rule in
+ * CLAUDE.md.
  *
- * The same pattern already backs `createSurfaceMutex`; this generalises it as a
- * standalone utility so other per-resource critical sections can reuse it.
+ * `createSurfaceMutex` (in conversation-surfaces.ts) is a thin wrapper over
+ * this primitive, keyed by surfaceId.
  */
 export type KeyedMutex = {
   /**

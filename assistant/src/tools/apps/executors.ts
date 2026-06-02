@@ -12,25 +12,6 @@ import { compileApp } from "../../bundler/app-compiler.js";
 import { generateAppIcon } from "../../media/app-icon-generator.js";
 import type { AppDefinition } from "../../memory/app-store.js";
 import { getAppDirPath } from "../../memory/app-store.js";
-import { createKeyedMutex } from "../../util/keyed-mutex.js";
-
-// ---------------------------------------------------------------------------
-// Per-app-slug write/compile serialization
-// ---------------------------------------------------------------------------
-
-/**
- * Defense-in-depth lock keyed by an app's on-disk dir (its frozen slug).
- *
- * app-builder v2 runs multiple `coder` workers that write DISJOINT files into
- * one app dir in parallel, and only the parent compiles — a layout that already
- * avoids most races. This guards the residual ones: a write landing during the
- * compile's `rm -rf dist/` + esbuild window, or two same-slug write/compile
- * batches overlapping. Operations on the SAME slug serialize; DIFFERENT slugs
- * stay fully concurrent, honoring the per-resource serialization rule in
- * CLAUDE.md. Disjoint writes within one batch share a single acquisition, so
- * workers never deadlock or queue beyond the compile boundary.
- */
-const appSlugMutex = createKeyedMutex();
 
 // ---------------------------------------------------------------------------
 // Shared result type
@@ -217,27 +198,21 @@ function App() {
 render(<App />, document.getElementById('app')!);
 `;
 
-  // Serialize the source-file writes + compile for this slug so a concurrent
-  // operation on the SAME app (e.g. another worker's app_refresh) can't
-  // interleave with these writes or the dist/ rebuild below.
   const appDir = getAppDirPath(app.id);
 
-  const mainTsxScaffolded = await appSlugMutex(appDir, () => {
-    if (input.source_files) {
-      for (const [filePath, content] of Object.entries(input.source_files)) {
-        store.writeAppFile(app.id, filePath, content);
-      }
+  if (input.source_files) {
+    for (const [filePath, content] of Object.entries(input.source_files)) {
+      store.writeAppFile(app.id, filePath, content);
     }
+  }
 
-    const scaffolded = !store.appFileExists(app.id, "src/main.tsx");
-    if (!store.appFileExists(app.id, "src/index.html")) {
-      store.writeAppFile(app.id, "src/index.html", indexHtml);
-    }
-    if (scaffolded) {
-      store.writeAppFile(app.id, "src/main.tsx", mainTsx);
-    }
-    return scaffolded;
-  });
+  const mainTsxScaffolded = !store.appFileExists(app.id, "src/main.tsx");
+  if (!store.appFileExists(app.id, "src/index.html")) {
+    store.writeAppFile(app.id, "src/index.html", indexHtml);
+  }
+  if (mainTsxScaffolded) {
+    store.writeAppFile(app.id, "src/main.tsx", mainTsx);
+  }
 
   // When the placeholder main.tsx was actually scaffolded, the tool result
   // must steer the agent toward writing the real source files instead of
@@ -251,9 +226,10 @@ render(<App />, document.getElementById('app')!);
       }
     : {};
 
-  // Compile src/ → dist/, serialized per slug so the dist/ rebuild can't race
-  // a concurrent same-slug write/compile.
-  const compileResult = await appSlugMutex(appDir, () => compileApp(appDir));
+  // Compile src/ → dist/. compileApp serialises concurrent same-appDir
+  // compiles internally (latest-wins coalescing) so the dist/ rebuild can't
+  // race another caller's compile.
+  const compileResult = await compileApp(appDir);
   if (!compileResult.ok) {
     return {
       content: JSON.stringify({
@@ -372,9 +348,10 @@ export async function executeAppRefresh(
   // stale scaffold placeholder from the initial app_create.
   if (app.formatVersion === 2) {
     const appDir = getAppDirPath(input.app_id);
-    // Serialize the dist/ rebuild per slug so a concurrent same-slug
-    // operation (e.g. another worker's app_create) can't race this compile.
-    const compileResult = await appSlugMutex(appDir, () => compileApp(appDir));
+    // compileApp serialises concurrent same-appDir compiles internally, so a
+    // concurrent operation (e.g. another worker's app_create) can't race this
+    // dist/ rebuild.
+    const compileResult = await compileApp(appDir);
     return {
       content: JSON.stringify({
         refreshed: true,

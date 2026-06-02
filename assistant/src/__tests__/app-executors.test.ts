@@ -14,18 +14,8 @@ let compileResultOverride: CompileResult = {
   durationMs: 0,
 };
 
-/**
- * Optional hook letting a test observe and gate each compileApp invocation.
- * When set, compileApp awaits whatever it returns before resolving, so a test
- * can assert serialization by counting concurrently-running compiles.
- */
-let compileGate: ((appDir: string) => Promise<void>) | undefined;
-
 mock.module("../bundler/app-compiler.js", () => ({
-  compileApp: async (appDir: string) => {
-    if (compileGate) await compileGate(appDir);
-    return compileResultOverride;
-  },
+  compileApp: async () => compileResultOverride,
 }));
 
 beforeEach(() => {
@@ -35,7 +25,6 @@ beforeEach(() => {
     warnings: [],
     durationMs: 0,
   };
-  compileGate = undefined;
 });
 
 import type { AppDefinition } from "../memory/app-store.js";
@@ -417,81 +406,5 @@ describe("executeAppRefresh", () => {
     expect(result.isError).toBe(true);
     const parsed = JSON.parse(result.content);
     expect(parsed.error).toContain("not found");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Per-app-slug write/compile serialization
-//
-// getAppDirPath(id) is deterministic per id (falls back to <appsDir>/<id> when
-// no on-disk definition exists), so distinct ids map to distinct lock keys and
-// the same id always maps to the same key — exactly the slug-keying contract.
-// ---------------------------------------------------------------------------
-
-describe("app-slug compile serialization", () => {
-  /** A deferred promise plus its resolver. */
-  function defer(): { promise: Promise<void>; resolve: () => void } {
-    let resolve!: () => void;
-    const promise = new Promise<void>((r) => {
-      resolve = r;
-    });
-    return { promise, resolve };
-  }
-
-  test("serializes concurrent refreshes for the SAME app", async () => {
-    let running = 0;
-    let maxConcurrent = 0;
-    const release = defer();
-    compileGate = async () => {
-      running++;
-      maxConcurrent = Math.max(maxConcurrent, running);
-      await release.promise;
-      running--;
-    };
-
-    const app = makeMultifileApp({ id: "same-slug-app" });
-    const store = mockStore(app);
-
-    const first = executeAppRefresh({ app_id: app.id }, store);
-    const second = executeAppRefresh({ app_id: app.id }, store);
-
-    // Let both kick off. Only the first compile may be running; the second is
-    // queued behind the per-slug lock.
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(maxConcurrent).toBe(1);
-
-    release.resolve();
-    await Promise.all([first, second]);
-    // Never more than one compile in flight for this slug.
-    expect(maxConcurrent).toBe(1);
-  });
-
-  test("runs refreshes for DIFFERENT apps concurrently", async () => {
-    let running = 0;
-    let maxConcurrent = 0;
-    const release = defer();
-    compileGate = async () => {
-      running++;
-      maxConcurrent = Math.max(maxConcurrent, running);
-      await release.promise;
-      running--;
-    };
-
-    const appA = makeMultifileApp({ id: "slug-a" });
-    const appB = makeMultifileApp({ id: "slug-b" });
-    const storeA = mockStore(appA);
-    const storeB = mockStore(appB);
-
-    const first = executeAppRefresh({ app_id: appA.id }, storeA);
-    const second = executeAppRefresh({ app_id: appB.id }, storeB);
-
-    // Different slugs must not block each other — both compiles run at once.
-    await Promise.resolve();
-    await Promise.resolve();
-    expect(maxConcurrent).toBe(2);
-
-    release.resolve();
-    await Promise.all([first, second]);
   });
 });
