@@ -43,11 +43,18 @@ mock.module("@sentry/browser", () => ({
   captureException: () => {},
 }));
 
+import { getDiagnosticsEvents } from "@/lib/diagnostics";
 import {
-  getDiagnosticsEvents,
-} from "@/lib/diagnostics";
-import { subscribeChatEvents, type ChatStreamReconnectCause } from "@/lib/streaming/stream-transport";
+  __resetLastSeenSeqForTesting,
+  setLastSeenSeq,
+} from "@/lib/streaming/last-seen-seq";
+import {
+  subscribeChatEvents,
+  type ChatStreamReconnectCause,
+} from "@/lib/streaming/stream-transport";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
+
+const SEQ_GAP_DETECTION_STORAGE_KEY = "vellum:debug:seqGapDetection";
 
 describe("subscribeChatEvents idle watchdog", () => {
   let originalFetch: typeof fetch;
@@ -59,7 +66,9 @@ describe("subscribeChatEvents idle watchdog", () => {
     // ensureCsrfCookie() on mutating requests; harmless for this GET
     // path but keeps the bun (Node) test env consistent.
     originalDocument = (globalThis as { document?: unknown }).document;
-    (globalThis as { document?: unknown }).document = { cookie: "csrftoken=test" };
+    (globalThis as { document?: unknown }).document = {
+      cookie: "csrftoken=test",
+    };
     // Reset the version-gating store so subscribeChatEvents defaults to
     // the legacy `conversationKey` wire field. Tests that exercise the
     // newer `conversationId` path opt in explicitly via setIdentity().
@@ -78,19 +87,17 @@ describe("subscribeChatEvents idle watchdog", () => {
 
   test("omits any conversation query param when subscribing to all assistant events", async () => {
     const requestedUrls: string[] = [];
-    globalThis.fetch = mock(
-      async (input: RequestInfo | URL) => {
-        requestedUrls.push(input instanceof Request ? input.url : String(input));
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.close();
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "text/event-stream" } },
-        );
-      },
-    ) as unknown as typeof fetch;
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      requestedUrls.push(input instanceof Request ? input.url : String(input));
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+    }) as unknown as typeof fetch;
 
     const stream = subscribeChatEvents(
       "asst-1",
@@ -117,19 +124,17 @@ describe("subscribeChatEvents idle watchdog", () => {
     useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.6");
 
     const requestedUrls: string[] = [];
-    globalThis.fetch = mock(
-      async (input: RequestInfo | URL) => {
-        requestedUrls.push(input instanceof Request ? input.url : String(input));
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.close();
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "text/event-stream" } },
-        );
-      },
-    ) as unknown as typeof fetch;
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      requestedUrls.push(input instanceof Request ? input.url : String(input));
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+    }) as unknown as typeof fetch;
 
     const stream = subscribeChatEvents(
       "asst-1",
@@ -154,19 +159,17 @@ describe("subscribeChatEvents idle watchdog", () => {
     useAssistantIdentityStore.getState().setIdentity("Vel", "0.8.5");
 
     const requestedUrls: string[] = [];
-    globalThis.fetch = mock(
-      async (input: RequestInfo | URL) => {
-        requestedUrls.push(input instanceof Request ? input.url : String(input));
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.close();
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "text/event-stream" } },
-        );
-      },
-    ) as unknown as typeof fetch;
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      requestedUrls.push(input instanceof Request ? input.url : String(input));
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+    }) as unknown as typeof fetch;
 
     const stream = subscribeChatEvents(
       "asst-1",
@@ -194,19 +197,17 @@ describe("subscribeChatEvents idle watchdog", () => {
     expect(useAssistantIdentityStore.getState().version).toBeNull();
 
     const requestedUrls: string[] = [];
-    globalThis.fetch = mock(
-      async (input: RequestInfo | URL) => {
-        requestedUrls.push(input instanceof Request ? input.url : String(input));
-        return new Response(
-          new ReadableStream({
-            start(controller) {
-              controller.close();
-            },
-          }),
-          { status: 200, headers: { "Content-Type": "text/event-stream" } },
-        );
-      },
-    ) as unknown as typeof fetch;
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      requestedUrls.push(input instanceof Request ? input.url : String(input));
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+    }) as unknown as typeof fetch;
 
     const stream = subscribeChatEvents(
       "asst-1",
@@ -220,7 +221,9 @@ describe("subscribeChatEvents idle watchdog", () => {
       await new Promise((r) => setTimeout(r, 50));
       expect(requestedUrls).toHaveLength(1);
       const url = new URL(requestedUrls[0]!);
-      expect(url.searchParams.get("conversationKey")).toBe("conv-unknown-version");
+      expect(url.searchParams.get("conversationKey")).toBe(
+        "conv-unknown-version",
+      );
       expect(url.searchParams.get("conversationId")).toBeNull();
     } finally {
       stream.cancel();
@@ -262,20 +265,14 @@ describe("subscribeChatEvents idle watchdog", () => {
     const onError = mock(() => {});
     let reconnectCallbacks = 0;
 
-    const stream = subscribeChatEvents(
-      "asst-1",
-      "conv-key",
-      onEvent,
-      onError,
-      {
-        // Short timings so the test runs in well under a second.
-        idleTimeoutMs: 50,
-        reconnectBaseDelayMs: 10,
-        onReconnect: () => {
-          reconnectCallbacks++;
-        },
+    const stream = subscribeChatEvents("asst-1", "conv-key", onEvent, onError, {
+      // Short timings so the test runs in well under a second.
+      idleTimeoutMs: 50,
+      reconnectBaseDelayMs: 10,
+      onReconnect: () => {
+        reconnectCallbacks++;
       },
-    );
+    });
 
     try {
       // Allow: connect → stall → watchdog (~50ms) → reconnect delay
@@ -754,9 +751,7 @@ describe("subscribeChatEvents idle watchdog", () => {
         new ReadableStream({
           start(controller) {
             setTimeout(() => {
-              controller.error(
-                new Error(`transport failure ${localCount}`),
-              );
+              controller.error(new Error(`transport failure ${localCount}`));
             }, 50);
           },
         }),
@@ -913,5 +908,163 @@ describe("subscribeChatEvents idle watchdog", () => {
     // After cancel, no further attempts should be scheduled.
     await new Promise((r) => setTimeout(r, 250));
     expect(fetchCallCount).toBe(countAtCancel);
+  });
+});
+
+describe("subscribeChatEvents resumable-stream cursor map", () => {
+  let originalFetch: typeof fetch;
+  let originalDocument: unknown;
+
+  /**
+   * A fetch stub that records every requested URL and immediately closes
+   * the stream so the transport schedules a reconnect.
+   */
+  function mockClosingFetch(requestedUrls: string[]): typeof fetch {
+    return mock(async (input: RequestInfo | URL) => {
+      requestedUrls.push(input instanceof Request ? input.url : String(input));
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      );
+    }) as unknown as typeof fetch;
+  }
+
+  beforeEach(() => {
+    originalFetch = globalThis.fetch;
+    originalDocument = (globalThis as { document?: unknown }).document;
+    (globalThis as { document?: unknown }).document = {
+      cookie: "csrftoken=test",
+    };
+    useAssistantIdentityStore.getState().clearIdentity();
+    __resetLastSeenSeqForTesting();
+    localStorage.removeItem(SEQ_GAP_DETECTION_STORAGE_KEY);
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    if (originalDocument === undefined) {
+      delete (globalThis as { document?: unknown }).document;
+    } else {
+      (globalThis as { document?: unknown }).document = originalDocument;
+    }
+    useAssistantIdentityStore.getState().clearIdentity();
+    __resetLastSeenSeqForTesting();
+    localStorage.removeItem(SEQ_GAP_DETECTION_STORAGE_KEY);
+  });
+
+  test("attaches the per-conversation cursor map on reconnect when seq gap detection is enabled", async () => {
+    /**
+     * On reconnect, the unfiltered stream sends the bounded
+     * `{ conversationId: seq }` map so the daemon can replay each
+     * conversation's missed events instead of forcing a refetch.
+     */
+
+    // GIVEN seq gap detection is enabled and the client has applied
+    // events for two conversations.
+    localStorage.setItem(SEQ_GAP_DETECTION_STORAGE_KEY, "true");
+    setLastSeenSeq("conv-a", 5);
+    setLastSeenSeq("conv-b", 3);
+    const requestedUrls: string[] = [];
+    globalThis.fetch = mockClosingFetch(requestedUrls);
+
+    // WHEN an unfiltered subscription opens and the stream drops,
+    // triggering a reconnect.
+    const stream = subscribeChatEvents(
+      "asst-1",
+      null,
+      () => {},
+      () => {},
+      { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10 },
+    );
+
+    try {
+      await new Promise((r) => setTimeout(r, 120));
+
+      // THEN the initial connect carries no cursor map (nothing buffered
+      // to resume yet)...
+      expect(requestedUrls.length).toBeGreaterThanOrEqual(2);
+      expect(
+        new URL(requestedUrls[0]!).searchParams.get("lastSeenSeqs"),
+      ).toBeNull();
+
+      // AND the reconnect carries the full per-conversation cursor map.
+      const reconnectParam = new URL(requestedUrls[1]!).searchParams.get(
+        "lastSeenSeqs",
+      );
+      expect(reconnectParam).not.toBeNull();
+      expect(JSON.parse(reconnectParam!)).toEqual({ "conv-a": 5, "conv-b": 3 });
+    } finally {
+      stream.cancel();
+    }
+  });
+
+  test("omits the cursor map on reconnect when seq gap detection is disabled", async () => {
+    /**
+     * The cursor map is a kill-switchable feature: with the flag off it
+     * must never appear, preserving today's live-only reconnect.
+     */
+
+    // GIVEN the flag is disabled but cursors have been recorded.
+    setLastSeenSeq("conv-a", 5);
+    const requestedUrls: string[] = [];
+    globalThis.fetch = mockClosingFetch(requestedUrls);
+
+    // WHEN an unfiltered subscription reconnects.
+    const stream = subscribeChatEvents(
+      "asst-1",
+      null,
+      () => {},
+      () => {},
+      { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10 },
+    );
+
+    try {
+      await new Promise((r) => setTimeout(r, 120));
+
+      // THEN no attempt carries the cursor map.
+      expect(requestedUrls.length).toBeGreaterThanOrEqual(2);
+      for (const url of requestedUrls) {
+        expect(new URL(url).searchParams.get("lastSeenSeqs")).toBeNull();
+      }
+    } finally {
+      stream.cancel();
+    }
+  });
+
+  test("omits the cursor map on reconnect when enabled but no cursors recorded", async () => {
+    /**
+     * An empty cursor map carries no replay information, so the param is
+     * elided rather than sending `{}`.
+     */
+
+    // GIVEN the flag is enabled but no events have been applied yet.
+    localStorage.setItem(SEQ_GAP_DETECTION_STORAGE_KEY, "true");
+    const requestedUrls: string[] = [];
+    globalThis.fetch = mockClosingFetch(requestedUrls);
+
+    // WHEN an unfiltered subscription reconnects.
+    const stream = subscribeChatEvents(
+      "asst-1",
+      null,
+      () => {},
+      () => {},
+      { idleTimeoutMs: 5_000, reconnectBaseDelayMs: 10 },
+    );
+
+    try {
+      await new Promise((r) => setTimeout(r, 120));
+
+      // THEN no attempt carries the cursor map.
+      expect(requestedUrls.length).toBeGreaterThanOrEqual(2);
+      for (const url of requestedUrls) {
+        expect(new URL(url).searchParams.get("lastSeenSeqs")).toBeNull();
+      }
+    } finally {
+      stream.cancel();
+    }
   });
 });

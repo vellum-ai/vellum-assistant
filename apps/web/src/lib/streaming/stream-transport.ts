@@ -13,6 +13,8 @@ import type { AssistantEventEnvelope } from "@vellumai/assistant-api";
 import { parseAssistantEvent } from "@/lib/streaming/event-parser";
 
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
+import { isSeqGapDetectionEnabled } from "@/lib/feature-flags/seq-gap-detection-flag";
+import { getSeqCursors } from "@/lib/streaming/last-seen-seq";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
 import {
   markClientEstablished,
@@ -104,6 +106,40 @@ const STREAM_MAX_RECONNECT_DELAY_MS = 30_000;
 // must comfortably exceed that interval to avoid false positives on a
 // healthy connection that is idle between user turns.
 const STREAM_IDLE_TIMEOUT_MS = 45_000;
+// Query param carrying the resumable-stream reconnect cursor map: a
+// JSON-encoded `{ conversationId: seq }` object of the highest event
+// seq the client has already applied per conversation. The daemon
+// replays each conversation's missed events (seq > cursor) on this one
+// unfiltered stream. Must match the `lastSeenSeqs` param parsed by
+// assistant/src/runtime/routes/events-routes.ts.
+const SEQ_CURSORS_WIRE_FIELD = "lastSeenSeqs";
+
+/**
+ * Build the query params for the events SSE connection.
+ *
+ * Always scopes by conversation when a conversation id is requested. On
+ * reconnect, when seq gap detection is enabled, also attaches the
+ * resumable-stream cursor map ({@link SEQ_CURSORS_WIRE_FIELD}) so the
+ * daemon can replay each conversation's missed events on this single
+ * unfiltered stream rather than forcing a refetch. A fresh connect has
+ * nothing buffered to resume, so the cursor map is omitted there.
+ */
+function buildEventsQuery(
+  requestedConversationId: string | undefined,
+  isReconnect: boolean,
+): Record<string, string> {
+  const query: Record<string, string> = {};
+  if (requestedConversationId) {
+    query[pickConversationIdWireField()] = requestedConversationId;
+  }
+  if (isReconnect && isSeqGapDetectionEnabled()) {
+    const cursors = getSeqCursors();
+    if (Object.keys(cursors).length > 0) {
+      query[SEQ_CURSORS_WIRE_FIELD] = JSON.stringify(cursors);
+    }
+  }
+  return query;
+}
 
 /**
  * Open an SSE connection to the assistant's events endpoint and emit typed
@@ -186,43 +222,40 @@ export function subscribeChatEvents(
       // `conversationKey` (create-or-lookup) so locally-minted draft
       // ids still resolve. See
       // `lib/backwards-compat/conversation-id-wire-field.ts`.
-      const { stream } = await client.sse.get<Record<string, unknown> | string>({
-        ...SDK_BASE_OPTIONS,
-        url: "/v1/assistants/{assistant_id}/events/",
-        path: { assistant_id: assistantId },
-        ...(requestedConversationId
-          ? {
-              query: {
-                [pickConversationIdWireField()]: requestedConversationId,
-              },
+      const query = buildEventsQuery(requestedConversationId, isReconnect);
+      const { stream } = await client.sse.get<Record<string, unknown> | string>(
+        {
+          ...SDK_BASE_OPTIONS,
+          url: "/v1/assistants/{assistant_id}/events/",
+          path: { assistant_id: assistantId },
+          ...(Object.keys(query).length > 0 ? { query } : {}),
+          headers: {
+            Accept: "text/event-stream, application/json",
+            ...getClientRegistrationHeaders(),
+          },
+          signal: abortController.signal,
+          // Keep reconnect behavior controlled by this function.
+          sseMaxRetryAttempts: 1,
+          onSseError: (error) => {
+            streamError =
+              error instanceof Error ? error : new Error("Stream disconnected");
+          },
+          onSseEvent: (event) => {
+            // Fires for every parsed SSE chunk including heartbeat
+            // comments (which the SDK surfaces with `data === undefined`
+            // because comment frames have no `data:` line).
+            const isData =
+              typeof (event as { data?: unknown }).data !== "undefined";
+            if (isData) {
+              markClientEstablished(sseDebugClientId);
             }
-          : {}),
-        headers: {
-          Accept: "text/event-stream, application/json",
-          ...getClientRegistrationHeaders(),
+            watchdog.recordTraffic(isData);
+            if (!cancelled) {
+              watchdog.arm(abortController, reconnectCount);
+            }
+          },
         },
-        signal: abortController.signal,
-        // Keep reconnect behavior controlled by this function.
-        sseMaxRetryAttempts: 1,
-        onSseError: (error) => {
-          streamError = error instanceof Error
-            ? error
-            : new Error("Stream disconnected");
-        },
-        onSseEvent: (event) => {
-          // Fires for every parsed SSE chunk including heartbeat
-          // comments (which the SDK surfaces with `data === undefined`
-          // because comment frames have no `data:` line).
-          const isData = typeof (event as { data?: unknown }).data !== "undefined";
-          if (isData) {
-            markClientEstablished(sseDebugClientId);
-          }
-          watchdog.recordTraffic(isData);
-          if (!cancelled) {
-            watchdog.arm(abortController, reconnectCount);
-          }
-        },
-      });
+      );
 
       if (isReconnect && !cancelled) {
         const cause: ChatStreamReconnectCause =
@@ -259,21 +292,28 @@ export function subscribeChatEvents(
           // callback ordering.
           watchdog.arm(abortController, reconnectCount);
 
-          const data = typeof payload === "string"
-            ? (() => {
-              try {
-                const parsed = JSON.parse(payload);
-                if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-                  return parsed as Record<string, unknown>;
-                }
-              } catch {
-                // not JSON
-              }
-              return null;
-            })()
-            : payload && typeof payload === "object" && !Array.isArray(payload)
-              ? (payload as Record<string, unknown>)
-              : null;
+          const data =
+            typeof payload === "string"
+              ? (() => {
+                  try {
+                    const parsed = JSON.parse(payload);
+                    if (
+                      parsed &&
+                      typeof parsed === "object" &&
+                      !Array.isArray(parsed)
+                    ) {
+                      return parsed as Record<string, unknown>;
+                    }
+                  } catch {
+                    // not JSON
+                  }
+                  return null;
+                })()
+              : payload &&
+                  typeof payload === "object" &&
+                  !Array.isArray(payload)
+                ? (payload as Record<string, unknown>)
+                : null;
 
           if (!data) {
             continue;
@@ -334,9 +374,7 @@ export function subscribeChatEvents(
 
   connect().catch((err) => {
     if (!cancelled) {
-      onError(
-        err instanceof Error ? err : new Error("Stream setup failed"),
-      );
+      onError(err instanceof Error ? err : new Error("Stream setup failed"));
     }
   });
 
