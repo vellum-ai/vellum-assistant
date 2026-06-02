@@ -3,10 +3,15 @@
  *
  * The browser emits no native event when the OS timezone changes, so there is
  * nothing to subscribe to for a live zone switch. Instead we re-read the
- * effective zone on window focus and on `visibilitychange` to visible — the
- * moments a user is most likely to return after changing their system clock or
- * crossing a timezone — plus on `device:timezone` setting changes (manual
- * override) via the device-setting watcher.
+ * effective zone on window focus and on the cross-domain bus `app.resume`
+ * signal — the moments a user is most likely to return after changing their
+ * system clock or crossing a timezone — plus on `device:timezone` setting
+ * changes (manual override) via the device-setting watcher.
+ *
+ * Visibility is intentionally not listened to directly here: the EVENT_BUS
+ * convention reserves `document` visibility listeners to
+ * `runtime/event-sources/dom-visibility.ts`, which publishes `app.resume`
+ * (fanning in page visibility, Capacitor app-state, and network-online).
  *
  * The functional `setTz` update returns the previous reference when the
  * recomputed zone is unchanged, so React skips the re-render in the common
@@ -15,10 +20,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { watchDeviceSetting } from "@/utils/device-settings";
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
 
-/** Returns the live effective timezone, updating on focus/visibility/override changes. */
+/** Returns the live effective timezone, updating on focus/resume/override changes. */
 export function useEffectiveTimezone(): string {
   const [tz, setTz] = useState(getEffectiveTimezone);
 
@@ -29,16 +35,13 @@ export function useEffectiveTimezone(): string {
     });
   }, []);
 
+  useBusSubscription("app.resume", refresh);
+
   useEffect(() => {
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
     window.addEventListener("focus", refresh);
-    window.addEventListener("visibilitychange", onVisibilityChange);
     const unwatch = watchDeviceSetting("timezone", refresh);
     return () => {
       window.removeEventListener("focus", refresh);
-      window.removeEventListener("visibilitychange", onVisibilityChange);
       unwatch();
     };
   }, [refresh]);
