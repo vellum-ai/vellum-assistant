@@ -14,16 +14,10 @@ import {
   beforeEach,
   describe,
   expect,
-  mock,
   test,
 } from "bun:test";
 import { act } from "react";
 import { cleanup, render } from "@testing-library/react";
-
-// Force animations on (don't let prefers-reduced-motion short-circuit blinks).
-mock.module("motion/react", () => ({
-  useReducedMotion: () => false,
-}));
 
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { BUNDLED_COMPONENTS } from "@/utils/avatar-bundled-components";
