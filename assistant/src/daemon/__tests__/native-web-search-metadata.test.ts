@@ -270,7 +270,7 @@ describe("native server_tool_complete metadata", () => {
     expect(durB).toBeGreaterThanOrEqual(durA);
   });
 
-  test("forwards provider error codes instead of generic 'Search failed'", async () => {
+  test("maps recoverable error codes to friendly copy, not the raw code", async () => {
     const { deps, events } = createCollectorDeps();
     const toolUseId = "tu_err_code";
 
@@ -292,9 +292,11 @@ describe("native server_tool_complete metadata", () => {
     const toolResultEvent = events.find(
       (e): e is ToolResultEvent => e.type === "tool_result",
     );
-    expect(toolResultEvent?.activityMetadata?.webSearch?.errorMessage).toBe(
-      "max_uses_exceeded",
-    );
+    const errorMessage =
+      toolResultEvent?.activityMetadata?.webSearch?.errorMessage;
+    // The raw provider code is never user-visible.
+    expect(errorMessage).not.toBe("max_uses_exceeded");
+    expect(errorMessage).toContain("web-search limit");
   });
 
   test("does NOT emit activityMetadata for non-Anthropic providers", async () => {
