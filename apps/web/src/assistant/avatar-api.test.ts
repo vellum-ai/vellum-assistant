@@ -294,3 +294,44 @@ describe("uploadAvatarImage (pre-manifest assistants)", () => {
     );
   });
 });
+
+describe("uploadAvatarImage (version unhydrated at upload time)", () => {
+  test("waits for the version to hydrate before choosing the manifest path", async () => {
+    // Onboarding seeds an assistant with a still-null version. A legacy
+    // file write here would be shadowed by a manifest-capable daemon's
+    // `avatar.json`, so the upload must wait for the real version first.
+    useAssistantIdentityStore.getState().clearIdentity();
+    stubPost({ error: undefined, response: okResponse() });
+
+    const pending = uploadAvatarImage("asst-1", pngFile());
+
+    // Nothing is sent while the version is unknown.
+    await Promise.resolve();
+    expect(capturedPosts).toHaveLength(0);
+
+    useAssistantIdentityStore.getState().setIdentity("test-asst", MIN_VERSION);
+
+    expect(await pending).toBe(true);
+    expect(capturedPosts).toHaveLength(1);
+    expect(capturedPosts[0]?.url).toBe(
+      "/v1/assistants/{assistant_id}/avatar/image",
+    );
+  });
+
+  test("takes the legacy path once the version resolves below the cutover", async () => {
+    useAssistantIdentityStore.getState().clearIdentity();
+    stubPost({ error: undefined, response: okResponse() });
+
+    const pending = uploadAvatarImage("asst-1", pngFile());
+    await Promise.resolve();
+    expect(capturedPosts).toHaveLength(0);
+
+    useAssistantIdentityStore.getState().setIdentity("test-asst", "0.8.6");
+
+    expect(await pending).toBe(true);
+    expect(capturedPosts.map((post) => post.url)).toEqual([
+      "/v1/assistants/{assistant_id}/workspace/write/",
+      "/v1/assistants/{assistant_id}/workspace/delete/",
+    ]);
+  });
+});

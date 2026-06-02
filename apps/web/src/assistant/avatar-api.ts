@@ -7,7 +7,7 @@
  * and workspace routes flat (`/v1/avatar/...`, `/v1/workspace/...`).
  */
 import { client } from "@/generated/api/client.gen";
-import { supportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
+import { resolveSupportsAvatarStateManifest } from "@/lib/backwards-compat/avatar-state-manifest";
 import { assertHasResponse } from "@/utils/api-errors";
 import type {
   AvatarState,
@@ -113,7 +113,7 @@ export async function uploadAvatarImage(
       ),
     );
 
-    if (!supportsAvatarStateManifest()) {
+    if (!(await resolveSupportsAvatarStateManifest())) {
       return uploadAvatarImageLegacy(assistantId, base64);
     }
 

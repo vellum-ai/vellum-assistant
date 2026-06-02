@@ -22,7 +22,11 @@
  * `useSupportsAvatarStateManifest` hook so the avatar query re-runs through
  * the correct path the moment the assistant version resolves.
  */
-import { assistantSupports, useAssistantSupports } from "./utils";
+import {
+  assistantSupports,
+  useAssistantSupports,
+  whenAssistantVersionKnown,
+} from "./utils";
 
 export const MIN_VERSION = "0.8.7";
 
@@ -46,4 +50,25 @@ export function supportsAvatarStateManifest(): boolean {
  */
 export function useSupportsAvatarStateManifest(): boolean {
   return useAssistantSupports(MIN_VERSION);
+}
+
+/**
+ * Async variant of {@link supportsAvatarStateManifest} for the avatar
+ * upload write path: waits (bounded) for the assistant version to
+ * hydrate before reading the gate.
+ *
+ * The sync snapshot returns `false` until the version resolves, and the
+ * upload fallback for `false` writes the legacy sidecar PNG directly via
+ * `workspace/write`. On a manifest-capable assistant that legacy write
+ * is shadowed by the authoritative `avatar.json` — the daemon only
+ * self-heals from sidecars on a manifest-miss, so an existing manifest
+ * keeps `GET /avatar/state` returning the stale render mode and the
+ * upload silently no-ops. Awaiting the version first ensures the path
+ * decision is made against a resolved version, never the pre-hydration
+ * default. Reads don't need this: they're idempotent and re-run through
+ * `useSupportsAvatarStateManifest` the moment the version flips.
+ */
+export async function resolveSupportsAvatarStateManifest(): Promise<boolean> {
+  await whenAssistantVersionKnown();
+  return supportsAvatarStateManifest();
 }
