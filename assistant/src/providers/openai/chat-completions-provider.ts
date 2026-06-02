@@ -4,6 +4,7 @@ import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
+import { PLACEHOLDER_EMPTY_TURN } from "../anthropic/client.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
   ContentBlock,
@@ -110,8 +111,15 @@ const MAX_API_ERROR_DETAIL_CHARS = 2000;
  * the request with `Invalid assistant message: content or tool_calls must be
  * set`, and vLLM-style validators coerce empty-string content back to null and
  * reject it the same way. The placeholder must therefore be a non-empty string.
+ *
+ * We reuse the same sentinel the Anthropic provider injects for empty turns so
+ * that `isPlaceholderSentinelText`/`cleanAssistantContent` strip it from
+ * persisted and rendered history if a model ever echoes it back. The null-byte
+ * prefix is dropped because some OpenAI-compatible backends reject control
+ * characters in message content; the bare form is still recognized by
+ * `isPlaceholderSentinelText`.
  */
-export const EMPTY_ASSISTANT_TURN_PLACEHOLDER = "[empty assistant turn]";
+export const EMPTY_ASSISTANT_TURN_PLACEHOLDER = PLACEHOLDER_EMPTY_TURN.slice(1);
 
 /**
  * Read the first matching header from an SDK error's headers object,

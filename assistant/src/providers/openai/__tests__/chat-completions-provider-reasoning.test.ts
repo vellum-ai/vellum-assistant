@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import { isPlaceholderSentinelText } from "../../anthropic/client.js";
 import {
   EMPTY_ASSISTANT_TURN_PLACEHOLDER,
   OpenAIChatCompletionsProvider,
@@ -387,6 +388,13 @@ describe("OpenAIChatCompletionsProvider reasoning parsing", () => {
     expect(assistantMsg.content).toBe(EMPTY_ASSISTANT_TURN_PLACEHOLDER);
     expect(assistantMsg.tool_calls).toBeUndefined();
     expect(assistantMsg.reasoning).toBe("truncated chain of thought");
+    // The placeholder is a recognized sentinel, so it is stripped from
+    // persisted/rendered history if a model echoes it back, and it carries no
+    // control characters that a strict OpenAI-compatible backend might reject.
+    expect(isPlaceholderSentinelText(EMPTY_ASSISTANT_TURN_PLACEHOLDER)).toBe(
+      true,
+    );
+    expect(EMPTY_ASSISTANT_TURN_PLACEHOLDER).not.toContain("\x00");
   });
 
   test("does not backfill content when tool calls are present", async () => {
