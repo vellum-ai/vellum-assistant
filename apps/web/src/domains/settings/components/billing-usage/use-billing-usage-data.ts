@@ -10,12 +10,13 @@ import type {
   OrganizationsBillingUsageSeriesRetrieveData,
   OrganizationsBillingUsageTotalsRetrieveData,
 } from "@/generated/api/types.gen";
-import { getBrowserTimezone } from "@/utils/browser-timezone";
+import { getEffectiveTimezone } from "@/utils/effective-timezone";
 import {
   DEFAULT_LLM_USAGE_DIMENSION,
   type LlmUsageDimension,
   toBillingGroupBy,
 } from "@/utils/llm-dimension";
+import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 
 export function getDefaultDateRange(): DateRange {
   const today = new Date();
@@ -57,7 +58,7 @@ export function getBillingUsageGroupBy(
 
 export function buildBillingUsageSeriesQuery(
   state: UsageChartState,
-  tz: string = getBrowserTimezone(),
+  tz: string = getEffectiveTimezone(),
 ): NonNullable<OrganizationsBillingUsageSeriesRetrieveData["query"]> {
   return {
     from: state.dateRange.from,
@@ -74,7 +75,7 @@ export function buildBillingUsageSeriesQuery(
 
 export function buildBillingUsageTotalsQuery(
   state: UsageChartState,
-  tz: string = getBrowserTimezone(),
+  tz: string = getEffectiveTimezone(),
 ): NonNullable<OrganizationsBillingUsageTotalsRetrieveData["query"]> {
   return {
     from: state.dateRange.from,
@@ -87,15 +88,17 @@ export function buildBillingUsageTotalsQuery(
 }
 
 export function useBillingUsageData(state: UsageChartState) {
+  const tz = useEffectiveTimezone();
+
   const seriesQuery = useQuery(
     organizationsBillingUsageSeriesRetrieveOptions({
-      query: buildBillingUsageSeriesQuery(state),
+      query: buildBillingUsageSeriesQuery(state, tz),
     }),
   );
 
   const totalsQuery = useQuery(
     organizationsBillingUsageTotalsRetrieveOptions({
-      query: buildBillingUsageTotalsQuery(state),
+      query: buildBillingUsageTotalsQuery(state, tz),
     }),
   );
 
