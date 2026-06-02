@@ -1408,6 +1408,14 @@ jobs:
         working-directory: apps/web
         run: bun run openapi-ts
 
+      # apps/web's vite.config.ts imports vite-plugin-local-mode, which pulls in
+      # @vellumai/local-mode and its transitive @vellumai/environments file: dep.
+      # Both must have their own node_modules so the config loads at build time.
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
+
       - name: Build
         working-directory: apps/web
         env:
