@@ -22,20 +22,28 @@ export function toTimezoneDateString(d: Date, tz: string): string {
 /**
  * Epoch ms for the start of the calendar day `dateStr` ("YYYY-MM-DD") as it
  * occurs in the given IANA timezone — i.e. zone-local midnight. DST-safe:
- * derives the zone's UTC offset at that instant and subtracts it, so the
- * returned epoch maps back to 00:00 wall-clock in `tz`.
+ * resolves the zone-local wall clock 00:00:00 to its UTC instant via a
+ * two-pass technique, so it stays correct even on DST-transition days where
+ * the zone's offset differs between local- and UTC-midnight.
  */
 export function timezoneDayStartEpoch(dateStr: string, tz: string): number {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  // Provisional UTC midnight, then correct by the zone offset observed there.
-  const utcMidnight = Date.UTC(y, m - 1, d);
-  const offsetMs = utcMidnight - zonedWallClockEpoch(new Date(utcMidnight), tz);
-  return utcMidnight + offsetMs;
+  // Desired wall clock, scalarized by treating its Y-M-D-H-M-S as if UTC.
+  const desired = Date.parse(dateStr + "T00:00:00Z");
+  // First guess: interpret the desired wall clock as if it were UTC, then
+  // correct by the offset between the wall clock `guess` actually shows in
+  // `tz` and the desired one. A second pass converges DST-boundary days.
+  let guess = desired;
+  for (let pass = 0; pass < 2; pass++) {
+    const observed = zonedWallClockEpoch(new Date(guess), tz);
+    guess -= observed - desired;
+  }
+  return guess;
 }
 
 /**
- * Interpret the wall-clock time that `instant` shows in `tz` as if it were UTC,
- * returning that as epoch ms. Used to recover a zone's UTC offset.
+ * Read the wall clock that `instant` shows in `tz` and scalarize it by
+ * treating its Y-M-D-H-M-S as if UTC, returning that as epoch ms. Used to
+ * compare an observed wall clock against a desired one.
  */
 function zonedWallClockEpoch(instant: Date, tz: string): number {
   const parts = new Intl.DateTimeFormat("en-US", {

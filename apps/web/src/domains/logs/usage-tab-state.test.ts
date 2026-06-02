@@ -1,9 +1,59 @@
 import { describe, expect, test } from "bun:test";
 
-import { toTimezoneDateString } from "@/components/charts/format-date-label";
+import {
+  timezoneDayStartEpoch,
+  toTimezoneDateString,
+} from "@/components/charts/format-date-label";
 import { resolveRangeWindow } from "@/domains/logs/usage-tab-state";
 
 const UTC = "UTC";
+
+/** Render an instant's wall clock in `tz` as "YYYY-MM-DD HH:MM:SS". */
+function wallClock(epochMs: number, tz: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(epochMs));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value;
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get(
+    "minute",
+  )}:${get("second")}`;
+}
+
+describe("timezoneDayStartEpoch", () => {
+  test("DST-start day in Sydney resolves to local midnight, not 23:00 prior", () => {
+    // 2027-10-03 is a DST-start (spring-forward) date in Sydney. The naive
+    // offset-at-UTC-midnight approach returned 2027-10-02 23:00 here.
+    const epoch = timezoneDayStartEpoch("2027-10-03", "Australia/Sydney");
+    expect(wallClock(epoch, "Australia/Sydney")).toBe("2027-10-03 00:00:00");
+  });
+
+  test("non-DST-boundary date in a fixed-offset zone is the obvious instant", () => {
+    // Asia/Kolkata is a fixed UTC+5:30 zone with no DST.
+    const epoch = timezoneDayStartEpoch("2026-06-02", "Asia/Kolkata");
+    // Local midnight is 18:30 UTC the previous day.
+    expect(epoch).toBe(Date.UTC(2026, 5, 1, 18, 30, 0));
+    expect(wallClock(epoch, "Asia/Kolkata")).toBe("2026-06-02 00:00:00");
+  });
+
+  test("DST-end (fall-back) day resolves to the correct local midnight", () => {
+    // 2027-04-04 is a DST-end (fall-back) date in Sydney.
+    const epoch = timezoneDayStartEpoch("2027-04-04", "Australia/Sydney");
+    expect(wallClock(epoch, "Australia/Sydney")).toBe("2027-04-04 00:00:00");
+  });
+
+  test("UTC date resolves to UTC midnight", () => {
+    expect(timezoneDayStartEpoch("2026-06-02", UTC)).toBe(
+      Date.UTC(2026, 5, 2, 0, 0, 0),
+    );
+  });
+});
 
 describe("resolveRangeWindow", () => {
   test("'all' returns from=0 and to=now regardless of tz", () => {
