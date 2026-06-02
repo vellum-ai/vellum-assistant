@@ -129,6 +129,10 @@ export function useDaemonConfigMutation() {
       });
       return data;
     },
+    onError: (error) => {
+      toast.error("Failed to update assistant configuration. Please try again.");
+      captureError(error, { context: "patch_daemon_config" });
+    },
     onSettled: () => {
       void queryClient.invalidateQueries({
         queryKey: assistantDaemonConfigQueryKey(assistantId),

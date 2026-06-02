@@ -28,6 +28,7 @@ export function ImageGenerationCard() {
   const {
     assistantId,
     config: daemonConfig,
+    invalidateConfig,
   } = useDaemonConfigQuery();
   const configMutation = useDaemonConfigMutation();
   const provisionProviderKey = useProvisionProviderKey();
@@ -59,11 +60,19 @@ export function ImageGenerationCard() {
         services: { "image-generation": { mode: imageGenMode } },
       });
       if (assistantId) {
-        await modelImagegenPut({
-          path: { assistant_id: assistantId },
-          body: { modelId: imageGenModel },
-          throwOnError: true,
-        });
+        try {
+          await modelImagegenPut({
+            path: { assistant_id: assistantId },
+            body: { modelId: imageGenModel },
+            throwOnError: true,
+          });
+        } catch (error) {
+          toast.error("Failed to update image generation model. Please try again.");
+          captureError(error, { context: "set_image_gen_model" });
+          throw error;
+        } finally {
+          invalidateConfig();
+        }
       }
     } catch {
       return;
@@ -87,6 +96,7 @@ export function ImageGenerationCard() {
     imageGenModel,
     configMutation,
     provisionProviderKey,
+    invalidateConfig,
   ]);
 
   const handleReset = useCallback(() => {
