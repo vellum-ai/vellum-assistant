@@ -143,7 +143,10 @@ export function createSseEventConsumer(
             });
             replaceLastSeenSeq(eventConversationId, eventSeq);
             gapDetected = true;
-            deps.reconcileActive();
+            // Fire-and-forget: cursor is already replaced above (the old
+            // seq space is meaningless after a restart). Swallow rejection
+            // to prevent unhandled-promise warnings.
+            deps.reconcileActive().catch(() => {});
           } else if (eventSeq > stored + 1) {
             recordDiagnostic("sse_seq_gap_detected", {
               conversationId: eventConversationId,
@@ -159,9 +162,14 @@ export function createSseEventConsumer(
               reconcileInFlight = true;
               deps.reconcileActive()
                 .then(() => {
-                  // Reconcile succeeded — advance cursor to the latest
-                  // event seen during the gap window.
-                  if (latestGapSeq) {
+                  // Only advance the cursor if the conversation is still
+                  // active. A stale reconcile (user switched away) resolves
+                  // with empty — advancing the cursor would mark the gap
+                  // as repaired without authoritative data.
+                  if (
+                    latestGapSeq &&
+                    deps.activeConversationIdRef.current === latestGapSeq.conversationId
+                  ) {
                     replaceLastSeenSeq(latestGapSeq.conversationId, latestGapSeq.seq);
                     latestGapSeq = null;
                   }
