@@ -229,7 +229,8 @@ export function SoundsPage() {
 
   const saveMutation = useMutation({
     mutationFn: (next: SoundsConfig) => saveSoundsConfig(assistantId, next),
-    onMutate: (next) => {
+    onMutate: async (next) => {
+      await queryClient.cancelQueries({ queryKey: configQueryKey });
       const previous = queryClient.getQueryData<SoundsConfig>(configQueryKey);
       queryClient.setQueryData(configQueryKey, next);
       return { previous };
