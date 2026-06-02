@@ -97,11 +97,10 @@ struct DrawerMenuView: View {
 
     private func loadBalance() async {
         guard authManager.isAuthenticated, connectedOrgId != nil else {
-            effectiveBalance = nil
-            isLowBalance = false
-            isZeroBalance = false
+            clearBalance()
             return
         }
+        clearBalance()
         do {
             var summary = try await BillingService.shared.getBillingSummary()
             if let bootstrapped = await BillingService.shared.bootstrapBillingSummaryIfNeeded(summary: summary) {
@@ -116,5 +115,11 @@ struct DrawerMenuView: View {
         } catch {
             // Silently ignore errors; the drawer should remain usable without billing data.
         }
+    }
+
+    private func clearBalance() {
+        effectiveBalance = nil
+        isLowBalance = false
+        isZeroBalance = false
     }
 }
