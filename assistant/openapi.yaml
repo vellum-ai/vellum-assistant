@@ -21570,7 +21570,36 @@ paths:
                     type: string
                   entries:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        path:
+                          type: string
+                        type:
+                          type: string
+                          enum:
+                            - file
+                            - directory
+                        size:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        mimeType:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        modifiedAt:
+                          type: string
+                      required:
+                        - name
+                        - path
+                        - type
+                        - size
+                        - mimeType
+                        - modifiedAt
+                      additionalProperties: false
                     description: Directory entry objects
                 required:
                   - path
