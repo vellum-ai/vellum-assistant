@@ -78,6 +78,7 @@ import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-pale
 import { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation";
 import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-handler";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
+import { useInitialMessageLaunch } from "@/domains/chat/hooks/use-initial-message-launch";
 import { useInteractionActions } from "@/domains/chat/hooks/use-interaction-actions";
 import { useEventStream } from "@/domains/chat/hooks/use-event-stream";
 import { hydrateLastSeenSeqFromStorage } from "@/lib/streaming/last-seen-seq";
@@ -702,6 +703,15 @@ export function ChatPage() {
     useInteractionStore.getState().dismissQuestion();
     await baseHandleStopGenerating();
   }, [baseHandleStopGenerating]);
+
+  useInitialMessageLaunch({
+    assistantId,
+    activeConversationId,
+    reachabilityPhase: reachability.state.phase,
+    pendingInitialMessageRef,
+    startNewConversation,
+    sendMessage,
+  });
 
   // Auto-send a message when navigated to with ?prompt= (e.g. Submit Feedback)
   const promptConsumedRef = useRef<string | null>(null);
