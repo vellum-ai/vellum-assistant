@@ -26,6 +26,7 @@ mock.module("../../assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
+import { getConversation } from "../../../memory/conversation-crud.js";
 import { getDb } from "../../../memory/db-connection.js";
 import { initializeDb } from "../../../memory/db-init.js";
 import { conversations } from "../../../memory/schema.js";
@@ -75,6 +76,10 @@ const putHandler = findHandler(
   CONVERSATION_MANAGEMENT_ROUTES,
   "setConversationInferenceProfile",
 );
+const incognitoHandler = findHandler(
+  CONVERSATION_MANAGEMENT_ROUTES,
+  "setConversationIncognitoFactorInMemories",
+);
 const openHandler = findHandler(
   INFERENCE_PROFILE_SESSION_ROUTES,
   "inference_profile_open",
@@ -92,7 +97,10 @@ function clearConversations(): void {
   getDb().delete(conversations).run();
 }
 
-function seedConversation(id: string): void {
+function seedConversation(
+  id: string,
+  opts: { incognito?: boolean } = {},
+): void {
   const now = Date.now();
   getDb()
     .insert(conversations)
@@ -104,6 +112,7 @@ function seedConversation(id: string): void {
       source: "test",
       conversationType: "standard",
       memoryScopeId: "default",
+      incognito: opts.incognito ? 1 : 0,
     })
     .run();
 }
@@ -315,5 +324,70 @@ describe("POST /v1/conversations/inference-profile-session/close (inference_prof
 
     expect(result.noop).toBe(true);
     expect(result.closed).toBeNull();
+  });
+});
+
+describe("PUT /v1/conversations/:id/incognito", () => {
+  beforeEach(() => {
+    clearConversations();
+  });
+
+  test("updates factor_in_memories on an incognito conversation", async () => {
+    const convId = crypto.randomUUID();
+    seedConversation(convId, { incognito: true });
+
+    // Default seed leaves factor_in_memories = 1; turn it off.
+    const off = (await incognitoHandler({
+      pathParams: { id: convId },
+      body: { factorInMemories: false },
+    })) as { incognito: boolean; factorInMemories: boolean };
+
+    expect(off.incognito).toBe(true);
+    expect(off.factorInMemories).toBe(false);
+    expect(getConversation(convId)!.factorInMemories).toBe(0);
+
+    // And back on.
+    const on = (await incognitoHandler({
+      pathParams: { id: convId },
+      body: { factorInMemories: true },
+    })) as { incognito: boolean; factorInMemories: boolean };
+
+    expect(on.factorInMemories).toBe(true);
+    expect(getConversation(convId)!.factorInMemories).toBe(1);
+  });
+
+  test("rejects a non-incognito conversation with 409", async () => {
+    const convId = crypto.randomUUID();
+    seedConversation(convId, { incognito: false });
+
+    await expect(
+      incognitoHandler({
+        pathParams: { id: convId },
+        body: { factorInMemories: false },
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+    // Unchanged.
+    expect(getConversation(convId)!.factorInMemories).toBe(1);
+  });
+
+  test("returns 404 for an unknown conversation", async () => {
+    await expect(
+      incognitoHandler({
+        pathParams: { id: crypto.randomUUID() },
+        body: { factorInMemories: true },
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  test("rejects a non-boolean factorInMemories with 400", async () => {
+    const convId = crypto.randomUUID();
+    seedConversation(convId, { incognito: true });
+
+    await expect(
+      incognitoHandler({
+        pathParams: { id: convId },
+        body: { factorInMemories: "yes" },
+      }),
+    ).rejects.toMatchObject({ statusCode: 400 });
   });
 });

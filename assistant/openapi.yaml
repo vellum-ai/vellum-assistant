@@ -6782,6 +6782,50 @@ paths:
           schema:
             type: string
           description: ID of the selected LLM call from the rail. Defines the chronological cutoff for the trail.
+  /v1/conversations/{id}/incognito:
+    put:
+      operationId: conversations_by_id_incognito_put
+      summary: Set incognito conversation memory opt-in
+      description:
+        Toggle whether an incognito conversation factors in existing memories. Returns 404 if the conversation does
+        not exist and 409 if it is not incognito.
+      tags:
+        - conversations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  incognito:
+                    type: boolean
+                    const: true
+                  factorInMemories:
+                    type: boolean
+                required:
+                  - incognito
+                  - factorInMemories
+                additionalProperties: false
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                factorInMemories:
+                  type: boolean
+              required:
+                - factorInMemories
+              additionalProperties: false
   /v1/conversations/{id}/inference-profile:
     put:
       operationId: conversations_by_id_inferenceprofile_put
