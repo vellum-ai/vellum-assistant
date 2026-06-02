@@ -11,6 +11,7 @@
 import { z } from "zod";
 
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
+import { getIsPlatform } from "../../config/env-registry.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../memory/db-connection.js";
 import {
@@ -31,6 +32,7 @@ import {
   updateConnection,
 } from "../../providers/inference/connections.js";
 import {
+  isCloudMetadataOrLinkLocalHost,
   isPrivateOrLocalHost,
   resolveHostAddresses,
   resolveRequestAddress,
@@ -75,8 +77,13 @@ function rejectDisabledOpenAICompatibleProvider(provider: string): void {
  * with a `base_url` pointing to their own server, which would redirect all
  * LLM calls (and the API key) to the attacker.
  *
- * Even for `openai-compatible`, the `base_url` must not point to private
- * networks or cloud metadata endpoints (SSRF protection).
+ * For `openai-compatible`, the `base_url` may point to loopback/private-LAN
+ * networks only on self-hosted daemons (`getIsPlatform()` is false) — this is
+ * required for local endpoints such as LM Studio, Ollama, and vLLM.
+ * Platform-hosted daemons keep the strict SSRF policy. Cloud-metadata and
+ * link-local endpoints (`metadata.google.internal`, 169.254.0.0/16, fe80::/10)
+ * are always blocked in every mode, including when the host or its resolved
+ * addresses point there, to prevent pivoting to cloud-metadata services.
  */
 async function parseCustomProviderFields(
   body: Record<string, unknown>,
@@ -120,9 +127,18 @@ async function parseCustomProviderFields(
         );
       }
 
-      // SSRF protection: reject private IPs, localhost, cloud metadata endpoints.
+      // SSRF protection. Cloud-metadata and link-local targets are always
+      // blocked. Private/loopback targets are blocked on platform-hosted
+      // daemons; self-hosted daemons allow them so local endpoints (LM Studio,
+      // Ollama, vLLM) can be reached.
       const hostname = parsed.hostname;
-      if (isPrivateOrLocalHost(hostname)) {
+      const allowPrivate = !getIsPlatform();
+      if (isCloudMetadataOrLinkLocalHost(hostname)) {
+        throw new BadRequestError(
+          `Invalid base_url: must not point to a cloud metadata or link-local address.`,
+        );
+      }
+      if (!allowPrivate && isPrivateOrLocalHost(hostname)) {
         throw new BadRequestError(
           `Invalid base_url: must not point to a private or local network address.`,
         );
@@ -132,11 +148,22 @@ async function parseCustomProviderFields(
       const resolved = await resolveRequestAddress(
         hostname,
         resolveHostAddresses,
-        /* allowPrivateNetwork */ false,
+        allowPrivate,
       );
       if (resolved.blockedAddress) {
         throw new BadRequestError(
           `Invalid base_url: hostname resolves to a private network address.`,
+        );
+      }
+
+      // DNS-rebind guard: block when a hostname resolves to a cloud-metadata or
+      // link-local address even though private targets are otherwise allowed.
+      if (
+        allowPrivate &&
+        resolved.addresses.some(isCloudMetadataOrLinkLocalHost)
+      ) {
+        throw new BadRequestError(
+          `Invalid base_url: hostname resolves to a cloud metadata or link-local address.`,
         );
       }
 
@@ -234,7 +261,10 @@ async function handleCreateConnection({ body = {} }: RouteHandlerArgs) {
     );
   }
 
-  const customFields = await parseCustomProviderFields(body, providerResult.data);
+  const customFields = await parseCustomProviderFields(
+    body,
+    providerResult.data,
+  );
 
   const result = createConnection(getDb(), {
     name,
