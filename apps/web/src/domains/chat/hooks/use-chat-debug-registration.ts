@@ -1,14 +1,12 @@
 /**
  * useChatDebugRegistration — wires up the dev-facing `window._vellumDebug.chat`
- * API by combining the UIContext snapshot with the debug API hook.
+ * API so DevTools consumers can inspect chat state at any time.
  *
- * Consolidates the `_debugUiContext` memo, the `getPendingInteractionsSnapshot`
- * callback, and the `useChatDebugApi` call that were scattered in
- * ActiveChatView. The debug API is unconditionally attached (no query-param
- * gating) so it's available in dev, staging, and production.
+ * All getters read store state imperatively via `getState()` — the debug API
+ * is only called from the console, never during render, so reactive
+ * subscriptions would cause unnecessary re-renders with no visible effect.
  */
 
-import { useMemo, useRef } from "react";
 import type { MutableRefObject } from "react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
@@ -16,8 +14,7 @@ import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import { type UIContext } from "@/domains/chat/turn-selectors";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
-import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
-import { isSurfaceInteractive } from "@/domains/chat/types/types";
+import { hasAnyInteractiveSurface, hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
 import { useChatDebugApi } from "@/domains/chat/utils/debug-api";
 import { useConversationStore } from "@/stores/conversation-store";
 import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
@@ -32,6 +29,25 @@ export interface UseChatDebugRegistrationOptions {
   reconcileActiveConversation: () => Promise<ReconcileActiveConversationResult>;
 }
 
+/** Build a fresh UIContext by reading all stores imperatively. */
+function buildUIContext(): UIContext {
+  const { messages } = useChatSessionStore.getState();
+  const { activeConversationId, processingConversationIds } = useConversationStore.getState();
+  const interactionState = useInteractionStore.getState();
+  const isProcessing = activeConversationId != null && processingConversationIds.has(activeConversationId);
+
+  return {
+    hasStreamingAssistantMessage: isProcessing && messages.length > 0 && messages[messages.length - 1]?.role === "assistant",
+    hasPendingSecret: !!interactionState.pendingSecret,
+    hasPendingConfirmation: !!interactionState.pendingConfirmation,
+    hasPendingQuestion: !!interactionState.pendingQuestion,
+    hasPendingContactRequest: !!interactionState.pendingContactRequest,
+    hasUncompletedVisibleSurface: hasAnyInteractiveSurface(messages),
+    activeConversationIsProcessing: isProcessing,
+    hasPendingAssistantResponse: hasPendingAssistantResponse(messages),
+  };
+}
+
 export function useChatDebugRegistration({
   assistantId,
   sanitizedMessagesRef,
@@ -39,44 +55,13 @@ export function useChatDebugRegistration({
   transcriptRef,
   reconcileActiveConversation,
 }: UseChatDebugRegistrationOptions): void {
-  const messages = useChatSessionStore.use.messages();
-  const activeConversationId = useConversationStore.use.activeConversationId();
-  const processingConversationIds = useConversationStore.use.processingConversationIds();
-
-  const assistantIdRef = useRef<string | null>(assistantId);
-  assistantIdRef.current = assistantId;
-
-  const uiContext = useMemo<UIContext>(() => {
-    const isProcessing = activeConversationId != null && processingConversationIds.has(activeConversationId);
-    const interactionState = useInteractionStore.getState();
-    let hasUncompletedSurface = false;
-    for (const msg of messages) {
-      if (msg.surfaces) {
-        for (const s of msg.surfaces) {
-          if (isSurfaceInteractive(s)) { hasUncompletedSurface = true; break; }
-        }
-      }
-      if (hasUncompletedSurface) break;
-    }
-    return {
-      hasStreamingAssistantMessage: isProcessing && messages.length > 0 && messages[messages.length - 1]?.role === "assistant",
-      hasPendingSecret: !!interactionState.pendingSecret,
-      hasPendingConfirmation: !!interactionState.pendingConfirmation,
-      hasPendingQuestion: !!interactionState.pendingQuestion,
-      hasPendingContactRequest: !!interactionState.pendingContactRequest,
-      hasUncompletedVisibleSurface: hasUncompletedSurface,
-      activeConversationIsProcessing: isProcessing,
-      hasPendingAssistantResponse: hasPendingAssistantResponse(messages),
-    };
-  }, [messages, activeConversationId, processingConversationIds]);
-
   useChatDebugApi({
     sanitizedMessagesRef,
     transcriptItemsRef,
     transcriptRef,
-    getAssistantId: () => assistantIdRef.current,
+    getAssistantId: () => assistantId,
     getTurnState: () => useTurnStore.getState(),
-    getUIContext: () => uiContext,
+    getUIContext: buildUIContext,
     getPendingInteractionsSnapshot: () => {
       const state = useInteractionStore.getState();
       return {
@@ -101,5 +86,4 @@ export function useChatDebugRegistration({
     },
     reconcileActiveConversation,
   });
-
 }

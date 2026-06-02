@@ -2,12 +2,9 @@
  * useCommandPaletteOrchestrator — owns the Ctrl/Cmd+K shortcut, the
  * navigateToSettings callback, and delegates to useCommandPaletteSections
  * for section data and item dispatch.
- *
- * Returns everything ActiveChatView needs for both header registration
- * (toggle) and rendering (isOpen, sections, handlers).
  */
 
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type { NavigateFunction } from "react-router";
 
 import type { Conversation } from "@/types/conversation-types";
@@ -57,16 +54,21 @@ export function useCommandPaletteOrchestrator({
     navigateToSettings,
   });
 
+  // Stabilize toggle via ref — the upstream useCallback rebuilds on every
+  // open/close cycle, which would churn the keyboard listener.
+  const toggleRef = useRef(result.commandPalette.toggle);
+  toggleRef.current = result.commandPalette.toggle;
+
   // Ctrl/Cmd+K shortcut for command palette
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (!shouldHandleShortcut(event, document.activeElement, "k")) return;
       event.preventDefault();
-      result.commandPalette.toggle();
+      toggleRef.current();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => { window.removeEventListener("keydown", onKeyDown); };
-  }, [result.commandPalette.toggle]);
+  }, []);
 
   return result;
 }
