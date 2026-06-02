@@ -20,12 +20,31 @@
  * Reference: {@link https://zustand.docs.pmnd.rs/}
  */
 
+import type { AppPreviewUpdateEvent } from "@vellumai/assistant-api";
 import { captureError } from "@/lib/sentry/capture-error";
 import { create } from "zustand";
 
 import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 import { createSelectors } from "@/utils/create-selectors";
+
+/**
+ * Live-build compile status, derived from the canonical `app_preview_update`
+ * wire contract (`@vellumai/assistant-api`) rather than re-spelling the
+ * literal union. Shared with `app-viewer-container.tsx` and
+ * `use-app-preview-sync.ts` so all web sites stay in lockstep with the daemon.
+ */
+export type AppCompileStatus = AppPreviewUpdateEvent["compileStatus"];
+
+/**
+ * The fields an `app_preview_update` event contributes to the open preview,
+ * picked from the canonical event so the update-param shape can't drift from
+ * the wire contract.
+ */
+export type AppPreviewUpdate = Pick<
+  AppPreviewUpdateEvent,
+  "html" | "compileStatus" | "buildErrors" | "reloadGeneration"
+>;
 
 /** Views that overlay the main content and track a "back" destination. */
 type OverlayView = "document" | "subagent-detail" | "tool-detail";
@@ -153,7 +172,7 @@ export interface OpenedAppState {
    * Undefined for apps that haven't received a live-build event (e.g. just
    * opened). `error` surfaces a non-blocking badge over the last-good html.
    */
-  compileStatus?: "building" | "ok" | "error";
+  compileStatus?: AppCompileStatus;
   /** Compile diagnostics from the last `error` event; surfaced in the badge. */
   buildErrors?: string[];
   /**
@@ -229,15 +248,7 @@ export interface ViewerActions {
    */
   revealAppForBuild: (assistantId: string, appId: string) => void;
   setLoadedApp: (app: OpenedAppState) => void;
-  updateOpenedAppPreview: (
-    appId: string,
-    update: {
-      html?: string;
-      compileStatus: "building" | "ok" | "error";
-      buildErrors?: string[];
-      reloadGeneration: number;
-    },
-  ) => void;
+  updateOpenedAppPreview: (appId: string, update: AppPreviewUpdate) => void;
   handleAppLoadFailed: () => void;
   closeApp: () => void;
   /**
@@ -387,6 +398,15 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
    * AND `reloadGeneration` untouched so the last working preview stays
    * visible and the iframe is not remounted on a transient failure.
    *
+   * Drop-stale: builds can overlap, so a SLOW older build may emit its
+   * terminal `building`/`error` event AFTER a newer build already landed an
+   * `ok`. Applying that stale status would regress the preview (paint an
+   * `error`/`building` over the latest good frame). We therefore ignore a
+   * `building`/`error` event whose `reloadGeneration` is strictly BELOW the
+   * stored generation. `ok` events still apply (they carry the freshest html
+   * and the newest generation). Missing/0 generations are treated as
+   * not-stale-blocking, preserving the pre-existing behavior.
+   *
    * The daemon bumps `reloadGeneration` on every successful recompile so
    * clients force-swap the iframe (it's folded into the iframe key). A
    * successful rebuild whose resolved html is byte-identical therefore still
@@ -400,6 +420,16 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     const prev = get().openedAppState;
     if (!prev || get().activeAppId !== appId || prev.appId !== appId) return;
     const isOk = compileStatus === "ok";
+    // Drop a stale terminal event from an older overlapping build: its
+    // generation is behind the last-good `ok` we already applied. `ok`
+    // events are never dropped here — they carry the newest generation.
+    if (
+      !isOk &&
+      prev.reloadGeneration !== undefined &&
+      reloadGeneration < prev.reloadGeneration
+    ) {
+      return;
+    }
     const nextHtml = isOk && html !== undefined ? html : prev.html;
     // Only an `ok` event advances the stored generation; building/error keep
     // the last-good generation so a transient failure never remounts.
