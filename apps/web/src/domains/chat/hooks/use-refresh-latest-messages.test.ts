@@ -104,6 +104,7 @@ import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
+import { messageText, textBody } from "@/domains/chat/utils/message-test-helpers";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -220,25 +221,25 @@ describe("useRefreshLatestMessages", () => {
     const existingUser = makeMsg({
       id: "u1",
       role: "user",
-      content: "Hello",
+      ...textBody("Hello"),
       timestamp: 1000,
     });
     const existingAssistant = makeMsg({
       id: "a1",
       role: "assistant",
-      content: "Hi.",
+      ...textBody("Hi."),
       timestamp: 1010,
     });
     const newUser = makeMsg({
       id: "u2",
       role: "user",
-      content: "Anything new?",
+      ...textBody("Anything new?"),
       timestamp: 1020,
     });
     const newAssistant = makeMsg({
       id: "a2",
       role: "assistant",
-      content: "Yes, here's the update.",
+      ...textBody("Yes, here's the update."),
       timestamp: 1030,
     });
 
@@ -276,7 +277,7 @@ describe("useRefreshLatestMessages", () => {
     const completedUser = makeMsg({
       id: "u1",
       role: "user",
-      content: "Tell me a story",
+      ...textBody("Tell me a story"),
       timestamp: 1000,
     });
     // Streaming assistant — no server id yet. The latest history page below
@@ -285,7 +286,7 @@ describe("useRefreshLatestMessages", () => {
     const streamingAssistant = makeMsg({
       id: "a-streaming",
       role: "assistant",
-      content: "Once upon a time, there was a",
+      ...textBody("Once upon a time, there was a"),
       timestamp: 1010,
     });
 
@@ -320,21 +321,21 @@ describe("useRefreshLatestMessages", () => {
     expect(ids).toContain("a-streaming");
     const survivor = host.messages.find((m) => m.id === "a-streaming");
     expect(liveAssistantRowId(host.messages, true)).toBe("a-streaming");
-    expect(survivor?.content).toBe("Once upon a time, there was a");
+    expect(messageText(survivor)).toBe("Once upon a time, there was a");
   });
 
   test("upgrades an optimistic user row with the matching server id when latest history confirms it", async () => {
     const optimisticUser = makeMsg({
       id: "u-optimistic",
       role: "user",
-      content: "Plan a Stockholm trip",
+      ...textBody("Plan a Stockholm trip"),
       timestamp: 1000,
       isOptimistic: true,
     });
     const confirmedUser = makeMsg({
       id: "u-server-1",
       role: "user",
-      content: "Plan a Stockholm trip",
+      ...textBody("Plan a Stockholm trip"),
       timestamp: 1000,
     });
 
@@ -361,7 +362,7 @@ describe("useRefreshLatestMessages", () => {
     expect(host.messages[0]).toMatchObject({
       id: "u-server-1",
       role: "user",
-      content: "Plan a Stockholm trip",
+      ...textBody("Plan a Stockholm trip"),
     });
   });
 
@@ -369,13 +370,13 @@ describe("useRefreshLatestMessages", () => {
     const conv1Msg = makeMsg({
       id: "u1",
       role: "user",
-      content: "Message in conversation 1",
+      ...textBody("Message in conversation 1"),
       timestamp: 1000,
     });
     const conv2Msg = makeMsg({
       id: "u2",
       role: "user",
-      content: "Message in conversation 2",
+      ...textBody("Message in conversation 2"),
       timestamp: 2000,
     });
 
@@ -399,7 +400,7 @@ describe("useRefreshLatestMessages", () => {
           makeMsg({
             id: "a-new",
             role: "assistant",
-            content: "This belongs to conversation 1",
+            ...textBody("This belongs to conversation 1"),
             timestamp: 1500,
           }),
         ],
@@ -431,7 +432,7 @@ describe("useRefreshLatestMessages", () => {
     const existing = makeMsg({
       id: "u1",
       role: "user",
-      content: "Hi",
+      ...textBody("Hi"),
       timestamp: 1000,
     });
     const host = makeHost([existing], "conv-1");
@@ -460,13 +461,13 @@ describe("useRefreshLatestMessages", () => {
     const user = makeMsg({
       id: "u1",
       role: "user",
-      content: "Hello",
+      ...textBody("Hello"),
       timestamp: 1000,
     });
     const assistant = makeMsg({
       id: "a1",
       role: "assistant",
-      content: "Hi.",
+      ...textBody("Hi."),
       timestamp: 1010,
     });
     const host = makeHost([user, assistant], "conv-1");
@@ -505,7 +506,7 @@ describe("useRefreshLatestMessages", () => {
         makeMsg({
           id: "a1",
           role: "assistant",
-          content: "Please confirm",
+          ...textBody("Please confirm"),
           timestamp: 1000,
           surfaces: [
             {
@@ -562,19 +563,19 @@ describe("useRefreshLatestMessages", () => {
     const existing = makeMsg({
       id: "u1",
       role: "user",
-      content: "Hello",
+      ...textBody("Hello"),
       timestamp: 1000,
     });
     const fresherMsg = makeMsg({
       id: "a-fresh",
       role: "assistant",
-      content: "Fresh response from refresh B",
+      ...textBody("Fresh response from refresh B"),
       timestamp: 1020,
     });
     const stalerMsg = makeMsg({
       id: "a-stale",
       role: "assistant",
-      content: "Stale response from refresh A",
+      ...textBody("Stale response from refresh A"),
       timestamp: 1010,
     });
 
@@ -655,7 +656,7 @@ describe("classifyRefreshLatestOutcome", () => {
       makeMsg({
         id: "u1",
         role: "user",
-        content: "Hi",
+        ...textBody("Hi"),
         timestamp: 1000,
       }),
     ];
@@ -664,13 +665,13 @@ describe("classifyRefreshLatestOutcome", () => {
       makeMsg({
         id: "a1",
         role: "assistant",
-        content: "Hello",
+        ...textBody("Hello"),
         timestamp: 1010,
       }),
       makeMsg({
         id: "u2",
         role: "user",
-        content: "How are you?",
+        ...textBody("How are you?"),
         timestamp: 1020,
       }),
     ];
@@ -685,7 +686,7 @@ describe("classifyRefreshLatestOutcome", () => {
       makeMsg({
         id: "a1",
         role: "assistant",
-        content: "Streaming...",
+        ...textBody("Streaming..."),
         timestamp: 1000,
       }),
     ];
@@ -693,7 +694,7 @@ describe("classifyRefreshLatestOutcome", () => {
       makeMsg({
         id: "a1",
         role: "assistant",
-        content: "Streaming finalized",
+        ...textBody("Streaming finalized"),
         timestamp: 1000,
       }),
     ];

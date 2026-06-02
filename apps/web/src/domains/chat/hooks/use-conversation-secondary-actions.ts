@@ -21,6 +21,7 @@ import type { Conversation } from "@/types/conversation-types";
 import { conversationsByIdAnalyzePost, conversationsForkPost } from "@/generated/daemon/sdk.gen";
 import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 import type { ChatError } from "@/domains/chat/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
@@ -186,9 +187,10 @@ export function useConversationSecondaryActions({
       parts.push(`# ${activeConversation.title}`);
     }
     for (const msg of useChatSessionStore.getState().messages) {
-      if (!msg.content.trim()) continue;
+      const text = segmentsToPlainText(msg.textSegments);
+      if (!text.trim()) continue;
       const sender = msg.role === "user" ? "You" : name;
-      parts.push(`### ${sender}\n${msg.content}`);
+      parts.push(`### ${sender}\n${text}`);
     }
     if (parts.length === 0) return;
     const markdown = parts.join("\n\n---\n\n");

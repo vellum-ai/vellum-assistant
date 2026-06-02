@@ -26,6 +26,7 @@ import type { UIContext } from "@/domains/chat/turn-selectors";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 // ---------------------------------------------------------------------------
 //  Helpers
 // ---------------------------------------------------------------------------
@@ -34,7 +35,7 @@ function fakeDisplayMessage(overrides: Partial<DisplayMessage> = {}): DisplayMes
   return {
     id: "msg-1",
     role: "assistant",
-    content: "hello",
+    ...textBody("hello"),
     timestamp: Date.now(),
     ...overrides,
   };
@@ -44,7 +45,7 @@ function fakeRuntimeMessage(overrides: Partial<RuntimeMessage> = {}): RuntimeMes
   return {
     id: "msg-1",
     role: "assistant",
-    content: "hello",
+    ...textBody("hello"),
     timestamp: Date.now(),
     ...overrides,
   };
@@ -127,7 +128,7 @@ describe("createChatDebugApi.getClientMessages", () => {
   });
 
   test("returns the underlying DisplayMessage objects untouched", () => {
-    const message = fakeDisplayMessage({ content: "hello world" });
+    const message = fakeDisplayMessage({ ...textBody("hello world") });
     const sanitizedMessagesRef = {
       current: [message],
     } as MutableRefObject<DisplayMessage[]>;

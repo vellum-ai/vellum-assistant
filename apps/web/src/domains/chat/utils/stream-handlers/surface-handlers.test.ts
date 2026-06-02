@@ -9,6 +9,7 @@ import {
   handleUISurfaceComplete,
 } from "@/domains/chat/utils/stream-handlers/surface-handlers";
 
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 describe("handleUISurfaceShow", () => {
   it("increments assets refresh key for dynamic_page", () => {
     const ctx = makeCtx();
@@ -70,7 +71,7 @@ describe("handleUISurfaceComplete", () => {
     const msg: DisplayMessage = {
       id: "m-1",
       role: "assistant",
-      content: "",
+      ...textBody(""),
       timestamp: 1,
       surfaces: [
         { surfaceId: "s-1", surfaceType: "dynamic_page", data: {} },
@@ -89,7 +90,7 @@ describe("handleUISurfaceComplete", () => {
     const msg: DisplayMessage = {
       id: "m-1",
       role: "assistant",
-      content: "",
+      ...textBody(""),
       timestamp: 1,
       surfaces: [
         { surfaceId: "s-1", surfaceType: "form", data: {} },

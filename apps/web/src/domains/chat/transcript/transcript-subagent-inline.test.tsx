@@ -55,6 +55,7 @@ import { useSubagentStore } from "@/domains/chat/subagent-store";
 import type { DisplayMessage } from "@/domains/chat/utils/reconcile";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 
+import { textBody } from "@/domains/chat/utils/message-test-helpers";
 const noop = () => {};
 
 beforeEach(() => {
@@ -72,7 +73,7 @@ function userMessage(id: string, content: string): TranscriptItem {
   const msg: DisplayMessage = {
     id,
     role: "user",
-    content,
+    ...textBody(content),
   };
   return { kind: "message", key: id, message: msg };
 }
@@ -84,7 +85,7 @@ function assistantMessageWithSpawn(
   const msg: DisplayMessage = {
     id,
     role: "assistant",
-    content: "spawning",
+    ...textBody("spawning"),
     contentOrder: spawnedIds.map((_, i) => ({
       type: "toolCall",
       id: `tc-${i}`,
@@ -112,7 +113,7 @@ function assistantMessageWithRunningSpawns(
   const msg: DisplayMessage = {
     id,
     role: "assistant",
-    content: "spawning",
+    ...textBody("spawning"),
     contentOrder: Array.from({ length: count }, (_, i) => ({
       type: "toolCall",
       id: `tc-${i}`,
@@ -140,7 +141,7 @@ function assistantMessageWithMixedSpawns(
   const msg: DisplayMessage = {
     id,
     role: "assistant",
-    content: "spawning",
+    ...textBody("spawning"),
     contentOrder: entries.map((_, i) => ({
       type: "toolCall",
       id: `tc-${i}`,
@@ -328,7 +329,7 @@ describe("Transcript — running-spawn inline cards (PR 8 fix)", () => {
     const msg: DisplayMessage = {
       id: "daemon-uuid-123",
       role: "assistant",
-      content: "spawning",
+      ...textBody("spawning"),
       contentOrder: [{ type: "toolCall", id: "tc-0" }],
       toolCalls: [
         {
@@ -404,7 +405,7 @@ describe("Transcript — toolUseId anchor (PR 3)", () => {
     const msg: DisplayMessage = {
       id: "a1",
       role: "assistant",
-      content: "spawning",
+      ...textBody("spawning"),
       contentOrder: [{ type: "toolCall", id: "tool-use-abc" }],
       toolCalls: [
         {
@@ -472,7 +473,6 @@ describe("Transcript — cross-group claimed-set (fix-r1-c)", () => {
     const msg: DisplayMessage = {
       id: "a1",
       role: "assistant",
-      content: "spawning",
       contentOrder: [
         { type: "toolCall", id: "tc-0" },
         { type: "text", id: "0" },
@@ -532,7 +532,7 @@ describe("Transcript — live → reconcile card lifecycle (PR 6)", () => {
     const msg: DisplayMessage = {
       id,
       role: "assistant",
-      content: "spawning",
+      ...textBody("spawning"),
       contentOrder: [{ type: "toolCall", id: toolUseId }],
       toolCalls: [
         {

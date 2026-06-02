@@ -10,6 +10,8 @@ import {
   summarizeRuntimeMessages,
 } from "@/domains/chat/utils/diagnostics";
 import { type DisplayMessage, reconcileMessages } from "@/domains/chat/utils/reconcile";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
+import { runtimeMessagePlainText } from "@/domains/chat/utils/map-runtime-message";
 import { liveAssistantRowId } from "@/domains/chat/hooks/stream-message-updaters";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { fetchConversationMessages, type RuntimeMessage } from "@/domains/chat/api/messages";
@@ -78,10 +80,11 @@ function serverHasAssistantProgress(
   let serverSearchStartIndex = 0;
   if (lastLocalUserIndex >= 0) {
     const lastLocalUser = localMessages[lastLocalUserIndex]!;
+    const lastLocalUserText = segmentsToPlainText(lastLocalUser.textSegments);
     const serverUserIndex = serverMessages.findLastIndex((message) => {
       if (message.role !== "user") return false;
       if (lastLocalUser.id && message.id === lastLocalUser.id) return true;
-      return message.content === lastLocalUser.content;
+      return runtimeMessagePlainText(message) === lastLocalUserText;
     });
     if (serverUserIndex === -1) return false;
     serverSearchStartIndex = serverUserIndex + 1;
@@ -90,18 +93,20 @@ function serverHasAssistantProgress(
   for (const serverMessage of serverMessages.slice(serverSearchStartIndex)) {
     if (serverMessage.role !== "assistant") continue;
 
+    const serverMessageText = runtimeMessagePlainText(serverMessage);
     const localById = localAssistantById.get(serverMessage.id);
     if (localById) {
       claimedLocal.add(localById);
       if (localById.id === liveRowId) return true;
-      if (localById.content !== serverMessage.content) return true;
+      if (segmentsToPlainText(localById.textSegments) !== serverMessageText)
+        return true;
       continue;
     }
 
     const localByContent = localAssistants.find(
       (message) =>
         !claimedLocal.has(message) &&
-        message.content === serverMessage.content,
+        segmentsToPlainText(message.textSegments) === serverMessageText,
     );
     if (localByContent) {
       claimedLocal.add(localByContent);

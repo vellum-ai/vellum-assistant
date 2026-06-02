@@ -48,7 +48,7 @@ export interface DisplayMessage {
    * server-assigned id. Set on optimistic user sends and on assistant
    * rows born from SSE events that didn't carry `messageId`. Reconcile
    * uses this as the signal that the row's id can't be matched against
-   * the server snapshot directly; optimistic user rows get a content
+   * the server snapshot directly; optimistic user rows get a derived-text
    * match + id swap, optimistic assistant rows are preserved as-is until
    * a subsequent SSE event or history fetch resolves them.
    */
@@ -59,7 +59,6 @@ export interface DisplayMessage {
    */
   mergedMessageIds?: string[];
   role: "user" | "assistant";
-  content: string;
   surfaces?: Surface[];
   textSegments?: Array<{ type: string; content: string; [key: string]: unknown }>;
   contentOrder?: Array<{ type: string; id: string }>;

@@ -1,5 +1,6 @@
 import type { DisplayMessage, Surface } from "@/domains/chat/types/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
+import { segmentsToPlainText } from "@/domains/chat/utils/segments-to-plain-text";
 
 export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean {
   if (a.length !== b.length) return false;
@@ -9,7 +10,6 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
     if (
       am.id !== bm.id ||
       am.role !== bm.role ||
-      am.content !== bm.content ||
       am.timestamp !== bm.timestamp ||
       JSON.stringify(am.mergedMessageIds) !== JSON.stringify(bm.mergedMessageIds) ||
       JSON.stringify(am.surfaces) !== JSON.stringify(bm.surfaces) ||
@@ -28,7 +28,6 @@ export function messagesEqual(a: DisplayMessage[], b: DisplayMessage[]): boolean
       "id",
       "mergedMessageIds",
       "role",
-      "content",
       "surfaces",
       "textSegments",
       "contentOrder",
@@ -181,7 +180,7 @@ function messageScore(message: DisplayMessage): number {
   // Rank duplicate rows by how much rendered content they carry so the
   // more-complete version wins the merge — whether that's a live row with
   // the latest streamed deltas or a server snapshot with finalized state.
-  let score = message.content.length;
+  let score = segmentsToPlainText(message.textSegments).length;
   score += (message.textSegments?.length ?? 0) * 100;
   score += (message.contentOrder?.length ?? 0) * 100;
   score += (message.toolCalls?.length ?? 0) * 100;
@@ -264,12 +263,12 @@ export function mergeLatestHistoryMessage(
   current: DisplayMessage,
   incoming: DisplayMessage,
 ): DisplayMessage {
-  const currentHasMoreText = current.content.length > incoming.content.length;
-  const preferredText = currentHasMoreText ? current : incoming;
+  const currentHasMoreText =
+    segmentsToPlainText(current.textSegments).length >
+    segmentsToPlainText(incoming.textSegments).length;
   const merged: DisplayMessage = {
     ...current,
     ...incoming,
-    content: preferredText.content,
   };
 
   if (currentHasMoreText) {
@@ -486,14 +485,8 @@ function foldAdjacentAssistant(
     ),
   );
 
-  const content =
-    survivor.content && donor.content
-      ? `${survivor.content}${donor.content}`
-      : survivor.content || donor.content;
-
   const merged: DisplayMessage = {
     ...survivor,
-    content,
   };
   if (textSegments) merged.textSegments = textSegments;
   if (contentOrder) merged.contentOrder = contentOrder;

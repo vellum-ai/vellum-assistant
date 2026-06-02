@@ -74,7 +74,6 @@ export interface ChatMessageToolCall {
 export interface ChatMessage {
   id?: string;
   role: "user" | "assistant";
-  content: string;
   surfaces?: Surface[];
   textSegments?: Array<{
     type: string;
