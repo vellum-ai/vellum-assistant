@@ -46,6 +46,38 @@ const spawnMock = mock((command: string, args: string[]) => {
 
 mock.module("node:child_process", () => ({ spawn: spawnMock }));
 
+// Mock cli-installer with controllable stubs. Defaults: CLI is not installed,
+// install succeeds, paths return fixed values.
+const cliInstallerState = {
+  isInstalled: false,
+  installError: null as Error | null,
+  cliBinPath: "/fake/userData/cli/0.8.6/node_modules/.bin/vellum",
+  bundledBunPath: "/fake/resources/bun",
+};
+const ensureCliInstalledMock = mock(async () => {
+  if (cliInstallerState.installError) throw cliInstallerState.installError;
+});
+
+mock.module("./cli-installer", () => ({
+  ensureCliInstalled: ensureCliInstalledMock,
+  isCliInstalled: () => cliInstallerState.isInstalled,
+  getCliBinPath: () => cliInstallerState.cliBinPath,
+  getBundledBunPath: () => cliInstallerState.bundledBunPath,
+}));
+
+// The module under test imports { existsSync } from "node:fs" to check
+// whether the dev source tree exists. Wrap the real implementation so
+// dev-mode tests hit an existing path while the lockfile helpers (which
+// import `fs` directly above) still use real I/O.
+const realExistsSync = fs.existsSync.bind(fs);
+const existsSyncOverrides: Record<string, boolean> = {};
+
+mock.module("node:fs", () => ({
+  ...fs,
+  existsSync: (p: string) =>
+    p in existsSyncOverrides ? existsSyncOverrides[p] : realExistsSync(p),
+}));
+
 // Point the lockfile transport at a throwaway dir so the lockfile handlers
 // exercise the real shared read/write logic without touching a real config
 // dir. Set before importing the module under test because `installLocalMode`
@@ -60,12 +92,34 @@ beforeAll(() => {
   installLocalMode();
 });
 
+// The dev CLI entry resolved from the default appPath.
+const devCliEntry = path.join("/repo", "cli", "src", "index.ts");
+
+beforeEach(() => {
+  // Default: dev source tree "exists" so dev-mode tests pass without
+  // a real filesystem.
+  existsSyncOverrides[devCliEntry] = true;
+});
+
 afterEach(() => {
   appState.isPackaged = false;
   appState.appPath = "/repo/apps/macos";
   spawnArgs.length = 0;
   spawnMock.mockClear();
+  ensureCliInstalledMock.mockClear();
+  cliInstallerState.isInstalled = false;
+  cliInstallerState.installError = null;
+  delete process.env.VELLUM_CLI_PATH;
+  for (const key of Object.keys(existsSyncOverrides)) {
+    delete existsSyncOverrides[key];
+  }
 });
+
+// resolveCliInvocation is async, so there is at least one microtask tick
+// between calling hatch()/retire() and the point where `spawn` is invoked.
+// Yield enough ticks for the async chain to settle before emitting events
+// on the fake child process.
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
 
 const hatch = (species?: unknown): Promise<unknown> =>
   handlers["vellum:localMode:hatch"]({}, species) as Promise<unknown>;
@@ -73,6 +127,7 @@ const hatch = (species?: unknown): Promise<unknown> =>
 describe("vellum:localMode:hatch handler", () => {
   test("dev: spawns `bun run <repo>/cli/src/index.ts hatch <species>` and parses the id from stdout", async () => {
     const pending = hatch("vellum");
+    await tick();
     lastChild.stdout.emit(
       "data",
       Buffer.from("Hatching local assistant: asst-42\n"),
@@ -86,25 +141,85 @@ describe("vellum:localMode:hatch handler", () => {
     ]);
   });
 
-  test("packaged: fails explicitly without spawning (no CLI runtime is bundled yet)", async () => {
+  test("packaged: uses installed CLI when already present", async () => {
     appState.isPackaged = true;
+    cliInstallerState.isInstalled = true;
+
+    const pending = hatch("openclaw");
+    await tick();
+    lastChild.stdout.emit(
+      "data",
+      Buffer.from("Hatching local assistant: asst-pkg\n"),
+    );
+    lastChild.emit("close", 0);
+
+    expect(await pending).toEqual({ ok: true, assistantId: "asst-pkg" });
+    expect(spawnArgs[0]).toEqual([
+      cliInstallerState.bundledBunPath,
+      ["run", cliInstallerState.cliBinPath, "hatch", "openclaw"],
+    ]);
+    expect(ensureCliInstalledMock).not.toHaveBeenCalled();
+  });
+
+  test("packaged: triggers install when CLI not found, then uses installed path", async () => {
+    appState.isPackaged = true;
+    cliInstallerState.isInstalled = false;
+
+    const pending = hatch("openclaw");
+    await tick();
+    lastChild.stdout.emit(
+      "data",
+      Buffer.from("Hatching local assistant: asst-new\n"),
+    );
+    lastChild.emit("close", 0);
+
+    expect(await pending).toEqual({ ok: true, assistantId: "asst-new" });
+    expect(ensureCliInstalledMock).toHaveBeenCalledTimes(1);
+    expect(spawnArgs[0]).toEqual([
+      cliInstallerState.bundledBunPath,
+      ["run", cliInstallerState.cliBinPath, "hatch", "openclaw"],
+    ]);
+  });
+
+  test("packaged: returns error when install fails", async () => {
+    appState.isPackaged = true;
+    cliInstallerState.isInstalled = false;
+    cliInstallerState.installError = new Error("network timeout");
 
     const result = (await hatch("openclaw")) as { ok: boolean; error: string };
 
     expect(result.ok).toBe(false);
-    expect(result.error).toBe(
-      "Local assistants aren't supported in the packaged app yet.",
-    );
+    expect(result.error).toBe("network timeout");
     expect(spawnArgs).toHaveLength(0);
+  });
+
+  test("VELLUM_CLI_PATH env override takes precedence", async () => {
+    process.env.VELLUM_CLI_PATH = "/custom/cli/index.ts";
+
+    const pending = hatch("vellum");
+    await tick();
+    lastChild.stdout.emit(
+      "data",
+      Buffer.from("Hatching local assistant: asst-env\n"),
+    );
+    lastChild.emit("close", 0);
+
+    expect(await pending).toEqual({ ok: true, assistantId: "asst-env" });
+    expect(spawnArgs[0]).toEqual([
+      "bun",
+      ["run", "/custom/cli/index.ts", "hatch", "vellum"],
+    ]);
   });
 
   test("coerces a missing or empty species to the default", async () => {
     const pending = hatch("");
+    await tick();
     lastChild.emit("close", 0);
     await pending;
     expect(spawnArgs[0][1]).toContain("vellum");
 
     const pending2 = hatch(undefined);
+    await tick();
     lastChild.emit("close", 0);
     await pending2;
     expect(spawnArgs[1][1]).toContain("vellum");
@@ -112,6 +227,7 @@ describe("vellum:localMode:hatch handler", () => {
 
   test("a non-zero exit resolves to a failure carrying the CLI's stderr", async () => {
     const pending = hatch("vellum");
+    await tick();
     lastChild.stderr.emit("data", Buffer.from("daemon already running"));
     lastChild.emit("close", 1);
 
@@ -120,6 +236,7 @@ describe("vellum:localMode:hatch handler", () => {
 
   test("a non-zero exit with no output carries a descriptive fallback error", async () => {
     const pending = hatch("vellum");
+    await tick();
     lastChild.emit("close", 1);
 
     const result = (await pending) as { ok: boolean; error: string };
@@ -129,6 +246,7 @@ describe("vellum:localMode:hatch handler", () => {
 
   test("a spawn failure resolves to a failure rather than rejecting", async () => {
     const pending = hatch("vellum");
+    await tick();
     lastChild.emit("error", new Error("ENOENT"));
 
     const result = (await pending) as { ok: boolean; error: string };
@@ -138,6 +256,7 @@ describe("vellum:localMode:hatch handler", () => {
 
   test("a zero exit whose stdout has no parseable id fails instead of returning a blank id", async () => {
     const pending = hatch("vellum");
+    await tick();
     lastChild.stdout.emit("data", Buffer.from("done, but no id line\n"));
     lastChild.emit("close", 0);
 
@@ -269,6 +388,7 @@ describe("lockfile IPC handlers", () => {
 describe("vellum:localMode:retire handler", () => {
   test("dev: spawns `... retire <id> --yes` and reports success on a zero exit", async () => {
     const pending = retire("asst-1");
+    await tick();
     expect(spawnArgs[0]).toEqual([
       "bun",
       [
@@ -285,6 +405,7 @@ describe("vellum:localMode:retire handler", () => {
 
   test("a non-zero exit resolves to a failure carrying the CLI's stderr", async () => {
     const pending = retire("asst-1");
+    await tick();
     lastChild.stderr.emit("data", Buffer.from("no such assistant"));
     lastChild.emit("close", 1);
     expect(await pending).toEqual({ ok: false, error: "no such assistant" });
@@ -299,13 +420,28 @@ describe("vellum:localMode:retire handler", () => {
     expect(spawnArgs).toHaveLength(0);
   });
 
-  test("packaged: fails explicitly without spawning", async () => {
+  test("packaged: uses installed CLI for retire", async () => {
     appState.isPackaged = true;
+    cliInstallerState.isInstalled = true;
+
+    const pending = retire("asst-1");
+    await tick();
+    expect(spawnArgs[0]).toEqual([
+      cliInstallerState.bundledBunPath,
+      ["run", cliInstallerState.cliBinPath, "retire", "asst-1", "--yes"],
+    ]);
+    lastChild.emit("close", 0);
+    expect(await pending).toEqual({ ok: true });
+  });
+
+  test("packaged: returns error when install fails during retire", async () => {
+    appState.isPackaged = true;
+    cliInstallerState.isInstalled = false;
+    cliInstallerState.installError = new Error("disk full");
+
     const result = (await retire("asst-1")) as { ok: boolean; error: string };
     expect(result.ok).toBe(false);
-    expect(result.error).toBe(
-      "Local assistants aren't supported in the packaged app yet.",
-    );
+    expect(result.error).toBe("disk full");
     expect(spawnArgs).toHaveLength(0);
   });
 });
