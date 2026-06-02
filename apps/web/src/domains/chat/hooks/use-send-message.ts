@@ -248,12 +248,19 @@ export function useSendMessage({
       if (useServerMint) {
         pendingDraftMintRef.current = requestConversationId;
       }
+      // Non-incognito conversations have no settings entry, so `settings`
+      // is undefined and `postChatMessage` omits the incognito fields.
+      const settings = useConversationStore
+        .getState()
+        .getConversationSettings(requestConversationId);
       const postResult = await postChatMessage(
         requestAssistantId,
         useServerMint ? null : requestConversationId,
         content,
         attachmentIds,
         onboardingContext ?? undefined,
+        settings?.incognito,
+        settings?.factorInMemories,
       );
       if (
         useServerMint &&
@@ -677,6 +684,11 @@ export function useSendMessage({
             .transferProcessingConversationId(activeConversationId, newConversationId);
           resolveDraftKey(queryClient, assistantId, activeConversationId, newConversationId);
           resolveEditChatDraftConversationId(activeConversationId, newConversationId);
+          // Migrate draft incognito settings to the server id so the
+          // badge/toggle keep tracking the conversation after the swap.
+          useConversationStore
+            .getState()
+            .renameConversationSettingsKey(activeConversationId, newConversationId);
 
           // Only update active view state if the user is still on this conversation.
           if (useConversationStore.getState().activeConversationId === activeConversationId) {
