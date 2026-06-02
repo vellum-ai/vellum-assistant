@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
-import { EventEmitter } from "node:events";
+
+import { FakeChild } from "./test-helpers";
 
 // --- Mocks ---
 // Must be installed before the `await import` of the module under test so
@@ -43,11 +44,6 @@ mock.module("node:fs", () => ({
     rmSyncCalls.push([p, opts]);
   },
 }));
-
-class FakeChild extends EventEmitter {
-  stdout = new EventEmitter();
-  stderr = new EventEmitter();
-}
 
 let lastChild: FakeChild;
 const spawnCalls: Array<[string, string[], object]> = [];
