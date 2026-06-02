@@ -269,6 +269,7 @@ export function ContactsPage({
     onMutate: async (contactId) => {
       await queryClient.cancelQueries({ queryKey: contactsQueryKey });
       const previous = queryClient.getQueryData<ContactsGetResponse>(contactsQueryKey);
+      const previousSelection = selection;
       queryClient.setQueryData<ContactsGetResponse>(
         contactsQueryKey,
         (prev) =>
@@ -280,11 +281,14 @@ export function ContactsPage({
             : undefined,
       );
       setSelection({ kind: "assistant" });
-      return { previous };
+      return { previous, previousSelection };
     },
     onError: (_error, _contactId, context) => {
       if (context?.previous) {
         queryClient.setQueryData<ContactsGetResponse>(contactsQueryKey, context.previous);
+      }
+      if (context?.previousSelection) {
+        setSelection(context.previousSelection);
       }
     },
     onSettled: () => invalidateContacts(),
