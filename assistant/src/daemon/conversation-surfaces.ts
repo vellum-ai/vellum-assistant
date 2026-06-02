@@ -28,6 +28,7 @@ import type {
   InteractiveUiResult,
 } from "../runtime/interactive-ui-types.js";
 import type { ToolExecutionResult } from "../tools/types.js";
+import { createKeyedMutex } from "../util/keyed-mutex.js";
 import { getLogger } from "../util/logger.js";
 import { isPlainObject } from "../util/object.js";
 import { buildConversationErrorMessage } from "./conversation-error.js";
@@ -544,33 +545,12 @@ export type SurfaceMutex = {
 /**
  * Per-surface async mutex using Promise chaining.
  * Operations on the same surfaceId are serialized; different surfaces run concurrently.
+ *
+ * Thin wrapper over the generic {@link createKeyedMutex} primitive, keyed by
+ * surfaceId.
  */
 export function createSurfaceMutex(): SurfaceMutex {
-  const chains = new Map<string, Promise<void>>();
-
-  const mutex = <T>(
-    surfaceId: string,
-    fn: () => T | Promise<T>,
-  ): Promise<T> => {
-    const prev = chains.get(surfaceId) ?? Promise.resolve();
-    const next = prev.then(fn, fn);
-    // Keep the chain alive but swallow errors so one failure doesn't block subsequent ops
-    const tail = next.then(
-      () => {},
-      () => {},
-    );
-    chains.set(surfaceId, tail);
-    // Clean up the map entry once the queue settles to prevent unbounded growth
-    tail.then(() => {
-      if (chains.get(surfaceId) === tail) {
-        chains.delete(surfaceId);
-      }
-    });
-    return next;
-  };
-
-  Object.defineProperty(mutex, "size", { get: () => chains.size });
-  return mutex as SurfaceMutex;
+  return createKeyedMutex() as SurfaceMutex;
 }
 
 // ── Standalone surface lifecycle ────────────────────────────────────
