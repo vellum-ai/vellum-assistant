@@ -666,6 +666,7 @@ describe("Native Web Search — Backend Failure Handling", () => {
       (w) => w.obj.event === "web_search_backend_failure",
     );
     expect(failureLog).toBeDefined();
+    expect(failureLog?.obj.provider).toBe("anthropic-native");
     expect(String(failureLog?.obj.rawDetail)).toContain("unavailable");
     expect(failureLog?.obj.fallbackShown).toBe(true);
 
