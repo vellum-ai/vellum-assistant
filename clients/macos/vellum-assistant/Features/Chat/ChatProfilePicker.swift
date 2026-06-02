@@ -70,19 +70,24 @@ struct ChatProfilePicker: View {
         return "Default (\(activeDisplay))"
     }
 
+    /// Chat pickers render "Auto" as a dedicated nil-selection row, so the
+    /// seeded meta-profile should never appear in the regular profile list.
+    /// Disabled profiles stay hidden unless they are the selected value.
     static func visibleProfilesForPicker(
         _ profiles: [InferenceProfile],
-        autoRouting: Bool
+        selectedNames: [String?] = []
     ) -> [InferenceProfile] {
-        InferenceProfile.gateAutoProfile(
-            profiles.filter { !$0.isDisabled },
-            queryComplexityRoutingEnabled: autoRouting
-        )
+        let selected = Set(selectedNames.compactMap { $0 }.filter { !$0.isEmpty })
+        return profiles.filter { profile in
+            guard profile.name != InferenceProfile.autoProfileName else { return false }
+            return !profile.isDisabled || selected.contains(profile.name)
+        }
     }
 
     var body: some View {
         let autoRoutingEnabled = assistantFeatureFlagStore.isEnabled("query-complexity-routing")
-        let activeProfiles = Self.visibleProfilesForPicker(profiles, autoRouting: autoRoutingEnabled)
+        let selectedProfile = current ?? (autoRoutingEnabled ? nil : activeProfile)
+        let activeProfiles = Self.visibleProfilesForPicker(profiles, selectedNames: [selectedProfile])
         let isAutoActive = autoRoutingEnabled && current == nil
         let pillLabel = Self.label(current: current, profiles: activeProfiles, activeProfile: activeProfile, autoRouting: autoRoutingEnabled)
         #if os(macOS)

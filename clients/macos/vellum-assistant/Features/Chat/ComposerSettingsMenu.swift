@@ -153,13 +153,14 @@ struct ComposerSettingsMenu: View {
 
                 if let config, !config.profiles.isEmpty {
                     let autoRoutingEnabled = assistantFeatureFlagStore.isEnabled("query-complexity-routing")
-                    let visibleProfiles = ChatProfilePicker.visibleProfilesForPicker(
-                        config.profiles,
-                        autoRouting: autoRoutingEnabled
-                    )
                     let hasOverride = config.current != nil
                     let isAutoActive = autoRoutingEnabled && !hasOverride
                     let effectiveProfile = config.current ?? config.activeProfile
+                    let selectedProfile = config.current ?? (autoRoutingEnabled ? nil : config.activeProfile)
+                    let visibleProfiles = ChatProfilePicker.visibleProfilesForPicker(
+                        config.profiles,
+                        selectedNames: [selectedProfile]
+                    )
 
                     if autoRoutingEnabled || !visibleProfiles.isEmpty {
                         sectionHeader("Model Profile")
