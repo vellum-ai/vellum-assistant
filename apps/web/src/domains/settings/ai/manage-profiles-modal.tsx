@@ -311,7 +311,7 @@ function ManageProfilesModalInner({
     }
 
     // Optimistic update: write the new status directly into the query cache
-    const previousConfig = queryClient.getQueryData<DaemonConfig>(queryKey);
+    const previousStatus = previousEntry.status ?? "active";
     queryClient.setQueryData<DaemonConfig>(queryKey, (old) => {
       if (!old?.llm?.profiles?.[profile.name]) return old;
       return {
@@ -332,10 +332,20 @@ function ManageProfilesModalInner({
       });
       return true;
     } catch {
-      // Rollback: restore the previous cache state
-      if (previousConfig) {
-        queryClient.setQueryData<DaemonConfig>(queryKey, previousConfig);
-      }
+      // Rollback only the toggled field to avoid overwriting concurrent cache updates
+      queryClient.setQueryData<DaemonConfig>(queryKey, (old) => {
+        if (!old?.llm?.profiles?.[profile.name]) return old;
+        return {
+          ...old,
+          llm: {
+            ...old.llm,
+            profiles: {
+              ...old.llm.profiles,
+              [profile.name]: { ...old.llm.profiles[profile.name], status: previousStatus },
+            },
+          },
+        };
+      });
       setToggleError(
         `Couldn't update "${profile.label ?? profile.name}". Please try again.`,
       );
