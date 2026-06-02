@@ -171,6 +171,16 @@ export const CommandPalette: FC<CommandPaletteProps> = ({
           ⌘K
         </kbd>
       )}
+      {isMobile ? (
+        <Button
+          variant="ghost"
+          size="compact"
+          iconOnly={<X />}
+          aria-label="Close search"
+          onClick={onClose}
+          tintColor="var(--content-tertiary)"
+        />
+      ) : null}
     </div>
   );
 
