@@ -89,7 +89,7 @@ function resolveSupportsVision(
  * provider/model is edited) can invalidate this cache and refresh dependent
  * UI without waiting for the staleTime to elapse.
  */
-export function activeProfileModelQueryKey(
+function activeProfileModelQueryKey(
   assistantId: string | null,
   conversationId: string | null | undefined,
 ): readonly unknown[] {

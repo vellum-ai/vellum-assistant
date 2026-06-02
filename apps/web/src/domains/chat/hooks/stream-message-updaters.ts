@@ -23,7 +23,7 @@ import type { ToolActivityMetadata } from "@/assistant/web-activity-types";
 // ---------------------------------------------------------------------------
 
 /** Mark all "running" tool calls as "completed" with a timestamp. */
-export function finalizeRunningToolCalls(
+function finalizeRunningToolCalls(
   toolCalls: ChatMessageToolCall[] | undefined,
 ): ChatMessageToolCall[] | undefined {
   if (!toolCalls) return undefined;

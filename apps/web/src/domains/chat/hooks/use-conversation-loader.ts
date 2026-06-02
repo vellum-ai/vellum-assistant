@@ -6,6 +6,7 @@ import {
   type MutableRefObject,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
 } from "react";
@@ -113,7 +114,9 @@ export function useConversationLoader({
   // Internal refs
   // -------------------------------------------------------------------------
   const assistantIdRef = useRef<string | null>(assistantId);
-  assistantIdRef.current = assistantId;
+  useLayoutEffect(() => {
+    assistantIdRef.current = assistantId;
+  }, [assistantId]);
   const refreshConversationsRef = useRef<() => Promise<void>>(async () => {});
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queryClient = useQueryClient();
