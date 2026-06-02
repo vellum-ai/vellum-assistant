@@ -9,7 +9,7 @@
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type Dispatch, type FormEvent, type MutableRefObject, type ReactNode, type RefObject, type SetStateAction, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
 
@@ -691,7 +691,7 @@ export function ChatRouteContent({
     [messages],
   );
 
-  sanitizedMessagesRef.current = sanitizedMessages;
+  useLayoutEffect(() => { sanitizedMessagesRef.current = sanitizedMessages; });
 
   const transcriptItems = useMemo(
     () =>
@@ -732,7 +732,7 @@ export function ChatRouteContent({
     ],
   );
 
-  transcriptItemsRef.current = transcriptItems;
+  useLayoutEffect(() => { transcriptItemsRef.current = transcriptItems; });
 
   // -------------------------------------------------------------------------
   // Scroll coordination

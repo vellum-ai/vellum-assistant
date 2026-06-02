@@ -22,15 +22,15 @@ export function DeveloperPage() {
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const hasHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
 
-  if (hasHydrated && !settingsDeveloperNav) {
-    return <Navigate replace to={routes.settings.general} />;
-  }
-
   const activeTab: DeveloperTabId = useMemo(() => {
     const tabParam = searchParams.get("tab");
     const match = ALL_TABS.find((tab) => tab.id === tabParam);
     return match?.id ?? "feature-flags";
   }, [searchParams]);
+
+  if (hasHydrated && !settingsDeveloperNav) {
+    return <Navigate replace to={routes.settings.general} />;
+  }
 
   const setActiveTab = (tabId: DeveloperTabId) => {
     const params = new URLSearchParams(searchParams.toString());

@@ -256,21 +256,21 @@ export function ChatLayout() {
   const assistantVersion = useAssistantIdentityStore.use.version();
 
   // --- History tracking for back/forward nav ---
-  const historyIndexRef = useRef(0);
-  const maxHistoryIndexRef = useRef(0);
+  // These are state (not refs) because they influence rendering
+  // (canGoBack / canGoForward gate button enabled states).
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const [maxHistoryIndex, setMaxHistoryIndex] = useState(0);
+  const [prevLocation, setPrevLocation] = useState(location);
 
-  const prevLocationRef = useRef(location);
-  if (prevLocationRef.current !== location) {
-    historyIndexRef.current = window.history.state?.idx ?? 0;
-    maxHistoryIndexRef.current = Math.max(
-      maxHistoryIndexRef.current,
-      historyIndexRef.current,
-    );
-    prevLocationRef.current = location;
+  if (prevLocation !== location) {
+    const idx = (window.history.state?.idx as number) ?? 0;
+    setPrevLocation(location);
+    setHistoryIndex(idx);
+    setMaxHistoryIndex((prev) => Math.max(prev, idx));
   }
 
-  const canGoBack = historyIndexRef.current > 0;
-  const canGoForward = historyIndexRef.current < maxHistoryIndexRef.current;
+  const canGoBack = historyIndex > 0;
+  const canGoForward = historyIndex < maxHistoryIndex;
 
   const handleStartNewConversation = useCallback(() => {
     haptic.light();

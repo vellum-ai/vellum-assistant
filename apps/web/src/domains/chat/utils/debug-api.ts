@@ -21,7 +21,7 @@
  * sub-objects off the same root without colliding.
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import type { MutableRefObject } from "react";
 
 import * as assistantApi from "@vellumai/assistant-api";
@@ -931,7 +931,7 @@ export function installVellumDebugApi(
  */
 export function useChatDebugApi(refs: ChatDebugRefs): void {
   const latestRefs = useRef(refs);
-  latestRefs.current = refs;
+  useLayoutEffect(() => { latestRefs.current = refs; });
 
   useEffect(() => {
     const stableRefs: ChatDebugRefs = {

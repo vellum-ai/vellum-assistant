@@ -188,7 +188,16 @@ export function PhaseGroupedStepList({
 }: PhaseGroupedStepListProps) {
   if (steps.length === 0) return null;
   const sections = groupStepsByPhase(steps);
-  let globalIndex = 0;
+
+  // Pre-compute the global-index offset for each section so we don't
+  // need a mutable counter during render.
+  const sectionOffsets: number[] = [];
+  let offset = 0;
+  for (const section of sections) {
+    sectionOffsets.push(offset);
+    offset += section.steps.length;
+  }
+
   return (
     <div className="flex w-full flex-col gap-3">
       {sections.map((section, sectionIdx) => {
@@ -198,6 +207,7 @@ export function PhaseGroupedStepList({
           ),
         );
         const status = phaseHeaderStatus(section.steps);
+        const baseIndex = sectionOffsets[sectionIdx];
         return (
           <div
             key={`${section.label}-${sectionIdx}`}
@@ -211,9 +221,8 @@ export function PhaseGroupedStepList({
               status={status}
             />
             <div className="flex min-w-0 flex-col items-start gap-1 pl-[24px]">
-              {section.steps.map((step) => {
-                const key = stepKey(step, globalIndex);
-                globalIndex += 1;
+              {section.steps.map((step, stepIdx) => {
+                const key = stepKey(step, baseIndex + stepIdx);
                 return (
                   <Fragment key={key}>
                     {renderStep ? renderStep(step) : <DefaultStepPill step={step} />}

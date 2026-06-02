@@ -16,7 +16,8 @@ import {
   PROVIDER_DISPLAY_NAMES as INFERENCE_PROVIDER_DISPLAY_NAMES,
 } from "@/assistant/llm-model-catalog";
 
-import { type ProfileEntry, formatCompactTokens } from "@/domains/settings/ai/ai-page";
+import type { ProfileEntry } from "@/domains/settings/ai/ai-types";
+import { formatCompactTokens } from "@/domains/settings/ai/ai-utils";
 import { type Profile } from "@/domains/settings/ai/manage-profiles-modal";
 import { geminiThinkingLevels, resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
 import { type ConnectionModel, type ProviderConnection } from "@/domains/settings/ai/provider-connections-client";

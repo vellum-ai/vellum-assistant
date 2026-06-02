@@ -303,6 +303,9 @@ export function ChatComposer({
     search: filteredCommands,
   });
 
+  // Cursor position is a DOM property tracked via onSelect; using state
+  // would re-render on every cursor movement.
+  // eslint-disable-next-line react-hooks/refs
   const textBeforeCursor = input.slice(0, cursorRef.current);
   const searchEmoji = useEmojiSearch();
   const emoji = useTextPopup({

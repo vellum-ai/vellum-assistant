@@ -282,6 +282,103 @@ References:
 - [TkDodo — Working with Zustand](https://tkdodo.eu/blog/working-with-zustand) — React Query maintainer's guidance on the boundary between server state (RQ) and client/infrastructure state (Zustand)
 - [Zustand — Reading/writing state outside components](https://zustand.docs.pmnd.rs/guides/reading-and-writing-state-outside-components)
 
+### When to use `useState`
+
+Not all state needs Zustand or React Query. Use plain `useState` when:
+
+- The state is **ephemeral and page-local** — dialog open/close, drawer
+  visibility, which tab is selected, inline form values.
+- There is a **single consumer** — only the component that owns the
+  state reads it. No sibling or distant component needs access.
+- The state **doesn't survive navigation** — losing it on unmount is
+  correct behavior, not a bug.
+
+If any of these stop being true — a second component needs to read the
+state, or it must persist across route changes — promote to a Zustand
+store.
+
+`useState` is the lightest primitive. Using Zustand or React Query when
+`useState` suffices adds ceremony without value.
+
+References:
+- [React — `useState`](https://react.dev/reference/react/useState)
+- [Zustand — When to use Zustand vs useState](https://zustand.docs.pmnd.rs/getting-started/introduction)
+
+### Optimistic updates in mutations
+
+TanStack Query supports two patterns for optimistic UI during mutations.
+Choose based on whether the mutation's optimistic state needs to be
+visible outside the mutating component.
+
+**"Via the UI"** — derive optimistic display from the mutation's own
+reactive state (`isPending`, `variables`). No cache manipulation, no
+manual rollback. Use this when the mutation and query live in the
+**same component**.
+
+```ts
+const deleteMutation = useMutation({
+  mutationFn: (id: string) => deleteContact(id),
+  onSettled: () => invalidateContacts(),
+});
+
+// Derive — don't imperatively set:
+const deletingId = deleteMutation.isPending ? deleteMutation.variables : null;
+const visibleContacts = contacts.filter((c) => c.id !== deletingId);
+```
+
+Rollback is automatic — when the mutation fails, `isPending` becomes
+`false` and the derivation stops.
+
+**"Via the Cache"** — write to the query cache in `onMutate`, snapshot
+for rollback in `onError`, invalidate in `onSettled`. Use this when
+optimistic state must be visible to **multiple unrelated components**
+that read from the same query cache.
+
+```ts
+const mutation = useMutation({
+  mutationFn: (id: string) => archiveConversation(id),
+  onMutate: async (id) => {
+    await queryClient.cancelQueries({ queryKey });
+    const previous = queryClient.getQueryData(queryKey);
+    queryClient.setQueryData(queryKey, optimisticUpdate);
+    return { previous };
+  },
+  onError: (_err, _vars, ctx) => {
+    queryClient.setQueryData(queryKey, ctx?.previous);
+  },
+  onSettled: () => queryClient.invalidateQueries({ queryKey }),
+});
+```
+
+When using "Via the Cache" and `onMutate` performs side effects beyond
+`setQueryData` (e.g. `setState` calls), snapshot and restore those in
+`onError` too — TanStack only manages cache rollback automatically.
+
+References:
+- [TanStack — Optimistic Updates](https://tanstack.com/query/v5/docs/framework/react/guides/optimistic-updates)
+- [TkDodo — Concurrent Optimistic Updates](https://tkdodo.eu/blog/concurrent-optimistic-updates-in-react-query)
+
+### Deriving state from mutations
+
+Prefer deriving display values from mutation state over maintaining
+parallel `useState`. If `useMutation` already tracks the value (error
+message, pending variables, success result), read it from the mutation
+instead of duplicating it in a `useState`.
+
+```ts
+// Avoid — duplicates mutation error state
+const [error, setError] = useState<string | null>(null);
+const mutation = useMutation({
+  mutationFn: doThing,
+  onError: (err) => setError(err.message),
+});
+
+// Prefer — derive from mutation
+const mutation = useMutation({ mutationFn: doThing });
+const errorMessage = mutation.error?.message ?? null;
+// Clear with mutation.reset() instead of setError(null)
+```
+
 ### Org-readiness gating for daemon queries
 
 Platform-mode daemon requests require the `Vellum-Organization-Id`
