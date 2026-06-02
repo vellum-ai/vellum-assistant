@@ -129,6 +129,23 @@ function categoryFromStatusCode(
 function categoryFromError(error: unknown): WebSearchFailureCategory | undefined {
   if (error == null) return undefined;
 
+  // A user-initiated abort (Stop/Esc, preemption, dispose) is not a failure.
+  // The tagged `AbortReason` may surface directly (`AbortSignal.throwIfAborted`
+  // throws `signal.reason` verbatim), via `error.reason`, or — when a provider
+  // wrapper erases the `AbortError` name — on `ProviderError.abortReason`. Check
+  // all three FIRST, before the transport-retryability and abort/timeout
+  // substring heuristics, so a tagged cancellation that ALSO carries a
+  // transport-shaped `cause` (e.g. ECONNRESET) short-circuits to "not a
+  // failure" instead of being mislabeled a backend outage. A bare
+  // AbortError/timeout with no tagged reason still falls through below.
+  if (
+    isAbortReason(error) ||
+    isAbortReason((error as { reason?: unknown }).reason) ||
+    isAbortReason((error as { abortReason?: unknown }).abortReason)
+  ) {
+    return undefined;
+  }
+
   // Retryable transport failures (ECONNRESET/ECONNREFUSED/ETIMEDOUT, socket
   // hang-ups, including one level of `cause` chain) are backend failures.
   if (isRetryableNetworkError(error)) return "backend_unavailable";
@@ -138,20 +155,6 @@ function categoryFromError(error: unknown): WebSearchFailureCategory | undefined
     : "";
   const haystack = `${name} ${(error as { message?: unknown }).message ?? ""}`
     .toLowerCase();
-
-  // A user-initiated abort (Stop/Esc, preemption, dispose) is not a failure.
-  // The tagged `AbortReason` may surface directly (`AbortSignal.throwIfAborted`
-  // throws `signal.reason` verbatim), via `error.reason`, or — when a provider
-  // wrapper erases the `AbortError` name — on `ProviderError.abortReason`. Check
-  // all three before the abort/timeout substring heuristic so a wrapped abort
-  // like "Request was aborted" short-circuits the backend-failure path.
-  if (
-    isAbortReason(error) ||
-    isAbortReason((error as { reason?: unknown }).reason) ||
-    isAbortReason((error as { abortReason?: unknown }).abortReason)
-  ) {
-    return undefined;
-  }
 
   // web_search-only: treat aborts/timeouts/DNS/fetch failures (the cases
   // `isRetryableNetworkError` doesn't cover) as backend failures.
@@ -205,14 +208,20 @@ export function classifyWebSearchFailure(
     };
   }
 
+  // Resolution order: Anthropic `errorCode` → explicit HTTP `statusCode` →
+  // error-body/network heuristics. An explicit status code is authoritative
+  // over substring-sniffing the provider's response body (which can contain
+  // misleading keywords like "timeout"/"abort"). Tagged user-aborts carry no
+  // status code, so they still flow through `categoryFromError` and
+  // short-circuit to a non-failure.
   const category =
     (input.errorCode != null
       ? categoryFromErrorCode(input.errorCode)
       : undefined) ??
-    categoryFromError(input.error) ??
     (typeof input.statusCode === "number"
       ? categoryFromStatusCode(input.statusCode)
       : undefined) ??
+    categoryFromError(input.error) ??
     "unknown";
 
   return {
@@ -226,7 +235,6 @@ export function classifyWebSearchFailure(
 export interface WebSearchBackendFailureMeta {
   provider: string;
   requestId?: string;
-  correlationId?: string;
   errorCategory: WebSearchFailureCategory;
   rawDetail: string;
   fallbackShown: boolean;
@@ -249,7 +257,6 @@ export function logWebSearchBackendFailure(
       tool: "web_search",
       provider: meta.provider,
       requestId: meta.requestId,
-      correlationId: meta.correlationId,
       errorCategory: meta.errorCategory,
       rawDetail: meta.rawDetail,
       fallbackShown: meta.fallbackShown,

@@ -75,6 +75,35 @@ describe("classifyWebSearchFailure", () => {
     expect(result.userMessage).not.toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
   });
 
+  test("tagged abort with a transport-shaped cause is not a backend failure", () => {
+    // A user cancellation wrapped as a ProviderError that ALSO carries a
+    // transport-shaped `cause` (ECONNRESET). The tagged abort guard must win
+    // over transport-retryability so this is not mislabeled a backend outage.
+    const err = Object.assign(new Error("Request was aborted"), {
+      name: "ProviderError",
+      cause: { code: "ECONNRESET" },
+      abortReason: createAbortReason("user_cancel", "cancelGeneration"),
+    });
+    const result = classifyWebSearchFailure({ isError: true, error: err });
+    expect(result.category).not.toBe("backend_unavailable");
+    expect(result.isBackendFailure).toBe(false);
+    expect(result.userMessage).not.toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+  });
+
+  test("explicit statusCode wins over a misleading error-body keyword", () => {
+    // The provider response body contains "aborted" (a keyword the error-body
+    // heuristic would sniff as a non-failure), but the authoritative HTTP 503
+    // must classify this as a backend failure.
+    const result = classifyWebSearchFailure({
+      isError: true,
+      statusCode: 503,
+      error: new Error("the upstream request was aborted unexpectedly"),
+    });
+    expect(result.category).toBe("backend_unavailable");
+    expect(result.isBackendFailure).toBe(true);
+    expect(result.userMessage).toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+  });
+
   test("ECONNRESET network error is a backend failure", () => {
     const err = Object.assign(new Error("socket hang up"), {
       code: "ECONNRESET",
@@ -197,7 +226,6 @@ describe("logWebSearchBackendFailure", () => {
     logWebSearchBackendFailure(fakeLogger, {
       provider: "anthropic",
       requestId: "req-1",
-      correlationId: "corr-1",
       errorCategory: "backend_unavailable",
       rawDetail: "errorCode=unavailable",
       fallbackShown: true,
