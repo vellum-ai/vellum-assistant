@@ -2110,10 +2110,11 @@ export async function runAgentLoopImpl(
     const loopTurnCtx = buildPluginTurnContext(ctx, reqId);
 
     // Hooks for the loop-owned mid-loop compaction. The agent loop owns the
-    // trigger (its budget gate), the `compaction` pipeline call, and the
-    // inline continue; these callbacks bridge the durable / injection state
-    // the loop is intentionally blind to. Re-injection and persistence stay
-    // orchestrator-supplied for now.
+    // trigger (its budget gate), the `compaction` pipeline call, the result
+    // interpretation (circuit-breaker bookkeeping + the exhaustion decision),
+    // and the inline continue; these callbacks bridge the durable / injection
+    // state the loop is intentionally blind to. Durable persistence and
+    // re-injection stay orchestrator-supplied for now.
     const midLoopCompaction: MidLoopCompaction = {
       prepare: (history) => {
         // Strip injected context so the compactor summarizes the raw
@@ -2135,27 +2136,10 @@ export async function runAgentLoopImpl(
           },
         };
       },
-      persist: async (result, rawHistory) => {
-        const compactResult = result as Awaited<
-          ReturnType<typeof ctx.contextWindowManager.maybeCompact>
-        >;
-        // `force: true` bypasses the cooldown/threshold gates but early
-        // returns for "no eligible messages" / "insufficient messages" still
-        // leave `summaryFailed` undefined. Only track when the summary LLM
-        // actually ran.
-        if (compactResult.summaryFailed !== undefined) {
-          await ctx.agentLoop.compactionCircuit.recordOutcome(
-            ctx,
-            compactResult.summaryFailed,
-            onEvent,
-          );
-        }
-        if (compactResult.compacted) {
-          await applySuccessfulCompaction(compactResult, rawHistory);
-          reducerCompacted = true;
-          shouldInjectWorkspace = true;
-        }
-        return { exhausted: compactResult.exhausted ?? false };
+      applyResult: async (result, rawHistory) => {
+        await applySuccessfulCompaction(result, rawHistory);
+        reducerCompacted = true;
+        shouldInjectWorkspace = true;
       },
       reinject: async () => {
         // stripInjectionsForCompaction() unconditionally removed the existing

@@ -380,16 +380,15 @@ describe("AgentLoop exit-reason instrumentation", () => {
     });
 
     let prepared = false;
-    let persisted = false;
+    let appliedResult = false;
     let reinjected = false;
     const compaction: MidLoopCompaction = {
       prepare: (history) => {
         prepared = true;
         return { rawHistory: history, options: undefined };
       },
-      persist: async () => {
-        persisted = true;
-        return { exhausted: false };
+      applyResult: async () => {
+        appliedResult = true;
       },
       reinject: async () => {
         reinjected = true;
@@ -413,7 +412,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
     // THEN the loop runs the compaction ceremony in place and continues to a
     // clean exit instead of yielding for budget.
     expect(prepared).toBe(true);
-    expect(persisted).toBe(true);
+    expect(appliedResult).toBe(true);
     expect(reinjected).toBe(true);
     expect(result.exitReason).not.toBe("budget");
   });
@@ -431,7 +430,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const compaction: MidLoopCompaction = {
       prepare: (history) => ({ rawHistory: history, options: undefined }),
-      persist: async () => ({ exhausted: false }),
+      applyResult: async () => {},
       reinject: async () => {
         throw new Error("reinject must not run after a timeout");
       },
@@ -469,7 +468,7 @@ describe("AgentLoop exit-reason instrumentation", () => {
 
     const compaction: MidLoopCompaction = {
       prepare: (history) => ({ rawHistory: history, options: undefined }),
-      persist: async () => ({ exhausted: true }),
+      applyResult: async () => {},
       reinject: async () => {
         throw new Error("reinject must not run when exhausted");
       },

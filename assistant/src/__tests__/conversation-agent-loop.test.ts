@@ -8,6 +8,7 @@ import type {
   AgentLoopRunResult,
   MidLoopCompaction,
 } from "../agent/loop.js";
+import type { ContextWindowResult } from "../context/window-manager.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import { defaultCompactionTerminal } from "../plugins/defaults/compaction/terminal.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
@@ -604,8 +605,22 @@ async function simulateInlineCompaction(
     }
     throw error;
   }
-  const { exhausted } = await compaction.persist(result, rawHistory);
-  if (exhausted) {
+  const compactResult = result as ContextWindowResult;
+  if (compactResult.summaryFailed !== undefined) {
+    await compactionCircuit.recordOutcome(
+      {
+        currentRequestId: turnContext?.requestId,
+        currentTurnTrustContext: turnContext?.trust,
+        turnCount: turnContext?.turnIndex ?? 0,
+      },
+      compactResult.summaryFailed,
+      onEvent,
+    );
+  }
+  if (compactResult.compacted) {
+    await compaction.applyResult(compactResult, rawHistory);
+  }
+  if (compactResult.exhausted ?? false) {
     return null;
   }
   return compaction.reinject();
