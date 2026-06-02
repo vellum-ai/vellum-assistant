@@ -24,7 +24,7 @@ import { BillingUsageChart, type ChartMetric } from "@/domains/settings/componen
 import {
   type BillingUsageSourceFilter,
   getDefaultDateRange,
-  reconcileDefaultRange,
+  reconcilePresetRange,
   useBillingUsageData,
 } from "@/domains/settings/components/billing-usage/use-billing-usage-data";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
@@ -61,21 +61,16 @@ export function BillingUsagePanel() {
   const [dateRange, setDateRange] = useState<DateRange>(() =>
     getDefaultDateRange(tz),
   );
-  // Tracks the default that matches the active tz, so a tz change can re-derive
-  // the default range without clobbering a range the user customized.
-  const prevDefaultRef = useRef<DateRange>(dateRange);
+  // Tracks the tz the active range was computed in, so a tz change can recompute
+  // whichever relative preset is active without clobbering an untracked range.
+  // Initialized to the current tz so the first effect run is a no-op.
+  const prevTzRef = useRef<string>(tz);
 
   useEffect(() => {
-    const nextDefault = getDefaultDateRange(tz);
-    setDateRange((current) => {
-      const reconciled = reconcileDefaultRange(
-        current,
-        prevDefaultRef.current,
-        nextDefault,
-      );
-      prevDefaultRef.current = nextDefault;
-      return reconciled;
-    });
+    const prevTz = prevTzRef.current;
+    prevTzRef.current = tz;
+    if (prevTz === tz) return;
+    setDateRange((current) => reconcilePresetRange(current, prevTz, tz));
   }, [tz]);
 
   const [drilldown, setDrilldown] = useState<{

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import {
   type DateRange,
+  PRESET_DAYS,
   computeRangeInTimezone,
 } from "@/components/charts/date-range-select";
 import {
@@ -29,22 +30,32 @@ export function getDefaultDateRange(tz: string = getEffectiveTimezone()): DateRa
 }
 
 /**
- * Reconcile the active date range against a timezone-driven default change.
+ * Reconcile the active date range against a timezone change.
  *
- * When the effective timezone shifts, the default "last 30 days" bounds move by
- * a calendar day. We adopt the new default ONLY if the user was still sitting on
- * the previous default (i.e. hadn't customized the range); an explicit user
- * selection is left untouched. Returns the same `current` reference when nothing
- * should change so callers can rely on referential bail-outs.
+ * The billing control exposes only relative presets (7/30/90 days), so when the
+ * effective timezone shifts we recompute whichever preset the user is currently
+ * on for the new timezone. We detect that preset by matching `current` against
+ * each preset's bounds computed for the PREVIOUS timezone; on a match we return
+ * the same preset recomputed for the NEW timezone. A range matching no preset is
+ * left untouched, defensively leaving any untracked/custom range alone, and the
+ * same `current` reference is returned whenever the bounds don't change so
+ * callers can rely on referential bail-outs.
  */
-export function reconcileDefaultRange(
+export function reconcilePresetRange(
   current: DateRange,
-  prevDefault: DateRange,
-  nextDefault: DateRange,
+  prevTz: string,
+  nextTz: string,
 ): DateRange {
-  const wasOnDefault =
-    current.from === prevDefault.from && current.to === prevDefault.to;
-  return wasOnDefault ? nextDefault : current;
+  for (const days of PRESET_DAYS) {
+    const prev = computeRangeInTimezone(days, prevTz);
+    if (current.from === prev.from && current.to === prev.to) {
+      const next = computeRangeInTimezone(days, nextTz);
+      return next.from === current.from && next.to === current.to
+        ? current
+        : next;
+    }
+  }
+  return current;
 }
 
 export type UsageChartState = {

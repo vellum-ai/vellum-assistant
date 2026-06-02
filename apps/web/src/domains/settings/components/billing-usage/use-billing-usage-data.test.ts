@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 
+import { computeRangeInTimezone } from "@/components/charts/date-range-select";
+
 import {
   buildBillingUsageSeriesQuery,
   buildBillingUsageTotalsQuery,
   getDefaultDateRange,
-  reconcileDefaultRange,
+  reconcilePresetRange,
   type UsageChartState,
 } from "./use-billing-usage-data";
 
@@ -65,30 +67,33 @@ describe("getDefaultDateRange", () => {
   });
 });
 
-describe("reconcileDefaultRange", () => {
-  const prevDefault = { from: "2026-01-01", to: "2026-01-30" };
-  const nextDefault = { from: "2026-01-02", to: "2026-01-31" };
+describe("reconcilePresetRange", () => {
+  // Pacific/Kiritimati (UTC+14) and Pacific/Niue (UTC-11) sit a full calendar
+  // day apart at most instants, so a preset's bounds differ between the zones.
+  const EAST = "Pacific/Kiritimati";
+  const WEST = "Pacific/Niue";
 
-  test("adopts the new default when still on the previous default", () => {
-    const result = reconcileDefaultRange(
-      { ...prevDefault },
-      prevDefault,
-      nextDefault,
-    );
-    expect(result).toBe(nextDefault);
-  });
+  for (const days of [7, 30, 90]) {
+    test(`recomputes the active ${days}-day preset across a tz change`, () => {
+      const current = computeRangeInTimezone(days, EAST);
+      const result = reconcilePresetRange(current, EAST, WEST);
+      expect(result).toEqual(computeRangeInTimezone(days, WEST));
+    });
+  }
 
-  test("preserves a customized range across a tz-driven default change", () => {
-    const custom = { from: "2025-12-01", to: "2025-12-15" };
-    const result = reconcileDefaultRange(custom, prevDefault, nextDefault);
+  test("leaves a range that matches no preset unchanged", () => {
+    // 45 days apart matches none of the 7/30/90 presets.
+    const custom = { from: "2025-12-01", to: "2026-01-14" };
+    const result = reconcilePresetRange(custom, EAST, WEST);
     expect(result).toBe(custom);
   });
 
-  test("returns the current reference when the default is unchanged", () => {
-    const current = { from: "2026-01-01", to: "2026-01-30" };
-    const result = reconcileDefaultRange(current, prevDefault, prevDefault);
-    expect(result).toBe(prevDefault);
-    expect(result).toEqual(current);
+  test("returns the same reference when the matched preset is unchanged", () => {
+    // Same tz on both sides: the preset's bounds are identical, so the helper
+    // must bail out referentially rather than allocate a new range.
+    const current = computeRangeInTimezone(7, EAST);
+    const result = reconcilePresetRange(current, EAST, EAST);
+    expect(result).toBe(current);
   });
 });
 
