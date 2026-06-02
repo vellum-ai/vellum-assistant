@@ -14,6 +14,7 @@ export {
 export type { CliInvocation } from "./util";
 export { resolveLocalConfigFromEnv, resolveLockfilePaths, resolveConfigDir } from "./config";
 export type { LocalEndpointConfig } from "./config";
+export { defaultEnvironmentFilePath, readDefaultEnvironment, resolveEnvironmentName } from "./environment";
 export { getLockfileData, upsertLockfileAssistant, replacePlatformAssistants } from "./lockfile";
 export type { LockfileResult, WriteResult } from "./lockfile";
 export { runHatch } from "./hatch";

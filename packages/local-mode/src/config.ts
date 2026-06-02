@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { SEEDS } from "@vellumai/environments";
 
+import { resolveEnvironmentName } from "./environment";
+
 const PRODUCTION_ENVIRONMENT_NAME = "production";
 
 export interface LocalEndpointConfig {
@@ -20,7 +22,7 @@ export interface LocalEndpointConfig {
 export function resolveLocalConfigFromEnv(
   env: Record<string, string | undefined>,
 ): LocalEndpointConfig {
-  const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
+  const vellumEnv = resolveEnvironmentName(env);
   const seed = SEEDS[vellumEnv] ?? SEEDS[PRODUCTION_ENVIRONMENT_NAME]!;
 
   return {
@@ -34,7 +36,7 @@ export function resolveLocalConfigFromEnv(
 export function resolveLockfilePaths(
   env: Record<string, string | undefined>,
 ): string[] {
-  const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
+  const vellumEnv = resolveEnvironmentName(env);
   const lockfileDir = env.VELLUM_LOCKFILE_DIR;
 
   if (vellumEnv === PRODUCTION_ENVIRONMENT_NAME) {
@@ -54,7 +56,7 @@ export function resolveLockfilePaths(
 export function resolveConfigDir(
   env: Record<string, string | undefined>,
 ): string {
-  const vellumEnv = env.VELLUM_ENVIRONMENT || PRODUCTION_ENVIRONMENT_NAME;
+  const vellumEnv = resolveEnvironmentName(env);
   const xdgConfigHome =
     env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
   if (vellumEnv === PRODUCTION_ENVIRONMENT_NAME) {
