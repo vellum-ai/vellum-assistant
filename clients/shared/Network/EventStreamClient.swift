@@ -524,6 +524,12 @@ public final class EventStreamClient {
                 }
             }
 
+            // The read loop exited — cancel the watchdog so a stale
+            // timer cannot fire during the reconnect backoff and
+            // defeat exponential backoff by resetting the delay.
+            self.sseIdleWatchdogTask?.cancel()
+            self.sseIdleWatchdogTask = nil
+
             if !Task.isCancelled {
                 self.handleSSEDisconnect()
             }
