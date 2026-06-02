@@ -126,6 +126,20 @@ export class SubagentManager {
   private labelIndex = new Map<string, string>();
 
   /**
+   * FIFO queue of subagent IDs whose agent loop has NOT yet been kicked off
+   * because the concurrency cap (SUBAGENT_LIMITS.maxConcurrentRunning) was
+   * reached at spawn time. They remain in `pending` status until drained.
+   */
+  private runQueue: string[] = [];
+  /**
+   * Number of subagents whose agent loop has been kicked off and not yet
+   * reached a terminal state. Gated against SUBAGENT_LIMITS.maxConcurrentRunning.
+   * Tracked explicitly (rather than derived from status) so the cap counts only
+   * actually-started runs, never queued-but-pending ones.
+   */
+  private runningCount = 0;
+
+  /**
    * Shared rate-limit timestamps array from the daemon server.
    * Set by DaemonServer at startup so subagents share the global rate limit.
    */
@@ -374,12 +388,67 @@ export class SubagentManager {
       "Subagent spawned",
     );
 
-    // ── Kick off the agent loop (fire-and-forget) ───────────────────
-    this.runSubagent(subagentId, config.objective).catch((err) => {
-      log.error({ subagentId, err }, "Subagent run failed unexpectedly");
-    });
+    // ── Kick off the agent loop (fire-and-forget), bounded by the cap ─
+    // If we're already at the concurrency cap, leave the subagent in `pending`
+    // and queue it; it will be started by drainRunQueue() as running subagents
+    // reach a terminal state. spawn() still returns the id immediately either
+    // way, preserving the fire-and-forget public contract.
+    if (this.runningCount < SUBAGENT_LIMITS.maxConcurrentRunning) {
+      this.startRun(subagentId, config.objective);
+    } else {
+      this.runQueue.push(subagentId);
+      log.info(
+        {
+          subagentId,
+          runningCount: this.runningCount,
+          queueDepth: this.runQueue.length,
+          cap: SUBAGENT_LIMITS.maxConcurrentRunning,
+        },
+        "Subagent queued — concurrency cap reached",
+      );
+    }
 
     return subagentId;
+  }
+
+  // ── Internal: concurrency-cap scheduling ──────────────────────────────
+
+  /**
+   * Account a started run against the cap and fire its agent loop
+   * (fire-and-forget). The matching decrement happens in runSubagent's
+   * `finally`, which also drains the queue.
+   */
+  private startRun(subagentId: string, objective: string): void {
+    this.runningCount++;
+    this.runSubagent(subagentId, objective).catch((err) => {
+      log.error({ subagentId, err }, "Subagent run failed unexpectedly");
+    });
+  }
+
+  /**
+   * Release one slot held by a finished run and, if the cap now has headroom,
+   * start the next still-pending queued subagent. Called from runSubagent's
+   * `finally`, so exactly one slot frees per terminal subagent.
+   *
+   * Skips queued entries that are no longer startable (disposed, aborted, or
+   * already terminal — e.g. via abortAllForParent) so a cancelled queued
+   * subagent never consumes a slot, and keeps draining until a startable one is
+   * found or the queue empties.
+   */
+  private drainRunQueue(): void {
+    if (this.runningCount > 0) this.runningCount--;
+
+    while (
+      this.runningCount < SUBAGENT_LIMITS.maxConcurrentRunning &&
+      this.runQueue.length > 0
+    ) {
+      const nextId = this.runQueue.shift()!;
+      const managed = this.subagents.get(nextId);
+      if (!managed || TERMINAL_STATUSES.has(managed.state.status)) {
+        continue;
+      }
+      this.startRun(nextId, managed.state.config.objective);
+    }
   }
 
   // ── Internal: run the subagent ────────────────────────────────────────
@@ -493,6 +562,11 @@ export class SubagentManager {
       } else {
         this.releaseConversation(managed);
       }
+
+      // Free this run's slot and start the next queued subagent (if any).
+      // This subagent has reached a terminal state, so it no longer counts
+      // against the concurrency cap.
+      this.drainRunQueue();
     }
   }
 

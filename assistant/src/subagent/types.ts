@@ -101,6 +101,17 @@ export interface SubagentState {
 export const SUBAGENT_LIMITS = {
   /** Max nesting depth (1 = no nested subagents). */
   maxDepth: 1,
+  /**
+   * Max number of subagents allowed to be in the `running` state concurrently.
+   * Spawns beyond this cap are accepted immediately but held in `pending` and
+   * drained as running subagents reach a terminal state.
+   *
+   * Chosen at 8: high enough that existing single / low-count flows (which spawn
+   * 1–2 subagents) are never gated, while still bounding the burst of parallel
+   * `coder` workers app-builder v2 can fan out so they don't thrash provider
+   * rate limits.
+   */
+  maxConcurrentRunning: 8,
 } as const;
 
 // ── Roles ───────────────────────────────────────────────────────────────
