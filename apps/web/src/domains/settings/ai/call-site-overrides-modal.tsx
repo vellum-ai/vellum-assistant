@@ -247,6 +247,7 @@ function CallSiteOverridesModalInner({
     // Guard: drafts haven't been seeded yet (catalog still loading) — Save must stay disabled.
     // seeded.current is set synchronously before setDrafts, so this memo sees the correct
     // value on the re-render triggered by setDrafts.
+    // eslint-disable-next-line react-hooks/refs -- synchronous flag set before setState
     if (!seeded.current) return false;
     // Use catalog IDs only (keys of drafts) — orphaned stale overrides in
     // persistedOverrides that aren't in the catalog stay untouched.

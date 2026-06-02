@@ -1,4 +1,5 @@
 import { defineConfig, globalIgnores } from "eslint/config";
+import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 import { noCrossDomainImports } from "./eslint-rules/no-cross-domain-imports.mjs";
@@ -145,6 +146,7 @@ const authBoundaryAllowedPaths = [
 
 const eslintConfig = defineConfig([
   ...tseslint.configs.recommended,
+  reactHooks.configs.flat.recommended,
   globalIgnores(["dist/**", "src/generated/**", "storybook-static/**"]),
   {
     plugins: {
@@ -162,6 +164,33 @@ const eslintConfig = defineConfig([
         ...universalAuthRules,
         ...headerLiteralRules,
       ],
+
+      // -----------------------------------------------------------------------
+      // eslint-plugin-react-hooks overrides
+      //
+      // The `recommended` preset enables 16 rules from the React team.
+      // Rules with zero existing violations are left at their recommended
+      // level. Rules with many pre-existing violations are relaxed here
+      // and tracked for future enablement.
+      //
+      // See https://react.dev/reference/eslint-plugin-react-hooks
+      // -----------------------------------------------------------------------
+
+      // 69 pre-existing violations — synchronous setState inside
+      // useEffect bodies. Many are legitimate "reset state when key
+      // changes" patterns that require restructuring (React 19 key-based
+      // reset, useSyncExternalStore, or effect → event handler lift).
+      "react-hooks/set-state-in-effect": "off",
+
+      // 34 pre-existing violations — many intentional (mount-only
+      // effects, stable-ref deps). Warn gives visibility in editor
+      // without blocking CI while the codebase is incrementally fixed.
+      "react-hooks/exhaustive-deps": "warn",
+
+      // 11 pre-existing violations — React Compiler can't preserve
+      // existing manual memoization because inferred deps differ from
+      // specified deps. Requires case-by-case analysis.
+      "react-hooks/preserve-manual-memoization": "off",
     },
   },
   // Override: files inside the auth boundary may use the auth-header

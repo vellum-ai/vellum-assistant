@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for unit testing)
@@ -78,6 +78,12 @@ export function useTextPopup<T>(config: TextPopupConfig<T>): TextPopup<T> {
   const suppressRef = useRef(false);
   const textAtSuppressRef = useRef<string | null>(null);
 
+  // Intentional render-phase ref access: "store information from previous
+  // renders" pattern per
+  // https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  // The suppress flag is reset synchronously so the same render reflects
+  // the cleared state. Converting to useState would cause an extra render.
+  /* eslint-disable react-hooks/refs */
   if (
     suppressRef.current &&
     textAtSuppressRef.current !== null &&
@@ -86,6 +92,7 @@ export function useTextPopup<T>(config: TextPopupConfig<T>): TextPopup<T> {
     suppressRef.current = false;
     textAtSuppressRef.current = null;
   }
+  /* eslint-enable react-hooks/refs */
 
   const match = trigger.exec(text);
   const hasMatch = match !== null;
@@ -97,6 +104,7 @@ export function useTextPopup<T>(config: TextPopupConfig<T>): TextPopup<T> {
     return search(filter);
   }, [hasMatch, meetsMinLength, filter, search]);
 
+  // eslint-disable-next-line react-hooks/refs -- derived from suppressRef (see above)
   const show = items.length > 0 && !suppressRef.current;
 
   // Reset selection index when the filter string changes.
@@ -118,7 +126,7 @@ export function useTextPopup<T>(config: TextPopupConfig<T>): TextPopup<T> {
 
   // Stable ref so dismiss always captures the text at invocation time.
   const textRef = useRef(text);
-  textRef.current = text;
+  useLayoutEffect(() => { textRef.current = text; });
 
   const [, forceRender] = useState(0);
   const dismiss = useCallback(() => {
@@ -127,5 +135,6 @@ export function useTextPopup<T>(config: TextPopupConfig<T>): TextPopup<T> {
     forceRender((n) => n + 1);
   }, []);
 
+  // eslint-disable-next-line react-hooks/refs -- `show` is derived from suppressRef (suppressed above)
   return { show, filter, items, selectedIndex, moveUp, moveDown, dismiss };
 }

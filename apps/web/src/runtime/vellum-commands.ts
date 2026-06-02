@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 import { isElectron, type VellumCommand } from "@/runtime/is-electron";
 
@@ -24,7 +24,7 @@ export type CommandHandlers = Partial<
 
 export function useVellumCommands(handlers: CommandHandlers): void {
   const handlersRef = useRef<CommandHandlers>(handlers);
-  handlersRef.current = handlers;
+  useLayoutEffect(() => { handlersRef.current = handlers; });
 
   useEffect(() => {
     if (!isElectron()) return;
