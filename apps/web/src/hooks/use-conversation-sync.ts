@@ -19,7 +19,6 @@
  * - CONVENTIONS.md — domain-first decomposition
  */
 
-import { captureError } from "@/lib/sentry/capture-error";
 import { type MutableRefObject, useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -142,15 +141,8 @@ function handleConversationSyncTags(
           queryClient,
           assistantId,
           parsed.conversationId,
-        ).catch((err: unknown) => {
-          captureError(err, {
-            context: "useConversationSync.refreshRow",
-            level: "warning",
-            extra: {
-              assistantId,
-              conversationId: parsed.conversationId,
-            },
-          });
+        ).catch(() => {
+          // Best-effort — the next sync_changed event retries the fetch.
         });
       }
     }

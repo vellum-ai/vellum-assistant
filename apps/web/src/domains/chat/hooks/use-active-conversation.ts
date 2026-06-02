@@ -16,7 +16,6 @@
  */
 
 import { useEffect, useMemo, useRef } from "react";
-import { captureError } from "@/lib/sentry/capture-error";
 import { useQueryClient } from "@tanstack/react-query";
 
 import type { Conversation } from "@/types/conversation-types";
@@ -26,6 +25,7 @@ import {
   useConversationListQuery,
   useScheduledConversationListQuery,
 } from "@/hooks/conversation-queries";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { refreshConversationRow } from "@/utils/conversation-cache-mutations";
 
 export function useActiveConversation(
@@ -34,6 +34,7 @@ export function useActiveConversation(
   enabled: boolean,
 ): Conversation | undefined {
   const queryClient = useQueryClient();
+  const isOrgReady = useIsOrgReady();
   const { conversations: foreground } = useConversationListQuery(
     assistantId,
     enabled,
@@ -63,7 +64,7 @@ export function useActiveConversation(
 
   const fetchedConversationIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!enabled || !assistantId || !conversationId) {
+    if (!enabled || !assistantId || !conversationId || !isOrgReady) {
       return;
     }
     if (activeConversation) {
@@ -77,13 +78,14 @@ export function useActiveConversation(
       queryClient,
       assistantId,
       conversationId,
-    ).catch((error) => {
-      // Clear the guard so a later dependency change can retry a row that
-      // failed to fetch transiently.
+    ).catch(() => {
+      // Best-effort fetch — clear the guard so the next dependency change
+      // can retry. Transient failures (503 during daemon startup, 502 bad
+      // gateway, auth race on session redirect) resolve on the next
+      // navigation or SSE sync event; reporting them to Sentry is noise.
       fetchedConversationIdRef.current = null;
-      captureError(error, { context: "useActiveConversation.refreshRow" });
     });
-  }, [enabled, assistantId, conversationId, activeConversation, queryClient]);
+  }, [enabled, assistantId, conversationId, activeConversation, queryClient, isOrgReady]);
 
   return activeConversation;
 }
