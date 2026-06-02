@@ -1058,6 +1058,34 @@ export function ChatRouteContent({
       </div>
     ) : undefined;
 
+  // Stable callback so the latest-turn avatar slot isn't rebuilt on every
+  // transcript render. Paired with `memo(ChatAvatar)`, the avatar re-renders
+  // only when its inputs actually change (avatar data, or the streaming /
+  // processing flags) rather than on each parent render.
+  const renderAvatar = useMemo(
+    () =>
+      avatarComponents || avatarImageUrl
+        ? () => (
+            <ChatAvatar
+              components={avatarComponents}
+              traits={avatarTraits}
+              customImageUrl={avatarImageUrl}
+              size={56}
+              interactive
+              isStreaming={isAssistantStreaming}
+              isProcessing={activeConversationIsProcessing}
+            />
+          )
+        : undefined,
+    [
+      avatarComponents,
+      avatarImageUrl,
+      avatarTraits,
+      isAssistantStreaming,
+      activeConversationIsProcessing,
+    ],
+  );
+
   const chatTranscriptProps: TranscriptProps = {
     items: transcriptItems,
     conversationId: activeConversationId,
@@ -1131,20 +1159,7 @@ export function ChatRouteContent({
           onCancel={handleContactPromptCancel}
         />
       ) : null,
-    renderAvatar:
-      avatarComponents || avatarImageUrl
-        ? () => (
-            <ChatAvatar
-              components={avatarComponents}
-              traits={avatarTraits}
-              customImageUrl={avatarImageUrl}
-              size={56}
-              interactive
-              isStreaming={isAssistantStreaming}
-              isProcessing={activeConversationIsProcessing}
-            />
-          )
-        : undefined,
+    renderAvatar,
     onPullRefresh: handlePullRefresh,
     pullRefreshEnabled: chatPullToRefreshEnabled && touchSupported,
     scrollCoordinatorState: {
