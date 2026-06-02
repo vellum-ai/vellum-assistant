@@ -42,6 +42,13 @@
  *   - On the normal (no-gap) path the cursor advances AFTER the
  *     handler returns. A thrown handler keeps the cursor pinned so the
  *     next event re-triggers the gap path.
+ *
+ * Reconnect handling:
+ *   `clientSeq` resets to 1 on each new SSE subscription (the server
+ *   creates a fresh counter map per subscriber). Callers must invoke
+ *   `notifyReconnect()` on `sse.opened` so the first post-reconnect
+ *   event re-seeds the cursor instead of triggering a false generation
+ *   reset (clientSeq 1 < stored cursor from the previous connection).
  */
 
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -85,6 +92,10 @@ export interface SseEventConsumerDeps {
 
 export interface SseEventConsumer {
   handleSseEvent(envelope: ConsumableEnvelope): void;
+  /** Reset seq tracking so the next event re-seeds the cursor.
+   *  Must be called on SSE reconnect — `clientSeq` restarts at 1
+   *  per subscription, so the old cursor is invalid. */
+  notifyReconnect(): void;
 }
 
 export function createSseEventConsumer(
@@ -105,6 +116,11 @@ export function createSseEventConsumer(
   let latestGapSeq: { conversationId: string; seq: number } | null = null;
 
   return {
+    notifyReconnect() {
+      seededSeqForConversation = false;
+      reconcileInFlight = false;
+      latestGapSeq = null;
+    },
     handleSseEvent(envelope) {
       const event = envelope.message;
       const eventConversationId = envelope.conversationId;

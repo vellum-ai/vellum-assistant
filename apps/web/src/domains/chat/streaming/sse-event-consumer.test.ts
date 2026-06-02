@@ -572,4 +572,50 @@ describe("sse-event-consumer — seq-gap detection", () => {
 
     expect(reconcileActive).toHaveBeenCalledTimes(1);
   });
+
+  test("notifyReconnect prevents false generation reset when clientSeq resets to 1", () => {
+    const { deps, reconcileActive } = makeDeps();
+    const consumer = createSseEventConsumer(deps);
+
+    // Establish cursor at clientSeq=10 (simulating a long-lived connection).
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        clientSeq: 10,
+        seq: 50,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+    expect(seqStore.get("conv-1")).toBe(10);
+
+    // SSE reconnects — server creates fresh clientSeq counter.
+    consumer.notifyReconnect();
+
+    // First post-reconnect event: clientSeq=1. Without notifyReconnect,
+    // this would trigger the generation-reset path (1 < 10). With it,
+    // the event re-seeds the cursor instead.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        clientSeq: 1,
+        seq: 51,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+
+    // No reconcile fired — the event was treated as a seed, not a reset.
+    expect(reconcileActive).not.toHaveBeenCalled();
+    // Cursor re-seeded but NOT yet advanced (seed event doesn't write).
+    // The NEXT contiguous event will advance it.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        clientSeq: 2,
+        seq: 52,
+        message: { type: "assistant_text_delta", text: "c" },
+      }),
+    );
+    expect(seqStore.get("conv-1")).toBe(2);
+    expect(reconcileActive).not.toHaveBeenCalled();
+  });
 });
