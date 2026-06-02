@@ -959,7 +959,7 @@ export async function runAgentLoopImpl(
     // so this fires exactly once per `/compact` event.
     const consumedPostCompactReinject = ctx.pendingPostCompactReinject;
     ctx.pendingPostCompactReinject = false;
-    let shouldInjectWorkspace = isFirstMessage || consumedPostCompactReinject;
+    state.shouldInjectWorkspace = isFirstMessage || consumedPostCompactReinject;
     let compactedThisTurn = consumedPostCompactReinject;
     let slackCompactedThisTurn = false;
     const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
@@ -1170,7 +1170,7 @@ export async function runAgentLoopImpl(
         compacted,
         messagesForStartOfTurnCompaction,
       );
-      shouldInjectWorkspace = true;
+      state.shouldInjectWorkspace = true;
       if (compacted.compactedPersistedMessages > 0) {
         compactedThisTurn = true;
       }
@@ -1630,13 +1630,7 @@ export async function runAgentLoopImpl(
         )
       : null;
 
-    // Guards the chronological-transcript override on re-injection after
-    // the reducer compacts `ctx.messages`. The captured transcript is the
-    // full persisted history; blindly replaying it on every re-inject would
-    // overwrite the reducer's compacted messages and undo compaction. Flip
-    // to `true` after any compaction so subsequent re-injections fall back
-    // to the reduced `ctx.messages`.
-    let reducerCompacted = compactedThisTurn;
+    state.reducerCompacted = compactedThisTurn;
 
     // memory-v3-live: route the turn's `<memory>` block to the v3 injector.
     // When on, runtime assembly suppresses v2's `<memory>` injection (only
@@ -1656,7 +1650,7 @@ export async function runAgentLoopImpl(
       diskPressureContext,
       activeSurface,
       activeDocuments,
-      workspaceTopLevelContext: shouldInjectWorkspace
+      workspaceTopLevelContext: state.shouldInjectWorkspace
         ? ctx.workspaceTopLevelContext
         : null,
       channelCapabilities: ctx.channelCapabilities ?? null,
@@ -1694,7 +1688,7 @@ export async function runAgentLoopImpl(
 
     const injection = await applyRuntimeInjections(runMessages, {
       ...injectionOpts,
-      slackChronologicalMessages: reducerCompacted
+      slackChronologicalMessages: state.reducerCompacted
         ? null
         : injectionOpts.slackChronologicalMessages,
       mode: currentInjectionMode,
@@ -1937,7 +1931,7 @@ export async function runAgentLoopImpl(
           }
           if (result.compacted) {
             await applySuccessfulCompaction(result, compactedBasis);
-            shouldInjectWorkspace = true;
+            state.shouldInjectWorkspace = true;
           }
         },
         reinjectForMode: async (
@@ -1966,7 +1960,7 @@ export async function runAgentLoopImpl(
             ...(stepCompacted && { pkbContext: currentPkbContent }),
             ...(stepCompacted && { memoryV2Static: currentMemoryV2Static }),
             ...(stepCompacted && { nowScratchpad: currentNowContent }),
-            workspaceTopLevelContext: shouldInjectWorkspace
+            workspaceTopLevelContext: state.shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,
             // Once ANY iteration has compacted `ctx.messages`, the captured
@@ -2023,7 +2017,7 @@ export async function runAgentLoopImpl(
       currentInjectionMode = overflowResult.injectionMode;
       reducerState = overflowResult.reducerState;
       if (overflowResult.reducerCompacted) {
-        reducerCompacted = true;
+        state.reducerCompacted = true;
       }
     }
 
@@ -2138,8 +2132,8 @@ export async function runAgentLoopImpl(
       },
       applyResult: async (result, rawHistory) => {
         await applySuccessfulCompaction(result, rawHistory);
-        reducerCompacted = true;
-        shouldInjectWorkspace = true;
+        state.reducerCompacted = true;
+        state.shouldInjectWorkspace = true;
       },
       reinject: async () => {
         // stripInjectionsForCompaction() unconditionally removed the existing
@@ -2150,13 +2144,13 @@ export async function runAgentLoopImpl(
           pkbContext: currentPkbContent,
           memoryV2Static: currentMemoryV2Static,
           nowScratchpad: currentNowContent,
-          workspaceTopLevelContext: shouldInjectWorkspace
+          workspaceTopLevelContext: state.shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
           // Suppress the chronological-transcript snapshot once the reducer
           // has collapsed `ctx.messages`; the captured snapshot reflects the
           // full persisted transcript and would overwrite compaction.
-          slackChronologicalMessages: reducerCompacted
+          slackChronologicalMessages: state.reducerCompacted
             ? null
             : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
@@ -2462,7 +2456,7 @@ export async function runAgentLoopImpl(
             }
             if (emergencyResult.compacted) {
               await applySuccessfulCompaction(emergencyResult, ctx.messages);
-              shouldInjectWorkspace = true;
+              state.shouldInjectWorkspace = true;
             }
             // Clear the overflow flag and re-run the agent loop with
             // the compacted context.
@@ -2542,8 +2536,8 @@ export async function runAgentLoopImpl(
             step.compactionResult,
             convergenceCompactionBasis,
           );
-          shouldInjectWorkspace = true;
-          reducerCompacted = true;
+          state.shouldInjectWorkspace = true;
+          state.reducerCompacted = true;
         }
 
         // Only re-inject NOW.md when ctx.messages was actually stripped;
@@ -2554,10 +2548,10 @@ export async function runAgentLoopImpl(
           pkbContext: currentPkbContent,
           memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
           nowScratchpad: convergenceStripped ? currentNowContent : null,
-          workspaceTopLevelContext: shouldInjectWorkspace
+          workspaceTopLevelContext: state.shouldInjectWorkspace
             ? ctx.workspaceTopLevelContext
             : null,
-          slackChronologicalMessages: reducerCompacted
+          slackChronologicalMessages: state.reducerCompacted
             ? null
             : injectionOpts.slackChronologicalMessages,
           mode: currentInjectionMode,
@@ -2689,8 +2683,8 @@ export async function runAgentLoopImpl(
           }
           if (emergencyCompact?.compacted) {
             await applySuccessfulCompaction(emergencyCompact, ctx.messages);
-            reducerCompacted = true;
-            shouldInjectWorkspace = true;
+            state.reducerCompacted = true;
+            state.shouldInjectWorkspace = true;
           }
 
           // Only re-inject NOW.md when ctx.messages was actually stripped;
@@ -2700,10 +2694,10 @@ export async function runAgentLoopImpl(
             pkbContext: currentPkbContent,
             memoryV2Static: convergenceStripped ? currentMemoryV2Static : null,
             nowScratchpad: convergenceStripped ? currentNowContent : null,
-            workspaceTopLevelContext: shouldInjectWorkspace
+            workspaceTopLevelContext: state.shouldInjectWorkspace
               ? ctx.workspaceTopLevelContext
               : null,
-            slackChronologicalMessages: reducerCompacted
+            slackChronologicalMessages: state.reducerCompacted
               ? null
               : injectionOpts.slackChronologicalMessages,
             mode: currentInjectionMode,

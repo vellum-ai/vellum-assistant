@@ -252,6 +252,24 @@ export interface EventHandlerState {
   pendingPartialFlushPromise: Promise<void> | undefined;
   /** Running mirror of the in-flight assistant message's content. */
   currentMessageContent: ContentBlock[];
+  /**
+   * Whether the workspace top-level block should be (re)injected on this
+   * turn. Compaction's prepare phase strips the workspace / NOW.md / PKB
+   * blocks off the tail, so it is set after any successful compaction to
+   * force the workspace overview back in. On an ordinary turn the block is
+   * already present in history, so it defaults `false` to avoid burning
+   * tokens re-injecting it redundantly.
+   */
+  shouldInjectWorkspace: boolean;
+  /**
+   * Whether the reducer has compacted `ctx.messages`, gating the Slack
+   * chronological-transcript override on re-injection. The captured
+   * transcript is the full persisted history; blindly replaying it after
+   * compaction would overwrite the reduced messages and undo compaction, so
+   * once this is `true` the override falls back to the reduced
+   * `ctx.messages`.
+   */
+  reducerCompacted: boolean;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -314,6 +332,8 @@ export function createEventHandlerState(): EventHandlerState {
     pendingPartialFlushTimer: undefined,
     pendingPartialFlushPromise: undefined,
     currentMessageContent: [],
+    shouldInjectWorkspace: false,
+    reducerCompacted: false,
   };
 }
 
