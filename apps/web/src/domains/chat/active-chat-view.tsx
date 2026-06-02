@@ -31,7 +31,6 @@ import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversat
 import { useViewerStore } from "@/stores/viewer-store";
 import { useDeployStore } from "@/stores/deploy-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
-import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -41,7 +40,6 @@ import type { TranscriptHandle } from "@/domains/chat/transcript/transcript";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
-import { type UIContext } from "@/domains/chat/turn-selectors";
 import { peekPendingPreChatContext } from "@/domains/onboarding/prechat";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
@@ -56,7 +54,6 @@ import { useOnboardingOrchestrator } from "@/domains/chat/hooks/use-onboarding-o
 
 import { useConversationSecondaryActions } from "@/domains/chat/hooks/use-conversation-secondary-actions";
 import { canUseLlmInspector } from "@/domains/chat/inspector/access";
-import { useCommandPaletteSections } from "@/domains/chat/hooks/use-command-palette-sections";
 import { useMessageReconciliation } from "@/domains/chat/hooks/use-message-reconciliation";
 import { useStreamEventHandler } from "@/domains/chat/hooks/use-stream-event-handler";
 import { useSendMessage } from "@/domains/chat/hooks/use-send-message";
@@ -67,21 +64,17 @@ import { useActiveAppPinSync } from "@/domains/chat/hooks/use-active-app-pin-syn
 import { useDraftInput } from "@/domains/chat/components/chat-composer/use-draft-input";
 import { useDeepLinkConsumer } from "@/domains/chat/hooks/use-deep-link-consumer";
 import { useRefreshLatestMessages } from "@/domains/chat/hooks/use-refresh-latest-messages";
-import { useChatDebugApi } from "@/domains/chat/utils/debug-api";
+import { useChatDebugRegistration } from "@/domains/chat/hooks/use-chat-debug-registration";
+import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-palette-orchestrator";
+import { useDeepLinkApp } from "@/domains/chat/hooks/use-deep-link-app";
 
 import { ConnectingToAssistant } from "@/domains/chat/components/connecting-to-assistant";
-import { hasPendingAssistantResponse } from "@/domains/chat/utils/chat";
-import { isSurfaceInteractive } from "@/domains/chat/types/types";
-import { useTurnStore } from "@/domains/chat/turn-store";
 
 const AddCreditsModal = lazy(() =>
   import("@/components/add-credits-modal").then((m) => ({
     default: m.AddCreditsModal,
   })),
 );
-// Deploy dialogs (VercelTokenDialog + complex-deploy confirm) are only shown
-// during the deploy flow. CommandPalette only renders on Cmd+K / Ctrl+K. Defer
-// loading to keep their form/list deps out of the chat-critical bundle.
 const DeployDialogs = lazy(() =>
   import("@/components/deploy-dialogs").then((m) => ({
     default: m.DeployDialogs,
@@ -92,7 +85,6 @@ const CommandPalette = lazy(() =>
     default: m.CommandPalette,
   })),
 );
-import { shouldHandleShortcut } from "@/domains/chat/chat-layout";
 
 import { MobileChatOverlays } from "@/domains/chat/components/mobile-chat-overlays";
 import { useSyncRouter } from "@/domains/chat/hooks/use-sync-router";
@@ -128,7 +120,6 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const messages = useChatSessionStore.use.messages();
   const setError = useChatSessionStore.use.setError();
-  const transcriptPagination = useChatSessionStore.use.transcriptPagination();
 
   // -------------------------------------------------------------------------
   // Local state (not store-backed)
@@ -159,7 +150,6 @@ export function ActiveChatView() {
   // Zustand store selectors
   // -------------------------------------------------------------------------
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const processingConversationIds = useConversationStore.use.processingConversationIds();
   const isTokenDialogOpen = useDeployStore.use.isTokenDialogOpen();
   const complexDeployApp = useDeployStore.use.complexDeployApp();
 
@@ -186,14 +176,9 @@ export function ActiveChatView() {
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const sanitizedMessagesRef = useRef<DisplayMessage[]>([]);
   const transcriptItemsRef = useRef<TranscriptItem[]>([]);
-  // Owned here so `useChatDebugApi` (also called from this component) can
-  // read scroll geometry directly via `transcriptRef.current.getScrollElement()`.
-  // Threaded down to ChatRouteContent through the `refs` prop and bound on
-  // the actual `<Transcript />` instance there.
+  // Threaded down to ChatRouteContent and bound on the `<Transcript />`
+  // instance there. Also read by useChatDebugRegistration for scroll state.
   const transcriptRef = useRef<TranscriptHandle | null>(null);
-
-  const assistantIdRef = useRef<string | null>(assistantId);
-  useEffect(() => { assistantIdRef.current = assistantId; }, [assistantId]);
 
   // -------------------------------------------------------------------------
   // Onboarding orchestrator — owns onboarding refs, flags, and effects.
@@ -207,7 +192,6 @@ export function ActiveChatView() {
     onboardingDraftConversationIdRef,
   } = useOnboardingOrchestrator();
 
-  const initialPageOldestTsRef = useRef<number | null>(null);
   const conversationListInvalidatedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInitialMessageRef = useRef<{ conversationId: string; content: string } | null>(null);
 
@@ -319,19 +303,12 @@ export function ActiveChatView() {
     conversationGroupsUI,
     refreshEpoch,
     reachabilityReadyEpoch,
-    assistantIdRef,
     onboardingDraftConversationIdRef,
     conversationListInvalidatedTimerRef,
     pendingInitialMessageRef,
     shouldSuppressGenericChatErrorNotice,
     resetChatAttachments,
   });
-
-  // Keep initialPageOldestTsRef in sync with TQ pagination data — used by
-  // useMessageReconciliation to scope reconciliation to the loaded window.
-  useEffect(() => {
-    initialPageOldestTsRef.current = historyResult.pagination.latestPageOldestTimestamp;
-  }, [historyResult.pagination.latestPageOldestTimestamp]);
 
   // Wrap conversation-switching to reset subagent state eagerly
   const switchConversation = useCallback(
@@ -358,7 +335,7 @@ export function ActiveChatView() {
     cancelReconciliation,
     reconcileActiveConversation,
   } = useMessageReconciliation({
-    initialPageOldestTsRef,
+    latestPageOldestTimestamp: historyResult.pagination.latestPageOldestTimestamp,
   });
 
   // -------------------------------------------------------------------------
@@ -393,7 +370,7 @@ export function ActiveChatView() {
   // -------------------------------------------------------------------------
   const {
     sendMessage,
-    handleStopGenerating: baseHandleStopGenerating,
+    handleStopGenerating,
     queuedMessages,
     handleCancelQueuedMessage,
     handleCancelAllQueued,
@@ -412,11 +389,6 @@ export function ActiveChatView() {
     refreshConversations,
     navigate,
   });
-
-  const handleStopGenerating = useCallback(async () => {
-    useInteractionStore.getState().dismissQuestion();
-    await baseHandleStopGenerating();
-  }, [baseHandleStopGenerating]);
 
   // Auto-send: URL ?prompt=, pre-chat reachability probe, onboarding message.
   useAutoSendEffects({
@@ -437,22 +409,7 @@ export function ActiveChatView() {
   );
 
   // Deep-link: ?app=<id> auto-opens the app viewer on initial load.
-  const deepLinkAppConsumed = useRef(false);
-  useEffect(() => {
-    if (deepLinkAppConsumed.current) return;
-    const appId = searchParams.get("app");
-    if (!appId || !assistantId) return;
-    deepLinkAppConsumed.current = true;
-    void useViewerStore.getState().loadApp(assistantId, appId);
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("app");
-    const query = params.toString();
-    window.history.replaceState(
-      null,
-      "",
-      query ? `${window.location.pathname}?${query}` : window.location.pathname,
-    );
-  }, [searchParams, assistantId]);
+  useDeepLinkApp(assistantId, searchParams);
 
   // Conversation-change side effects (dismiss prompts, reset subagent state,
   // auto-fetch subagent details for entries reconstructed from history)
@@ -486,39 +443,11 @@ export function ActiveChatView() {
 
   // Debug API — dev-facing surface for in-the-moment chat inspection.
   // Unconditionally attached; negligible production overhead.
-  useChatDebugApi({
+  useChatDebugRegistration({
+    assistantId,
     sanitizedMessagesRef,
     transcriptItemsRef,
     transcriptRef,
-    getAssistantId: () => assistantIdRef.current,
-    getTurnState: () => useTurnStore.getState(),
-    getUIContext: () => _debugUiContext,
-    // The chat domain isn't allowed to import the interactions store
-    // directly (cross-domain rule). chat-page.tsx is the composition
-    // root with an allowlist exemption for `interactions`, so the
-    // wiring lives here. Snapshotting the fields explicitly — rather
-    // than returning the whole Zustand state — keeps the DevTools
-    // payload predictable and avoids leaking actions/setters into the
-    // serialized output.
-    getPendingInteractionsSnapshot: () => {
-      const state = useInteractionStore.getState();
-      return {
-        pendingSecret: state.pendingSecret,
-        isSubmittingSecret: state.isSubmittingSecret,
-        pendingConfirmation: state.pendingConfirmation,
-        isSubmittingConfirmation: state.isSubmittingConfirmation,
-        pendingContactRequest: state.pendingContactRequest,
-        isSubmittingContactRequest: state.isSubmittingContactRequest,
-        pendingQuestion: state.pendingQuestion,
-        isSubmittingQuestion: state.isSubmittingQuestion,
-        isQuestionCardDismissed: state.isQuestionCardDismissed,
-        inlineConfirmationToolCallId: state.inlineConfirmationToolCallId,
-      };
-    },
-    getScrollPagination: () => ({
-      hasMore: transcriptPagination.hasMore,
-      isLoadingOlder: transcriptPagination.isLoadingOlder,
-    }),
     reconcileActiveConversation,
   });
 
@@ -548,37 +477,18 @@ export function ActiveChatView() {
   });
 
   // -------------------------------------------------------------------------
-  // Command palette
+  // Command palette — sections, Ctrl/Cmd+K shortcut, item dispatch
   // -------------------------------------------------------------------------
-  const navigateToSettings = useCallback(() => {
-    void navigate(routes.settings.root);
-  }, [navigate]);
-
   const { commandPalette, mergedSections, handleItemSelect } =
-    useCommandPaletteSections({
+    useCommandPaletteOrchestrator({
       assistantId,
       assistantName: assistantName ?? undefined,
       conversations,
       activeConversationId: activeConversationId ?? undefined,
       startNewConversation: () => startNewConversation(),
       switchConversation,
-      navigate: (to: string | number) => {
-        if (typeof to === "number") navigate(to);
-        else void navigate(to);
-      },
-      navigateToSettings,
+      navigate,
     });
-
-  // Ctrl/Cmd+K shortcut for command palette
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (!shouldHandleShortcut(event, document.activeElement, "k")) return;
-      event.preventDefault();
-      commandPalette.toggle();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => { window.removeEventListener("keydown", onKeyDown); };
-  }, [commandPalette.toggle]);
 
   // -------------------------------------------------------------------------
   // Layout header slot registration — supplements, top bar right, search
@@ -593,33 +503,6 @@ export function ActiveChatView() {
     refreshLatestMessages,
     commandPaletteToggle: commandPalette.toggle,
   });
-
-  // -------------------------------------------------------------------------
-  // Debug API — UIContext snapshot (read lazily by useChatDebugApi closure)
-  // -------------------------------------------------------------------------
-  const _debugUiContext = useMemo<UIContext>(() => {
-    const isProcessing = activeConversationId != null && processingConversationIds.has(activeConversationId);
-    const interactionState = useInteractionStore.getState();
-    let hasUncompletedSurface = false;
-    for (const msg of messages) {
-      if (msg.surfaces) {
-        for (const s of msg.surfaces) {
-          if (isSurfaceInteractive(s)) { hasUncompletedSurface = true; break; }
-        }
-      }
-      if (hasUncompletedSurface) break;
-    }
-    return {
-      hasStreamingAssistantMessage: isProcessing && messages.length > 0 && messages[messages.length - 1]?.role === "assistant",
-      hasPendingSecret: !!interactionState.pendingSecret,
-      hasPendingConfirmation: !!interactionState.pendingConfirmation,
-      hasPendingQuestion: !!interactionState.pendingQuestion,
-      hasPendingContactRequest: !!interactionState.pendingContactRequest,
-      hasUncompletedVisibleSurface: hasUncompletedSurface,
-      activeConversationIsProcessing: isProcessing,
-      hasPendingAssistantResponse: hasPendingAssistantResponse(messages),
-    };
-  }, [messages, activeConversationId, processingConversationIds]);
 
   // -------------------------------------------------------------------------
   // Auto-greet connecting overlay — shows while waiting for the first

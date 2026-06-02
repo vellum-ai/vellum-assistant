@@ -78,7 +78,6 @@ interface UseConversationLoaderParams {
   reachabilityReadyEpoch: number;
 
   // Infrastructure refs (not per-conversation state)
-  assistantIdRef: MutableRefObject<string | null>;
   onboardingDraftConversationIdRef: MutableRefObject<string | null>;
   conversationListInvalidatedTimerRef: MutableRefObject<ReturnType<typeof setTimeout> | null>;
   pendingInitialMessageRef: MutableRefObject<{ conversationId: string; content: string } | null>;
@@ -123,7 +122,6 @@ export function useConversationLoader({
   conversationGroupsUI,
   refreshEpoch,
   reachabilityReadyEpoch,
-  assistantIdRef,
   onboardingDraftConversationIdRef,
   conversationListInvalidatedTimerRef,
   pendingInitialMessageRef,
@@ -133,6 +131,8 @@ export function useConversationLoader({
   // -------------------------------------------------------------------------
   // Internal refs
   // -------------------------------------------------------------------------
+  const assistantIdRef = useRef<string | null>(assistantId);
+  assistantIdRef.current = assistantId;
   const refreshConversationsRef = useRef<() => Promise<void>>(async () => {});
   const queryClient = useQueryClient();
 

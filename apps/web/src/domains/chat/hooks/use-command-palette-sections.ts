@@ -258,7 +258,7 @@ interface UseCommandPaletteSectionsParams {
   navigateToSettings: () => void;
 }
 
-interface UseCommandPaletteSectionsReturn {
+export interface UseCommandPaletteSectionsReturn {
   commandPalette: UseCommandPaletteReturn;
   mergedSections: CommandPaletteSection[];
   handleItemSelect: (item: CommandPaletteItemData) => void;
