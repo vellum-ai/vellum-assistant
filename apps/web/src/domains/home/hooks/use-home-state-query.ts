@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -13,9 +13,13 @@ import {
 export function useHomeStateQuery(assistantId: string | null) {
   const queryClient = useQueryClient();
 
-  const stateQueryKey = homeStateGetQueryKey({
-    path: { assistant_id: assistantId ?? "" },
-  });
+  const stateQueryKey = useMemo(
+    () =>
+      homeStateGetQueryKey({
+        path: { assistant_id: assistantId ?? "" },
+      }),
+    [assistantId],
+  );
 
   const query = useQuery({
     ...homeStateGetOptions({

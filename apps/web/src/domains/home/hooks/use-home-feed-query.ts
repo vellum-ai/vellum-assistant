@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -34,10 +34,14 @@ export function useHomeFeedQuery(assistantId: string | null) {
   // Stable query key — timeAwaySeconds is a fetch-time side-channel
   // (passed via ref), not a cache dimension, so the key uses a fixed
   // placeholder to keep a single cache entry per assistant.
-  const feedQueryKey = homeFeedGetQueryKey({
-    path: { assistant_id: assistantId ?? "" },
-    query: { timeAwaySeconds: 0 },
-  });
+  const feedQueryKey = useMemo(
+    () =>
+      homeFeedGetQueryKey({
+        path: { assistant_id: assistantId ?? "" },
+        query: { timeAwaySeconds: 0 },
+      }),
+    [assistantId],
+  );
 
   useEffect(() => {
     const unsubHidden = subscribe("app.hidden", () => {
