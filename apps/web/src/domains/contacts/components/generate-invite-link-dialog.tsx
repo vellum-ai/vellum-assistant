@@ -8,7 +8,7 @@ import { Modal } from "@vellum/design-library/components/modal";
 import { Typography } from "@vellum/design-library/components/typography";
 
 import { buildA2AInviteLink } from "@/domains/contacts/a2a-invite";
-import { createA2AInvite } from "@/domains/contacts/api";
+import { integrationsA2aInvitePostMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 
 export interface GenerateInviteLinkDialogProps {
   open: boolean;
@@ -35,7 +35,9 @@ export function GenerateInviteLinkDialog({
   const prevOpenRef = useRef(false);
 
   const mutation = useMutation({
-    mutationFn: () => createA2AInvite(assistantId),
+    ...integrationsA2aInvitePostMutation({
+      path: { assistant_id: assistantId },
+    }),
   });
 
   const mutateRef = useRef(mutation.mutate);
@@ -45,10 +47,10 @@ export function GenerateInviteLinkDialog({
 
   useEffect(() => {
     if (open && !prevOpenRef.current) {
-      mutateRef.current();
+      mutateRef.current({ path: { assistant_id: assistantId } });
     }
     prevOpenRef.current = open;
-  }, [open]);
+  }, [open, assistantId]);
 
   useEffect(() => {
     return () => {
@@ -75,7 +77,7 @@ export function GenerateInviteLinkDialog({
   }, []);
 
   const inviteUrl =
-    mutation.isSuccess
+    mutation.isSuccess && mutation.data.token
       ? buildA2AInviteLink({
           senderAssistantId: assistantId,
           token: mutation.data.token,
@@ -114,7 +116,9 @@ export function GenerateInviteLinkDialog({
               </p>
               <Button
                 variant="outlined"
-                onClick={() => mutation.mutate()}
+                onClick={() =>
+                  mutation.mutate({ path: { assistant_id: assistantId } })
+                }
               >
                 Try Again
               </Button>
@@ -151,12 +155,14 @@ export function GenerateInviteLinkDialog({
                   )}
                 </button>
               </div>
-              <Typography
-                variant="body-small-default"
-                style={{ color: "var(--content-tertiary)" }}
-              >
-                {formatExpiry(mutation.data.expiresAt)}
-              </Typography>
+              {mutation.data.expiresAt != null && (
+                <Typography
+                  variant="body-small-default"
+                  style={{ color: "var(--content-tertiary)" }}
+                >
+                  {formatExpiry(mutation.data.expiresAt)}
+                </Typography>
+              )}
             </div>
           ) : null}
         </Modal.Body>

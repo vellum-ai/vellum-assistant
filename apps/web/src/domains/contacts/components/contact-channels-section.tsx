@@ -77,7 +77,7 @@ export function buildVisibleChannels(
       continue;
     }
     visibleChannels.push({
-      id: ch.type,
+      id: ch.type as ChannelInfo["id"],
       label: ch.type.charAt(0).toUpperCase() + ch.type.slice(1),
       subtitle: "",
       icon: "help-circle",

@@ -3889,7 +3889,69 @@ paths:
                     type: boolean
                   snapshots:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        channel:
+                          type: string
+                        ready:
+                          type: boolean
+                        setupStatus:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        checkedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        stale:
+                          type: boolean
+                        reasons:
+                          type: array
+                          items:
+                            type: string
+                        localChecks:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              passed:
+                                type: boolean
+                              message:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                            required:
+                              - name
+                              - passed
+                            additionalProperties: false
+                        remoteChecks:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              passed:
+                                type: boolean
+                              message:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                            required:
+                              - name
+                              - passed
+                            additionalProperties: false
+                        channelHandle:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - channel
+                        - ready
+                      additionalProperties: false
                     description: Channel readiness snapshots
                 required:
                   - success
@@ -3927,7 +3989,69 @@ paths:
                     type: boolean
                   snapshots:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        channel:
+                          type: string
+                        ready:
+                          type: boolean
+                        setupStatus:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        checkedAt:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        stale:
+                          type: boolean
+                        reasons:
+                          type: array
+                          items:
+                            type: string
+                        localChecks:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              passed:
+                                type: boolean
+                              message:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                            required:
+                              - name
+                              - passed
+                            additionalProperties: false
+                        remoteChecks:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name:
+                                type: string
+                              passed:
+                                type: boolean
+                              message:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                            required:
+                              - name
+                              - passed
+                            additionalProperties: false
+                        channelHandle:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - channel
+                        - ready
+                      additionalProperties: false
                     description: Refreshed readiness snapshots
                 required:
                   - success
@@ -4468,13 +4592,104 @@ paths:
                   ok:
                     type: boolean
                   contact:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
                     description: Updated contact (if applicable)
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      displayName:
+                        type: string
+                      role:
+                        type: string
+                      notes:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      contactType:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      lastInteraction:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      interactionCount:
+                        type: number
+                      channels:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            contactId:
+                              type: string
+                            type:
+                              type: string
+                            address:
+                              type: string
+                            isPrimary:
+                              type: boolean
+                            externalUserId:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            status:
+                              type: string
+                            policy:
+                              type: string
+                            verifiedAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            verifiedVia:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            lastSeenAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            interactionCount:
+                              type: number
+                            lastInteraction:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            revokedReason:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            blockedReason:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                          required:
+                            - id
+                            - contactId
+                            - type
+                            - address
+                            - isPrimary
+                            - externalUserId
+                            - status
+                            - policy
+                            - verifiedAt
+                            - verifiedVia
+                            - lastSeenAt
+                            - interactionCount
+                            - lastInteraction
+                            - revokedReason
+                            - blockedReason
+                          additionalProperties: false
+                    required:
+                      - id
+                      - displayName
+                      - role
+                      - interactionCount
+                      - channels
+                    additionalProperties: false
                 required:
                   - ok
-                  - contact
                 additionalProperties: false
       parameters:
         - name: contactChannelId
@@ -4522,7 +4737,102 @@ paths:
                     type: boolean
                   contacts:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        displayName:
+                          type: string
+                        role:
+                          type: string
+                        notes:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        contactType:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        lastInteraction:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        interactionCount:
+                          type: number
+                        channels:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              id:
+                                type: string
+                              contactId:
+                                type: string
+                              type:
+                                type: string
+                              address:
+                                type: string
+                              isPrimary:
+                                type: boolean
+                              externalUserId:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                              status:
+                                type: string
+                              policy:
+                                type: string
+                              verifiedAt:
+                                anyOf:
+                                  - type: number
+                                  - type: "null"
+                              verifiedVia:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                              lastSeenAt:
+                                anyOf:
+                                  - type: number
+                                  - type: "null"
+                              interactionCount:
+                                type: number
+                              lastInteraction:
+                                anyOf:
+                                  - type: number
+                                  - type: "null"
+                              revokedReason:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                              blockedReason:
+                                anyOf:
+                                  - type: string
+                                  - type: "null"
+                            required:
+                              - id
+                              - contactId
+                              - type
+                              - address
+                              - isPrimary
+                              - externalUserId
+                              - status
+                              - policy
+                              - verifiedAt
+                              - verifiedVia
+                              - lastSeenAt
+                              - interactionCount
+                              - lastInteraction
+                              - revokedReason
+                              - blockedReason
+                            additionalProperties: false
+                      required:
+                        - id
+                        - displayName
+                        - role
+                        - interactionCount
+                        - channels
+                      additionalProperties: false
                     description: Contact objects with channels and metadata
                 required:
                   - ok
@@ -4584,18 +4894,122 @@ paths:
                     type: boolean
                   contact:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
-                    description: Contact details
+                    properties:
+                      id:
+                        type: string
+                      displayName:
+                        type: string
+                      role:
+                        type: string
+                      notes:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      contactType:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      lastInteraction:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      interactionCount:
+                        type: number
+                      channels:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            contactId:
+                              type: string
+                            type:
+                              type: string
+                            address:
+                              type: string
+                            isPrimary:
+                              type: boolean
+                            externalUserId:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            status:
+                              type: string
+                            policy:
+                              type: string
+                            verifiedAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            verifiedVia:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            lastSeenAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            interactionCount:
+                              type: number
+                            lastInteraction:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            revokedReason:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            blockedReason:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                          required:
+                            - id
+                            - contactId
+                            - type
+                            - address
+                            - isPrimary
+                            - externalUserId
+                            - status
+                            - policy
+                            - verifiedAt
+                            - verifiedVia
+                            - lastSeenAt
+                            - interactionCount
+                            - lastInteraction
+                            - revokedReason
+                            - blockedReason
+                          additionalProperties: false
+                    required:
+                      - id
+                      - displayName
+                      - role
+                      - interactionCount
+                      - channels
+                    additionalProperties: false
                   assistantMetadata:
-                    type: object
-                    properties: {}
-                    additionalProperties: {}
                     description: Assistant-side metadata
+                    type: object
+                    properties:
+                      contactId:
+                        type: string
+                      species:
+                        type: string
+                      metadata:
+                        anyOf:
+                          - type: object
+                            properties: {}
+                            additionalProperties: {}
+                          - type: "null"
+                    required:
+                      - contactId
+                      - species
+                      - metadata
+                    additionalProperties: false
                 required:
                   - ok
                   - contact
-                  - assistantMetadata
                 additionalProperties: false
       parameters:
         - name: id
@@ -4847,8 +5261,100 @@ paths:
                     type: boolean
                   contact:
                     type: object
-                    properties: {}
-                    additionalProperties: {}
+                    properties:
+                      id:
+                        type: string
+                      displayName:
+                        type: string
+                      role:
+                        type: string
+                      notes:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      contactType:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      lastInteraction:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      interactionCount:
+                        type: number
+                      channels:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            contactId:
+                              type: string
+                            type:
+                              type: string
+                            address:
+                              type: string
+                            isPrimary:
+                              type: boolean
+                            externalUserId:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            status:
+                              type: string
+                            policy:
+                              type: string
+                            verifiedAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            verifiedVia:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            lastSeenAt:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            interactionCount:
+                              type: number
+                            lastInteraction:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            revokedReason:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                            blockedReason:
+                              anyOf:
+                                - type: string
+                                - type: "null"
+                          required:
+                            - id
+                            - contactId
+                            - type
+                            - address
+                            - isPrimary
+                            - externalUserId
+                            - status
+                            - policy
+                            - verifiedAt
+                            - verifiedVia
+                            - lastSeenAt
+                            - interactionCount
+                            - lastInteraction
+                            - revokedReason
+                            - blockedReason
+                          additionalProperties: false
+                    required:
+                      - id
+                      - displayName
+                      - role
+                      - interactionCount
+                      - channels
+                    additionalProperties: false
                     description: Merged contact
                 required:
                   - ok
@@ -4947,8 +5453,100 @@ paths:
                 type: array
                 items:
                   type: object
-                  properties: {}
-                  additionalProperties: {}
+                  properties:
+                    id:
+                      type: string
+                    displayName:
+                      type: string
+                    role:
+                      type: string
+                    notes:
+                      anyOf:
+                        - type: string
+                        - type: "null"
+                    contactType:
+                      anyOf:
+                        - type: string
+                        - type: "null"
+                    lastInteraction:
+                      anyOf:
+                        - type: number
+                        - type: "null"
+                    interactionCount:
+                      type: number
+                    channels:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          id:
+                            type: string
+                          contactId:
+                            type: string
+                          type:
+                            type: string
+                          address:
+                            type: string
+                          isPrimary:
+                            type: boolean
+                          externalUserId:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          status:
+                            type: string
+                          policy:
+                            type: string
+                          verifiedAt:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          verifiedVia:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          lastSeenAt:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          interactionCount:
+                            type: number
+                          lastInteraction:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          revokedReason:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          blockedReason:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                        required:
+                          - id
+                          - contactId
+                          - type
+                          - address
+                          - isPrimary
+                          - externalUserId
+                          - status
+                          - policy
+                          - verifiedAt
+                          - verifiedVia
+                          - lastSeenAt
+                          - interactionCount
+                          - lastInteraction
+                          - revokedReason
+                          - blockedReason
+                        additionalProperties: false
+                  required:
+                    - id
+                    - displayName
+                    - role
+                    - interactionCount
+                    - channels
+                  additionalProperties: false
       requestBody:
         required: true
         content:
@@ -12484,6 +13082,26 @@ paths:
       responses:
         "200":
           description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  inviteId:
+                    type: string
+                  token:
+                    type: string
+                  expiresAt:
+                    type: number
+                  senderGatewayUrl:
+                    type: string
+                  error:
+                    type: string
+                required:
+                  - success
+                additionalProperties: false
   /v1/integrations/a2a/invite/accept:
     post:
       operationId: integrations_a2a_invite_accept_post
@@ -12625,6 +13243,23 @@ paths:
       responses:
         "200":
           description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                botToken:
+                  type: string
+                  description: Slack bot token
+                appToken:
+                  type: string
+                  description: Slack app-level token
+              required:
+                - botToken
+                - appToken
+              additionalProperties: false
   /v1/integrations/telegram/commands:
     post:
       operationId: integrations_telegram_commands_post
@@ -12663,6 +13298,19 @@ paths:
       responses:
         "200":
           description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                botToken:
+                  type: string
+                  description: Telegram bot token
+              required:
+                - botToken
+              additionalProperties: false
   /v1/integrations/telegram/setup:
     post:
       operationId: integrations_telegram_setup_post
@@ -12702,6 +13350,23 @@ paths:
       responses:
         "200":
           description: Successful response
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                accountSid:
+                  type: string
+                  description: Twilio account SID
+                authToken:
+                  type: string
+                  description: Twilio auth token
+              required:
+                - accountSid
+                - authToken
+              additionalProperties: false
   /v1/integrations/twilio/numbers:
     get:
       operationId: integrations_twilio_numbers_get
