@@ -71,9 +71,53 @@ mock.module("@anthropic-ai/sdk", () => ({
   },
 }));
 
+// Mock daemon collaborators the handler module imports at load time so the
+// handler-level tests below can drive `server_tool_complete` in isolation.
+mock.module("../config/loader.js", () => ({
+  getConfig: () => ({
+    skills: {
+      entries: {},
+      load: { extraDirs: [], watch: false, watchDebounceMs: 0 },
+      install: { nodeManager: "npm" },
+      allowBundled: null,
+      remoteProviders: {
+        skillssh: { enabled: true },
+        clawhub: { enabled: true },
+      },
+      remotePolicy: {
+        blockSuspicious: true,
+        blockMalware: true,
+        maxSkillsShRisk: "medium",
+      },
+    },
+  }),
+  loadConfig: () => ({}),
+}));
+
+mock.module("../memory/conversation-crud.js", () => ({
+  addMessage: () => ({ id: "mock-msg-id" }),
+  getMessageById: () => null,
+  updateMessageContent: () => {},
+  provenanceFromTrustContext: () => ({}),
+  reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+}));
+
+mock.module("../memory/llm-request-log-store.js", () => ({
+  recordRequestLog: () => {},
+  backfillMessageIdOnLogs: () => {},
+}));
+
 // Import after mocking
+import {
+  createEventHandlerState,
+  dispatchAgentEvent,
+  type EventHandlerDeps,
+  type EventHandlerState,
+} from "../daemon/conversation-agent-loop-handlers.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import { AnthropicProvider } from "../providers/anthropic/client.js";
 import { isNativeWebSearchCapableProvider } from "../providers/registry.js";
+import { WEB_SEARCH_BACKEND_FAILURE_MESSAGE } from "../tools/network/web-search-error.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -497,5 +541,210 @@ describe("Native Web Search — Streaming Events", () => {
       (e) => e.type === "tool_use_preview_start",
     );
     expect(toolUseEvents).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests — Native server_tool_complete backend-failure handling (ATL-727)
+// ---------------------------------------------------------------------------
+
+type ToolResultEvent = Extract<ServerMessage, { type: "tool_result" }>;
+
+interface LogRecord {
+  obj: Record<string, unknown>;
+  msg?: string;
+}
+
+function createHandlerDeps(reqId = "req-web-search"): {
+  deps: EventHandlerDeps;
+  events: ServerMessage[];
+  warnings: LogRecord[];
+} {
+  const events: ServerMessage[] = [];
+  const warnings: LogRecord[] = [];
+  const rlog = {
+    warn: (obj: Record<string, unknown>, msg?: string) =>
+      warnings.push({ obj, msg }),
+    info: () => {},
+    error: () => {},
+    debug: () => {},
+    trace: () => {},
+    fatal: () => {},
+  };
+  const deps = {
+    ctx: {
+      conversationId: "conv-web-search",
+      provider: { name: "anthropic" },
+      traceEmitter: { emit: () => {} },
+      streamThinking: false,
+      emitActivityState: () => {},
+      markWorkspaceTopLevelDirty: () => {},
+      currentTurnSurfaces: [],
+    } as unknown as EventHandlerDeps["ctx"],
+    onEvent: (msg: ServerMessage) => events.push(msg),
+    reqId,
+    isFirstMessage: false,
+    shouldGenerateTitle: false,
+    rlog: rlog as unknown as EventHandlerDeps["rlog"],
+    turnChannelContext: {
+      userMessageChannel: "vellum",
+      assistantMessageChannel: "vellum",
+    } as EventHandlerDeps["turnChannelContext"],
+    turnInterfaceContext: {
+      userMessageInterface: "macos",
+      assistantMessageInterface: "macos",
+    } as EventHandlerDeps["turnInterfaceContext"],
+  } as EventHandlerDeps;
+  return { deps, events, warnings };
+}
+
+async function completeWebSearch(
+  state: EventHandlerState,
+  deps: EventHandlerDeps,
+  toolUseId: string,
+  event: {
+    isError: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+    content?: unknown[];
+  },
+): Promise<void> {
+  await dispatchAgentEvent(state, deps, {
+    type: "server_tool_start",
+    name: "web_search",
+    toolUseId,
+    input: { query: "what is the weather" },
+  });
+  await dispatchAgentEvent(state, deps, {
+    type: "server_tool_complete",
+    toolUseId,
+    isError: event.isError,
+    ...(event.errorCode ? { errorCode: event.errorCode } : {}),
+    ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+    content: event.content ?? [],
+  });
+}
+
+function lastToolResult(events: ServerMessage[]): ToolResultEvent | undefined {
+  const results = events.filter(
+    (e): e is ToolResultEvent => e.type === "tool_result",
+  );
+  return results[results.length - 1];
+}
+
+describe("Native Web Search — Backend Failure Handling", () => {
+  let state: EventHandlerState;
+
+  beforeEach(() => {
+    state = createEventHandlerState();
+  });
+
+  test("backend failure surfaces friendly copy with isError true and empty results", async () => {
+    const { deps, events } = createHandlerDeps();
+    await completeWebSearch(state, deps, "tu_backend", {
+      isError: true,
+      errorCode: "unavailable",
+    });
+
+    const result = lastToolResult(events);
+    expect(result?.activityMetadata?.webSearch?.errorMessage).toBe(
+      WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+    );
+    expect(result?.isError).toBe(true);
+    expect(result?.activityMetadata?.webSearch?.resultCount).toBe(0);
+    expect(result?.activityMetadata?.webSearch?.results).toEqual([]);
+  });
+
+  test("raw error_code is logged under web_search_backend_failure but absent from user copy", async () => {
+    const { deps, events, warnings } = createHandlerDeps();
+    await completeWebSearch(state, deps, "tu_log", {
+      isError: true,
+      errorCode: "unavailable",
+    });
+
+    const failureLog = warnings.find(
+      (w) => w.obj.event === "web_search_backend_failure",
+    );
+    expect(failureLog).toBeDefined();
+    expect(String(failureLog?.obj.rawDetail)).toContain("unavailable");
+    expect(failureLog?.obj.fallbackShown).toBe(true);
+
+    const errorMessage = lastToolResult(events)?.activityMetadata?.webSearch
+      ?.errorMessage;
+    expect(errorMessage).not.toContain("unavailable");
+  });
+
+  test("dedups repeat backend failures within one turn to a single friendly notice", async () => {
+    const { deps, events, warnings } = createHandlerDeps();
+
+    await completeWebSearch(state, deps, "tu_dup_1", {
+      isError: true,
+      errorCode: "unavailable",
+    });
+    await completeWebSearch(state, deps, "tu_dup_2", {
+      isError: true,
+      errorCode: "overloaded_error",
+    });
+
+    const results = events.filter(
+      (e): e is ToolResultEvent => e.type === "tool_result",
+    );
+    expect(results).toHaveLength(2);
+    expect(results[0]?.activityMetadata?.webSearch?.errorMessage).toBe(
+      WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+    );
+    // The second backend failure in the same turn is terse, not the full notice.
+    expect(results[1]?.activityMetadata?.webSearch?.errorMessage).not.toBe(
+      WEB_SEARCH_BACKEND_FAILURE_MESSAGE,
+    );
+
+    const failureLogs = warnings.filter(
+      (w) => w.obj.event === "web_search_backend_failure",
+    );
+    // Both failures are logged, but only the first reports fallbackShown.
+    expect(failureLogs).toHaveLength(2);
+    expect(failureLogs.filter((w) => w.obj.fallbackShown === true)).toHaveLength(
+      1,
+    );
+  });
+
+  test("successful search leaves errorMessage undefined and populates results", async () => {
+    const { deps, events, warnings } = createHandlerDeps();
+    await completeWebSearch(state, deps, "tu_ok", {
+      isError: false,
+      content: [
+        {
+          type: "web_search_result",
+          title: "Weather",
+          url: "https://example.com/weather",
+        },
+      ],
+    });
+
+    const meta = lastToolResult(events)?.activityMetadata?.webSearch;
+    expect(meta?.errorMessage).toBeUndefined();
+    expect(meta?.resultCount).toBe(1);
+    expect(meta?.results[0]?.title).toBe("Weather");
+    expect(lastToolResult(events)?.isError).toBe(false);
+    expect(
+      warnings.filter((w) => w.obj.event === "web_search_backend_failure"),
+    ).toHaveLength(0);
+  });
+
+  test("query_too_long yields a distinct non-backend message", async () => {
+    const { deps, events, warnings } = createHandlerDeps();
+    await completeWebSearch(state, deps, "tu_long", {
+      isError: true,
+      errorCode: "query_too_long",
+    });
+
+    const errorMessage = lastToolResult(events)?.activityMetadata?.webSearch
+      ?.errorMessage;
+    expect(errorMessage).toBeDefined();
+    expect(errorMessage).not.toBe(WEB_SEARCH_BACKEND_FAILURE_MESSAGE);
+    // Recoverable non-backend errors must NOT emit backend-failure telemetry.
+    expect(
+      warnings.filter((w) => w.obj.event === "web_search_backend_failure"),
+    ).toHaveLength(0);
   });
 });
