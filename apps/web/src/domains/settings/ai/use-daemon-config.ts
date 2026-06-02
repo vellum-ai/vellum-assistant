@@ -111,19 +111,27 @@ export function useDaemonConfigQuery() {
  * Mutation hook for daemon config patches.
  *
  * Wraps `configPatch` in a `useMutation` with automatic cache invalidation
- * on settle. Consumers get `isPending`, `error`, and `reset()` for free
- * instead of maintaining parallel `useState` for loading/error state.
+ * on settle. Resolves the assistant ID lazily via `fetchQuery` so callers
+ * don't need to gate on the assistant list being loaded.
  */
 export function useDaemonConfigMutation() {
   const queryClient = useQueryClient();
   const { data: assistantList } = useQuery(assistantsListOptions());
   const assistantId = assistantList?.results?.[0]?.id;
 
+  const resolveAssistantId = useCallback(async (): Promise<string> => {
+    if (assistantId) return assistantId;
+    const list = await queryClient.fetchQuery(assistantsListOptions());
+    const resolved = list.results?.[0]?.id;
+    if (!resolved) throw new Error("No assistant found");
+    return resolved;
+  }, [assistantId, queryClient]);
+
   return useMutation({
     mutationFn: async (body: DaemonConfigPatch) => {
-      if (!assistantId) throw new Error("No assistant found");
+      const resolvedId = await resolveAssistantId();
       const { data } = await configPatch({
-        path: { assistant_id: assistantId },
+        path: { assistant_id: resolvedId },
         body,
         throwOnError: true,
       });
