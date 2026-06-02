@@ -39,6 +39,7 @@ const makeEnvelope = (override: {
   message: AssistantEvent;
   conversationId?: string;
   seq?: number;
+  clientSeq?: number;
 }) => override;
 
 const makeDeps = (override: {
@@ -488,5 +489,87 @@ describe("sse-event-consumer — seq-gap detection", () => {
     );
 
     expect(handleStreamEvent).toHaveBeenCalledTimes(1);
+  });
+
+  test("prefers clientSeq over seq for gap detection", () => {
+    const { deps } = makeDeps();
+    const consumer = createSseEventConsumer(deps);
+
+    // Seed with clientSeq=1 (seq=5 — simulating targeted events
+    // consuming seq numbers 1-4 that this subscriber never received).
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 5,
+        clientSeq: 1,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+    // Cursor should be seeded at clientSeq=1, not seq=5.
+    expect(seqStore.get("conv-1")).toBe(1);
+
+    // Next event: clientSeq=2 (contiguous), seq=10 (gap from subscriber's
+    // perspective but irrelevant since clientSeq is used).
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 10,
+        clientSeq: 2,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+    // No gap detected — clientSeq 2 follows 1 contiguously.
+    expect(seqStore.get("conv-1")).toBe(2);
+  });
+
+  test("falls back to seq when clientSeq is absent (old daemon)", () => {
+    const { deps } = makeDeps();
+    const consumer = createSseEventConsumer(deps);
+
+    // Seed with seq only (no clientSeq — old daemon).
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 1,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+
+    // Contiguous seq=2 advances cursor normally.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 2,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+    expect(seqStore.get("conv-1")).toBe(2);
+  });
+
+  test("clientSeq gap triggers reconcile even when seq is contiguous", () => {
+    const { deps, reconcileActive } = makeDeps();
+    const consumer = createSseEventConsumer(deps);
+
+    // Seed.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 1,
+        clientSeq: 1,
+        message: { type: "assistant_text_delta", text: "a" },
+      }),
+    );
+
+    // clientSeq jumps from 1 to 3 (gap), even though we don't care about seq.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-1",
+        seq: 2,
+        clientSeq: 3,
+        message: { type: "assistant_text_delta", text: "b" },
+      }),
+    );
+
+    expect(reconcileActive).toHaveBeenCalledTimes(1);
   });
 });

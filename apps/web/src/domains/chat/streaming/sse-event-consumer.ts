@@ -67,6 +67,7 @@ export interface ConsumableEnvelope {
   message: AssistantEvent;
   conversationId?: string;
   seq?: number;
+  clientSeq?: number;
 }
 
 export interface SseEventConsumerDeps {
@@ -127,7 +128,11 @@ export function createSseEventConsumer(
         return;
       }
 
-      const eventSeq = envelope.seq;
+      // Prefer clientSeq (gap-free per subscriber) over raw seq
+      // (global, may have gaps from targeted events the web client
+      // never receives). Falls back to seq for older daemons that
+      // predate the clientSeq field.
+      const eventSeq = envelope.clientSeq ?? envelope.seq;
       let gapDetected = false;
       if (seqGapEnabled && eventSeq != null && eventConversationId) {
         if (seededSeqForConversation) {
