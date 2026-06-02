@@ -33,20 +33,23 @@ import { VibeStepScreen } from "@/domains/onboarding/screens/vibe-step-screen.js
 import { assistantsActiveRetrieveOptions } from "@/generated/api/@tanstack/react-query.gen.js";
 import { usePrefilledInput } from "@/hooks/use-prefilled-input.js";
 import {
-  buildPreChatInitialMessage,
-  DEFAULT_PRECHAT_INITIAL_MESSAGE,
   setPendingAssistantName,
   setPendingPreChatContext,
-  type PreChatOnboardingContext,
 } from "@/domains/onboarding/prechat";
+import { buildPreChatContext } from "@/domains/onboarding/prechat-context";
+import {
+  nextStep,
+  prevStep,
+  resolveNativeSteps,
+  resolveWebSteps,
+  type PreChatStep,
+  type PreChatStepId,
+} from "@/domains/onboarding/prechat-steps";
 import {
   DEFAULT_GROUP_ID,
   sampleSuggestionNames,
 } from "@/domains/onboarding/prechat-names";
-import {
-  GOOGLE_TOOL_IDS,
-  stripOtherPrefix,
-} from "@/domains/onboarding/prechat-tools";
+import { GOOGLE_TOOL_IDS } from "@/domains/onboarding/prechat-tools";
 import {
   readOnboardingCompleted,
   readTosAccepted,
@@ -68,23 +71,7 @@ import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAssistantSelectionStore } from "@/assistant/selection-store";
 import { routes } from "@/utils/routes.js";
 
-/**
- * Screen indices for the PreChat flow:
- *   0 = NameExchange (web) / NameStep (native)
- *   1 = GoogleOAuth (pared-down web) / TaskTone (control web) / VibeStep (native)
- *   2 = ToolSelection (control web)
- *   3 = PriorAssistants (control web)
- *   4 = GoogleOAuth (control web)
- *   5 = GetIOSApp (control iOS web only)
- */
-type Screen = 0 | 1 | 2 | 3 | 4 | 5;
-
 const IOS_TOTAL_STEPS = 3;
-const PARED_DOWN_GOOGLE_TOOL_IDS = [
-  "gmail",
-  "google-calendar",
-  "google-drive",
-];
 
 function readLocalPlatformAssistantId(): string | null {
   const selected = getSelectedAssistant();
@@ -92,19 +79,6 @@ function readLocalPlatformAssistantId(): string | null {
     return selected.assistantId;
   }
   return getPlatformAssistants()[0]?.assistantId ?? null;
-}
-
-function resolveInitialMessage(
-  context: PreChatOnboardingContext,
-  recipe: OnboardingRecipe | null,
-  selfIntroGreetingEnabled: boolean,
-): string {
-  if (recipe?.initialMessage) {
-    return recipe.initialMessage;
-  }
-  return selfIntroGreetingEnabled
-    ? buildPreChatInitialMessage(context)
-    : DEFAULT_PRECHAT_INITIAL_MESSAGE;
 }
 
 export function PreChatFlow() {
@@ -151,17 +125,34 @@ export function PreChatFlow() {
   // webview session — `useLayoutEffect` restores before paint once `userId`
   // is known, so the user never sees an incorrect step momentarily.
   const screenStorageKey = userId ? `prechat_native_screen:${userId}` : null;
-  const [screen, setScreen] = useState<Screen>(0);
+  const [currentStep, setCurrentStep] = useState<PreChatStepId>(() =>
+    isNative ? "nativeName" : "name",
+  );
+  const persistNativeStep = useCallback(
+    (value: PreChatStepId | null) => {
+      if (!screenStorageKey) return;
+      try {
+        if (value === null) {
+          sessionStorage.removeItem(screenStorageKey);
+        } else {
+          sessionStorage.setItem(screenStorageKey, value);
+        }
+      } catch {
+        // sessionStorage can throw under privacy modes — ignore.
+      }
+    },
+    [screenStorageKey],
+  );
   useLayoutEffect(() => {
     if (!screenStorageKey) return;
     try {
       const saved = sessionStorage.getItem(screenStorageKey);
-      if (saved === "1") setScreen(1);
+      if (saved === "nativeVibe") setCurrentStep("nativeVibe");
     } catch {
       // sessionStorage can throw under privacy modes — ignore.
     }
     // Restore only when the active user changes (mount, or logout→login).
-    // Intentionally omitting `screen` from deps so we don't re-restore mid-flow.
+    // Omitting `currentStep` from deps so we don't re-restore mid-flow.
   }, [screenStorageKey]);
 
   const hasPlatformSession = useAuthStore.use.hasPlatformSession();
@@ -311,63 +302,45 @@ export function PreChatFlow() {
     });
   }
 
-  async function finish(
-    connectedScopes?: string[],
-    options: { selectedPriorAssistants?: Set<string> } = {},
-  ): Promise<void> {
-    const selectedPriorAssistantsForContext =
-      options.selectedPriorAssistants ?? selectedPriorAssistants;
-    const connectedWithCurrentAction = connectedScopes !== undefined;
-    const tone = selectedGroupId ?? recipe?.tone ?? DEFAULT_GROUP_ID;
-    const context: PreChatOnboardingContext = paredDownPrechat
-      ? {
-          tools: connectedWithCurrentAction
-            ? [...PARED_DOWN_GOOGLE_TOOL_IDS]
-            : [],
-          tasks: recipe?.tasks ?? [],
-          tone,
-          googleConnected: connectedWithCurrentAction,
-        }
-      : {
-          tools: stripOtherPrefix([...selectedTools]),
-          tasks: [...selectedTasks].sort(),
-          tone,
-        };
-    if (recipe) {
-      context.cohort = recipe.cohort;
-      context.bootstrapTemplate = recipe.bootstrapTemplate;
-      context.skills = recipe.skills;
-    }
-    const trimmedUser = userName.trim();
-    if (trimmedUser) context.userName = trimmedUser;
-    const trimmedAssistant = assistantName.trim();
-    if (trimmedAssistant) context.assistantName = trimmedAssistant;
+  const hasGoogleTool = [...selectedTools].some((id) =>
+    GOOGLE_TOOL_IDS.has(id),
+  );
 
-    if (paredDownPrechat) {
-      if (connectedWithCurrentAction) {
-        context.googleScopes = connectedScopes;
-      }
-    } else if (connectedWithCurrentAction) {
-      context.googleConnected = true;
-      context.googleScopes = connectedScopes;
-    } else if (googleConnected) {
-      context.googleConnected = true;
-      context.googleScopes = googleScopes;
-    } else {
-      context.googleConnected = false;
-    }
-    if (!paredDownPrechat && selectedPriorAssistantsForContext.size > 0) {
-      context.priorAssistants = stripOtherPrefix([
-        ...selectedPriorAssistantsForContext,
-      ]);
-    }
-    context.initialMessage = resolveInitialMessage(
-      context,
+  // The reachable steps are a pure function of capabilities. Local mode, the
+  // funnel variant, the connected tool, and platform all "fall out" of these
+  // predicates rather than being special-cased in the navigation handlers.
+  const steps: PreChatStep[] = isNative
+    ? resolveNativeSteps()
+    : resolveWebSteps({
+        paredDown: paredDownPrechat,
+        canOfferPriorAssistants,
+        canOfferGoogleStep,
+        hasGoogleTool,
+        showIOSAppStep,
+      });
+
+  async function finish(args?: {
+    connectedScopes?: string[];
+    selectedPriorAssistants?: Set<string>;
+  }): Promise<void> {
+    const context = buildPreChatContext({
+      mode: paredDownPrechat ? "paredDown" : "control",
       recipe,
+      selectedTools,
+      selectedTasks,
+      selectedPriorAssistants:
+        args?.selectedPriorAssistants ?? selectedPriorAssistants,
+      tone: selectedGroupId ?? recipe?.tone ?? DEFAULT_GROUP_ID,
+      userName,
+      assistantName,
       selfIntroGreetingEnabled,
-    );
+      googleConnected,
+      googleScopes,
+      connectedScopes: args?.connectedScopes,
+    });
 
     setPendingPreChatContext(context);
+    const trimmedAssistant = assistantName.trim();
     if (trimmedAssistant) setPendingAssistantName(trimmedAssistant);
     try {
       setOnboardingCompleted(true);
@@ -382,25 +355,70 @@ export function PreChatFlow() {
     await navigateToChatAfterLifecycleRefresh();
   }
 
+  function finishNativePreChat(): void {
+    const context = buildPreChatContext({
+      mode: "native",
+      recipe: null,
+      selectedTools,
+      selectedTasks,
+      selectedPriorAssistants,
+      tone: selectedGroupId ?? DEFAULT_GROUP_ID,
+      userName,
+      assistantName,
+      selfIntroGreetingEnabled,
+      googleConnected: false,
+      googleScopes: [],
+    });
+    setPendingPreChatContext(context);
+    const trimmedAssistant = assistantName.trim();
+    if (trimmedAssistant) setPendingAssistantName(trimmedAssistant);
+    persistNativeStep(null);
+    void navigate(routes.onboarding.privacy);
+  }
+
+  // Advance past `from`: emit its funnel event, then move to the next enabled
+  // step — or finish when `from` is the last one. `finishArgs` only matters
+  // when this advance ends the flow.
+  const advance = (
+    from: PreChatStep,
+    finishArgs?: {
+      connectedScopes?: string[];
+      selectedPriorAssistants?: Set<string>;
+    },
+  ): void => {
+    if (from.funnelStep) emitWebFunnelStep(from.funnelStep);
+    const next = nextStep(steps, from.id);
+    if (next) {
+      setCurrentStep(next);
+    } else {
+      void finish(finishArgs);
+    }
+  };
+
+  // Back always lands on the previous enabled step, so it can never reveal a
+  // step the forward path gated off.
+  const goBack = (from: PreChatStepId): void => {
+    const previous = prevStep(steps, from);
+    if (previous) setCurrentStep(previous);
+  };
+
   if (shouldHidePrechat) {
+    return null;
+  }
+
+  const activeStep = steps.find((step) => step.id === currentStep);
+  if (!activeStep) {
     return null;
   }
 
   // ── iOS native flow: NameStep → VibeStep → Privacy → Hatching → Chat ──
   if (isNative) {
-    if (screen === 0) {
-      // Both Continue and Skip advance to the vibe step and persist the
-      // position so the user lands back here on reload — shared closure
-      // keeps the two callsites from drifting.
+    if (currentStep === "nativeName") {
+      // Continue and Skip both advance to the vibe step and persist the
+      // position so the user lands back here after an OS memory reclaim.
       const goToVibeStep = () => {
-        setScreen(1);
-        if (screenStorageKey) {
-          try {
-            sessionStorage.setItem(screenStorageKey, "1");
-          } catch {
-            // ignore — see initial-state comment.
-          }
-        }
+        setCurrentStep("nativeVibe");
+        persistNativeStep("nativeVibe");
       };
       return (
         <NameStepScreen
@@ -416,52 +434,13 @@ export function PreChatFlow() {
         />
       );
     }
-    const finishNativePreChat = () => {
-      const context: PreChatOnboardingContext = {
-        tools: [],
-        tasks: [],
-        tone: selectedGroupId ?? DEFAULT_GROUP_ID,
-      };
-      const trimmedUser = userName.trim();
-      if (trimmedUser) {
-        context.userName = trimmedUser;
-      }
-      const trimmedAssistant = assistantName.trim();
-      if (trimmedAssistant) {
-        context.assistantName = trimmedAssistant;
-      }
-      context.googleConnected = false;
-      context.initialMessage = resolveInitialMessage(
-        context,
-        null,
-        selfIntroGreetingEnabled,
-      );
-      setPendingPreChatContext(context);
-      if (trimmedAssistant) {
-        setPendingAssistantName(trimmedAssistant);
-      }
-      if (screenStorageKey) {
-        try {
-          sessionStorage.removeItem(screenStorageKey);
-        } catch {
-          // ignore — see initial-state comment.
-        }
-      }
-      void navigate(routes.onboarding.privacy);
-    };
     return (
       <VibeStepScreen
         selectedGroupId={selectedGroupId}
         onGroupChange={setSelectedGroupId}
         onBack={() => {
-          setScreen(0);
-          if (screenStorageKey) {
-            try {
-              sessionStorage.removeItem(screenStorageKey);
-            } catch {
-              // ignore — see initial-state comment.
-            }
-          }
+          setCurrentStep("nativeName");
+          persistNativeStep(null);
         }}
         onContinue={finishNativePreChat}
         onSkip={finishNativePreChat}
@@ -471,23 +450,10 @@ export function PreChatFlow() {
     );
   }
 
-  // ── Web flow:
-  // Control: NameExchange → TaskTone → Tools → PriorAssistants → Google → iOS App
-  // Treatment: NameExchange → Google → Chat
-
-  if (screen === 0) {
-    const advance = () => {
-      emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.nameVibe);
-      if (paredDownPrechat) {
-        if (!canOfferGoogleStep) {
-          void finish();
-          return;
-        }
-        setScreen(1);
-        return;
-      }
-      setScreen(1);
-    };
+  // ── Web flow (control + pared-down funnel variants share one step list) ──
+  // Control:    NameExchange → TaskTone → Tools → PriorAssistants → Google → iOS App
+  // Pared-down: NameExchange → Google → Chat
+  if (currentStep === "name") {
     return (
       <NameExchangeScreen
         userName={userName}
@@ -497,110 +463,55 @@ export function PreChatFlow() {
         onUserNameChange={handleUserNameChange}
         onAssistantNameChange={setAssistantName}
         onGroupChange={setSelectedGroupId}
-        onComplete={advance}
-        onSkip={advance}
+        onComplete={() => advance(activeStep)}
+        onSkip={() => advance(activeStep)}
       />
     );
   }
 
-  if (paredDownPrechat && screen === 1) {
-    if (!googleAssistantId) {
-      return null;
-    }
-    return (
-      <GoogleConnectScreen
-        assistantId={googleAssistantId}
-        assistantName={assistantName}
-        onConnect={(scopes) => {
-          emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.gmailConnect);
-          void finish(scopes);
-        }}
-        onSkip={() => {
-          emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.gmailConnect);
-          void finish();
-        }}
-        onBack={() => setScreen(0)}
-      />
-    );
-  }
-
-  const hasGoogleTool = [...selectedTools].some((id) =>
-    GOOGLE_TOOL_IDS.has(id),
-  );
-
-  const goToStepAfterPriorAssistants = (nextPriorAssistants: Set<string>) => {
-    if (hasGoogleTool && canOfferGoogleStep) {
-      setScreen(4);
-    } else if (showIOSAppStep) {
-      setScreen(5);
-    } else {
-      void finish(undefined, {
-        selectedPriorAssistants: nextPriorAssistants,
-      });
-    }
-  };
-
-  const advancePastToolSelection = () => {
-    emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlTools);
-    if (canOfferPriorAssistants) {
-      setScreen(3);
-      return;
-    }
-    goToStepAfterPriorAssistants(selectedPriorAssistants);
-  };
-
-  const advancePastPriorAssistants = (
-    nextPriorAssistants = selectedPriorAssistants,
-  ) => {
-    emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlPriorAssistants);
-    goToStepAfterPriorAssistants(nextPriorAssistants);
-  };
-
-  if (screen === 1) {
-    const advance = () => {
-      emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlWorkType);
-      setScreen(2);
-    };
+  if (currentStep === "taskTone") {
     return (
       <TaskToneSelectionScreen
         selectedTasks={selectedTasks}
         onChange={setSelectedTasks}
-        onBack={() => setScreen(0)}
-        onContinue={advance}
-        onSkip={advance}
+        onBack={() => goBack(activeStep.id)}
+        onContinue={() => advance(activeStep)}
+        onSkip={() => advance(activeStep)}
       />
     );
   }
 
-  if (screen === 2) {
+  if (currentStep === "tools") {
     return (
       <ToolSelectionScreen
         selectedTools={selectedTools}
         onChange={setSelectedTools}
-        onBack={() => setScreen(1)}
-        onContinue={advancePastToolSelection}
-        onSkip={advancePastToolSelection}
+        onBack={() => goBack(activeStep.id)}
+        onContinue={() => advance(activeStep)}
+        onSkip={() => advance(activeStep)}
       />
     );
   }
 
-  if (screen === 3) {
+  if (currentStep === "priorAssistants") {
     return (
       <PriorAssistantSelectionScreen
         selectedAssistants={selectedPriorAssistants}
         onChange={setSelectedPriorAssistants}
-        onBack={() => setScreen(2)}
-        onContinue={() => advancePastPriorAssistants()}
+        onBack={() => goBack(activeStep.id)}
+        onContinue={() => advance(activeStep)}
         onSkip={() => {
           const emptyPriorAssistants = new Set<string>();
           setSelectedPriorAssistants(emptyPriorAssistants);
-          advancePastPriorAssistants(emptyPriorAssistants);
+          advance(activeStep, {
+            selectedPriorAssistants: emptyPriorAssistants,
+          });
         }}
       />
     );
   }
 
-  if (screen === 4) {
+  if (currentStep === "google") {
     if (!googleAssistantId) {
       return null;
     }
@@ -609,34 +520,18 @@ export function PreChatFlow() {
         assistantId={googleAssistantId}
         assistantName={assistantName}
         onConnect={(scopes) => {
-          emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlGmailConnect);
           setGoogleConnected(true);
           setGoogleScopes(scopes);
-          if (showIOSAppStep) {
-            setScreen(5);
-          } else {
-            void finish(scopes);
-          }
+          advance(activeStep, { connectedScopes: scopes });
         }}
-        onSkip={() => {
-          emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlGmailConnect);
-          if (showIOSAppStep) {
-            setScreen(5);
-          } else {
-            void finish();
-          }
-        }}
-        onBack={() => setScreen(3)}
+        onSkip={() => advance(activeStep)}
+        onBack={() => goBack(activeStep.id)}
       />
     );
   }
 
-  if (screen === 5) {
-    const completeAppStep = () => {
-      emitWebFunnelStep(ONBOARDING_FUNNEL_STEPS.controlGetApp);
-      void finish();
-    };
-    return <GetIOSAppScreen onComplete={completeAppStep} />;
+  if (currentStep === "iosApp") {
+    return <GetIOSAppScreen onComplete={() => advance(activeStep)} />;
   }
 
   return null;
