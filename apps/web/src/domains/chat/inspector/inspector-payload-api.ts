@@ -1,7 +1,7 @@
-
 import { queryOptions, useQuery } from "@tanstack/react-query";
 
-import { client } from "@/generated/api/client.gen";
+import { llmrequestlogsByIdPayloadGet } from "@/generated/daemon/sdk.gen";
+import type { LlmrequestlogsByIdPayloadGetResponse } from "@/generated/daemon/types.gen";
 
 /**
  * Lazy fetch hook for the raw request/response payloads of a single LLM
@@ -12,11 +12,7 @@ import { client } from "@/generated/api/client.gen";
  * Platform proxy: /v1/assistants/{assistant_id}/llm-request-logs/{log_id}/payload/
  */
 
-export interface LlmLogPayload {
-  id: string;
-  requestPayload: unknown | null;
-  responsePayload: unknown | null;
-}
+export type LlmLogPayload = LlmrequestlogsByIdPayloadGetResponse;
 
 export class LlmPayloadRequestError extends Error {
   status: number;
@@ -45,9 +41,8 @@ export function llmLogPayloadQueryOptions(
       if (!assistantId || !logId) {
         throw new LlmPayloadRequestError(0, "Missing assistantId or logId");
       }
-      const { data, response } = await client.get<LlmLogPayload>({
-        url: "/v1/assistants/{assistant_id}/llm-request-logs/{log_id}/payload/",
-        path: { assistant_id: assistantId, log_id: logId },
+      const { data, response } = await llmrequestlogsByIdPayloadGet({
+        path: { assistant_id: assistantId, id: logId },
         signal,
         throwOnError: false,
       });
