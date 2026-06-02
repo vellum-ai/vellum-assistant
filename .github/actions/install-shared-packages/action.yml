@@ -1,0 +1,32 @@
+name: Install shared packages
+description: >
+  Run `bun install --frozen-lockfile` inside each shared file: dependency so
+  its own transitive file: deps resolve from the package's node_modules. The
+  repo uses per-package file: deps with no Bun workspaces, so consumers must
+  install the packages they link against. See the root AGENTS.md.
+
+inputs:
+  packages:
+    description: >
+      Whitespace-separated list of package directories, relative to the repo
+      root (e.g. "packages/environments packages/local-mode"). Bun must already
+      be set up by the calling job.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install shared packages
+      shell: bash
+      run: |
+        set -euo pipefail
+        for pkg in ${{ inputs.packages }}; do
+          dir="${GITHUB_WORKSPACE}/${pkg}"
+          if [ ! -f "${dir}/package.json" ]; then
+            echo "::error::No package.json under ${pkg}"
+            exit 1
+          fi
+          echo "::group::bun install --frozen-lockfile (${pkg})"
+          (cd "${dir}" && bun install --frozen-lockfile)
+          echo "::endgroup::"
+        done

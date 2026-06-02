@@ -44,13 +44,10 @@ jobs:
       - name: Generate API clients
         run: bun run openapi-ts
 
-      - name: Install environments package
-        working-directory: packages/environments
-        run: bun install --frozen-lockfile
-
-      - name: Install local-mode package
-        working-directory: packages/local-mode
-        run: bun install --frozen-lockfile
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
 
       - name: Lint
         run: bun run lint
@@ -79,13 +76,10 @@ jobs:
       - name: Generate API clients
         run: bun run openapi-ts
 
-      - name: Install environments package
-        working-directory: packages/environments
-        run: bun install --frozen-lockfile
-
-      - name: Install local-mode package
-        working-directory: packages/local-mode
-        run: bun install --frozen-lockfile
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
 
       - name: Type check
         run: bun run typecheck
@@ -115,13 +109,10 @@ jobs:
       - name: Generate API clients
         run: bun run openapi-ts
 
-      - name: Install environments package
-        working-directory: packages/environments
-        run: bun install --frozen-lockfile
-
-      - name: Install local-mode package
-        working-directory: packages/local-mode
-        run: bun install --frozen-lockfile
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
 
       - name: Test
         run: bun run test:ci
