@@ -7743,6 +7743,10 @@ paths:
               schema:
                 type: object
                 properties:
+                  messageId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   conversationKey:
                     anyOf:
                       - type: string
@@ -7753,40 +7757,419 @@ paths:
                       - type: "null"
                   conversationKind:
                     type: string
-                    enum:
-                      - user
-                      - background
-                      - background_memory_consolidation
-                      - scheduled
                   conversationTotalEstimatedCostUsd:
                     anyOf:
                       - type: number
                       - type: "null"
                   logs:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        createdAt:
+                          type: number
+                        requestPayload:
+                          type: "null"
+                        responsePayload:
+                          type: "null"
+                        provider:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        summary:
+                          anyOf:
+                            - type: object
+                              properties:
+                                provider:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                model:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                status:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                inputTokens:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                outputTokens:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                cacheCreationInputTokens:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                cacheReadInputTokens:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                stopReason:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                requestMessageCount:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                requestToolCount:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                responseMessageCount:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                responseToolCallCount:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                responsePreview:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                toolCallNames:
+                                  anyOf:
+                                    - type: array
+                                      items:
+                                        type: string
+                                    - type: "null"
+                                estimatedCostUsd:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                durationMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                              additionalProperties: false
+                            - type: "null"
+                        requestSections:
+                          anyOf:
+                            - type: array
+                              items:
+                                type: object
+                                properties:
+                                  kind:
+                                    type: string
+                                  label:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  role:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  text:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  toolName:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  data: {}
+                                  language:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                required:
+                                  - kind
+                                additionalProperties: false
+                            - type: "null"
+                        responseSections:
+                          anyOf:
+                            - type: array
+                              items:
+                                type: object
+                                properties:
+                                  kind:
+                                    type: string
+                                  label:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  role:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  text:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  toolName:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  data: {}
+                                  language:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                required:
+                                  - kind
+                                additionalProperties: false
+                            - type: "null"
+                        agentLoopExitReason:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        callSite:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - createdAt
+                        - requestPayload
+                        - responsePayload
+                      additionalProperties: false
                   memoryRecall:
                     anyOf:
                       - type: object
-                        properties: {}
-                        additionalProperties: {}
+                        properties:
+                          enabled:
+                            type: boolean
+                          degraded:
+                            type: boolean
+                          provider:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          model:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          degradation:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  reason:
+                                    type: string
+                                  semanticUnavailable:
+                                    type: boolean
+                                  fallbackSources:
+                                    type: array
+                                    items:
+                                      type: string
+                                required:
+                                  - reason
+                                  - semanticUnavailable
+                                  - fallbackSources
+                                additionalProperties: false
+                              - type: "null"
+                          semanticHits:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          mergedCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          selectedCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          tier1Count:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          tier2Count:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          hybridSearchLatencyMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          sparseVectorUsed:
+                            anyOf:
+                              - type: boolean
+                              - type: "null"
+                          injectedTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          latencyMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          topCandidates:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                nodeId:
+                                  type: string
+                                score:
+                                  type: number
+                                semanticSimilarity:
+                                  type: number
+                                recencyBoost:
+                                  type: number
+                                type:
+                                  type: string
+                              required:
+                                - nodeId
+                                - score
+                                - semanticSimilarity
+                                - recencyBoost
+                              additionalProperties: false
+                          injectedText:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          reason:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          queryContext:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                        required:
+                          - enabled
+                          - degraded
+                          - provider
+                          - model
+                          - degradation
+                          - topCandidates
+                          - injectedText
+                          - reason
+                          - queryContext
+                        additionalProperties: false
                       - type: "null"
                   memoryV2Activation:
                     anyOf:
                       - type: object
-                        properties: {}
-                        additionalProperties: {}
+                        properties:
+                          turn:
+                            type: number
+                          mode:
+                            type: string
+                          concepts:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                slug:
+                                  type: string
+                                finalActivation:
+                                  type: number
+                                ownActivation:
+                                  type: number
+                                priorActivation:
+                                  type: number
+                                simUser:
+                                  type: number
+                                simAssistant:
+                                  type: number
+                                simNow:
+                                  type: number
+                                simUserRerankBoost:
+                                  type: number
+                                simAssistantRerankBoost:
+                                  type: number
+                                inRerankPool:
+                                  type: boolean
+                                spreadContribution:
+                                  type: number
+                                source:
+                                  type: string
+                                status:
+                                  type: string
+                              required:
+                                - slug
+                                - finalActivation
+                                - ownActivation
+                                - priorActivation
+                                - simUser
+                                - simAssistant
+                                - simNow
+                                - spreadContribution
+                                - source
+                                - status
+                              additionalProperties: false
+                          config:
+                            type: object
+                            properties:
+                              d:
+                                type: number
+                              c_user:
+                                type: number
+                              c_assistant:
+                                type: number
+                              c_now:
+                                type: number
+                              k:
+                                type: number
+                              hops:
+                                type: number
+                              top_k:
+                                type: number
+                              epsilon:
+                                type: number
+                            required:
+                              - d
+                              - c_user
+                              - c_assistant
+                              - c_now
+                              - k
+                              - hops
+                              - top_k
+                              - epsilon
+                            additionalProperties: false
+                        required:
+                          - turn
+                          - mode
+                          - concepts
+                          - config
+                        additionalProperties: false
                       - type: "null"
                   memoryV3Selection:
                     anyOf:
                       - type: object
-                        properties: {}
-                        additionalProperties: {}
+                        properties:
+                          turn:
+                            type: number
+                          live:
+                            type: boolean
+                          shadow:
+                            type: boolean
+                          selections:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                slug:
+                                  type: string
+                                source:
+                                  type: string
+                                pinned:
+                                  type: boolean
+                              required:
+                                - slug
+                                - source
+                                - pinned
+                              additionalProperties: false
+                          injectedText:
+                            type: string
+                        required:
+                          - turn
+                          - live
+                          - shadow
+                          - selections
+                          - injectedText
+                        additionalProperties: false
                       - type: "null"
                 required:
-                  - conversationId
                   - conversationKind
-                  - conversationTotalEstimatedCostUsd
                   - logs
                   - memoryRecall
                   - memoryV2Activation
@@ -14454,43 +14837,432 @@ paths:
                 type: object
                 properties:
                   messageId:
-                    type: string
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  conversationKey:
+                    anyOf:
+                      - type: string
+                      - type: "null"
+                  conversationId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   conversationKind:
                     type: string
-                    enum:
-                      - user
-                      - background
-                      - background_memory_consolidation
-                      - scheduled
                   conversationTotalEstimatedCostUsd:
                     anyOf:
                       - type: number
                       - type: "null"
                   logs:
                     type: array
-                    items: {}
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        createdAt:
+                          type: number
+                        requestPayload:
+                          type: "null"
+                        responsePayload:
+                          type: "null"
+                        provider:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        summary:
+                          anyOf:
+                            - type: object
+                              properties:
+                                provider:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                model:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                status:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                inputTokens:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                outputTokens:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                cacheCreationInputTokens:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                cacheReadInputTokens:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                stopReason:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                requestMessageCount:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                requestToolCount:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                responseMessageCount:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                responseToolCallCount:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                responsePreview:
+                                  anyOf:
+                                    - type: string
+                                    - type: "null"
+                                toolCallNames:
+                                  anyOf:
+                                    - type: array
+                                      items:
+                                        type: string
+                                    - type: "null"
+                                estimatedCostUsd:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                durationMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                              additionalProperties: false
+                            - type: "null"
+                        requestSections:
+                          anyOf:
+                            - type: array
+                              items:
+                                type: object
+                                properties:
+                                  kind:
+                                    type: string
+                                  label:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  role:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  text:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  toolName:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  data: {}
+                                  language:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                required:
+                                  - kind
+                                additionalProperties: false
+                            - type: "null"
+                        responseSections:
+                          anyOf:
+                            - type: array
+                              items:
+                                type: object
+                                properties:
+                                  kind:
+                                    type: string
+                                  label:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  role:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  text:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  toolName:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                  data: {}
+                                  language:
+                                    anyOf:
+                                      - type: string
+                                      - type: "null"
+                                required:
+                                  - kind
+                                additionalProperties: false
+                            - type: "null"
+                        agentLoopExitReason:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        callSite:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - createdAt
+                        - requestPayload
+                        - responsePayload
+                      additionalProperties: false
                   memoryRecall:
                     anyOf:
                       - type: object
-                        properties: {}
-                        additionalProperties: {}
+                        properties:
+                          enabled:
+                            type: boolean
+                          degraded:
+                            type: boolean
+                          provider:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          model:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          degradation:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  reason:
+                                    type: string
+                                  semanticUnavailable:
+                                    type: boolean
+                                  fallbackSources:
+                                    type: array
+                                    items:
+                                      type: string
+                                required:
+                                  - reason
+                                  - semanticUnavailable
+                                  - fallbackSources
+                                additionalProperties: false
+                              - type: "null"
+                          semanticHits:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          mergedCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          selectedCount:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          tier1Count:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          tier2Count:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          hybridSearchLatencyMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          sparseVectorUsed:
+                            anyOf:
+                              - type: boolean
+                              - type: "null"
+                          injectedTokens:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          latencyMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          topCandidates:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                nodeId:
+                                  type: string
+                                score:
+                                  type: number
+                                semanticSimilarity:
+                                  type: number
+                                recencyBoost:
+                                  type: number
+                                type:
+                                  type: string
+                              required:
+                                - nodeId
+                                - score
+                                - semanticSimilarity
+                                - recencyBoost
+                              additionalProperties: false
+                          injectedText:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          reason:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                          queryContext:
+                            anyOf:
+                              - type: string
+                              - type: "null"
+                        required:
+                          - enabled
+                          - degraded
+                          - provider
+                          - model
+                          - degradation
+                          - topCandidates
+                          - injectedText
+                          - reason
+                          - queryContext
+                        additionalProperties: false
                       - type: "null"
                   memoryV2Activation:
                     anyOf:
                       - type: object
-                        properties: {}
-                        additionalProperties: {}
+                        properties:
+                          turn:
+                            type: number
+                          mode:
+                            type: string
+                          concepts:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                slug:
+                                  type: string
+                                finalActivation:
+                                  type: number
+                                ownActivation:
+                                  type: number
+                                priorActivation:
+                                  type: number
+                                simUser:
+                                  type: number
+                                simAssistant:
+                                  type: number
+                                simNow:
+                                  type: number
+                                simUserRerankBoost:
+                                  type: number
+                                simAssistantRerankBoost:
+                                  type: number
+                                inRerankPool:
+                                  type: boolean
+                                spreadContribution:
+                                  type: number
+                                source:
+                                  type: string
+                                status:
+                                  type: string
+                              required:
+                                - slug
+                                - finalActivation
+                                - ownActivation
+                                - priorActivation
+                                - simUser
+                                - simAssistant
+                                - simNow
+                                - spreadContribution
+                                - source
+                                - status
+                              additionalProperties: false
+                          config:
+                            type: object
+                            properties:
+                              d:
+                                type: number
+                              c_user:
+                                type: number
+                              c_assistant:
+                                type: number
+                              c_now:
+                                type: number
+                              k:
+                                type: number
+                              hops:
+                                type: number
+                              top_k:
+                                type: number
+                              epsilon:
+                                type: number
+                            required:
+                              - d
+                              - c_user
+                              - c_assistant
+                              - c_now
+                              - k
+                              - hops
+                              - top_k
+                              - epsilon
+                            additionalProperties: false
+                        required:
+                          - turn
+                          - mode
+                          - concepts
+                          - config
+                        additionalProperties: false
                       - type: "null"
                   memoryV3Selection:
                     anyOf:
                       - type: object
-                        properties: {}
-                        additionalProperties: {}
+                        properties:
+                          turn:
+                            type: number
+                          live:
+                            type: boolean
+                          shadow:
+                            type: boolean
+                          selections:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                slug:
+                                  type: string
+                                source:
+                                  type: string
+                                pinned:
+                                  type: boolean
+                              required:
+                                - slug
+                                - source
+                                - pinned
+                              additionalProperties: false
+                          injectedText:
+                            type: string
+                        required:
+                          - turn
+                          - live
+                          - shadow
+                          - selections
+                          - injectedText
+                        additionalProperties: false
                       - type: "null"
                 required:
-                  - messageId
                   - conversationKind
-                  - conversationTotalEstimatedCostUsd
                   - logs
                   - memoryRecall
                   - memoryV2Activation

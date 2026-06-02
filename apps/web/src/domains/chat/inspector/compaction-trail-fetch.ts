@@ -12,17 +12,18 @@
  * produces a different trail. See the route's doc comment for the
  * floor/ceiling semantics.
  *
- * No generated SDK function exists for this route yet (the
- * OpenAPI regen hasn't picked it up). We call `client.get` directly
- * with the URL pattern + path/query params, matching sibling
- * inspector hand-rolled fetchers (`fetchConversationMessages`,
- * `archiveConversation`).
+ * Calls the generated daemon SDK function `conversationsByIdCompactionGet`,
+ * which the platform gateway proxies to the assistant route. The
+ * response type is derived from the route's `responseBody` schema.
  */
 
-import { client } from "@/generated/api/client.gen";
+import { conversationsByIdCompactionGet } from "@/generated/daemon/sdk.gen";
+import type { ConversationsByIdCompactionGetResponse } from "@/generated/daemon/types.gen";
 import { assertHasResponse } from "@/utils/api-errors";
 
-import type { CompactionTrailResponse } from "./compaction-trail-types";
+/** One compaction event row in the trail, oldest first. */
+export type CompactionTrailEvent =
+  ConversationsByIdCompactionGetResponse["events"][number];
 
 export class CompactionTrailRequestError extends Error {
   status: number;
@@ -35,13 +36,13 @@ export class CompactionTrailRequestError extends Error {
 }
 
 /**
- * Type guard for the wire shape returned by the assistant route. The
- * `client.get` call is typed but `data` is still `unknown` on the wire
- * — narrow defensively rather than trusting the generic.
+ * Runtime guard for the wire payload. The daemon route declares a
+ * typed `responseBody`, but responses aren't validated against it
+ * server-side, so narrow defensively before trusting the shape.
  */
 function isCompactionTrailResponse(
   value: unknown,
-): value is CompactionTrailResponse {
+): value is ConversationsByIdCompactionGetResponse {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   return typeof v.conversationId === "string" && Array.isArray(v.events);
@@ -52,13 +53,9 @@ export async function fetchCompactionTrail(
   conversationId: string,
   callId: string,
   signal: AbortSignal | undefined,
-): Promise<CompactionTrailResponse> {
-  const { data, error, response } = await client.get<
-    CompactionTrailResponse,
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/conversations/{conversation_id}/compaction",
-    path: { assistant_id: assistantId, conversation_id: conversationId },
+): Promise<ConversationsByIdCompactionGetResponse> {
+  const { data, error, response } = await conversationsByIdCompactionGet({
+    path: { assistant_id: assistantId, id: conversationId },
     query: { callId },
     signal,
     throwOnError: false,
