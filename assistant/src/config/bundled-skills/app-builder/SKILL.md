@@ -45,7 +45,7 @@ All new apps use `formatVersion: 2` (multi-file TSX). Do NOT create root-level `
 
 ## Responsive baseline
 
-Every app works phone (~360px) to desktop. Full mobile-first / desktop-first decision tree and universal baseline (16px form font, 44pt touch targets, `100dvh`, safe-area-inset padding) in `references/RESPONSIVE.md`.
+Every app works phone (~360px) to desktop. Full mobile-first / desktop-first decision tree and universal baseline (16px form font, 44pt touch targets, `100dvh`, safe-area-inset padding) in `{baseDir}/references/RESPONSIVE.md` (read with `host_file_read`).
 
 The conversation `<turn_context>` block carries an `interface:` field.
 
@@ -57,11 +57,11 @@ The conversation `<turn_context>` block carries an `interface:` field.
 
 ## Design system
 
-A design system CSS is auto-injected inside a `@layer`. Use `--v-*` variables and `.v-*` classes — they handle light/dark mode automatically. Full token table, utility classes, and theme detection JS in `references/DESIGN_SYSTEM.md`.
+A design system CSS is auto-injected inside a `@layer`. Use `--v-*` variables and `.v-*` classes — they handle light/dark mode automatically. Full token table, utility classes, and theme detection JS in `{baseDir}/references/DESIGN_SYSTEM.md` (read with `host_file_read`).
 
 ⚠️ **Never hardcode `color: white` or `color: #fff`.** Use `var(--v-aux-white)` for text on filled/accent backgrounds, or `var(--v-text)` / `var(--v-text-secondary)` for text on surface backgrounds. Hardcoded white causes invisible text on light surfaces.
 
-A widget library is auto-injected alongside the design system. Use `.v-*` classes for standard UI patterns and `window.vellum.widgets.*` for charts, formatting, and interactive behaviors. **ALWAYS use `vellum.widgets.*` chart functions** instead of hand-coding SVG/CSS charts — they handle overflow, scaling, and dark mode. Full widget reference in `references/WIDGETS.md`.
+A widget library is auto-injected alongside the design system. Use `.v-*` classes for standard UI patterns and `window.vellum.widgets.*` for charts, formatting, and interactive behaviors. **ALWAYS use `vellum.widgets.*` chart functions** instead of hand-coding SVG/CSS charts — they handle overflow, scaling, and dark mode. Full widget reference in `{baseDir}/references/WIDGETS.md` (read with `host_file_read`).
 
 ---
 
@@ -217,7 +217,7 @@ Import CSS directly in TSX: `import "./styles.css"`.
 **Persistence options:**
 
 - `localStorage` / `sessionStorage` — ephemeral UI state (filters, view modes, drafts)
-- Custom route handlers — persistent app records, server-side logic, file access. Call via `window.vellum.fetch("/v1/x/...")`. Full guide in `references/CUSTOM_ROUTES.md`. **Never use raw `fetch()` for `/v1/x/` routes** — it fails in the sandboxed origin.
+- Custom route handlers — persistent app records, server-side logic, file access. Call via `window.vellum.fetch("/v1/x/...")`. Full guide in `{baseDir}/references/CUSTOM_ROUTES.md` (read with `host_file_read`). **Never use raw `fetch()` for `/v1/x/` routes** — it fails in the sandboxed origin.
 - Legacy `window.vellum.data.*` — deprecated, only for editing pre-existing legacy apps. Prefer custom routes for everything new.
 
 #### File workflow: scaffold then expand
@@ -459,7 +459,7 @@ Proactively wire `window.vellum.sendAction()` so the assistant stays aware of me
 - **Reactive hooks** — trigger an assistant response. Use for selections that warrant explanation, level completions, form submissions
 - **Silent hooks** (`state_update`) — accumulate context without interrupting. Use for tab navigation, filter changes, score updates
 
-Wire hooks during the initial build, not after the user asks. Full examples and per-app-type guidance in `references/INTERACTION_HOOKS.md`.
+Wire hooks during the initial build, not after the user asks. Full examples and per-app-type guidance in `{baseDir}/references/INTERACTION_HOOKS.md` (read with `host_file_read`).
 
 ---
 
@@ -483,17 +483,17 @@ Use `vellum.openLink(url, metadata)` to make items clickable. Construct deep-lin
 
 ## Slides
 
-Slides are a different domain from apps — skip app-specific patterns (contextual headers, search/filter, toast notifications, form validation, custom routes). Build navigation and layouts with custom HTML/CSS. Layout templates, key principles, and what to avoid in `references/SLIDES.md`.
+Slides are a different domain from apps — skip app-specific patterns (contextual headers, search/filter, toast notifications, form validation, custom routes). Build navigation and layouts with custom HTML/CSS. Layout templates, key principles, and what to avoid in `{baseDir}/references/SLIDES.md` (read with `host_file_read`).
 
 ---
 
 ## Reference files
 
-Load these with `file_read` when relevant. Paths are relative to this skill's directory:
+Read these with the **`host_file_read`** tool when relevant — NOT `file_read` (they live outside the `/workspace` sandbox). `{baseDir}` resolves to this skill's directory at load time:
 
-- `references/RESPONSIVE.md` — mobile-first vs desktop, universal baseline, safe areas
-- `references/DESIGN_SYSTEM.md` — full design token table, utility classes, theme detection JS
-- `references/WIDGETS.md` — widget classes, chart utilities, formatting helpers
-- `references/CUSTOM_ROUTES.md` — server-side persistence and custom API routes
-- `references/INTERACTION_HOOKS.md` — sendAction patterns, reactive vs silent
-- `references/SLIDES.md` — presentation slide design
+- `{baseDir}/references/RESPONSIVE.md` — mobile-first vs desktop, universal baseline, safe areas
+- `{baseDir}/references/DESIGN_SYSTEM.md` — full design token table, utility classes, theme detection JS
+- `{baseDir}/references/WIDGETS.md` — widget classes, chart utilities, formatting helpers
+- `{baseDir}/references/CUSTOM_ROUTES.md` — server-side persistence and custom API routes
+- `{baseDir}/references/INTERACTION_HOOKS.md` — sendAction patterns, reactive vs silent
+- `{baseDir}/references/SLIDES.md` — presentation slide design
