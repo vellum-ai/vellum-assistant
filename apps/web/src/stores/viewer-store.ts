@@ -82,6 +82,42 @@ export function isAppNotFoundError(err: unknown): boolean {
   return typeof message === "string" && message.startsWith("App not found");
 }
 
+/**
+ * Fetch an app's html and store it as `openedAppState`, WITHOUT touching
+ * `mainView` — the caller owns the view transition (`loadApp` → `"app"`,
+ * `revealAppForBuild` → `"app-editing"`). Bails out if the active app
+ * changed while the request was in flight. Shared so both callers get the
+ * same 404-tolerance + cache-priming behavior.
+ */
+async function fetchAndSetApp(
+  set: (partial: Partial<ViewerState>) => void,
+  get: () => ViewerStore,
+  assistantId: string,
+  appId: string,
+): Promise<void> {
+  try {
+    const { data: result } = await appsByIdOpenPost({
+      path: { assistant_id: assistantId, id: appId },
+      throwOnError: true,
+    });
+    if (get().activeAppId !== appId) return;
+    const app = { appId: result.appId, dirName: result.dirName, name: result.name, html: result.html };
+    set({ openedAppState: app });
+    primeAppHtmlCache(assistantId, result.appId, result.html);
+  } catch (err) {
+    if (get().activeAppId !== appId) return;
+    // 404s here are an expected condition (app was deleted on the
+    // server but the client still has a reference). Skip the Sentry
+    // capture for those — the daemon already returns a structured
+    // `{ code: "NOT_FOUND", message }` body — and let the UI fall
+    // back to chat as below. Unexpected failures still report.
+    if (!isAppNotFoundError(err)) {
+      captureError(err, { context: "openApp" });
+    }
+    set({ mainView: "chat", activeAppId: null, openedAppState: null });
+  }
+}
+
 function resolveViewBefore(
   state: ViewerState,
   field: "viewBeforeDocument" | "viewBeforeSubagentDetail" | "viewBeforeToolDetail",
@@ -157,6 +193,14 @@ export interface ViewerState {
   mainView: MainView;
   activeAppId: string | null;
   openedAppState: OpenedAppState | null;
+  /**
+   * App id the user explicitly dismissed (closed/exited) during the
+   * current build, so the auto-open (`revealAppForBuild`) does not fight
+   * the user by popping the panel back open for that same build. Reset
+   * to `null` when a fresh build sequence begins for a different app, or
+   * when the user reopens an app. Transient UI state, not persisted.
+   */
+  dismissedBuildAppId: string | null;
   activeDocumentSurfaceId: string | null;
   openedDocumentState: OpenedDocumentState | null;
   isAppMinimized: boolean;
@@ -177,6 +221,13 @@ export interface ViewerActions {
   // --- App viewer ---
   openApp: (appId: string) => void;
   loadApp: (assistantId: string, appId: string) => Promise<void>;
+  /**
+   * Auto-open the chat-left / preview-right split-view for an app whose
+   * build just started (driven by the first `app_preview_update` event).
+   * Sets `mainView: "app-editing"` + `activeAppId` and loads the first
+   * frame; live `app_preview_update`s then hot-swap the preview (PR 3).
+   */
+  revealAppForBuild: (assistantId: string, appId: string) => void;
   setLoadedApp: (app: OpenedAppState) => void;
   updateOpenedAppPreview: (
     appId: string,
@@ -189,6 +240,13 @@ export interface ViewerActions {
   ) => void;
   handleAppLoadFailed: () => void;
   closeApp: () => void;
+  /**
+   * Clear the build-dismissal flag for `appId` (no-op if it doesn't
+   * match), letting `revealAppForBuild` auto-open the panel again on the
+   * NEXT build. Called by the app-preview hook when a fresh build
+   * sequence begins for an app the user previously dismissed.
+   */
+  clearBuildDismissal: (appId: string) => void;
   toggleAppMinimized: () => void;
   handleAppUnpinned: (appId: string) => boolean;
   enterAppEditing: () => void;
@@ -227,6 +285,7 @@ const INITIAL_STATE: ViewerState = {
   mainView: "chat",
   activeAppId: null,
   openedAppState: null,
+  dismissedBuildAppId: null,
   activeDocumentSurfaceId: null,
   openedDocumentState: null,
   isAppMinimized: false,
@@ -266,6 +325,9 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       activeAppId: appId,
       openedAppState: null,
       isAppMinimized: false,
+      // Re-opening an app clears any stale dismissal for it so a later
+      // build's auto-open isn't suppressed by an old close.
+      dismissedBuildAppId: null,
     });
   },
 
@@ -275,28 +337,39 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
       activeAppId: appId,
       openedAppState: null,
       isAppMinimized: false,
+      dismissedBuildAppId: null,
     });
-    try {
-      const { data: result } = await appsByIdOpenPost({
-        path: { assistant_id: assistantId, id: appId },
-        throwOnError: true,
-      });
-      if (get().activeAppId !== appId) return;
-      const app = { appId: result.appId, dirName: result.dirName, name: result.name, html: result.html };
-      set({ openedAppState: app });
-      primeAppHtmlCache(assistantId, result.appId, result.html);
-    } catch (err) {
-      if (get().activeAppId !== appId) return;
-      // 404s here are an expected condition (app was deleted on the
-      // server but the client still has a reference). Skip the Sentry
-      // capture for those — the daemon already returns a structured
-      // `{ code: "NOT_FOUND", message }` body — and let the UI fall
-      // back to chat as below. Unexpected failures still report.
-      if (!isAppNotFoundError(err)) {
-        captureError(err, { context: "openApp" });
-      }
-      set({ mainView: "chat", activeAppId: null, openedAppState: null });
+    await fetchAndSetApp(set, get, assistantId, appId);
+  },
+
+  revealAppForBuild: (assistantId, appId) => {
+    const state = get();
+    // Already looking at this app — never yank the view (or re-fetch)
+    // out from under the user mid-build. `app-editing` and the
+    // full-width `app` view both count as "viewing this app".
+    if (
+      state.activeAppId === appId &&
+      (state.mainView === "app" || state.mainView === "app-editing")
+    ) {
+      return;
     }
+    // The user explicitly closed the panel for this app during the
+    // current build — respect that and don't pop it back open. The
+    // hook clears this flag (`clearBuildDismissal`) when a fresh build
+    // sequence begins, so the next build re-opens.
+    if (state.dismissedBuildAppId === appId) return;
+    set({
+      mainView: "app-editing",
+      activeAppId: appId,
+      openedAppState: null,
+      isAppMinimized: false,
+    });
+    // Load the first frame; subsequent `app_preview_update`s hot-swap
+    // the preview (PR 3) via `updateOpenedAppPreview`. `fetchAndSetApp`
+    // keeps `mainView` untouched (unlike `loadApp`), so the split-view
+    // we just entered survives the async load. Fire-and-forget — the
+    // helper bails on its own if the active app changed meanwhile.
+    void fetchAndSetApp(set, get, assistantId, appId);
   },
 
   setLoadedApp: (app) => {
@@ -363,12 +436,23 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
   },
 
   closeApp: () => {
+    // Remember which app the user just dismissed so the build auto-open
+    // (`revealAppForBuild`) doesn't immediately re-open the panel for the
+    // same in-flight build. Cleared by `clearBuildDismissal` when a fresh
+    // build sequence starts, or by re-opening the app (`openApp`/`loadApp`).
+    const dismissedBuildAppId = get().activeAppId ?? get().dismissedBuildAppId;
     set({
       mainView: "chat",
       activeAppId: null,
       openedAppState: null,
       isAppMinimized: false,
+      dismissedBuildAppId,
     });
+  },
+
+  clearBuildDismissal: (appId) => {
+    if (get().dismissedBuildAppId !== appId) return;
+    set({ dismissedBuildAppId: null });
   },
 
   toggleAppMinimized: () => {
