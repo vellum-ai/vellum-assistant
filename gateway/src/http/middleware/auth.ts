@@ -78,11 +78,12 @@ export function logAuthBypassState(): void {
 /**
  * Build edge-auth guard functions that share a rate limiter and IP resolver.
  *
- * All three guards retain a tokenless legacy loopback fallback for local-only
- * clients. Each fallback endpoint logs once per cooldown window (see
- * `loopbackFallbackLogThrottle`) so callers still missing auth are visible
- * during rollout without per-request log noise. Requests that do send
- * Authorization are never allowed through loopback fallback. Beyond that:
+ * All three guards retain a legacy loopback fallback for self-hosted local
+ * clients. Each fallback endpoint and failure kind logs once per cooldown
+ * window (see `loopbackFallbackLogThrottle`) so callers still missing or
+ * failing auth are visible during rollout without per-request log noise. The
+ * platform-managed bypass is checked first, so this fallback only applies in
+ * default mode.
  *
  *   - `requireEdgeAuth` — validates a JWT bearer token (aud=vellum-gateway)
  *     OR (when bypass is active) cross-checks X-Vellum-User-Id against the
@@ -144,60 +145,62 @@ export function createAuthMiddleware(
 
   /**
    * Validate a JWT bearer token (aud=vellum-gateway) for client-facing routes.
-   * Loopback peers (127.0.0.0/8, ::1) fall back without a token only when the
-   * request has no Authorization header. Invalid bearer tokens still fail even
-   * on loopback.
+   * Loopback peers (127.0.0.0/8, ::1) fall back when auth is missing,
+   * malformed, or invalid.
    */
   async function requireEdgeAuth(
     req: Request,
     server?: Server<unknown>,
   ): Promise<Response | null> {
-    const hasAuthHeader = hasAuthorizationHeader(req);
-    if (!hasAuthHeader && allowLegacyLoopbackFallback(req, server, "edge")) {
-      return null;
-    }
     if (isPlatformAuthBypassActive()) {
       return requirePlatformUserHeader(req);
     }
+    const hasAuthHeader = hasAuthorizationHeader(req);
     const token = extractBearerToken(req);
     if (token) {
-      return validateEdgeBearer(req, token);
+      return validateEdgeBearer(req, token, server);
     }
     if (hasAuthHeader) {
-      return rejectMalformedAuthorization(req, "Edge auth");
+      return rejectMalformedAuthorization(req, "Edge auth", server, "edge");
     }
-    return rejectMissingAuthorization(req, "Edge auth");
+    return rejectMissingAuthorization(req, "Edge auth", server, "edge");
   }
 
   /**
    * Validate a JWT bearer token and check that its scope profile includes the
-   * required scope. Loopback peers fall back only when no Authorization header
-   * is present. Under the platform bypass, scope is enforced upstream by
-   * vembda — the gateway only confirms the user id.
+   * required scope. Loopback peers fall back when auth is missing, malformed,
+   * invalid, or under-scoped. Under the platform bypass, scope is enforced
+   * upstream by vembda — the gateway only confirms the user id.
    */
   async function requireEdgeAuthWithScope(
     req: Request,
     scope: Scope,
     server?: Server<unknown>,
   ): Promise<Response | null> {
-    const hasAuthHeader = hasAuthorizationHeader(req);
-    if (
-      !hasAuthHeader &&
-      allowLegacyLoopbackFallback(req, server, "edge-scoped", { scope })
-    ) {
-      return null;
-    }
     if (isPlatformAuthBypassActive()) {
       return requirePlatformUserHeader(req);
     }
+    const hasAuthHeader = hasAuthorizationHeader(req);
     const token = extractBearerToken(req);
     if (token) {
-      return validateScopedEdgeBearer(req, token, scope);
+      return validateScopedEdgeBearer(req, token, scope, server);
     }
     if (hasAuthHeader) {
-      return rejectMalformedAuthorization(req, "Scoped edge auth", { scope });
+      return rejectMalformedAuthorization(
+        req,
+        "Scoped edge auth",
+        server,
+        "edge-scoped",
+        { scope },
+      );
     }
-    return rejectMissingAuthorization(req, "Scoped edge auth", { scope });
+    return rejectMissingAuthorization(
+      req,
+      "Scoped edge auth",
+      server,
+      "edge-scoped",
+      { scope },
+    );
   }
 
   /**
@@ -211,28 +214,34 @@ export function createAuthMiddleware(
    *   2. Default: validate the edge JWT, require an actor principal, assert it
    *      matches the bound guardian's principal id.
    *
-   * Loopback peers fall back only when no Authorization header is present.
+   * Loopback peers fall back when guardian auth is missing, malformed, invalid,
+   * or not authorized.
    */
   async function requireEdgeGuardianAuth(
     req: Request,
     server?: Server<unknown>,
   ): Promise<Response | null> {
-    const hasAuthHeader = hasAuthorizationHeader(req);
-    if (
-      !hasAuthHeader &&
-      allowLegacyLoopbackFallback(req, server, "edge-guardian")
-    ) {
-      return null;
-    }
     if (isPlatformAuthBypassActive()) {
       return requirePlatformUserHeader(req);
     }
-    return requireEdgeGuardianAuthByActorPrincipal(req);
+    return requireEdgeGuardianAuthByActorPrincipal(req, server);
   }
 
-  function validateEdgeBearer(req: Request, token: string): Response | null {
+  function validateEdgeBearer(
+    req: Request,
+    token: string,
+    server?: Server<unknown>,
+  ): Response | null {
     const result = validateEdgeToken(token);
     if (!result.ok) {
+      if (
+        allowLegacyLoopbackFallback(req, server, "edge", {
+          authFailure: "token_validation_failed",
+          reason: result.reason,
+        })
+      ) {
+        return null;
+      }
       authRateLimiter.recordFailure(getClientIp());
       log.warn(
         { path: new URL(req.url).pathname, reason: result.reason },
@@ -247,9 +256,19 @@ export function createAuthMiddleware(
     req: Request,
     token: string,
     scope: Scope,
+    server?: Server<unknown>,
   ): Response | null {
     const result = validateEdgeToken(token);
     if (!result.ok) {
+      if (
+        allowLegacyLoopbackFallback(req, server, "edge-scoped", {
+          authFailure: "token_validation_failed",
+          reason: result.reason,
+          scope,
+        })
+      ) {
+        return null;
+      }
       authRateLimiter.recordFailure(getClientIp());
       log.warn(
         { path: new URL(req.url).pathname, scope, reason: result.reason },
@@ -259,6 +278,14 @@ export function createAuthMiddleware(
     }
     const scopes = resolveScopeProfile(result.claims.scope_profile);
     if (!scopes.has(scope)) {
+      if (
+        allowLegacyLoopbackFallback(req, server, "edge-scoped", {
+          authFailure: "insufficient_scope",
+          scope,
+        })
+      ) {
+        return null;
+      }
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
     return null;
@@ -267,8 +294,18 @@ export function createAuthMiddleware(
   function rejectMissingAuthorization(
     req: Request,
     label: string,
+    server: Server<unknown> | undefined,
+    guard: string,
     extra?: Record<string, unknown>,
-  ): Response {
+  ): Response | null {
+    if (
+      allowLegacyLoopbackFallback(req, server, guard, {
+        authFailure: "missing_authorization",
+        ...extra,
+      })
+    ) {
+      return null;
+    }
     authRateLimiter.recordFailure(getClientIp());
     log.warn(
       { path: new URL(req.url).pathname, ...extra },
@@ -280,8 +317,18 @@ export function createAuthMiddleware(
   function rejectMalformedAuthorization(
     req: Request,
     label: string,
+    server: Server<unknown> | undefined,
+    guard: string,
     extra?: Record<string, unknown>,
-  ): Response {
+  ): Response | null {
+    if (
+      allowLegacyLoopbackFallback(req, server, guard, {
+        authFailure: "malformed_authorization",
+        ...extra,
+      })
+    ) {
+      return null;
+    }
     authRateLimiter.recordFailure(getClientIp());
     log.warn(
       { path: new URL(req.url).pathname, ...extra },
@@ -299,7 +346,13 @@ export function createAuthMiddleware(
     if (!server || !isLoopbackPeer(server, req)) return false;
 
     const path = new URL(req.url).pathname;
-    if (loopbackFallbackLogThrottle.shouldLog(`${guard} ${path}`)) {
+    const failureKind =
+      typeof extra?.authFailure === "string"
+        ? extra.authFailure
+        : "unspecified";
+    if (
+      loopbackFallbackLogThrottle.shouldLog(`${guard} ${path} ${failureKind}`)
+    ) {
       const peer = server.requestIP(req);
       log.warn(
         {
@@ -309,7 +362,7 @@ export function createAuthMiddleware(
           authFallback: "legacy_loopback",
           ...extra,
         },
-        "Gateway auth allowed via legacy loopback fallback because request did not include bearer auth (throttled to one log per endpoint per hour)",
+        "Gateway auth allowed via legacy loopback fallback after gateway auth did not succeed (throttled to one log per endpoint per hour)",
       );
     }
     return true;
@@ -321,9 +374,19 @@ export function createAuthMiddleware(
    */
   async function requireEdgeGuardianAuthByActorPrincipal(
     req: Request,
+    server?: Server<unknown>,
   ): Promise<Response | null> {
     const token = extractBearerToken(req);
     if (!token) {
+      if (
+        allowLegacyLoopbackFallback(req, server, "edge-guardian", {
+          authFailure: hasAuthorizationHeader(req)
+            ? "malformed_authorization"
+            : "missing_authorization",
+        })
+      ) {
+        return null;
+      }
       authRateLimiter.recordFailure(getClientIp());
       log.warn(
         { path: new URL(req.url).pathname },
@@ -333,6 +396,14 @@ export function createAuthMiddleware(
     }
     const result = validateEdgeToken(token);
     if (!result.ok) {
+      if (
+        allowLegacyLoopbackFallback(req, server, "edge-guardian", {
+          authFailure: "token_validation_failed",
+          reason: result.reason,
+        })
+      ) {
+        return null;
+      }
       authRateLimiter.recordFailure(getClientIp());
       log.warn(
         { path: new URL(req.url).pathname, reason: result.reason },
@@ -346,6 +417,13 @@ export function createAuthMiddleware(
       parsed.principalType !== "actor" ||
       !parsed.actorPrincipalId
     ) {
+      if (
+        allowLegacyLoopbackFallback(req, server, "edge-guardian", {
+          authFailure: "non_actor_principal",
+        })
+      ) {
+        return null;
+      }
       log.warn(
         { path: new URL(req.url).pathname },
         "Guardian edge auth rejected: caller is not an actor principal",
@@ -363,6 +441,13 @@ export function createAuthMiddleware(
       return Response.json({ error: "Service Unavailable" }, { status: 503 });
     }
     if (!guardian || guardian.principalId !== parsed.actorPrincipalId) {
+      if (
+        allowLegacyLoopbackFallback(req, server, "edge-guardian", {
+          authFailure: "guardian_mismatch",
+        })
+      ) {
+        return null;
+      }
       log.warn(
         { path: new URL(req.url).pathname },
         "Guardian edge auth rejected: caller is not the bound guardian",
