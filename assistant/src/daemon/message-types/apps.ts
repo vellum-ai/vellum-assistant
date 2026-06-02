@@ -1,5 +1,6 @@
 // App management, gallery, publishing, and sharing types.
 
+import type { AppPreviewUpdateEvent } from "../../api/events/app-preview-update.js";
 import type { GalleryManifest } from "../../gallery/gallery-manifest.js";
 
 // === Client → Server ===
@@ -333,28 +334,9 @@ export interface AppFilesChanged {
   appId: string;
 }
 
-/**
- * Live-build status broadcast for a multifile app's preview, emitted on every
- * source-file recompile so clients (web) can hot-swap the preview iframe while
- * the assistant is still writing, while keeping the last-good preview on a
- * transient compile error.
- *
- * - `building`: a recompile started; `html` is the current (last-good)
- *   resolved html so the client can show a building overlay without blanking.
- * - `ok`: recompile succeeded; `html` is the fresh resolved html and
- *   `reloadGeneration` is bumped so the client swaps the iframe.
- * - `error`: recompile failed; `html` is the previous good html, `buildErrors`
- *   carries the compile diagnostics, and `reloadGeneration` is unchanged so the
- *   iframe is NOT swapped.
- */
-export interface AppPreviewUpdate {
-  type: "app_preview_update";
-  appId: string;
-  html: string;
-  compileStatus: "building" | "ok" | "error";
-  buildErrors?: string[];
-  reloadGeneration: number;
-}
+// `app_preview_update` (the live-build preview broadcast) is now canonical:
+// its wire contract lives in `../../api/events/app-preview-update.js`. Daemon
+// emitters/consumers import `AppPreviewUpdateEvent` directly from there.
 
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
@@ -405,4 +387,4 @@ export type _AppsServerMessages =
   | PublishPageResponse
   | UnpublishPageResponse
   | AppFilesChanged
-  | AppPreviewUpdate;
+  | AppPreviewUpdateEvent;

@@ -11,9 +11,9 @@
  * standing up the full daemon server.
  */
 
+import type { AppPreviewUpdateEvent } from "../api/events/app-preview-update.js";
 import type { CompileResult } from "../bundler/app-compiler.js";
 import type { AppDefinition } from "../memory/app-store.js";
-import type { AppPreviewUpdate } from "./message-types/apps.js";
 
 export interface AppLiveBuildDeps {
   /** Compile the multifile app at `appDir`. Begins with `rm -rf dist/`. */
@@ -21,7 +21,7 @@ export interface AppLiveBuildDeps {
   /** Resolve the effective (inlined) preview html for the app's current dist. */
   resolveEffectiveAppHtml: (app: AppDefinition) => string;
   /** Broadcast an app_preview_update event to all connected clients. */
-  broadcast: (msg: AppPreviewUpdate) => void;
+  broadcast: (msg: AppPreviewUpdateEvent) => void;
   /**
    * Refresh in-memory/persisted surfaces for the app. Returns the applied
    * reload generation so this orchestrator can keep one source of truth shared
@@ -63,7 +63,11 @@ export async function runAppLiveBuild(
   appDir: string,
   deps: AppLiveBuildDeps,
 ): Promise<void> {
-  const currentGeneration = appReloadGenerations.get(appId) ?? 0;
+  // Snapshot the current generation for the non-bumping `building`/`error`
+  // outcomes. The successful `ok` outcome instead reads-and-bumps the counter
+  // AFTER the (serialized) compile resolves, so two overlapping builds that
+  // both succeed produce two distinct, monotonically increasing generations.
+  const generationAtStart = appReloadGenerations.get(appId) ?? 0;
 
   // Capture the last-good resolved html BEFORE compiling: compileApp begins
   // with `rm -rf dist/`, so on a failed compile the dist (and thus the
@@ -74,7 +78,7 @@ export async function runAppLiveBuild(
   // and run the existing app-list/publish side effects.
   const emit = (
     update: Pick<
-      AppPreviewUpdate,
+      AppPreviewUpdateEvent,
       "html" | "compileStatus" | "buildErrors" | "reloadGeneration"
     >,
   ) => {
@@ -94,7 +98,7 @@ export async function runAppLiveBuild(
   emit({
     html: lastGoodHtml,
     compileStatus: "building",
-    reloadGeneration: currentGeneration,
+    reloadGeneration: generationAtStart,
   });
 
   let result: CompileResult;
@@ -106,13 +110,17 @@ export async function runAppLiveBuild(
       html: lastGoodHtml,
       compileStatus: "error",
       buildErrors: ["Recompile failed"],
-      reloadGeneration: currentGeneration,
+      reloadGeneration: generationAtStart,
     });
     return;
   }
 
   if (result.ok) {
-    const nextGeneration = currentGeneration + 1;
+    // Read-and-bump AFTER the compile resolves so overlapping successful
+    // builds each get a distinct, monotonically increasing generation. (Both
+    // the read and the write happen synchronously here with no intervening
+    // await, so they are atomic against other invocations.)
+    const nextGeneration = (appReloadGenerations.get(appId) ?? 0) + 1;
     appReloadGenerations.set(appId, nextGeneration);
     emit({
       html: deps.resolveEffectiveAppHtml(app),
@@ -128,6 +136,6 @@ export async function runAppLiveBuild(
     html: lastGoodHtml,
     compileStatus: "error",
     buildErrors: result.errors.map((e) => e.text),
-    reloadGeneration: currentGeneration,
+    reloadGeneration: generationAtStart,
   });
 }

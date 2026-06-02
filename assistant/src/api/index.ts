@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { AppPreviewUpdateEventSchema } from "./events/app-preview-update.js";
 import { AssistantActivityStateEventSchema } from "./events/assistant-activity-state.js";
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
@@ -50,6 +51,10 @@ import { UserMessageEchoEventSchema } from "./events/user-message-echo.js";
 
 export { CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE } from "./constants/call-sites.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
+export {
+  type AppPreviewUpdateEvent,
+  AppPreviewUpdateEventSchema,
+} from "./events/app-preview-update.js";
 export {
   type AssistantActivityAnchor,
   AssistantActivityAnchorSchema,
@@ -394,6 +399,7 @@ export {
  * migration recipe.
  */
 export const AssistantEventSchema = z.discriminatedUnion("type", [
+  AppPreviewUpdateEventSchema,
   AssistantActivityStateEventSchema,
   AssistantTextDeltaEventSchema,
   AssistantTurnStartEventSchema,

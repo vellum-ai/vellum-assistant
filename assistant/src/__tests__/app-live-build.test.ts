@@ -9,13 +9,13 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 
+import type { AppPreviewUpdateEvent } from "../api/events/app-preview-update.js";
 import type { CompileResult } from "../bundler/app-compiler.js";
 import {
   __resetAppReloadGenerations,
   type AppLiveBuildDeps,
   runAppLiveBuild,
 } from "../daemon/app-live-build.js";
-import type { AppPreviewUpdate } from "../daemon/message-types/apps.js";
 import type { AppDefinition } from "../memory/app-store.js";
 
 const APP_ID = "app-live-1";
@@ -67,7 +67,7 @@ describe("runAppLiveBuild", () => {
       distFresh = true;
       return ok();
     };
-    const broadcasts: AppPreviewUpdate[] = [];
+    const broadcasts: AppPreviewUpdateEvent[] = [];
     const refreshCalls: Array<
       Parameters<AppLiveBuildDeps["refreshSurfaces"]>[1]
     > = [];
@@ -101,7 +101,7 @@ describe("runAppLiveBuild", () => {
     // First do a clean build to advance the generation to 1.
     {
       const compile = async () => ok();
-      const broadcasts: AppPreviewUpdate[] = [];
+      const broadcasts: AppPreviewUpdateEvent[] = [];
       const deps: AppLiveBuildDeps = {
         compileApp: compile,
         resolveEffectiveAppHtml: () => FRESH_HTML,
@@ -116,7 +116,7 @@ describe("runAppLiveBuild", () => {
     // Now a failing compile. `resolveEffectiveAppHtml` would return the
     // placeholder after `rm -rf dist/`, but the orchestrator must have
     // captured the last-good html BEFORE compiling.
-    const broadcasts: AppPreviewUpdate[] = [];
+    const broadcasts: AppPreviewUpdateEvent[] = [];
     const refreshCalls: Array<
       Parameters<AppLiveBuildDeps["refreshSurfaces"]>[1]
     > = [];
@@ -162,7 +162,7 @@ describe("runAppLiveBuild", () => {
   });
 
   test("thrown compile is treated as a failure that keeps last-good preview", async () => {
-    const broadcasts: AppPreviewUpdate[] = [];
+    const broadcasts: AppPreviewUpdateEvent[] = [];
     const deps: AppLiveBuildDeps = {
       compileApp: async () => {
         throw new Error("boom");
@@ -181,6 +181,63 @@ describe("runAppLiveBuild", () => {
     ]);
     expect(broadcasts[1].html).toBe(LAST_GOOD_HTML);
     expect(broadcasts[1].reloadGeneration).toBe(0);
+  });
+
+  test("two overlapping successful compiles yield distinct increasing generations", async () => {
+    // Both invocations capture the same starting generation BEFORE awaiting
+    // their (serialized) compile. The generation must be read-and-bumped AFTER
+    // each compile succeeds so the second successful build does not reuse the
+    // first's reloadGeneration — otherwise clients drop the latest output.
+    const okBroadcasts: AppPreviewUpdateEvent[] = [];
+    const okRefreshGenerations: number[] = [];
+
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    let firstStarted!: () => void;
+    const firstStartedGate = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+
+    let compileCount = 0;
+    const deps: AppLiveBuildDeps = {
+      // First compile blocks until both invocations are in-flight, so they both
+      // captured the same starting generation before either bumps it.
+      compileApp: async () => {
+        compileCount += 1;
+        if (compileCount === 1) {
+          firstStarted();
+          await firstGate;
+        }
+        return ok();
+      },
+      resolveEffectiveAppHtml: () => FRESH_HTML,
+      broadcast: (msg) => {
+        if (msg.compileStatus === "ok") okBroadcasts.push(msg);
+      },
+      refreshSurfaces: (_id, o) => {
+        if (o.reloadGeneration !== undefined)
+          okRefreshGenerations.push(o.reloadGeneration);
+      },
+      onSettled: () => {},
+    };
+
+    const first = runAppLiveBuild(APP_ID, fakeApp, "/tmp/app", deps);
+    await firstStartedGate;
+    // Second invocation starts (and snapshots the same generation) while the
+    // first is still awaiting its compile.
+    const second = runAppLiveBuild(APP_ID, fakeApp, "/tmp/app", deps);
+    releaseFirst();
+    await Promise.all([first, second]);
+
+    const generations = okBroadcasts
+      .map((b) => b.reloadGeneration)
+      .sort((a, b) => a - b);
+    expect(generations).toEqual([1, 2]);
+    // Broadcast generations match the ones written to surfaces.
+    expect([...okRefreshGenerations].sort((a, b) => a - b)).toEqual([1, 2]);
   });
 
   test("settle/onSettled fires on every outcome", async () => {
